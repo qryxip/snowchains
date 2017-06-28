@@ -1,0 +1,12 @@
+[package]
+authors = ["wariuni <wariuni@gmail.com>"]
+description = "A tool for online programming contests"
+name = "snowchains"
+version = "0.1.0"
+
+[dependencies]
+clap = "2.25.0"
+serde = "1.0.8"
+serde_derive = "1.0.8"
+term = "0.4.6"
+toml = "0.4.2"
