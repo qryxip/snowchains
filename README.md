@@ -26,7 +26,7 @@ If you're writing Rust with Emacs, use a function like this:
                (with-current-buffer buffer
                  (erase-buffer))))
            (let ((problem (match-string 1 file-path)))
-             (term-run "sh" "*snowchains*" "-c" (format "snowchains cargo judge %s %s.toml" problem problem))))
+             (term-run "snowchains" "*snowchains*" "cargo" "judge" problem (concat problem ".toml"))))
           ((string-match ".*/src/bin/\\(.+\\)\\.rs" file-path)
            (cargo-process-run-bin (match-string 1 file-path)))
           (t
