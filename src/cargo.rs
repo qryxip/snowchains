@@ -27,7 +27,6 @@ fn cargo_build_release() -> JudgeResult<()> {
 
 fn cases_path(problem: &str) -> JudgeResult<PathBuf> {
     let mut path = crate_root()?;
-    path.push("cases");
     path.push(problem);
     Ok(path)
 }

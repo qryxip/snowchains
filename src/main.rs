@@ -18,21 +18,21 @@ use self::error::OrExit1;
 use clap::{AppSettings, Arg, SubCommand};
 
 fn main() {
-    static USAGE: &'static str = "snowchains cargo judge <problem>";
+    static USAGE: &'static str = "snowchains cargo judge <target> <cases>";
 
-    let subcommand_cargo_judge =
-        SubCommand::with_name("judge")
-            .template("snowchains cargo judge (snowchains {version})\n\
-                       {about}\n\n\
-                       USAGE:\n    {usage}\n\n\
-                       FLAGS:\n{flags}\n\n\
-                       ARGS:\n{positionals}")
-            .version(crate_version!())
-            .about("Target: <crate root>/target/release/<problem>\n\
-                    Test Cases: <crate root>/cases/<problem>.toml")
-            .usage(USAGE)
-            .args(&[Arg::with_name("target").help("Target").required(true),
-                    Arg::with_name("cases").help("Test cases").required(true)]);
+    let subcommand_cargo_judge = SubCommand::with_name("judge")
+        .template("snowchains cargo judge (snowchains {version})\n\n\
+                   USAGE:\n    {usage}\n\n\
+                   FLAGS:\n{flags}\n\n\
+                   ARGS:\n{positionals}")
+        .version(crate_version!())
+        .usage(USAGE)
+        .args(&[Arg::with_name("target")
+                    .help("<crate root>/target/release/<target> will be the target.")
+                    .required(true),
+                Arg::with_name("cases")
+                    .help("<crate root>/<cases> will be the test cases.")
+                    .required(true)]);
 
     let subcommand_cargo = SubCommand::with_name("cargo")
         .setting(AppSettings::SubcommandRequiredElseHelp)
