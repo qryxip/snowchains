@@ -1,14 +1,17 @@
 use super::error::{JudgeError, JudgeResult};
 use super::util::UnwrapAsRefMut;
+use serde_json;
 use std::convert::From;
-use std::fmt::Display;
+use std::fmt::{self, Display, Formatter};
+use std::fs::File;
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 use term::{Attr, color};
+use toml;
 
 pub enum JudgeOutput {
     Ac(u64),
@@ -95,6 +98,18 @@ pub struct Cases {
 }
 
 impl Cases {
+    pub fn load(path: &Path) -> JudgeResult<Self> {
+        let mut file = File::open(path)?;
+        let mut buf = String::new();
+        file.read_to_string(&mut buf)?;
+        match path.extension() {
+            Some(ref ext) if *ext == "json" => Ok(serde_json::from_str(&buf)?),
+            Some(ref ext) if *ext == "toml" => Ok(toml::from_str(&buf)?),
+            Some(ref ext) => Err(JudgeError::UnsupportedExtension(format!("{:?}", ext))),
+            _ => Err(JudgeError::UnsupportedExtension(format!("no extension"))),
+        }
+    }
+
     pub fn judge_all(self, target: PathBuf) -> JudgeResult<()> {
         let timeout = self.timeout;
         let num_tests = self.cases.len();
@@ -129,8 +144,8 @@ impl Cases {
 
 #[derive(Deserialize)]
 struct Case {
-    expected: NonNestedTomlValue,
-    input: NonNestedTomlValue,
+    expected: NonNestedValue,
+    input: NonNestedValue,
 }
 
 impl Case {
@@ -185,20 +200,16 @@ impl Case {
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum NonNestedTomlValue {
-    IntegerArray(Vec<i64>),
-    FloatArray(Vec<f64>),
-    StringArray(Vec<String>),
-    Integer(i64),
-    Float(f64),
-    String(String),
+enum NonNestedValue {
+    Array(Vec<NonArrayValue>),
+    NonArray(NonArrayValue),
 }
 
-impl Into<String> for NonNestedTomlValue {
+impl Into<String> for NonNestedValue {
     fn into(self) -> String {
         use std::fmt::Write;
 
-        fn concat_all<T: Display>(a: Vec<T>) -> String {
+        fn as_lines<T: Display>(a: &[T]) -> String {
             let mut result = String::new();
             for x in a {
                 writeln!(result, "{}", x).unwrap();
@@ -207,17 +218,34 @@ impl Into<String> for NonNestedTomlValue {
         }
 
         match self {
-            NonNestedTomlValue::IntegerArray(a) => concat_all(a),
-            NonNestedTomlValue::FloatArray(a) => concat_all(a),
-            NonNestedTomlValue::StringArray(a) => concat_all(a),
-            NonNestedTomlValue::Integer(n) => format!("{}\n", n),
-            NonNestedTomlValue::Float(v) => format!("{}\n", v),
-            NonNestedTomlValue::String(mut s) => {
+            NonNestedValue::Array(a) => as_lines(&a),
+            NonNestedValue::NonArray(NonArrayValue::Integer(n)) => format!("{}\n", n),
+            NonNestedValue::NonArray(NonArrayValue::Float(v)) => format!("{}\n", v),
+            NonNestedValue::NonArray(NonArrayValue::String(mut s)) => {
                 if s.chars().last() != Some('\n') {
                     s.push('\n');
                 }
                 s
             }
+        }
+    }
+}
+
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum NonArrayValue {
+    Integer(i64),
+    Float(f64),
+    String(String),
+}
+
+impl Display for NonArrayValue {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match *self {
+            NonArrayValue::Integer(n) => write!(f, "{}", n),
+            NonArrayValue::Float(v) => write!(f, "{}", v),
+            NonArrayValue::String(ref s) => write!(f, "{}", s),
         }
     }
 }

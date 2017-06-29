@@ -1,15 +1,14 @@
 use super::error::{JudgeError, JudgeResult};
 use super::judge::Cases;
 use std::env;
-use std::fs::{self, File};
-use std::io::Read;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use toml;
 
 pub fn judge(target: &str, cases: &str) -> JudgeResult<()> {
     cargo_build_release()?;
-    load_cases(cases)?.judge_all(target_path(target)?)
+    Cases::load(&cases_path(cases)?)?
+        .judge_all(target_path(target)?)
 }
 
 
@@ -23,14 +22,6 @@ fn cargo_build_release() -> JudgeResult<()> {
     } else {
         Err(JudgeError::BuildFailed)
     }
-}
-
-
-fn load_cases(problem: &str) -> JudgeResult<Cases> {
-    let mut toml = File::open(cases_path(problem)?)?;
-    let mut buf = String::new();
-    toml.read_to_string(&mut buf)?;
-    Ok(toml::from_str(&buf)?)
 }
 
 

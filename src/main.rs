@@ -1,3 +1,4 @@
+extern crate serde_json;
 extern crate term;
 extern crate toml;
 #[macro_use]

@@ -7,9 +7,9 @@ Tools for online programming contests.
 ### Rust
 
 ```
-$ $EDITOR <crate root>/src/bin/<problem name>.rs # target
-$ $EDITOR <crate root>/cases/<problem name>.toml # test cases
-$ snowchains cargo judge <problem name> <problem name>.toml
+$ $EDITOR <crate root>/src/bin/<problem name>.rs        # target
+$ $EDITOR <crate root>/cases/<problem name>.[toml|json] # test cases
+$ snowchains cargo judge <problem name> <problem name>.[toml|json]
 ```
 
 If you're writing Rust with Emacs, use a function like this:
@@ -35,26 +35,43 @@ If you're writing Rust with Emacs, use a function like this:
 
 ## Test cases
 
-```toml
-# Example
-# http://practice.contest.atcoder.jp/tasks/practice_1
+Exmaples for [practice contest in AtCoder](http://practice.contest.atcoder.jp/tasks/practice_1):
 
+### TOML
+
+```toml
 timeout = 2000
 
 
 # Possible types: 
 # * Integer
 # * Float
-# * String
-# * Array of Integer
-# * Array of Float
-# * Array of String
+# * String (a '\n' is appended automatically if missing)
+# * Array of [Integer|Float|String] (in TOML, arrays cannot contain different types of data)
 
 [[cases]]
 expected = '6 test'
 input = '1\n2 3\ntest'
 
 [[cases]]
-expected = ['456', 'myonmyon']
+expected = ['456 myonmyon']
 input = ['72', '128 256', 'myonmyon']
+```
+
+### JSON
+
+```json
+{
+  "timeout": 2000,
+  "cases": [
+    {
+      "expected": "6 test",
+      "input": "1\n2 3\ntest"
+    },
+    {
+      "expected": ["456 myonmyon"],
+      "input": [72, "128 256", "myonmyon"]
+    }
+  ]
+}
 ```

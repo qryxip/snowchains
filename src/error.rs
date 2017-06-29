@@ -1,4 +1,5 @@
 use super::judge::JudgeOutput;
+use serde_json;
 use std::env;
 use std::io;
 use std::process;
@@ -26,8 +27,9 @@ pub type JudgeResult<T> = Result<T, JudgeError>;
 pub enum JudgeError {
     NotInCrate,
     BuildFailed,
-    Io(io::Error),
+    UnsupportedExtension(String),
     DeserializationFailed(String),
+    Io(io::Error),
     TestFailed(Vec<JudgeOutput>),
 }
 
@@ -51,16 +53,17 @@ impl JudgeError {
                     .unwrap();
             }
             JudgeError::BuildFailed => {
-                write_error_decorated!(attr, color, "error: ");
                 writeln!(io::stderr(), "aborted because the build failed").unwrap();
             }
-            JudgeError::Io(ref e) => {
-                write_error_decorated!(attr, color, "io error: ");
-                writeln!(io::stderr(), "{}", e).unwrap();
+            JudgeError::UnsupportedExtension(ref extension) => {
+                writeln!(io::stderr(), "unsupported format: {}", extension).unwrap();
             }
             JudgeError::DeserializationFailed(ref s) => {
                 writeln_error_decorated!(attr, color, "deserialization faild:");
                 writeln!(io::stderr(), "{}", s).unwrap();
+            }
+            JudgeError::Io(ref e) => {
+                writeln!(io::stderr(), "{}", e).unwrap();
             }
             JudgeError::TestFailed(ref outputs) => {
                 writeln!(io::stderr(), "").unwrap();
@@ -88,6 +91,12 @@ impl JudgeError {
 impl From<io::Error> for JudgeError {
     fn from(from: io::Error) -> Self {
         JudgeError::Io(from)
+    }
+}
+
+impl From<serde_json::Error> for JudgeError {
+    fn from(from: serde_json::Error) -> Self {
+        JudgeError::DeserializationFailed(format!("{}", from))
     }
 }
 
