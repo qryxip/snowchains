@@ -25,7 +25,7 @@ pub type JudgeResult<T> = Result<T, JudgeError>;
 
 
 pub enum JudgeError {
-    NotInCrate,
+    ProjectNotFound,
     BuildFailed,
     UnsupportedExtension(String),
     DeserializationFailed(String),
@@ -43,7 +43,7 @@ impl JudgeError {
             _ => write_error_decorated!(attr, color, "error: "),
         }
         match *self {
-            JudgeError::NotInCrate => {
+            JudgeError::ProjectNotFound => {
                 writeln!(io::stderr(),
                          "could not find `Cargo.toml` in `{}` or any parent directory",
                          env::current_dir()

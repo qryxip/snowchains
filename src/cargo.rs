@@ -58,7 +58,7 @@ fn crate_root() -> JudgeResult<PathBuf> {
         if find_cargo_toml(&dir)? {
             return Ok(dir);
         } else if !dir.pop() {
-            return Err(JudgeError::NotInCrate);
+            return Err(JudgeError::ProjectNotFound);
         }
     }
 }
