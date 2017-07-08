@@ -3,7 +3,7 @@ use super::util::UnwrapAsRefMut;
 use serde_json;
 use std::convert::From;
 use std::fmt::{self, Display, Formatter};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
@@ -32,23 +32,23 @@ impl JudgeOutput {
         for _ in 0..format!("{}", n).len() - format!("{}", i + 1).len() {
             print!(" ");
         }
-        write_decorated!(Attr::Bold, None, "{}/{} ", i + 1, n);
+        print_decorated!(Attr::Bold, None, "{}/{} ", i + 1, n);
 
         match *self {
             JudgeOutput::Ac(t) => {
-                writeln_decorated!(Attr::Bold, Some(color::GREEN), "AC ({}ms)", t);
+                println_decorated!(Attr::Bold, Some(color::GREEN), "AC ({}ms)", t);
             }
             JudgeOutput::Tle(t) => {
-                writeln_decorated!(Attr::Bold, Some(color::RED), "TLE ({}ms)", t);
+                println_decorated!(Attr::Bold, Some(color::RED), "TLE ({}ms)", t);
             }
             JudgeOutput::Wa(t, _, _) => {
-                writeln_decorated!(Attr::Bold, Some(color::YELLOW), "WA ({}ms)", t);
+                println_decorated!(Attr::Bold, Some(color::YELLOW), "WA ({}ms)", t);
             }
             JudgeOutput::Re(status, _) => {
-                writeln_decorated!(Attr::Bold, Some(color::YELLOW), "RE ({})", status);
+                println_decorated!(Attr::Bold, Some(color::YELLOW), "RE ({})", status);
             }
             JudgeOutput::UnexpectedIoError(ref e) => {
-                writeln_decorated!(Attr::Bold,
+                println_decorated!(Attr::Bold,
                                    Some(color::RED),
                                    "UNEXPECTED IO ERROR ({:?})",
                                    e.kind());
@@ -91,13 +91,28 @@ impl JudgeOutput {
 }
 
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Cases {
     timeout: u64,
     cases: Vec<Case>,
 }
 
 impl Cases {
+    pub fn from_text(timeout: u64, cases: Vec<(String, String)>) -> Self {
+        Self {
+            timeout: timeout,
+            cases: cases
+                .into_iter()
+                .map(|(expected, input)| {
+                         Case {
+                             expected: NonNestedValue::NonArray(NonArrayValue::String(expected)),
+                             input: NonNestedValue::NonArray(NonArrayValue::String(input)),
+                         }
+                     })
+                .collect(),
+        }
+    }
+
     pub fn load(path: &Path) -> JudgeResult<Self> {
         let mut file = File::open(path)?;
         let mut buf = String::new();
@@ -108,6 +123,18 @@ impl Cases {
             Some(ref ext) => Err(JudgeError::UnsupportedExtension(format!("{:?}", ext))),
             _ => Err(JudgeError::UnsupportedExtension(format!("no extension"))),
         }
+    }
+
+    pub fn save(&self, path: &Path) -> JudgeResult<()> {
+        fs::create_dir_all(path.parent().unwrap())?;
+        let mut file = File::create(path)?;
+        let serialized = match path.extension() {
+            Some(ref ext) if *ext == "json" => serde_json::to_string(self).unwrap(),
+            Some(ref ext) if *ext == "toml" => toml::to_string(self).unwrap(),
+            Some(ref ext) => return Err(JudgeError::UnsupportedExtension(format!("{:?}", ext))),
+            _ => return Err(JudgeError::UnsupportedExtension(format!("no extension"))),
+        };
+        Ok(file.write_all(serialized.as_bytes())?)
     }
 
     pub fn judge_all(self, target: PathBuf) -> JudgeResult<()> {
@@ -142,7 +169,7 @@ impl Cases {
 }
 
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct Case {
     expected: NonNestedValue,
     input: NonNestedValue,
@@ -198,7 +225,7 @@ impl Case {
 }
 
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 enum NonNestedValue {
     Array(Vec<NonArrayValue>),
@@ -232,7 +259,7 @@ impl Into<String> for NonNestedValue {
 }
 
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 enum NonArrayValue {
     Integer(i64),

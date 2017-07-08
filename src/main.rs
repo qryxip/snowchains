@@ -1,4 +1,10 @@
+extern crate cookie;
+extern crate html5ever;
+extern crate regex;
+extern crate reqwest;
+extern crate serde;
 extern crate serde_json;
+extern crate serde_urlencoded;
 extern crate term;
 extern crate toml;
 #[macro_use]
@@ -12,49 +18,70 @@ mod macros;
 mod cargo;
 mod error;
 mod judge;
+mod service;
 mod util;
 
 use self::error::OrExit1;
-use clap::{AppSettings, Arg, SubCommand};
+use self::service::atcoder;
+use clap::{App, AppSettings, Arg, SubCommand};
+use std::path::Path;
 
 fn main() {
-    static USAGE: &'static str = "snowchains cargo judge <target> <cases>";
+    fn subcommand_download_x(service: &'static str) -> App<'static, 'static> {
+        SubCommand::with_name(service)
+            .version(crate_version!())
+            .arg(Arg::with_name("contest").required(true))
+            .arg(Arg::with_name("path").required(true))
+    }
 
-    let subcommand_cargo_judge = SubCommand::with_name("judge")
-        .template("snowchains cargo judge (snowchains {version})\n\n\
-                   USAGE:\n    {usage}\n\n\
-                   FLAGS:\n{flags}\n\n\
-                   ARGS:\n{positionals}")
-        .version(crate_version!())
-        .usage(USAGE)
-        .args(&[Arg::with_name("target")
-                    .help("<crate root>/target/release/<target> will be the target.")
-                    .required(true),
-                Arg::with_name("cases")
-                    .help("<crate root>/<cases> will be the test cases.")
-                    .required(true)]);
+    fn subcommand_judge_xs(builds: &[&'static str]) -> App<'static, 'static> {
+        let mut subcommand = SubCommand::with_name("judge")
+            .setting(AppSettings::SubcommandRequiredElseHelp)
+            .version(crate_version!());
+        for build in builds {
+            subcommand =
+                subcommand.subcommand(SubCommand::with_name(build)
+                                          .version(crate_version!())
+                                          .arg(Arg::with_name("target").required(true))
+                                          .arg(Arg::with_name("cases").required(true)));
+        }
+        subcommand
+    }
 
-    let subcommand_cargo = SubCommand::with_name("cargo")
+    let subcommand_login =
+        SubCommand::with_name("login")
+            .setting(AppSettings::SubcommandRequiredElseHelp)
+            .version(crate_version!())
+            .subcommand(SubCommand::with_name("atcoder").version(crate_version!()));
+
+    let subcommand_download = SubCommand::with_name("download")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .template("snowchains cargo (snowchains {version})\n\n\
-                   USAGE:\n    {usage}\n\n\
-                   FLAGS:\n{flags}")
         .version(crate_version!())
-        .usage(USAGE)
-        .subcommand(subcommand_cargo_judge);
+        .subcommand(subcommand_download_x("atcoder"));
 
     let matches = app_from_crate!()
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .usage(USAGE)
-        .subcommand(subcommand_cargo)
+        .subcommand(subcommand_login)
+        .subcommand(subcommand_download)
+        .subcommand(subcommand_judge_xs(&["cargo"]))
         .get_matches();
 
-    let matches_cargo_judge = matches
-        .subcommand_matches("cargo")
-        .unwrap()
-        .subcommand_matches("judge")
-        .unwrap();
-    let target = matches_cargo_judge.value_of("target").unwrap();
-    let cases = matches_cargo_judge.value_of("cases").unwrap();
-    cargo::judge(target, cases).or_exit1();
+    if let Some(matches) = matches.subcommand_matches("login") {
+        if let Some(_) = matches.subcommand_matches("atcoder") {
+            return atcoder::login().or_exit1();
+        }
+    } else if let Some(matches) = matches.subcommand_matches("download") {
+        if let Some(matches) = matches.subcommand_matches("atcoder") {
+            let contest = matches.value_of("contest").unwrap();
+            let path = Path::new(matches.value_of("path").unwrap());
+            return atcoder::download(contest, &path, "toml").or_exit1();
+        }
+    } else if let Some(matches) = matches.subcommand_matches("judge") {
+        if let Some(matches) = matches.subcommand_matches("cargo") {
+            let target = matches.value_of("target").unwrap();
+            let cases = matches.value_of("cases").unwrap();
+            return cargo::judge(target, cases).or_exit1();
+        }
+    }
+    unreachable!();
 }

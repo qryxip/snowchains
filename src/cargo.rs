@@ -12,6 +12,13 @@ pub fn judge(target: &str, cases: &str) -> JudgeResult<()> {
 }
 
 
+pub fn cases_path(problem: &str) -> JudgeResult<PathBuf> {
+    let mut path = crate_root()?;
+    path.push(problem);
+    Ok(path)
+}
+
+
 fn cargo_build_release() -> JudgeResult<()> {
     if Command::new("cargo")
            .args(&["build", "--release"])
@@ -22,13 +29,6 @@ fn cargo_build_release() -> JudgeResult<()> {
     } else {
         Err(JudgeError::BuildFailed)
     }
-}
-
-
-fn cases_path(problem: &str) -> JudgeResult<PathBuf> {
-    let mut path = crate_root()?;
-    path.push(problem);
-    Ok(path)
 }
 
 

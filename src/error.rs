@@ -1,22 +1,88 @@
 use super::judge::JudgeOutput;
+use cookie;
+use reqwest::{self, StatusCode, UrlError};
 use serde_json;
 use std::env;
-use std::io;
+use std::io::{self, Write};
 use std::process;
 use term::{Attr, color};
 use toml;
 
 pub trait OrExit1 {
+    type Item;
     /// If `self` is `Err`, prints the error messages and exit with code 1.
-    fn or_exit1(self);
+    fn or_exit1(self) -> Self::Item;
 }
 
-impl OrExit1 for JudgeResult<()> {
-    fn or_exit1(self) {
-        if let Err(e) = self {
-            e.print_error_details();
-            process::exit(1);
+impl<T, E: PrintErrorDetails> OrExit1 for Result<T, E> {
+    type Item = T;
+    fn or_exit1(self) -> T {
+        match self {
+            Ok(x) => x,
+            Err(e) => {
+                e.print_error_details();
+                process::exit(1);
+            }
         }
+    }
+}
+
+
+pub trait PrintErrorDetails {
+    fn print_error_details(&self);
+}
+
+
+pub type ServiceResult<T> = Result<T, ServiceError>;
+
+
+#[derive(Debug)]
+pub enum ServiceError {
+    ScrapingFailed,
+    UnexpectedHttpCode(StatusCode),
+    Reqwest(reqwest::Error),
+    Url(UrlError),
+    Io(io::Error),
+    SerdeJson(serde_json::Error),
+    CookieParse(cookie::ParseError),
+}
+
+impl PrintErrorDetails for ServiceError {
+    fn print_error_details(&self) {
+
+        write_error_decorated!(Attr::Bold, Some(color::RED), "error:");
+        writeln!(io::stderr(), " {:?}", self).unwrap();
+        unimplemented!();
+    }
+}
+
+impl From<reqwest::Error> for ServiceError {
+    fn from(from: reqwest::Error) -> Self {
+        ServiceError::Reqwest(from)
+    }
+}
+
+impl From<UrlError> for ServiceError {
+    fn from(from: UrlError) -> Self {
+        ServiceError::Url(from)
+    }
+}
+
+impl From<io::Error> for ServiceError {
+    fn from(from: io::Error) -> Self {
+        ServiceError::Io(from)
+    }
+}
+
+impl From<serde_json::Error> for ServiceError {
+    fn from(from: serde_json::Error) -> Self {
+        ServiceError::SerdeJson(from)
+    }
+}
+
+impl From<cookie::ParseError> for ServiceError {
+    fn from(from: cookie::ParseError) -> Self {
+        ServiceError::CookieParse(from)
     }
 }
 
@@ -33,7 +99,7 @@ pub enum JudgeError {
     TestFailed(Vec<JudgeOutput>),
 }
 
-impl JudgeError {
+impl PrintErrorDetails for JudgeError {
     fn print_error_details(&self) {
         use std::io::Write;
 

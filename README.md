@@ -17,16 +17,27 @@ $ cargo install --git https://github.com/wariuni/snowchains
 ### Rust (Cargo)
 
 ```console
-$ $EDITOR <crate root>/src/bin/<problem name>.rs        # target
-$ $EDITOR <crate root>/cases/<problem name>.[toml|json] # test cases
-$ snowchains cargo judge <problem name> <problem name>.[toml|json]
+$ $EDITOR <crate root>/src/bin/<problem name>.rs                   # target
+$ $EDITOR <crate root>/<some directory>/<problem name>.[toml|json] # test cases
+$ snowchains judge cargo <problem name> <some directory>/<problem name>.[toml|json]
 ```
 
 ## Test cases
 
+### Download
+
+- [x] AtCoder
+
+```console
+$ snowchains login <service>
+$ snowchains download <service> <contest> <some directory>
+```
+
+### Format
+
 Here's exmaples for [Welcome to AtCoder](http://practice.contest.atcoder.jp/tasks/practice_1).
 
-### TOML
+#### TOML
 
 ```toml
 timeout = 2000
@@ -47,7 +58,7 @@ expected = ['456 myonmyon']
 input = ['72', '128 256', 'myonmyon']
 ```
 
-### JSON
+#### JSON
 
 ```json
 {
@@ -73,10 +84,6 @@ input = ['72', '128 256', 'myonmyon']
 (require 'cargo)
 (require 'term-run)
 
-(defvar my-rust--snowchains-crate "rust-contest")
-(defvar my-rust--snowchains-dir "snowchains")
-(defvar my-rust--snowchains-ext "toml")
-
 (defun my-rust-run ()
   (interactive)
   (let ((file-path (buffer-file-name)))
@@ -86,10 +93,14 @@ input = ['72', '128 256', 'myonmyon']
                (with-current-buffer buffer
                  (erase-buffer))))
            (let ((problem-name (match-string 1 file-path)))
-             (term-run "snowchains" "*snowchains*" "cargo" "judge" problem-name
+             (term-run "snowchains" "*snowchains*" "judge" "cargo" problem-name
                        (format "%s/%s.%s" my-rust--snowchains-dir problem-name my-rust--snowchains-ext))))
           ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
            (cargo-process-run-bin (match-string 1 file-path)))
           (t
            (cargo-process-run)))))
+
+(defconst my-rust--snowchains-crate "rust-contest")
+(defconst my-rust--snowchains-dir "snowchains")
+(defconst my-rust--snowchains-ext "toml")
 ```
