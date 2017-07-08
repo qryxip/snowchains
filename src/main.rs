@@ -27,6 +27,12 @@ use clap::{App, AppSettings, Arg, SubCommand};
 use std::path::Path;
 
 fn main() {
+    fn subcommand_participate_x(service: &'static str) -> App<'static, 'static> {
+        SubCommand::with_name(service)
+            .version(crate_version!())
+            .arg(Arg::with_name("contest").required(true))
+    }
+
     fn subcommand_download_x(service: &'static str) -> App<'static, 'static> {
         SubCommand::with_name(service)
             .version(crate_version!())
@@ -48,6 +54,11 @@ fn main() {
         subcommand
     }
 
+    let subcommand_participate = SubCommand::with_name("participate")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .version(crate_version!())
+        .subcommand(subcommand_participate_x("atcoder"));
+
     let subcommand_login =
         SubCommand::with_name("login")
             .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -61,12 +72,18 @@ fn main() {
 
     let matches = app_from_crate!()
         .setting(AppSettings::SubcommandRequiredElseHelp)
+        .subcommand(subcommand_participate)
         .subcommand(subcommand_login)
         .subcommand(subcommand_download)
         .subcommand(subcommand_judge_xs(&["cargo"]))
         .get_matches();
 
-    if let Some(matches) = matches.subcommand_matches("login") {
+    if let Some(matches) = matches.subcommand_matches("participate") {
+        if let Some(matches) = matches.subcommand_matches("atcoder") {
+            let contest = matches.value_of("contest").unwrap();
+            return atcoder::participate(contest).or_exit1();
+        }
+    } else if let Some(matches) = matches.subcommand_matches("login") {
         if let Some(_) = matches.subcommand_matches("atcoder") {
             return atcoder::login().or_exit1();
         }

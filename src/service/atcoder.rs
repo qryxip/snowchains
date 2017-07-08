@@ -30,6 +30,11 @@ pub fn login() -> ServiceResult<()> {
 }
 
 
+pub fn participate(contest_name: &str) -> ServiceResult<()> {
+    AtCoder::load_or_login()?.participate(contest_name)
+}
+
+
 pub fn download(contest_name: &str,
                 path_to_save: &Path,
                 extension: &'static str)
@@ -67,6 +72,12 @@ impl AtCoder {
             }
         }
         Self::login_and_save()
+    }
+
+    fn participate(&mut self, contest_name: &str) -> ServiceResult<()> {
+        let url = format!("https://{}.contest.atcoder.jp/participants/insert",
+                          contest_name);
+        self.http_get_expecting(&url, StatusCode::Found).map(|_| ())
     }
 
     fn download_all_tasks(&mut self,

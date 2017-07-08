@@ -67,6 +67,14 @@ impl ScrapingSession {
 
     /// Panics when `url` is invalid.
     pub fn http_get<U: Clone + Display + IntoUrl>(&mut self, url: U) -> ServiceResult<Response> {
+        self.http_get_expecting(url, StatusCode::Ok)
+    }
+
+    /// Panics when `url` is invalid.
+    pub fn http_get_expecting<U: Clone + Display + IntoUrl>(&mut self,
+                                                            url: U,
+                                                            expected_status: StatusCode)
+                                                            -> ServiceResult<Response> {
         print_decorated!(Attr::Bold, None, "GET ");
         print_and_flush!("{} ... ", url);
 
@@ -91,7 +99,7 @@ impl ScrapingSession {
         }
         self.last_url = Some(url.into_url()?);
 
-        if *response.status() == StatusCode::Ok {
+        if *response.status() == expected_status {
             println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
             Ok(response)
         } else {
