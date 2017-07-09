@@ -1,7 +1,7 @@
 use super::super::error::{ServiceError, ServiceResult};
 use cookie::{Cookie, CookieJar};
-use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode, Url};
-use reqwest::header::{ContentType, Cookie as RequestCookie, Headers, Referer, SetCookie, UserAgent};
+use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode};
+use reqwest::header::{ContentType, Cookie as RequestCookie, SetCookie, UserAgent};
 use reqwest::mime::{Mime, SubLevel, TopLevel};
 use serde_json;
 use std::env;
@@ -12,15 +12,11 @@ use term::{Attr, color};
 
 pub struct ScrapingSession {
     cookie_jar: CookieJar,
-    last_url: Option<Url>,
 }
 
 impl ScrapingSession {
     pub fn new() -> Self {
-        Self {
-            cookie_jar: CookieJar::new(),
-            last_url: None,
-        }
+        Self { cookie_jar: CookieJar::new() }
     }
 
     pub fn from_cookie_file(name_without_extension: &str) -> ServiceResult<Self> {
@@ -38,10 +34,7 @@ impl ScrapingSession {
         for cookie in serde_json::from_reader::<_, Vec<String>>(file)?.into_iter() {
             cookie_jar.add(Cookie::parse(cookie)?);
         }
-        Ok(Self {
-               cookie_jar: cookie_jar,
-               last_url: None,
-           })
+        Ok(Self { cookie_jar: cookie_jar })
     }
 
     pub fn save_cookie_to_file(&self, name_without_extension: &str) -> io::Result<()> {
@@ -81,13 +74,11 @@ impl ScrapingSession {
         let response = {
             let mut client = Client::new()?;
             client.redirect(RedirectPolicy::none());
-            let mut headers = Headers::new();
-            headers.set(UserAgent(format!("snowchains <https://github.com/wariuni/snowchains>")));
-            headers.set(RequestCookie(self.cookie_jar.iter().map(|c| c.to_string()).collect()));
-            if let Some(ref last_url) = self.last_url {
-                headers.set(Referer(last_url.to_string()))
-            }
-            client.get(url.clone()).headers(headers).send()?
+            client
+                .get(url.clone())
+                .header(UserAgent(format!("snowchains <https://github.com/wariuni/snowchains>")))
+                .header(RequestCookie(self.cookie_jar.iter().map(|c| c.to_string()).collect()))
+                .send()?
         };
 
         for cookie in response
@@ -97,7 +88,6 @@ impl ScrapingSession {
                 .unwrap_or(vec![].iter()) {
             self.cookie_jar.add(Cookie::parse(cookie.to_string())?);
         }
-        self.last_url = Some(url.into_url()?);
 
         if *response.status() == expected_status {
             println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
@@ -116,19 +106,18 @@ impl ScrapingSession {
                                                    -> ServiceResult<Response> {
         print_decorated!(Attr::Bold, None, "POST ");
         print_and_flush!("{} ... ", url);
-
         let response = {
             let mut client = Client::new()?;
             client.redirect(RedirectPolicy::none());
-            let mut headers = Headers::new();
-            headers.set(UserAgent(format!("snowchains <https://github.com/wariuni/snowchains>")));
-            headers.set(RequestCookie(self.cookie_jar.iter().map(|c| c.to_string()).collect()));
-            headers
-                .set(ContentType(Mime(TopLevel::Application, SubLevel::WwwFormUrlEncoded, vec![])));
-            if let Some(ref last_url) = self.last_url {
-                headers.set(Referer(last_url.to_string()))
-            }
-            client.post(url.clone()).body(data).headers(headers).send()?
+            client
+                .post(url.clone())
+                .body(data)
+                .header(UserAgent(format!("snowchains <https://github.com/wariuni/snowchains>")))
+                .header(RequestCookie(self.cookie_jar.iter().map(|c| c.to_string()).collect()))
+                .header(ContentType(Mime(TopLevel::Application,
+                                         SubLevel::WwwFormUrlEncoded,
+                                         vec![])))
+                .send()?
         };
 
         for cookie in response
@@ -138,7 +127,6 @@ impl ScrapingSession {
                 .unwrap_or(vec![].iter()) {
             self.cookie_jar.add(Cookie::parse(cookie.to_string())?);
         }
-        self.last_url = Some(url.into_url().unwrap());
 
         if *response.status() == expected_status {
             println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
