@@ -2,6 +2,7 @@ use super::judge::JudgeOutput;
 use cookie;
 use reqwest::{self, StatusCode, UrlError};
 use serde_json;
+use serde_urlencoded;
 use std::env;
 use std::io::{self, Write};
 use std::process;
@@ -44,6 +45,7 @@ pub enum ServiceError {
     Url(UrlError),
     Io(io::Error),
     SerdeJson(serde_json::Error),
+    SerdeUrlEncodedSerialization(serde_urlencoded::ser::Error),
     CookieParse(cookie::ParseError),
 }
 
@@ -77,6 +79,12 @@ impl From<io::Error> for ServiceError {
 impl From<serde_json::Error> for ServiceError {
     fn from(from: serde_json::Error) -> Self {
         ServiceError::SerdeJson(from)
+    }
+}
+
+impl From<serde_urlencoded::ser::Error> for ServiceError {
+    fn from(from: serde_urlencoded::ser::Error) -> Self {
+        ServiceError::SerdeUrlEncodedSerialization(from)
     }
 }
 

@@ -3,7 +3,9 @@ use cookie::{Cookie, CookieJar};
 use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode};
 use reqwest::header::{ContentType, Cookie as RequestCookie, SetCookie, UserAgent};
 use reqwest::mime::{Mime, SubLevel, TopLevel};
+use serde::Serialize;
 use serde_json;
+use serde_urlencoded;
 use std::env;
 use std::fmt::Display;
 use std::fs::{self, File};
@@ -99,11 +101,28 @@ impl ScrapingSession {
     }
 
     /// Panics when `url` is invalid.
-    pub fn http_post<U: Clone + Display + IntoUrl>(&mut self,
-                                                   url: U,
-                                                   data: String,
-                                                   expected_status: StatusCode)
-                                                   -> ServiceResult<Response> {
+    pub fn http_post_urlencoded<U, T>(&mut self,
+                                      url: U,
+                                      data: T,
+                                      expected_status: StatusCode)
+                                      -> ServiceResult<Response>
+        where U: Clone + Display + IntoUrl,
+              T: Serialize
+    {
+        self.http_post(url,
+                       serde_urlencoded::to_string(data)?,
+                       expected_status,
+                       ContentType(Mime(TopLevel::Application,
+                                        SubLevel::WwwFormUrlEncoded,
+                                        vec![])))
+    }
+
+    fn http_post<U: Clone + Display + IntoUrl>(&mut self,
+                                               url: U,
+                                               data: String,
+                                               expected_status: StatusCode,
+                                               content_type: ContentType)
+                                               -> ServiceResult<Response> {
         print_decorated!(Attr::Bold, None, "POST ");
         print_and_flush!("{} ... ", url);
         let response = {
@@ -114,9 +133,7 @@ impl ScrapingSession {
                 .body(data)
                 .header(UserAgent(format!("snowchains <https://github.com/wariuni/snowchains>")))
                 .header(RequestCookie(self.cookie_jar.iter().map(|c| c.to_string()).collect()))
-                .header(ContentType(Mime(TopLevel::Application,
-                                         SubLevel::WwwFormUrlEncoded,
-                                         vec![])))
+                .header(content_type)
                 .send()?
         };
 

@@ -7,7 +7,6 @@ use html5ever::rcdom::{Handle, NodeData, RcDom};
 use html5ever::tendril::TendrilSink;
 use regex::Regex;
 use reqwest::StatusCode;
-use serde_urlencoded;
 use std::default::Default;
 use std::io::{self, Read, Write};
 use std::ops::{Deref, DerefMut};
@@ -115,27 +114,27 @@ impl AtCoder {
     }
 
     fn login_and_save() -> ServiceResult<Self> {
-        fn post_data() -> io::Result<String> {
-            #[derive(Serialize)]
-            struct PostData {
-                name: String,
-                password: String,
-            }
+        #[derive(Serialize)]
+        struct PostData {
+            name: String,
+            password: String,
+        }
 
+        fn post_data() -> io::Result<PostData> {
             print_and_flush!("Input User ID: ");
             let user_id = util::read_text_from_stdin()?;
             print_and_flush!("Input Password: ");
             let password = util::read_text_from_stdin()?;
-            Ok(serde_urlencoded::to_string(&PostData {
-                                               name: user_id,
-                                               password: password,
-                                           }).unwrap())
+            Ok(PostData {
+                   name: user_id,
+                   password: password,
+               })
         }
 
         static URL: &'static str = "https://practice.contest.atcoder.jp/login";
         let mut session = ScrapingSession::new();
         session.http_get(URL)?;
-        while let Err(e) = session.http_post(URL, post_data()?, StatusCode::Found) {
+        while let Err(e) = session.http_post_urlencoded(URL, post_data()?, StatusCode::Found) {
             write_error_decorated!(Attr::Bold, Some(color::RED), "error: ");
             writeln!(io::stderr(), "{:?}", e).unwrap();
             println!("Failed to sign in. try again.")
