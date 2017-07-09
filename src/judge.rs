@@ -5,13 +5,19 @@ use std::convert::From;
 use std::fmt::{self, Display, Formatter};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 use term::{Attr, color};
 use toml;
+
+pub fn judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
+    Cases::load(Path::new(cases))?
+        .judge_all(Path::new(target), args)
+}
+
 
 pub enum JudgeOutput {
     Ac(u64),
@@ -137,7 +143,7 @@ impl Cases {
         Ok(file.write_all(serialized.as_bytes())?)
     }
 
-    pub fn judge_all(self, target: PathBuf) -> JudgeResult<()> {
+    pub fn judge_all(self, target: &Path, args: &[&str]) -> JudgeResult<()> {
         let timeout = self.timeout;
         let num_tests = self.cases.len();
         let suf = if num_tests > 1 { "s" } else { "" };
@@ -150,7 +156,8 @@ impl Cases {
                 .to_str()
                 .map(|s| s.to_string())
                 .ok_or(JudgeError::Io(io::ErrorKind::InvalidInput.into()))?;
-            let output = case.judge(target, vec![], timeout);
+            let args = args.iter().map(|&arg| arg.into()).collect();
+            let output = case.judge(target, args, timeout);
             match output {
                 JudgeOutput::Ac(_) => {}
                 _ => failed = true,

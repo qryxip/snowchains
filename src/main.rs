@@ -23,81 +23,73 @@ mod util;
 
 use self::error::OrExit1;
 use self::service::atcoder;
-use clap::{App, AppSettings, Arg, SubCommand};
+use self::util::IntoStrVec;
+use clap::{AppSettings, Arg, SubCommand};
 use std::path::Path;
 
 fn main() {
-    fn subcommand_participate_x(service: &'static str) -> App<'static, 'static> {
-        SubCommand::with_name(service)
-            .version(crate_version!())
-            .arg(Arg::with_name("contest").required(true))
-    }
-
-    fn subcommand_download_x(service: &'static str) -> App<'static, 'static> {
-        SubCommand::with_name(service)
-            .version(crate_version!())
-            .arg(Arg::with_name("contest").required(true))
-            .arg(Arg::with_name("path").required(true))
-    }
-
-    fn subcommand_judge_xs(builds: &[&'static str]) -> App<'static, 'static> {
-        let mut subcommand = SubCommand::with_name("judge")
-            .setting(AppSettings::SubcommandRequiredElseHelp)
-            .version(crate_version!());
-        for build in builds {
-            subcommand =
-                subcommand.subcommand(SubCommand::with_name(build)
-                                          .version(crate_version!())
-                                          .arg(Arg::with_name("target").required(true))
-                                          .arg(Arg::with_name("cases").required(true)));
-        }
-        subcommand
-    }
+    let subcommand_login = SubCommand::with_name("login")
+        .version(crate_version!())
+        .arg(Arg::with_name("service")
+                 .possible_value("atcoder")
+                 .required(true));
 
     let subcommand_participate = SubCommand::with_name("participate")
-        .setting(AppSettings::SubcommandRequiredElseHelp)
         .version(crate_version!())
-        .subcommand(subcommand_participate_x("atcoder"));
-
-    let subcommand_login =
-        SubCommand::with_name("login")
-            .setting(AppSettings::SubcommandRequiredElseHelp)
-            .version(crate_version!())
-            .subcommand(SubCommand::with_name("atcoder").version(crate_version!()));
+        .arg(Arg::with_name("service")
+                 .possible_value("atcoder")
+                 .required(true))
+        .arg(Arg::with_name("contest").required(true));
 
     let subcommand_download = SubCommand::with_name("download")
-        .setting(AppSettings::SubcommandRequiredElseHelp)
         .version(crate_version!())
-        .subcommand(subcommand_download_x("atcoder"));
+        .arg(Arg::with_name("service")
+                 .possible_value("atcoder")
+                 .required(true))
+        .arg(Arg::with_name("contest").required(true))
+        .arg(Arg::with_name("path").required(true));
+
+    let subcommand_judge = SubCommand::with_name("judge")
+        .version(crate_version!())
+        .after_help("If you want to use flags in <args>, insert '--' anywhere before the flags.")
+        .arg(Arg::with_name("build")
+                 .possible_values(&["execute", "cargo"])
+                 .required(true))
+        .arg(Arg::with_name("cases").required(true))
+        .arg(Arg::with_name("target").required(true))
+        .arg(Arg::with_name("args").multiple(true));
 
     let matches = app_from_crate!()
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(subcommand_participate)
         .subcommand(subcommand_login)
+        .subcommand(subcommand_participate)
         .subcommand(subcommand_download)
-        .subcommand(subcommand_judge_xs(&["cargo"]))
+        .subcommand(subcommand_judge)
         .get_matches();
 
-    if let Some(matches) = matches.subcommand_matches("participate") {
-        if let Some(matches) = matches.subcommand_matches("atcoder") {
-            let contest = matches.value_of("contest").unwrap();
-            return atcoder::participate(contest).or_exit1();
-        }
-    } else if let Some(matches) = matches.subcommand_matches("login") {
-        if let Some(_) = matches.subcommand_matches("atcoder") {
+    if let Some(matches) = matches.subcommand_matches("login") {
+        if matches.value_of("service") == Some("atcoder") {
             return atcoder::login().or_exit1();
         }
+    } else if let Some(matches) = matches.subcommand_matches("participate") {
+        let contest = matches.value_of("contest").unwrap();
+        if matches.value_of("service") == Some("atcoder") {
+            return atcoder::participate(contest).or_exit1();
+        }
     } else if let Some(matches) = matches.subcommand_matches("download") {
-        if let Some(matches) = matches.subcommand_matches("atcoder") {
-            let contest = matches.value_of("contest").unwrap();
-            let path = Path::new(matches.value_of("path").unwrap());
+        let contest = matches.value_of("contest").unwrap();
+        let path = Path::new(matches.value_of("path").unwrap());
+        if matches.value_of("service") == Some("atcoder") {
             return atcoder::download(contest, &path, "toml").or_exit1();
         }
     } else if let Some(matches) = matches.subcommand_matches("judge") {
-        if let Some(matches) = matches.subcommand_matches("cargo") {
-            let target = matches.value_of("target").unwrap();
-            let cases = matches.value_of("cases").unwrap();
-            return cargo::judge(target, cases).or_exit1();
+        let cases = matches.value_of("cases").unwrap();
+        let target = matches.value_of("target").unwrap();
+        let args = matches.values_of("args").into_str_vec();
+        if matches.value_of("build") == Some("execute") {
+            return judge::judge(cases, target, &args).or_exit1();
+        } else if matches.value_of("build") == Some("cargo") {
+            return cargo::judge(cases, target, &args).or_exit1();
         }
     }
     unreachable!();

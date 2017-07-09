@@ -1,3 +1,4 @@
+use clap;
 use std::io;
 
 pub fn read_text_from_stdin() -> io::Result<String> {
@@ -43,5 +44,16 @@ impl<T> UnwrapAsRefMut for Option<T> {
                         on a `None` value")
             }
         }
+    }
+}
+
+
+pub trait IntoStrVec<'a> {
+    fn into_str_vec(self) -> Vec<&'a str>;
+}
+
+impl<'a> IntoStrVec<'a> for Option<clap::Values<'a>> {
+    fn into_str_vec(self) -> Vec<&'a str> {
+        self.map(|vs| vs.into_iter().collect()).unwrap_or_default()
     }
 }

@@ -14,12 +14,19 @@ $ cargo install --git https://github.com/wariuni/snowchains
 
 ## Usage
 
+```console
+$ snowchains login <service>
+$ snowchains participate <contest>
+$ snowchains download <service> <contest> <some-directory>
+$ snowchains judge execute <path-to-test-file> <path-to-target> [args]...
+```
+
 ### Rust (Cargo)
 
 ```console
-$ $EDITOR <crate root>/src/bin/<problem name>.rs                   # target
-$ $EDITOR <crate root>/<some directory>/<problem name>.[toml|json] # test cases
-$ snowchains judge cargo <problem name> <some directory>/<problem name>.[toml|json]
+$ $EDITOR <crate-root>/src/bin/<problem-name>.rs                   # target
+$ $EDITOR <crate-root>/<some-directory>/<problem-name>.[toml|json] # test cases
+$ snowchains judge cargo <some-directory>/<problem-name>.[toml|json] <problem-name>
 ```
 
 ## Test cases
@@ -30,7 +37,8 @@ $ snowchains judge cargo <problem name> <some directory>/<problem name>.[toml|js
 
 ```console
 $ snowchains login <service>
-$ snowchains download <service> <contest> <some directory>
+$ snowchains participate <contest>
+$ snowchains download <service> <contest> <some-directory>
 ```
 
 ### Format
@@ -93,8 +101,9 @@ input = ['72', '128 256', 'myonmyon']
                (with-current-buffer buffer
                  (erase-buffer))))
            (let ((problem-name (match-string 1 file-path)))
-             (term-run "snowchains" "*snowchains*" "judge" "cargo" problem-name
-                       (format "%s/%s.%s" my-rust--snowchains-dir problem-name my-rust--snowchains-ext))))
+             (term-run "snowchains" "*snowchains*" "judge" "cargo"
+                       (format "%s/%s.%s" my-rust--snowchains-dir problem-name my-rust--snowchains-ext)
+                       problem-name)))
           ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
            (cargo-process-run-bin (match-string 1 file-path)))
           (t
