@@ -60,6 +60,13 @@ impl ScrapingSession {
         Ok(())
     }
 
+    pub fn cookie_value(&self, name: &str, domain: &str) -> Option<&str> {
+        match self.cookie_jar.get(name) {
+            Some(cookie) if cookie.domain() == Some(domain) => Some(cookie.value()),
+            _ => None,
+        }
+    }
+
     /// Panics when `url` is invalid.
     pub fn http_get<U: Clone + Display + IntoUrl>(&mut self, url: U) -> ServiceResult<Response> {
         self.http_get_expecting(url, StatusCode::Ok)

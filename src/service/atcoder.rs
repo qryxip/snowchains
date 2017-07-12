@@ -140,8 +140,15 @@ impl AtCoder {
             println!("Failed to sign in. try again.")
         }
         let atcoder = AtCoder(session);
+        atcoder.show_username();
         atcoder.save()?;
         Ok(atcoder)
+    }
+
+    fn show_username(&self) {
+        let username = self.cookie_value("_user_name", "atcoder.jp")
+            .unwrap_or_default();
+        println!("Hello, {}.", username);
     }
 
     fn save(&self) -> io::Result<()> {
