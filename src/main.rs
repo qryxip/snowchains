@@ -30,31 +30,41 @@ use std::path::Path;
 fn main() {
     let subcommand_login = SubCommand::with_name("login")
         .version(crate_version!())
-        .arg(Arg::with_name("service")
-                 .possible_value("atcoder")
-                 .required(true));
+        .arg(
+            Arg::with_name("service")
+                .possible_value("atcoder")
+                .required(true),
+        );
 
     let subcommand_participate = SubCommand::with_name("participate")
         .version(crate_version!())
-        .arg(Arg::with_name("service")
-                 .possible_value("atcoder")
-                 .required(true))
+        .arg(
+            Arg::with_name("service")
+                .possible_value("atcoder")
+                .required(true),
+        )
         .arg(Arg::with_name("contest").required(true));
 
     let subcommand_download = SubCommand::with_name("download")
         .version(crate_version!())
-        .arg(Arg::with_name("service")
-                 .possible_value("atcoder")
-                 .required(true))
+        .arg(
+            Arg::with_name("service")
+                .possible_value("atcoder")
+                .required(true),
+        )
         .arg(Arg::with_name("contest").required(true))
         .arg(Arg::with_name("path").required(true));
 
     let subcommand_judge = SubCommand::with_name("judge")
         .version(crate_version!())
-        .after_help("If you want to use flags in <args>, insert '--' anywhere before the flags.")
-        .arg(Arg::with_name("build")
-                 .possible_values(&["execute", "cargo"])
-                 .required(true))
+        .after_help(
+            "If you want to use flags in <args>, insert '--' anywhere before the flags.",
+        )
+        .arg(
+            Arg::with_name("build")
+                .possible_values(&["execute", "cargo"])
+                .required(true),
+        )
         .arg(Arg::with_name("cases").required(true))
         .arg(Arg::with_name("target").required(true))
         .arg(Arg::with_name("args").multiple(true));

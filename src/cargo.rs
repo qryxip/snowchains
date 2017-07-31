@@ -7,8 +7,11 @@ use std::process::Command;
 
 pub fn judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
     cargo_build_release()?;
-    Cases::load(&cases_path(cases)?)?
-        .judge_all(target_path(target)?.as_path(), args)
+    Cases::load(&cases_path(cases)?)?.judge_all(
+        target_path(target)?
+            .as_path(),
+        args,
+    )
 }
 
 
@@ -21,10 +24,11 @@ pub fn cases_path(problem: &str) -> JudgeResult<PathBuf> {
 
 fn cargo_build_release() -> JudgeResult<()> {
     if Command::new("cargo")
-           .args(&["build", "--release"])
-           .spawn()?
-           .wait()?
-           .success() {
+        .args(&["build", "--release"])
+        .spawn()?
+        .wait()?
+        .success()
+    {
         Ok(())
     } else {
         Err(JudgeError::BuildFailed)

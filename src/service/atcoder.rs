@@ -34,12 +34,16 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
 }
 
 
-pub fn download(contest_name: &str,
-                path_to_save: &Path,
-                extension: &'static str)
-                -> ServiceResult<()> {
-    AtCoder::load_or_login()?
-        .download_all_tasks(contest_name, path_to_save, extension)
+pub fn download(
+    contest_name: &str,
+    path_to_save: &Path,
+    extension: &'static str,
+) -> ServiceResult<()> {
+    AtCoder::load_or_login()?.download_all_tasks(
+        contest_name,
+        path_to_save,
+        extension,
+    )
 }
 
 
@@ -74,16 +78,19 @@ impl AtCoder {
     }
 
     fn participate(&mut self, contest_name: &str) -> ServiceResult<()> {
-        let url = format!("https://{}.contest.atcoder.jp/participants/insert",
-                          contest_name);
+        let url = format!(
+            "https://{}.contest.atcoder.jp/participants/insert",
+            contest_name
+        );
         self.http_get_expecting(&url, StatusCode::Found).map(|_| ())
     }
 
-    fn download_all_tasks(&mut self,
-                          contest_name: &str,
-                          path_to_save: &Path,
-                          extension: &'static str)
-                          -> ServiceResult<()> {
+    fn download_all_tasks(
+        &mut self,
+        contest_name: &str,
+        path_to_save: &Path,
+        extension: &'static str,
+    ) -> ServiceResult<()> {
         let names_and_pathes = {
             let url = format!("http://{}.contest.atcoder.jp/assignments", contest_name);
             let mut response = self.http_get(&url)?;
@@ -126,9 +133,9 @@ impl AtCoder {
             print_and_flush!("Input Password: ");
             let password = util::read_text_from_stdin()?;
             Ok(PostData {
-                   name: user_id,
-                   password: password,
-               })
+                name: user_id,
+                password: password,
+            })
         }
 
         static URL: &'static str = "https://practice.contest.atcoder.jp/login";
@@ -181,10 +188,11 @@ macro_rules! find_by_id {
 fn extract_names_and_pathes<R: Read>(html: &mut R) -> ServiceResult<Vec<(String, String)>> {
     fn extract(handle: &Handle) -> Option<(String, String)> {
         if let NodeData::Element {
-                   ref name,
-                   ref attrs,
-                   ..
-               } = handle.data {
+            ref name,
+            ref attrs,
+            ..
+        } = handle.data
+        {
             if format!("{}", name.local) == "a" {
                 for attr in attrs.borrow().iter() {
                     if format!("{}", attr.name.local) == "href" {
@@ -328,22 +336,24 @@ fn extract_cases<R: Read>(html: &mut R) -> ServiceResult<Cases> {
 }
 
 
-fn is_certain_tag(node_data: &NodeData,
-                  tag_name: &'static str,
-                  class_name: Option<&'static str>)
-                  -> bool {
+fn is_certain_tag(
+    node_data: &NodeData,
+    tag_name: &'static str,
+    class_name: Option<&'static str>,
+) -> bool {
     if let NodeData::Element {
-               ref name,
-               ref attrs,
-               ..
-           } = *node_data {
+        ref name,
+        ref attrs,
+        ..
+    } = *node_data
+    {
         if format!("{}", name.local) == tag_name {
             return match class_name {
                 Some(class_name) => {
                     attrs.borrow().iter().any(|attr| {
-                                                  format!("{}", attr.name.local) == "class" &&
-                                                  format!("{}", attr.value) == class_name
-                                              })
+                        format!("{}", attr.name.local) == "class" &&
+                            format!("{}", attr.value) == class_name
+                    })
                 }
                 None => true,
             };
@@ -355,8 +365,9 @@ fn is_certain_tag(node_data: &NodeData,
 
 fn is_certain_id(node_data: &NodeData, id: &'static str) -> bool {
     if let NodeData::Element { name: _, ref attrs, .. } = *node_data {
-        return attrs.borrow().iter().any(|attr| format!("{}", attr.name.local) == "id" &&
-                                                format!("{}", attr.value) == id);
+        return attrs.borrow().iter().any(|attr| {
+            format!("{}", attr.name.local) == "id" && format!("{}", attr.value) == id
+        });
     }
     false
 }

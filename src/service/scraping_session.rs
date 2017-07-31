@@ -23,8 +23,10 @@ impl ScrapingSession {
 
     pub fn from_cookie_file(name_without_extension: &str) -> ServiceResult<Self> {
         let file = {
-            let mut pathbuf = env::home_dir()
-                .ok_or(io::Error::new(io::ErrorKind::Other, "$HOME not set"))?;
+            let mut pathbuf = env::home_dir().ok_or(io::Error::new(
+                io::ErrorKind::Other,
+                "$HOME not set",
+            ))?;
             pathbuf.push(".local");
             pathbuf.push("share");
             pathbuf.push("snowchains");
@@ -41,8 +43,10 @@ impl ScrapingSession {
 
     pub fn save_cookie_to_file(&self, name_without_extension: &str) -> io::Result<()> {
         let (mut file, pathbuf) = {
-            let mut pathbuf = env::home_dir()
-                .ok_or(io::Error::new(io::ErrorKind::Other, "$HOME not set"))?;
+            let mut pathbuf = env::home_dir().ok_or(io::Error::new(
+                io::ErrorKind::Other,
+                "$HOME not set",
+            ))?;
             pathbuf.push(".local");
             pathbuf.push("share");
             pathbuf.push("snowchains");
@@ -55,7 +59,9 @@ impl ScrapingSession {
             .iter()
             .map(|c| c.to_string())
             .collect::<Vec<_>>();
-        file.write_all(&serde_json::to_vec::<Vec<String>>(&cookies)?)?;
+        file.write_all(
+            &serde_json::to_vec::<Vec<String>>(&cookies)?,
+        )?;
         println!("The cookie was saved to {:?}.", pathbuf);
         Ok(())
     }
@@ -73,10 +79,11 @@ impl ScrapingSession {
     }
 
     /// Panics when `url` is invalid.
-    pub fn http_get_expecting<U: Clone + Display + IntoUrl>(&mut self,
-                                                            url: U,
-                                                            expected_status: StatusCode)
-                                                            -> ServiceResult<Response> {
+    pub fn http_get_expecting<U: Clone + Display + IntoUrl>(
+        &mut self,
+        url: U,
+        expected_status: StatusCode,
+    ) -> ServiceResult<Response> {
         print_decorated!(Attr::Bold, None, "GET ");
         print_and_flush!("{} ... ", url);
 
@@ -85,16 +92,21 @@ impl ScrapingSession {
             client.redirect(RedirectPolicy::none());
             client
                 .get(url.clone())
-                .header(UserAgent(format!("snowchains <https://github.com/wariuni/snowchains>")))
-                .header(RequestCookie(self.cookie_jar.iter().map(|c| c.to_string()).collect()))
+                .header(UserAgent(format!(
+                    "snowchains <https://github.com/wariuni/snowchains>"
+                )))
+                .header(RequestCookie(
+                    self.cookie_jar.iter().map(|c| c.to_string()).collect(),
+                ))
                 .send()?
         };
 
         for cookie in response
-                .headers()
-                .get::<SetCookie>()
-                .map(|setcookie| setcookie.iter())
-                .unwrap_or(vec![].iter()) {
+            .headers()
+            .get::<SetCookie>()
+            .map(|setcookie| setcookie.iter())
+            .unwrap_or(vec![].iter())
+        {
             self.cookie_jar.add(Cookie::parse(cookie.to_string())?);
         }
 
@@ -108,28 +120,35 @@ impl ScrapingSession {
     }
 
     /// Panics when `url` is invalid.
-    pub fn http_post_urlencoded<U, T>(&mut self,
-                                      url: U,
-                                      data: T,
-                                      expected_status: StatusCode)
-                                      -> ServiceResult<Response>
-        where U: Clone + Display + IntoUrl,
-              T: Serialize
+    pub fn http_post_urlencoded<U, T>(
+        &mut self,
+        url: U,
+        data: T,
+        expected_status: StatusCode,
+    ) -> ServiceResult<Response>
+    where
+        U: Clone + Display + IntoUrl,
+        T: Serialize,
     {
-        self.http_post(url,
-                       serde_urlencoded::to_string(data)?,
-                       expected_status,
-                       ContentType(Mime(TopLevel::Application,
-                                        SubLevel::WwwFormUrlEncoded,
-                                        vec![])))
+        self.http_post(
+            url,
+            serde_urlencoded::to_string(data)?,
+            expected_status,
+            ContentType(Mime(
+                TopLevel::Application,
+                SubLevel::WwwFormUrlEncoded,
+                vec![],
+            )),
+        )
     }
 
-    fn http_post<U: Clone + Display + IntoUrl>(&mut self,
-                                               url: U,
-                                               data: String,
-                                               expected_status: StatusCode,
-                                               content_type: ContentType)
-                                               -> ServiceResult<Response> {
+    fn http_post<U: Clone + Display + IntoUrl>(
+        &mut self,
+        url: U,
+        data: String,
+        expected_status: StatusCode,
+        content_type: ContentType,
+    ) -> ServiceResult<Response> {
         print_decorated!(Attr::Bold, None, "POST ");
         print_and_flush!("{} ... ", url);
         let response = {
@@ -138,17 +157,22 @@ impl ScrapingSession {
             client
                 .post(url.clone())
                 .body(data)
-                .header(UserAgent(format!("snowchains <https://github.com/wariuni/snowchains>")))
-                .header(RequestCookie(self.cookie_jar.iter().map(|c| c.to_string()).collect()))
+                .header(UserAgent(format!(
+                    "snowchains <https://github.com/wariuni/snowchains>"
+                )))
+                .header(RequestCookie(
+                    self.cookie_jar.iter().map(|c| c.to_string()).collect(),
+                ))
                 .header(content_type)
                 .send()?
         };
 
         for cookie in response
-                .headers()
-                .get::<SetCookie>()
-                .map(|setcookie| setcookie.iter())
-                .unwrap_or(vec![].iter()) {
+            .headers()
+            .get::<SetCookie>()
+            .map(|setcookie| setcookie.iter())
+            .unwrap_or(vec![].iter())
+        {
             self.cookie_jar.add(Cookie::parse(cookie.to_string())?);
         }
 

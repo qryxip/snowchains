@@ -40,8 +40,10 @@ impl<T> UnwrapAsRefMut for Option<T> {
         match *self {
             Some(ref mut x) => x,
             None => {
-                panic!("called `<Option as UnwrapAsRefMut>::unwrap_as_ref_mut` \
-                        on a `None` value")
+                panic!(
+                    "called `<Option as UnwrapAsRefMut>::unwrap_as_ref_mut` \
+                        on a `None` value"
+                )
             }
         }
     }

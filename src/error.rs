@@ -118,13 +118,14 @@ impl PrintErrorDetails for JudgeError {
         }
         match *self {
             JudgeError::ProjectNotFound => {
-                writeln!(io::stderr(),
-                         "could not find `Cargo.toml` in `{}` or any parent directory",
-                         env::current_dir()
-                             .unwrap_or_default()
-                             .to_str()
-                             .unwrap_or_default())
-                    .unwrap();
+                writeln!(
+                    io::stderr(),
+                    "could not find `Cargo.toml` in `{}` or any parent directory",
+                    env::current_dir()
+                        .unwrap_or_default()
+                        .to_str()
+                        .unwrap_or_default()
+                ).unwrap();
             }
             JudgeError::BuildFailed => {
                 writeln!(io::stderr(), "aborted because the build failed").unwrap();

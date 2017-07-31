@@ -14,8 +14,10 @@ use term::{Attr, color};
 use toml;
 
 pub fn judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
-    Cases::load(Path::new(cases))?
-        .judge_all(Path::new(target), args)
+    Cases::load(Path::new(cases))?.judge_all(
+        Path::new(target),
+        args,
+    )
 }
 
 
@@ -54,10 +56,12 @@ impl JudgeOutput {
                 println_decorated!(Attr::Bold, Some(color::YELLOW), "RE ({})", status);
             }
             JudgeOutput::UnexpectedIoError(ref e) => {
-                println_decorated!(Attr::Bold,
-                                   Some(color::RED),
-                                   "UNEXPECTED IO ERROR ({:?})",
-                                   e.kind());
+                println_decorated!(
+                    Attr::Bold,
+                    Some(color::RED),
+                    "UNEXPECTED IO ERROR ({:?})",
+                    e.kind()
+                );
             }
         }
     }
@@ -75,10 +79,12 @@ impl JudgeOutput {
         match *self {
             JudgeOutput::Ac(_) => {}
             JudgeOutput::Tle(t) => {
-                writeln_error_decorated!(Attr::Bold,
-                                         Some(color::RED),
-                                         "Timelimit exceeded ({}ms)",
-                                         t);
+                writeln_error_decorated!(
+                    Attr::Bold,
+                    Some(color::RED),
+                    "Timelimit exceeded ({}ms)",
+                    t
+                );
             }
             JudgeOutput::Wa(_, ref expected, ref actual) => {
                 writeln_error_decorated!(Attr::Bold, Some(color::MAGENTA), "expected:");
@@ -110,11 +116,11 @@ impl Cases {
             cases: cases
                 .into_iter()
                 .map(|(expected, input)| {
-                         Case {
-                             expected: NonNestedValue::NonArray(NonArrayValue::String(expected)),
-                             input: NonNestedValue::NonArray(NonArrayValue::String(input)),
-                         }
-                     })
+                    Case {
+                        expected: NonNestedValue::NonArray(NonArrayValue::String(expected)),
+                        input: NonNestedValue::NonArray(NonArrayValue::String(input)),
+                    }
+                })
                 .collect(),
         }
     }
@@ -152,10 +158,11 @@ impl Cases {
 
         println!("\nRunning {} test{}...", num_tests, suf);
         for (i, case) in self.cases.into_iter().enumerate() {
-            let target = target
-                .to_str()
-                .map(|s| s.to_string())
-                .ok_or(JudgeError::Io(io::ErrorKind::InvalidInput.into()))?;
+            let target = target.to_str().map(|s| s.to_string()).ok_or(
+                JudgeError::Io(
+                    io::ErrorKind::InvalidInput.into(),
+                ),
+            )?;
             let args = args.iter().map(|&arg| arg.into()).collect();
             let output = case.judge(target, args, timeout);
             match output {
@@ -222,7 +229,9 @@ impl Case {
         }
 
         let (tx, rx) = mpsc::channel();
-        thread::spawn(move || { let _ = tx.send(run_program(self, program, args)); });
+        thread::spawn(move || {
+            let _ = tx.send(run_program(self, program, args));
+        });
         match rx.recv_timeout(Duration::from_millis(timeout + 50)) {
             Ok(JudgeOutput::Ac(t)) if t > timeout => JudgeOutput::Tle(timeout),
             Ok(output) => output,
