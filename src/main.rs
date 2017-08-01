@@ -61,13 +61,34 @@ fn main() {
             "If you want to use flags in <args>, insert '--' anywhere before the flags.",
         )
         .arg(
-            Arg::with_name("build")
-                .possible_values(&["execute", "cargo"])
+            Arg::with_name("cases")
+                .help("Relative or absolute path to the test file")
                 .required(true),
         )
-        .arg(Arg::with_name("cases").required(true))
-        .arg(Arg::with_name("target").required(true))
+        .arg(
+            Arg::with_name("target")
+                .help("Relative or absolute path to the target")
+                .required(true),
+        )
         .arg(Arg::with_name("args").multiple(true));
+
+    let subcommand_judge_cargo = SubCommand::with_name("judge-cargo")
+        .version(crate_version!())
+        .after_help(
+            "If you want to use flags in <args>, insert '--' anywhere before the flags.",
+        )
+        .arg(
+            Arg::with_name("cases")
+                .help("Relative path to the test file from the crate root")
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("target")
+                .help(
+                    "Relative path to the target from <crate root>/target/release",
+                )
+                .required(true),
+        );
 
     let matches = app_from_crate!()
         .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -75,6 +96,7 @@ fn main() {
         .subcommand(subcommand_participate)
         .subcommand(subcommand_download)
         .subcommand(subcommand_judge)
+        .subcommand(subcommand_judge_cargo)
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("login") {
@@ -96,11 +118,12 @@ fn main() {
         let cases = matches.value_of("cases").unwrap();
         let target = matches.value_of("target").unwrap();
         let args = matches.values_of("args").into_str_vec();
-        if matches.value_of("build") == Some("execute") {
-            return judge::judge(cases, target, &args).or_exit1();
-        } else if matches.value_of("build") == Some("cargo") {
-            return cargo::judge(cases, target, &args).or_exit1();
-        }
+        return judge::judge(cases, target, &args).or_exit1();
+    } else if let Some(matches) = matches.subcommand_matches("judge-cargo") {
+        let cases = matches.value_of("cases").unwrap();
+        let target = matches.value_of("target").unwrap();
+        let args = matches.values_of("args").into_str_vec();
+        return cargo::judge(cases, target, &args).or_exit1();
     }
     unreachable!();
 }
