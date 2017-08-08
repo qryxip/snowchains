@@ -23,14 +23,14 @@ macro_rules! println_decorated {
 }
 
 
-macro_rules! write_error_decorated {
+macro_rules! eprint_decorated {
     ($attr:expr, $color: expr, $format: tt) => (
         __write_decorated!(stderr, write, $attr, $color, $format)
     );
 }
 
 
-macro_rules! writeln_error_decorated {
+macro_rules! eprintln_decorated {
     ($attr:expr, $color: expr, $format: tt$(, $x: expr)*) => (
         __write_decorated!(stderr, writeln, $attr, $color, $format$(, $x)*)
     );

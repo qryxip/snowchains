@@ -93,17 +93,12 @@ impl JudgeOutput {
         match *self {
             JudgeOutput::Ac(_) => {}
             JudgeOutput::Tle(t) => {
-                writeln_error_decorated!(
-                    Attr::Bold,
-                    Some(color::RED),
-                    "Timelimit exceeded ({}ms)",
-                    t
-                );
+                eprintln_decorated!(Attr::Bold, Some(color::RED), "Timelimit exceeded ({}ms)", t);
             }
             JudgeOutput::Wa(_, ref expected, ref actual) => {
-                writeln_error_decorated!(Attr::Bold, Some(color::MAGENTA), "expected:");
+                eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "expected:");
                 writeln_error_trimming_last_newline(expected);
-                writeln_error_decorated!(Attr::Bold, Some(color::MAGENTA), "actual:");
+                eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "actual:");
                 writeln_error_trimming_last_newline(actual);
             }
             JudgeOutput::Re(_, ref message) => {

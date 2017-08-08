@@ -141,7 +141,7 @@ impl AtCoder {
         let mut session = ScrapingSession::new();
         session.http_get(URL)?;
         while let Err(e) = session.http_post_urlencoded(URL, post_data()?, StatusCode::Found) {
-            write_error_decorated!(Attr::Bold, Some(color::RED), "error: ");
+            eprint_decorated!(Attr::Bold, Some(color::RED), "error: ");
             eprintln!("{:?}", e);
             println!("Failed to sign in. try again.")
         }

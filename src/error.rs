@@ -18,10 +18,10 @@ pub trait OrExit1 {
 impl<E: ChainedError> OrExit1 for Result<(), E> {
     fn or_exit1(self) {
         if let Err(e) = self {
-            write_error_decorated!(Attr::Bold, Some(color::RED), "\nerror: ");
+            eprint_decorated!(Attr::Bold, Some(color::RED), "\nerror: ");
             eprintln!("{}", e);
             for e_kind in e.iter().skip(1) {
-                write_error_decorated!(Attr::Bold, Some(color::RED), "caused by: ");
+                eprint_decorated!(Attr::Bold, Some(color::RED), "caused by: ");
                 eprintln!("{}", e_kind);
             }
             if let Some(backtrace) = e.backtrace() {
