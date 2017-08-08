@@ -1,3 +1,5 @@
+#![recursion_limit = "1024"]
+
 extern crate cookie;
 extern crate html5ever;
 extern crate regex;
@@ -9,6 +11,8 @@ extern crate term;
 extern crate toml;
 #[macro_use]
 extern crate clap;
+#[macro_use]
+extern crate error_chain;
 #[macro_use]
 extern crate serde_derive;
 
@@ -101,7 +105,7 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("login") {
         if matches.value_of("service") == Some("atcoder") {
-            return atcoder::login().or_exit1();
+            return (atcoder::login()).or_exit1();
         }
     } else if let Some(matches) = matches.subcommand_matches("participate") {
         let contest = matches.value_of("contest").unwrap();

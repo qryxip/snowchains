@@ -1,8 +1,8 @@
-use super::error::{JudgeError, JudgeResult};
+use super::error::{JudgeErrorKind, JudgeResult};
 use super::util::UnwrapAsRefMut;
 use serde_json;
 use std::convert::From;
-use std::fmt::{self, Display, Formatter};
+use std::fmt::{self, Debug, Display, Formatter};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -32,6 +32,20 @@ pub enum JudgeOutput {
 impl From<io::Result<JudgeOutput>> for JudgeOutput {
     fn from(from: io::Result<JudgeOutput>) -> Self {
         from.unwrap_or_else(|e| JudgeOutput::UnexpectedIoError(e))
+    }
+}
+
+impl Debug for JudgeOutput {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match *self {
+            JudgeOutput::Ac(t) => writeln!(f, "AC ({}ms)", t),
+            JudgeOutput::Tle(t) => writeln!(f, "TLE ({}ms)", t),
+            JudgeOutput::Wa(t, _, _) => writeln!(f, "WA ({}ms)", t),
+            JudgeOutput::Re(status, _) => writeln!(f, "RE ({})", status),
+            JudgeOutput::UnexpectedIoError(ref e) => {
+                writeln!(f, "UNEXPECTED IO ERROR ({:?})", e.kind())
+            }
+        }
     }
 }
 
@@ -132,8 +146,12 @@ impl Cases {
         match path.extension() {
             Some(ref ext) if *ext == "json" => Ok(serde_json::from_str(&buf)?),
             Some(ref ext) if *ext == "toml" => Ok(toml::from_str(&buf)?),
-            Some(ref ext) => Err(JudgeError::UnsupportedExtension(format!("{:?}", ext))),
-            _ => Err(JudgeError::UnsupportedExtension(format!("no extension"))),
+            Some(ref ext) => bail!(JudgeErrorKind::UnsupportedExtension(format!("{:?}", ext))),
+            _ => {
+                bail!(JudgeErrorKind::UnsupportedExtension(
+                    format!("no extension"),
+                ))
+            }
         }
     }
 
@@ -141,10 +159,14 @@ impl Cases {
         fs::create_dir_all(path.parent().unwrap())?;
         let mut file = File::create(path)?;
         let serialized = match path.extension() {
-            Some(ref ext) if *ext == "json" => serde_json::to_string(self).unwrap(),
-            Some(ref ext) if *ext == "toml" => toml::to_string(self).unwrap(),
-            Some(ref ext) => return Err(JudgeError::UnsupportedExtension(format!("{:?}", ext))),
-            _ => return Err(JudgeError::UnsupportedExtension(format!("no extension"))),
+            Some(ref ext) if *ext == "json" => serde_json::to_string(self)?,
+            Some(ref ext) if *ext == "toml" => toml::to_string(self)?,
+            Some(ref ext) => bail!(JudgeErrorKind::UnsupportedExtension(format!("{:?}", ext))),
+            _ => {
+                bail!(JudgeErrorKind::UnsupportedExtension(
+                    format!("no extension"),
+                ))
+            }
         };
         Ok(file.write_all(serialized.as_bytes())?)
     }
@@ -153,31 +175,33 @@ impl Cases {
         let timeout = self.timeout;
         let num_tests = self.cases.len();
         let suf = if num_tests > 1 { "s" } else { "" };
-        let mut outputs = Vec::new();
-        let mut failed = false;
+        let mut failures = vec![];
 
         println!("\nRunning {} test{}...", num_tests, suf);
         for (i, case) in self.cases.into_iter().enumerate() {
-            let target = target.to_str().map(|s| s.to_string()).ok_or(
-                JudgeError::Io(
-                    io::ErrorKind::InvalidInput.into(),
-                ),
-            )?;
+            let target = match target.to_str() {
+                Some(s) => s.to_owned(),
+                None => bail!(io::Error::from(io::ErrorKind::InvalidInput)),
+            };
             let args = args.iter().map(|&arg| arg.into()).collect();
             let output = case.judge(target, args, timeout);
+            output.print_title(i, num_tests);
             match output {
                 JudgeOutput::Ac(_) => {}
-                _ => failed = true,
+                failure => failures.push((i, failure)),
             }
-            output.print_title(i, num_tests);
-            outputs.push(output);
         }
 
-        if failed {
-            Err(JudgeError::TestFailed(outputs))
-        } else {
+        if failures.is_empty() {
             println!("All of the {} test{} passed.", num_tests, suf);
             Ok(())
+        } else {
+            for &(i, ref failure) in &failures {
+                println!("");
+                failure.print_title(i, num_tests);
+                failure.print_failure_detail();
+            }
+            bail!(JudgeErrorKind::TestFailed(failures.len()))
         }
     }
 }

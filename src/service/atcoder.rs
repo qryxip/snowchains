@@ -1,5 +1,5 @@
 use super::scraping_session::ScrapingSession;
-use super::super::error::{ServiceError, ServiceResult};
+use super::super::error::{ServiceError, ServiceErrorKind, ServiceResult};
 use super::super::judge::Cases;
 use super::super::util;
 use html5ever;
@@ -8,7 +8,7 @@ use html5ever::tendril::TendrilSink;
 use regex::Regex;
 use reqwest::StatusCode;
 use std::default::Default;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use term::{Attr, color};
@@ -105,13 +105,12 @@ impl AtCoder {
                     pathbuf.push(alphabet.to_lowercase());
                     pathbuf.set_extension(extension);
                     if let Err(e) = cases.save(&pathbuf) {
-                        use super::super::error::PrintErrorDetails;
-                        e.print_error_details();
+                        eprintln!("{:?}", e);
                         unimplemented!();
                     }
                     println!("Task {}: saved to {:?}", alphabet, pathbuf);
                 }
-                Err(ServiceError::ScrapingFailed) => {
+                Err(ServiceError(ServiceErrorKind::ScrapingFailed, _)) => {
                     println!("Failed to scrape. Ignoring.");
                 }
                 Err(e) => return Err(e),
@@ -143,7 +142,7 @@ impl AtCoder {
         session.http_get(URL)?;
         while let Err(e) = session.http_post_urlencoded(URL, post_data()?, StatusCode::Found) {
             write_error_decorated!(Attr::Bold, Some(color::RED), "error: ");
-            writeln!(io::stderr(), "{:?}", e).unwrap();
+            eprintln!("{:?}", e);
             println!("Failed to sign in. try again.")
         }
         let atcoder = AtCoder(session);
@@ -240,7 +239,7 @@ fn extract_names_and_pathes<R: Read>(html: &mut R) -> ServiceResult<Vec<(String,
             }
         }
     }
-    Err(ServiceError::ScrapingFailed)
+    bail!(ServiceErrorKind::ScrapingFailed)
 }
 
 
@@ -256,7 +255,7 @@ fn extract_cases<R: Read>(html: &mut R) -> ServiceResult<Cases> {
                 }
             }
         }
-        Err(ServiceError::ScrapingFailed)
+        bail!(ServiceErrorKind::ScrapingFailed)
     }
 
     fn extract_samples(span_handle: &Handle) -> Vec<(String, String)> {
@@ -308,7 +307,7 @@ fn extract_cases<R: Read>(html: &mut R) -> ServiceResult<Cases> {
                         if let NodeData::Text { ref contents } = child.data {
                             let re_404 = Regex::new("^.*404.*$").unwrap();
                             if re_404.is_match(&contents.borrow()) {
-                                return Err(ServiceError::ScrapingFailed);
+                                bail!(ServiceErrorKind::ScrapingFailed);
                             }
                         }
                     }
@@ -321,7 +320,7 @@ fn extract_cases<R: Read>(html: &mut R) -> ServiceResult<Cases> {
                             if let Some(child) = find_certain_tag!(child, "span", Some("lang-ja")) {
                                 let result = extract_samples(&child);
                                 return if result.is_empty() {
-                                    Err(ServiceError::ScrapingFailed)
+                                    bail!(ServiceErrorKind::ScrapingFailed)
                                 } else {
                                     Ok(Cases::from_text(timeout, result))
                                 };
@@ -332,7 +331,7 @@ fn extract_cases<R: Read>(html: &mut R) -> ServiceResult<Cases> {
             }
         }
     }
-    Err(ServiceError::ScrapingFailed)
+    bail!(ServiceErrorKind::ScrapingFailed)
 }
 
 

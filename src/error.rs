@@ -1,182 +1,97 @@
-use super::judge::JudgeOutput;
 use cookie;
+use error_chain::ChainedError;
 use reqwest::{self, StatusCode, UrlError};
 use serde_json;
 use serde_urlencoded;
-use std::env;
-use std::io::{self, Write};
+use std::io;
 use std::process;
 use term::{Attr, color};
 use toml;
 
+
 pub trait OrExit1 {
-    type Item;
-    /// If `self` is `Err`, prints the error messages and exit with code 1.
-    fn or_exit1(self) -> Self::Item;
+    /// if `self` is `Err`, prints the error details and exit with code 1.
+    fn or_exit1(self);
 }
 
-impl<T, E: PrintErrorDetails> OrExit1 for Result<T, E> {
-    type Item = T;
-    fn or_exit1(self) -> T {
-        match self {
-            Ok(x) => x,
-            Err(e) => {
-                e.print_error_details();
-                process::exit(1);
+
+impl<E: ChainedError> OrExit1 for Result<(), E> {
+    fn or_exit1(self) {
+        if let Err(e) = self {
+            write_error_decorated!(Attr::Bold, Some(color::RED), "\nerror: ");
+            eprintln!("{}", e);
+            for e_kind in e.iter().skip(1) {
+                write_error_decorated!(Attr::Bold, Some(color::RED), "caused by: ");
+                eprintln!("{}", e_kind);
             }
+            if let Some(backtrace) = e.backtrace() {
+                eprintln!("{:?}", backtrace);
+            }
+            process::exit(1);
         }
     }
 }
 
 
-pub trait PrintErrorDetails {
-    fn print_error_details(&self);
-}
-
-
-pub type ServiceResult<T> = Result<T, ServiceError>;
-
-
-#[derive(Debug)]
-pub enum ServiceError {
-    ScrapingFailed,
-    UnexpectedHttpCode(StatusCode),
-    Reqwest(reqwest::Error),
-    Url(UrlError),
-    Io(io::Error),
-    SerdeJson(serde_json::Error),
-    SerdeUrlEncodedSerialization(serde_urlencoded::ser::Error),
-    CookieParse(cookie::ParseError),
-}
-
-impl PrintErrorDetails for ServiceError {
-    fn print_error_details(&self) {
-
-        write_error_decorated!(Attr::Bold, Some(color::RED), "error:");
-        writeln!(io::stderr(), " {:?}", self).unwrap();
-        unimplemented!();
+error_chain! {
+    types {
+        ServiceError, ServiceErrorKind, ServiceResultExt, ServiceResult;
     }
-}
 
-impl From<reqwest::Error> for ServiceError {
-    fn from(from: reqwest::Error) -> Self {
-        ServiceError::Reqwest(from)
+    foreign_links {
+        Reqwest(reqwest::Error);
+        Url(UrlError);
+        Io(io::Error);
+        SerdeJson(serde_json::Error);
+        SerdeUrlEncodedSerialization(serde_urlencoded::ser::Error);
+        CookieParse(cookie::ParseError);
     }
-}
 
-impl From<UrlError> for ServiceError {
-    fn from(from: UrlError) -> Self {
-        ServiceError::Url(from)
-    }
-}
-
-impl From<io::Error> for ServiceError {
-    fn from(from: io::Error) -> Self {
-        ServiceError::Io(from)
-    }
-}
-
-impl From<serde_json::Error> for ServiceError {
-    fn from(from: serde_json::Error) -> Self {
-        ServiceError::SerdeJson(from)
-    }
-}
-
-impl From<serde_urlencoded::ser::Error> for ServiceError {
-    fn from(from: serde_urlencoded::ser::Error) -> Self {
-        ServiceError::SerdeUrlEncodedSerialization(from)
-    }
-}
-
-impl From<cookie::ParseError> for ServiceError {
-    fn from(from: cookie::ParseError) -> Self {
-        ServiceError::CookieParse(from)
-    }
-}
-
-
-pub type JudgeResult<T> = Result<T, JudgeError>;
-
-
-pub enum JudgeError {
-    ProjectNotFound,
-    BuildFailed,
-    UnsupportedExtension(String),
-    DeserializationFailed(String),
-    Io(io::Error),
-    TestFailed(Vec<JudgeOutput>),
-}
-
-impl PrintErrorDetails for JudgeError {
-    fn print_error_details(&self) {
-        use std::io::Write;
-
-        let (attr, color) = (Attr::Bold, Some(color::RED));
-        match *self {
-            JudgeError::TestFailed(_) => {}
-            _ => write_error_decorated!(attr, color, "error: "),
+    errors {
+        ScrapingFailed {
+            description("Scraping failed")
+                display("Scraping faild")
         }
-        match *self {
-            JudgeError::ProjectNotFound => {
-                writeln!(
-                    io::stderr(),
-                    "could not find `Cargo.toml` in `{}` or any parent directory",
-                    env::current_dir()
-                        .unwrap_or_default()
-                        .to_str()
-                        .unwrap_or_default()
-                ).unwrap();
-            }
-            JudgeError::BuildFailed => {
-                writeln!(io::stderr(), "aborted because the build failed").unwrap();
-            }
-            JudgeError::UnsupportedExtension(ref extension) => {
-                writeln!(io::stderr(), "unsupported format: {}", extension).unwrap();
-            }
-            JudgeError::DeserializationFailed(ref s) => {
-                writeln_error_decorated!(attr, color, "deserialization faild:");
-                writeln!(io::stderr(), "{}", s).unwrap();
-            }
-            JudgeError::Io(ref e) => {
-                writeln!(io::stderr(), "{}", e).unwrap();
-            }
-            JudgeError::TestFailed(ref outputs) => {
-                writeln!(io::stderr(), "").unwrap();
-                let n = outputs.len();
-                let mut first = true;
-                for (i, output) in outputs.iter().enumerate() {
-                    match *output {
-                        JudgeOutput::Ac(_) => {}
-                        ref output => {
-                            if first {
-                                first = false;
-                            } else {
-                                writeln!(io::stderr(), "").unwrap();
-                            }
-                            output.print_title(i, n);
-                            output.print_failure_detail();
-                        }
-                    }
-                }
-            }
+
+        UnexpectedHttpCode(expected: StatusCode, actual: StatusCode) {
+            description("Unexpected HTTP response code")
+                display("The response code is {}, expected {}", actual, expected)
         }
     }
 }
 
-impl From<io::Error> for JudgeError {
-    fn from(from: io::Error) -> Self {
-        JudgeError::Io(from)
-    }
-}
 
-impl From<serde_json::Error> for JudgeError {
-    fn from(from: serde_json::Error) -> Self {
-        JudgeError::DeserializationFailed(format!("{}", from))
+error_chain! {
+    types {
+        JudgeError, JudgeErrorKind, JudgeResultExt, JudgeResult;
     }
-}
 
-impl From<toml::de::Error> for JudgeError {
-    fn from(from: toml::de::Error) -> Self {
-        JudgeError::DeserializationFailed(format!("{}", from))
+    foreign_links {
+        Io(io::Error);
+        SerdeJson(serde_json::Error);
+        TomlSerialization(toml::ser::Error);
+        TomlDeserialization(toml::de::Error);
+    }
+
+    errors {
+        ProjectNotFound {
+            description("Project not found")
+                display("Project not found")
+        }
+
+        BuildFailed {
+            description("Build failed")
+                display("Build failed")
+        }
+
+        UnsupportedExtension(extension: String) {
+            description("Unsupported extension")
+                display("Unsupported extension: \"{}\"", extension)
+        }
+
+        TestFailed(n: usize) {
+            description("Test faild")
+                display("{} Test{} failed", n, if *n > 0 { "s" } else { "" })
+        }
     }
 }

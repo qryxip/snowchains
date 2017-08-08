@@ -1,4 +1,4 @@
-use super::error::{JudgeError, JudgeResult};
+use super::error::{JudgeErrorKind, JudgeResult};
 use super::judge::Cases;
 use std::env;
 use std::fs;
@@ -31,7 +31,7 @@ fn cargo_build_release() -> JudgeResult<()> {
     {
         Ok(())
     } else {
-        Err(JudgeError::BuildFailed)
+        bail!(JudgeErrorKind::BuildFailed)
     }
 }
 
@@ -62,7 +62,7 @@ fn crate_root() -> JudgeResult<PathBuf> {
         if find_cargo_toml(&dir)? {
             return Ok(dir);
         } else if !dir.pop() {
-            return Err(JudgeError::ProjectNotFound);
+            bail!(JudgeErrorKind::ProjectNotFound);
         }
     }
 }

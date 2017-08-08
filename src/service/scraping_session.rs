@@ -1,4 +1,4 @@
-use super::super::error::{ServiceError, ServiceResult};
+use super::super::error::{ServiceErrorKind, ServiceResult};
 use cookie::{Cookie, CookieJar};
 use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode};
 use reqwest::header::{ContentType, Cookie as RequestCookie, SetCookie, UserAgent};
@@ -115,7 +115,10 @@ impl ScrapingSession {
             Ok(response)
         } else {
             println_decorated!(Attr::Bold, Some(color::RED), "{}", response.status());
-            Err(ServiceError::UnexpectedHttpCode(*response.status()))
+            bail!(ServiceErrorKind::UnexpectedHttpCode(
+                expected_status,
+                *response.status(),
+            ))
         }
     }
 
@@ -181,7 +184,10 @@ impl ScrapingSession {
             Ok(response)
         } else {
             println_decorated!(Attr::Bold, Some(color::RED), "{}", response.status());
-            Err(ServiceError::UnexpectedHttpCode(*response.status()))
+            bail!(ServiceErrorKind::UnexpectedHttpCode(
+                expected_status,
+                *response.status(),
+            ))
         }
     }
 }
