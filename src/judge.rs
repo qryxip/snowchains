@@ -13,11 +13,10 @@ use std::time::{Duration, Instant};
 use term::{Attr, color};
 use toml;
 
+
 pub fn judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
-    Cases::load(Path::new(cases))?.judge_all(
-        Path::new(target),
-        args,
-    )
+    let cases = Cases::load(Path::new(cases))?;
+    cases.judge_all(Path::new(target), args)
 }
 
 
@@ -56,28 +55,14 @@ impl JudgeOutput {
         }
         print_decorated!(Attr::Bold, None, "{}/{} ", i + 1, n);
 
-        match *self {
-            JudgeOutput::Ac(t) => {
-                println_decorated!(Attr::Bold, Some(color::GREEN), "AC ({}ms)", t);
-            }
-            JudgeOutput::Tle(t) => {
-                println_decorated!(Attr::Bold, Some(color::RED), "TLE ({}ms)", t);
-            }
-            JudgeOutput::Wa(t, _, _) => {
-                println_decorated!(Attr::Bold, Some(color::YELLOW), "WA ({}ms)", t);
-            }
-            JudgeOutput::Re(status, _) => {
-                println_decorated!(Attr::Bold, Some(color::YELLOW), "RE ({})", status);
-            }
-            JudgeOutput::UnexpectedIoError(ref e) => {
-                println_decorated!(
-                    Attr::Bold,
-                    Some(color::RED),
-                    "UNEXPECTED IO ERROR ({:?})",
-                    e.kind()
-                );
-            }
-        }
+        let color = match *self {
+            JudgeOutput::Ac(_) => color::GREEN,
+            JudgeOutput::Tle(_) => color::RED,
+            JudgeOutput::Wa(_, _, _) => color::YELLOW,
+            JudgeOutput::Re(_, _) => color::YELLOW,
+            JudgeOutput::UnexpectedIoError(_) => color::RED,
+        };
+        println_decorated!(Attr::Bold, Some(color), "{:?}", self);
     }
 
     pub fn print_failure_detail(&self) {
@@ -188,8 +173,7 @@ impl Cases {
         }
 
         if failures.is_empty() {
-            println!("All of the {} test{} passed.", num_tests, suf);
-            Ok(())
+            Ok(println!("All of the {} test{} passed.", num_tests, suf))
         } else {
             for &(i, ref failure) in &failures {
                 println!("");
@@ -225,8 +209,8 @@ impl Case {
 
                 let status = child.wait()?;
                 let t = {
-                    let elapsed = start.elapsed();
-                    (1000000000 * elapsed.as_secs() + elapsed.subsec_nanos() as u64) / 1000000
+                    let t = start.elapsed();
+                    (1000000000 * t.as_secs() + t.subsec_nanos() as u64) / 1000000
                 };
                 let (stdout, stderr) = {
                     let (mut stdout, mut stderr) = (String::new(), String::new());

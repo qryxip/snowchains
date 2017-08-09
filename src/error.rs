@@ -14,7 +14,6 @@ pub trait OrExit1 {
     fn or_exit1(self);
 }
 
-
 impl<E: ChainedError> OrExit1 for Result<(), E> {
     fn or_exit1(self) {
         if let Err(e) = self {

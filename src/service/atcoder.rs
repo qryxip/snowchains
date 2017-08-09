@@ -13,6 +13,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use term::{Attr, color};
 
+
 pub fn login() -> ServiceResult<()> {
     fn verify(session: &mut ScrapingSession) -> bool {
         static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
@@ -21,8 +22,7 @@ pub fn login() -> ServiceResult<()> {
 
     if let Ok(mut session) = ScrapingSession::from_cookie_file("atcoder") {
         if verify(&mut session) {
-            println!("Already signed in.");
-            return Ok(());
+            return Ok(println!("Already signed in."));
         }
     }
     AtCoder::login_and_save().map(|_| ())
@@ -39,11 +39,8 @@ pub fn download(
     path_to_save: &Path,
     extension: &'static str,
 ) -> ServiceResult<()> {
-    AtCoder::load_or_login()?.download_all_tasks(
-        contest_name,
-        path_to_save,
-        extension,
-    )
+    let mut atcoder = AtCoder::load_or_login()?;
+    atcoder.download_all_tasks(contest_name, path_to_save, extension)
 }
 
 

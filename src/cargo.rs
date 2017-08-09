@@ -5,13 +5,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+
 pub fn judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
     cargo_build_release()?;
-    Cases::load(&cases_path(cases)?)?.judge_all(
-        target_path(target)?
-            .as_path(),
-        args,
-    )
+    let cases = Cases::load(&cases_path(cases)?)?;
+    cases.judge_all(target_path(target)?.as_path(), args)
 }
 
 

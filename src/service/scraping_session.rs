@@ -12,6 +12,7 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use term::{Attr, color};
 
+
 pub struct ScrapingSession {
     cookie_jar: CookieJar,
 }
@@ -59,11 +60,9 @@ impl ScrapingSession {
             .iter()
             .map(|c| c.to_string())
             .collect::<Vec<_>>();
-        file.write_all(
-            &serde_json::to_vec::<Vec<String>>(&cookies)?,
-        )?;
-        println!("The cookie was saved to {:?}.", pathbuf);
-        Ok(())
+        let cookies_text = &serde_json::to_vec::<Vec<String>>(&cookies)?;
+        file.write_all(cookies_text)?;
+        Ok(println!("The cookie was saved to {:?}.", pathbuf))
     }
 
     pub fn cookie_value(&self, name: &str, domain: &str) -> Option<&str> {

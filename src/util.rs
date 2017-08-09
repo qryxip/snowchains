@@ -1,6 +1,7 @@
 use clap;
 use std::io;
 
+
 pub fn read_text_from_stdin() -> io::Result<String> {
     let (mut input, mut result) = (String::new(), String::new());
     while result.is_empty() {
