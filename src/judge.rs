@@ -37,12 +37,12 @@ impl From<io::Result<JudgeOutput>> for JudgeOutput {
 impl Debug for JudgeOutput {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
-            JudgeOutput::Ac(t) => writeln!(f, "AC ({}ms)", t),
-            JudgeOutput::Tle(t) => writeln!(f, "TLE ({}ms)", t),
-            JudgeOutput::Wa(t, _, _) => writeln!(f, "WA ({}ms)", t),
-            JudgeOutput::Re(status, _) => writeln!(f, "RE ({})", status),
+            JudgeOutput::Ac(t) => write!(f, "AC ({}ms)", t),
+            JudgeOutput::Tle(t) => write!(f, "TLE ({}ms)", t),
+            JudgeOutput::Wa(t, _, _) => write!(f, "WA ({}ms)", t),
+            JudgeOutput::Re(status, _) => write!(f, "RE ({})", status),
             JudgeOutput::UnexpectedIoError(ref e) => {
-                writeln!(f, "UNEXPECTED IO ERROR ({:?})", e.kind())
+                write!(f, "UNEXPECTED IO ERROR ({:?})", e.kind())
             }
         }
     }
