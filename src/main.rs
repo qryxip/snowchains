@@ -4,6 +4,8 @@ extern crate cookie;
 extern crate html5ever;
 extern crate regex;
 extern crate reqwest;
+extern crate rpassword;
+extern crate rprompt;
 extern crate serde;
 extern crate serde_json;
 extern crate serde_urlencoded;

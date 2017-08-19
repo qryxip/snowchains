@@ -1,17 +1,4 @@
 use clap;
-use std::io;
-
-
-pub fn read_text_from_stdin() -> io::Result<String> {
-    let (mut input, mut result) = (String::new(), String::new());
-    while result.is_empty() {
-        io::stdin().read_line(&mut input)?;
-        for c in input.chars().filter(|&c| c != ' ' && c != '\n') {
-            result.push(c);
-        }
-    }
-    Ok(result)
-}
 
 
 pub trait OkAsRefOr {

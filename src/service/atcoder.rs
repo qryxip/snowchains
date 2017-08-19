@@ -1,12 +1,13 @@
 use super::scraping_session::ScrapingSession;
 use super::super::error::{ServiceError, ServiceErrorKind, ServiceResult};
 use super::super::judge::Cases;
-use super::super::util;
 use html5ever;
 use html5ever::rcdom::{Handle, NodeData, RcDom};
 use html5ever::tendril::TendrilSink;
 use regex::Regex;
 use reqwest::StatusCode;
+use rpassword;
+use rprompt;
 use std::default::Default;
 use std::io::{self, Read};
 use std::ops::{Deref, DerefMut};
@@ -124,10 +125,8 @@ impl AtCoder {
         }
 
         fn post_data() -> io::Result<PostData> {
-            print_and_flush!("Input User ID: ");
-            let user_id = util::read_text_from_stdin()?;
-            print_and_flush!("Input Password: ");
-            let password = util::read_text_from_stdin()?;
+            let user_id = rprompt::prompt_reply_stderr("User ID: ")?;
+            let password = rpassword::prompt_password_stderr("Password: ")?;
             Ok(PostData {
                 name: user_id,
                 password: password,
