@@ -2,7 +2,6 @@ use super::super::error::{ServiceErrorKind, ServiceResult};
 use cookie::{Cookie, CookieJar};
 use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode};
 use reqwest::header::{ContentType, Cookie as RequestCookie, SetCookie, UserAgent};
-use reqwest::mime::{Mime, SubLevel, TopLevel};
 use serde::Serialize;
 use serde_json;
 use serde_urlencoded;
@@ -87,16 +86,13 @@ impl ScrapingSession {
         print_and_flush!("{} ... ", url);
 
         let response = {
-            let mut client = Client::new()?;
-            client.redirect(RedirectPolicy::none());
+            let client = Client::builder()?.redirect(RedirectPolicy::none()).build()?;
             client
-                .get(url.clone())
-                .header(UserAgent(format!(
+                .get(url.clone())?
+                .header(UserAgent::new(format!(
                     "snowchains <https://github.com/wariuni/snowchains>"
                 )))
-                .header(RequestCookie(
-                    self.cookie_jar.iter().map(|c| c.to_string()).collect(),
-                ))
+                .header(self.cookie_jar.as_request_cookie())
                 .send()?
         };
 
@@ -109,14 +105,14 @@ impl ScrapingSession {
             self.cookie_jar.add(Cookie::parse(cookie.to_string())?);
         }
 
-        if *response.status() == expected_status {
+        if response.status() == expected_status {
             println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
             Ok(response)
         } else {
             println_decorated!(Attr::Bold, Some(color::RED), "{}", response.status());
             bail!(ServiceErrorKind::UnexpectedHttpCode(
                 expected_status,
-                *response.status(),
+                response.status(),
             ))
         }
     }
@@ -136,11 +132,7 @@ impl ScrapingSession {
             url,
             serde_urlencoded::to_string(data)?,
             expected_status,
-            ContentType(Mime(
-                TopLevel::Application,
-                SubLevel::WwwFormUrlEncoded,
-                vec![],
-            )),
+            ContentType::form_url_encoded(),
         )
     }
 
@@ -154,17 +146,14 @@ impl ScrapingSession {
         print_decorated!(Attr::Bold, None, "POST ");
         print_and_flush!("{} ... ", url);
         let response = {
-            let mut client = Client::new()?;
-            client.redirect(RedirectPolicy::none());
+            let client = Client::builder()?.redirect(RedirectPolicy::none()).build()?;
             client
-                .post(url.clone())
+                .post(url.clone())?
                 .body(data)
-                .header(UserAgent(format!(
+                .header(UserAgent::new(format!(
                     "snowchains <https://github.com/wariuni/snowchains>"
                 )))
-                .header(RequestCookie(
-                    self.cookie_jar.iter().map(|c| c.to_string()).collect(),
-                ))
+                .header(self.cookie_jar.as_request_cookie())
                 .header(content_type)
                 .send()?
         };
@@ -178,15 +167,30 @@ impl ScrapingSession {
             self.cookie_jar.add(Cookie::parse(cookie.to_string())?);
         }
 
-        if *response.status() == expected_status {
+        if response.status() == expected_status {
             println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
             Ok(response)
         } else {
             println_decorated!(Attr::Bold, Some(color::RED), "{}", response.status());
             bail!(ServiceErrorKind::UnexpectedHttpCode(
                 expected_status,
-                *response.status(),
+                response.status(),
             ))
         }
+    }
+}
+
+
+trait AsRequestCookie {
+    fn as_request_cookie(&self) -> RequestCookie;
+}
+
+impl AsRequestCookie for CookieJar {
+    fn as_request_cookie(&self) -> RequestCookie {
+        let mut request_cookie = RequestCookie::new();
+        for cookie in self.iter() {
+            request_cookie.append(cookie.name().to_owned(), cookie.value().to_owned());
+        }
+        request_cookie
     }
 }
