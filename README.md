@@ -4,7 +4,7 @@ Tools for online programming contests.
 
 Works on
 - [x] Linux
-- [x] Windows (Use winpty when you input Username and Password if you are using mintty.)
+- [x] Windows (If you are using mintty, use winpty when you login.)
 - [ ] OS X (Probably works.)
 
 ## Instrallation
@@ -29,9 +29,9 @@ $ snowchains judge <path-to-test-file> <path-to-target> [args]...
 ### Rust (Cargo)
 
 ```console
-$ $EDITOR <crate-root>/src/bin/<problem-name>.rs                   # target
-$ $EDITOR <crate-root>/<some-directory>/<problem-name>.[toml|json] # test cases
-$ snowchains judge-cargo <some-directory>/<problem-name>.[toml|json] <problem-name>
+$ $EDITOR <crate-root>/src/bin/<problem-name>.rs                  # target
+$ $EDITOR <crate-root>/snowchains/<problem-name>.[toml|yaml|json] # test cases
+$ snowchains judge-cargo snowchains/<problem-name>.[toml|yaml|json] <problem-name>
 ```
 
 ## Test cases
@@ -63,12 +63,23 @@ timeout = 2000
 # * Array of [Integer|Float|String] (in TOML, arrays cannot contain different types of data)
 
 [[cases]]
-expected = '6 test'
-input = '1\n2 3\ntest'
+expected = "6 test"
+input = "1\n2 3\ntest"
 
 [[cases]]
 expected = ['456 myonmyon']
 input = ['72', '128 256', 'myonmyon']
+```
+
+#### YAML
+```yaml
+timeout: 2000
+
+cases:
+  - expected: "6 test"
+    input: "1\n2 3\ntest"
+  - expected: ['456 myonmyon']
+    input: [72, '128 256', 'myonmyon']
 ```
 
 #### JSON
