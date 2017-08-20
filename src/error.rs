@@ -37,6 +37,10 @@ error_chain! {
         ServiceError, ServiceErrorKind, ServiceResultExt, ServiceResult;
     }
 
+    links {
+        TestCase(TestCaseError, TestCaseErrorKind);
+    }
+
     foreign_links {
         Reqwest(reqwest::Error);
         Url(UrlError);
@@ -65,11 +69,12 @@ error_chain! {
         JudgeError, JudgeErrorKind, JudgeResultExt, JudgeResult;
     }
 
+    links {
+        TestCase(TestCaseError, TestCaseErrorKind);
+    }
+
     foreign_links {
         Io(io::Error);
-        SerdeJson(serde_json::Error);
-        TomlSerialization(toml::ser::Error);
-        TomlDeserialization(toml::de::Error);
     }
 
     errors {
@@ -83,14 +88,30 @@ error_chain! {
                 display("Build failed")
         }
 
-        UnsupportedExtension(extension: String) {
-            description("Unsupported extension")
-                display("Unsupported extension: \"{}\"", extension)
-        }
-
         TestFailed(n: usize) {
             description("Test faild")
                 display("{} Test{} failed", n, if *n > 0 { "s" } else { "" })
+        }
+    }
+}
+
+
+error_chain! {
+    types {
+        TestCaseError, TestCaseErrorKind, TestCaseResultExt, TestCaseResult;
+    }
+
+    foreign_links {
+        Io(io::Error);
+        SerdeJson(serde_json::Error);
+        TomlSerialization(toml::ser::Error);
+        TomlDeserialization(toml::de::Error);
+    }
+
+    errors {
+        UnsupportedExtension(extension: String) {
+            description("Unsupported extension")
+                display("Unsupported extension: \"{}\"", extension)
         }
     }
 }

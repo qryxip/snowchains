@@ -100,10 +100,7 @@ impl AtCoder {
                     let mut pathbuf = PathBuf::from(path_to_save);
                     pathbuf.push(alphabet.to_lowercase());
                     pathbuf.set_extension(extension);
-                    if let Err(e) = cases.save(&pathbuf) {
-                        eprintln!("{:?}", e);
-                        unimplemented!();
-                    }
+                    cases.save(&pathbuf)?;
                     println!("Task {}: saved to {:?}", alphabet, pathbuf);
                 }
                 Err(ServiceError(ServiceErrorKind::ScrapingFailed, _)) => {

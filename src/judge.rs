@@ -1,4 +1,4 @@
-use super::error::{JudgeErrorKind, JudgeResult};
+use super::error::{JudgeErrorKind, JudgeResult, TestCaseErrorKind, TestCaseResult};
 use super::util::UnwrapAsRefMut;
 use serde_json;
 use std::convert::From;
@@ -119,31 +119,39 @@ impl Cases {
         }
     }
 
-    pub fn load(path: &Path) -> JudgeResult<Self> {
+    pub fn load(path: &Path) -> TestCaseResult<Self> {
         let mut file = File::open(path)?;
         let mut buf = String::new();
         file.read_to_string(&mut buf)?;
         match path.extension() {
             Some(ref ext) if *ext == "json" => Ok(serde_json::from_str(&buf)?),
             Some(ref ext) if *ext == "toml" => Ok(toml::from_str(&buf)?),
-            Some(ref ext) => bail!(JudgeErrorKind::UnsupportedExtension(format!("{:?}", ext))),
+            Some(ref ext) => {
+                bail!(TestCaseErrorKind::UnsupportedExtension(
+                    format!("{:?}", ext),
+                ))
+            }
             _ => {
-                bail!(JudgeErrorKind::UnsupportedExtension(
+                bail!(TestCaseErrorKind::UnsupportedExtension(
                     format!("no extension"),
                 ))
             }
         }
     }
 
-    pub fn save(&self, path: &Path) -> JudgeResult<()> {
+    pub fn save(&self, path: &Path) -> TestCaseResult<()> {
         fs::create_dir_all(path.parent().unwrap())?;
         let mut file = File::create(path)?;
         let serialized = match path.extension() {
             Some(ref ext) if *ext == "json" => serde_json::to_string(self)?,
             Some(ref ext) if *ext == "toml" => toml::to_string(self)?,
-            Some(ref ext) => bail!(JudgeErrorKind::UnsupportedExtension(format!("{:?}", ext))),
+            Some(ref ext) => {
+                bail!(TestCaseErrorKind::UnsupportedExtension(
+                    format!("{:?}", ext),
+                ))
+            }
             _ => {
-                bail!(JudgeErrorKind::UnsupportedExtension(
+                bail!(TestCaseErrorKind::UnsupportedExtension(
                     format!("no extension"),
                 ))
             }
