@@ -3,6 +3,7 @@ use error_chain::ChainedError;
 use reqwest::{self, StatusCode, UrlError};
 use serde_json;
 use serde_urlencoded;
+use serde_yaml;
 use std::io;
 use std::process;
 use term::{Attr, color};
@@ -104,6 +105,7 @@ error_chain! {
     foreign_links {
         Io(io::Error);
         SerdeJson(serde_json::Error);
+        SerdeYaml(serde_yaml::Error);
         TomlSerialization(toml::ser::Error);
         TomlDeserialization(toml::de::Error);
     }

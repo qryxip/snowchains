@@ -9,6 +9,7 @@ extern crate rprompt;
 extern crate serde;
 extern crate serde_json;
 extern crate serde_urlencoded;
+extern crate serde_yaml;
 extern crate term;
 extern crate toml;
 #[macro_use]

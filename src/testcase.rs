@@ -1,5 +1,6 @@
 use super::error::{TestCaseErrorKind, TestCaseResult};
 use serde_json;
+use serde_yaml;
 use std::fmt::{self, Display, Formatter};
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -48,6 +49,7 @@ impl Cases {
         match path.extension() {
             Some(ref ext) if *ext == "json" => Ok(serde_json::from_str(&buf)?),
             Some(ref ext) if *ext == "toml" => Ok(toml::from_str(&buf)?),
+            Some(ref ext) if *ext == "yaml" || *ext == "yml" => Ok(serde_yaml::from_str(&buf)?),
             Some(ref ext) => {
                 bail!(TestCaseErrorKind::UnsupportedExtension(
                     format!("{:?}", ext),
