@@ -1,9 +1,8 @@
-use super::error::{JudgeErrorKind, JudgeResult, TestCaseErrorKind, TestCaseResult};
+use super::error::{JudgeErrorKind, JudgeResult};
+use super::testcase::{Case, Cases};
 use super::util::UnwrapAsRefMut;
-use serde_json;
 use std::convert::From;
-use std::fmt::{self, Debug, Display, Formatter};
-use std::fs::{self, File};
+use std::fmt::{self, Debug, Formatter};
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
@@ -11,12 +10,92 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 use term::{Attr, color};
-use toml;
 
 
-pub fn judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
-    let cases = Cases::load(Path::new(cases))?;
-    cases.judge_all(Path::new(target), args)
+pub fn run_judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
+    let (cases, target) = (Cases::load(Path::new(cases))?, Path::new(target));
+    judge_all(cases, target, args)
+}
+
+
+pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> {
+    fn judge(case: Case, program: String, args: Vec<String>, timeout: u64) -> JudgeOutput {
+        fn run_program(case: Case, program: String, args: Vec<String>) -> JudgeOutput {
+            fn go(case: Case, program: String, args: Vec<String>) -> io::Result<JudgeOutput> {
+                let (expected, input) = case.into();
+                let mut child = Command::new(program)
+                    .args(args)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?;
+                let start = Instant::now();
+                child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
+
+                let status = child.wait()?;
+                let t = {
+                    let t = start.elapsed();
+                    (1000000000 * t.as_secs() + t.subsec_nanos() as u64) / 1000000
+                };
+                let (stdout, stderr) = {
+                    let (mut stdout, mut stderr) = (String::new(), String::new());
+                    child.stdout.unwrap().read_to_string(&mut stdout)?;
+                    child.stderr.unwrap().read_to_string(&mut stderr)?;
+                    (stdout, stderr)
+                };
+
+                if status.success() && expected == stdout {
+                    Ok(JudgeOutput::Ac(t))
+                } else if status.success() {
+                    Ok(JudgeOutput::Wa(t, expected, stdout))
+                } else {
+                    Ok(JudgeOutput::Re(status, stderr))
+                }
+            }
+
+            go(case, program, args).into()
+        }
+
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(run_program(case, program, args));
+        });
+        match rx.recv_timeout(Duration::from_millis(timeout + 50)) {
+            Ok(JudgeOutput::Ac(t)) if t > timeout => JudgeOutput::Tle(timeout),
+            Ok(output) => output,
+            Err(_) => JudgeOutput::Tle(timeout),
+        }
+    }
+
+    let (timeout, num_tests) = (cases.timeout(), cases.num_cases());
+    let suf = if num_tests > 1 { "s" } else { "" };
+    let mut failures = vec![];
+
+    println!("\nRunning {} test{}...", num_tests, suf);
+    for (i, case) in cases.into_cases().into_iter().enumerate() {
+        let target = match target.to_str() {
+            Some(s) => s.to_owned(),
+            None => bail!(io::Error::from(io::ErrorKind::InvalidInput)),
+        };
+        let args = args.iter().map(|&arg| arg.into()).collect();
+        let output = judge(case, target, args, timeout);
+        output.print_title(i, num_tests);
+        match output {
+            JudgeOutput::Ac(_) => {}
+            failure => failures.push((i, failure)),
+        }
+    }
+
+    if failures.is_empty() {
+        Ok(println!("All of the {} test{} passed.", num_tests, suf))
+    } else {
+        for &(i, ref failure) in &failures {
+            println!("");
+            failure.print_title(i, num_tests);
+            failure.print_failure_detail();
+        }
+        bail!(JudgeErrorKind::TestFailed(failures.len()))
+    }
 }
 
 
@@ -92,214 +171,6 @@ impl JudgeOutput {
             JudgeOutput::UnexpectedIoError(ref e) => {
                 writeln_error_trimming_last_newline(&format!("{}", e));
             }
-        }
-    }
-}
-
-
-#[derive(Serialize, Deserialize)]
-pub struct Cases {
-    timeout: u64,
-    cases: Vec<Case>,
-}
-
-impl Cases {
-    pub fn from_text(timeout: u64, cases: Vec<(String, String)>) -> Self {
-        Self {
-            timeout: timeout,
-            cases: cases
-                .into_iter()
-                .map(|(expected, input)| {
-                    Case {
-                        expected: NonNestedValue::NonArray(NonArrayValue::String(expected)),
-                        input: NonNestedValue::NonArray(NonArrayValue::String(input)),
-                    }
-                })
-                .collect(),
-        }
-    }
-
-    pub fn load(path: &Path) -> TestCaseResult<Self> {
-        let mut file = File::open(path)?;
-        let mut buf = String::new();
-        file.read_to_string(&mut buf)?;
-        match path.extension() {
-            Some(ref ext) if *ext == "json" => Ok(serde_json::from_str(&buf)?),
-            Some(ref ext) if *ext == "toml" => Ok(toml::from_str(&buf)?),
-            Some(ref ext) => {
-                bail!(TestCaseErrorKind::UnsupportedExtension(
-                    format!("{:?}", ext),
-                ))
-            }
-            _ => {
-                bail!(TestCaseErrorKind::UnsupportedExtension(
-                    format!("no extension"),
-                ))
-            }
-        }
-    }
-
-    pub fn save(&self, path: &Path) -> TestCaseResult<()> {
-        fs::create_dir_all(path.parent().unwrap())?;
-        let mut file = File::create(path)?;
-        let serialized = match path.extension() {
-            Some(ref ext) if *ext == "json" => serde_json::to_string(self)?,
-            Some(ref ext) if *ext == "toml" => toml::to_string(self)?,
-            Some(ref ext) => {
-                bail!(TestCaseErrorKind::UnsupportedExtension(
-                    format!("{:?}", ext),
-                ))
-            }
-            _ => {
-                bail!(TestCaseErrorKind::UnsupportedExtension(
-                    format!("no extension"),
-                ))
-            }
-        };
-        Ok(file.write_all(serialized.as_bytes())?)
-    }
-
-    pub fn judge_all(self, target: &Path, args: &[&str]) -> JudgeResult<()> {
-        let timeout = self.timeout;
-        let num_tests = self.cases.len();
-        let suf = if num_tests > 1 { "s" } else { "" };
-        let mut failures = vec![];
-
-        println!("\nRunning {} test{}...", num_tests, suf);
-        for (i, case) in self.cases.into_iter().enumerate() {
-            let target = match target.to_str() {
-                Some(s) => s.to_owned(),
-                None => bail!(io::Error::from(io::ErrorKind::InvalidInput)),
-            };
-            let args = args.iter().map(|&arg| arg.into()).collect();
-            let output = case.judge(target, args, timeout);
-            output.print_title(i, num_tests);
-            match output {
-                JudgeOutput::Ac(_) => {}
-                failure => failures.push((i, failure)),
-            }
-        }
-
-        if failures.is_empty() {
-            Ok(println!("All of the {} test{} passed.", num_tests, suf))
-        } else {
-            for &(i, ref failure) in &failures {
-                println!("");
-                failure.print_title(i, num_tests);
-                failure.print_failure_detail();
-            }
-            bail!(JudgeErrorKind::TestFailed(failures.len()))
-        }
-    }
-}
-
-
-#[derive(Serialize, Deserialize)]
-struct Case {
-    expected: NonNestedValue,
-    input: NonNestedValue,
-}
-
-impl Case {
-    fn judge(self, program: String, args: Vec<String>, timeout: u64) -> JudgeOutput {
-        fn run_program(case: Case, program: String, args: Vec<String>) -> JudgeOutput {
-            fn go(case: Case, program: String, args: Vec<String>) -> io::Result<JudgeOutput> {
-                let input: String = case.input.into();
-                let expected: String = case.expected.into();
-                let mut child = Command::new(program)
-                    .args(args)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?;
-                let start = Instant::now();
-                child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
-
-                let status = child.wait()?;
-                let t = {
-                    let t = start.elapsed();
-                    (1000000000 * t.as_secs() + t.subsec_nanos() as u64) / 1000000
-                };
-                let (stdout, stderr) = {
-                    let (mut stdout, mut stderr) = (String::new(), String::new());
-                    child.stdout.unwrap().read_to_string(&mut stdout)?;
-                    child.stderr.unwrap().read_to_string(&mut stderr)?;
-                    (stdout, stderr)
-                };
-
-                if status.success() && expected == stdout {
-                    Ok(JudgeOutput::Ac(t))
-                } else if status.success() {
-                    Ok(JudgeOutput::Wa(t, expected, stdout))
-                } else {
-                    Ok(JudgeOutput::Re(status, stderr))
-                }
-            }
-
-            go(case, program, args).into()
-        }
-
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            let _ = tx.send(run_program(self, program, args));
-        });
-        match rx.recv_timeout(Duration::from_millis(timeout + 50)) {
-            Ok(JudgeOutput::Ac(t)) if t > timeout => JudgeOutput::Tle(timeout),
-            Ok(output) => output,
-            Err(_) => JudgeOutput::Tle(timeout),
-        }
-    }
-}
-
-
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-enum NonNestedValue {
-    Array(Vec<NonArrayValue>),
-    NonArray(NonArrayValue),
-}
-
-impl Into<String> for NonNestedValue {
-    fn into(self) -> String {
-        use std::fmt::Write;
-
-        fn as_lines<T: Display>(a: &[T]) -> String {
-            let mut result = String::new();
-            for x in a {
-                writeln!(result, "{}", x).unwrap();
-            }
-            result
-        }
-
-        match self {
-            NonNestedValue::Array(a) => as_lines(&a),
-            NonNestedValue::NonArray(NonArrayValue::Integer(n)) => format!("{}\n", n),
-            NonNestedValue::NonArray(NonArrayValue::Float(v)) => format!("{}\n", v),
-            NonNestedValue::NonArray(NonArrayValue::String(mut s)) => {
-                if s.chars().last() != Some('\n') {
-                    s.push('\n');
-                }
-                s
-            }
-        }
-    }
-}
-
-
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-enum NonArrayValue {
-    Integer(i64),
-    Float(f64),
-    String(String),
-}
-
-impl Display for NonArrayValue {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match *self {
-            NonArrayValue::Integer(n) => write!(f, "{}", n),
-            NonArrayValue::Float(v) => write!(f, "{}", v),
-            NonArrayValue::String(ref s) => write!(f, "{}", s),
         }
     }
 }

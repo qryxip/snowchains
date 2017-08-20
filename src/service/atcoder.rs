@@ -1,6 +1,6 @@
 use super::scraping_session::ScrapingSession;
 use super::super::error::{ServiceError, ServiceErrorKind, ServiceResult};
-use super::super::judge::Cases;
+use super::super::testcase::Cases;
 use html5ever;
 use html5ever::rcdom::{Handle, NodeData, RcDom};
 use html5ever::tendril::TendrilSink;

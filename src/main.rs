@@ -25,6 +25,7 @@ mod cargo;
 mod error;
 mod judge;
 mod service;
+mod testcase;
 mod util;
 
 use self::error::OrExit1;
@@ -125,7 +126,7 @@ fn main() {
         let cases = matches.value_of("cases").unwrap();
         let target = matches.value_of("target").unwrap();
         let args = matches.values_of("args").into_str_vec();
-        return judge::judge(cases, target, &args).or_exit1();
+        return judge::run_judge(cases, target, &args).or_exit1();
     } else if let Some(matches) = matches.subcommand_matches("judge-cargo") {
         let cases = matches.value_of("cases").unwrap();
         let target = matches.value_of("target").unwrap();

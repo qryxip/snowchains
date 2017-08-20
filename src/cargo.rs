@@ -1,5 +1,6 @@
 use super::error::{JudgeErrorKind, JudgeResult};
-use super::judge::Cases;
+use super::judge;
+use super::testcase::Cases;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,7 +10,7 @@ use std::process::Command;
 pub fn judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
     cargo_build_release()?;
     let cases = Cases::load(&cases_path(cases)?)?;
-    cases.judge_all(target_path(target)?.as_path(), args)
+    judge::judge_all(cases, target_path(target)?.as_path(), args)
 }
 
 
