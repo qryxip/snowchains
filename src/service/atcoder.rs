@@ -6,8 +6,6 @@ use html5ever::rcdom::{Handle, NodeData, RcDom};
 use html5ever::tendril::TendrilSink;
 use regex::Regex;
 use reqwest::StatusCode;
-use rpassword;
-use rprompt;
 use std::default::Default;
 use std::io::{self, Read};
 use std::ops::{Deref, DerefMut};
@@ -124,9 +122,8 @@ impl AtCoder {
             password: String,
         }
 
-        fn post_data() -> io::Result<PostData> {
-            let user_id = rprompt::prompt_reply_stderr("User ID: ")?;
-            let password = rpassword::prompt_password_stderr("Password: ")?;
+        fn post_data() -> ServiceResult<PostData> {
+            let (user_id, password) = super::read_username_and_password("User ID")?;
             Ok(PostData {
                 name: user_id,
                 password: password,
