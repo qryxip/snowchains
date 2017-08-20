@@ -2,6 +2,11 @@
 
 Tools for online programming contests.
 
+Works on
+- [x] Linux
+- [x] Windows (Use winpty when you input Username and Password if you are using mintty.)
+- [ ] OS X (Probably works.)
+
 ## Instrallation
 
 Install [Cargo](https://github.com/rust-lang/cargo) with
@@ -17,7 +22,7 @@ $ cargo install --git https://github.com/wariuni/snowchains
 ```console
 $ snowchains login <service>
 $ snowchains participate <contest>
-$ snowchains download <service> <contest> <some-directory>
+$ snowchains download <service> <contest> <directory-to-save-test-cases>
 $ snowchains judge <path-to-test-file> <path-to-target> [args]...
 ```
 
