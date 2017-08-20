@@ -69,6 +69,7 @@ impl Cases {
         let serialized = match path.extension() {
             Some(ref ext) if *ext == "json" => serde_json::to_string(self)?,
             Some(ref ext) if *ext == "toml" => toml::to_string(self)?,
+            Some(ref ext) if *ext == "yaml" || *ext == "yml" => serde_yaml::to_string(self)?,
             Some(ref ext) => {
                 bail!(TestCaseErrorKind::UnsupportedExtension(
                     format!("{:?}", ext),

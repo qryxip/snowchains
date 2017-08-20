@@ -22,7 +22,8 @@ $ cargo install --git https://github.com/wariuni/snowchains
 ```console
 $ snowchains login <service>
 $ snowchains participate <contest>
-$ snowchains download <service> <contest> <directory-to-save-test-cases>
+$ snowchains download <service> <contest> <directory-to-save-test-files> -e <extension>
+$ $EDITOR <path-to-test-file> # Add more test cases
 $ snowchains judge <path-to-test-file> <path-to-target> [args]...
 ```
 

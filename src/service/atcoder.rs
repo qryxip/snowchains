@@ -33,11 +33,7 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
 }
 
 
-pub fn download(
-    contest_name: &str,
-    path_to_save: &Path,
-    extension: &'static str,
-) -> ServiceResult<()> {
+pub fn download(contest_name: &str, path_to_save: &Path, extension: &str) -> ServiceResult<()> {
     let mut atcoder = AtCoder::load_or_login()?;
     atcoder.download_all_tasks(contest_name, path_to_save, extension)
 }
@@ -85,7 +81,7 @@ impl AtCoder {
         &mut self,
         contest_name: &str,
         path_to_save: &Path,
-        extension: &'static str,
+        extension: &str,
     ) -> ServiceResult<()> {
         let names_and_pathes = {
             let url = format!("http://{}.contest.atcoder.jp/assignments", contest_name);

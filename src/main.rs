@@ -62,7 +62,14 @@ fn main() {
                 .required(true),
         )
         .arg(Arg::with_name("contest").required(true))
-        .arg(Arg::with_name("path").required(true));
+        .arg(Arg::with_name("path").required(true))
+        .arg(
+            Arg::with_name("extension")
+                .short("e")
+                .long("extension")
+                .possible_values(&["json", "toml", "yaml", "yml"])
+                .default_value("toml"),
+        );
 
     let subcommand_judge = SubCommand::with_name("judge")
         .version(crate_version!())
@@ -120,8 +127,9 @@ fn main() {
     } else if let Some(matches) = matches.subcommand_matches("download") {
         let contest = matches.value_of("contest").unwrap();
         let path = Path::new(matches.value_of("path").unwrap());
+        let extension = matches.value_of("extension").unwrap();
         if matches.value_of("service") == Some("atcoder") {
-            return atcoder::download(contest, &path, "toml").or_exit1();
+            return atcoder::download(contest, &path, extension).or_exit1();
         }
     } else if let Some(matches) = matches.subcommand_matches("judge") {
         let cases = matches.value_of("cases").unwrap();
