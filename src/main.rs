@@ -1,11 +1,11 @@
 #![recursion_limit = "1024"]
 
 extern crate cookie;
-extern crate html5ever;
 extern crate regex;
 extern crate reqwest;
 extern crate rpassword;
 extern crate rprompt;
+extern crate select;
 extern crate serde;
 extern crate serde_json;
 extern crate serde_urlencoded;

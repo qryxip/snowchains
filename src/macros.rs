@@ -1,3 +1,22 @@
+macro_rules! try_opt {
+    ($option: expr) => {
+        match $option {
+            Some(x) => x,
+            None => return None,
+        }
+    }
+}
+
+
+macro_rules! return_none_unless {
+    ($x: expr) => {
+        if !$x {
+            return None;
+        }
+    }
+}
+
+
 macro_rules! print_and_flush {
     ($format: tt$(, $x: expr)*) => {
         {

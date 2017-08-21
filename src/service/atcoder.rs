@@ -1,16 +1,15 @@
 use super::scraping_session::ScrapingSession;
-use super::super::error::{ServiceError, ServiceErrorKind, ServiceResult};
+use super::super::error::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
 use super::super::testcase::Cases;
-use html5ever;
-use html5ever::rcdom::{Handle, NodeData, RcDom};
-use html5ever::tendril::TendrilSink;
 use regex::Regex;
 use reqwest::StatusCode;
-use std::default::Default;
+use select::document::Document;
+use select::node::Node;
+use select::predicate::{Attr as HtmlAttr, Class, Name, Predicate, Text};
 use std::io::{self, Read};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use term::{Attr, color};
+use term::{Attr as TermAttr, color};
 
 
 pub fn login() -> ServiceResult<()> {
@@ -23,6 +22,7 @@ pub fn login() -> ServiceResult<()> {
         if verify(&mut session) {
             return Ok(println!("Already signed in."));
         }
+
     }
     AtCoder::login_and_save().map(|_| ())
 }
@@ -85,13 +85,13 @@ impl AtCoder {
     ) -> ServiceResult<()> {
         let names_and_pathes = {
             let url = format!("http://{}.contest.atcoder.jp/assignments", contest_name);
-            let mut response = self.http_get(&url)?;
-            extract_names_and_pathes(&mut response)?
+            extract_names_and_pathes(self.http_get(&url)?).chain_err(
+                || "Probably 404",
+            )?
         };
         for (alphabet, path) in names_and_pathes {
             let url = format!("http://{}.contest.atcoder.jp{}", contest_name, path);
-            let mut response = self.http_get(&url)?;
-            match extract_cases(&mut response) {
+            match extract_cases(self.http_get(&url)?) {
                 Ok(cases) => {
                     let mut pathbuf = PathBuf::from(path_to_save);
                     pathbuf.push(alphabet.to_lowercase());
@@ -127,7 +127,7 @@ impl AtCoder {
         let mut session = ScrapingSession::new();
         session.http_get(URL)?;
         while let Err(e) = session.http_post_urlencoded(URL, post_data()?, StatusCode::Found) {
-            eprint_decorated!(Attr::Bold, Some(color::RED), "error: ");
+            eprint_decorated!(TermAttr::Bold, Some(color::RED), "error: ");
             eprintln!("{:?}", e);
             println!("Failed to sign in. try again.")
         }
@@ -149,210 +149,77 @@ impl AtCoder {
 }
 
 
-macro_rules! matched_tags {
-    ($handle: ident, $tag_name: expr, $class_name: expr) => {
-        $handle.children.borrow().iter()
-            .filter(|child| is_certain_tag(&child.data, $tag_name, $class_name))
-    }
-}
-
-macro_rules! find_certain_tag {
-    ($handle: ident, $tag_name: expr, $class_name: expr) => {
-        $handle.children.borrow().iter()
-            .find(|child| is_certain_tag(&child.data, $tag_name, $class_name))
-    }
-}
-
-macro_rules! find_by_id {
-    ($handle: ident, $id: expr) => {
-        $handle.children.borrow().iter().find(|child| is_certain_id(&child.data, $id))
-    }
-}
-
-
-fn extract_names_and_pathes<R: Read>(html: &mut R) -> ServiceResult<Vec<(String, String)>> {
-    fn extract(handle: &Handle) -> Option<(String, String)> {
-        if let NodeData::Element {
-            ref name,
-            ref attrs,
-            ..
-        } = handle.data
-        {
-            if format!("{}", name.local) == "a" {
-                for attr in attrs.borrow().iter() {
-                    if format!("{}", attr.name.local) == "href" {
-                        let url = format!("{}", attr.value);
-                        if let Some(handle) = handle.children.borrow().iter().next() {
-                            let ref node = handle.data;
-                            if let NodeData::Text { ref contents } = *node {
-                                let contents = contents
-                                    .borrow()
-                                    .chars()
-                                    .flat_map(|c| c.escape_default())
-                                    .collect();
-                                return Some((contents, url));
-                            }
-                        }
-                    }
-                }
-            }
+fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, String)>> {
+    fn extract_names_and_pathes(document: Document) -> Option<Vec<(String, String)>> {
+        let mut names_and_pathes = vec![];
+        let predicate = HtmlAttr("id", "outer-inner")
+            .child(Name("table"))
+            .child(Name("tbody"))
+            .child(Name("tr"));
+        for node in document.find(predicate) {
+            let node = try_opt!(node.find(Name("td")).next());
+            let node = try_opt!(node.find(Name("a")).next());
+            let url = try_opt!(node.attr("href")).to_owned();
+            let text = try_opt!(node.find(Text).next()).text();
+            names_and_pathes.push((text, url));
         }
-        None
+        Some(names_and_pathes)
     }
 
-    let handle = html5ever::parse_document(RcDom::default(), Default::default())
-        .from_utf8()
-        .read_from(html)?
-        .document;
-    if let Some(handle) = find_certain_tag!(handle, "html", None) {
-        if let Some(handle) = find_certain_tag!(handle, "body", None) {
-            if let Some(handle) = find_by_id!(handle, "outer-inner") {
-                if let Some(handle) = find_certain_tag!(handle, "table", None) {
-                    if let Some(handle) = find_certain_tag!(handle, "tbody", None) {
-                        let mut result = Vec::new();
-                        for handle in matched_tags!(handle, "tr", None) {
-                            if let Some(handle) = find_certain_tag!(handle, "td", None) {
-                                if let Some(handle) = find_certain_tag!(handle, "a", None) {
-                                    if let Some(name_and_url) = extract(handle) {
-                                        result.push(name_and_url);
-                                    }
-                                }
-                            }
-                        }
-                        return Ok(result);
-                    }
-                }
-            }
+    if let Some(names_and_pathes) = extract_names_and_pathes(Document::from_read(html)?) {
+        if !names_and_pathes.is_empty() {
+            return Ok(names_and_pathes);
         }
     }
-    bail!(ServiceErrorKind::ScrapingFailed)
+    bail!(ServiceErrorKind::ScrapingFailed);
 }
 
 
-fn extract_cases<R: Read>(html: &mut R) -> ServiceResult<Cases> {
-    fn extract_timelimit_as_millis(outer_inner_handle: &Handle) -> ServiceResult<u64> {
-        let re_timelimit = Regex::new("\\D*([0-9]+)sec.*").unwrap();
-        for handle in matched_tags!(outer_inner_handle, "p", None) {
-            for handle in handle.children.borrow().iter() {
-                if let NodeData::Text { ref contents } = handle.data {
-                    if let Some(caps) = re_timelimit.captures(&contents.borrow()) {
-                        return Ok(1000 * caps[1].parse::<u64>().unwrap());
-                    }
-                }
+fn extract_cases<R: Read>(html: R) -> ServiceResult<Cases> {
+    fn try_extracting_sample(section_node: Node, regex: &Regex) -> Option<String> {
+        let title = try_opt!(section_node.find(Name("h3")).next()).text();
+        let sample = try_opt!(section_node.find(Name("pre")).next()).text();
+        return_none_unless!(regex.is_match(&title));
+        Some(sample)
+    }
+
+    fn extract_cases(document: Document) -> Option<Cases> {
+        let timelimit = {
+            let re_timelimit = Regex::new("\\D*([0-9]+)sec.*").unwrap();
+            let predicate = HtmlAttr("id", "outer-inner").child(Name("p")).child(Text);
+            let text = try_opt!(document.find(predicate).nth(0)).text();
+            let caps = try_opt!(re_timelimit.captures(&text));
+            1000 * caps[1].parse::<u64>().unwrap()
+        };
+        let samples = {
+            let re_input = Regex::new("^入力例 ([0-9]+)$").unwrap();
+            let re_output = Regex::new("^出力例 ([0-9]+)$").unwrap();
+            let predicate = HtmlAttr("id", "task-statement")
+                .child(Class("lang"))
+                .child(Class("lang-ja"))
+                .child(Class("part"))
+                .child(Name("section"));
+            let (mut samples, mut input_sample) = (vec![], None);
+            for node in document.find(predicate) {
+                input_sample = if let Some(input_sample) = input_sample {
+                    let output_sample = try_opt!(try_extracting_sample(node, &re_output));
+                    samples.push((output_sample, input_sample));
+                    None
+                } else if let Some(input_sample) = try_extracting_sample(node, &re_input) {
+                    Some(input_sample)
+                } else {
+                    None
+                };
             }
-        }
-        bail!(ServiceErrorKind::ScrapingFailed)
+            samples
+        };
+        Some(Cases::from_text(timelimit, samples))
     }
 
-    fn extract_samples(span_handle: &Handle) -> Vec<(String, String)> {
-        fn extract_from_section(section_handle: &Handle) -> Option<String> {
-            if let Some(handle) = find_certain_tag!(section_handle, "pre", None) {
-                for handle in handle.children.borrow().iter() {
-                    if let NodeData::Text { ref contents } = handle.data {
-                        return Some(format!("{}", *contents.borrow()));
-                    }
-                }
-            }
-            None
-        }
-
-        let re_input = Regex::new("^入力例 ([0-9]+)$").unwrap();
-        let re_output = Regex::new("^出力例 ([0-9]+)$").unwrap();
-        let (mut expected, mut input) = (Vec::new(), Vec::new());
-        for handle in matched_tags!(span_handle, "div", Some("part")) {
-            if let Some(handle) = find_certain_tag!(handle, "section", None) {
-                if let Some(h3_handle) = find_certain_tag!(handle, "h3", None) {
-                    if let Some(h3_contents_handle) = h3_handle.children.borrow().iter().next() {
-                        if let NodeData::Text { ref contents } = h3_contents_handle.data {
-                            if let Some(_) = re_input.captures(&contents.borrow()) {
-                                if let Some(text) = extract_from_section(&handle) {
-                                    input.push(text);
-                                }
-                            } else if let Some(_) = re_output.captures(&contents.borrow()) {
-                                if let Some(text) = extract_from_section(&handle) {
-                                    expected.push(text);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        expected.into_iter().zip(input.into_iter()).collect()
-    }
-
-    let handle = html5ever::parse_document(RcDom::default(), Default::default())
-        .from_utf8()
-        .read_from(html)?
-        .document;
-    if let Some(child) = find_certain_tag!(handle, "html", None) {
-        for child in child.children.borrow().iter() {
-            if is_certain_tag(&child.data, "head", None) {
-                if let Some(child) = find_certain_tag!(child, "title", None) {
-                    for child in child.children.borrow().iter() {
-                        if let NodeData::Text { ref contents } = child.data {
-                            let re_404 = Regex::new("^.*404.*$").unwrap();
-                            if re_404.is_match(&contents.borrow()) {
-                                bail!(ServiceErrorKind::ScrapingFailed);
-                            }
-                        }
-                    }
-                }
-            } else if is_certain_tag(&child.data, "body", None) {
-                if let Some(child) = find_by_id!(child, "outer-inner") {
-                    let timeout = extract_timelimit_as_millis(&child)?;
-                    if let Some(child) = find_by_id!(child, "task-statement") {
-                        if let Some(child) = find_certain_tag!(child, "span", Some("lang")) {
-                            if let Some(child) = find_certain_tag!(child, "span", Some("lang-ja")) {
-                                let result = extract_samples(&child);
-                                return if result.is_empty() {
-                                    bail!(ServiceErrorKind::ScrapingFailed)
-                                } else {
-                                    Ok(Cases::from_text(timeout, result))
-                                };
-                            }
-                        }
-                    }
-                }
-            }
+    if let Some(cases) = extract_cases(Document::from_read(html)?) {
+        if cases.num_cases() > 0 {
+            return Ok(cases);
         }
     }
-    bail!(ServiceErrorKind::ScrapingFailed)
-}
-
-
-fn is_certain_tag(
-    node_data: &NodeData,
-    tag_name: &'static str,
-    class_name: Option<&'static str>,
-) -> bool {
-    if let NodeData::Element {
-        ref name,
-        ref attrs,
-        ..
-    } = *node_data
-    {
-        if format!("{}", name.local) == tag_name {
-            return match class_name {
-                Some(class_name) => {
-                    attrs.borrow().iter().any(|attr| {
-                        format!("{}", attr.name.local) == "class" &&
-                            format!("{}", attr.value) == class_name
-                    })
-                }
-                None => true,
-            };
-        }
-    }
-    false
-}
-
-
-fn is_certain_id(node_data: &NodeData, id: &'static str) -> bool {
-    if let NodeData::Element { name: _, ref attrs, .. } = *node_data {
-        return attrs.borrow().iter().any(|attr| {
-            format!("{}", attr.name.local) == "id" && format!("{}", attr.value) == id
-        });
-    }
-    false
+    bail!(ServiceErrorKind::ScrapingFailed);
 }

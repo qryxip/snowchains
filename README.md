@@ -39,7 +39,7 @@ $ snowchains judge-cargo snowchains/<problem-name>.[toml|yaml|json] <problem-nam
 
 ### Download
 
-- [x] AtCoder
+- [x] AtCoder (abcxxx, arcxxx, agcxxx, chokudai_sxxx)
 
 ```console
 $ snowchains login <service>
