@@ -14,7 +14,7 @@ pub fn judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
 }
 
 
-pub fn cases_path(problem: &str) -> JudgeResult<PathBuf> {
+fn cases_path(problem: &str) -> JudgeResult<PathBuf> {
     let mut path = crate_root()?;
     path.push(problem);
     Ok(path)

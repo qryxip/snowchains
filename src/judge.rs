@@ -99,7 +99,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
 }
 
 
-pub enum JudgeOutput {
+enum JudgeOutput {
     Ac(u64),
     Tle(u64),
     Wa(u64, String, String),
@@ -128,7 +128,7 @@ impl Debug for JudgeOutput {
 }
 
 impl JudgeOutput {
-    pub fn print_title(&self, i: usize, n: usize) {
+    fn print_title(&self, i: usize, n: usize) {
         for _ in 0..format!("{}", n).len() - format!("{}", i + 1).len() {
             print!(" ");
         }
@@ -144,7 +144,7 @@ impl JudgeOutput {
         println_decorated!(Attr::Bold, Some(color), "{:?}", self);
     }
 
-    pub fn print_failure_detail(&self) {
+    fn print_failure_detail(&self) {
         fn writeln_error_trimming_last_newline(s: &str) {
             if s.chars().last() == Some('\n') {
                 write!(io::stderr(), "{}", s).unwrap();
