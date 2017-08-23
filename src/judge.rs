@@ -25,7 +25,12 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
         args: Vec<String>,
         timelimit: u64,
     ) -> io::Result<JudgeOutput> {
-        fn run_program(case: Case, program: String, args: Vec<String>) -> io::Result<JudgeOutput> {
+        fn run_program(
+            case: Case,
+            timelimit: u64,
+            program: String,
+            args: Vec<String>,
+        ) -> io::Result<JudgeOutput> {
             let (expected, input) = case.into();
             let mut child = Command::new(program)
                 .args(args)
@@ -48,29 +53,35 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
                 (stdout, stderr)
             };
 
-            if status.success() && expected == stdout {
-                Ok(JudgeOutput::Ac(t))
+            if t > timelimit {
+                Ok(JudgeOutput::Tle(timelimit, input, expected))
+            } else if status.success() && expected == stdout {
+                Ok(JudgeOutput::Ac(t, input, stdout, stderr))
             } else if status.success() {
-                Ok(JudgeOutput::Wa(t, expected, stdout))
+                Ok(JudgeOutput::Wa(t, input, expected, stdout, stderr))
             } else {
-                Ok(JudgeOutput::Re(status, stderr))
+                Ok(JudgeOutput::Re(t, input, expected, stdout, stderr, status))
             }
         }
 
         let (tx, rx) = mpsc::channel();
+        let case_cloned = case.clone();
         thread::spawn(move || {
-            let _ = tx.send(run_program(case, program, args));
+            let _ = tx.send(run_program(case_cloned, timelimit, program, args));
         });
         match rx.recv_timeout(Duration::from_millis(timelimit + 50)) {
-            Ok(Ok(JudgeOutput::Ac(t))) if t > timelimit => Ok(JudgeOutput::Tle(timelimit)),
             Ok(output) => output,
-            Err(_) => Ok(JudgeOutput::Tle(timelimit)),
+            Err(_) => {
+                let (expected, input) = case.into();
+                Ok(JudgeOutput::Tle(timelimit, input, expected))
+            }
         }
     }
 
     let (timelimit, num_tests) = (cases.timelimit(), cases.num_cases());
     let suf = if num_tests > 1 { "s" } else { "" };
-    let mut failures = vec![];
+    let mut all_outputs = vec![];
+    let mut num_failures = 0;
 
     println!("\nRunning {} test{}...", num_tests, suf);
     for (i, case) in cases.into_cases().into_iter().enumerate() {
@@ -82,38 +93,45 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
         let output = judge(case, target, args, timelimit)?;
         output.print_title(i, num_tests);
         match output {
-            JudgeOutput::Ac(_) => {}
-            failure => failures.push((i, failure)),
+            JudgeOutput::Ac(..) => {}
+            _ => num_failures += 1,
         }
+        all_outputs.push(output);
     }
 
-    if failures.is_empty() {
-        Ok(println!("All of the {} test{} passed.", num_tests, suf))
+    if num_failures == 0 {
+        println!("All of the {} test{} passed.", num_tests, suf);
+        Ok(())
     } else {
-        for &(i, ref failure) in &failures {
-            println!("");
-            failure.print_title(i, num_tests);
-            failure.print_failure_detail();
+        for (i, output) in all_outputs.into_iter().enumerate() {
+            eprintln!("");
+            output.eprint_title(i, num_tests);
+            output.eprint_details();
         }
-        bail!(JudgeErrorKind::TestFailed(failures.len()))
+        bail!(JudgeErrorKind::TestFailed(num_failures))
     }
 }
 
 
 enum JudgeOutput {
-    Ac(u64),
-    Tle(u64),
-    Wa(u64, String, String),
-    Re(ExitStatus, String),
+    // (<elapsed>, <input>, <expected = stdout>, <stderr>)
+    Ac(u64, String, String, String),
+    // (<timelimit>, <input>, <expected>)
+    Tle(u64, String, String),
+    // (<elapsed>, <input>, <expected>, <stdout>, <stderr>)
+    Wa(u64, String, String, String, String),
+    // (<elapsed>, <input>, <expected>, <stdout>, <stderr>, <status>)
+    Re(u64, String, String, String, String, ExitStatus),
 }
+
 
 impl Debug for JudgeOutput {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
-            JudgeOutput::Ac(t) => write!(f, "AC ({}ms)", t),
-            JudgeOutput::Tle(t) => write!(f, "TLE ({}ms)", t),
-            JudgeOutput::Wa(t, _, _) => write!(f, "WA ({}ms)", t),
-            JudgeOutput::Re(status, _) => write!(f, "RE ({})", status),
+            JudgeOutput::Ac(t, ..) => write!(f, "AC ({}ms)", t),
+            JudgeOutput::Tle(t, ..) => write!(f, "TLE ({}ms)", t),
+            JudgeOutput::Wa(t, ..) => write!(f, "WA ({}ms)", t),
+            JudgeOutput::Re(t, .., status) => write!(f, "RE ({}, {}ms)", status, t),
         }
     }
 }
@@ -124,40 +142,73 @@ impl JudgeOutput {
             print!(" ");
         }
         print_decorated!(Attr::Bold, None, "{}/{} ", i + 1, n);
-
-        let color = match *self {
-            JudgeOutput::Ac(_) => color::GREEN,
-            JudgeOutput::Tle(_) => color::RED,
-            JudgeOutput::Wa(_, _, _) => color::YELLOW,
-            JudgeOutput::Re(_, _) => color::YELLOW,
-        };
-        println_decorated!(Attr::Bold, Some(color), "{:?}", self);
+        println_decorated!(Attr::Bold, Some(self.color()), "{:?}", self);
     }
 
-    fn print_failure_detail(&self) {
-        fn writeln_error_trimming_last_newline(s: &str) {
+    fn eprint_title(&self, i: usize, n: usize) {
+        for _ in 0..format!("{}", n).len() - format!("{}", i + 1).len() {
+            eprint!(" ");
+        }
+        eprint_decorated!(Attr::Bold, None, "{}/{} ", i + 1, n);
+        eprintln_decorated!(Attr::Bold, Some(self.color()), "{:?}", self);
+    }
+
+    fn eprint_details(&self) {
+        fn eprintln_trimming_last_newline(s: &str) {
             if s.chars().last() == Some('\n') {
-                write!(io::stderr(), "{}", s).unwrap();
-                io::stderr().flush().unwrap();
+                eprint_and_flush!("{}", s);
             } else {
-                writeln!(io::stderr(), "{}", s).unwrap();
+                eprintln!("{}", s);
+            }
+        }
+
+        fn eprint_section(head: &'static str, s: &str) {
+            eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "{}:", head);
+            if s.is_empty() {
+                eprintln_decorated!(Attr::Bold, Some(color::YELLOW), "EMPTY");
+            } else {
+                eprintln_trimming_last_newline(s);
+            }
+        }
+
+        fn eprint_section_unless_empty(head: &'static str, s: &str) {
+            if !s.is_empty() {
+                eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "{}:", head);
+                eprintln_trimming_last_newline(s);
             }
         }
 
         match *self {
-            JudgeOutput::Ac(_) => {}
-            JudgeOutput::Tle(t) => {
-                eprintln_decorated!(Attr::Bold, Some(color::RED), "Timelimit exceeded ({}ms)", t);
+            JudgeOutput::Ac(_, ref input, ref stdout, ref stderr) => {
+                eprint_section("input", input);
+                eprint_section("stdout", stdout);
+                eprint_section_unless_empty("stderr", stderr);
             }
-            JudgeOutput::Wa(_, ref expected, ref actual) => {
-                eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "expected:");
-                writeln_error_trimming_last_newline(expected);
-                eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "actual:");
-                writeln_error_trimming_last_newline(actual);
+            JudgeOutput::Tle(_, ref input, ref expected) => {
+                eprint_section("input", input);
+                eprint_section("expected", expected);
             }
-            JudgeOutput::Re(_, ref message) => {
-                writeln_error_trimming_last_newline(message);
+            JudgeOutput::Wa(_, ref input, ref expected, ref stdout, ref stderr) => {
+                eprint_section("input", input);
+                eprint_section("expected", expected);
+                eprint_section("stdout", stdout);
+                eprint_section_unless_empty("stderr", stderr);
             }
+            JudgeOutput::Re(_, ref input, ref expected, ref stdout, ref stderr, _) => {
+                eprint_section("input", input);
+                eprint_section("expected", expected);
+                eprint_section_unless_empty("stdout", stdout);
+                eprint_section("stderr", stderr);
+            }
+        }
+    }
+
+    fn color(&self) -> u16 {
+        match *self {
+            JudgeOutput::Ac(..) => color::GREEN,
+            JudgeOutput::Tle(..) => color::RED,
+            JudgeOutput::Wa(..) => color::YELLOW,
+            JudgeOutput::Re(..) => color::YELLOW,
         }
     }
 }

@@ -86,7 +86,7 @@ impl Cases {
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Case {
     expected: NonNestedValue,
     input: NonNestedValue,
@@ -100,7 +100,7 @@ impl Into<(String, String)> for Case {
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 enum NonNestedValue {
     Array(Vec<NonArrayValue>),
@@ -134,7 +134,7 @@ impl Into<String> for NonNestedValue {
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 enum NonArrayValue {
     Integer(i64),

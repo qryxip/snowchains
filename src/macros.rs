@@ -28,6 +28,19 @@ macro_rules! print_and_flush {
     }
 }
 
+
+macro_rules! eprint_and_flush {
+    ($format: tt$(, $x: expr)*) => {
+        {
+            use std::io::{self, Write};
+
+            eprint!($format$(, $x)*);
+            io::stderr().flush().unwrap();
+        }
+    }
+}
+
+
 macro_rules! print_decorated {
     ($attr:expr, $color: expr, $format: tt$(, $x: expr)*) => (
         __write_decorated!(stdout, write, $attr, $color, $format$(, $x)*)
@@ -43,8 +56,8 @@ macro_rules! println_decorated {
 
 
 macro_rules! eprint_decorated {
-    ($attr:expr, $color: expr, $format: tt) => (
-        __write_decorated!(stderr, write, $attr, $color, $format)
+    ($attr:expr, $color: expr, $format: tt$(, $x: expr)*) => (
+        __write_decorated!(stderr, write, $attr, $color, $format$(, $x)*)
     );
 }
 
