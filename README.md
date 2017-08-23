@@ -54,7 +54,7 @@ Here's exmaples for [Welcome to AtCoder](http://practice.contest.atcoder.jp/task
 #### TOML
 
 ```toml
-timeout = 2000
+timelimit = 2000
 
 
 # Possible types: 
@@ -74,7 +74,7 @@ input = ['72', '128 256', 'myonmyon']
 
 #### YAML
 ```yaml
-timeout: 2000
+timelimit: 2000
 
 cases:
   - expected: "6 test"
@@ -87,7 +87,7 @@ cases:
 
 ```json
 {
-  "timeout": 2000,
+  "timelimit": 2000,
   "cases": [
     {
       "expected": "6 test",

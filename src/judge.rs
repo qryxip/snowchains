@@ -23,7 +23,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
         case: Case,
         program: String,
         args: Vec<String>,
-        timeout: u64,
+        timelimit: u64,
     ) -> io::Result<JudgeOutput> {
         fn run_program(case: Case, program: String, args: Vec<String>) -> io::Result<JudgeOutput> {
             let (expected, input) = case.into();
@@ -61,14 +61,14 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
         thread::spawn(move || {
             let _ = tx.send(run_program(case, program, args));
         });
-        match rx.recv_timeout(Duration::from_millis(timeout + 50)) {
-            Ok(Ok(JudgeOutput::Ac(t))) if t > timeout => Ok(JudgeOutput::Tle(timeout)),
+        match rx.recv_timeout(Duration::from_millis(timelimit + 50)) {
+            Ok(Ok(JudgeOutput::Ac(t))) if t > timelimit => Ok(JudgeOutput::Tle(timelimit)),
             Ok(output) => output,
-            Err(_) => Ok(JudgeOutput::Tle(timeout)),
+            Err(_) => Ok(JudgeOutput::Tle(timelimit)),
         }
     }
 
-    let (timeout, num_tests) = (cases.timeout(), cases.num_cases());
+    let (timelimit, num_tests) = (cases.timelimit(), cases.num_cases());
     let suf = if num_tests > 1 { "s" } else { "" };
     let mut failures = vec![];
 
@@ -79,7 +79,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
             None => bail!(io::Error::from(io::ErrorKind::InvalidInput)),
         };
         let args = args.iter().map(|&arg| arg.into()).collect();
-        let output = judge(case, target, args, timeout)?;
+        let output = judge(case, target, args, timelimit)?;
         output.print_title(i, num_tests);
         match output {
             JudgeOutput::Ac(_) => {}

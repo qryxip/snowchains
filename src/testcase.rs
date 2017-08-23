@@ -10,14 +10,14 @@ use toml;
 
 #[derive(Serialize, Deserialize)]
 pub struct Cases {
-    timeout: u64,
+    timelimit: u64,
     cases: Vec<Case>,
 }
 
 impl Cases {
-    pub fn from_text(timeout: u64, cases: Vec<(String, String)>) -> Self {
+    pub fn from_text(timelimit: u64, cases: Vec<(String, String)>) -> Self {
         Self {
-            timeout: timeout,
+            timelimit: timelimit,
             cases: cases
                 .into_iter()
                 .map(|(expected, input)| {
@@ -30,8 +30,8 @@ impl Cases {
         }
     }
 
-    pub fn timeout(&self) -> u64 {
-        self.timeout
+    pub fn timelimit(&self) -> u64 {
+        self.timelimit
     }
 
     pub fn num_cases(&self) -> usize {
