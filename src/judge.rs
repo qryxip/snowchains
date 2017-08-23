@@ -19,41 +19,42 @@ pub fn run_judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
 
 
 pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> {
-    fn judge(case: Case, program: String, args: Vec<String>, timeout: u64) -> JudgeOutput {
-        fn run_program(case: Case, program: String, args: Vec<String>) -> JudgeOutput {
-            fn go(case: Case, program: String, args: Vec<String>) -> io::Result<JudgeOutput> {
-                let (expected, input) = case.into();
-                let mut child = Command::new(program)
-                    .args(args)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?;
-                let start = Instant::now();
-                child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
+    fn judge(
+        case: Case,
+        program: String,
+        args: Vec<String>,
+        timeout: u64,
+    ) -> io::Result<JudgeOutput> {
+        fn run_program(case: Case, program: String, args: Vec<String>) -> io::Result<JudgeOutput> {
+            let (expected, input) = case.into();
+            let mut child = Command::new(program)
+                .args(args)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            let start = Instant::now();
+            child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
 
-                let status = child.wait()?;
-                let t = {
-                    let t = start.elapsed();
-                    (1000000000 * t.as_secs() + t.subsec_nanos() as u64) / 1000000
-                };
-                let (stdout, stderr) = {
-                    let (mut stdout, mut stderr) = (String::new(), String::new());
-                    child.stdout.unwrap().read_to_string(&mut stdout)?;
-                    child.stderr.unwrap().read_to_string(&mut stderr)?;
-                    (stdout, stderr)
-                };
+            let status = child.wait()?;
+            let t = {
+                let t = start.elapsed();
+                (1000000000 * t.as_secs() + t.subsec_nanos() as u64) / 1000000
+            };
+            let (stdout, stderr) = {
+                let (mut stdout, mut stderr) = (String::new(), String::new());
+                child.stdout.unwrap().read_to_string(&mut stdout)?;
+                child.stderr.unwrap().read_to_string(&mut stderr)?;
+                (stdout, stderr)
+            };
 
-                if status.success() && expected == stdout {
-                    Ok(JudgeOutput::Ac(t))
-                } else if status.success() {
-                    Ok(JudgeOutput::Wa(t, expected, stdout))
-                } else {
-                    Ok(JudgeOutput::Re(status, stderr))
-                }
+            if status.success() && expected == stdout {
+                Ok(JudgeOutput::Ac(t))
+            } else if status.success() {
+                Ok(JudgeOutput::Wa(t, expected, stdout))
+            } else {
+                Ok(JudgeOutput::Re(status, stderr))
             }
-
-            go(case, program, args).into()
         }
 
         let (tx, rx) = mpsc::channel();
@@ -61,9 +62,9 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
             let _ = tx.send(run_program(case, program, args));
         });
         match rx.recv_timeout(Duration::from_millis(timeout + 50)) {
-            Ok(JudgeOutput::Ac(t)) if t > timeout => JudgeOutput::Tle(timeout),
+            Ok(Ok(JudgeOutput::Ac(t))) if t > timeout => Ok(JudgeOutput::Tle(timeout)),
             Ok(output) => output,
-            Err(_) => JudgeOutput::Tle(timeout),
+            Err(_) => Ok(JudgeOutput::Tle(timeout)),
         }
     }
 
@@ -78,7 +79,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
             None => bail!(io::Error::from(io::ErrorKind::InvalidInput)),
         };
         let args = args.iter().map(|&arg| arg.into()).collect();
-        let output = judge(case, target, args, timeout);
+        let output = judge(case, target, args, timeout)?;
         output.print_title(i, num_tests);
         match output {
             JudgeOutput::Ac(_) => {}
@@ -104,13 +105,6 @@ enum JudgeOutput {
     Tle(u64),
     Wa(u64, String, String),
     Re(ExitStatus, String),
-    UnexpectedIoError(io::Error),
-}
-
-impl From<io::Result<JudgeOutput>> for JudgeOutput {
-    fn from(from: io::Result<JudgeOutput>) -> Self {
-        from.unwrap_or_else(|e| JudgeOutput::UnexpectedIoError(e))
-    }
 }
 
 impl Debug for JudgeOutput {
@@ -120,9 +114,6 @@ impl Debug for JudgeOutput {
             JudgeOutput::Tle(t) => write!(f, "TLE ({}ms)", t),
             JudgeOutput::Wa(t, _, _) => write!(f, "WA ({}ms)", t),
             JudgeOutput::Re(status, _) => write!(f, "RE ({})", status),
-            JudgeOutput::UnexpectedIoError(ref e) => {
-                write!(f, "UNEXPECTED IO ERROR ({:?})", e.kind())
-            }
         }
     }
 }
@@ -139,7 +130,6 @@ impl JudgeOutput {
             JudgeOutput::Tle(_) => color::RED,
             JudgeOutput::Wa(_, _, _) => color::YELLOW,
             JudgeOutput::Re(_, _) => color::YELLOW,
-            JudgeOutput::UnexpectedIoError(_) => color::RED,
         };
         println_decorated!(Attr::Bold, Some(color), "{:?}", self);
     }
@@ -167,9 +157,6 @@ impl JudgeOutput {
             }
             JudgeOutput::Re(_, ref message) => {
                 writeln_error_trimming_last_newline(message);
-            }
-            JudgeOutput::UnexpectedIoError(ref e) => {
-                writeln_error_trimming_last_newline(&format!("{}", e));
             }
         }
     }
