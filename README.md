@@ -70,6 +70,9 @@ input = "1\n2 3\ntest"
 [[cases]]
 expected = ['456 myonmyon']
 input = ['72', '128 256', 'myonmyon']
+
+[[cases]]
+input = ["1000", "1000 1000", "ooooooooooooooooooooooooooooo"] # "expected" is optional
 ```
 
 #### YAML
@@ -81,6 +84,7 @@ cases:
     input: "1\n2 3\ntest"
   - expected: ['456 myonmyon']
     input: [72, '128 256', 'myonmyon']
+  - input: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"]
 ```
 
 #### JSON
@@ -96,6 +100,9 @@ cases:
     {
       "expected": ["456 myonmyon"],
       "input": [72, "128 256", "myonmyon"]
+    },
+    {
+      "input": [1000, "1000 1000", "ooooooooooooooooooooooooooooo"]
     }
   ]
 }

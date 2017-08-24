@@ -55,7 +55,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
 
             if t > timelimit {
                 Ok(JudgeOutput::Tle(timelimit, input, expected))
-            } else if status.success() && expected == stdout {
+            } else if status.success() && (expected.is_empty() || expected == stdout) {
                 Ok(JudgeOutput::Ac(t, input, stdout, stderr))
             } else if status.success() {
                 Ok(JudgeOutput::Wa(t, input, expected, stdout, stderr))
@@ -114,6 +114,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
 
 
 enum JudgeOutput {
+    // Each string may be empty.
     // (<elapsed>, <input>, <expected = stdout>, <stderr>)
     Ac(u64, String, String, String),
     // (<timelimit>, <input>, <expected>)
@@ -186,7 +187,7 @@ impl JudgeOutput {
             }
             JudgeOutput::Tle(_, ref input, ref expected) => {
                 eprint_section("input", input);
-                eprint_section("expected", expected);
+                eprint_section_unless_empty("expected", expected);
             }
             JudgeOutput::Wa(_, ref input, ref expected, ref stdout, ref stderr) => {
                 eprint_section("input", input);
@@ -196,7 +197,7 @@ impl JudgeOutput {
             }
             JudgeOutput::Re(_, ref input, ref expected, ref stdout, ref stderr, _) => {
                 eprint_section("input", input);
-                eprint_section("expected", expected);
+                eprint_section_unless_empty("expected", expected);
                 eprint_section_unless_empty("stdout", stdout);
                 eprint_section("stderr", stderr);
             }

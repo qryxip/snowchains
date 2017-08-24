@@ -22,7 +22,7 @@ impl Cases {
                 .into_iter()
                 .map(|(expected, input)| {
                     Case {
-                        expected: NonNestedValue::NonArray(NonArrayValue::String(expected)),
+                        expected: Some(NonNestedValue::NonArray(NonArrayValue::String(expected))),
                         input: NonNestedValue::NonArray(NonArrayValue::String(input)),
                     }
                 })
@@ -88,14 +88,17 @@ impl Cases {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Case {
-    expected: NonNestedValue,
+    expected: Option<NonNestedValue>,
     input: NonNestedValue,
 }
 
 
 impl Into<(String, String)> for Case {
     fn into(self) -> (String, String) {
-        (self.expected.into(), self.input.into())
+        (
+            self.expected.map(|x| x.into()).unwrap_or_default(),
+            self.input.into(),
+        )
     }
 }
 
