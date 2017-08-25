@@ -44,7 +44,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
             let status = child.wait()?;
             let t = {
                 let t = start.elapsed();
-                (1000000000 * t.as_secs() + t.subsec_nanos() as u64) / 1000000
+                (1000000000 * t.as_secs() + t.subsec_nanos() as u64 + 999999) / 1000000
             };
             let (stdout, stderr) = {
                 let (mut stdout, mut stderr) = (String::new(), String::new());
