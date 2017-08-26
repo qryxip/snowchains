@@ -54,7 +54,7 @@ Here's exmaples for [Welcome to AtCoder](http://practice.contest.atcoder.jp/task
 #### TOML
 
 ```toml
-timelimit = 2000
+timelimit = 2000 # Optional
 
 
 # Possible types: 

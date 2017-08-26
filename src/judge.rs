@@ -20,13 +20,13 @@ pub fn run_judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
 
 pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> {
     fn judge_one(
-        timelimit: u64,
+        timelimit: Option<u64>,
         case: Case,
         program: String,
         args: Vec<String>,
-    ) -> io::Result<JudgeOutput> {
+    ) -> JudgeResult<JudgeOutput> {
         fn run_program(
-            timelimit: u64,
+            timelimit: Option<u64>,
             case: Case,
             program: String,
             args: Vec<String>,
@@ -49,8 +49,8 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
             let stdout = util::string_from_read(child.stdout.unwrap())?;
             let stderr = util::string_from_read(child.stderr.unwrap())?;
 
-            if t > timelimit {
-                Ok(JudgeOutput::Tle(timelimit, input, expected))
+            if timelimit.is_some() && t > timelimit.unwrap() {
+                Ok(JudgeOutput::Tle(timelimit.unwrap(), input, expected))
             } else if status.success() && (expected.is_empty() || expected == stdout) {
                 Ok(JudgeOutput::Ac(t, input, stdout, stderr))
             } else if status.success() {
@@ -65,12 +65,16 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
         thread::spawn(move || {
             let _ = tx.send(run_program(timelimit, case_cloned, program, args));
         });
-        match rx.recv_timeout(Duration::from_millis(timelimit + 50)) {
-            Ok(output) => output,
-            Err(_) => {
-                let (expected, input) = case.into();
-                Ok(JudgeOutput::Tle(timelimit, input, expected))
+        if let Some(timelimit) = timelimit {
+            match rx.recv_timeout(Duration::from_millis(timelimit + 50)) {
+                Ok(output) => Ok(output?),
+                Err(_) => {
+                    let (expected, input) = case.into();
+                    Ok(JudgeOutput::Tle(timelimit, input, expected))
+                }
             }
+        } else {
+            Ok(rx.recv()??)
         }
     }
 

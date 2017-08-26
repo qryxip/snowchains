@@ -6,6 +6,7 @@ use serde_urlencoded;
 use serde_yaml;
 use std::io;
 use std::process;
+use std::sync::mpsc::RecvError;
 use term::{Attr, color};
 use toml;
 
@@ -76,6 +77,7 @@ error_chain! {
 
     foreign_links {
         Io(io::Error);
+        Recv(RecvError);
     }
 
     errors {

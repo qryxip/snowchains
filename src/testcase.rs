@@ -11,7 +11,7 @@ use toml;
 
 #[derive(Serialize, Deserialize)]
 pub struct Cases {
-    timelimit: u64,
+    timelimit: Option<u64>,
     cases: Vec<Case>,
 }
 
@@ -19,7 +19,7 @@ pub struct Cases {
 impl Cases {
     pub fn from_text(timelimit: u64, cases: Vec<(String, String)>) -> Self {
         Self {
-            timelimit: timelimit,
+            timelimit: Some(timelimit),
             cases: cases
                 .into_iter()
                 .map(|(expected, input)| {
@@ -32,7 +32,7 @@ impl Cases {
         }
     }
 
-    pub fn timelimit(&self) -> u64 {
+    pub fn timelimit(&self) -> Option<u64> {
         self.timelimit
     }
 
