@@ -1,4 +1,22 @@
 use clap;
+use std::io::{self, Read};
+
+
+pub fn string_from_read<R: Read>(r: R) -> io::Result<String> {
+    let mut r = r;
+    let mut buf = String::new();
+    r.read_to_string(&mut buf)?;
+    Ok(buf)
+}
+
+
+pub fn eprintln_trimming_last_newline(s: &str) {
+    if s.chars().last() == Some('\n') {
+        eprint_and_flush!("{}", s);
+    } else {
+        eprintln!("{}", s);
+    }
+}
 
 
 pub trait OkAsRefOr {

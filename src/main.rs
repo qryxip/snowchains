@@ -37,30 +37,24 @@ use std::path::Path;
 
 
 fn main() {
+    fn arg_service() -> Arg<'static, 'static> {
+        Arg::with_name("service")
+            .possible_value("atcoder")
+            .required(true)
+    }
+
     let subcommand_login = SubCommand::with_name("login")
         .version(crate_version!())
-        .arg(
-            Arg::with_name("service")
-                .possible_value("atcoder")
-                .required(true),
-        );
+        .arg(arg_service());
 
     let subcommand_participate = SubCommand::with_name("participate")
         .version(crate_version!())
-        .arg(
-            Arg::with_name("service")
-                .possible_value("atcoder")
-                .required(true),
-        )
+        .arg(arg_service())
         .arg(Arg::with_name("contest").required(true));
 
     let subcommand_download = SubCommand::with_name("download")
         .version(crate_version!())
-        .arg(
-            Arg::with_name("service")
-                .possible_value("atcoder")
-                .required(true),
-        )
+        .arg(arg_service())
         .arg(Arg::with_name("contest").required(true))
         .arg(Arg::with_name("path").required(true))
         .arg(
@@ -117,7 +111,7 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("login") {
         if matches.value_of("service") == Some("atcoder") {
-            return (atcoder::login()).or_exit1();
+            return atcoder::login().or_exit1();
         }
     } else if let Some(matches) = matches.subcommand_matches("participate") {
         let contest = matches.value_of("contest").unwrap();

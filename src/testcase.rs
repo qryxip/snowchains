@@ -1,9 +1,10 @@
 use super::error::{TestCaseErrorKind, TestCaseResult};
+use super::util;
 use serde_json;
 use serde_yaml;
 use std::fmt::{self, Display, Formatter};
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 use toml;
 
@@ -13,6 +14,7 @@ pub struct Cases {
     timelimit: u64,
     cases: Vec<Case>,
 }
+
 
 impl Cases {
     pub fn from_text(timelimit: u64, cases: Vec<(String, String)>) -> Self {
@@ -43,13 +45,11 @@ impl Cases {
     }
 
     pub fn load(path: &Path) -> TestCaseResult<Self> {
-        let mut file = File::open(path)?;
-        let mut buf = String::new();
-        file.read_to_string(&mut buf)?;
+        let text = util::string_from_read(File::open(path)?)?;
         match path.extension() {
-            Some(ref ext) if *ext == "json" => Ok(serde_json::from_str(&buf)?),
-            Some(ref ext) if *ext == "toml" => Ok(toml::from_str(&buf)?),
-            Some(ref ext) if *ext == "yaml" || *ext == "yml" => Ok(serde_yaml::from_str(&buf)?),
+            Some(ref ext) if *ext == "json" => Ok(serde_json::from_str(&text)?),
+            Some(ref ext) if *ext == "toml" => Ok(toml::from_str(&text)?),
+            Some(ref ext) if *ext == "yaml" || *ext == "yml" => Ok(serde_yaml::from_str(&text)?),
             Some(ref ext) => {
                 bail!(TestCaseErrorKind::UnsupportedExtension(
                     format!("{:?}", ext),
@@ -109,6 +109,7 @@ enum NonNestedValue {
     Array(Vec<NonArrayValue>),
     NonArray(NonArrayValue),
 }
+
 
 impl Into<String> for NonNestedValue {
     fn into(self) -> String {

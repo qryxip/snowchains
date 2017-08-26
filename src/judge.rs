@@ -1,9 +1,9 @@
 use super::error::{JudgeErrorKind, JudgeResult};
 use super::testcase::{Case, Cases};
-use super::util::UnwrapAsRefMut;
+use super::util::{self, UnwrapAsRefMut};
 use std::convert::From;
 use std::fmt::{self, Debug, Formatter};
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
@@ -19,15 +19,15 @@ pub fn run_judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
 
 
 pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> {
-    fn judge(
+    fn judge_one(
+        timelimit: u64,
         case: Case,
         program: String,
         args: Vec<String>,
-        timelimit: u64,
     ) -> io::Result<JudgeOutput> {
         fn run_program(
-            case: Case,
             timelimit: u64,
+            case: Case,
             program: String,
             args: Vec<String>,
         ) -> io::Result<JudgeOutput> {
@@ -46,12 +46,8 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
                 let t = start.elapsed();
                 (1000000000 * t.as_secs() + t.subsec_nanos() as u64 + 999999) / 1000000
             };
-            let (stdout, stderr) = {
-                let (mut stdout, mut stderr) = (String::new(), String::new());
-                child.stdout.unwrap().read_to_string(&mut stdout)?;
-                child.stderr.unwrap().read_to_string(&mut stderr)?;
-                (stdout, stderr)
-            };
+            let stdout = util::string_from_read(child.stdout.unwrap())?;
+            let stderr = util::string_from_read(child.stderr.unwrap())?;
 
             if t > timelimit {
                 Ok(JudgeOutput::Tle(timelimit, input, expected))
@@ -67,7 +63,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
         let (tx, rx) = mpsc::channel();
         let case_cloned = case.clone();
         thread::spawn(move || {
-            let _ = tx.send(run_program(case_cloned, timelimit, program, args));
+            let _ = tx.send(run_program(timelimit, case_cloned, program, args));
         });
         match rx.recv_timeout(Duration::from_millis(timelimit + 50)) {
             Ok(output) => output,
@@ -90,7 +86,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
             None => bail!(io::Error::from(io::ErrorKind::InvalidInput)),
         };
         let args = args.iter().map(|&arg| arg.into()).collect();
-        let output = judge(case, target, args, timelimit)?;
+        let output = judge_one(timelimit, case, target, args)?;
         output.print_title(i, num_tests);
         match output {
             JudgeOutput::Ac(..) => {}
@@ -155,27 +151,19 @@ impl JudgeOutput {
     }
 
     fn eprint_details(&self) {
-        fn eprintln_trimming_last_newline(s: &str) {
-            if s.chars().last() == Some('\n') {
-                eprint_and_flush!("{}", s);
-            } else {
-                eprintln!("{}", s);
-            }
-        }
-
         fn eprint_section(head: &'static str, s: &str) {
             eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "{}:", head);
             if s.is_empty() {
                 eprintln_decorated!(Attr::Bold, Some(color::YELLOW), "EMPTY");
             } else {
-                eprintln_trimming_last_newline(s);
+                util::eprintln_trimming_last_newline(s);
             }
         }
 
         fn eprint_section_unless_empty(head: &'static str, s: &str) {
             if !s.is_empty() {
                 eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "{}:", head);
-                eprintln_trimming_last_newline(s);
+                util::eprintln_trimming_last_newline(s);
             }
         }
 

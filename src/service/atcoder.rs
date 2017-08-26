@@ -22,7 +22,6 @@ pub fn login() -> ServiceResult<()> {
         if verify(&mut session) {
             return Ok(println!("Already signed in."));
         }
-
     }
     AtCoder::login_and_save().map(|_| ())
 }
