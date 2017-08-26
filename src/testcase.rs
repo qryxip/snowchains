@@ -100,19 +100,19 @@ impl Cases {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Case {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    timelimit: Option<u64>,
+    input: NonNestedValue,
     #[serde(skip_serializing_if = "Option::is_none")]
     expected: Option<NonNestedValue>,
-    input: NonNestedValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timelimit: Option<u64>,
 }
 
-impl Into<(Option<u64>, String, String)> for Case {
-    fn into(self) -> (Option<u64>, String, String) {
+impl Into<(String, String, Option<u64>)> for Case {
+    fn into(self) -> (String, String, Option<u64>) {
         (
-            self.timelimit,
-            self.expected.map(|x| x.into()).unwrap_or_default(),
             self.input.into(),
+            self.expected.map(|x| x.into()).unwrap_or_default(),
+            self.timelimit,
         )
     }
 }

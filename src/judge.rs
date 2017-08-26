@@ -21,7 +21,7 @@ pub fn run_judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
 pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> {
     fn judge_one(case: Case, program: String, args: Vec<String>) -> JudgeResult<JudgeOutput> {
         fn run_program(case: Case, program: String, args: Vec<String>) -> io::Result<JudgeOutput> {
-            let (timelimit, expected, input) = case.into();
+            let (input, expected, timelimit) = case.into();
             let mut child = Command::new(program)
                 .args(args)
                 .stdin(Stdio::piped())
@@ -55,7 +55,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
         thread::spawn(move || {
             let _ = tx.send(run_program(case_cloned, program, args));
         });
-        if let (Some(timelimit), expected, input) = case.into() {
+        if let (input, expected, Some(timelimit)) = case.into() {
             match rx.recv_timeout(Duration::from_millis(timelimit + 50)) {
                 Ok(output) => Ok(output?),
                 Err(_) => Ok(JudgeOutput::Tle(timelimit, input, expected)),
