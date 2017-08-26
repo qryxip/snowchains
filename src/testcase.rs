@@ -6,15 +6,34 @@ use std::fmt::{self, Display, Formatter};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
+use std::vec;
 use toml;
 
 
 #[derive(Serialize, Deserialize)]
 pub struct Cases {
+    #[serde(skip_serializing_if = "Option::is_none")]
     timelimit: Option<u64>,
     cases: Vec<Case>,
 }
 
+impl IntoIterator for Cases {
+    type Item = Case;
+    type IntoIter = vec::IntoIter<Case>;
+
+    fn into_iter(self) -> vec::IntoIter<Case> {
+        let mut this = self;
+        let timelimit = this.timelimit;
+        if let Some(timelimit) = timelimit {
+            for case in &mut this.cases {
+                if case.timelimit.is_none() {
+                    case.timelimit = Some(timelimit);
+                }
+            }
+        }
+        this.cases.into_iter()
+    }
+}
 
 impl Cases {
     pub fn from_text(timelimit: u64, cases: Vec<(String, String)>) -> Self {
@@ -24,6 +43,7 @@ impl Cases {
                 .into_iter()
                 .map(|(expected, input)| {
                     Case {
+                        timelimit: None,
                         expected: Some(NonNestedValue::NonArray(NonArrayValue::String(expected))),
                         input: NonNestedValue::NonArray(NonArrayValue::String(input)),
                     }
@@ -32,16 +52,8 @@ impl Cases {
         }
     }
 
-    pub fn timelimit(&self) -> Option<u64> {
-        self.timelimit
-    }
-
     pub fn num_cases(&self) -> usize {
         self.cases.len()
-    }
-
-    pub fn into_cases(self) -> Vec<Case> {
-        self.cases
     }
 
     pub fn load(path: &Path) -> TestCaseResult<Self> {
@@ -88,14 +100,17 @@ impl Cases {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Case {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timelimit: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     expected: Option<NonNestedValue>,
     input: NonNestedValue,
 }
 
-
-impl Into<(String, String)> for Case {
-    fn into(self) -> (String, String) {
+impl Into<(Option<u64>, String, String)> for Case {
+    fn into(self) -> (Option<u64>, String, String) {
         (
+            self.timelimit,
             self.expected.map(|x| x.into()).unwrap_or_default(),
             self.input.into(),
         )

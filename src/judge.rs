@@ -19,19 +19,9 @@ pub fn run_judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
 
 
 pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> {
-    fn judge_one(
-        timelimit: Option<u64>,
-        case: Case,
-        program: String,
-        args: Vec<String>,
-    ) -> JudgeResult<JudgeOutput> {
-        fn run_program(
-            timelimit: Option<u64>,
-            case: Case,
-            program: String,
-            args: Vec<String>,
-        ) -> io::Result<JudgeOutput> {
-            let (expected, input) = case.into();
+    fn judge_one(case: Case, program: String, args: Vec<String>) -> JudgeResult<JudgeOutput> {
+        fn run_program(case: Case, program: String, args: Vec<String>) -> io::Result<JudgeOutput> {
+            let (timelimit, expected, input) = case.into();
             let mut child = Command::new(program)
                 .args(args)
                 .stdin(Stdio::piped())
@@ -63,35 +53,32 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
         let (tx, rx) = mpsc::channel();
         let case_cloned = case.clone();
         thread::spawn(move || {
-            let _ = tx.send(run_program(timelimit, case_cloned, program, args));
+            let _ = tx.send(run_program(case_cloned, program, args));
         });
-        if let Some(timelimit) = timelimit {
+        if let (Some(timelimit), expected, input) = case.into() {
             match rx.recv_timeout(Duration::from_millis(timelimit + 50)) {
                 Ok(output) => Ok(output?),
-                Err(_) => {
-                    let (expected, input) = case.into();
-                    Ok(JudgeOutput::Tle(timelimit, input, expected))
-                }
+                Err(_) => Ok(JudgeOutput::Tle(timelimit, input, expected)),
             }
         } else {
             Ok(rx.recv()??)
         }
     }
 
-    let (timelimit, num_tests) = (cases.timelimit(), cases.num_cases());
-    let suf = if num_tests > 1 { "s" } else { "" };
+    let num_cases = cases.num_cases();
+    let suf = if num_cases > 1 { "s" } else { "" };
     let mut all_outputs = vec![];
     let mut num_failures = 0;
 
-    println!("\nRunning {} test{}...", num_tests, suf);
-    for (i, case) in cases.into_cases().into_iter().enumerate() {
+    println!("\nRunning {} test{}...", num_cases, suf);
+    for (i, case) in cases.into_iter().enumerate() {
         let target = match target.to_str() {
             Some(s) => s.to_owned(),
             None => bail!(io::Error::from(io::ErrorKind::InvalidInput)),
         };
         let args = args.iter().map(|&arg| arg.into()).collect();
-        let output = judge_one(timelimit, case, target, args)?;
-        output.print_title(i, num_tests);
+        let output = judge_one(case, target, args)?;
+        output.print_title(i, num_cases);
         match output {
             JudgeOutput::Ac(..) => {}
             _ => num_failures += 1,
@@ -100,12 +87,12 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
     }
 
     if num_failures == 0 {
-        println!("All of the {} test{} passed.", num_tests, suf);
+        println!("All of the {} test{} passed.", num_cases, suf);
         Ok(())
     } else {
         for (i, output) in all_outputs.into_iter().enumerate() {
             eprintln!("");
-            output.eprint_title(i, num_tests);
+            output.eprint_title(i, num_cases);
             output.eprint_details();
         }
         bail!(JudgeErrorKind::TestFailed(num_failures))

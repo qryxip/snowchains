@@ -57,7 +57,7 @@ Here's exmaples for [Welcome to AtCoder](http://practice.contest.atcoder.jp/task
 timelimit = 2000 # Optional
 
 
-# Possible types: 
+# Possible types of "expected" and "input":
 # * Integer
 # * Float
 # * String (a '\n' is appended automatically if missing)
@@ -68,6 +68,7 @@ expected = "6 test"
 input = "1\n2 3\ntest"
 
 [[cases]]
+timelimit = 10 # Override "timelimit"
 expected = ['456 myonmyon']
 input = ['72', '128 256', 'myonmyon']
 
@@ -82,7 +83,8 @@ timelimit: 2000
 cases:
   - expected: "6 test"
     input: "1\n2 3\ntest"
-  - expected: ['456 myonmyon']
+  - timelimit: 10
+    expected: ['456 myonmyon']
     input: [72, '128 256', 'myonmyon']
   - input: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"]
 ```
@@ -98,6 +100,7 @@ cases:
       "input": "1\n2 3\ntest"
     },
     {
+      "timelimit": 10,
       "expected": ["456 myonmyon"],
       "input": [72, "128 256", "myonmyon"]
     },
