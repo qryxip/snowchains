@@ -62,7 +62,7 @@ fn main() {
                 .short("e")
                 .long("extension")
                 .possible_values(&["json", "toml", "yaml", "yml"])
-                .default_value("toml"),
+                .default_value("yml"),
         );
 
     let subcommand_judge = SubCommand::with_name("judge")

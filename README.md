@@ -30,9 +30,9 @@ $ snowchains judge <path-to-test-file> <path-to-target> [args]...
 ### Rust (Cargo)
 
 ```console
-$ $EDITOR <crate-root>/src/bin/<problem-name>.rs                  # target
-$ $EDITOR <crate-root>/snowchains/<problem-name>.[toml|yaml|json] # test cases
-$ snowchains judge-cargo snowchains/<problem-name>.[toml|yaml|json] <problem-name>
+$ $EDITOR <crate-root>/src/bin/<problem-name>.rs                      # target
+$ $EDITOR <crate-root>/snowchains/<problem-name>.[yml|yaml|toml|json] # test cases
+$ snowchains judge-cargo snowchains/<problem-name>.[yml|yaml|toml|json] <problem-name>
 ```
 
 ## Test cases
@@ -51,42 +51,40 @@ $ snowchains download <service> <contest> <some-directory>
 
 Here's exmaples for [Welcome to AtCoder](http://practice.contest.atcoder.jp/tasks/practice_1).
 
-#### TOML
-
-```toml
-timelimit = 2000 # Optional
-
+#### YAML
+```yaml
+timelimit: 2000 # Optional
 
 # Possible types of "expected" and "input":
 # * Integer
 # * Float
 # * String (a '\n' is appended automatically if missing)
 # * Array of [Integer|Float|String] (in TOML, arrays cannot contain different types of data)
+cases:
+  - expected: "6 test"
+    input: "1\n2 3\ntest"
+  - timelimit: 10 # Override "timelimit"
+    expected: ['456 myonmyon']
+    input: [72, '128 256', 'myonmyon']
+  - input: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"] # "expected" is optional
+```
+
+#### TOML
+
+```toml
+timelimit = 2000
 
 [[cases]]
 expected = "6 test"
 input = "1\n2 3\ntest"
 
 [[cases]]
-timelimit = 10 # Override "timelimit"
+timelimit = 10
 expected = ['456 myonmyon']
 input = ['72', '128 256', 'myonmyon']
 
 [[cases]]
-input = ["1000", "1000 1000", "ooooooooooooooooooooooooooooo"] # "expected" is optional
-```
-
-#### YAML
-```yaml
-timelimit: 2000
-
-cases:
-  - expected: "6 test"
-    input: "1\n2 3\ntest"
-  - timelimit: 10
-    expected: ['456 myonmyon']
-    input: [72, '128 256', 'myonmyon']
-  - input: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"]
+input = ["1000", "1000 1000", "ooooooooooooooooooooooooooooo"]
 ```
 
 #### JSON
