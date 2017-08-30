@@ -1,33 +1,27 @@
+use super::config::CommandParameters;
 use super::error::{JudgeErrorKind, JudgeResult};
 use super::testcase::{Case, Cases};
 use super::util::{self, UnwrapAsRefMut};
-use std::convert::From;
 use std::fmt::{self, Debug, Formatter};
 use std::io::{self, Write};
 use std::path::Path;
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::ExitStatus;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 use term::{Attr, color};
 
 
-pub fn run_judge(cases: &str, target: &str, args: &[&str]) -> JudgeResult<()> {
-    let (cases, target) = (Cases::load(Path::new(cases))?, Path::new(target));
-    judge_all(cases, target, args)
+pub fn run_judge(cases: &Path, command_params: CommandParameters) -> JudgeResult<()> {
+    judge_all(Cases::load(cases)?, command_params)
 }
 
 
-pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> {
-    fn judge_one(case: Case, program: String, args: Vec<String>) -> JudgeResult<JudgeOutput> {
-        fn run_program(case: Case, program: String, args: Vec<String>) -> io::Result<JudgeOutput> {
+fn judge_all(cases: Cases, command_params: CommandParameters) -> JudgeResult<()> {
+    fn judge_one(case: Case, command_params: CommandParameters) -> JudgeResult<JudgeOutput> {
+        fn run_program(case: Case, command_params: CommandParameters) -> io::Result<JudgeOutput> {
             let (input, expected, timelimit) = case.into();
-            let mut child = Command::new(program)
-                .args(args)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?;
+            let mut child = command_params.build_and_spawn()?;
             let start = Instant::now();
             child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
 
@@ -53,7 +47,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
         let (tx, rx) = mpsc::channel();
         let case_cloned = case.clone();
         thread::spawn(move || {
-            let _ = tx.send(run_program(case_cloned, program, args));
+            let _ = tx.send(run_program(case_cloned, command_params));
         });
         if let (input, expected, Some(timelimit)) = case.into() {
             match rx.recv_timeout(Duration::from_millis(timelimit + 50)) {
@@ -72,12 +66,7 @@ pub fn judge_all(cases: Cases, target: &Path, args: &[&str]) -> JudgeResult<()> 
 
     println!("\nRunning {} test{}...", num_cases, suf);
     for (i, case) in cases.into_iter().enumerate() {
-        let target = match target.to_str() {
-            Some(s) => s.to_owned(),
-            None => bail!(io::Error::from(io::ErrorKind::InvalidInput)),
-        };
-        let args = args.iter().map(|&arg| arg.into()).collect();
-        let output = judge_one(case, target, args)?;
+        let output = judge_one(case, command_params.clone())?;
         output.print_title(i, num_cases);
         match output {
             JudgeOutput::Ac(..) => {}

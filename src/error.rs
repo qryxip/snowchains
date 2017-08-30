@@ -12,23 +12,29 @@ use toml;
 
 
 pub trait OrExit1 {
+    type Target;
     /// if `self` is `Err`, prints the error details and exit with code 1.
-    fn or_exit1(self);
+    fn or_exit1(self) -> Self::Target;
 }
 
-impl<E: ChainedError> OrExit1 for Result<(), E> {
-    fn or_exit1(self) {
-        if let Err(e) = self {
-            eprint_decorated!(Attr::Bold, Some(color::RED), "\nerror: ");
-            eprintln!("{}", e);
-            for e_kind in e.iter().skip(1) {
-                eprint_decorated!(Attr::Bold, Some(color::RED), "caused by: ");
-                eprintln!("{}", e_kind);
+impl<T, E: ChainedError> OrExit1 for Result<T, E> {
+    type Target = T;
+
+    fn or_exit1(self) -> T {
+        match self {
+            Ok(x) => x,
+            Err(e) => {
+                eprint_decorated!(Attr::Bold, Some(color::RED), "\nerror: ");
+                eprintln!("{}", e);
+                for e_kind in e.iter().skip(1) {
+                    eprint_decorated!(Attr::Bold, Some(color::RED), "caused by: ");
+                    eprintln!("{}", e_kind);
+                }
+                if let Some(backtrace) = e.backtrace() {
+                    eprintln!("{:?}", backtrace);
+                }
+                process::exit(1);
             }
-            if let Some(backtrace) = e.backtrace() {
-                eprintln!("{:?}", backtrace);
-            }
-            process::exit(1);
         }
     }
 }
@@ -81,16 +87,6 @@ error_chain! {
     }
 
     errors {
-        ProjectNotFound {
-            description("Project not found")
-                display("Project not found")
-        }
-
-        BuildFailed {
-            description("Build failed")
-                display("Build failed")
-        }
-
         TestFailed(n: usize) {
             description("Test faild")
                 display("{} Test{} failed", n, if *n > 0 { "s" } else { "" })
@@ -116,6 +112,35 @@ error_chain! {
         UnsupportedExtension(extension: String) {
             description("Unsupported extension")
                 display("Unsupported extension: \"{}\"", extension)
+        }
+    }
+}
+
+
+error_chain! {
+    types {
+        ConfigError, ConfigErrorKind, ConfigResultExt, ConfigResult;
+    }
+
+    foreign_links {
+        Io(io::Error);
+        SerdeYaml(serde_yaml::Error);
+    }
+
+    errors {
+        ConfigFileNotFound {
+            description("\"snowchains.yml\" not found")
+                display("\"snowchains.yml\" not found")
+        }
+
+        NoSuchTarget(name: String) {
+            description("Target not found")
+                display("No such target: \"{}\"", name)
+        }
+
+        PropertyNotSet(property: &'static str) {
+            description("Property not set")
+                display("Property not set: \"{}\"", property)
         }
     }
 }

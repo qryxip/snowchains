@@ -1,5 +1,6 @@
-use clap;
+use std::env;
 use std::io::{self, Read};
+use std::path::PathBuf;
 
 
 pub fn string_from_read<R: Read>(r: R) -> io::Result<String> {
@@ -16,6 +17,14 @@ pub fn eprintln_trimming_last_newline(s: &str) {
     } else {
         eprintln!("{}", s);
     }
+}
+
+
+pub fn home_dir_as_io_result() -> io::Result<PathBuf> {
+    env::home_dir().ok_or(io::Error::new(
+        io::ErrorKind::Other,
+        "Home directory not found",
+    ))
 }
 
 
@@ -56,12 +65,16 @@ impl<T> UnwrapAsRefMut for Option<T> {
 }
 
 
-pub trait IntoStrVec<'a> {
-    fn into_str_vec(self) -> Vec<&'a str>;
+pub trait CapitalizeFirst {
+    fn capitalize_first(&self) -> String;
 }
 
-impl<'a> IntoStrVec<'a> for Option<clap::Values<'a>> {
-    fn into_str_vec(self) -> Vec<&'a str> {
-        self.map(|vs| vs.into_iter().collect()).unwrap_or_default()
+impl CapitalizeFirst for str {
+    fn capitalize_first(&self) -> String {
+        let mut chars = self.chars();
+        chars
+            .next()
+            .map(|c| format!("{}{}", c.to_uppercase(), chars.as_str()))
+            .unwrap_or_default()
     }
 }

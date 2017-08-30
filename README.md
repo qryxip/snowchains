@@ -19,20 +19,92 @@ $ cargo install --git https://github.com/wariuni/snowchains
 
 ## Usage
 
-```console
-$ snowchains login <service>
-$ snowchains participate <contest>
-$ snowchains download <service> <contest> <directory-to-save-test-files> -e <extension>
-$ $EDITOR <path-to-test-file> # Add more test cases
-$ snowchains judge <path-to-test-file> <path-to-target> [args]...
+1. Write the config in `<your-project>/snowchains.yml`.
+```yaml
+# Example
+---
+service: "atcoder"         # optional
+contest: "arc081"          # optional
+testcases: "./snowchains/" # default: "./snowchains/"
+testcase_extension: "yml"  # default: "yml"
+targets:
+  # source file: <src>/<name>.<extension>
+  # binary:      <bin>/<name (the first letter is capitalized if <capitalize>)>(.[class|exe])
+  # test file:   <testcases>/<name>.<testcase_extension>
+  -
+    name: "c"
+    project: "python3"
+  -
+    name: "d"
+    project: "java"
+  -
+    name: "e"
+    project: "rust"
+  -
+    name: "f"
+    project: "c++"
+projects:
+  -
+    name: "python3"
+    type: "script"
+    src: "./python/"
+    extension: "py"
+    runtime: "python3" # or shebang
+  -
+    name: "java"
+    type: "java"
+    src: "./java/src/main/java/"
+    bin: "./java/build/classes/java/main/"
+    build: ["gradle", "build", "--daemon"]
+  -
+    name: "rust"
+    type: "build"
+    src: "./rust/src/bin/"
+    bin: "./rust/target/release/"
+    extension: "rs"
+    capitalize: false # default: false
+    build: ["cargo", "build", "--release"]
+  -
+    name: "c++"
+    type: "build"
+    src: "./cc/"
+    bin: "./cc/build/"
+    extension: "cc"
+    build: "ninja"
 ```
-
-### Rust (Cargo)
-
+Or simply:
+```yaml
+---
+service: "atcoder"
+contest: "arc081"
+targets:
+  -
+    name: "c"
+    project: "c++"
+  -
+    name: "d"
+    project: "c++"
+  -
+    name: "e"
+    project: "c++"
+  -
+    name: "f"
+    project: "c++"
+projects:
+  -
+    name: "c++"
+    type: "build"
+    src: "./"
+    bin: "./build/"
+    extension: "cc"
+    build: "ninja"
+```
+And
 ```console
-$ $EDITOR <crate-root>/src/bin/<problem-name>.rs                      # target
-$ $EDITOR <crate-root>/snowchains/<problem-name>.[yml|yaml|toml|json] # test cases
-$ snowchains judge-cargo snowchains/<problem-name>.[yml|yaml|toml|json] <problem-name>
+$ cd <wherever under the project>
+$ snowchains download # The username and password required when not yet signed-in
+$ $EDITOR <project>/snowchains/<target>.yml # Add more test cases
+$ snowchains judge <target>
 ```
 
 ## Test cases
@@ -42,9 +114,10 @@ $ snowchains judge-cargo snowchains/<problem-name>.[yml|yaml|toml|json] <problem
 - [x] AtCoder (abcxxx, arcxxx, agcxxx, chokudai_sxxx)
 
 ```console
-$ snowchains login <service>
-$ snowchains participate <contest>
-$ snowchains download <service> <contest> <some-directory>
+$ #snowchains login <service>
+$ #snowchains participate <service> <contest>
+$ cd <wherever under the project>
+$ snowchains download
 ```
 
 ### Format
@@ -126,15 +199,11 @@ input = ["1000", "1000 1000", "ooooooooooooooooooooooooooooo"]
                (with-current-buffer buffer
                  (erase-buffer))))
            (let ((problem-name (match-string 1 file-path)))
-             (term-run "snowchains" "*snowchains*" "judge-cargo"
-                       (format "%s/%s.%s" my-rust--snowchains-dir problem-name my-rust--snowchains-ext)
-                       problem-name)))
+             (term-run "snowchains" "*snowchains*" "judge" problem-name)))
           ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
            (cargo-process-run-bin (match-string 1 file-path)))
           (t
            (cargo-process-run)))))
 
-(defconst my-rust--snowchains-crate "rust-contest")
-(defconst my-rust--snowchains-dir "snowchains")
-(defconst my-rust--snowchains-ext "toml")
+(defconst my-rust--snowchains-crate "contest/rust")
 ```

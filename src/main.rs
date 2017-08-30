@@ -22,81 +22,48 @@ extern crate serde_derive;
 #[macro_use]
 mod macros;
 
-mod cargo;
+mod config;
 mod error;
 mod judge;
 mod service;
 mod testcase;
 mod util;
 
+use self::config::{Config, ServiceName};
 use self::error::OrExit1;
 use self::service::atcoder;
-use self::util::IntoStrVec;
 use clap::{AppSettings, Arg, SubCommand};
-use std::path::Path;
 
 
 fn main() {
-    fn arg_service() -> Arg<'static, 'static> {
-        Arg::with_name("service")
-            .possible_value("atcoder")
-            .required(true)
-    }
-
     let subcommand_login = SubCommand::with_name("login")
         .version(crate_version!())
-        .arg(arg_service());
+        .arg(
+            Arg::with_name("service")
+                .possible_value("atcoder")
+                .help("Service name")
+                .required(true),
+        );
 
     let subcommand_participate = SubCommand::with_name("participate")
         .version(crate_version!())
-        .arg(arg_service())
-        .arg(Arg::with_name("contest").required(true));
-
-    let subcommand_download = SubCommand::with_name("download")
-        .version(crate_version!())
-        .arg(arg_service())
-        .arg(Arg::with_name("contest").required(true))
-        .arg(Arg::with_name("path").required(true))
         .arg(
-            Arg::with_name("extension")
-                .short("e")
-                .long("extension")
-                .possible_values(&["json", "toml", "yaml", "yml"])
-                .default_value("yml"),
-        );
+            Arg::with_name("service")
+                .possible_value("atcoder")
+                .help("Service name")
+                .required(true),
+        )
+        .arg(Arg::with_name("contest").help("Contest name").required(
+            true,
+        ));
+
+    let subcommand_download = SubCommand::with_name("download").version(crate_version!());
 
     let subcommand_judge = SubCommand::with_name("judge")
         .version(crate_version!())
-        .after_help(
-            "If you want to use flags in <args>, insert '--' anywhere before the flags.",
-        )
-        .arg(
-            Arg::with_name("cases")
-                .help("Relative or absolute path to the test file")
-                .required(true),
-        )
         .arg(
             Arg::with_name("target")
-                .help("Relative or absolute path to the target")
-                .required(true),
-        )
-        .arg(Arg::with_name("args").multiple(true));
-
-    let subcommand_judge_cargo = SubCommand::with_name("judge-cargo")
-        .version(crate_version!())
-        .after_help(
-            "If you want to use flags in <args>, insert '--' anywhere before the flags.",
-        )
-        .arg(
-            Arg::with_name("cases")
-                .help("Relative path to the test file from the crate root")
-                .required(true),
-        )
-        .arg(
-            Arg::with_name("target")
-                .help(
-                    "Relative path to the target from <crate root>/target/release",
-                )
+                .help("Target name in \"snowchains.yml\"")
                 .required(true),
         );
 
@@ -106,35 +73,36 @@ fn main() {
         .subcommand(subcommand_participate)
         .subcommand(subcommand_download)
         .subcommand(subcommand_judge)
-        .subcommand(subcommand_judge_cargo)
         .get_matches();
 
+    fn config() -> Config {
+        Config::load_from_file().or_exit1()
+    }
+
     if let Some(matches) = matches.subcommand_matches("login") {
-        if matches.value_of("service") == Some("atcoder") {
+        if matches.value_of("service").unwrap() == "atcoder" {
             return atcoder::login().or_exit1();
         }
     } else if let Some(matches) = matches.subcommand_matches("participate") {
         let contest = matches.value_of("contest").unwrap();
-        if matches.value_of("service") == Some("atcoder") {
-            return atcoder::participate(contest).or_exit1();
+        if matches.value_of("service").unwrap() == "atcoder" {
+            return atcoder::participate(&contest).or_exit1();
         }
-    } else if let Some(matches) = matches.subcommand_matches("download") {
-        let contest = matches.value_of("contest").unwrap();
-        let path = Path::new(matches.value_of("path").unwrap());
-        let extension = matches.value_of("extension").unwrap();
-        if matches.value_of("service") == Some("atcoder") {
-            return atcoder::download(contest, &path, extension).or_exit1();
-        }
+    } else if let Some(_) = matches.subcommand_matches("download") {
+        let config = config();
+        let contest = config.contest().or_exit1();
+        let path = config.testcase_dir().or_exit1();
+        let extension = config.testcase_extension();
+        return match config.service().or_exit1() {
+            ServiceName::AtCoder => atcoder::download(&contest, &path, extension).or_exit1(),
+        };
     } else if let Some(matches) = matches.subcommand_matches("judge") {
-        let cases = matches.value_of("cases").unwrap();
+        let config = config();
         let target = matches.value_of("target").unwrap();
-        let args = matches.values_of("args").into_str_vec();
-        return judge::run_judge(cases, target, &args).or_exit1();
-    } else if let Some(matches) = matches.subcommand_matches("judge-cargo") {
-        let cases = matches.value_of("cases").unwrap();
-        let target = matches.value_of("target").unwrap();
-        let args = matches.values_of("args").into_str_vec();
-        return cargo::judge(cases, target, &args).or_exit1();
+        let cases = config.testcase_path(target).or_exit1();
+        let command_params = config.construct_run_command(target).or_exit1();
+        config.build_if_needed(target).or_exit1();
+        return judge::run_judge(&cases, command_params).or_exit1();
     }
     unreachable!();
 }

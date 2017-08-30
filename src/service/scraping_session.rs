@@ -1,11 +1,11 @@
 use super::super::error::{ServiceErrorKind, ServiceResult};
+use super::super::util;
 use cookie::{Cookie, CookieJar};
 use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode};
 use reqwest::header::{ContentType, Cookie as RequestCookie, SetCookie, UserAgent};
 use serde::Serialize;
 use serde_json;
 use serde_urlencoded;
-use std::env;
 use std::fmt::Display;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -23,10 +23,7 @@ impl ScrapingSession {
 
     pub fn from_cookie_file(name_without_extension: &str) -> ServiceResult<Self> {
         let file = {
-            let mut pathbuf = env::home_dir().ok_or(io::Error::new(
-                io::ErrorKind::Other,
-                "$HOME not set",
-            ))?;
+            let mut pathbuf = util::home_dir_as_io_result()?;
             pathbuf.push(".local");
             pathbuf.push("share");
             pathbuf.push("snowchains");
@@ -43,10 +40,7 @@ impl ScrapingSession {
 
     pub fn save_cookie_to_file(&self, name_without_extension: &str) -> io::Result<()> {
         let (mut file, pathbuf) = {
-            let mut pathbuf = env::home_dir().ok_or(io::Error::new(
-                io::ErrorKind::Other,
-                "$HOME not set",
-            ))?;
+            let mut pathbuf = util::home_dir_as_io_result()?;
             pathbuf.push(".local");
             pathbuf.push("share");
             pathbuf.push("snowchains");
