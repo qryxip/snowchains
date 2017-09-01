@@ -246,14 +246,24 @@ impl Project {
     fn build_if_needed(&self, base: &Path) -> io::Result<()> {
         fn do_build(base: &Path, build: &ScalarOrVec<String>, dir: &str) -> io::Result<()> {
             let (command, args) = build.split();
-            let status = Command::new(command)
+            let output = Command::new(command)
                 .args(args)
                 .current_dir(resolve_path(base, dir)?)
-                .status()?;
-            if status.success() {
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .output()?;
+            if output.status.success() {
                 Ok(())
             } else {
-                bail!(io::Error::from_raw_os_error(status.code().unwrap_or(1)));
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    if let Some(code) = output.status.code() {
+                        format!("Build failed with code {}", code)
+                    } else {
+                        format!("Build failed")
+                    },
+                ))
             }
         }
 
