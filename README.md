@@ -55,7 +55,7 @@ projects:
     type: "java"
     src: "./java/src/main/java/"
     bin: "./java/build/classes/java/main/"
-    build: ["gradle", "build", "--daemon"]
+    build: ["gradle", "build", "--daemon"] # optional
   -
     name: "rust"
     type: "build"

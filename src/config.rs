@@ -258,9 +258,17 @@ impl Project {
         }
 
         match *self {
-            Project::Script(_) => Ok(()),
-            Project::Build(BuildProject { ref src, ref build, .. }) => do_build(base, build, src),
-            Project::Java(JavaProject { ref src, ref build, .. }) => do_build(base, build, src),
+            Project::Build(BuildProject {
+                               ref src,
+                               build: Some(ref build),
+                               ..
+                           }) => do_build(base, build, src),
+            Project::Java(JavaProject {
+                              ref src,
+                              build: Some(ref build),
+                              ..
+                          }) => do_build(base, build, src),
+            _ => Ok(()),
         }
     }
 
@@ -343,7 +351,7 @@ struct BuildProject {
     extension: String,
     #[serde(default)]
     capitalize: bool,
-    build: ScalarOrVec<String>,
+    build: Option<ScalarOrVec<String>>,
 }
 
 
@@ -354,7 +362,7 @@ struct JavaProject {
     bin: InputPath,
     #[serde(default = "default_java_extension")]
     extension: String,
-    build: ScalarOrVec<String>,
+    build: Option<ScalarOrVec<String>>,
 }
 
 
