@@ -8,6 +8,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 
+type InputPath = String;
+
+
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -15,20 +18,45 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     contest: Option<String>,
     #[serde(default = "default_testcases_path")]
-    testcases: PathBuf,
+    testcases: InputPath,
     #[serde(default = "default_testcase_extension")]
     testcase_extension: String,
     targets: Vec<Target>,
     projects: Vec<Project>,
+    #[serde(skip)]
+    base_dir: PathBuf,
 }
 
 impl Config {
     pub fn load_from_file() -> ConfigResult<Self> {
-        let mut pathbuf = snowchains_working_dir()?;
+        fn find_base_dir() -> ConfigResult<PathBuf> {
+            fn find_snowchain_yml<P: AsRef<Path>>(dir: P) -> io::Result<bool> {
+                for entry in fs::read_dir(dir)? {
+                    let path = entry?.path();
+                    if path.is_file() && path.file_name().unwrap() == "snowchains.yml" {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+
+            let mut dir = env::current_dir()?;
+            loop {
+                if find_snowchain_yml(&dir)? {
+                    return Ok(dir);
+                } else if !dir.pop() {
+                    bail!(ConfigErrorKind::ConfigFileNotFound);
+                }
+            }
+        }
+
+        let mut pathbuf = find_base_dir()?;
+        let base_dir = pathbuf.clone();
         pathbuf.push("snowchains.yml");
-        Ok(serde_yaml::from_str(
-            &util::string_from_read(File::open(pathbuf)?)?,
-        )?)
+        let mut config =
+            serde_yaml::from_str::<Self>(&util::string_from_read(File::open(&pathbuf)?)?)?;
+        config.base_dir = base_dir;
+        Ok(config)
     }
 
     pub fn service(&self) -> ConfigResult<ServiceName> {
@@ -50,9 +78,7 @@ impl Config {
     }
 
     pub fn testcase_dir(&self) -> ConfigResult<PathBuf> {
-        let mut pathbuf = snowchains_working_dir()?;
-        pathbuf.push(&self.testcases);
-        Ok(pathbuf)
+        Ok(resolve_path(&self.base_dir, &self.testcases)?)
     }
 
     pub fn testcase_path(&self, target_name: &str) -> ConfigResult<PathBuf> {
@@ -65,17 +91,17 @@ impl Config {
     #[allow(dead_code)]
     pub fn src_path(&self, target_name: &str) -> ConfigResult<PathBuf> {
         let project = self.project(target_name)?;
-        project.src(target_name)
+        Ok(project.src(&self.base_dir, target_name)?)
     }
 
     pub fn construct_run_command(&self, target_name: &str) -> ConfigResult<CommandParameters> {
         let project = self.project(target_name)?;
-        Ok(project.construct_run_command(target_name)?)
+        Ok(project.construct_run_command(&self.base_dir, target_name)?)
     }
 
     pub fn build_if_needed(&self, target_name: &str) -> ConfigResult<()> {
         let project = self.project(target_name)?;
-        project.build_if_needed()
+        Ok(project.build_if_needed(&self.base_dir)?)
     }
 
     fn project(&self, target_name: &str) -> ConfigResult<&Project> {
@@ -141,11 +167,11 @@ impl CommandParameters {
 }
 
 
-fn default_testcases_path() -> PathBuf {
+fn default_testcases_path() -> InputPath {
     if cfg!(target_os = "windows") {
-        PathBuf::from(".\\snowchains\\")
+        ".\\snowchains\\".to_owned()
     } else {
-        PathBuf::from("./snowchains/")
+        "./snowchains/".to_owned()
     }
 }
 
@@ -160,24 +186,19 @@ fn default_java_extension() -> String {
 }
 
 
-fn snowchains_working_dir() -> ConfigResult<PathBuf> {
-    fn find_snowchain_yml<P: AsRef<Path>>(dir: P) -> ConfigResult<bool> {
-        for entry in fs::read_dir(dir)? {
-            let path = entry?.path();
-            if path.is_file() && path.file_name().unwrap() == "snowchains.yml" {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+fn resolve_path(base: &Path, path: &str) -> io::Result<PathBuf> {
+    if path.chars().next() == Some('~') {
+        let mut pathbuf = PathBuf::from(base);
+        pathbuf.push(path.chars().skip(2).collect::<String>());
+        return Ok(pathbuf.canonicalize()?);
     }
-
-    let mut dir = env::current_dir()?;
-    loop {
-        if find_snowchain_yml(&dir)? {
-            return Ok(dir);
-        } else if !dir.pop() {
-            bail!(ConfigErrorKind::ConfigFileNotFound);
-        }
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        Ok(path.canonicalize()?)
+    } else {
+        let mut pathbuf = PathBuf::from(base);
+        pathbuf.push(path);
+        Ok(pathbuf.canonicalize()?)
     }
 }
 
@@ -206,13 +227,13 @@ impl Project {
         }
     }
 
-    fn src(&self, filename: &str) -> ConfigResult<PathBuf> {
-        let mut pathbuf = snowchains_working_dir()?;
-        pathbuf.push(match *self {
-            Project::Script(ScriptProject { ref src, .. }) => PathBuf::from(src),
-            Project::Build(BuildProject { ref src, .. }) => PathBuf::from(src),
-            Project::Java(JavaProject { ref src, .. }) => PathBuf::from(src),
-        });
+    fn src(&self, base: &Path, filename: &str) -> io::Result<PathBuf> {
+        let mut pathbuf = PathBuf::from(base);
+        pathbuf.push(PathBuf::from(match *self {
+            Project::Script(ScriptProject { ref src, .. }) => src,
+            Project::Build(BuildProject { ref src, .. }) => src,
+            Project::Java(JavaProject { ref src, .. }) => src,
+        }));
         pathbuf.push(filename);
         pathbuf.set_extension(match *self {
             Project::Script(ScriptProject { ref extension, .. }) => extension,
@@ -222,14 +243,12 @@ impl Project {
         Ok(pathbuf.canonicalize()?)
     }
 
-    fn build_if_needed(&self) -> ConfigResult<()> {
-        fn do_build(build: &ScalarOrVec<String>, dir: &PathBuf) -> ConfigResult<()> {
-            let mut pathbuf = snowchains_working_dir()?;
-            pathbuf.push(dir);
+    fn build_if_needed(&self, base: &Path) -> io::Result<()> {
+        fn do_build(base: &Path, build: &ScalarOrVec<String>, dir: &str) -> io::Result<()> {
             let (command, args) = build.split();
             let status = Command::new(command)
                 .args(args)
-                .current_dir(pathbuf)
+                .current_dir(resolve_path(base, dir)?)
                 .status()?;
             if status.success() {
                 Ok(())
@@ -240,26 +259,16 @@ impl Project {
 
         match *self {
             Project::Script(_) => Ok(()),
-            Project::Build(BuildProject { ref src, ref build, .. }) => do_build(build, src),
-            Project::Java(JavaProject { ref src, ref build, .. }) => do_build(build, src),
+            Project::Build(BuildProject { ref src, ref build, .. }) => do_build(base, build, src),
+            Project::Java(JavaProject { ref src, ref build, .. }) => do_build(base, build, src),
         }
     }
 
-    fn construct_run_command(&self, target_name: &str) -> ConfigResult<CommandParameters> {
-        fn resolve(path: &Path) -> ConfigResult<PathBuf> {
-            if path.is_relative() {
-                let mut pathbuf = snowchains_working_dir()?;
-                pathbuf.push(path);
-                Ok(pathbuf.canonicalize()?)
-            } else {
-                Ok(path.canonicalize()?)
-            }
-        }
-
-        fn resolve_to_string(path: &Path) -> ConfigResult<String> {
-            Ok(resolve(path)?.to_string_lossy().to_string())
-        }
-
+    fn construct_run_command(
+        &self,
+        base: &Path,
+        target_name: &str,
+    ) -> io::Result<CommandParameters> {
         match *self {
             Project::Script(ScriptProject {
                                 ref src,
@@ -267,22 +276,19 @@ impl Project {
                                 ref runtime,
                                 ..
                             }) => {
-                let mut pathbuf = src.clone();
-                pathbuf.push(target_name);
-                pathbuf.set_extension(extension);
-                if let &Some(ref runtime) = runtime {
+                let mut srcpath = resolve_path(base, src)?;
+                let working_dir = srcpath.clone();
+                srcpath.push(target_name);
+                srcpath.set_extension(extension);
+                if let Some(ref runtime) = *runtime {
                     let (command, mut args) = runtime.split();
-                    args.push(resolve_to_string(&pathbuf)?);
-                    Ok(CommandParameters::new(
-                        command,
-                        args,
-                        snowchains_working_dir()?,
-                    ))
+                    args.push(srcpath.to_string_lossy().to_string());
+                    Ok(CommandParameters::new(command, args, working_dir))
                 } else {
                     Ok(CommandParameters::new(
-                        resolve_to_string(&pathbuf)?,
+                        srcpath.to_string_lossy().to_string(),
                         vec![],
-                        snowchains_working_dir()?,
+                        working_dir,
                     ))
                 }
             }
@@ -291,26 +297,27 @@ impl Project {
                                capitalize,
                                ..
                            }) => {
-                let mut pathbuf = bin.clone();
+                let mut binpath = resolve_path(base, bin)?;
+                let working_dir = binpath.clone();
                 if capitalize {
-                    pathbuf.push(target_name.capitalize_first());
+                    binpath.push(target_name.capitalize_first());
                 } else {
-                    pathbuf.push(target_name);
+                    binpath.push(target_name);
                 }
                 if cfg!(target_os = "windows") {
-                    pathbuf.set_extension("exe");
+                    binpath.set_extension("exe");
                 }
                 Ok(CommandParameters::new(
-                    resolve_to_string(&pathbuf)?,
+                    binpath.to_string_lossy().to_string(),
                     vec![],
-                    snowchains_working_dir()?,
+                    working_dir,
                 ))
             }
             Project::Java(JavaProject { ref bin, .. }) => {
                 Ok(CommandParameters::new(
                     "java".to_owned(),
                     vec![target_name.capitalize_first()],
-                    resolve(&bin)?,
+                    resolve_path(base, &bin)?,
                 ))
             }
         }
@@ -321,7 +328,7 @@ impl Project {
 #[derive(Serialize, Deserialize)]
 struct ScriptProject {
     name: String,
-    src: PathBuf,
+    src: InputPath,
     extension: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime: Option<ScalarOrVec<String>>,
@@ -331,8 +338,8 @@ struct ScriptProject {
 #[derive(Serialize, Deserialize)]
 struct BuildProject {
     name: String,
-    src: PathBuf,
-    bin: PathBuf,
+    src: InputPath,
+    bin: InputPath,
     extension: String,
     #[serde(default)]
     capitalize: bool,
@@ -343,8 +350,8 @@ struct BuildProject {
 #[derive(Serialize, Deserialize)]
 struct JavaProject {
     name: String,
-    src: PathBuf,
-    bin: PathBuf,
+    src: InputPath,
+    bin: InputPath,
     #[serde(default = "default_java_extension")]
     extension: String,
     build: ScalarOrVec<String>,
