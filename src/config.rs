@@ -190,15 +190,15 @@ fn resolve_path(base: &Path, path: &str) -> io::Result<PathBuf> {
     if path.chars().next() == Some('~') {
         let mut pathbuf = PathBuf::from(base);
         pathbuf.push(path.chars().skip(2).collect::<String>());
-        return Ok(pathbuf.canonicalize()?);
+        return Ok(pathbuf);
     }
     let path = PathBuf::from(path);
     if path.is_absolute() {
-        Ok(path.canonicalize()?)
+        Ok(path)
     } else {
         let mut pathbuf = PathBuf::from(base);
         pathbuf.push(path);
-        Ok(pathbuf.canonicalize()?)
+        Ok(pathbuf)
     }
 }
 
@@ -240,25 +240,23 @@ impl Project {
             Project::Build(BuildProject { ref extension, .. }) => extension,
             Project::Java(JavaProject { ref extension, .. }) => extension,
         });
-        Ok(pathbuf.canonicalize()?)
+        Ok(pathbuf)
     }
 
     fn build_if_needed(&self, base: &Path) -> io::Result<()> {
         fn do_build(base: &Path, build: &ScalarOrVec<String>, dir: &str) -> io::Result<()> {
             let (command, args) = build.split();
-            let output = Command::new(command)
+            let status = Command::new(command)
                 .args(args)
                 .current_dir(resolve_path(base, dir)?)
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .output()?;
-            if output.status.success() {
+                .spawn()?
+                .wait()?;
+            if status.success() {
                 Ok(())
             } else {
                 Err(io::Error::new(
                     io::ErrorKind::Other,
-                    if let Some(code) = output.status.code() {
+                    if let Some(code) = status.code() {
                         format!("Build failed with code {}", code)
                     } else {
                         format!("Build failed")
