@@ -58,11 +58,8 @@ impl ScrapingSession {
         Ok(println!("The cookie was saved to {:?}.", pathbuf))
     }
 
-    pub fn cookie_value(&self, name: &str, domain: &str) -> Option<&str> {
-        match self.cookie_jar.get(name) {
-            Some(cookie) if cookie.domain() == Some(domain) => Some(cookie.value()),
-            _ => None,
-        }
+    pub fn cookie_value(&self, name: &str) -> Option<&str> {
+        self.cookie_jar.get(name).map(Cookie::value)
     }
 
     /// Panics when `url` is invalid.

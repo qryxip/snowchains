@@ -4,7 +4,7 @@ Tools for online programming contests.
 
 Works on
 - [x] Linux
-- [x] Windows (If you are using mintty, use winpty when you login.)
+- [x] Windows (If you are using MSYS2, use winpty when you login.)
 - [ ] OS X (Probably works.)
 
 ## Instrallation
@@ -23,8 +23,8 @@ $ cargo install --git https://github.com/wariuni/snowchains
 ```yaml
 # Example
 ---
-service: "atcoder"         # optional
-contest: "arc081"          # optional
+service: "atcoder-beta"    # optional
+contest: "arc082"          # optional
 testcases: "./snowchains/" # default: "./snowchains/"
 testcase_extension: "yml"  # default: "yml"
 targets:
@@ -63,7 +63,7 @@ projects:
     bin: "./rust/target/release/"
     extension: "rs"
     capitalize: false # default: false
-    build: ["cargo", "build", "--release"]
+    build: ["cargo", "build", "--release"] # also optional
   -
     name: "c++"
     type: "build"
@@ -112,6 +112,7 @@ $ snowchains judge <target>
 ### Download
 
 - [x] AtCoder (abcxxx, arcxxx, agcxxx, chokudai_sxxx)
+- [x] AtCoder Beta
 
 ```console
 $ #snowchains login <service>
@@ -126,6 +127,7 @@ Here's exmaples for [Welcome to AtCoder](http://practice.contest.atcoder.jp/task
 
 #### YAML
 ```yaml
+---
 timelimit: 2000 # Optional
 
 # Possible types of "expected" and "input":
@@ -134,12 +136,15 @@ timelimit: 2000 # Optional
 # * String (a '\n' is appended automatically if missing)
 # * Array of [Integer|Float|String] (in TOML, arrays cannot contain different types of data)
 cases:
-  - expected: "6 test"
+  -
+    expected: "6 test"
     input: "1\n2 3\ntest"
-  - timelimit: 10 # Override "timelimit"
+  -
+    timelimit: 10 # Override "timelimit"
     expected: ['456 myonmyon']
     input: [72, '128 256', 'myonmyon']
-  - input: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"] # "expected" is optional
+  -
+    input: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"] # "expected" is optional
 ```
 
 #### TOML

@@ -31,7 +31,7 @@ mod util;
 
 use self::config::{Config, ServiceName};
 use self::error::OrExit1;
-use self::service::atcoder;
+use self::service::{atcoder, atcoder_beta};
 use clap::{AppSettings, Arg, SubCommand};
 
 
@@ -40,7 +40,7 @@ fn main() {
         .version(crate_version!())
         .arg(
             Arg::with_name("service")
-                .possible_value("atcoder")
+                .possible_values(&["atcoder", "atcoder-beta"])
                 .help("Service name")
                 .required(true),
         );
@@ -49,7 +49,7 @@ fn main() {
         .version(crate_version!())
         .arg(
             Arg::with_name("service")
-                .possible_value("atcoder")
+                .possible_values(&["atcoder", "atcoder-beta"])
                 .help("Service name")
                 .required(true),
         )
@@ -80,13 +80,19 @@ fn main() {
     }
 
     if let Some(matches) = matches.subcommand_matches("login") {
-        if matches.value_of("service").unwrap() == "atcoder" {
+        let service_name = matches.value_of("service").unwrap();
+        if service_name == "atcoder" {
             return atcoder::login().or_exit1();
+        } else if service_name == "atcoder-beta" {
+            return atcoder_beta::login().or_exit1();
         }
     } else if let Some(matches) = matches.subcommand_matches("participate") {
         let contest = matches.value_of("contest").unwrap();
-        if matches.value_of("service").unwrap() == "atcoder" {
+        let service_name = matches.value_of("service").unwrap();
+        if service_name == "atcoder" {
             return atcoder::participate(&contest).or_exit1();
+        } else if service_name == "atcoder-beta" {
+            return atcoder_beta::participate(&contest).or_exit1();
         }
     } else if let Some(_) = matches.subcommand_matches("download") {
         let config = config();
@@ -94,8 +100,9 @@ fn main() {
         let path = config.testcase_dir().or_exit1();
         let extension = config.testcase_extension();
         return match config.service().or_exit1() {
-            ServiceName::AtCoder => atcoder::download(&contest, &path, extension).or_exit1(),
-        };
+            ServiceName::AtCoder => atcoder::download(&contest, &path, extension),
+            ServiceName::AtCoderBeta => atcoder_beta::download(&contest, &path, extension),
+        }.or_exit1();
     } else if let Some(matches) = matches.subcommand_matches("judge") {
         let config = config();
         let target = matches.value_of("target").unwrap();

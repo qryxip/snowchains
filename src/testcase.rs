@@ -10,7 +10,7 @@ use std::vec;
 use toml;
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Cases {
     #[serde(skip_serializing_if = "Option::is_none")]
     timelimit: Option<u64>,
@@ -50,6 +50,10 @@ impl Cases {
                 })
                 .collect(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cases.is_empty()
     }
 
     pub fn num_cases(&self) -> usize {

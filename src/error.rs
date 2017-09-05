@@ -59,6 +59,11 @@ error_chain! {
     }
 
     errors {
+        UnsupportedContest(name: String) {
+            description("Unsupported contest name")
+                display("Unsupported contest name \"{}\"", name)
+        }
+
         ScrapingFailed {
             description("Scraping failed")
                 display("Scraping faild")

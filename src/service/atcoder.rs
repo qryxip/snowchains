@@ -137,8 +137,7 @@ impl AtCoder {
     }
 
     fn show_username(&self) {
-        let username = self.cookie_value("_user_name", "atcoder.jp")
-            .unwrap_or_default();
+        let username = self.cookie_value("_user_name").unwrap_or_default();
         println!("Hello, {}.", username);
     }
 
@@ -149,7 +148,7 @@ impl AtCoder {
 
 
 fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, String)>> {
-    fn extract_names_and_pathes(document: Document) -> Option<Vec<(String, String)>> {
+    fn extract(document: Document) -> Option<Vec<(String, String)>> {
         let mut names_and_pathes = vec![];
         let predicate = HtmlAttr("id", "outer-inner")
             .child(Name("table"))
@@ -165,12 +164,7 @@ fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, Stri
         Some(names_and_pathes)
     }
 
-    if let Some(names_and_pathes) = extract_names_and_pathes(Document::from_read(html)?) {
-        if !names_and_pathes.is_empty() {
-            return Ok(names_and_pathes);
-        }
-    }
-    bail!(ServiceErrorKind::ScrapingFailed);
+    super::halt_on_failure(extract(Document::from_read(html)?), Vec::is_empty)
 }
 
 
@@ -182,7 +176,7 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<Cases> {
         Some(sample)
     }
 
-    fn extract_cases(document: Document) -> Option<Cases> {
+    fn extract(document: Document) -> Option<Cases> {
         let timelimit = {
             let re_timelimit = Regex::new("\\D*([0-9]+)sec.*").unwrap();
             let predicate = HtmlAttr("id", "outer-inner").child(Name("p")).child(Text);
@@ -215,10 +209,5 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<Cases> {
         Some(Cases::from_text(timelimit, samples))
     }
 
-    if let Some(cases) = extract_cases(Document::from_read(html)?) {
-        if cases.num_cases() > 0 {
-            return Ok(cases);
-        }
-    }
-    bail!(ServiceErrorKind::ScrapingFailed);
+    super::halt_on_failure(extract(Document::from_read(html)?), Cases::is_empty)
 }

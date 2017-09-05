@@ -133,9 +133,11 @@ impl Config {
 
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum ServiceName {
+    #[serde(rename = "atcoder")]
     AtCoder,
+    #[serde(rename = "atcoder-beta")]
+    AtCoderBeta,
 }
 
 
