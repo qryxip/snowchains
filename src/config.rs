@@ -17,13 +17,7 @@ pub fn create_template(lang: &str, dir: &str) -> ConfigResult<()> {
          contest: \"agc001\"\n\
          testcases: \"./snowchains/\"\n\
          testcase_extension: \"yml\"\n\
-         targets:\n  \
-           -\n    name: \"a\"\n    lang: \"{0}\"\n  \
-           -\n    name: \"b\"\n    lang: \"{0}\"\n  \
-           -\n    name: \"c\"\n    lang: \"{0}\"\n  \
-           -\n    name: \"d\"\n    lang: \"{0}\"\n  \
-           -\n    name: \"e\"\n    lang: \"{0}\"\n  \
-           -\n    name: \"f\"\n    lang: \"{0}\"\n\
+         default_lang: \"{}\"\n\
          languages:\n  \
            -\n    \
              name: \"c\"\n    \
@@ -95,6 +89,8 @@ pub struct Config {
     testcases: InputPath,
     #[serde(default = "default_testcase_extension")]
     testcase_extension: String,
+    default_lang: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     targets: Vec<Target>,
     languages: Vec<Project>,
     #[serde(skip)]
@@ -177,18 +173,23 @@ impl Config {
         if let Some(project) = search(&self.targets, &self.languages, target_name) {
             Ok(project)
         } else {
-            bail!(ConfigErrorKind::NoSuchTarget(target_name.to_owned()))
+            let default_lang = self.default_lang.clone();
+            for project in &self.languages {
+                if project.name() == default_lang {
+                    return Ok(project);
+                }
+            }
+            bail!(ConfigErrorKind::NoSuchLanguage(default_lang))
         }
     }
 
     fn set_target_lang(&mut self, target_name: &str, lang: &str) -> ConfigResult<()> {
         for mut target in self.targets.iter_mut() {
             if target.name == target_name {
-                target.lang = serde_yaml::from_str(lang)?;
-                return Ok(());
+                return Ok(target.lang = serde_yaml::from_str(lang)?);
             }
         }
-        bail!(ConfigErrorKind::NoSuchTarget(target_name.to_owned()));
+        Ok(self.targets.push(Target::new(target_name, lang)))
     }
 }
 
@@ -294,6 +295,15 @@ fn resolve_path(base: &Path, path: &str) -> io::Result<PathBuf> {
 struct Target {
     name: String,
     lang: String,
+}
+
+impl Target {
+    fn new(name: &str, lang: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            lang: lang.to_owned(),
+        }
+    }
 }
 
 

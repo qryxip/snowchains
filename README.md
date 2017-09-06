@@ -38,6 +38,7 @@ service: "atcoder-beta"    # optional
 contest: "agc001"          # optional
 testcases: "./snowchains/" # default: "./snowchains/"
 testcase_extension: "yml"  # default: "yml"
+default_lang: "c++"
 targets:
   # source file: <src>/<name>.<extension>
   # binary:      <bin>/<name (the first letter is capitalized if <capitalize>)>(.[class|exe])
@@ -103,25 +104,7 @@ Or simply:
 ---
 service: "atcoder"
 contest: "agc001"
-targets:
-  -
-    name: "a"
-    lang: "c++"
-  -
-    name: "b"
-    lang: "c++"
-  -
-    name: "c"
-    lang: "c++"
-  -
-    name: "d"
-    lang: "c++"
-  -
-    name: "e"
-    lang: "c++"
-  -
-    name: "f"
-    lang: "c++"
+default_lang: "c++"
 languages:
   -
     name: "c++"

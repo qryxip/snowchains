@@ -140,9 +140,9 @@ error_chain! {
                 display("\"snowchains.yml\" not found")
         }
 
-        NoSuchTarget(name: String) {
-            description("Target not found")
-                display("No such target: \"{}\"", name)
+        NoSuchLanguage(name: String) {
+            description("Language not found")
+                display("No such language: \"{}\"", name)
         }
 
         PropertyNotSet(property: &'static str) {
