@@ -1,5 +1,6 @@
 use cookie;
 use error_chain::ChainedError;
+use regex;
 use reqwest::{self, StatusCode, UrlError};
 use serde_json;
 use serde_urlencoded;
@@ -129,6 +130,7 @@ error_chain! {
 
     foreign_links {
         Io(io::Error);
+        Regex(regex::Error);
         SerdeYaml(serde_yaml::Error);
     }
 

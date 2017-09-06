@@ -36,23 +36,43 @@ use clap::{AppSettings, Arg, SubCommand};
 
 
 fn main() {
-    let subcommand_login = SubCommand::with_name("login")
+    fn arg_service() -> Arg<'static, 'static> {
+        Arg::with_name("service")
+            .possible_values(&["atcoder", "atcoder-beta"])
+            .help("Service name")
+            .required(true)
+    }
+
+    fn arg_lang() -> Arg<'static, 'static> {
+        Arg::with_name("lang")
+            .possible_values(&["c", "c++", "rust", "java", "python3"])
+            .required(true)
+    }
+
+    let subcommand_init_config = SubCommand::with_name("init-config")
+        .version(crate_version!())
+        .arg(arg_lang())
+        .arg(Arg::with_name("dir").required(true));
+
+    let subcommand_set = SubCommand::with_name("set")
         .version(crate_version!())
         .arg(
-            Arg::with_name("service")
-                .possible_values(&["atcoder", "atcoder-beta"])
-                .help("Service name")
+            Arg::with_name("property-or-target")
+                .help(
+                    "Property name (\"service\", \"contest\", \"testcases\", \
+                     \"testcase_extension\") or target name",
+                )
                 .required(true),
-        );
+        )
+        .arg(Arg::with_name("value").required(true));
+
+    let subcommand_login = SubCommand::with_name("login")
+        .version(crate_version!())
+        .arg(arg_service());
 
     let subcommand_participate = SubCommand::with_name("participate")
         .version(crate_version!())
-        .arg(
-            Arg::with_name("service")
-                .possible_values(&["atcoder", "atcoder-beta"])
-                .help("Service name")
-                .required(true),
-        )
+        .arg(arg_service())
         .arg(Arg::with_name("contest").help("Contest name").required(
             true,
         ));
@@ -69,6 +89,8 @@ fn main() {
 
     let matches = app_from_crate!()
         .setting(AppSettings::SubcommandRequiredElseHelp)
+        .subcommand(subcommand_init_config)
+        .subcommand(subcommand_set)
         .subcommand(subcommand_login)
         .subcommand(subcommand_participate)
         .subcommand(subcommand_download)
@@ -79,7 +101,15 @@ fn main() {
         Config::load_from_file().or_exit1()
     }
 
-    if let Some(matches) = matches.subcommand_matches("login") {
+    if let Some(matches) = matches.subcommand_matches("init-config") {
+        let lang = matches.value_of("lang").unwrap();
+        let dir = matches.value_of("dir").unwrap();
+        return config::create_template(lang, dir).or_exit1();
+    } else if let Some(matches) = matches.subcommand_matches("set") {
+        let key = matches.value_of("property-or-target").unwrap();
+        let value = matches.value_of("value").unwrap();
+        return config::set_property(key, value).or_exit1();
+    } else if let Some(matches) = matches.subcommand_matches("login") {
         let service_name = matches.value_of("service").unwrap();
         if service_name == "atcoder" {
             return atcoder::login().or_exit1();

@@ -19,12 +19,23 @@ $ cargo install --git https://github.com/wariuni/snowchains
 
 ## Usage
 
-1. Write the config in `<your-project>/snowchains.yml`.
+```console
+$ cd <project-dir>
+$ snowchains init-config <language> ./
+$ snowchains set service <service>
+$ snowchains set contest <contest>
+$ snowchains download # The username and password required when not yet signed-in
+$ $EDITOR <project>/snowchains/<target>.yml # Add more test cases
+$ snowchains judge <target>
+```
+
+## Config File (snowchains.yml)
+
 ```yaml
 # Example
 ---
 service: "atcoder-beta"    # optional
-contest: "arc082"          # optional
+contest: "agc001"          # optional
 testcases: "./snowchains/" # default: "./snowchains/"
 testcase_extension: "yml"  # default: "yml"
 targets:
@@ -32,38 +43,31 @@ targets:
   # binary:      <bin>/<name (the first letter is capitalized if <capitalize>)>(.[class|exe])
   # test file:   <testcases>/<name>.<testcase_extension>
   -
-    name: "c"
+    name: "a"
     project: "python3"
   -
-    name: "d"
+    name: "b"
     project: "java"
   -
-    name: "e"
+    name: "c"
     project: "rust"
+  -
+    name: "d"
+    project: "c"
+  -
+    name: "e"
+    project: "c++"
   -
     name: "f"
     project: "c++"
 projects:
   -
-    name: "python3"
-    type: "script"
-    src: "./python/"
-    extension: "py"
-    runtime: "python3" # or shebang
-  -
-    name: "java"
-    type: "java"
-    src: "./java/src/main/java/"
-    bin: "./java/build/classes/java/main/"
-    build: ["gradle", "build", "--daemon"] # optional
-  -
-    name: "rust"
+    name: "c"
     type: "build"
-    src: "./rust/src/bin/"
-    bin: "./rust/target/release/"
-    extension: "rs"
-    capitalize: false # default: false
-    build: ["cargo", "build", "--release"] # also optional
+    src: "./c/"
+    bin: "./c/build/"
+    extension: "c"
+    build: "ninja"
   -
     name: "c++"
     type: "build"
@@ -71,13 +75,41 @@ projects:
     bin: "./cc/build/"
     extension: "cc"
     build: "ninja"
+  -
+    name: "rust"
+    type: "build"
+    src: "./rust/src/bin/"
+    bin: "./rust/target/release/"
+    extension: "rs"
+    capitalize: false # default: false
+    build: ["cargo", "build", "--release"] # optional
+  -
+    name: "java"
+    type: "java"
+    src: "./java/src/main/java/"
+    bin: "./java/build/classes/java/main/"
+    build: ["gradle", "build", "--daemon"] # also optional
+  -
+    name: "python3"
+    type: "script"
+    src: "./python/"
+    extension: "py"
+    runtime: "python3" # or shebang
 ```
+
 Or simply:
+
 ```yaml
 ---
 service: "atcoder"
-contest: "arc081"
+contest: "agc001"
 targets:
+  -
+    name: "a"
+    project: "c++"
+  -
+    name: "b"
+    project: "c++"
   -
     name: "c"
     project: "c++"
@@ -99,20 +131,13 @@ projects:
     extension: "cc"
     build: "ninja"
 ```
-And
-```console
-$ cd <wherever under the project>
-$ snowchains download # The username and password required when not yet signed-in
-$ $EDITOR <project>/snowchains/<target>.yml # Add more test cases
-$ snowchains judge <target>
-```
 
-## Test cases
+## Test Cases
 
 ### Download
 
-- [x] AtCoder (abcxxx, arcxxx, agcxxx, chokudai_sxxx)
-- [x] AtCoder Beta
+- [x] atcoder (abcxxx, arcxxx, agcxxx, chokudai_sxxx)
+- [x] atcoder-beta (〃)
 
 ```console
 $ #snowchains login <service>
@@ -123,7 +148,7 @@ $ snowchains download
 
 ### Format
 
-Here's exmaples for [Welcome to AtCoder](http://practice.contest.atcoder.jp/tasks/practice_1).
+Here's exmaples for [Welcome to AtCoder](https://beta.atcoder.jp/contests/practice/tasks/practice_1).
 
 #### YAML
 ```yaml

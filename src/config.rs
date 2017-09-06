@@ -3,12 +3,86 @@ use super::util::{self, CapitalizeFirst};
 use serde_yaml;
 use std::env;
 use std::fs::{self, File};
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 
 type InputPath = String;
+
+
+pub fn create_template(lang: &str, dir: &str) -> ConfigResult<()> {
+    let template = format!(
+        "service: \"atcoder-beta\" # [\"atcoder\", \"atcoder-beta\"]\n\
+         contest: \"agc001\"\n\
+         testcases: \"./snowchains/\"\n\
+         testcase_extension: \"yml\"\n\
+         targets:\n  \
+           -\n    name: \"a\"\n    project: \"{0}\"\n  \
+           -\n    name: \"b\"\n    project: \"{0}\"\n  \
+           -\n    name: \"c\"\n    project: \"{0}\"\n  \
+           -\n    name: \"d\"\n    project: \"{0}\"\n  \
+           -\n    name: \"e\"\n    project: \"{0}\"\n  \
+           -\n    name: \"f\"\n    project: \"{0}\"\n\
+         projects:\n  \
+           -\n    \
+             name: \"c\"\n    \
+             type: \"build\"\n    \
+             src: \"./c/\"\n    \
+             bin: \"./c/build/\"\n    \
+             extension: \"c\"\n    \
+             build: \"ninja\"\n  \
+           -\n    \
+             name: \"c++\"\n    \
+             type: \"build\"\n    \
+             src: \"./cc/\"\n    \
+             bin: \"./cc/build/\"\n    \
+             extension: \"cc\"\n    \
+             build: \"ninja\"\n  \
+           -\n    \
+             name: \"rust\"\n    \
+             type: \"build\"\n    \
+             src: \"./rust/src/bin/\"\n    \
+             bin: \"./rust/target/release/\"\n    \
+             extension: \"rs\"\n    \
+             build: [\"cargo\", \"build\", \"--release\"]\n  \
+           -\n    \
+             name: \"java\"\n    \
+             type: \"java\"\n    \
+             src: \"./java/src/main/java/\"\n    \
+             bin: \"./java/build/classes/java/main/\"\n    \
+             build: [\"gradle\", \"--daemon\", \"build\"] # optional\n  \
+           -\n    \
+             name: \"python3\"\n    \
+             type: \"script\"\n    \
+             src: \"./python/\"\n    \
+             extension: \"py\"\n    \
+             runtime: \"python3\" # or shebang\n",
+        lang
+    );
+    let mut path = PathBuf::from(dir);
+    path.push("snowchains.yml");
+    Ok(File::create(path)?.write_all(template.as_bytes())?)
+}
+
+
+pub fn set_property(key: &str, value: &str) -> ConfigResult<()> {
+    let mut config = Config::load_from_file()?;
+    if key == "service" {
+        config.service = Some(serde_yaml::from_str(value)?);
+    } else if key == "contest" {
+        config.contest = Some(value.to_owned());
+    } else if key == "testcases" {
+        config.testcases = value.to_owned();
+    } else if key == "testcase_extension" {
+        config.testcase_extension = value.to_owned();
+    } else {
+        config.set_target_lang(key, value)?;
+    }
+    let config = serde_yaml::to_string(&config)?;
+    File::create(find_base()?.1)?.write_all(config.as_bytes())?;
+    Ok(())
+}
 
 
 #[derive(Serialize, Deserialize)]
@@ -29,33 +103,10 @@ pub struct Config {
 
 impl Config {
     pub fn load_from_file() -> ConfigResult<Self> {
-        fn find_base_dir() -> ConfigResult<PathBuf> {
-            fn find_snowchain_yml<P: AsRef<Path>>(dir: P) -> io::Result<bool> {
-                for entry in fs::read_dir(dir)? {
-                    let path = entry?.path();
-                    if path.is_file() && path.file_name().unwrap() == "snowchains.yml" {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            }
-
-            let mut dir = env::current_dir()?;
-            loop {
-                if find_snowchain_yml(&dir)? {
-                    return Ok(dir);
-                } else if !dir.pop() {
-                    bail!(ConfigErrorKind::ConfigFileNotFound);
-                }
-            }
-        }
-
-        let mut pathbuf = find_base_dir()?;
-        let base_dir = pathbuf.clone();
-        pathbuf.push("snowchains.yml");
+        let (base, path) = find_base()?;
         let mut config =
-            serde_yaml::from_str::<Self>(&util::string_from_read(File::open(&pathbuf)?)?)?;
-        config.base_dir = base_dir;
+            serde_yaml::from_str::<Self>(&util::string_from_read(File::open(&path)?)?)?;
+        config.base_dir = base;
         Ok(config)
     }
 
@@ -129,6 +180,16 @@ impl Config {
             bail!(ConfigErrorKind::NoSuchTarget(target_name.to_owned()))
         }
     }
+
+    fn set_target_lang(&mut self, target_name: &str, lang: &str) -> ConfigResult<()> {
+        for mut target in self.targets.iter_mut() {
+            if target.name == target_name {
+                target.project = serde_yaml::from_str(lang)?;
+                return Ok(());
+            }
+        }
+        bail!(ConfigErrorKind::NoSuchTarget(target_name.to_owned()));
+    }
 }
 
 
@@ -185,6 +246,30 @@ fn default_testcase_extension() -> String {
 
 fn default_java_extension() -> String {
     "java".to_owned()
+}
+
+
+fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
+    fn snowchain_yml_exists<P: AsRef<Path>>(dir: P) -> io::Result<bool> {
+        for entry in fs::read_dir(dir)? {
+            let path = entry?.path();
+            if path.is_file() && path.file_name().unwrap() == "snowchains.yml" {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    let mut dir = env::current_dir()?;
+    loop {
+        if let Ok(true) = snowchain_yml_exists(&dir) {
+            let mut path = dir.clone();
+            path.push("snowchains.yml");
+            return Ok((dir, path));
+        } else if !dir.pop() {
+            bail!(ConfigErrorKind::ConfigFileNotFound);
+        }
+    }
 }
 
 
