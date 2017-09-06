@@ -139,7 +139,7 @@ fn main() {
         let cases = config.testcase_path(target).or_exit1();
         let command_params = config.construct_run_command(target).or_exit1();
         config.build_if_needed(target).or_exit1();
-        return judge::run_judge(&cases, command_params).or_exit1();
+        return judge::judge(&cases, command_params).or_exit1();
     }
     unreachable!();
 }

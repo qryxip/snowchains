@@ -1,27 +1,21 @@
-use super::config::CommandParameters;
 use super::error::{JudgeErrorKind, JudgeResult};
 use super::testcase::{Case, Cases};
 use super::util::{self, UnwrapAsRefMut};
 use std::fmt::{self, Debug, Formatter};
 use std::io::{self, Write};
-use std::path::Path;
-use std::process::ExitStatus;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 use term::{Attr, color};
 
 
-pub fn run_judge(cases: &Path, command_params: CommandParameters) -> JudgeResult<()> {
-    judge_all(Cases::load(cases)?, command_params)
-}
-
-
-fn judge_all(cases: Cases, command_params: CommandParameters) -> JudgeResult<()> {
+pub fn judge(cases: &Path, command_params: CommandParameters) -> JudgeResult<()> {
     fn judge_one(case: Case, command_params: CommandParameters) -> JudgeResult<JudgeOutput> {
         fn run_program(case: Case, command_params: CommandParameters) -> io::Result<JudgeOutput> {
             let (input, expected, timelimit) = case.into();
-            let mut child = command_params.build_and_spawn()?;
+            let mut child = command_params.spawn_piped()?;
             let start = Instant::now();
             child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
 
@@ -59,6 +53,7 @@ fn judge_all(cases: Cases, command_params: CommandParameters) -> JudgeResult<()>
         }
     }
 
+    let cases = Cases::load(cases)?;
     let num_cases = cases.num_cases();
     let suf = if num_cases > 1 { "s" } else { "" };
     let mut all_outputs = vec![];
@@ -85,6 +80,34 @@ fn judge_all(cases: Cases, command_params: CommandParameters) -> JudgeResult<()>
             output.eprint_details();
         }
         bail!(JudgeErrorKind::TestFailed(num_failures))
+    }
+}
+
+
+#[derive(Clone)]
+pub struct CommandParameters {
+    command: String,
+    args: Vec<String>,
+    working_dir: PathBuf,
+}
+
+impl CommandParameters {
+    pub fn new(command: String, args: Vec<String>, working_dir: PathBuf) -> Self {
+        Self {
+            command: command,
+            args: args,
+            working_dir: working_dir,
+        }
+    }
+
+    fn spawn_piped(self) -> io::Result<Child> {
+        Command::new(&self.command)
+            .args(self.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(self.working_dir)
+            .spawn()
     }
 }
 

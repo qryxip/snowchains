@@ -1,11 +1,12 @@
 use super::error::{ConfigErrorKind, ConfigResult};
+use super::judge::CommandParameters;
 use super::util::{self, CapitalizeFirst};
 use serde_yaml;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
 
 
 type InputPath = String;
@@ -200,34 +201,6 @@ pub enum ServiceName {
     AtCoder,
     #[serde(rename = "atcoder-beta")]
     AtCoderBeta,
-}
-
-
-#[derive(Clone)]
-pub struct CommandParameters {
-    command: String,
-    args: Vec<String>,
-    working_dir: PathBuf,
-}
-
-impl CommandParameters {
-    pub fn build_and_spawn(self) -> io::Result<Child> {
-        Command::new(&self.command)
-            .args(self.args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .current_dir(self.working_dir)
-            .spawn()
-    }
-
-    fn new(command: String, args: Vec<String>, working_dir: PathBuf) -> Self {
-        Self {
-            command: command,
-            args: args,
-            working_dir: working_dir,
-        }
-    }
 }
 
 
