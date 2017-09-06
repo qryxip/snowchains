@@ -44,23 +44,23 @@ targets:
   # test file:   <testcases>/<name>.<testcase_extension>
   -
     name: "a"
-    project: "python3"
+    lang: "python3"
   -
     name: "b"
-    project: "java"
+    lang: "java"
   -
     name: "c"
-    project: "rust"
+    lang: "rust"
   -
     name: "d"
-    project: "c"
+    lang: "c"
   -
     name: "e"
-    project: "c++"
+    lang: "c++"
   -
     name: "f"
-    project: "c++"
-projects:
+    lang: "c++"
+languages:
   -
     name: "c"
     type: "build"
@@ -106,23 +106,23 @@ contest: "agc001"
 targets:
   -
     name: "a"
-    project: "c++"
+    lang: "c++"
   -
     name: "b"
-    project: "c++"
+    lang: "c++"
   -
     name: "c"
-    project: "c++"
+    lang: "c++"
   -
     name: "d"
-    project: "c++"
+    lang: "c++"
   -
     name: "e"
-    project: "c++"
+    lang: "c++"
   -
     name: "f"
-    project: "c++"
-projects:
+    lang: "c++"
+languages:
   -
     name: "c++"
     type: "build"

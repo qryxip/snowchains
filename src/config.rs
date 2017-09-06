@@ -18,13 +18,13 @@ pub fn create_template(lang: &str, dir: &str) -> ConfigResult<()> {
          testcases: \"./snowchains/\"\n\
          testcase_extension: \"yml\"\n\
          targets:\n  \
-           -\n    name: \"a\"\n    project: \"{0}\"\n  \
-           -\n    name: \"b\"\n    project: \"{0}\"\n  \
-           -\n    name: \"c\"\n    project: \"{0}\"\n  \
-           -\n    name: \"d\"\n    project: \"{0}\"\n  \
-           -\n    name: \"e\"\n    project: \"{0}\"\n  \
-           -\n    name: \"f\"\n    project: \"{0}\"\n\
-         projects:\n  \
+           -\n    name: \"a\"\n    lang: \"{0}\"\n  \
+           -\n    name: \"b\"\n    lang: \"{0}\"\n  \
+           -\n    name: \"c\"\n    lang: \"{0}\"\n  \
+           -\n    name: \"d\"\n    lang: \"{0}\"\n  \
+           -\n    name: \"e\"\n    lang: \"{0}\"\n  \
+           -\n    name: \"f\"\n    lang: \"{0}\"\n\
+         languages:\n  \
            -\n    \
              name: \"c\"\n    \
              type: \"build\"\n    \
@@ -96,7 +96,7 @@ pub struct Config {
     #[serde(default = "default_testcase_extension")]
     testcase_extension: String,
     targets: Vec<Target>,
-    projects: Vec<Project>,
+    languages: Vec<Project>,
     #[serde(skip)]
     base_dir: PathBuf,
 }
@@ -165,7 +165,7 @@ impl Config {
                 targets
                     .iter()
                     .filter(|ref target| target.name == target_name)
-                    .map(|ref target| target.project.clone())
+                    .map(|ref target| target.lang.clone())
                     .next()
             );
             projects
@@ -174,7 +174,7 @@ impl Config {
                 .next()
         }
 
-        if let Some(project) = search(&self.targets, &self.projects, target_name) {
+        if let Some(project) = search(&self.targets, &self.languages, target_name) {
             Ok(project)
         } else {
             bail!(ConfigErrorKind::NoSuchTarget(target_name.to_owned()))
@@ -184,7 +184,7 @@ impl Config {
     fn set_target_lang(&mut self, target_name: &str, lang: &str) -> ConfigResult<()> {
         for mut target in self.targets.iter_mut() {
             if target.name == target_name {
-                target.project = serde_yaml::from_str(lang)?;
+                target.lang = serde_yaml::from_str(lang)?;
                 return Ok(());
             }
         }
@@ -293,7 +293,7 @@ fn resolve_path(base: &Path, path: &str) -> io::Result<PathBuf> {
 #[derive(Serialize, Deserialize)]
 struct Target {
     name: String,
-    project: String,
+    lang: String,
 }
 
 
