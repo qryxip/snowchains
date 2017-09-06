@@ -11,11 +11,24 @@ use std::time::{Duration, Instant};
 use term::{Attr, color};
 
 
-pub fn judge(cases: &Path, command_params: CommandParameters) -> JudgeResult<()> {
-    fn judge_one(case: Case, command_params: CommandParameters) -> JudgeResult<JudgeOutput> {
-        fn run_program(case: Case, command_params: CommandParameters) -> io::Result<JudgeOutput> {
+pub fn judge(
+    cases: &Path,
+    run_command: CommandParameters,
+    build_command: Option<CommandParameters>,
+) -> JudgeResult<()> {
+    fn build(build_command: CommandParameters) -> JudgeResult<()> {
+        let status = build_command.status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            bail!(JudgeErrorKind::BuildFailure(status));
+        }
+    }
+
+    fn judge_one(case: Case, run_command: CommandParameters) -> JudgeResult<JudgeOutput> {
+        fn run_program(case: Case, run_command: CommandParameters) -> io::Result<JudgeOutput> {
             let (input, expected, timelimit) = case.into();
-            let mut child = command_params.spawn_piped()?;
+            let mut child = run_command.spawn_piped()?;
             let start = Instant::now();
             child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
 
@@ -41,7 +54,7 @@ pub fn judge(cases: &Path, command_params: CommandParameters) -> JudgeResult<()>
         let (tx, rx) = mpsc::channel();
         let case_cloned = case.clone();
         thread::spawn(move || {
-            let _ = tx.send(run_program(case_cloned, command_params));
+            let _ = tx.send(run_program(case_cloned, run_command));
         });
         if let (input, expected, Some(timelimit)) = case.into() {
             match rx.recv_timeout(Duration::from_millis(timelimit + 50)) {
@@ -53,6 +66,10 @@ pub fn judge(cases: &Path, command_params: CommandParameters) -> JudgeResult<()>
         }
     }
 
+    if let Some(build_command) = build_command {
+        build(build_command)?;
+    }
+
     let cases = Cases::load(cases)?;
     let num_cases = cases.num_cases();
     let suf = if num_cases > 1 { "s" } else { "" };
@@ -61,7 +78,7 @@ pub fn judge(cases: &Path, command_params: CommandParameters) -> JudgeResult<()>
 
     println!("\nRunning {} test{}...", num_cases, suf);
     for (i, case) in cases.into_iter().enumerate() {
-        let output = judge_one(case, command_params.clone())?;
+        let output = judge_one(case, run_command.clone())?;
         output.print_title(i, num_cases);
         match output {
             JudgeOutput::Ac(..) => {}
@@ -98,6 +115,14 @@ impl CommandParameters {
             args: args,
             working_dir: working_dir,
         }
+    }
+
+    fn status(self) -> io::Result<ExitStatus> {
+        Command::new(&self.command)
+            .args(self.args)
+            .current_dir(self.working_dir)
+            .spawn()?
+            .wait()
     }
 
     fn spawn_piped(self) -> io::Result<Child> {

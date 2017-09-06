@@ -6,7 +6,7 @@ use serde_json;
 use serde_urlencoded;
 use serde_yaml;
 use std::io;
-use std::process;
+use std::process::{self, ExitStatus};
 use std::sync::mpsc::RecvError;
 use term::{Attr, color};
 use toml;
@@ -93,6 +93,16 @@ error_chain! {
     }
 
     errors {
+        BuildFailure(status: ExitStatus) {
+            description("Build failed")
+                display("Build failed{}",
+                        if let Some(code) = status.code() {
+                            format!(" with code {}", code)
+                        } else {
+                            "".to_owned()
+                        })
+        }
+
         TestFailed(n: usize) {
             description("Test faild")
                 display("{} Test{} failed", n, if *n > 0 { "s" } else { "" })

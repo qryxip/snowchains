@@ -137,9 +137,9 @@ fn main() {
         let config = config();
         let target = matches.value_of("target").unwrap();
         let cases = config.testcase_path(target).or_exit1();
-        let command_params = config.construct_run_command(target).or_exit1();
-        config.build_if_needed(target).or_exit1();
-        return judge::judge(&cases, command_params).or_exit1();
+        let build_command = config.construct_build_command(target).or_exit1();
+        let run_command = config.construct_run_command(target).or_exit1();
+        return judge::judge(&cases, run_command, build_command).or_exit1();
     }
     unreachable!();
 }

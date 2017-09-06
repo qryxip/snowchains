@@ -6,7 +6,6 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 
 type InputPath = String;
@@ -142,14 +141,17 @@ impl Config {
         Ok(project.src(&self.base_dir, target_name)?)
     }
 
+    pub fn construct_build_command(
+        &self,
+        target_name: &str,
+    ) -> ConfigResult<Option<CommandParameters>> {
+        let project = self.project(target_name)?;
+        Ok(project.construct_build_command(&self.base_dir)?)
+    }
+
     pub fn construct_run_command(&self, target_name: &str) -> ConfigResult<CommandParameters> {
         let project = self.project(target_name)?;
         Ok(project.construct_run_command(&self.base_dir, target_name)?)
-    }
-
-    pub fn build_if_needed(&self, target_name: &str) -> ConfigResult<()> {
-        let project = self.project(target_name)?;
-        Ok(project.build_if_needed(&self.base_dir)?)
     }
 
     fn project(&self, target_name: &str) -> ConfigResult<&Project> {
@@ -313,26 +315,15 @@ impl Project {
         Ok(pathbuf)
     }
 
-    fn build_if_needed(&self, base: &Path) -> io::Result<()> {
-        fn do_build(base: &Path, build: &ScalarOrVec<String>, dir: &str) -> io::Result<()> {
+    fn construct_build_command(&self, base: &Path) -> ConfigResult<Option<CommandParameters>> {
+        fn construct(
+            base: &Path,
+            build: &ScalarOrVec<String>,
+            dir: &str,
+        ) -> ConfigResult<CommandParameters> {
             let (command, args) = build.split();
-            let status = Command::new(command)
-                .args(args)
-                .current_dir(resolve_path(base, dir)?)
-                .spawn()?
-                .wait()?;
-            if status.success() {
-                Ok(())
-            } else {
-                Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    if let Some(code) = status.code() {
-                        format!("Build failed with code {}", code)
-                    } else {
-                        format!("Build failed")
-                    },
-                ))
-            }
+            let working_dir = resolve_path(base, dir)?;
+            Ok(CommandParameters::new(command, args, working_dir))
         }
 
         match *self {
@@ -340,13 +331,13 @@ impl Project {
                                ref src,
                                build: Some(ref build),
                                ..
-                           }) => do_build(base, build, src),
+                           }) => Ok(Some(construct(base, build, src)?)),
             Project::Java(JavaProject {
                               ref src,
                               build: Some(ref build),
                               ..
-                          }) => do_build(base, build, src),
-            _ => Ok(()),
+                          }) => Ok(Some(construct(base, build, src)?)),
+            _ => Ok(None),
         }
     }
 
