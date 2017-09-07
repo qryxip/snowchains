@@ -1,15 +1,18 @@
 use super::scraping_session::ScrapingSession;
 use super::super::error::{ServiceErrorKind, ServiceResult};
 use super::super::testcase::Cases;
+use super::super::util;
 use regex::Regex;
 use reqwest::StatusCode;
 use select::document::Document;
 use select::node::Node;
 use select::predicate::{And, Attr as HtmlAttr, Class, Name, Predicate, Text};
+use std::fs::File;
 use std::io::{self, Read};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use term::{Attr as TermAttr, color};
+use webbrowser;
 
 
 pub fn login() -> ServiceResult<()> {
@@ -31,6 +34,14 @@ pub fn download(contest_name: &str, path_to_save: &Path, extension: &str) -> Ser
     let mut atcoder = AtCoderBeta::load_or_login(None)?;
     atcoder.register_to_contest(&contest)?;
     atcoder.download_all_tasks(contest, path_to_save, extension)
+}
+
+
+pub fn submit(contest_name: &str, task: &str, lang_id: u32, src: &Path) -> ServiceResult<()> {
+    let contest = Contest::new(contest_name)?;
+    let mut atcoder = AtCoderBeta::load_or_login(None)?;
+    atcoder.register_to_contest(&contest)?;
+    atcoder.submit_code(contest, task, lang_id, src)
 }
 
 
@@ -124,6 +135,56 @@ impl AtCoderBeta {
         Ok(self.save()?)
     }
 
+    #[allow(non_snake_case)]
+    fn submit_code(
+        &mut self,
+        contest: Contest,
+        task: &str,
+        lang_id: u32,
+        src: &Path,
+    ) -> ServiceResult<()> {
+        #[derive(Serialize)]
+        struct PostData {
+            #[serde(rename = "data.TaskScreenName")]
+            dataTaskScreenName: String,
+            #[serde(rename = "data.LanguageId")]
+            dataLanguageId: u32,
+            sourceCode: String,
+            csrf_token: String,
+        }
+
+        for (name, relative_url) in
+            extract_task_urls_with_names(self.http_get(&contest.tasks_url())?)?
+        {
+            if name.to_uppercase() == task.to_uppercase() {
+                let task_screen_name = {
+                    let regex = Regex::new(r"^.*/([a-z0-9_]+)/?$").unwrap();
+                    if let Some(caps) = regex.captures(&relative_url) {
+                        caps[1].to_owned()
+                    } else {
+                        break;
+                    }
+                };
+                let source_code = util::string_from_read(File::open(src)?)?;
+                let csrf_token = {
+                    let url = format!("https://beta.atcoder.jp{}", relative_url);
+                    extract_csrf_token(self.http_get(&url)?)?
+                };
+                let data = PostData {
+                    dataTaskScreenName: task_screen_name,
+                    dataLanguageId: lang_id,
+                    sourceCode: source_code,
+                    csrf_token: csrf_token,
+                };
+                let url = contest.submission_url();
+                let _ = self.http_post_urlencoded(&url, data, StatusCode::Found)?;
+                webbrowser::open(&contest.submissions_url())?;
+                return Ok(());
+            }
+        }
+        bail!(ServiceErrorKind::NoSuchProblem(task.to_owned()));
+    }
+
     fn save(&self) -> io::Result<()> {
         self.save_cookie_to_file("atcoder-beta")
     }
@@ -192,6 +253,14 @@ impl Contest {
 
     fn registration_url(&self) -> String {
         format!("{}/register", self.top_url())
+    }
+
+    fn submission_url(&self) -> String {
+        format!("{}/submit", self.top_url())
+    }
+
+    fn submissions_url(&self) -> String {
+        format!("{}/submissions/me", self.top_url())
     }
 }
 

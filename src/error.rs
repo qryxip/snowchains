@@ -65,6 +65,11 @@ error_chain! {
                 display("Unsupported contest name \"{}\"", name)
         }
 
+        NoSuchProblem(name: String) {
+            description("No such problem")
+                display("No such problem: \"{}\"", name)
+        }
+
         ScrapingFailed {
             description("Scraping failed")
                 display("Scraping faild")

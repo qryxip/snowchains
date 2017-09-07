@@ -27,6 +27,7 @@ $ snowchains set contest <contest>
 $ snowchains download # The username and password required when not yet signed-in
 $ $EDITOR <project>/snowchains/<target>.yml # Add more test cases
 $ snowchains judge <target>
+$ snowchains submit <target>
 ```
 
 ## Config File (snowchains.yml)
@@ -69,6 +70,7 @@ languages:
     bin: "./c/build/"
     extension: "c"
     build: "ninja"
+    atcoder_lang_id: 3002 # see HTML source or open the inspector, and search by "option"
   -
     name: "c++"
     type: "build"
@@ -76,6 +78,7 @@ languages:
     bin: "./cc/build/"
     extension: "cc"
     build: "ninja"
+    atcoder_lang_id: 3003
   -
     name: "rust"
     type: "build"
@@ -84,18 +87,21 @@ languages:
     extension: "rs"
     capitalize: false # default: false
     build: ["cargo", "build", "--release"] # optional
+    atcoder_lang_id: 3504
   -
     name: "java"
     type: "java"
     src: "./java/src/main/java/"
     bin: "./java/build/classes/java/main/"
     build: ["gradle", "build", "--daemon"] # also optional
+    atcoder_lang_id: 3016
   -
     name: "python3"
     type: "script"
     src: "./python/"
     extension: "py"
     runtime: "python3" # or shebang
+    atcoder_lang_id: 3023
 ```
 
 Or simply:

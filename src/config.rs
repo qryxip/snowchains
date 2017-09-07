@@ -1,4 +1,4 @@
-use super::error::{ConfigErrorKind, ConfigResult};
+use super::error::{ConfigError, ConfigErrorKind, ConfigResult};
 use super::judge::CommandParameters;
 use super::util::{self, CapitalizeFirst};
 use serde_yaml;
@@ -27,6 +27,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 extension: "c".to_owned(),
                 capitalize: false,
                 build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
+                atcoder_lang_id: Some(3002),
             }),
             Project::Build(BuildProject {
                 name: "c++".to_owned(),
@@ -35,6 +36,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 extension: "cc".to_owned(),
                 capitalize: false,
                 build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
+                atcoder_lang_id: Some(3003),
             }),
             Project::Build(BuildProject {
                 name: "rust".to_owned(),
@@ -47,6 +49,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                     "build".to_owned(),
                     "--release".to_owned(),
                 ])),
+                atcoder_lang_id: Some(3504),
             }),
             Project::Java(JavaProject {
                 name: "java".to_owned(),
@@ -58,12 +61,14 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                     "--daemon".to_owned(),
                     "build".to_owned(),
                 ])),
+                atcoder_lang_id: Some(3016),
             }),
             Project::Script(ScriptProject {
                 name: "python3".to_owned(),
                 src: "./python/".to_owned(),
                 extension: "py".to_owned(),
                 runtime: Some(ScalarOrVec::Scalar("python3".to_owned())),
+                atcoder_lang_id: Some(3023),
             }),
         ],
         base_dir: PathBuf::new(),
@@ -152,10 +157,16 @@ impl Config {
         Ok(pathbuf)
     }
 
-    #[allow(dead_code)]
     pub fn src_path(&self, target_name: &str) -> ConfigResult<PathBuf> {
         let project = self.project(target_name)?;
         Ok(project.src(&self.base_dir, target_name)?)
+    }
+
+    pub fn atcoder_lang_id(&self, target_name: &str) -> ConfigResult<u32> {
+        let project = self.project(target_name)?;
+        project.atcoder_lang_id().ok_or_else(|| {
+            ConfigError::from(ConfigErrorKind::PropertyNotSet("atcoder_lang_id"))
+        })
     }
 
     pub fn construct_build_command(
@@ -332,6 +343,14 @@ impl Project {
         Ok(pathbuf)
     }
 
+    fn atcoder_lang_id(&self) -> Option<u32> {
+        match *self {
+            Project::Script(ScriptProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
+            Project::Build(BuildProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
+            Project::Java(JavaProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
+        }.clone()
+    }
+
     fn construct_build_command(&self, base: &Path) -> ConfigResult<Option<CommandParameters>> {
         fn construct(
             base: &Path,
@@ -426,6 +445,8 @@ struct ScriptProject {
     extension: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime: Option<ScalarOrVec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    atcoder_lang_id: Option<u32>,
 }
 
 
@@ -437,7 +458,10 @@ struct BuildProject {
     extension: String,
     #[serde(default)]
     capitalize: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     build: Option<ScalarOrVec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    atcoder_lang_id: Option<u32>,
 }
 
 
@@ -448,7 +472,10 @@ struct JavaProject {
     bin: InputPath,
     #[serde(default = "default_java_extension")]
     extension: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     build: Option<ScalarOrVec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    atcoder_lang_id: Option<u32>,
 }
 
 
