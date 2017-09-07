@@ -11,52 +11,67 @@ use std::path::{Path, PathBuf};
 type InputPath = String;
 
 
-pub fn create_template(lang: &str, dir: &str) -> ConfigResult<()> {
-    let template = format!(
-        "service: \"atcoder-beta\" # [\"atcoder\", \"atcoder-beta\"]\n\
-         contest: \"agc001\"\n\
-         testcases: \"./snowchains/\"\n\
-         testcase_extension: \"yml\"\n\
-         default_lang: \"{}\"\n\
-         languages:\n  \
-           -\n    \
-             name: \"c\"\n    \
-             type: \"build\"\n    \
-             src: \"./c/\"\n    \
-             bin: \"./c/build/\"\n    \
-             extension: \"c\"\n    \
-             build: \"ninja\"\n  \
-           -\n    \
-             name: \"c++\"\n    \
-             type: \"build\"\n    \
-             src: \"./cc/\"\n    \
-             bin: \"./cc/build/\"\n    \
-             extension: \"cc\"\n    \
-             build: \"ninja\"\n  \
-           -\n    \
-             name: \"rust\"\n    \
-             type: \"build\"\n    \
-             src: \"./rust/src/bin/\"\n    \
-             bin: \"./rust/target/release/\"\n    \
-             extension: \"rs\"\n    \
-             build: [\"cargo\", \"build\", \"--release\"]\n  \
-           -\n    \
-             name: \"java\"\n    \
-             type: \"java\"\n    \
-             src: \"./java/src/main/java/\"\n    \
-             bin: \"./java/build/classes/java/main/\"\n    \
-             build: [\"gradle\", \"--daemon\", \"build\"] # optional\n  \
-           -\n    \
-             name: \"python3\"\n    \
-             type: \"script\"\n    \
-             src: \"./python/\"\n    \
-             extension: \"py\"\n    \
-             runtime: \"python3\" # or shebang\n",
-        lang
-    );
+pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
+    let config = Config {
+        service: Some(ServiceName::AtCoderBeta),
+        contest: Some("agc001".to_owned()),
+        testcases: "./snowchains/".to_owned(),
+        testcase_extension: "yml".to_owned(),
+        default_lang: lang.to_owned(),
+        targets: vec![],
+        languages: vec![
+            Project::Build(BuildProject {
+                name: "c".to_owned(),
+                src: "./c/".to_owned(),
+                bin: "./c/build/".to_owned(),
+                extension: "c".to_owned(),
+                capitalize: false,
+                build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
+            }),
+            Project::Build(BuildProject {
+                name: "c++".to_owned(),
+                src: "./cc/".to_owned(),
+                bin: "./cc/build/".to_owned(),
+                extension: "cc".to_owned(),
+                capitalize: false,
+                build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
+            }),
+            Project::Build(BuildProject {
+                name: "rust".to_owned(),
+                src: "./rust/src/bin/".to_owned(),
+                bin: "./rust/target/release".to_owned(),
+                extension: "rs".to_owned(),
+                capitalize: false,
+                build: Some(ScalarOrVec::Vec(vec![
+                    "cargo".to_owned(),
+                    "build".to_owned(),
+                    "--release".to_owned(),
+                ])),
+            }),
+            Project::Java(JavaProject {
+                name: "java".to_owned(),
+                src: "./java/serc/main/java/".to_owned(),
+                bin: "./java/build/classes/java/main/".to_owned(),
+                extension: "java".to_owned(),
+                build: Some(ScalarOrVec::Vec(vec![
+                    "gradle".to_owned(),
+                    "--daemon".to_owned(),
+                    "build".to_owned(),
+                ])),
+            }),
+            Project::Script(ScriptProject {
+                name: "python3".to_owned(),
+                src: "./python/".to_owned(),
+                extension: "py".to_owned(),
+                runtime: Some(ScalarOrVec::Scalar("python3".to_owned())),
+            }),
+        ],
+        base_dir: PathBuf::new(),
+    };
+    let config = serde_yaml::to_string(&config)?;
     let mut path = PathBuf::from(dir);
     path.push("snowchains.yml");
-    Ok(File::create(path)?.write_all(template.as_bytes())?)
+    Ok(File::create(path)?.write_all(config.as_bytes())?)
 }
 
 
@@ -70,6 +85,8 @@ pub fn set_property(key: &str, value: &str) -> ConfigResult<()> {
         config.testcases = value.to_owned();
     } else if key == "testcase_extension" {
         config.testcase_extension = value.to_owned();
+    } else if key == "default_lang" {
+        config.default_lang = value.to_owned();
     } else {
         config.set_target_lang(key, value)?;
     }

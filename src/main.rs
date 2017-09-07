@@ -43,16 +43,18 @@ fn main() {
             .required(true)
     }
 
-    fn arg_lang() -> Arg<'static, 'static> {
-        Arg::with_name("lang")
-            .possible_values(&["c", "c++", "rust", "java", "python3"])
-            .required(true)
-    }
-
     let subcommand_init_config = SubCommand::with_name("init-config")
         .version(crate_version!())
-        .arg(arg_lang())
-        .arg(Arg::with_name("dir").required(true));
+        .arg(
+            Arg::with_name("default-lang")
+                .help("Default language")
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("dir")
+                .help("Directory to create \"snowchains.yml\"")
+                .required(true),
+        );
 
     let subcommand_set = SubCommand::with_name("set")
         .version(crate_version!())
@@ -60,7 +62,7 @@ fn main() {
             Arg::with_name("property-or-target")
                 .help(
                     "Property name (\"service\", \"contest\", \"testcases\", \
-                     \"testcase_extension\") or target name",
+                     \"testcase_extension\", \"default_lang\") or target name",
                 )
                 .required(true),
         )
@@ -102,9 +104,9 @@ fn main() {
     }
 
     if let Some(matches) = matches.subcommand_matches("init-config") {
-        let lang = matches.value_of("lang").unwrap();
+        let lang = matches.value_of("default-lang").unwrap();
         let dir = matches.value_of("dir").unwrap();
-        return config::create_template(lang, dir).or_exit1();
+        return config::create_config_file(lang, dir).or_exit1();
     } else if let Some(matches) = matches.subcommand_matches("set") {
         let key = matches.value_of("property-or-target").unwrap();
         let value = matches.value_of("value").unwrap();
