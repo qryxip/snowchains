@@ -37,7 +37,7 @@ $ snowchains submit <target>
 ---
 service: "atcoder-beta"    # optional
 contest: "agc001"          # optional
-testcases: "./snowchains/" # default: "./snowchains/"
+testcases: "snowchains/"   # default: "./snowchains/"
 testcase_extension: "yml"  # default: "yml"
 default_lang: "c++"
 targets:
@@ -66,24 +66,24 @@ languages:
   -
     name: "c"
     type: "build"
-    src: "./c/"
-    bin: "./c/build/"
+    src: "c/"
+    bin: "c/build/"
     extension: "c"
     build: "ninja"
     atcoder_lang_id: 3002 # see HTML source or open the inspector, and search by "option"
   -
     name: "c++"
     type: "build"
-    src: "./cc/"
-    bin: "./cc/build/"
+    src: "cc/"
+    bin: "cc/build/"
     extension: "cc"
     build: "ninja"
     atcoder_lang_id: 3003
   -
     name: "rust"
     type: "build"
-    src: "./rust/src/bin/"
-    bin: "./rust/target/release/"
+    src: "rust/src/bin/"
+    bin: "rust/target/release/"
     extension: "rs"
     capitalize: false # default: false
     build: ["cargo", "build", "--release"] # optional
@@ -91,14 +91,14 @@ languages:
   -
     name: "java"
     type: "java"
-    src: "./java/src/main/java/"
-    bin: "./java/build/classes/java/main/"
+    src: "java/src/main/java/"
+    bin: "java/build/classes/java/main/"
     build: ["gradle", "build", "--daemon"] # also optional
     atcoder_lang_id: 3016
   -
     name: "python3"
     type: "script"
-    src: "./python/"
+    src: "python/"
     extension: "py"
     runtime: "python3" # or shebang
     atcoder_lang_id: 3023

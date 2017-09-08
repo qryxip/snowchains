@@ -16,15 +16,15 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
     let config = Config {
         service: Some(ServiceName::AtCoderBeta),
         contest: Some("agc001".to_owned()),
-        testcases: "./snowchains/".to_owned(),
+        testcases: "snowchains/".to_owned(),
         testcase_extension: TestCaseFileExtension::Yml,
         default_lang: lang.to_owned(),
         targets: vec![],
         languages: vec![
             Project::Build(BuildProject {
                 name: "c".to_owned(),
-                src: "./c/".to_owned(),
-                bin: "./c/build/".to_owned(),
+                src: "c/".to_owned(),
+                bin: "c/build/".to_owned(),
                 extension: "c".to_owned(),
                 capitalize: false,
                 build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
@@ -32,8 +32,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             }),
             Project::Build(BuildProject {
                 name: "c++".to_owned(),
-                src: "./cc/".to_owned(),
-                bin: "./cc/build/".to_owned(),
+                src: "cc/".to_owned(),
+                bin: "cc/build/".to_owned(),
                 extension: "cc".to_owned(),
                 capitalize: false,
                 build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
@@ -41,8 +41,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             }),
             Project::Build(BuildProject {
                 name: "rust".to_owned(),
-                src: "./rust/src/bin/".to_owned(),
-                bin: "./rust/target/release".to_owned(),
+                src: "rust/src/bin/".to_owned(),
+                bin: "rust/target/release".to_owned(),
                 extension: "rs".to_owned(),
                 capitalize: false,
                 build: Some(ScalarOrVec::Vec(vec![
@@ -54,8 +54,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             }),
             Project::Java(JavaProject {
                 name: "java".to_owned(),
-                src: "./java/serc/main/java/".to_owned(),
-                bin: "./java/build/classes/java/main/".to_owned(),
+                src: "java/serc/main/java/".to_owned(),
+                bin: "java/build/classes/java/main/".to_owned(),
                 extension: "java".to_owned(),
                 build: Some(ScalarOrVec::Vec(vec![
                     "gradle".to_owned(),
@@ -66,7 +66,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             }),
             Project::Script(ScriptProject {
                 name: "python3".to_owned(),
-                src: "./python/".to_owned(),
+                src: "python/".to_owned(),
                 extension: "py".to_owned(),
                 runtime: Some(ScalarOrVec::Scalar("python3".to_owned())),
                 atcoder_lang_id: Some(3023),
