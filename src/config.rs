@@ -19,7 +19,6 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
         testcases: "snowchains/".to_owned(),
         testcase_extension: TestCaseFileExtension::Yml,
         default_lang: lang.to_owned(),
-        targets: vec![],
         languages: vec![
             Project::Build(BuildProject {
                 name: "c".to_owned(),
@@ -98,7 +97,7 @@ pub fn set_property(key: &str, value: &str) -> ConfigResult<()> {
     } else if key == "default_lang" {
         config.default_lang = value.to_owned();
     } else {
-        config.set_target_lang(key, value)?;
+        return Ok(());
     }
     let config = serde_yaml::to_string(&config)?;
     File::create(find_base()?.1)?.write_all(config.as_bytes())?;
@@ -117,8 +116,6 @@ pub struct Config {
     #[serde(default)]
     testcase_extension: TestCaseFileExtension,
     default_lang: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    targets: Vec<Target>,
     languages: Vec<Project>,
     #[serde(skip)]
     base_dir: PathBuf,
@@ -163,13 +160,13 @@ impl Config {
         ))
     }
 
-    pub fn src_path(&self, target_name: &str) -> ConfigResult<PathBuf> {
-        let project = self.project(target_name)?;
+    pub fn src_path(&self, target_name: &str, lang: Option<&str>) -> ConfigResult<PathBuf> {
+        let project = self.project(lang)?;
         Ok(project.src(&self.base_dir, target_name)?)
     }
 
-    pub fn atcoder_lang_id(&self, target_name: &str) -> ConfigResult<u32> {
-        let project = self.project(target_name)?;
+    pub fn atcoder_lang_id(&self, lang: Option<&str>) -> ConfigResult<u32> {
+        let project = self.project(lang)?;
         project.atcoder_lang_id().ok_or_else(|| {
             ConfigError::from(ConfigErrorKind::PropertyNotSet("atcoder_lang_id"))
         })
@@ -177,56 +174,29 @@ impl Config {
 
     pub fn construct_build_command(
         &self,
-        target_name: &str,
+        lang: Option<&str>,
     ) -> ConfigResult<Option<CommandParameters>> {
-        let project = self.project(target_name)?;
+        let project = self.project(lang)?;
         Ok(project.construct_build_command(&self.base_dir)?)
     }
 
-    pub fn construct_run_command(&self, target_name: &str) -> ConfigResult<CommandParameters> {
-        let project = self.project(target_name)?;
+    pub fn construct_run_command(
+        &self,
+        target_name: &str,
+        lang: Option<&str>,
+    ) -> ConfigResult<CommandParameters> {
+        let project = self.project(lang)?;
         Ok(project.construct_run_command(&self.base_dir, target_name)?)
     }
 
-    fn project(&self, target_name: &str) -> ConfigResult<&Project> {
-        fn search<'a>(
-            targets: &'a [Target],
-            projects: &'a [Project],
-            target_name: &str,
-        ) -> Option<&'a Project> {
-            let project_name = try_opt!(
-                targets
-                    .iter()
-                    .filter(|ref target| target.name == target_name)
-                    .map(|ref target| target.lang.clone())
-                    .next()
-            );
-            projects
-                .iter()
-                .filter(|ref project| project.name() == project_name)
-                .next()
-        }
-
-        if let Some(project) = search(&self.targets, &self.languages, target_name) {
-            Ok(project)
-        } else {
-            let default_lang = self.default_lang.clone();
-            for project in &self.languages {
-                if project.name() == default_lang {
-                    return Ok(project);
-                }
-            }
-            bail!(ConfigErrorKind::NoSuchLanguage(default_lang))
-        }
-    }
-
-    fn set_target_lang(&mut self, target_name: &str, lang: &str) -> ConfigResult<()> {
-        for mut target in self.targets.iter_mut() {
-            if target.name == target_name {
-                return Ok(target.lang = serde_yaml::from_str(lang)?);
+    fn project(&self, lang: Option<&str>) -> ConfigResult<&Project> {
+        let lang = lang.unwrap_or(&self.default_lang);
+        for project in &self.languages {
+            if project.name() == lang {
+                return Ok(project);
             }
         }
-        Ok(self.targets.push(Target::new(target_name, lang)))
+        bail!(ConfigErrorKind::NoSuchLanguage(lang.to_owned()))
     }
 }
 
@@ -291,22 +261,6 @@ fn resolve_path(base: &Path, path: &str) -> io::Result<PathBuf> {
         let mut pathbuf = PathBuf::from(base);
         pathbuf.push(path);
         Ok(pathbuf)
-    }
-}
-
-
-#[derive(Serialize, Deserialize)]
-struct Target {
-    name: String,
-    lang: String,
-}
-
-impl Target {
-    fn new(name: &str, lang: &str) -> Self {
-        Self {
-            name: name.to_owned(),
-            lang: lang.to_owned(),
-        }
     }
 }
 

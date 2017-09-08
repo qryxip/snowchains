@@ -26,7 +26,7 @@ $ snowchains set service <service>
 $ snowchains set contest <contest>
 $ snowchains download # The username and password required when not yet signed-in
 $ $EDITOR <project>/snowchains/<target>.yml # Add more test cases
-$ snowchains judge <target>
+$ snowchains judge <target> (<language>)
 $ snowchains submit <target>
 ```
 
@@ -40,28 +40,10 @@ contest: "agc001"          # optional
 testcases: "snowchains/"   # default: "./snowchains/"
 testcase_extension: "yml"  # default: "yml"
 default_lang: "c++"
-targets:
-  # source file: <src>/<name>.<extension>
-  # binary:      <bin>/<name (the first letter is capitalized if <capitalize>)>(.[class|exe])
-  # test file:   <testcases>/<name>.<testcase_extension>
-  -
-    name: "a"
-    lang: "python3"
-  -
-    name: "b"
-    lang: "java"
-  -
-    name: "c"
-    lang: "rust"
-  -
-    name: "d"
-    lang: "c"
-  -
-    name: "e"
-    lang: "c++"
-  -
-    name: "f"
-    lang: "c++"
+
+# source file: <src>/<target-name>.<extension>
+# binary:      <bin>/<target-name (the first letter is capitalized if <capitalize>)>(.[class|exe])
+# test file:   <testcases>/<target-name>.<testcase_extension>
 languages:
   -
     name: "c"
@@ -218,7 +200,7 @@ input = ["1000", "1000 1000", "ooooooooooooooooooooooooooooo"]
                (with-current-buffer buffer
                  (erase-buffer))))
            (let ((problem-name (match-string 1 file-path)))
-             (term-run "snowchains" "*snowchains*" "judge" problem-name)))
+             (term-run "snowchains" "*snowchains*" "judge" problem-name "rust")))
           ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
            (cargo-process-run-bin (match-string 1 file-path)))
           (t
