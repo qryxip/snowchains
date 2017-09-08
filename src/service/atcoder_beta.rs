@@ -208,11 +208,13 @@ enum Contest {
 
 impl Contest {
     fn new(s: &str) -> ServiceResult<Self> {
-        let regex = Regex::new(r"^\s*([a-zA-Z_]+)0*([0-9]*)\s*$").unwrap();
+        let regex = Regex::new(r"^\s*([a-zA-Z_]+)(\d\d\d)\s*$").unwrap();
         if let Some(caps) = regex.captures(s) {
             let name = caps[1].to_lowercase();
-            let number = caps[2].parse::<u32>().unwrap_or_default();
-            if name == "practice" {
+            let number = caps[2].parse::<u32>().unwrap();
+            if number == 0 {
+                bail!(ServiceErrorKind::UnsupportedContest(s.to_owned()));
+            } else if name == "practice" {
                 return Ok(Contest::Practice);
             } else if name == "abc" && number < 7 {
                 return Ok(Contest::AbcBefore007(number));
