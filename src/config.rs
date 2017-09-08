@@ -1,5 +1,6 @@
 use super::error::{ConfigError, ConfigErrorKind, ConfigResult};
 use super::judge::CommandParameters;
+use super::testcase::{TestCaseFileExtension, TestCaseFilePath};
 use super::util::{self, CapitalizeFirst};
 use serde_yaml;
 use std::env;
@@ -16,7 +17,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
         service: Some(ServiceName::AtCoderBeta),
         contest: Some("agc001".to_owned()),
         testcases: "./snowchains/".to_owned(),
-        testcase_extension: "yml".to_owned(),
+        testcase_extension: TestCaseFileExtension::Yml,
         default_lang: lang.to_owned(),
         targets: vec![],
         languages: vec![
@@ -89,7 +90,11 @@ pub fn set_property(key: &str, value: &str) -> ConfigResult<()> {
     } else if key == "testcases" {
         config.testcases = value.to_owned();
     } else if key == "testcase_extension" {
-        config.testcase_extension = value.to_owned();
+        if let Some(extension) = TestCaseFileExtension::from_str(value) {
+            config.testcase_extension = extension;
+        } else {
+            bail!(ConfigErrorKind::UnsupportedExtension(value.to_owned()));
+        }
     } else if key == "default_lang" {
         config.default_lang = value.to_owned();
     } else {
@@ -109,8 +114,8 @@ pub struct Config {
     contest: Option<String>,
     #[serde(default = "default_testcases_path")]
     testcases: InputPath,
-    #[serde(default = "default_testcase_extension")]
-    testcase_extension: String,
+    #[serde(default)]
+    testcase_extension: TestCaseFileExtension,
     default_lang: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     targets: Vec<Target>,
@@ -142,19 +147,20 @@ impl Config {
         }
     }
 
-    pub fn testcase_extension(&self) -> &str {
-        &self.testcase_extension
+    pub fn testcase_extension(&self) -> TestCaseFileExtension {
+        self.testcase_extension
     }
 
     pub fn testcase_dir(&self) -> ConfigResult<PathBuf> {
         Ok(resolve_path(&self.base_dir, &self.testcases)?)
     }
 
-    pub fn testcase_path(&self, target_name: &str) -> ConfigResult<PathBuf> {
-        let mut pathbuf = self.testcase_dir()?;
-        pathbuf.push(target_name);
-        pathbuf.set_extension(&self.testcase_extension);
-        Ok(pathbuf)
+    pub fn testcase_path(&self, target_name: &str) -> ConfigResult<TestCaseFilePath> {
+        Ok(TestCaseFilePath::new(
+            &self.testcase_dir()?,
+            target_name,
+            self.testcase_extension,
+        ))
     }
 
     pub fn src_path(&self, target_name: &str) -> ConfigResult<PathBuf> {
@@ -240,11 +246,6 @@ fn default_testcases_path() -> InputPath {
     } else {
         "./snowchains/".to_owned()
     }
-}
-
-
-fn default_testcase_extension() -> String {
-    "yml".to_owned()
 }
 
 

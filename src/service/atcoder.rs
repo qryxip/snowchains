@@ -1,6 +1,6 @@
 use super::scraping_session::ScrapingSession;
 use super::super::error::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
-use super::super::testcase::Cases;
+use super::super::testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
 use regex::Regex;
 use reqwest::StatusCode;
 use select::document::Document;
@@ -8,7 +8,7 @@ use select::node::Node;
 use select::predicate::{Attr as HtmlAttr, Class, Name, Predicate, Text};
 use std::io::{self, Read};
 use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use term::{Attr as TermAttr, color};
 
 
@@ -32,7 +32,11 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
 }
 
 
-pub fn download(contest_name: &str, path_to_save: &Path, extension: &str) -> ServiceResult<()> {
+pub fn download(
+    contest_name: &str,
+    path_to_save: &Path,
+    extension: TestCaseFileExtension,
+) -> ServiceResult<()> {
     let mut atcoder = AtCoder::load_or_login()?;
     atcoder.download_all_tasks(contest_name, path_to_save, extension)
 }
@@ -80,7 +84,7 @@ impl AtCoder {
         &mut self,
         contest_name: &str,
         path_to_save: &Path,
-        extension: &str,
+        extension: TestCaseFileExtension,
     ) -> ServiceResult<()> {
         let names_and_pathes = {
             let url = format!("http://{}.contest.atcoder.jp/assignments", contest_name);
@@ -92,11 +96,11 @@ impl AtCoder {
             let url = format!("http://{}.contest.atcoder.jp{}", contest_name, path);
             match extract_cases(self.http_get(&url)?) {
                 Ok(cases) => {
-                    let mut pathbuf = PathBuf::from(path_to_save);
-                    pathbuf.push(alphabet.to_lowercase());
-                    pathbuf.set_extension(extension);
-                    cases.save(&pathbuf)?;
-                    println!("Task {}: saved to {:?}", alphabet, pathbuf);
+                    cases.save(TestCaseFilePath::new(
+                        &path_to_save,
+                        &alphabet.to_lowercase(),
+                        extension,
+                    ))?;
                 }
                 Err(ServiceError(ServiceErrorKind::ScrapingFailed, _)) => {
                     println!("Failed to scrape. Ignoring.");

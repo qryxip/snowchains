@@ -1,9 +1,9 @@
 use super::error::{JudgeErrorKind, JudgeResult};
-use super::testcase::{Case, Cases};
+use super::testcase::{Case, Cases, TestCaseFilePath};
 use super::util::{self, UnwrapAsRefMut};
 use std::fmt::{self, Debug, Formatter};
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
@@ -12,7 +12,7 @@ use term::{Attr, color};
 
 
 pub fn judge(
-    cases: &Path,
+    cases: TestCaseFilePath,
     run_command: CommandParameters,
     build_command: Option<CommandParameters>,
 ) -> JudgeResult<()> {

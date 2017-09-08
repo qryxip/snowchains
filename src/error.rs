@@ -128,13 +128,6 @@ error_chain! {
         TomlSerialization(toml::ser::Error);
         TomlDeserialization(toml::de::Error);
     }
-
-    errors {
-        UnsupportedExtension(extension: String) {
-            description("Unsupported extension")
-                display("Unsupported extension: \"{}\"", extension)
-        }
-    }
 }
 
 
@@ -153,6 +146,11 @@ error_chain! {
         ConfigFileNotFound {
             description("\"snowchains.yml\" not found")
                 display("\"snowchains.yml\" not found")
+        }
+
+        UnsupportedExtension(extension: String) {
+            description("Unsupported extension")
+                display("Unsupported extension: \"{}\"", extension)
         }
 
         NoSuchLanguage(name: String) {

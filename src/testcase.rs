@@ -1,11 +1,11 @@
-use super::error::{TestCaseErrorKind, TestCaseResult};
+use super::error::TestCaseResult;
 use super::util;
 use serde_json;
 use serde_yaml;
 use std::fmt::{self, Display, Formatter};
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::vec;
 use toml;
 
@@ -52,6 +52,17 @@ impl Cases {
         }
     }
 
+    pub fn load(path: TestCaseFilePath) -> TestCaseResult<Self> {
+        let (path, extension) = (path.path(), path.extension);
+        let text = util::string_from_read(File::open(path)?)?;
+        match extension {
+            TestCaseFileExtension::Json => Ok(serde_json::from_str(&text)?),
+            TestCaseFileExtension::Toml => Ok(toml::from_str(&text)?),
+            TestCaseFileExtension::Yaml |
+            TestCaseFileExtension::Yml => Ok(serde_yaml::from_str(&text)?),
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.cases.is_empty()
     }
@@ -60,44 +71,19 @@ impl Cases {
         self.cases.len()
     }
 
-    pub fn load(path: &Path) -> TestCaseResult<Self> {
-        let text = util::string_from_read(File::open(path)?)?;
-        match path.extension() {
-            Some(ref ext) if *ext == "json" => Ok(serde_json::from_str(&text)?),
-            Some(ref ext) if *ext == "toml" => Ok(toml::from_str(&text)?),
-            Some(ref ext) if *ext == "yaml" || *ext == "yml" => Ok(serde_yaml::from_str(&text)?),
-            Some(ref ext) => {
-                bail!(TestCaseErrorKind::UnsupportedExtension(
-                    format!("{:?}", ext),
-                ))
-            }
-            _ => {
-                bail!(TestCaseErrorKind::UnsupportedExtension(
-                    format!("no extension"),
-                ))
-            }
-        }
-    }
-
-    pub fn save(&self, path: &Path) -> TestCaseResult<()> {
-        fs::create_dir_all(path.parent().unwrap())?;
-        let mut file = File::create(path)?;
-        let serialized = match path.extension() {
-            Some(ref ext) if *ext == "json" => serde_json::to_string(self)?,
-            Some(ref ext) if *ext == "toml" => toml::to_string(self)?,
-            Some(ref ext) if *ext == "yaml" || *ext == "yml" => serde_yaml::to_string(self)?,
-            Some(ref ext) => {
-                bail!(TestCaseErrorKind::UnsupportedExtension(
-                    format!("{:?}", ext),
-                ))
-            }
-            _ => {
-                bail!(TestCaseErrorKind::UnsupportedExtension(
-                    format!("no extension"),
-                ))
-            }
+    pub fn save(&self, path: TestCaseFilePath) -> TestCaseResult<()> {
+        fs::create_dir_all(&path.dir)?;
+        let (path, extension) = (path.path(), path.extension);
+        let mut file = File::create(&path)?;
+        let serialized = match extension {
+            TestCaseFileExtension::Json => serde_json::to_string(self)?,
+            TestCaseFileExtension::Toml => toml::to_string(self)?,
+            TestCaseFileExtension::Yaml |
+            TestCaseFileExtension::Yml => serde_yaml::to_string(self)?,
         };
-        Ok(file.write_all(serialized.as_bytes())?)
+        file.write_all(serialized.as_bytes())?;
+        println!("Saved to {:?}", path);
+        Ok(())
     }
 }
 
@@ -118,6 +104,69 @@ impl Into<(String, String, Option<u64>)> for Case {
             self.expected.map(|x| x.into()).unwrap_or_default(),
             self.timelimit,
         )
+    }
+}
+
+
+pub struct TestCaseFilePath {
+    dir: PathBuf,
+    name: String,
+    extension: TestCaseFileExtension,
+}
+
+impl TestCaseFilePath {
+    pub fn new(dir: &Path, name: &str, extension: TestCaseFileExtension) -> Self {
+        Self {
+            dir: PathBuf::from(dir),
+            name: name.to_owned(),
+            extension: extension,
+        }
+    }
+
+    fn path(&self) -> PathBuf {
+        let mut path = PathBuf::from(&self.dir);
+        path.push(&self.name);
+        path.set_extension(&self.extension.to_string());
+        path
+    }
+}
+
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TestCaseFileExtension {
+    Json,
+    Toml,
+    Yaml,
+    Yml,
+}
+
+impl Default for TestCaseFileExtension {
+    fn default() -> Self {
+        TestCaseFileExtension::Yml
+    }
+}
+
+impl Display for TestCaseFileExtension {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+
+impl TestCaseFileExtension {
+    pub fn from_str(s: &str) -> Option<Self> {
+        let s = s.to_lowercase();
+        if s == "json" {
+            Some(TestCaseFileExtension::Json)
+        } else if s == "toml" {
+            Some(TestCaseFileExtension::Toml)
+        } else if s == "yaml" {
+            Some(TestCaseFileExtension::Yaml)
+        } else if s == "yml" {
+            Some(TestCaseFileExtension::Yml)
+        } else {
+            None
+        }
     }
 }
 

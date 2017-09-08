@@ -1,6 +1,6 @@
 use super::scraping_session::ScrapingSession;
 use super::super::error::{ServiceErrorKind, ServiceResult};
-use super::super::testcase::Cases;
+use super::super::testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
 use super::super::util;
 use regex::Regex;
 use reqwest::StatusCode;
@@ -10,7 +10,7 @@ use select::predicate::{And, Attr as HtmlAttr, Class, Name, Predicate, Text};
 use std::fs::File;
 use std::io::{self, Read};
 use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use term::{Attr as TermAttr, color};
 use webbrowser;
 
@@ -29,7 +29,11 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
 }
 
 
-pub fn download(contest_name: &str, path_to_save: &Path, extension: &str) -> ServiceResult<()> {
+pub fn download(
+    contest_name: &str,
+    path_to_save: &Path,
+    extension: TestCaseFileExtension,
+) -> ServiceResult<()> {
     let contest = Contest::new(contest_name)?;
     let mut atcoder = AtCoderBeta::load_or_login(None)?;
     atcoder.register_to_contest(&contest)?;
@@ -118,7 +122,7 @@ impl AtCoderBeta {
         &mut self,
         contest: Contest,
         dir_to_save: &Path,
-        extension: &str,
+        extension: TestCaseFileExtension,
     ) -> ServiceResult<()> {
         let (urls_with_names, style) = {
             let urls = extract_task_urls_with_names(self.http_get(&contest.tasks_url())?)?;
@@ -127,10 +131,11 @@ impl AtCoderBeta {
         for (name, relative_url) in urls_with_names {
             let url = &format!("https://beta.atcoder.jp{}", relative_url);
             let cases = extract_cases(self.http_get(url)?, &style)?;
-            let mut path = PathBuf::from(dir_to_save);
-            path.push(format!("{}.{}", name.to_lowercase(), extension));
-            cases.save(&path)?;
-            println!("Sample cases of Task {} were saved to {:?}", name, path);
+            cases.save(TestCaseFilePath::new(
+                &dir_to_save,
+                &name.to_lowercase(),
+                extension,
+            ))?;
         }
         Ok(self.save()?)
     }
