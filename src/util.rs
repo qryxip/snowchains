@@ -1,6 +1,19 @@
 use std::env;
+use std::fs::File;
 use std::io::{self, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+
+pub fn string_from_file_path(path: &Path) -> io::Result<String> {
+    match File::open(path) {
+        Ok(file) => string_from_read(file),
+        Err(ref e) if e.kind() == io::ErrorKind::NotFound => Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("No such file: {:?}", path),
+        )),
+        Err(e) => Err(e),
+    }
+}
 
 
 pub fn string_from_read<R: Read>(r: R) -> io::Result<String> {

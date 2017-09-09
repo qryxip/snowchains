@@ -54,7 +54,7 @@ impl Cases {
 
     pub fn load(path: TestCaseFilePath) -> TestCaseResult<Self> {
         let (path, extension) = (path.path(), path.extension);
-        let text = util::string_from_read(File::open(path)?)?;
+        let text = util::string_from_file_path(&path)?;
         match extension {
             TestCaseFileExtension::Json => Ok(serde_json::from_str(&text)?),
             TestCaseFileExtension::Toml => Ok(toml::from_str(&text)?),

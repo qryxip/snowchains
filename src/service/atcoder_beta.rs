@@ -42,6 +42,7 @@ pub fn download(
 
 
 pub fn submit(contest_name: &str, task: &str, lang_id: u32, src: &Path) -> ServiceResult<()> {
+    println!("");
     let contest = Contest::new(contest_name)?;
     let mut atcoder = AtCoderBeta::load_or_login(None)?;
     atcoder.register_to_contest(&contest)?;
@@ -183,7 +184,9 @@ impl AtCoderBeta {
                 };
                 let url = contest.submission_url();
                 let _ = self.http_post_urlencoded(&url, data, StatusCode::Found)?;
-                webbrowser::open(&contest.submissions_url())?;
+                let url = contest.submissions_url();
+                println!("Opening {:?} in default browser...", url);
+                webbrowser::open(&url)?;
                 return Ok(());
             }
         }

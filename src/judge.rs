@@ -1,7 +1,7 @@
 use super::error::{JudgeErrorKind, JudgeResult};
 use super::testcase::{Case, Cases, TestCaseFilePath};
 use super::util::{self, UnwrapAsRefMut};
-use std::fmt::{self, Debug, Formatter};
+use std::fmt::{self, Display, Formatter};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -53,13 +53,20 @@ pub fn judge(
 
         let (tx, rx) = mpsc::channel();
         let case_cloned = case.clone();
+        let command_arg0 = run_command.arg0.clone();
         thread::spawn(move || {
             let _ = tx.send(run_program(case_cloned, run_command));
         });
         if let (input, expected, Some(timelimit)) = case.into() {
             match rx.recv_timeout(Duration::from_millis(timelimit + 50)) {
-                Ok(output) => Ok(output?),
                 Err(_) => Ok(JudgeOutput::Tle(timelimit, input, expected)),
+                Ok(Err(ref e)) if e.kind() == io::ErrorKind::NotFound => {
+                    bail!(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!("Command not found: '{}'", command_arg0),
+                    ))
+                }
+                Ok(output) => Ok(output?),
             }
         } else {
             Ok(rx.recv()??)
@@ -67,7 +74,9 @@ pub fn judge(
     }
 
     if let Some(build_command) = build_command {
+        build_command.display("Build command:");
         build(build_command)?;
+        println!("");
     }
 
     let cases = Cases::load(cases)?;
@@ -76,7 +85,8 @@ pub fn judge(
     let mut all_outputs = vec![];
     let mut num_failures = 0;
 
-    println!("\nRunning {} test{}...", num_cases, suf);
+    run_command.display("Command:");
+    println!("Running {} test{}...", num_cases, suf);
     for (i, case) in cases.into_iter().enumerate() {
         let output = judge_one(case, run_command.clone())?;
         output.print_title(i, num_cases);
@@ -103,22 +113,36 @@ pub fn judge(
 
 #[derive(Clone)]
 pub struct CommandParameters {
-    command: String,
+    arg0: String,
     args: Vec<String>,
     working_dir: PathBuf,
 }
 
 impl CommandParameters {
-    pub fn new(command: String, args: Vec<String>, working_dir: PathBuf) -> Self {
+    pub fn new(arg0: String, args: Vec<String>, working_dir: PathBuf) -> Self {
         Self {
-            command: command,
+            arg0: arg0,
             args: args,
             working_dir: working_dir,
         }
     }
 
+    fn display(&self, command: &'static str) {
+        print_decorated!(Attr::Bold, Some(color::GREEN), "{}", command);
+        let l = command.len();
+        for _ in 0..if l > 19 { 0 } else { 19 - l } {
+            print!(" ");
+        }
+        print!("{:?}", self.arg0);
+        for arg in &self.args {
+            print!(" {:?}", arg);
+        }
+        print_decorated!(Attr::Bold, Some(color::GREEN), "\nWorking directory:");
+        println!(" {:?}", self.working_dir);
+    }
+
     fn status(self) -> io::Result<ExitStatus> {
-        Command::new(&self.command)
+        Command::new(&self.arg0)
             .args(self.args)
             .current_dir(self.working_dir)
             .spawn()?
@@ -126,7 +150,7 @@ impl CommandParameters {
     }
 
     fn spawn_piped(self) -> io::Result<Child> {
-        Command::new(&self.command)
+        Command::new(&self.arg0)
             .args(self.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -150,7 +174,7 @@ enum JudgeOutput {
 }
 
 
-impl Debug for JudgeOutput {
+impl Display for JudgeOutput {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
             JudgeOutput::Ac(t, ..) => write!(f, "AC ({}ms)", t),
@@ -167,7 +191,7 @@ impl JudgeOutput {
             print!(" ");
         }
         print_decorated!(Attr::Bold, None, "{}/{} ", i + 1, n);
-        println_decorated!(Attr::Bold, Some(self.color()), "{:?}", self);
+        println_decorated!(Attr::Bold, Some(self.color()), "{}", self);
     }
 
     fn eprint_title(&self, i: usize, n: usize) {
@@ -175,7 +199,7 @@ impl JudgeOutput {
             eprint!(" ");
         }
         eprint_decorated!(Attr::Bold, None, "{}/{} ", i + 1, n);
-        eprintln_decorated!(Attr::Bold, Some(self.color()), "{:?}", self);
+        eprintln_decorated!(Attr::Bold, Some(self.color()), "{}", self);
     }
 
     fn eprint_details(&self) {

@@ -124,8 +124,7 @@ pub struct Config {
 impl Config {
     pub fn load_from_file() -> ConfigResult<Self> {
         let (base, path) = find_base()?;
-        let mut config =
-            serde_yaml::from_str::<Self>(&util::string_from_read(File::open(&path)?)?)?;
+        let mut config = serde_yaml::from_str::<Self>(&util::string_from_file_path(&path)?)?;
         config.base_dir = base;
         Ok(config)
     }
