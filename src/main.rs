@@ -89,25 +89,51 @@ fn main() {
         Arg::with_name("lang").help("Language name")
     }
 
+    static USAGE_INIT_CONFIG: &'static str = "snowchains init-config <default-lang> <dir>";
+    static USAGE_SET: &'static str = "snowchains set <property-or-terget> <value>";
+    static USAGE_LOGIN: &'static str = "snowchains login <service>";
+    static USAGE_PARTICIPATE: &'static str = "snowchains participate <service> <contest>";
+    static USAGE_DOWNLOAD: &'static str = "snowchains download [--open-browser]";
+    static USAGE_JUDGE: &'static str = "snowchains judge <target> [lang]";
+    static USAGE_SUBMIT: &'static str = "snowchains submit <target> [lang] [--open-browser]";
+
     let subcommand_init_config = SubCommand::with_name("init-config")
+        .about("Creates 'snowchains.yml'")
+        .usage(USAGE_INIT_CONFIG)
         .arg(arg_default_lang())
         .arg(arg_dir());
 
     let subcommand_set = SubCommand::with_name("set")
+        .about("Sets a property in 'snowchains.yml'")
+        .usage(USAGE_SET)
         .arg(arg_property_or_target())
         .arg(arg_value());
 
-    let subcommand_login = SubCommand::with_name("login").arg(arg_service());
+    let subcommand_login = SubCommand::with_name("login")
+        .about("Logins to a service")
+        .usage(USAGE_LOGIN)
+        .arg(arg_service());
 
     let subcommand_participate = SubCommand::with_name("participate")
+        .about("Participates in a contest")
+        .usage(USAGE_PARTICIPATE)
         .arg(arg_service())
         .arg(arg_contest());
 
-    let subcommand_download = SubCommand::with_name("download").arg(arg_open_browser());
+    let subcommand_download = SubCommand::with_name("download")
+        .about("Downloads test cases")
+        .usage(USAGE_DOWNLOAD)
+        .arg(arg_open_browser());
 
-    let subcommand_judge = SubCommand::with_name("judge").args(&[arg_target(), arg_lang()]);
+    let subcommand_judge = SubCommand::with_name("judge")
+        .about("Tests a binary or script")
+        .usage(USAGE_JUDGE)
+        .arg(arg_target())
+        .arg(arg_lang());
 
     let subcommand_submit = SubCommand::with_name("submit")
+        .about("Submits code")
+        .usage(USAGE_SUBMIT)
         .arg(arg_target())
         .arg(arg_lang())
         .arg(arg_open_browser());
@@ -115,13 +141,25 @@ fn main() {
     let matches = app_from_crate!()
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .setting(AppSettings::VersionlessSubcommands)
-        .subcommand(subcommand_init_config)
-        .subcommand(subcommand_set)
-        .subcommand(subcommand_login)
-        .subcommand(subcommand_participate)
-        .subcommand(subcommand_download)
-        .subcommand(subcommand_judge)
-        .subcommand(subcommand_submit)
+        .usage(
+            format!(
+                "{}\n    {}\n    {}\n    {}\n    {}\n    {}\n    {}",
+                USAGE_INIT_CONFIG,
+                USAGE_SET,
+                USAGE_LOGIN,
+                USAGE_PARTICIPATE,
+                USAGE_DOWNLOAD,
+                USAGE_JUDGE,
+                USAGE_SUBMIT
+            ).as_str(),
+        )
+        .subcommand(subcommand_init_config.display_order(1))
+        .subcommand(subcommand_set.display_order(2))
+        .subcommand(subcommand_login.display_order(3))
+        .subcommand(subcommand_participate.display_order(4))
+        .subcommand(subcommand_download.display_order(5))
+        .subcommand(subcommand_judge.display_order(6))
+        .subcommand(subcommand_submit.display_order(7))
         .get_matches();
 
     fn config() -> Config {
