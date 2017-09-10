@@ -7,6 +7,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::vec;
+use term::{Attr, color};
 use toml;
 
 
@@ -52,7 +53,7 @@ impl Cases {
         }
     }
 
-    pub fn load(path: TestCaseFilePath) -> TestCaseResult<Self> {
+    pub fn load(path: &TestCaseFilePath) -> TestCaseResult<Self> {
         let (path, extension) = (path.path(), path.extension);
         let text = util::string_from_file_path(&path)?;
         match extension {
@@ -82,7 +83,7 @@ impl Cases {
             TestCaseFileExtension::Yml => serde_yaml::to_string(self)?,
         };
         file.write_all(serialized.as_bytes())?;
-        println!("Saved to {:?}", path);
+        println!("Saved to {}", path.display());
         Ok(())
     }
 }
@@ -121,6 +122,14 @@ impl TestCaseFilePath {
             name: name.to_owned(),
             extension: extension,
         }
+    }
+
+    pub fn print(&self, num_spaces: usize) {
+        print_decorated!(Attr::Bold, Some(color::CYAN), "Test file:");
+        for _ in 0..num_spaces {
+            print!(" ");
+        }
+        println!("{}", self.path().display());
     }
 
     fn path(&self) -> PathBuf {

@@ -185,7 +185,7 @@ impl AtCoderBeta {
                 let url = contest.submission_url();
                 let _ = self.http_post_urlencoded(&url, data, StatusCode::Found)?;
                 let url = contest.submissions_url();
-                println!("Opening {:?} in default browser...", url);
+                println!("Opening {} in default browser...", url);
                 webbrowser::open(&url)?;
                 return Ok(());
             }

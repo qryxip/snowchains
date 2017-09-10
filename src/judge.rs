@@ -12,7 +12,7 @@ use term::{Attr, color};
 
 
 pub fn judge(
-    cases: TestCaseFilePath,
+    cases_path: TestCaseFilePath,
     run_command: CommandParameters,
     build_command: Option<CommandParameters>,
 ) -> JudgeResult<()> {
@@ -74,18 +74,19 @@ pub fn judge(
     }
 
     if let Some(build_command) = build_command {
-        build_command.display("Build command:");
+        build_command.print("Build command:");
         build(build_command)?;
         println!("");
     }
 
-    let cases = Cases::load(cases)?;
+    let cases = Cases::load(&cases_path)?;
     let num_cases = cases.num_cases();
     let suf = if num_cases > 1 { "s" } else { "" };
     let mut all_outputs = vec![];
     let mut num_failures = 0;
 
-    run_command.display("Command:");
+    cases_path.print(9);
+    run_command.print("Command:");
     println!("Running {} test{}...", num_cases, suf);
     for (i, case) in cases.into_iter().enumerate() {
         let output = judge_one(case, run_command.clone())?;
@@ -127,8 +128,8 @@ impl CommandParameters {
         }
     }
 
-    fn display(&self, command: &'static str) {
-        print_decorated!(Attr::Bold, Some(color::GREEN), "{}", command);
+    fn print(&self, command: &'static str) {
+        print_decorated!(Attr::Bold, Some(color::CYAN), "{}", command);
         let l = command.len();
         for _ in 0..if l > 19 { 0 } else { 19 - l } {
             print!(" ");
@@ -137,8 +138,8 @@ impl CommandParameters {
         for arg in &self.args {
             print!(" {:?}", arg);
         }
-        print_decorated!(Attr::Bold, Some(color::GREEN), "\nWorking directory:");
-        println!(" {:?}", self.working_dir);
+        print_decorated!(Attr::Bold, Some(color::CYAN), "\nWorking directory:");
+        println!(" {}", self.working_dir.display());
     }
 
     fn status(self) -> io::Result<ExitStatus> {

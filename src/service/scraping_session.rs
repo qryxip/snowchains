@@ -55,7 +55,7 @@ impl ScrapingSession {
             .collect::<Vec<_>>();
         let cookies_text = &serde_json::to_vec::<Vec<String>>(&cookies)?;
         file.write_all(cookies_text)?;
-        Ok(println!("The cookie was saved to {:?}.", pathbuf))
+        Ok(println!("The cookie was saved to {}", pathbuf.display()))
     }
 
     pub fn cookie_value(&self, name: &str) -> Option<&str> {
