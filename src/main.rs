@@ -75,6 +75,12 @@ fn main() {
         )
     }
 
+    fn arg_open_browser() -> Arg<'static, 'static> {
+        Arg::with_name("open-browser").long("open-browser").help(
+            "Whether to open the browser",
+        )
+    }
+
     fn arg_target() -> Arg<'static, 'static> {
         Arg::with_name("target").help("Target name").required(true)
     }
@@ -97,7 +103,7 @@ fn main() {
         .arg(arg_service())
         .arg(arg_contest());
 
-    let subcommand_download = SubCommand::with_name("download");
+    let subcommand_download = SubCommand::with_name("download").arg(arg_open_browser());
 
     let subcommand_judge = SubCommand::with_name("judge").args(&[arg_target(), arg_lang()]);
 
@@ -142,14 +148,17 @@ fn main() {
         } else if service_name == "atcoder-beta" {
             return atcoder_beta::participate(&contest).or_exit1();
         }
-    } else if let Some(_) = matches.subcommand_matches("download") {
+    } else if let Some(matches) = matches.subcommand_matches("download") {
         let config = config();
+        let open_browser = matches.is_present("open-browser");
         let contest = config.contest().or_exit1();
         let path = config.testcase_dir().or_exit1();
         let extension = config.testcase_extension();
         return match config.service().or_exit1() {
             ServiceName::AtCoder => atcoder::download(&contest, &path, extension),
-            ServiceName::AtCoderBeta => atcoder_beta::download(&contest, &path, extension),
+            ServiceName::AtCoderBeta => {
+                atcoder_beta::download(&contest, &path, extension, open_browser)
+            }
         }.or_exit1();
     } else if let Some(matches) = matches.subcommand_matches("judge") {
         let config = config();

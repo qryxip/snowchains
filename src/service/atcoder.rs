@@ -96,7 +96,7 @@ impl AtCoder {
             let url = format!("http://{}.contest.atcoder.jp{}", contest_name, path);
             match extract_cases(self.http_get(&url)?) {
                 Ok(cases) => {
-                    cases.save(TestCaseFilePath::new(
+                    cases.save(&TestCaseFilePath::new(
                         &path_to_save,
                         &alphabet.to_lowercase(),
                         extension,

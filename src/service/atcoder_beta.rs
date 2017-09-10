@@ -33,11 +33,12 @@ pub fn download(
     contest_name: &str,
     path_to_save: &Path,
     extension: TestCaseFileExtension,
+    open_browser: bool,
 ) -> ServiceResult<()> {
     let contest = Contest::new(contest_name)?;
     let mut atcoder = AtCoderBeta::load_or_login(None)?;
     atcoder.register_to_contest(&contest)?;
-    atcoder.download_all_tasks(contest, path_to_save, extension)
+    atcoder.download_all_tasks(contest, path_to_save, extension, open_browser)
 }
 
 
@@ -124,19 +125,24 @@ impl AtCoderBeta {
         contest: Contest,
         dir_to_save: &Path,
         extension: TestCaseFileExtension,
+        open_browser: bool,
     ) -> ServiceResult<()> {
-        let (urls_with_names, style) = {
-            let urls = extract_task_urls_with_names(self.http_get(&contest.tasks_url())?)?;
-            (urls, contest.style())
-        };
+        let mut outputs = vec![];
+        let urls_with_names = extract_task_urls_with_names(self.http_get(&contest.tasks_url())?)?;
         for (name, relative_url) in urls_with_names {
-            let url = &format!("https://beta.atcoder.jp{}", relative_url);
-            let cases = extract_cases(self.http_get(url)?, &style)?;
-            cases.save(TestCaseFilePath::new(
-                &dir_to_save,
-                &name.to_lowercase(),
-                extension,
-            ))?;
+            let url = format!("https://beta.atcoder.jp{}", relative_url);
+            let cases = extract_cases(self.http_get(&url)?, &contest.style())?;
+            let path = TestCaseFilePath::new(&dir_to_save, &name.to_lowercase(), extension);
+            outputs.push((url, cases, path));
+        }
+        for &(_, ref cases, ref path) in &outputs {
+            cases.save(&path)?;
+        }
+        if open_browser {
+            for (url, ..) in outputs.into_iter() {
+                println!("Opening {} in default browser...", url);
+                webbrowser::open(&url)?;
+            }
         }
         Ok(self.save()?)
     }

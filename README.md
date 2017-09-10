@@ -20,14 +20,13 @@ $ cargo install --git https://github.com/wariuni/snowchains
 ## Usage
 
 ```console
-$ cd <project-dir>
 $ snowchains init-config <language> ./
-$ snowchains set service <service>
-$ snowchains set contest <contest>
-$ snowchains download # The username and password required when not yet signed-in
-$ $EDITOR <project>/snowchains/<target>.yml # Add more test cases
+$ snowchains set service <service>     # "atcoder", "atcoder-beta"
+$ snowchains set contest <contest>     # e.g. "agc001"
+$ snowchains download (--open-browser) # The username and password required when not yet signed-in
+$ $EDITOR ./snowchains/<target>.yml    # Add more test cases
 $ snowchains judge <target> (<language>)
-$ snowchains submit <target>
+$ snowchains submit <target> (<language>)
 ```
 
 ## Config File (snowchains.yml)
@@ -113,8 +112,8 @@ languages:
 ```console
 $ #snowchains login <service>
 $ #snowchains participate <service> <contest>
-$ cd <wherever under the project>
-$ snowchains download
+$ cd <wherever-under-the-project>
+$ snowchains download (--open-browser)
 ```
 
 ### Format

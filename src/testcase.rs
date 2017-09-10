@@ -54,7 +54,7 @@ impl Cases {
     }
 
     pub fn load(path: &TestCaseFilePath) -> TestCaseResult<Self> {
-        let (path, extension) = (path.path(), path.extension);
+        let (path, extension) = (path.build(), path.extension);
         let text = util::string_from_file_path(&path)?;
         match extension {
             TestCaseFileExtension::Json => Ok(serde_json::from_str(&text)?),
@@ -72,9 +72,9 @@ impl Cases {
         self.cases.len()
     }
 
-    pub fn save(&self, path: TestCaseFilePath) -> TestCaseResult<()> {
+    pub fn save(&self, path: &TestCaseFilePath) -> TestCaseResult<()> {
         fs::create_dir_all(&path.dir)?;
-        let (path, extension) = (path.path(), path.extension);
+        let (path, extension) = (path.build(), path.extension);
         let mut file = File::create(&path)?;
         let serialized = match extension {
             TestCaseFileExtension::Json => serde_json::to_string(self)?,
@@ -129,10 +129,10 @@ impl TestCaseFilePath {
         for _ in 0..num_spaces {
             print!(" ");
         }
-        println!("{}", self.path().display());
+        println!("{}", self.build().display());
     }
 
-    fn path(&self) -> PathBuf {
+    fn build(&self) -> PathBuf {
         let mut path = PathBuf::from(&self.dir);
         path.push(&self.name);
         path.set_extension(&self.extension.to_string());
