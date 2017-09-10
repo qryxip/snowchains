@@ -26,7 +26,7 @@ $ snowchains set contest <contest>     # e.g. "agc001"
 $ snowchains download (--open-browser) # The username and password required when not yet signed-in
 $ $EDITOR ./snowchains/<target>.yml    # Add more test cases
 $ snowchains judge <target> (<language>)
-$ snowchains submit <target> (<language>)
+$ snowchains submit <target> (<language>) (--open-browser)
 ```
 
 ## Config File (snowchains.yml)

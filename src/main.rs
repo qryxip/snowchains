@@ -107,7 +107,10 @@ fn main() {
 
     let subcommand_judge = SubCommand::with_name("judge").args(&[arg_target(), arg_lang()]);
 
-    let subcommand_submit = SubCommand::with_name("submit").args(&[arg_target(), arg_lang()]);
+    let subcommand_submit = SubCommand::with_name("submit")
+        .arg(arg_target())
+        .arg(arg_lang())
+        .arg(arg_open_browser());
 
     let matches = app_from_crate!()
         .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -172,6 +175,7 @@ fn main() {
         let config = config();
         let target = matches.value_of("target").unwrap();
         let lang = matches.value_of("lang");
+        let open_browser = matches.is_present("open-browser");
         let contest = config.contest().or_exit1();
         let cases = config.testcase_path(target).or_exit1();
         let src = config.src_path(target, lang).or_exit1();
@@ -182,7 +186,7 @@ fn main() {
             ServiceName::AtCoder => unimplemented!(),
             ServiceName::AtCoderBeta => {
                 let lang_id = config.atcoder_lang_id(lang).or_exit1();
-                atcoder_beta::submit(&contest, &target, lang_id, &src)
+                atcoder_beta::submit(&contest, &target, lang_id, &src, open_browser)
             }
         }.or_exit1();
     }
