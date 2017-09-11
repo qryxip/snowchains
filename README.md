@@ -50,7 +50,7 @@ languages:
     src: "c/"
     bin: "c/build/"
     extension: "c"
-    build: "ninja"
+    build: "ninja"        # optional
     atcoder_lang_id: 3002 # see HTML source or open the inspector, and search by "option"
   -
     name: "c++"
@@ -66,15 +66,15 @@ languages:
     src: "rust/src/bin/"
     bin: "rust/target/release/"
     extension: "rs"
-    capitalize: false # default: false
-    build: ["cargo", "build", "--release"] # optional
+    capitalize: false              # default: false
+    build: "cargo build --release" # or ["cargo", "build", "--release"]
     atcoder_lang_id: 3504
   -
     name: "java"
     type: "java"
     src: "java/src/main/java/"
     bin: "java/build/classes/java/main/"
-    build: ["gradle", "build", "--daemon"] # also optional
+    build: "gradle --daemon build"
     atcoder_lang_id: 3016
   -
     name: "python3"

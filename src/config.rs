@@ -44,11 +44,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 bin: "rust/target/release".to_owned(),
                 extension: "rs".to_owned(),
                 capitalize: false,
-                build: Some(ScalarOrVec::Vec(vec![
-                    "cargo".to_owned(),
-                    "build".to_owned(),
-                    "--release".to_owned(),
-                ])),
+                build: Some(ScalarOrVec::Scalar("cargo build --release".to_owned())),
                 atcoder_lang_id: Some(3504),
             }),
             Project::Java(JavaProject {
@@ -56,11 +52,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 src: "java/serc/main/java/".to_owned(),
                 bin: "java/build/classes/java/main/".to_owned(),
                 extension: "java".to_owned(),
-                build: Some(ScalarOrVec::Vec(vec![
-                    "gradle".to_owned(),
-                    "--daemon".to_owned(),
-                    "build".to_owned(),
-                ])),
+                build: Some(ScalarOrVec::Scalar("gradle --daemon build".to_owned())),
                 atcoder_lang_id: Some(3016),
             }),
             Project::Script(ScriptProject {
@@ -311,9 +303,8 @@ impl Project {
             build: &ScalarOrVec<String>,
             dir: &str,
         ) -> ConfigResult<CommandParameters> {
-            let (command, args) = build.split();
             let working_dir = resolve_path(base, dir)?;
-            Ok(CommandParameters::new(command, args, working_dir))
+            Ok(build.to_command(working_dir, None))
         }
 
         match *self {
@@ -348,9 +339,8 @@ impl Project {
                 srcpath.push(target_name);
                 srcpath.set_extension(extension);
                 if let Some(ref runtime) = *runtime {
-                    let (command, mut args) = runtime.split();
-                    args.push(srcpath.to_string_lossy().to_string());
-                    Ok(CommandParameters::new(command, args, working_dir))
+                    let o = srcpath.to_string_lossy().to_string();
+                    Ok(runtime.to_command(working_dir, Some(o)))
                 } else {
                     Ok(CommandParameters::new(
                         srcpath.to_string_lossy().to_string(),
@@ -440,16 +430,25 @@ enum ScalarOrVec<T> {
     Vec(Vec<T>),
 }
 
-impl<T: Clone + Default> ScalarOrVec<T> {
-    fn split(&self) -> (T, Vec<T>) {
+impl ScalarOrVec<String> {
+    fn to_command(&self, working_dir: PathBuf, o: Option<String>) -> CommandParameters {
         match *self {
-            ScalarOrVec::Scalar(ref x) => (x.clone(), vec![]),
-            ScalarOrVec::Vec(ref xs) => {
-                let mut it = xs.iter();
-                (
-                    it.next().map(|x| x.clone()).unwrap_or_default(),
-                    it.map(|x| x.clone()).collect(),
-                )
+            ScalarOrVec::Scalar(ref arg0) => {
+                let arg0 = if let Some(o) = o {
+                    format!("{} {}", arg0, o)
+                } else {
+                    arg0.clone()
+                };
+                CommandParameters::wrap_in_sh_or_cmd_if_necessary(arg0, working_dir)
+            }
+            ScalarOrVec::Vec(ref values) => {
+                let mut it = values.iter();
+                let arg0 = it.next().cloned().unwrap_or_default();
+                let mut rest_args = it.cloned().collect::<Vec<_>>();
+                if let Some(o) = o {
+                    rest_args.push(o);
+                }
+                CommandParameters::new(arg0, rest_args, working_dir)
             }
         }
     }

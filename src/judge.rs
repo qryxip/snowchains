@@ -17,7 +17,7 @@ pub fn judge(
     build_command: Option<CommandParameters>,
 ) -> JudgeResult<()> {
     fn build(build_command: CommandParameters) -> JudgeResult<()> {
-        let status = build_command.status()?;
+        let status = build_command.status_inherited()?;
         if status.success() {
             Ok(())
         } else {
@@ -115,16 +115,29 @@ pub fn judge(
 #[derive(Clone)]
 pub struct CommandParameters {
     arg0: String,
-    args: Vec<String>,
+    rest_args: Vec<String>,
     working_dir: PathBuf,
 }
 
 impl CommandParameters {
-    pub fn new(arg0: String, args: Vec<String>, working_dir: PathBuf) -> Self {
+    pub fn new(arg0: String, rest_args: Vec<String>, working_dir: PathBuf) -> Self {
         Self {
             arg0: arg0,
-            args: args,
+            rest_args: rest_args,
             working_dir: working_dir,
+        }
+    }
+
+    pub fn wrap_in_sh_or_cmd_if_necessary(command: String, working_dir: PathBuf) -> Self {
+        if command.find(|c| " \t\n#&|;".contains(c)).is_none() {
+            Self::new(command, vec![], working_dir)
+        } else {
+            let (arg0, c) = if cfg!(target_os = "windows") {
+                ("cmd".to_owned(), "/C".to_owned())
+            } else {
+                ("sh".to_owned(), "-c".to_owned())
+            };
+            Self::new(arg0, vec![c, command], working_dir)
         }
     }
 
@@ -135,24 +148,26 @@ impl CommandParameters {
             print!(" ");
         }
         print!("{:?}", self.arg0);
-        for arg in &self.args {
+        for arg in &self.rest_args {
             print!(" {:?}", arg);
         }
         print_decorated!(Attr::Bold, Some(color::CYAN), "\nWorking directory:");
         println!(" {}", self.working_dir.display());
     }
 
-    fn status(self) -> io::Result<ExitStatus> {
+    fn status_inherited(self) -> io::Result<ExitStatus> {
         Command::new(&self.arg0)
-            .args(self.args)
+            .args(self.rest_args)
             .current_dir(self.working_dir)
-            .spawn()?
-            .wait()
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
     }
 
     fn spawn_piped(self) -> io::Result<Child> {
         Command::new(&self.arg0)
-            .args(self.args)
+            .args(self.rest_args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
