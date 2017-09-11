@@ -6,37 +6,40 @@ use serde_json;
 use serde_urlencoded;
 use serde_yaml;
 use std::io;
-use std::process::{self, ExitStatus};
+use std::process::ExitStatus;
 use std::sync::mpsc::RecvError;
 use term::{Attr, color};
 use toml;
 
 
-pub trait OrExit1 {
-    type Target;
-    /// if `self` is `Err`, prints the error details and exit with code 1.
-    fn or_exit1(self) -> Self::Target;
+pub trait PrintChainColored {
+    fn print_chain_colored(&self);
 }
 
-impl<T, E: ChainedError> OrExit1 for Result<T, E> {
-    type Target = T;
-
-    fn or_exit1(self) -> T {
-        match self {
-            Ok(x) => x,
-            Err(e) => {
-                eprint_decorated!(Attr::Bold, Some(color::RED), "\nerror: ");
-                eprintln!("{}", e);
-                for e_kind in e.iter().skip(1) {
-                    eprint_decorated!(Attr::Bold, Some(color::RED), "caused by: ");
-                    eprintln!("{}", e_kind);
-                }
-                if let Some(backtrace) = e.backtrace() {
-                    eprintln!("{:?}", backtrace);
-                }
-                process::exit(1);
-            }
+impl<E: ChainedError> PrintChainColored for E {
+    fn print_chain_colored(&self) {
+        eprint_decorated!(Attr::Bold, Some(color::RED), "Error: ");
+        eprintln!("{}", self);
+        for e_kind in self.iter().skip(1) {
+            eprint_decorated!(Attr::Bold, Some(color::RED), "Caused by: ");
+            eprintln!("{}", e_kind);
         }
+        if let Some(backtrace) = self.backtrace() {
+            eprintln!("{:?}", backtrace);
+        }
+    }
+}
+
+
+error_chain!{
+    types{
+        SnowchainsError, SnowchainsErrorKind, SnowchainsResultExt, SnowchainsResult;
+    }
+
+    links {
+        Service(ServiceError, ServiceErrorKind);
+        Judge(JudgeError, JudgeErrorKind);
+        Config(ConfigError, ConfigErrorKind);
     }
 }
 

@@ -1,17 +1,16 @@
 use super::scraping_session::ScrapingSession;
-use super::super::error::{ServiceErrorKind, ServiceResult};
+use super::super::error::{PrintChainColored, ServiceErrorKind, ServiceResult};
 use super::super::testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
 use super::super::util;
 use regex::Regex;
 use reqwest::StatusCode;
 use select::document::Document;
 use select::node::Node;
-use select::predicate::{And, Attr as HtmlAttr, Class, Name, Predicate, Text};
+use select::predicate::{And, Attr, Class, Name, Predicate, Text};
 use std::fs::File;
 use std::io::{self, Read};
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
-use term::{Attr as TermAttr, color};
 use webbrowser;
 
 
@@ -106,8 +105,7 @@ impl AtCoderBeta {
         let mut session = ScrapingSession::new();
         let token = &extract_csrf_token(session.http_get(URL)?)?;
         while let Err(e) = session.http_post_urlencoded(URL, post_data(token)?, StatusCode::Found) {
-            eprint_decorated!(TermAttr::Bold, Some(color::RED), "error: ");
-            eprintln!("{}", e);
+            e.print_chain_colored();
             println!("Failed to login. try again.")
         }
         println!("Succeeded to login.");
@@ -298,7 +296,7 @@ enum SampleCaseStyle {
 
 fn extract_csrf_token<R: Read>(html: R) -> ServiceResult<String> {
     fn extract(document: Document) -> Option<String> {
-        try_opt!(document.find(HtmlAttr("name", "csrf_token")).next())
+        try_opt!(document.find(Attr("name", "csrf_token")).next())
             .attr("value")
             .map(str::to_owned)
     }
@@ -310,7 +308,7 @@ fn extract_csrf_token<R: Read>(html: R) -> ServiceResult<String> {
 fn extract_task_urls_with_names<R: Read>(html: R) -> ServiceResult<Vec<(String, String)>> {
     fn extract(document: Document) -> Option<Vec<(String, String)>> {
         let mut names_and_pathes = vec![];
-        let predicate = HtmlAttr("id", "main-container")
+        let predicate = Attr("id", "main-container")
             .child(And(Name("div"), Class("row")))
             .child(And(Name("div"), Class("col-sm-12")))
             .child(And(Name("div"), Class("panel")))
@@ -354,7 +352,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<Cases> {
         re_output: Regex,
         lang_class_name: &'static str,
     ) -> Option<Vec<(String, String)>> {
-        let predicate = HtmlAttr("id", "task-statement")
+        let predicate = Attr("id", "task-statement")
             .child(And(Name("span"), Class("lang")))
             .child(And(Name("span"), Class(lang_class_name)))
             .child(And(Name("div"), Class("part")))
@@ -397,7 +395,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<Cases> {
 
 fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
     let re_timelimit = Regex::new(r"^\D*(\d+)\s*sec.*$").unwrap();
-    let predicate = HtmlAttr("id", "main-container")
+    let predicate = Attr("id", "main-container")
         .child(And(Name("div"), Class("row")))
         .child(And(Name("div"), Class("col-sm-12")))
         .child(Name("p"))

@@ -31,12 +31,12 @@ mod testcase;
 mod util;
 
 use self::config::{Config, ServiceName};
-use self::error::OrExit1;
+use self::error::SnowchainsResult;
 use self::service::{atcoder, atcoder_beta};
 use clap::{AppSettings, Arg, SubCommand};
 
 
-fn main() {
+quick_main_colored!(|| -> SnowchainsResult<()> {
     fn arg_default_lang() -> Arg<'static, 'static> {
         Arg::with_name("default-lang")
             .help("Default language")
@@ -162,71 +162,67 @@ fn main() {
         .subcommand(subcommand_submit.display_order(7))
         .get_matches();
 
-    fn config() -> Config {
-        Config::load_from_file().or_exit1()
-    }
-
     if let Some(matches) = matches.subcommand_matches("init-config") {
         let lang = matches.value_of("default-lang").unwrap();
         let dir = matches.value_of("dir").unwrap();
-        return config::create_config_file(lang, dir).or_exit1();
+        return Ok(config::create_config_file(lang, dir)?);
     } else if let Some(matches) = matches.subcommand_matches("set") {
         let key = matches.value_of("property-or-target").unwrap();
         let value = matches.value_of("value").unwrap();
-        return config::set_property(key, value).or_exit1();
+        return Ok(config::set_property(key, value)?);
     } else if let Some(matches) = matches.subcommand_matches("login") {
         let service_name = matches.value_of("service").unwrap();
         if service_name == "atcoder" {
-            return atcoder::login().or_exit1();
+            return Ok(atcoder::login()?);
         } else if service_name == "atcoder-beta" {
-            return atcoder_beta::login().or_exit1();
+            return Ok(atcoder_beta::login()?);
         }
     } else if let Some(matches) = matches.subcommand_matches("participate") {
         let contest = matches.value_of("contest").unwrap();
         let service_name = matches.value_of("service").unwrap();
         if service_name == "atcoder" {
-            return atcoder::participate(&contest).or_exit1();
+            return Ok(atcoder::participate(&contest)?);
         } else if service_name == "atcoder-beta" {
-            return atcoder_beta::participate(&contest).or_exit1();
+            return Ok(atcoder_beta::participate(&contest)?);
         }
     } else if let Some(matches) = matches.subcommand_matches("download") {
-        let config = config();
+        let config = Config::load_from_file()?;
         let open_browser = matches.is_present("open-browser");
-        let contest = config.contest().or_exit1();
-        let path = config.testcase_dir().or_exit1();
+        let contest = config.contest()?;
+        let path = config.testcase_dir()?;
         let extension = config.testcase_extension();
-        return match config.service().or_exit1() {
+        return Ok(match config.service()? {
             ServiceName::AtCoder => atcoder::download(&contest, &path, extension),
             ServiceName::AtCoderBeta => {
                 atcoder_beta::download(&contest, &path, extension, open_browser)
             }
-        }.or_exit1();
+        }?);
     } else if let Some(matches) = matches.subcommand_matches("judge") {
-        let config = config();
+        let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
         let lang = matches.value_of("lang");
-        let cases = config.testcase_path(target).or_exit1();
-        let run_command = config.construct_run_command(target, lang).or_exit1();
-        let build_command = config.construct_build_command(lang).or_exit1();
-        return judge::judge(cases, run_command, build_command).or_exit1();
+        let cases = config.testcase_path(target)?;
+        let run_command = config.construct_run_command(target, lang)?;
+        let build_command = config.construct_build_command(lang)?;
+        return Ok(judge::judge(cases, run_command, build_command)?);
     } else if let Some(matches) = matches.subcommand_matches("submit") {
-        let config = config();
+        let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
         let lang = matches.value_of("lang");
         let open_browser = matches.is_present("open-browser");
-        let contest = config.contest().or_exit1();
-        let cases = config.testcase_path(target).or_exit1();
-        let src = config.src_path(target, lang).or_exit1();
-        let run_command = config.construct_run_command(target, lang).or_exit1();
-        let build_command = config.construct_build_command(lang).or_exit1();
-        judge::judge(cases, run_command, build_command).or_exit1();
-        return match config.service().or_exit1() {
+        let contest = config.contest()?;
+        let cases = config.testcase_path(target)?;
+        let src = config.src_path(target, lang)?;
+        let run_command = config.construct_run_command(target, lang)?;
+        let build_command = config.construct_build_command(lang)?;
+        judge::judge(cases, run_command, build_command)?;
+        return Ok(match config.service()? {
             ServiceName::AtCoder => unimplemented!(),
             ServiceName::AtCoderBeta => {
-                let lang_id = config.atcoder_lang_id(lang).or_exit1();
+                let lang_id = config.atcoder_lang_id(lang)?;
                 atcoder_beta::submit(&contest, &target, lang_id, &src, open_browser)
             }
-        }.or_exit1();
+        }?);
     }
     unreachable!();
-}
+});
