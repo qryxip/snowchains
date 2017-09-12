@@ -73,24 +73,20 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
 }
 
 
-pub fn set_property(key: &str, value: &str) -> ConfigResult<()> {
+pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
     let mut config = Config::load_from_file()?;
-    if key == "service" {
-        config.service = Some(serde_yaml::from_str(value)?);
-    } else if key == "contest" {
-        config.contest = Some(value.to_owned());
-    } else if key == "testcases" {
-        config.testcases = value.to_owned();
-    } else if key == "testcase_extension" {
-        if let Some(extension) = TestCaseFileExtension::from_str(value) {
-            config.testcase_extension = extension;
-        } else {
-            bail!(ConfigErrorKind::UnsupportedExtension(value.to_owned()));
+    match key {
+        PropertyKey::Service => config.service = Some(serde_yaml::from_str(value)?),
+        PropertyKey::Contest => config.contest = Some(value.to_owned()),
+        PropertyKey::Testcases => config.testcases = value.to_owned(),
+        PropertyKey::TestcaseExtension => {
+            if let Some(extension) = TestCaseFileExtension::from_str(value) {
+                config.testcase_extension = extension;
+            } else {
+                bail!(ConfigErrorKind::UnsupportedExtension(value.to_owned()));
+            }
         }
-    } else if key == "default_lang" {
-        config.default_lang = value.to_owned();
-    } else {
-        return Ok(());
+        PropertyKey::DefaultLang => config.default_lang = value.to_owned(),
     }
     let config = serde_yaml::to_string(&config)?;
     File::create(find_base()?.1)?.write_all(config.as_bytes())?;
@@ -193,6 +189,31 @@ impl Config {
 }
 
 
+pub enum PropertyKey {
+    Service,
+    Contest,
+    Testcases,
+    TestcaseExtension,
+    DefaultLang,
+}
+
+impl FromStr for PropertyKey {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, ()> {
+        let s = s.to_lowercase();
+        return match &s {
+            s if s == "service" => Ok(PropertyKey::Service),
+            s if s == "contest" => Ok(PropertyKey::Contest),
+            s if s == "testcases" => Ok(PropertyKey::Testcases),
+            s if s == "testcase_extension" => Ok(PropertyKey::TestcaseExtension),
+            s if s == "default_lang" => Ok(PropertyKey::DefaultLang),
+            _ => Err(()),
+        };
+    }
+}
+
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ServiceName {
     #[serde(rename = "atcoder")]
@@ -205,7 +226,8 @@ impl FromStr for ServiceName {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, ()> {
-        return match s {
+        let s = s.to_lowercase();
+        return match &s {
             s if s == "atcoder" => Ok(ServiceName::AtCoder),
             s if s == "atcoder-beta" => Ok(ServiceName::AtCoderBeta),
             _ => Err(()),

@@ -30,7 +30,7 @@ mod service;
 mod testcase;
 mod util;
 
-use self::config::{Config, ServiceName};
+use self::config::{Config, PropertyKey, ServiceName};
 use self::error::SnowchainsResult;
 use self::service::{atcoder, atcoder_beta};
 use clap::{AppSettings, Arg, SubCommand};
@@ -49,17 +49,21 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
             .required(true)
     }
 
-    fn arg_property_or_target() -> Arg<'static, 'static> {
-        Arg::with_name("property-or-target")
-            .help(
-                "Property name (\"service\", \"contest\", \"testcases\", \
-                 \"testcase_extension\", \"default_lang\") or target name",
-            )
+    fn arg_key() -> Arg<'static, 'static> {
+        Arg::with_name("key")
+            .help("Property key")
+            .possible_value("service")
+            .possible_value("contest")
+            .possible_value("testcases")
+            .possible_value("testcase_extension")
+            .possible_value("default_lang")
             .required(true)
     }
 
     fn arg_value() -> Arg<'static, 'static> {
-        Arg::with_name("value").required(true)
+        Arg::with_name("value").help("Property value").required(
+            true,
+        )
     }
 
     fn arg_service() -> Arg<'static, 'static> {
@@ -90,7 +94,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     }
 
     static USAGE_INIT_CONFIG: &'static str = "snowchains init-config <default-lang> <dir>";
-    static USAGE_SET: &'static str = "snowchains set <property-or-terget> <value>";
+    static USAGE_SET: &'static str = "snowchains set <key> <value>";
     static USAGE_LOGIN: &'static str = "snowchains login <service>";
     static USAGE_PARTICIPATE: &'static str = "snowchains participate <service> <contest>";
     static USAGE_DOWNLOAD: &'static str = "snowchains download [--open-browser]";
@@ -106,7 +110,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     let subcommand_set = SubCommand::with_name("set")
         .about("Sets a property in 'snowchains.yml'")
         .usage(USAGE_SET)
-        .arg(arg_property_or_target())
+        .arg(arg_key())
         .arg(arg_value());
 
     let subcommand_login = SubCommand::with_name("login")
@@ -167,7 +171,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let dir = matches.value_of("dir").unwrap();
         return Ok(config::create_config_file(lang, dir)?);
     } else if let Some(matches) = matches.subcommand_matches("set") {
-        let key = matches.value_of("property-or-target").unwrap();
+        let key = value_t!(matches, "key", PropertyKey).unwrap();
         let value = matches.value_of("value").unwrap();
         return Ok(config::set_property(key, value)?);
     } else if let Some(matches) = matches.subcommand_matches("login") {
