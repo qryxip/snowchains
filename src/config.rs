@@ -7,6 +7,7 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 
 type InputPath = String;
@@ -121,14 +122,14 @@ impl Config {
         Ok(config)
     }
 
-    pub fn service(&self) -> ConfigResult<ServiceName> {
+    pub fn service_name(&self) -> ConfigResult<ServiceName> {
         match self.service.clone() {
             Some(service) => Ok(service),
             None => bail!(ConfigErrorKind::PropertyNotSet("service")),
         }
     }
 
-    pub fn contest(&self) -> ConfigResult<String> {
+    pub fn contest_name(&self) -> ConfigResult<String> {
         match self.contest.clone() {
             Some(contest) => Ok(contest),
             None => bail!(ConfigErrorKind::PropertyNotSet("contest")),
@@ -198,6 +199,18 @@ pub enum ServiceName {
     AtCoder,
     #[serde(rename = "atcoder-beta")]
     AtCoderBeta,
+}
+
+impl FromStr for ServiceName {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, ()> {
+        return match s {
+            s if s == "atcoder" => Ok(ServiceName::AtCoder),
+            s if s == "atcoder-beta" => Ok(ServiceName::AtCoderBeta),
+            _ => Err(()),
+        };
+    }
 }
 
 

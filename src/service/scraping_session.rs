@@ -6,7 +6,7 @@ use reqwest::header::{ContentType, Cookie as RequestCookie, SetCookie, UserAgent
 use serde::Serialize;
 use serde_json;
 use serde_urlencoded;
-use std::fmt::Display;
+use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use term::{Attr, color};
@@ -63,16 +63,22 @@ impl ScrapingSession {
     }
 
     /// Panics when `url` is invalid.
-    pub fn http_get<U: Clone + Display + IntoUrl>(&mut self, url: U) -> ServiceResult<Response> {
+    pub fn http_get<U>(&mut self, url: U) -> ServiceResult<Response>
+    where
+        U: Clone + fmt::Display + IntoUrl,
+    {
         self.http_get_expecting(url, StatusCode::Ok)
     }
 
     /// Panics when `url` is invalid.
-    pub fn http_get_expecting<U: Clone + Display + IntoUrl>(
+    pub fn http_get_expecting<U>(
         &mut self,
         url: U,
         expected_status: StatusCode,
-    ) -> ServiceResult<Response> {
+    ) -> ServiceResult<Response>
+    where
+        U: Clone + fmt::Display + IntoUrl,
+    {
         print_decorated!(Attr::Bold, None, "GET ");
         print_and_flush!("{} ... ", url);
 
@@ -116,7 +122,7 @@ impl ScrapingSession {
         expected_status: StatusCode,
     ) -> ServiceResult<Response>
     where
-        U: Clone + Display + IntoUrl,
+        U: Clone + fmt::Display + IntoUrl,
         T: Serialize,
     {
         self.http_post(
@@ -127,7 +133,7 @@ impl ScrapingSession {
         )
     }
 
-    fn http_post<U: Clone + Display + IntoUrl>(
+    fn http_post<U: Clone + fmt::Display + IntoUrl>(
         &mut self,
         url: U,
         data: String,

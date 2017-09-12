@@ -1,9 +1,9 @@
 use super::error::{JudgeErrorKind, JudgeResult};
 use super::testcase::{Case, Cases, TestCaseFilePath};
 use super::util::{self, UnwrapAsRefMut};
-use std::fmt::{self, Display, Formatter};
+use std::fmt;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{self, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
@@ -12,7 +12,7 @@ use term::{Attr, color};
 
 
 pub fn judge(
-    cases_path: TestCaseFilePath,
+    testcase_path: TestCaseFilePath,
     run_command: CommandParameters,
     build_command: Option<CommandParameters>,
 ) -> JudgeResult<()> {
@@ -74,19 +74,26 @@ pub fn judge(
     }
 
     if let Some(build_command) = build_command {
-        build_command.print("Build command:");
+        print_decorated!(Attr::Bold, Some(color::CYAN), "Build command:     ");
+        println!("{}", build_command.display_args());
+        print_decorated!(Attr::Bold, Some(color::CYAN), "Working directory: ");
+        println!("{}", build_command.display_working_dir());
         build(build_command)?;
         println!("");
     }
 
-    let cases = Cases::load(&cases_path)?;
+    let cases = Cases::load(&testcase_path)?;
     let num_cases = cases.num_cases();
     let suf = if num_cases > 1 { "s" } else { "" };
     let mut all_outputs = vec![];
     let mut num_failures = 0;
 
-    cases_path.print(9);
-    run_command.print("Command:");
+    print_decorated!(Attr::Bold, Some(color::CYAN), "Test file:         ");
+    println!("{}", testcase_path.build().display());
+    print_decorated!(Attr::Bold, Some(color::CYAN), "Command:           ");
+    println!("{}", run_command.display_args());
+    print_decorated!(Attr::Bold, Some(color::CYAN), "Working directory: ");
+    println!("{}", run_command.display_working_dir());
     println!("Running {} test{}...", num_cases, suf);
     for (i, case) in cases.into_iter().enumerate() {
         let output = judge_one(case, run_command.clone())?;
@@ -141,18 +148,16 @@ impl CommandParameters {
         }
     }
 
-    fn print(&self, command: &'static str) {
-        print_decorated!(Attr::Bold, Some(color::CYAN), "{}", command);
-        let l = command.len();
-        for _ in 0..if l > 19 { 0 } else { 19 - l } {
-            print!(" ");
-        }
-        print!("{:?}", self.arg0);
+    fn display_args(&self) -> String {
+        let mut s: String = format!("{:?}", self.arg0);
         for arg in &self.rest_args {
-            print!(" {:?}", arg);
+            s.push_str(&format!(" {:?}", arg));
         }
-        print_decorated!(Attr::Bold, Some(color::CYAN), "\nWorking directory:");
-        println!(" {}", self.working_dir.display());
+        s
+    }
+
+    fn display_working_dir(&self) -> path::Display {
+        self.working_dir.display()
     }
 
     fn status_inherited(self) -> io::Result<ExitStatus> {
@@ -190,8 +195,8 @@ enum JudgeOutput {
 }
 
 
-impl Display for JudgeOutput {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+impl fmt::Display for JudgeOutput {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             JudgeOutput::Ac(t, ..) => write!(f, "AC ({}ms)", t),
             JudgeOutput::Tle(t, ..) => write!(f, "TLE ({}ms)", t),

@@ -7,7 +7,6 @@ use reqwest::StatusCode;
 use select::document::Document;
 use select::node::Node;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
-use std::fs::File;
 use std::io::{self, Read};
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
@@ -30,14 +29,14 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
 
 pub fn download(
     contest_name: &str,
-    path_to_save: &Path,
+    dir_to_save: &Path,
     extension: TestCaseFileExtension,
     open_browser: bool,
 ) -> ServiceResult<()> {
     let contest = Contest::new(contest_name)?;
     let mut atcoder = AtCoderBeta::load_or_login(None)?;
     atcoder.register_to_contest(&contest)?;
-    atcoder.download_all_tasks(contest, path_to_save, extension, open_browser)
+    atcoder.download_all_tasks(contest, dir_to_save, extension, open_browser)
 }
 
 
@@ -45,14 +44,14 @@ pub fn submit(
     contest_name: &str,
     task: &str,
     lang_id: u32,
-    src: &Path,
+    src_path: &Path,
     open_browser: bool,
 ) -> ServiceResult<()> {
     println!("");
     let contest = Contest::new(contest_name)?;
     let mut atcoder = AtCoderBeta::load_or_login(None)?;
     atcoder.register_to_contest(&contest)?;
-    atcoder.submit_code(contest, task, lang_id, src, open_browser)
+    atcoder.submit_code(contest, task, lang_id, src_path, open_browser)
 }
 
 
@@ -157,7 +156,7 @@ impl AtCoderBeta {
         contest: Contest,
         task: &str,
         lang_id: u32,
-        src: &Path,
+        src_path: &Path,
         open_browser: bool,
     ) -> ServiceResult<()> {
         #[derive(Serialize)]
@@ -182,7 +181,7 @@ impl AtCoderBeta {
                         break;
                     }
                 };
-                let source_code = util::string_from_read(File::open(src)?)?;
+                let source_code = util::string_from_file_path(src_path)?;
                 let csrf_token = {
                     let url = format!("https://beta.atcoder.jp{}", relative_url);
                     extract_csrf_token(self.http_get(&url)?)?

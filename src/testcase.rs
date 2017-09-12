@@ -2,12 +2,11 @@ use super::error::TestCaseResult;
 use super::util;
 use serde_json;
 use serde_yaml;
-use std::fmt::{self, Display, Formatter};
+use std::fmt;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::vec;
-use term::{Attr, color};
 use toml;
 
 
@@ -124,15 +123,7 @@ impl TestCaseFilePath {
         }
     }
 
-    pub fn print(&self, num_spaces: usize) {
-        print_decorated!(Attr::Bold, Some(color::CYAN), "Test file:");
-        for _ in 0..num_spaces {
-            print!(" ");
-        }
-        println!("{}", self.build().display());
-    }
-
-    fn build(&self) -> PathBuf {
+    pub fn build(&self) -> PathBuf {
         let mut path = PathBuf::from(&self.dir);
         path.push(&self.name);
         path.set_extension(&self.extension.to_string());
@@ -156,8 +147,8 @@ impl Default for TestCaseFileExtension {
     }
 }
 
-impl Display for TestCaseFileExtension {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+impl fmt::Display for TestCaseFileExtension {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", format!("{:?}", self).to_lowercase())
     }
 }
@@ -192,7 +183,7 @@ impl Into<String> for NonNestedValue {
     fn into(self) -> String {
         use std::fmt::Write;
 
-        fn as_lines<T: Display>(a: &[T]) -> String {
+        fn as_lines<T: fmt::Display>(a: &[T]) -> String {
             let mut result = String::new();
             for x in a {
                 writeln!(result, "{}", x).unwrap();
@@ -223,8 +214,8 @@ enum NonArrayValue {
     String(String),
 }
 
-impl Display for NonArrayValue {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+impl fmt::Display for NonArrayValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             NonArrayValue::Integer(n) => write!(f, "{}", n),
             NonArrayValue::Float(v) => write!(f, "{}", v),

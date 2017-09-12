@@ -34,11 +34,11 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
 
 pub fn download(
     contest_name: &str,
-    path_to_save: &Path,
+    dir_to_save: &Path,
     extension: TestCaseFileExtension,
 ) -> ServiceResult<()> {
     let mut atcoder = AtCoder::load_or_login()?;
-    atcoder.download_all_tasks(contest_name, path_to_save, extension)
+    atcoder.download_all_tasks(contest_name, dir_to_save, extension)
 }
 
 
@@ -83,7 +83,7 @@ impl AtCoder {
     fn download_all_tasks(
         &mut self,
         contest_name: &str,
-        path_to_save: &Path,
+        dir_to_save: &Path,
         extension: TestCaseFileExtension,
     ) -> ServiceResult<()> {
         let names_and_pathes = {
@@ -97,7 +97,7 @@ impl AtCoder {
             match extract_cases(self.http_get(&url)?) {
                 Ok(cases) => {
                     cases.save(&TestCaseFilePath::new(
-                        &path_to_save,
+                        &dir_to_save,
                         &alphabet.to_lowercase(),
                         extension,
                     ))?;
