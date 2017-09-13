@@ -300,7 +300,7 @@ fn extract_csrf_token<R: Read>(html: R) -> ServiceResult<String> {
             .map(str::to_owned)
     }
 
-    super::halt_on_failure(extract(Document::from_read(html)?), String::is_empty)
+    super::quit_on_failure(extract(Document::from_read(html)?), String::is_empty)
 }
 
 
@@ -324,7 +324,7 @@ fn extract_task_urls_with_names<R: Read>(html: R) -> ServiceResult<Vec<(String, 
         Some(names_and_pathes)
     }
 
-    super::halt_on_failure(extract(Document::from_read(html)?), Vec::is_empty)
+    super::quit_on_failure(extract(Document::from_read(html)?), Vec::is_empty)
 }
 
 
@@ -388,7 +388,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<Cases> {
         Some(Cases::from_text(timelimit, samples))
     }
 
-    super::halt_on_failure(extract(document), Cases::is_empty)
+    super::quit_on_failure(extract(document), Cases::is_empty)
 }
 
 

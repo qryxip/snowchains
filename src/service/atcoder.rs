@@ -168,7 +168,7 @@ fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, Stri
         Some(names_and_pathes)
     }
 
-    super::halt_on_failure(extract(Document::from_read(html)?), Vec::is_empty)
+    super::quit_on_failure(extract(Document::from_read(html)?), Vec::is_empty)
 }
 
 
@@ -213,5 +213,5 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<Cases> {
         Some(Cases::from_text(timelimit, samples))
     }
 
-    super::halt_on_failure(extract(Document::from_read(html)?), Cases::is_empty)
+    super::quit_on_failure(extract(Document::from_read(html)?), Cases::is_empty)
 }
