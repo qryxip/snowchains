@@ -91,22 +91,30 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
-        fn post_data(csrf_token: &str) -> ServiceResult<PostData> {
+        fn try_logging_in() -> ServiceResult<ScrapingSession> {
             let (username, password) = super::read_username_and_password("Username")?;
-            Ok(PostData {
+            let mut session = ScrapingSession::new();
+            let csrf_token = extract_csrf_token(session.http_get(URL)?)?;
+            let data = PostData {
                 username: username,
                 password: password,
-                csrf_token: csrf_token.to_owned(),
-            })
+                csrf_token: csrf_token,
+            };
+            static URL: &'static str = "https://beta.atcoder.jp/login";
+            let _ = session.http_post_urlencoded(URL, data, StatusCode::Found)?;
+            let _ = session.http_get("https://beta.atcoder.jp/settings")?;
+            Ok(session)
         }
 
-        static URL: &'static str = "https://beta.atcoder.jp/login";
-        let mut session = ScrapingSession::new();
-        let token = &extract_csrf_token(session.http_get(URL)?)?;
-        while let Err(e) = session.http_post_urlencoded(URL, post_data(token)?, StatusCode::Found) {
-            e.print_chain_colored();
-            println!("Failed to login. try again.")
-        }
+        let session = loop {
+            match try_logging_in() {
+                Ok(session) => break session,
+                Err(e) => {
+                    e.print_chain_colored();
+                    eprintln!("Failed to login. try again.");
+                }
+            }
+        };
         println!("Succeeded to login.");
         Ok(AtCoderBeta(session))
     }
