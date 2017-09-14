@@ -55,7 +55,9 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 src: "java/src/main/java/".to_owned(),
                 bin: "java/build/classes/java/main/".to_owned(),
                 extension: "java".to_owned(),
-                build: Some(ScalarOrVec::Scalar("gradle --daemon build".to_owned())),
+                build: Some(ScalarOrVec::Scalar(
+                    "gradle --daemon buildNeeded".to_owned(),
+                )),
                 atcoder_lang_id: Some(3016),
             }),
             Project::Script(ScriptProject {
@@ -331,7 +333,16 @@ impl Project {
             Project::Build(BuildProject { ref src, .. }) => src,
             Project::Java(JavaProject { ref src, .. }) => src,
         }));
-        pathbuf.push(filename);
+        pathbuf.push(if match *self {
+            Project::Script(_) => false,
+            Project::Build(BuildProject { capitalize, .. }) => capitalize,
+            Project::Java(_) => true,
+        }
+        {
+            filename.to_uppercase()
+        } else {
+            filename.to_lowercase()
+        });
         pathbuf.set_extension(match *self {
             Project::Script(ScriptProject { ref extension, .. }) => extension,
             Project::Build(BuildProject { ref extension, .. }) => extension,

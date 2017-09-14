@@ -1,7 +1,6 @@
 use error::{PrintChainColored, ServiceErrorKind, ServiceResult};
 use service::scraping_session::ScrapingSession;
 use testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
-use util;
 
 use regex::Regex;
 use reqwest::StatusCode;
@@ -194,7 +193,7 @@ impl AtCoderBeta {
                         break;
                     }
                 };
-                let source_code = util::string_from_file_path(src_path)?;
+                let source_code = super::replace_class_name_if_necessary(src_path, "Main")?;
                 let csrf_token = {
                     let url = format!("https://beta.atcoder.jp{}", relative_url);
                     extract_csrf_token(self.http_get(&url)?)?

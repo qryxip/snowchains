@@ -6,6 +6,7 @@ use serde_json;
 use serde_urlencoded;
 use serde_yaml;
 use std::io;
+use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::sync::mpsc::RecvError;
 use term::{Attr, color};
@@ -77,6 +78,11 @@ error_chain! {
         ScrapingFailed {
             description("Scraping failed")
                 display("Scraping faild")
+        }
+
+        ReplacingClassNameFailure(path: PathBuf) {
+            description("Replacing the class name fails")
+                display("Failed to replace the class name in {}", path.display())
         }
 
         UnexpectedHttpCode(expected: StatusCode, actual: StatusCode) {

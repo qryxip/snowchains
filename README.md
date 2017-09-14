@@ -74,8 +74,8 @@ languages:
     type: "java"
     src: "java/src/main/java/"
     bin: "java/build/classes/java/main/"
-    build: "gradle --daemon build"
-    atcoder_lang_id: 3016
+    build: "gradle --daemon buildNeeded"
+    atcoder_lang_id: 3016 # class names are replaced with "Main" or something
   -
     name: "python3"
     type: "script"

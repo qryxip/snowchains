@@ -4,10 +4,10 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 
-/// Returns a `String` read from the file of given path.
-pub fn string_from_file_path(path: &Path) -> io::Result<String> {
+/// Calls `File::open(path)` and if the result is `Err`, insert `path` to the error message.
+pub fn open_file_remembering_path(path: &Path) -> io::Result<File> {
     match File::open(path) {
-        Ok(file) => string_from_read(file),
+        Ok(file) => Ok(file),
         Err(ref e) if e.kind() == io::ErrorKind::NotFound => Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!("No such file: {:?}", path),
@@ -23,6 +23,12 @@ pub fn string_from_read<R: Read>(read: R) -> io::Result<String> {
     let mut buf = String::new();
     read.read_to_string(&mut buf)?;
     Ok(buf)
+}
+
+
+/// Equals to `string_from_read(open_file_remembering_path(path)?)`.
+pub fn string_from_file_path(path: &Path) -> io::Result<String> {
+    string_from_read(open_file_remembering_path(path)?)
 }
 
 
