@@ -1,5 +1,6 @@
-use super::super::error::{ServiceErrorKind, ServiceResult};
-use super::super::util;
+use error::{ServiceErrorKind, ServiceResult};
+use util;
+
 use cookie::{Cookie, CookieJar};
 use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode};
 use reqwest::header::{ContentType, Cookie as RequestCookie, SetCookie, UserAgent};
@@ -17,10 +18,12 @@ pub struct ScrapingSession {
 }
 
 impl ScrapingSession {
+    /// Crates a new `ScrapingSession`, which cookie jar is empty.
     pub fn new() -> Self {
         Self { cookie_jar: CookieJar::new() }
     }
 
+    /// Deserializes `~/.local/share/snowchains/<name_without_extension>.jar` to `ScrapingSession`.
     pub fn from_cookie_file(name_without_extension: &str) -> ServiceResult<Self> {
         let file = {
             let mut pathbuf = util::home_dir_as_io_result()?;
@@ -38,6 +41,7 @@ impl ScrapingSession {
         Ok(Self { cookie_jar: cookie_jar })
     }
 
+    /// Serializes `self` and save it to `~/.local/share/snowchains/<name_without_extension>.jar`.
     pub fn save_cookie_to_file(&self, name_without_extension: &str) -> io::Result<()> {
         let (mut file, pathbuf) = {
             let mut pathbuf = util::home_dir_as_io_result()?;
@@ -58,10 +62,19 @@ impl ScrapingSession {
         Ok(println!("The cookie was saved to {}", pathbuf.display()))
     }
 
+    /// Gets a cookie for given name.
     pub fn cookie_value(&self, name: &str) -> Option<&str> {
         self.cookie_jar.get(name).map(Cookie::value)
     }
 
+    /// Sends a GET request, expecting the response code is 200.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if an IO error occurs, or the response code is not 200.
+    ///
+    /// # Panics
+    ///
     /// Panics when `url` is invalid.
     pub fn http_get<U>(&mut self, url: U) -> ServiceResult<Response>
     where
@@ -70,6 +83,14 @@ impl ScrapingSession {
         self.http_get_expecting(url, StatusCode::Ok)
     }
 
+    /// Sends a GET request.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if an IO error occurs, or the response code differs from `expected_status`.
+    ///
+    /// # Panics
+    ///
     /// Panics when `url` is invalid.
     pub fn http_get_expecting<U>(
         &mut self,
@@ -114,6 +135,13 @@ impl ScrapingSession {
         }
     }
 
+    /// Sends a POST request, serializing given data.
+    /// # Errors
+    ///
+    /// Returns `Err` if an IO error occurs, or the response code differs from `expected_status`.
+    ///
+    /// # Panics
+    ///
     /// Panics when `url` is invalid.
     pub fn http_post_urlencoded<U, T>(
         &mut self,

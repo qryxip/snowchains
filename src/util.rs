@@ -4,6 +4,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 
+/// Returns a `String` read from the file of given path.
 pub fn string_from_file_path(path: &Path) -> io::Result<String> {
     match File::open(path) {
         Ok(file) => string_from_read(file),
@@ -16,14 +17,16 @@ pub fn string_from_file_path(path: &Path) -> io::Result<String> {
 }
 
 
-pub fn string_from_read<R: Read>(r: R) -> io::Result<String> {
-    let mut r = r;
+/// Returns a `String` read from given source.
+pub fn string_from_read<R: Read>(read: R) -> io::Result<String> {
+    let mut read = read;
     let mut buf = String::new();
-    r.read_to_string(&mut buf)?;
+    read.read_to_string(&mut buf)?;
     Ok(buf)
 }
 
 
+/// Prints the given string ignoring the last newline if it exists.
 pub fn eprintln_trimming_last_newline(s: &str) {
     if s.chars().last() == Some('\n') {
         eprint_and_flush!("{}", s);
@@ -33,6 +36,7 @@ pub fn eprintln_trimming_last_newline(s: &str) {
 }
 
 
+/// Returns the path the current user's home directory as `io::Result`.
 pub fn home_dir_as_io_result() -> io::Result<PathBuf> {
     env::home_dir().ok_or(io::Error::new(
         io::ErrorKind::Other,
@@ -43,6 +47,11 @@ pub fn home_dir_as_io_result() -> io::Result<PathBuf> {
 
 pub trait OkAsRefOr {
     type Item;
+    /// Get the value `&x` if `Some(ref x) = self`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` is `None`.
     fn ok_as_ref_or<E>(&self, e: E) -> Result<&Self::Item, E>;
 }
 
@@ -59,18 +68,24 @@ impl<T> OkAsRefOr for Option<T> {
 
 pub trait UnwrapAsRefMut {
     type Item;
+    /// Gets the value `&mut x` if `Some(ref mut x) = self`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` is `None`.
     fn unwrap_as_ref_mut(&mut self) -> &mut Self::Item;
 }
 
 impl<T> UnwrapAsRefMut for Option<T> {
     type Item = T;
+
     fn unwrap_as_ref_mut(&mut self) -> &mut T {
         match *self {
             Some(ref mut x) => x,
             None => {
                 panic!(
                     "called `<Option as UnwrapAsRefMut>::unwrap_as_ref_mut` \
-                        on a `None` value"
+                     on a `None` value"
                 )
             }
         }
@@ -79,6 +94,7 @@ impl<T> UnwrapAsRefMut for Option<T> {
 
 
 pub trait CapitalizeFirst {
+    /// Capitalizes the first letter.
     fn capitalize_first(&self) -> String;
 }
 

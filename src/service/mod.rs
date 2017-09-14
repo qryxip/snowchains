@@ -2,9 +2,13 @@ pub mod atcoder;
 pub mod atcoder_beta;
 mod scraping_session;
 
-use super::error::{ServiceErrorKind, ServiceResult};
+use error::{ServiceErrorKind, ServiceResult};
+
+use regex::Regex;
 use rpassword;
 use rprompt;
+use std::io;
+use std::io::BufRead;
 use term::{Attr, color};
 
 
@@ -23,6 +27,11 @@ fn read_username_and_password(username_prompt: &'static str) -> ServiceResult<(S
 }
 
 
+/// Gets the value `x` if `Some(x) = o` and `!f(x)`.
+///
+/// # Errors
+///
+/// Returns `Err` if the above condition is not satisfied.
 fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> ServiceResult<T> {
     if let Some(x) = o {
         if !f(&x) {

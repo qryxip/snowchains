@@ -1,5 +1,6 @@
-use super::error::TestCaseResult;
-use super::util;
+use error::TestCaseResult;
+use util;
+
 use serde_json;
 use serde_yaml;
 use std::fmt;
@@ -10,6 +11,7 @@ use std::vec;
 use toml;
 
 
+/// Set of the timelimit and test cases.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Cases {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,6 +38,7 @@ impl IntoIterator for Cases {
 }
 
 impl Cases {
+    /// Constructs a `Cases` with a timelimit value and pairs of input/output samples.
     pub fn from_text(timelimit: u64, cases: Vec<(String, String)>) -> Self {
         Self {
             timelimit: Some(timelimit),
@@ -52,6 +55,7 @@ impl Cases {
         }
     }
 
+    /// Loads from given path and deserializes it into `Cases`.
     pub fn load(path: &TestCaseFilePath) -> TestCaseResult<Self> {
         let (path, extension) = (path.build(), path.extension);
         let text = util::string_from_file_path(&path)?;
@@ -63,14 +67,17 @@ impl Cases {
         }
     }
 
+    /// Whether `self` has no test case.
     pub fn is_empty(&self) -> bool {
         self.cases.is_empty()
     }
 
+    /// Returns the number of test cases of `self`.
     pub fn num_cases(&self) -> usize {
         self.cases.len()
     }
 
+    /// Serializes `self` and save it to given path.
     pub fn save(&self, path: &TestCaseFilePath) -> TestCaseResult<()> {
         fs::create_dir_all(&path.dir)?;
         let (path, extension) = (path.build(), path.extension);
@@ -88,6 +95,7 @@ impl Cases {
 }
 
 
+/// Set of input/output strings and timelimit.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Case {
     input: NonNestedValue,
@@ -108,6 +116,7 @@ impl Into<(String, String, Option<u64>)> for Case {
 }
 
 
+/// File path which extension is 'json', 'toml', 'yaml', or 'yml'.
 pub struct TestCaseFilePath {
     dir: PathBuf,
     name: String,
@@ -132,6 +141,7 @@ impl TestCaseFilePath {
 }
 
 
+/// Extension of test case files.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TestCaseFileExtension {

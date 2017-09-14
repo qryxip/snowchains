@@ -1,7 +1,8 @@
-use super::scraping_session::ScrapingSession;
-use super::super::error::{PrintChainColored, ServiceErrorKind, ServiceResult};
-use super::super::testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
-use super::super::util;
+use error::{PrintChainColored, ServiceErrorKind, ServiceResult};
+use service::scraping_session::ScrapingSession;
+use testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
+use util;
+
 use regex::Regex;
 use reqwest::StatusCode;
 use select::document::Document;
@@ -13,12 +14,14 @@ use std::path::Path;
 use webbrowser;
 
 
+/// Logins to "beta.atcoder.jp".
 pub fn login() -> ServiceResult<()> {
     let atcoder = AtCoderBeta::load_or_login(Some("Already signed in."))?;
     Ok(atcoder.save()?)
 }
 
 
+/// Participates in given contest.
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
     let contest = &Contest::new(contest_name)?;
     AtCoderBeta::load_or_login(None)?.register_to_contest(
@@ -27,6 +30,7 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
 }
 
 
+/// Access to pages of the problems and extract pairs of sample input/output from them.
 pub fn download(
     contest_name: &str,
     dir_to_save: &Path,
@@ -40,6 +44,7 @@ pub fn download(
 }
 
 
+/// Submits a source code.
 pub fn submit(
     contest_name: &str,
     task: &str,

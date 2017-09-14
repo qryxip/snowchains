@@ -1,6 +1,7 @@
-use super::error::{JudgeErrorKind, JudgeResult};
-use super::testcase::{Case, Cases, TestCaseFilePath};
-use super::util::{self, UnwrapAsRefMut};
+use error::{JudgeErrorKind, JudgeResult};
+use testcase::{Case, Cases, TestCaseFilePath};
+use util::{self, UnwrapAsRefMut};
+
 use std::fmt;
 use std::io::{self, Write};
 use std::path::{self, PathBuf};
@@ -11,6 +12,11 @@ use std::time::{Duration, Instant};
 use term::{Attr, color};
 
 
+/// Tests for given test case file path, executaion command, and build command.
+///
+/// # Errors
+///
+/// Returns `Err` if build or execution command fails, or any test fails.
 pub fn judge(
     testcase_path: TestCaseFilePath,
     run_command: CommandParameters,

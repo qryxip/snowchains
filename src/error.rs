@@ -13,6 +13,7 @@ use toml;
 
 
 pub trait PrintChainColored {
+    /// Prints the chained errors of `self` like `quick_main!`, coloring with `term`.
     fn print_chain_colored(&self);
 }
 
@@ -21,7 +22,7 @@ impl<E: ChainedError> PrintChainColored for E {
         eprint_decorated!(Attr::Bold, Some(color::RED), "Error: ");
         eprintln!("{}", self);
         for e_kind in self.iter().skip(1) {
-            eprint_decorated!(Attr::Bold, Some(color::RED), "Caused by: ");
+            eprint_decorated!(Attr::Bold, None, "Caused by: ");
             eprintln!("{}", e_kind);
         }
         if let Some(backtrace) = self.backtrace() {

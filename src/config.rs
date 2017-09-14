@@ -1,7 +1,8 @@
-use super::error::{ConfigError, ConfigErrorKind, ConfigResult};
-use super::judge::CommandParameters;
-use super::testcase::{TestCaseFileExtension, TestCaseFilePath};
-use super::util::{self, CapitalizeFirst};
+use error::{ConfigError, ConfigErrorKind, ConfigResult};
+use judge::CommandParameters;
+use testcase::{TestCaseFileExtension, TestCaseFilePath};
+use util::{self, CapitalizeFirst};
+
 use serde_yaml;
 use std::env;
 use std::fs::{self, File};
@@ -13,10 +14,11 @@ use std::str::FromStr;
 type InputPath = String;
 
 
+/// Creates `snowchains.yml` in `dir`.
 pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
     let config = Config {
         service: Some(ServiceName::AtCoderBeta),
-        contest: Some("agc001".to_owned()),
+        contest: Some("chokudai_s001".to_owned()),
         testcases: "snowchains/".to_owned(),
         testcase_extension: TestCaseFileExtension::Yml,
         default_lang: lang.to_owned(),
@@ -50,7 +52,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             }),
             Project::Java(JavaProject {
                 name: "java".to_owned(),
-                src: "java/serc/main/java/".to_owned(),
+                src: "java/src/main/java/".to_owned(),
                 bin: "java/build/classes/java/main/".to_owned(),
                 extension: "java".to_owned(),
                 build: Some(ScalarOrVec::Scalar("gradle --daemon build".to_owned())),
@@ -73,6 +75,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
 }
 
 
+/// Sets a property in `snowchains.yml`.
 pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
     let mut config = Config::load_from_file()?;
     match key {
@@ -94,6 +97,7 @@ pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
 }
 
 
+/// Config data.
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -111,6 +115,7 @@ pub struct Config {
 }
 
 impl Config {
+    /// Loads and deserializes from the nearest `snowchains.yml`
     pub fn load_from_file() -> ConfigResult<Self> {
         let (base, path) = find_base()?;
         let mut config = serde_yaml::from_str::<Self>(&util::string_from_file_path(&path)?)?;
@@ -118,6 +123,7 @@ impl Config {
         Ok(config)
     }
 
+    /// Get `service`.
     pub fn service_name(&self) -> ConfigResult<ServiceName> {
         match self.service.clone() {
             Some(service) => Ok(service),
@@ -125,6 +131,7 @@ impl Config {
         }
     }
 
+    /// Get `contest`.
     pub fn contest_name(&self) -> ConfigResult<String> {
         match self.contest.clone() {
             Some(contest) => Ok(contest),
@@ -132,14 +139,17 @@ impl Config {
         }
     }
 
+    /// Get `testcase_extension`.
     pub fn testcase_extension(&self) -> TestCaseFileExtension {
         self.testcase_extension
     }
 
+    /// Get the absolute path of the test case files directory
     pub fn testcase_dir(&self) -> ConfigResult<PathBuf> {
         Ok(resolve_path(&self.base_dir, &self.testcases)?)
     }
 
+    /// Returns the absolute path of test case file.
     pub fn testcase_path(&self, target_name: &str) -> ConfigResult<TestCaseFilePath> {
         Ok(TestCaseFilePath::new(
             &self.testcase_dir()?,
@@ -148,11 +158,13 @@ impl Config {
         ))
     }
 
+    /// Returns the path of the source file.
     pub fn src_path(&self, target_name: &str, lang: Option<&str>) -> ConfigResult<PathBuf> {
         let project = self.project(lang)?;
         Ok(project.src(&self.base_dir, target_name)?)
     }
 
+    /// Returns the `lang_id` of given or default language
     pub fn atcoder_lang_id(&self, lang: Option<&str>) -> ConfigResult<u32> {
         let project = self.project(lang)?;
         project.atcoder_lang_id().ok_or_else(|| {
@@ -160,6 +172,7 @@ impl Config {
         })
     }
 
+    /// Constructs arguments of build command for given or default language.
     pub fn construct_build_command(
         &self,
         lang: Option<&str>,
@@ -168,6 +181,7 @@ impl Config {
         Ok(project.construct_build_command(&self.base_dir)?)
     }
 
+    /// Constructs arguments of build executionfor given or default language.
     pub fn construct_run_command(
         &self,
         target_name: &str,
@@ -189,6 +203,7 @@ impl Config {
 }
 
 
+/// Property names of `snowchains.yml`.
 pub enum PropertyKey {
     Service,
     Contest,
@@ -214,6 +229,7 @@ impl FromStr for PropertyKey {
 }
 
 
+/// Names of programming contest services.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ServiceName {
     #[serde(rename = "atcoder")]

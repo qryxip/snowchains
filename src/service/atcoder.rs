@@ -1,6 +1,7 @@
-use super::scraping_session::ScrapingSession;
-use super::super::error::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
-use super::super::testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
+use error::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
+use service::scraping_session::ScrapingSession;
+use testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
+
 use regex::Regex;
 use reqwest::StatusCode;
 use select::document::Document;

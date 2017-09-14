@@ -30,9 +30,10 @@ mod service;
 mod testcase;
 mod util;
 
-use self::config::{Config, PropertyKey, ServiceName};
-use self::error::SnowchainsResult;
-use self::service::{atcoder, atcoder_beta};
+use config::{Config, PropertyKey, ServiceName};
+use error::SnowchainsResult;
+use service::{atcoder, atcoder_beta};
+
 use clap::{AppSettings, Arg, SubCommand};
 
 
