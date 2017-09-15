@@ -79,6 +79,9 @@ fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> Ser
     } else if path.extension() == Some(OsStr::new("java")) {
         let regex = Regex::new(r"^(public\s+class\s+)([a-zA-Z0-9_]+)(.*)$").unwrap();
         replace(file, regex, class_name)?.ok_or_else(e)
+    } else if path.extension() == Some(OsStr::new("scala")) {
+        let regex = Regex::new(r"^(object\s+)([a-zA-Z0-9_]+)(.*)$").unwrap();
+        replace(file, regex, class_name)?.ok_or_else(e)
     } else {
         Ok(util::string_from_read(file)?)
     }

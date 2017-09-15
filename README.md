@@ -35,13 +35,13 @@ $ snowchains submit <target> (<language>) (--open-browser)
 # Example
 ---
 service: "atcoder-beta"    # optional
-contest: "agc001"          # optional
+contest: "chokudai_s001"   # optional
 testcases: "snowchains/"   # default: "./snowchains/"
 testcase_extension: "yml"  # default: "yml"
 default_lang: "c++"
 
-# source file: <src>/<target-name>.<extension>
-# binary:      <bin>/<target-name (the first letter is capitalized if <capitalize>)>(.[class|exe])
+# source file: <src>/<src_prefix><target-name (the first letter is capitalized if <capitalize_src>)>.<extension>
+# binary:      <bin>/<bin_prefix><target-name (the first letter is capitalized if <capitalize_bin>)>(.[class|exe])
 # test file:   <testcases>/<target-name>.<testcase_extension>
 languages:
   -
@@ -61,26 +61,47 @@ languages:
     build: "ninja"
     atcoder_lang_id: 3003
   -
+    name: "haskell"
+    type: "build"
+    src: "haskell/src/"
+    bin: "~/.local/bin/"
+    extension: "hs"
+    capitalize_src: true   # default: false
+    capitalize_bin: false  # default: false
+    src_prefix: ""         # default: ""
+    bin_prefix: "problem-" # default: ""
+    build: "stack install" # or ["stack", "install"]
+    atcoder_lang_id: 3014
+  -
     name: "rust"
     type: "build"
     src: "rust/src/bin/"
     bin: "rust/target/release/"
     extension: "rs"
-    capitalize: false              # default: false
-    build: "cargo build --release" # or ["cargo", "build", "--release"]
+    build: "cargo build --release"
     atcoder_lang_id: 3504
   -
     name: "java"
     type: "java"
     src: "java/src/main/java/"
     bin: "java/build/classes/java/main/"
-    build: "gradle --daemon buildNeeded"
-    atcoder_lang_id: 3016 # class names are replaced with "Main" or something
+    build: "gradle --daemon -p ../../../ compileJava"
+    atcoder_lang_id: 3016 # class names are replaced with "Main" in AtCoder
+  -
+    name: "scala"
+    type: "java"
+    src: "scala/src/main/scala"
+    bin: "scala/target/scala-2.12/classes/"
+    build: "sbt compile"
+    runtime: "scala"
+    atcoder_lang_id: 3025
   -
     name: "python3"
     type: "script"
     src: "python/"
     extension: "py"
+    capitalize: false  # default: false
+    prefix: ""         # default: ""
     runtime: "python3" # or shebang
     atcoder_lang_id: 3023
 ```

@@ -4,6 +4,7 @@ use testcase::{TestCaseFileExtension, TestCaseFilePath};
 use util::{self, CapitalizeFirst};
 
 use serde_yaml;
+use std::cmp::PartialEq;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -28,7 +29,10 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 src: "c/".to_owned(),
                 bin: "c/build/".to_owned(),
                 extension: "c".to_owned(),
-                capitalize: false,
+                capitalize_src: false,
+                capitalize_bin: false,
+                src_prefix: "".to_owned(),
+                bin_prefix: "".to_owned(),
                 build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
                 atcoder_lang_id: Some(3002),
             }),
@@ -37,7 +41,10 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 src: "cc/".to_owned(),
                 bin: "cc/build/".to_owned(),
                 extension: "cc".to_owned(),
-                capitalize: false,
+                capitalize_src: false,
+                capitalize_bin: false,
+                src_prefix: "".to_owned(),
+                bin_prefix: "".to_owned(),
                 build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
                 atcoder_lang_id: Some(3003),
             }),
@@ -46,24 +53,53 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 src: "rust/src/bin/".to_owned(),
                 bin: "rust/target/release".to_owned(),
                 extension: "rs".to_owned(),
-                capitalize: false,
+                capitalize_src: false,
+                capitalize_bin: false,
+                src_prefix: "".to_owned(),
+                bin_prefix: "".to_owned(),
                 build: Some(ScalarOrVec::Scalar("cargo build --release".to_owned())),
                 atcoder_lang_id: Some(3504),
+            }),
+            Project::Build(BuildProject {
+                name: "haskell".to_owned(),
+                src: "haskell/src/".to_owned(),
+                bin: "~/.local/bin/".to_owned(),
+                extension: "hs".to_owned(),
+                capitalize_src: true,
+                capitalize_bin: false,
+                src_prefix: "".to_owned(),
+                bin_prefix: "problem-".to_owned(),
+                build: Some(ScalarOrVec::Scalar("stack install".to_owned())),
+                atcoder_lang_id: Some(3014),
             }),
             Project::Java(JavaProject {
                 name: "java".to_owned(),
                 src: "java/src/main/java/".to_owned(),
                 bin: "java/build/classes/java/main/".to_owned(),
                 extension: "java".to_owned(),
+                prefix: "".to_owned(),
                 build: Some(ScalarOrVec::Scalar(
-                    "gradle --daemon buildNeeded".to_owned(),
+                    "gradle --daemon -p ../../../ compileJava".to_owned(),
                 )),
+                runtime: ScalarOrVec::Scalar("java".to_owned()),
                 atcoder_lang_id: Some(3016),
+            }),
+            Project::Java(JavaProject {
+                name: "scala".to_owned(),
+                src: "scala/src/main/scala/".to_owned(),
+                bin: "scala/target/scala-2.12/classes/".to_owned(),
+                extension: "scala".to_owned(),
+                prefix: "".to_owned(),
+                build: Some(ScalarOrVec::Scalar("sbt compile".to_owned())),
+                runtime: ScalarOrVec::Scalar("scala".to_owned()),
+                atcoder_lang_id: Some(3025),
             }),
             Project::Script(ScriptProject {
                 name: "python3".to_owned(),
                 src: "python/".to_owned(),
                 extension: "py".to_owned(),
+                capitalize: false,
+                prefix: "".to_owned(),
                 runtime: Some(ScalarOrVec::Scalar("python3".to_owned())),
                 atcoder_lang_id: Some(3023),
             }),
@@ -254,6 +290,11 @@ impl FromStr for ServiceName {
 }
 
 
+fn is_default<T: Default + PartialEq>(x: &T) -> bool {
+    *x == T::default()
+}
+
+
 fn default_testcases_path() -> InputPath {
     if cfg!(target_os = "windows") {
         ".\\snowchains\\".to_owned()
@@ -265,6 +306,24 @@ fn default_testcases_path() -> InputPath {
 
 fn default_java_extension() -> String {
     "java".to_owned()
+}
+
+
+fn default_java_runtime() -> ScalarOrVec<String> {
+    ScalarOrVec::Scalar("java".to_owned())
+}
+
+
+fn is_default_java_extension(extension: &String) -> bool {
+    extension == "java"
+}
+
+
+fn is_default_java_runtime(runtime: &ScalarOrVec<String>) -> bool {
+    match *runtime {
+        ScalarOrVec::Scalar(ref x) => x == "java",
+        ScalarOrVec::Vec(ref xs) => xs.len() == 1 && xs[0] == "java",
+    }
 }
 
 
@@ -294,7 +353,7 @@ fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
 
 fn resolve_path(base: &Path, path: &str) -> io::Result<PathBuf> {
     if path.chars().next() == Some('~') {
-        let mut pathbuf = PathBuf::from(base);
+        let mut pathbuf = util::home_dir_as_io_result()?;
         pathbuf.push(path.chars().skip(2).collect::<String>());
         return Ok(pathbuf);
     }
@@ -326,22 +385,29 @@ impl Project {
         }
     }
 
-    fn src(&self, base: &Path, filename: &str) -> io::Result<PathBuf> {
-        let mut pathbuf = PathBuf::from(base);
-        pathbuf.push(PathBuf::from(match *self {
-            Project::Script(ScriptProject { ref src, .. }) => src,
-            Project::Build(BuildProject { ref src, .. }) => src,
-            Project::Java(JavaProject { ref src, .. }) => src,
-        }));
+    fn src(&self, base: &Path, target_name: &str) -> io::Result<PathBuf> {
+        let mut pathbuf = resolve_path(
+            base,
+            match *self {
+                Project::Script(ScriptProject { ref src, .. }) => src,
+                Project::Build(BuildProject { ref src, .. }) => src,
+                Project::Java(JavaProject { ref src, .. }) => src,
+            },
+        )?;
+        let prefix = match *self {
+            Project::Script(ScriptProject { ref prefix, .. }) => prefix,
+            Project::Build(BuildProject { ref src_prefix, .. }) => src_prefix,
+            Project::Java(JavaProject { ref prefix, .. }) => prefix,
+        };
         pathbuf.push(if match *self {
-            Project::Script(_) => false,
-            Project::Build(BuildProject { capitalize, .. }) => capitalize,
+            Project::Script(ScriptProject { capitalize, .. }) => capitalize,
+            Project::Build(BuildProject { capitalize_src, .. }) => capitalize_src,
             Project::Java(_) => true,
         }
         {
-            filename.to_uppercase()
+            format!("{}{}", prefix, target_name.capitalize_first())
         } else {
-            filename.to_lowercase()
+            format!("{}{}", prefix, target_name)
         });
         pathbuf.set_extension(match *self {
             Project::Script(ScriptProject { ref extension, .. }) => extension,
@@ -392,20 +458,17 @@ impl Project {
         match *self {
             Project::Script(ScriptProject {
                                 ref src,
-                                ref extension,
                                 ref runtime,
                                 ..
                             }) => {
-                let mut srcpath = resolve_path(base, src)?;
-                let working_dir = srcpath.clone();
-                srcpath.push(target_name);
-                srcpath.set_extension(extension);
+                let working_dir = resolve_path(base, src)?;
+                let src_path = self.src(base, target_name)?;
                 if let Some(ref runtime) = *runtime {
-                    let o = srcpath.to_string_lossy().to_string();
+                    let o = src_path.to_string_lossy().to_string();
                     Ok(runtime.to_command(working_dir, Some(o)))
                 } else {
                     Ok(CommandParameters::new(
-                        srcpath.to_string_lossy().to_string(),
+                        src_path.to_string_lossy().to_string(),
                         vec![],
                         working_dir,
                     ))
@@ -413,30 +476,34 @@ impl Project {
             }
             Project::Build(BuildProject {
                                ref bin,
-                               capitalize,
+                               capitalize_bin,
+                               ref bin_prefix,
                                ..
                            }) => {
-                let mut binpath = resolve_path(base, bin)?;
-                let working_dir = binpath.clone();
-                if capitalize {
-                    binpath.push(target_name.capitalize_first());
+                let mut bin_path = resolve_path(base, bin)?;
+                let working_dir = bin_path.clone();
+                bin_path.push(if capitalize_bin {
+                    format!("{}{}", bin_prefix, target_name.capitalize_first())
                 } else {
-                    binpath.push(target_name);
-                }
+                    format!("{}{}", bin_prefix, target_name)
+                });
                 if cfg!(target_os = "windows") {
-                    binpath.set_extension("exe");
+                    bin_path.set_extension("exe");
                 }
                 Ok(CommandParameters::new(
-                    binpath.to_string_lossy().to_string(),
+                    bin_path.to_string_lossy().to_string(),
                     vec![],
                     working_dir,
                 ))
             }
-            Project::Java(JavaProject { ref bin, .. }) => {
-                Ok(CommandParameters::new(
-                    "java".to_owned(),
-                    vec![target_name.capitalize_first()],
+            Project::Java(JavaProject {
+                              ref bin,
+                              ref runtime,
+                              ..
+                          }) => {
+                Ok(runtime.to_command(
                     resolve_path(base, &bin)?,
+                    Some(target_name.capitalize_first()),
                 ))
             }
         }
@@ -449,6 +516,10 @@ struct ScriptProject {
     name: String,
     src: InputPath,
     extension: String,
+    #[serde(default, skip_serializing_if = "is_default")]
+    capitalize: bool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    prefix: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime: Option<ScalarOrVec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -462,8 +533,14 @@ struct BuildProject {
     src: InputPath,
     bin: InputPath,
     extension: String,
-    #[serde(default)]
-    capitalize: bool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    capitalize_src: bool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    capitalize_bin: bool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    src_prefix: String,
+    #[serde(default, skip_serializing_if = "is_default")]
+    bin_prefix: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     build: Option<ScalarOrVec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -476,10 +553,14 @@ struct JavaProject {
     name: String,
     src: InputPath,
     bin: InputPath,
-    #[serde(default = "default_java_extension")]
+    #[serde(default = "default_java_extension", skip_serializing_if = "is_default_java_extension")]
     extension: String,
+    #[serde(default, skip_serializing_if = "is_default")]
+    prefix: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     build: Option<ScalarOrVec<String>>,
+    #[serde(default = "default_java_runtime", skip_serializing_if = "is_default_java_runtime")]
+    runtime: ScalarOrVec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     atcoder_lang_id: Option<u32>,
 }
