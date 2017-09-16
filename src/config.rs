@@ -4,7 +4,6 @@ use testcase::{TestCaseFileExtension, TestCaseFilePath};
 use util::{self, CapitalizeFirst};
 
 use serde_yaml;
-use std::cmp::PartialEq;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -12,95 +11,116 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 
-type InputPath = String;
-
-
 /// Creates `snowchains.yml` in `dir`.
 pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
+    let csharp_or_mono = if cfg!(target_os = "windows") {
+        Project::Build(BuildProject {
+            name: "c#".to_owned(),
+            capitalize_src: true,
+            capitalize_bin: true,
+            src: PercentFormat("csharp/%/%.cs".to_owned()),
+            bin: PercentFormat("csharp/%/bin/Release/%.exe".to_owned()),
+            working_dir: InputPath("csharp/".to_owned()),
+            build: Some(ScalarOrVec::Scalar(
+                "msbuild .\\csharp.sln /p:Configuration=Release".to_owned(),
+            )),
+            atcoder_lang_id: Some(3006),
+        })
+    } else {
+        Project::Vm(VmProject {
+            name: "mono".to_owned(),
+            capitalize_src: true,
+            capitalize_bin: true,
+            src: PercentFormat("csharp/%/%.cs".to_owned()),
+            build_working_dir: InputPath("csharp/".to_owned()),
+            runtime_working_dir: InputPath("csharp/".to_owned()),
+            build: Some(ScalarOrVec::Scalar(
+                "msbuild.exe ./csharp.sln /p:Configuration=Release"
+                    .to_owned(),
+            )),
+            runtime: PercentFormat("mono ./%/bin/Release/%.exe".to_owned()),
+            atcoder_lang_id: Some(3006),
+        })
+    };
+
     let config = Config {
         service: Some(ServiceName::AtCoderBeta),
         contest: Some("chokudai_s001".to_owned()),
-        testcases: "snowchains/".to_owned(),
+        testcases: InputPath("snowchains/".to_owned()),
         testcase_extension: TestCaseFileExtension::Yml,
         default_lang: lang.to_owned(),
         languages: vec![
             Project::Build(BuildProject {
                 name: "c".to_owned(),
-                src: "c/".to_owned(),
-                bin: "c/build/".to_owned(),
-                extension: "c".to_owned(),
                 capitalize_src: false,
                 capitalize_bin: false,
-                src_prefix: "".to_owned(),
-                bin_prefix: "".to_owned(),
+                src: PercentFormat("c/%.c".to_owned()),
+                bin: PercentFormat("c/build/%".to_owned()),
+                working_dir: InputPath("c/".to_owned()),
                 build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
                 atcoder_lang_id: Some(3002),
             }),
             Project::Build(BuildProject {
                 name: "c++".to_owned(),
-                src: "cc/".to_owned(),
-                bin: "cc/build/".to_owned(),
-                extension: "cc".to_owned(),
                 capitalize_src: false,
                 capitalize_bin: false,
-                src_prefix: "".to_owned(),
-                bin_prefix: "".to_owned(),
+                src: PercentFormat("cc/%.cc".to_owned()),
+                bin: PercentFormat("cc/build/%".to_owned()),
+                working_dir: InputPath("cc/".to_owned()),
                 build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
                 atcoder_lang_id: Some(3003),
             }),
             Project::Build(BuildProject {
                 name: "rust".to_owned(),
-                src: "rust/src/bin/".to_owned(),
-                bin: "rust/target/release".to_owned(),
-                extension: "rs".to_owned(),
                 capitalize_src: false,
                 capitalize_bin: false,
-                src_prefix: "".to_owned(),
-                bin_prefix: "".to_owned(),
+                src: PercentFormat("rust/src/bin/%.rs".to_owned()),
+                bin: PercentFormat("rust/target/release/%".to_owned()),
+                working_dir: InputPath("rust/".to_owned()),
                 build: Some(ScalarOrVec::Scalar("cargo build --release".to_owned())),
                 atcoder_lang_id: Some(3504),
             }),
             Project::Build(BuildProject {
                 name: "haskell".to_owned(),
-                src: "haskell/src/".to_owned(),
-                bin: "~/.local/bin/".to_owned(),
-                extension: "hs".to_owned(),
                 capitalize_src: true,
                 capitalize_bin: false,
-                src_prefix: "".to_owned(),
-                bin_prefix: "problem-".to_owned(),
+                src: PercentFormat("haskell/src/%.hs".to_owned()),
+                bin: PercentFormat("~/.local/bin/problem-%".to_owned()),
+                working_dir: InputPath("haskell/".to_owned()),
                 build: Some(ScalarOrVec::Scalar("stack install".to_owned())),
                 atcoder_lang_id: Some(3014),
             }),
-            Project::Java(JavaProject {
+            csharp_or_mono,
+            Project::Vm(VmProject {
                 name: "java".to_owned(),
-                src: "java/src/main/java/".to_owned(),
-                bin: "java/build/classes/java/main/".to_owned(),
-                extension: "java".to_owned(),
-                prefix: "".to_owned(),
+                capitalize_src: true,
+                capitalize_bin: true,
+                src: PercentFormat("java/src/main/java/%.java".to_owned()),
+                build_working_dir: InputPath("java/".to_owned()),
+                runtime_working_dir: InputPath("java/build/classes/java/main/".to_owned()),
                 build: Some(ScalarOrVec::Scalar(
-                    "gradle --daemon -p ../../../ compileJava".to_owned(),
+                    "gradle --daemon compileJava".to_owned(),
                 )),
-                runtime: ScalarOrVec::Scalar("java".to_owned()),
+                runtime: PercentFormat("java %".to_owned()),
                 atcoder_lang_id: Some(3016),
             }),
-            Project::Java(JavaProject {
+            Project::Vm(VmProject {
                 name: "scala".to_owned(),
-                src: "scala/src/main/scala/".to_owned(),
-                bin: "scala/target/scala-2.12/classes/".to_owned(),
-                extension: "scala".to_owned(),
-                prefix: "".to_owned(),
+                capitalize_src: true,
+                capitalize_bin: true,
+                src: PercentFormat("scala/src/main/scala/%.scala".to_owned()),
+                build_working_dir: InputPath("scala/".to_owned()),
+                runtime_working_dir: InputPath("scala/target/scala-2.12/classes/".to_owned()),
                 build: Some(ScalarOrVec::Scalar("sbt compile".to_owned())),
-                runtime: ScalarOrVec::Scalar("scala".to_owned()),
+                runtime: PercentFormat("scala %".to_owned()),
                 atcoder_lang_id: Some(3025),
             }),
             Project::Script(ScriptProject {
                 name: "python3".to_owned(),
-                src: "python/".to_owned(),
-                extension: "py".to_owned(),
                 capitalize: false,
-                prefix: "".to_owned(),
-                runtime: Some(ScalarOrVec::Scalar("python3".to_owned())),
+                src: PercentFormat("python/%.py".to_owned()),
+                working_dir: InputPath("python/".to_owned()),
+                runtime: Some(PercentFormat("python3 %".to_owned())),
                 atcoder_lang_id: Some(3023),
             }),
         ],
@@ -119,7 +139,7 @@ pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
     match key {
         PropertyKey::Service => config.service = Some(serde_yaml::from_str(value)?),
         PropertyKey::Contest => config.contest = Some(value.to_owned()),
-        PropertyKey::Testcases => config.testcases = value.to_owned(),
+        PropertyKey::Testcases => config.testcases = InputPath(value.to_owned()),
         PropertyKey::TestcaseExtension => {
             if let Some(extension) = TestCaseFileExtension::from_str(value) {
                 config.testcase_extension = extension;
@@ -184,7 +204,7 @@ impl Config {
 
     /// Get the absolute path of the test case files directory
     pub fn testcase_dir(&self) -> ConfigResult<PathBuf> {
-        Ok(resolve_path(&self.base_dir, &self.testcases)?)
+        Ok(self.testcases.resolve(&self.base_dir)?)
     }
 
     /// Returns the absolute path of test case file.
@@ -290,40 +310,19 @@ impl FromStr for ServiceName {
 }
 
 
-fn is_default<T: Default + PartialEq>(x: &T) -> bool {
-    *x == T::default()
-}
-
-
 fn default_testcases_path() -> InputPath {
-    if cfg!(target_os = "windows") {
-        ".\\snowchains\\".to_owned()
-    } else {
-        "./snowchains/".to_owned()
-    }
+    InputPath(
+        if cfg!(target_os = "windows") {
+            ".\\snowchains\\"
+        } else {
+            "./snowchains/"
+        }.to_owned(),
+    )
 }
 
 
-fn default_java_extension() -> String {
-    "java".to_owned()
-}
-
-
-fn default_java_runtime() -> ScalarOrVec<String> {
-    ScalarOrVec::Scalar("java".to_owned())
-}
-
-
-fn is_default_java_extension(extension: &String) -> bool {
-    extension == "java"
-}
-
-
-fn is_default_java_runtime(runtime: &ScalarOrVec<String>) -> bool {
-    match *runtime {
-        ScalarOrVec::Scalar(ref x) => x == "java",
-        ScalarOrVec::Vec(ref xs) => xs.len() == 1 && xs[0] == "java",
-    }
+fn always_true() -> bool {
+    true
 }
 
 
@@ -351,29 +350,12 @@ fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
 }
 
 
-fn resolve_path(base: &Path, path: &str) -> io::Result<PathBuf> {
-    if path.chars().next() == Some('~') {
-        let mut pathbuf = util::home_dir_as_io_result()?;
-        pathbuf.push(path.chars().skip(2).collect::<String>());
-        return Ok(pathbuf);
-    }
-    let path = PathBuf::from(path);
-    if path.is_absolute() {
-        Ok(path)
-    } else {
-        let mut pathbuf = PathBuf::from(base);
-        pathbuf.push(path);
-        Ok(pathbuf)
-    }
-}
-
-
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Project {
     Script(ScriptProject),
     Build(BuildProject),
-    Java(JavaProject),
+    Vm(VmProject),
 }
 
 impl Project {
@@ -381,71 +363,44 @@ impl Project {
         match *self {
             Project::Script(ScriptProject { ref name, .. }) => &name,
             Project::Build(BuildProject { ref name, .. }) => &name,
-            Project::Java(JavaProject { ref name, .. }) => &name,
+            Project::Vm(VmProject { ref name, .. }) => &name,
         }
     }
 
     fn src(&self, base: &Path, target_name: &str) -> io::Result<PathBuf> {
-        let mut pathbuf = resolve_path(
-            base,
-            match *self {
-                Project::Script(ScriptProject { ref src, .. }) => src,
-                Project::Build(BuildProject { ref src, .. }) => src,
-                Project::Java(JavaProject { ref src, .. }) => src,
-            },
-        )?;
-        let prefix = match *self {
-            Project::Script(ScriptProject { ref prefix, .. }) => prefix,
-            Project::Build(BuildProject { ref src_prefix, .. }) => src_prefix,
-            Project::Java(JavaProject { ref prefix, .. }) => prefix,
-        };
-        pathbuf.push(if match *self {
+        let capitalize = match *self {
             Project::Script(ScriptProject { capitalize, .. }) => capitalize,
             Project::Build(BuildProject { capitalize_src, .. }) => capitalize_src,
-            Project::Java(_) => true,
-        }
-        {
-            format!("{}{}", prefix, target_name.capitalize_first())
-        } else {
-            format!("{}{}", prefix, target_name)
-        });
-        pathbuf.set_extension(match *self {
-            Project::Script(ScriptProject { ref extension, .. }) => extension,
-            Project::Build(BuildProject { ref extension, .. }) => extension,
-            Project::Java(JavaProject { ref extension, .. }) => extension,
-        });
-        Ok(pathbuf)
+            Project::Vm(VmProject { capitalize_src, .. }) => capitalize_src,
+        };
+        let src = match *self {
+            Project::Script(ScriptProject { ref src, .. }) => src,
+            Project::Build(BuildProject { ref src, .. }) => src,
+            Project::Vm(VmProject { ref src, .. }) => src,
+        };
+        src.resolve_as_path(base, target_name, capitalize)
     }
 
     fn atcoder_lang_id(&self) -> Option<u32> {
         match *self {
             Project::Script(ScriptProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
             Project::Build(BuildProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
-            Project::Java(JavaProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
+            Project::Vm(VmProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
         }.clone()
     }
 
     fn construct_build_command(&self, base: &Path) -> ConfigResult<Option<CommandParameters>> {
-        fn construct(
-            base: &Path,
-            build: &ScalarOrVec<String>,
-            dir: &str,
-        ) -> ConfigResult<CommandParameters> {
-            let working_dir = resolve_path(base, dir)?;
-            Ok(build.to_command(working_dir, None))
-        }
-
         match *self {
             Project::Build(BuildProject {
-                               ref src,
+                               ref working_dir,
                                build: Some(ref build),
                                ..
-                           }) => Ok(Some(construct(base, build, src)?)),
-            Project::Java(JavaProject {
-                              ref src,
-                              build: Some(ref build),
-                              ..
-                          }) => Ok(Some(construct(base, build, src)?)),
+                           }) => Ok(Some(build.to_command(working_dir.resolve(base)?))),
+            Project::Vm(VmProject {
+                            ref build_working_dir,
+                            build: Some(ref build),
+                            ..
+                        }) => Ok(Some(build.to_command(build_working_dir.resolve(base)?))),
             _ => Ok(None),
         }
     }
@@ -457,36 +412,27 @@ impl Project {
     ) -> io::Result<CommandParameters> {
         match *self {
             Project::Script(ScriptProject {
-                                ref src,
+                                capitalize,
+                                ref working_dir,
                                 ref runtime,
                                 ..
                             }) => {
-                let working_dir = resolve_path(base, src)?;
-                let src_path = self.src(base, target_name)?;
-                if let Some(ref runtime) = *runtime {
-                    let o = src_path.to_string_lossy().to_string();
-                    Ok(runtime.to_command(working_dir, Some(o)))
+                let working_dir = working_dir.resolve(base)?;
+                let o = self.src(base, target_name)?.to_string_lossy().to_string();
+                Ok(if let Some(ref runtime) = *runtime {
+                    runtime.to_run_command(&o, capitalize, working_dir)
                 } else {
-                    Ok(CommandParameters::new(
-                        src_path.to_string_lossy().to_string(),
-                        vec![],
-                        working_dir,
-                    ))
-                }
+                    CommandParameters::new(o, vec![], working_dir)
+                })
             }
             Project::Build(BuildProject {
-                               ref bin,
                                capitalize_bin,
-                               ref bin_prefix,
+                               ref bin,
+                               ref working_dir,
                                ..
                            }) => {
-                let mut bin_path = resolve_path(base, bin)?;
-                let working_dir = bin_path.clone();
-                bin_path.push(if capitalize_bin {
-                    format!("{}{}", bin_prefix, target_name.capitalize_first())
-                } else {
-                    format!("{}{}", bin_prefix, target_name)
-                });
+                let working_dir = working_dir.resolve(base)?;
+                let mut bin_path = bin.resolve_as_path(base, target_name, capitalize_bin)?;
                 if cfg!(target_os = "windows") {
                     bin_path.set_extension("exe");
                 }
@@ -496,14 +442,16 @@ impl Project {
                     working_dir,
                 ))
             }
-            Project::Java(JavaProject {
-                              ref bin,
-                              ref runtime,
-                              ..
-                          }) => {
-                Ok(runtime.to_command(
-                    resolve_path(base, &bin)?,
-                    Some(target_name.capitalize_first()),
+            Project::Vm(VmProject {
+                            capitalize_bin,
+                            ref runtime_working_dir,
+                            ref runtime,
+                            ..
+                        }) => {
+                Ok(runtime.to_run_command(
+                    target_name,
+                    capitalize_bin,
+                    runtime_working_dir.resolve(base)?,
                 ))
             }
         }
@@ -514,14 +462,12 @@ impl Project {
 #[derive(Serialize, Deserialize)]
 struct ScriptProject {
     name: String,
-    src: InputPath,
-    extension: String,
-    #[serde(default, skip_serializing_if = "is_default")]
+    #[serde(default)]
     capitalize: bool,
-    #[serde(default, skip_serializing_if = "is_default")]
-    prefix: String,
+    src: PercentFormat,
+    working_dir: InputPath,
     #[serde(skip_serializing_if = "Option::is_none")]
-    runtime: Option<ScalarOrVec<String>>,
+    runtime: Option<PercentFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
     atcoder_lang_id: Option<u32>,
 }
@@ -530,17 +476,13 @@ struct ScriptProject {
 #[derive(Serialize, Deserialize)]
 struct BuildProject {
     name: String,
-    src: InputPath,
-    bin: InputPath,
-    extension: String,
-    #[serde(default, skip_serializing_if = "is_default")]
+    #[serde(default)]
     capitalize_src: bool,
-    #[serde(default, skip_serializing_if = "is_default")]
+    #[serde(default)]
     capitalize_bin: bool,
-    #[serde(default, skip_serializing_if = "is_default")]
-    src_prefix: String,
-    #[serde(default, skip_serializing_if = "is_default")]
-    bin_prefix: String,
+    src: PercentFormat,
+    bin: PercentFormat,
+    working_dir: InputPath,
     #[serde(skip_serializing_if = "Option::is_none")]
     build: Option<ScalarOrVec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -549,20 +491,86 @@ struct BuildProject {
 
 
 #[derive(Serialize, Deserialize)]
-struct JavaProject {
+struct VmProject {
     name: String,
-    src: InputPath,
-    bin: InputPath,
-    #[serde(default = "default_java_extension", skip_serializing_if = "is_default_java_extension")]
-    extension: String,
-    #[serde(default, skip_serializing_if = "is_default")]
-    prefix: String,
+    #[serde(default = "always_true")]
+    capitalize_src: bool,
+    #[serde(default = "always_true")]
+    capitalize_bin: bool,
+    src: PercentFormat,
+    build_working_dir: InputPath,
+    runtime_working_dir: InputPath,
     #[serde(skip_serializing_if = "Option::is_none")]
     build: Option<ScalarOrVec<String>>,
-    #[serde(default = "default_java_runtime", skip_serializing_if = "is_default_java_runtime")]
-    runtime: ScalarOrVec<String>,
+    runtime: PercentFormat,
     #[serde(skip_serializing_if = "Option::is_none")]
     atcoder_lang_id: Option<u32>,
+}
+
+
+#[derive(Serialize, Deserialize)]
+struct InputPath(String);
+impl InputPath {
+    fn resolve(&self, base: &Path) -> io::Result<PathBuf> {
+        if self.0.chars().next() == Some('~') {
+            let mut pathbuf = util::home_dir_as_io_result()?;
+            pathbuf.push(self.0.chars().skip(2).collect::<String>());
+            return Ok(pathbuf);
+        }
+        let path = PathBuf::from(&self.0);
+        if path.is_absolute() {
+            Ok(path)
+        } else {
+            let mut pathbuf = PathBuf::from(base);
+            pathbuf.push(path);
+            Ok(pathbuf)
+        }
+    }
+}
+
+
+#[derive(Serialize, Deserialize)]
+struct PercentFormat(String);
+
+impl PercentFormat {
+    fn resolve_as_path(
+        &self,
+        base: &Path,
+        target_name: &str,
+        capitalize: bool,
+    ) -> io::Result<PathBuf> {
+        let rel_path = InputPath(self.format(&target_name, capitalize));
+        rel_path.resolve(base)
+    }
+
+    fn to_run_command(
+        &self,
+        arg: &str,
+        capitalize: bool,
+        working_dir: PathBuf,
+    ) -> CommandParameters {
+        CommandParameters::wrap_in_sh_or_cmd_if_necessary(self.format(arg, capitalize), working_dir)
+    }
+
+    fn format(&self, arg: &str, capitalize: bool) -> String {
+        // e.g.
+        // `PercentFormat("cc/%.cc".to_owned()).format("a", false) == "cc/a.cc"`
+        // `PercentFormat("csharp/%/%.cs".to_owned()).format("a", true) == "csharp/A/A.cs"`
+        let arg = if capitalize {
+            arg.capitalize_first()
+        } else {
+            arg.to_owned()
+        };
+        let mut formatted = String::new();
+        for c in self.0.chars() {
+            if c == '%' {
+                formatted.push_str(&arg);
+            } else {
+                formatted.push(c);
+            }
+        }
+        formatted
+    }
 }
 
 
@@ -574,23 +582,15 @@ enum ScalarOrVec<T> {
 }
 
 impl ScalarOrVec<String> {
-    fn to_command(&self, working_dir: PathBuf, o: Option<String>) -> CommandParameters {
+    fn to_command(&self, working_dir: PathBuf) -> CommandParameters {
         match *self {
             ScalarOrVec::Scalar(ref arg0) => {
-                let arg0 = if let Some(o) = o {
-                    format!("{} {}", arg0, o)
-                } else {
-                    arg0.clone()
-                };
-                CommandParameters::wrap_in_sh_or_cmd_if_necessary(arg0, working_dir)
+                CommandParameters::wrap_in_sh_or_cmd_if_necessary(arg0.clone(), working_dir)
             }
             ScalarOrVec::Vec(ref values) => {
                 let mut it = values.iter();
                 let arg0 = it.next().cloned().unwrap_or_default();
-                let mut rest_args = it.cloned().collect::<Vec<_>>();
-                if let Some(o) = o {
-                    rest_args.push(o);
-                }
+                let rest_args = it.cloned().collect();
                 CommandParameters::new(arg0, rest_args, working_dir)
             }
         }

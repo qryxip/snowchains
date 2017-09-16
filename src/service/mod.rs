@@ -73,10 +73,7 @@ fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> Ser
 
     let file = util::open_file_remembering_path(path)?;
     let e = || ServiceError::from(ServiceErrorKind::ReplacingClassNameFailure(path.to_owned()));
-    if path.extension() == Some(OsStr::new("cs")) {
-        let regex = Regex::new(r"^(class\s*)([a-zA-Z0-9_]+)(.*)$").unwrap();
-        replace(file, regex, class_name)?.ok_or_else(e)
-    } else if path.extension() == Some(OsStr::new("java")) {
+    if path.extension() == Some(OsStr::new("java")) {
         let regex = Regex::new(r"^(public\s+class\s+)([a-zA-Z0-9_]+)(.*)$").unwrap();
         replace(file, regex, class_name)?.ok_or_else(e)
     } else if path.extension() == Some(OsStr::new("scala")) {

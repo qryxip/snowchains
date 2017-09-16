@@ -34,75 +34,108 @@ $ snowchains submit <target> (<language>) (--open-browser)
 ```yaml
 # Example
 ---
-service: "atcoder-beta"    # optional
-contest: "chokudai_s001"   # optional
-testcases: "snowchains/"   # default: "./snowchains/"
-testcase_extension: "yml"  # default: "yml"
+service: "atcoder-beta"   # optional
+contest: "chokudai_s001"  # optional
+testcases: "snowchains/"  # default: "./snowchains/"
+testcase_extension: "yml" # default: "yml"
 default_lang: "c++"
 
-# source file: <src>/<src_prefix><target-name (the first letter is capitalized if <capitalize_src>)>.<extension>
-# binary:      <bin>/<bin_prefix><target-name (the first letter is capitalized if <capitalize_bin>)>(.[class|exe])
-# test file:   <testcases>/<target-name>.<testcase_extension>
+# test file: <testcases>/<target-name>.<testcase_extension>
+# source:    <<src> % <target-name (the first letter is capitalized if <capitalize_src>)>>.<extension>
+# binary:    <<bin> % <target-name (the first letter is capitalized if <capitalize_bin>)>>(.exe)
 languages:
   -
     name: "c"
     type: "build"
-    src: "c/"
-    bin: "c/build/"
-    extension: "c"
+    capitalize_src: false # default: false
+    capitalize_bin: false # default: false
+    src: "c/%.c"
+    bin: "c/build/%"
+    working_dir: "c/"
     build: "ninja"        # optional
     atcoder_lang_id: 3002 # see HTML source or open the inspector, and search by "option"
   -
     name: "c++"
     type: "build"
-    src: "cc/"
-    bin: "cc/build/"
-    extension: "cc"
+    capitalize_src: false
+    capitalize_bin: false
+    src: "cc/%.cc"
+    bin: "cc/build/%"
+    working_dir: "cc/"
     build: "ninja"
     atcoder_lang_id: 3003
   -
-    name: "haskell"
-    type: "build"
-    src: "haskell/src/"
-    bin: "~/.local/bin/"
-    extension: "hs"
-    capitalize_src: true   # default: false
-    capitalize_bin: false  # default: false
-    src_prefix: ""         # default: ""
-    bin_prefix: "problem-" # default: ""
-    build: "stack install" # or ["stack", "install"]
-    atcoder_lang_id: 3014
-  -
     name: "rust"
     type: "build"
-    src: "rust/src/bin/"
-    bin: "rust/target/release/"
-    extension: "rs"
-    build: "cargo build --release"
+    capitalize_src: false
+    capitalize_bin: false
+    src: "rust/src/bin/%.rs"
+    bin: "rust/target/release/%"
+    working_dir: "rust/"
+    build: "cargo build --release" # or ["cargo", "build", "--release"]
     atcoder_lang_id: 3504
   -
+    name: "haskell"
+    type: "build"
+    capitalize_src: true
+    capitalize_bin: false
+    src: "haskell/src/%.hs"
+    bin: "~/.local/bin/problem-%"
+    working_dir: "haskell/"
+    build: "stack install"
+    atcoder_lang_id: 3014
+  -
+    # Windows
+    name: "c#"
+    type: "build"
+    capitalize_src: true
+    capitalize_bin: true
+    src: "csharp/%/%.cs"
+    bin: "csharp/%/bin/Release/%.exe"
+    working_dir: "csharp/"
+    build: "msbuild .\\csharp.sln /p:Configuration=Release"
+    atcoder_lang_id: 3006
+  -
+    # *nix
+    name: "mono"
+    type: "vm"
+    capitalize_src: true # default: true
+    capitalize_bin: true # default: true
+    src: "csharp/%/%.cs"
+    build_working_dir: "csharp/"
+    runtime_working_dir: "csharp/"
+    build: "msbuild.exe ./csharp.sln /p:Configuration=Release"
+    runtime: "mono ./%/bin/Release/%.exe"
+    atcoder_lang_id: 3006
+  -
     name: "java"
-    type: "java"
-    src: "java/src/main/java/"
-    bin: "java/build/classes/java/main/"
-    build: "gradle --daemon -p ../../../ compileJava"
+    type: "vm"
+    capitalize_src: true
+    capitalize_bin: true
+    src: "java/src/main/java/%.java"
+    build_working_dir: "java/"
+    runtime_working_dir: "java/build/classes/java/main/"
+    build: "gradle --daemon compileJava"
+    runtime: "java %"
     atcoder_lang_id: 3016 # class names are replaced with "Main" in AtCoder
   -
     name: "scala"
-    type: "java"
-    src: "scala/src/main/scala"
-    bin: "scala/target/scala-2.12/classes/"
+    type: "vm"
+    capitalize_src: true
+    capitalize_bin: true
+    src: "scala/src/main/%.scala"
+    build_working_dir: "scala/"
+    runtime_working_dir: "scala/target/scala-2.12/classes/"
     build: "sbt compile"
-    runtime: "scala"
+    runtime: "scala %"
     atcoder_lang_id: 3025
   -
     name: "python3"
     type: "script"
-    src: "python/"
-    extension: "py"
-    capitalize: false  # default: false
-    prefix: ""         # default: ""
-    runtime: "python3" # or shebang
+    capitalize: false    # default: false
+    src: "python/%.py"
+    working_dir: "python/"
+    runtime: "python3 %" # or shebang
     atcoder_lang_id: 3023
 ```
 
