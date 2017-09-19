@@ -4,6 +4,7 @@ extern crate cookie;
 extern crate regex;
 extern crate reqwest;
 extern crate rpassword;
+extern crate rusqlite;
 extern crate rprompt;
 extern crate select;
 extern crate serde;

@@ -7,7 +7,7 @@ use reqwest::StatusCode;
 use select::document::Document;
 use select::node::Node;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
-use std::io::{self, Read};
+use std::io::Read;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use webbrowser;
@@ -76,7 +76,7 @@ impl DerefMut for AtCoderBeta {
 
 impl AtCoderBeta {
     fn load_or_login(message: Option<&'static str>) -> ServiceResult<Self> {
-        if let Ok(mut session) = ScrapingSession::from_cookie_file("atcoder-beta") {
+        if let Ok(mut session) = ScrapingSession::from_db("atcoder-beta.sqlite3") {
             if session.http_get("https://beta.atcoder.jp/settings").is_ok() {
                 if let Some(message) = message {
                     println!("{}", message);
@@ -96,8 +96,8 @@ impl AtCoderBeta {
         }
 
         fn try_logging_in() -> ServiceResult<ScrapingSession> {
-            let (username, password) = super::read_username_and_password("Username")?;
-            let mut session = ScrapingSession::new();
+            let (username, password) = super::read_username_and_password("Username: ")?;
+            let mut session = ScrapingSession::new()?;
             let csrf_token = extract_csrf_token(session.http_get(URL)?)?;
             let data = PostData {
                 username: username,
@@ -217,8 +217,8 @@ impl AtCoderBeta {
         bail!(ServiceErrorKind::NoSuchProblem(task.to_owned()));
     }
 
-    fn save(&self) -> io::Result<()> {
-        self.save_cookie_to_file("atcoder-beta")
+    fn save(&self) -> ServiceResult<()> {
+        self.save_cookie_to_db("atcoder-beta.sqlite3")
     }
 }
 

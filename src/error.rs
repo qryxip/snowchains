@@ -2,6 +2,7 @@ use cookie;
 use error_chain::ChainedError;
 use regex;
 use reqwest::{self, StatusCode, UrlError};
+use rusqlite;
 use serde_json;
 use serde_urlencoded;
 use serde_yaml;
@@ -57,10 +58,11 @@ error_chain! {
 
     foreign_links {
         Reqwest(reqwest::Error);
+        Rusqlite(rusqlite::Error);
         Url(UrlError);
         Io(io::Error);
         SerdeJson(serde_json::Error);
-        SerdeUrlEncodedSerialization(serde_urlencoded::ser::Error);
+        SerdeUrlencodedSer(serde_urlencoded::ser::Error);
         CookieParse(cookie::ParseError);
     }
 
@@ -135,8 +137,8 @@ error_chain! {
         Io(io::Error);
         SerdeJson(serde_json::Error);
         SerdeYaml(serde_yaml::Error);
-        TomlSerialization(toml::ser::Error);
-        TomlDeserialization(toml::de::Error);
+        TomlSer(toml::ser::Error);
+        TomlDe(toml::de::Error);
     }
 }
 

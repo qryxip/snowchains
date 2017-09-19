@@ -1,73 +1,66 @@
 use error::{ServiceErrorKind, ServiceResult};
 use util;
 
-use cookie::{Cookie, CookieJar};
-use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode};
+use cookie::{self, Cookie, CookieJar};
+use reqwest::{self, Client, IntoUrl, RedirectPolicy, Response, StatusCode};
 use reqwest::header::{ContentType, Cookie as RequestCookie, SetCookie, UserAgent};
+use rusqlite::Connection;
 use serde::Serialize;
-use serde_json;
 use serde_urlencoded;
 use std::fmt;
-use std::fs::{self, File};
-use std::io::{self, Write};
+use std::fs;
+use std::path::PathBuf;
 use term::{Attr, color};
 
 
 pub struct ScrapingSession {
+    client: Client,
     cookie_jar: CookieJar,
 }
 
 impl ScrapingSession {
-    /// Crates a new `ScrapingSession`, which cookie jar is empty.
-    pub fn new() -> Self {
-        Self { cookie_jar: CookieJar::new() }
+    /// Crates a new `ScrapingSession`, which has no cookie.
+    pub fn new() -> reqwest::Result<Self> {
+        let client = Client::builder()?.redirect(RedirectPolicy::none()).build()?;
+        Ok(Self {
+            client: client,
+            cookie_jar: CookieJar::new(),
+        })
     }
 
-    /// Deserializes `~/.local/share/snowchains/<name_without_extension>.jar` to `ScrapingSession`.
-    pub fn from_cookie_file(name_without_extension: &str) -> ServiceResult<Self> {
-        let file = {
-            let mut pathbuf = util::home_dir_as_io_result()?;
-            pathbuf.push(".local");
-            pathbuf.push("share");
-            pathbuf.push("snowchains");
-            pathbuf.push(name_without_extension);
-            pathbuf.set_extension("jar");
-            File::open(pathbuf)?
-        };
+    /// Creates a new `ScrapingSession` loading cookies from `~/.local/share/snowchains/<name>`.
+    pub fn from_db(name: &str) -> ServiceResult<Self> {
+        let (conn, path) = connect_and_try_crating_table(name)?;
         let mut cookie_jar = CookieJar::new();
-        for cookie in serde_json::from_reader::<_, Vec<String>>(file)?.into_iter() {
-            cookie_jar.add(Cookie::parse(cookie)?);
+        let mut stmt = conn.prepare("SELECT cookie FROM cookies")?;
+        for cookie in stmt.query_map::<String, _>(&[], |row| row.get(0))? {
+            cookie_jar.add(Cookie::parse(cookie?)?);
         }
-        Ok(Self { cookie_jar: cookie_jar })
+        let mut session = Self::new()?;
+        session.cookie_jar = cookie_jar;
+        println!("Loaded cookies from {}", path.display());
+        Ok(session)
     }
 
-    /// Serializes `self` and save it to `~/.local/share/snowchains/<name_without_extension>.jar`.
-    pub fn save_cookie_to_file(&self, name_without_extension: &str) -> io::Result<()> {
-        let (mut file, pathbuf) = {
-            let mut pathbuf = util::home_dir_as_io_result()?;
-            pathbuf.push(".local");
-            pathbuf.push("share");
-            pathbuf.push("snowchains");
-            fs::create_dir_all(&pathbuf)?;
-            pathbuf.push(name_without_extension);
-            pathbuf.set_extension("jar");
-            (File::create(&pathbuf)?, pathbuf)
-        };
-        let cookies = self.cookie_jar
-            .iter()
-            .map(|c| c.to_string())
-            .collect::<Vec<_>>();
-        let cookies_text = &serde_json::to_vec::<Vec<String>>(&cookies)?;
-        file.write_all(cookies_text)?;
-        Ok(println!("The cookie was saved to {}", pathbuf.display()))
+    /// Save all cookies to `~/.local/share/snowchains/<name>`, erasing previous cookies.
+    pub fn save_cookie_to_db(&self, name: &str) -> ServiceResult<()> {
+        let (conn, path) = connect_and_try_crating_table(name)?;
+        conn.execute("DELETE FROM cookies", &[])?;
+        for cookie in self.cookie_jar.iter().map(Cookie::to_string) {
+            conn.execute(
+                "INSERT INTO cookies (cookie) VALUES (?1)",
+                &[&cookie],
+            )?;
+        }
+        Ok(println!("Saved cookies to {}", path.display()))
     }
 
-    /// Gets a cookie for given name.
+    /// Gets a cookie for `name`.
     pub fn cookie_value(&self, name: &str) -> Option<&str> {
         self.cookie_jar.get(name).map(Cookie::value)
     }
 
-    /// Sends a GET request, expecting the response code is 200.
+    /// Sends a GET request to `url`, expecting the response code is 200.
     ///
     /// # Errors
     ///
@@ -83,7 +76,7 @@ impl ScrapingSession {
         self.http_get_expecting(url, StatusCode::Ok)
     }
 
-    /// Sends a GET request.
+    /// Sends a GET request to `url`.
     ///
     /// # Errors
     ///
@@ -103,25 +96,13 @@ impl ScrapingSession {
         print_decorated!(Attr::Bold, None, "GET ");
         print_and_flush!("{} ... ", url);
 
-        let response = {
-            let client = Client::builder()?.redirect(RedirectPolicy::none()).build()?;
-            client
-                .get(url.clone())?
-                .header(UserAgent::new(format!(
-                    "snowchains <https://github.com/wariuni/snowchains>"
-                )))
-                .header(self.cookie_jar.as_request_cookie())
-                .send()?
-        };
+        let response = self.client
+            .get(url.clone())?
+            .header(user_agent())
+            .header(self.cookie_jar.as_request_cookie())
+            .send()?;
 
-        for cookie in response
-            .headers()
-            .get::<SetCookie>()
-            .map(|setcookie| setcookie.iter())
-            .unwrap_or(vec![].iter())
-        {
-            self.cookie_jar.add(Cookie::parse(cookie.to_string())?);
-        }
+        self.add_setcookie_to_jar(&response)?;
 
         if response.status() == expected_status {
             println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
@@ -135,7 +116,8 @@ impl ScrapingSession {
         }
     }
 
-    /// Sends a POST request, serializing given data.
+    /// Sends a POST request, serializing `data`.
+    ///
     /// # Errors
     ///
     /// Returns `Err` if an IO error occurs, or the response code differs from `expected_status`.
@@ -170,27 +152,16 @@ impl ScrapingSession {
     ) -> ServiceResult<Response> {
         print_decorated!(Attr::Bold, None, "POST ");
         print_and_flush!("{} ... ", url);
-        let response = {
-            let client = Client::builder()?.redirect(RedirectPolicy::none()).build()?;
-            client
-                .post(url.clone())?
-                .body(data)
-                .header(UserAgent::new(format!(
-                    "snowchains <https://github.com/wariuni/snowchains>"
-                )))
-                .header(self.cookie_jar.as_request_cookie())
-                .header(content_type)
-                .send()?
-        };
 
-        for cookie in response
-            .headers()
-            .get::<SetCookie>()
-            .map(|setcookie| setcookie.iter())
-            .unwrap_or(vec![].iter())
-        {
-            self.cookie_jar.add(Cookie::parse(cookie.to_string())?);
-        }
+        let response = self.client
+            .post(url.clone())?
+            .body(data)
+            .header(user_agent())
+            .header(self.cookie_jar.as_request_cookie())
+            .header(content_type)
+            .send()?;
+
+        self.add_setcookie_to_jar(&response)?;
 
         if response.status() == expected_status {
             println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
@@ -203,6 +174,39 @@ impl ScrapingSession {
             ))
         }
     }
+
+    fn add_setcookie_to_jar(&mut self, response: &Response) -> Result<(), cookie::ParseError> {
+        for cookie in response
+            .headers()
+            .get::<SetCookie>()
+            .map(|setcookie| setcookie.iter())
+            .unwrap_or(vec![].iter())
+        {
+            self.cookie_jar.add(Cookie::parse(cookie.to_string())?);
+        }
+        Ok(())
+    }
+}
+
+
+fn user_agent() -> UserAgent {
+    UserAgent::new("snowchains <https://github.com/wariuni/snowchains>")
+}
+
+
+fn connect_and_try_crating_table(name: &str) -> ServiceResult<(Connection, PathBuf)> {
+    let mut path = util::home_dir_as_io_result()?;
+    path.push(".local");
+    path.push("share");
+    path.push("snowchains");
+    fs::create_dir_all(&path)?;
+    path.push(name);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS cookies (cookie TEXT NOT NULL)",
+        &[],
+    )?;
+    Ok((conn, path))
 }
 
 

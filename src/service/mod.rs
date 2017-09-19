@@ -18,8 +18,8 @@ use term::{Attr, color};
 /// Reads username and password from stdin, showing the prompts on stderr.
 ///
 /// The password is not hidden if `rpassword::prompt_password_stderr` fails.
-fn read_username_and_password(username_prompt: &'static str) -> ServiceResult<(String, String)> {
-    let username = rprompt::prompt_reply_stderr(&format!("{}: ", username_prompt))?;
+fn read_username_and_password(username_prompt: &'static str) -> io::Result<(String, String)> {
+    let username = rprompt::prompt_reply_stderr(username_prompt)?;
     let password = rpassword::prompt_password_stderr("Password: ").or_else(
         |_| {
             eprintln_decorated!(Attr::Bold, Some(color::BRIGHT_MAGENTA), "FALLBACK");
@@ -34,7 +34,8 @@ fn read_username_and_password(username_prompt: &'static str) -> ServiceResult<(S
 ///
 /// # Errors
 ///
-/// Returns `Err(ServiceErrorKind::ScrapingFailed.into())` if the above condition is not satisfied.
+/// Returns `Err(ServiceError::from(ServiceErrorKind::ScrapingFailed))` if the above condition is
+/// not satisfied.
 fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> ServiceResult<T> {
     if let Some(x) = o {
         if !f(&x) {
@@ -53,14 +54,14 @@ fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> Ser
         let mut is_replaced = false;
         for line in code.lines() {
             let line = line?;
-            let caps = regex.captures(&line);
-            replaced.push(if caps.is_some() && !is_replaced {
-                let caps = caps.unwrap();
-                is_replaced = true;
-                format!("{}{}{}", &caps[1], class_name, &caps[3])
-            } else {
-                line.clone()
-            });
+            if !is_replaced {
+                if let Some(caps) = regex.captures(&line) {
+                    replaced.push(format!("{}{}{}", &caps[1], class_name, &caps[3]));
+                    is_replaced = true;
+                    continue;
+                }
+            }
+            replaced.push(line);
         }
 
         Ok(if is_replaced {

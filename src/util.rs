@@ -1,10 +1,11 @@
 use std::env;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 
-/// Calls `File::open(path)` and if the result is `Err`, insert `path` to the error message.
+/// Calls `File::open(path)` and if the result is `Err`, replace the error with new one which
+/// message contains `path`.
 pub fn open_file_remembering_path(path: &Path) -> io::Result<File> {
     match File::open(path) {
         Ok(file) => Ok(file),
@@ -12,7 +13,29 @@ pub fn open_file_remembering_path(path: &Path) -> io::Result<File> {
             io::ErrorKind::NotFound,
             format!("No such file: {:?}", path),
         )),
-        Err(e) => Err(e),
+        Err(ref e) => Err(io::Error::new(
+            e.kind(),
+            format!("IO error occured while opening {:?}: {}", path, e),
+        )),
+    }
+}
+
+
+/// Calls `fs::create_dir_all` and `File::create`.
+pub fn create_file_and_dirs(path: &Path) -> io::Result<File> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    match File::create(path) {
+        Ok(file) => Ok(file),
+        Err(ref e) => Err(io::Error::new(
+            e.kind(),
+            format!(
+                "IO error occured while opening/creating {:?}: {}",
+                path,
+                e
+            ),
+        )),
     }
 }
 

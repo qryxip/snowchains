@@ -5,7 +5,7 @@ use util::{self, CapitalizeFirst};
 
 use serde_yaml;
 use std::env;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -129,7 +129,9 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
     let config = serde_yaml::to_string(&config)?;
     let mut path = PathBuf::from(dir);
     path.push("snowchains.yml");
-    Ok(File::create(path)?.write_all(config.as_bytes())?)
+    Ok(util::create_file_and_dirs(&path)?.write_all(
+        config.as_bytes(),
+    )?)
 }
 
 
@@ -150,8 +152,10 @@ pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
         PropertyKey::DefaultLang => config.default_lang = value.to_owned(),
     }
     let config = serde_yaml::to_string(&config)?;
-    File::create(find_base()?.1)?.write_all(config.as_bytes())?;
-    Ok(())
+    Ok(util::create_file_and_dirs(&find_base()?.1)?.write_all(
+        config
+            .as_bytes(),
+    )?)
 }
 
 

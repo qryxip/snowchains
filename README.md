@@ -4,7 +4,7 @@ Tools for online programming contests.
 
 Works on
 - [x] Linux
-- [x] Windows (If you are using MSYS2, use winpty when you login.)
+- [x] Windows
 - [ ] OS X (Probably works.)
 
 ## Instrallation

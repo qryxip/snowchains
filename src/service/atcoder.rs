@@ -7,7 +7,7 @@ use reqwest::StatusCode;
 use select::document::Document;
 use select::node::Node;
 use select::predicate::{Attr as HtmlAttr, Class, Name, Predicate, Text};
-use std::io::{self, Read};
+use std::io::Read;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use term::{Attr as TermAttr, color};
@@ -19,7 +19,7 @@ pub fn login() -> ServiceResult<()> {
         session.http_get(URL).is_ok()
     }
 
-    if let Ok(mut session) = ScrapingSession::from_cookie_file("atcoder") {
+    if let Ok(mut session) = ScrapingSession::from_db("atcoder.sqlite3") {
         if verify(&mut session) {
             return Ok(println!("Already signed in."));
         }
@@ -65,7 +65,7 @@ impl AtCoder {
             session.http_get(URL).is_ok()
         }
 
-        if let Ok(mut session) = ScrapingSession::from_cookie_file("atcoder") {
+        if let Ok(mut session) = ScrapingSession::from_db("atcoder.sqlite3") {
             if verify(&mut session) {
                 return Ok(AtCoder(session));
             }
@@ -120,7 +120,7 @@ impl AtCoder {
         }
 
         fn post_data() -> ServiceResult<PostData> {
-            let (user_id, password) = super::read_username_and_password("User ID")?;
+            let (user_id, password) = super::read_username_and_password("User ID: ")?;
             Ok(PostData {
                 name: user_id,
                 password: password,
@@ -128,7 +128,7 @@ impl AtCoder {
         }
 
         static URL: &'static str = "https://practice.contest.atcoder.jp/login";
-        let mut session = ScrapingSession::new();
+        let mut session = ScrapingSession::new()?;
         session.http_get(URL)?;
         while let Err(e) = session.http_post_urlencoded(URL, post_data()?, StatusCode::Found) {
             eprint_decorated!(TermAttr::Bold, Some(color::RED), "error: ");
@@ -146,8 +146,8 @@ impl AtCoder {
         println!("Hello, {}.", username);
     }
 
-    fn save(&self) -> io::Result<()> {
-        self.save_cookie_to_file("atcoder")
+    fn save(&self) -> ServiceResult<()> {
+        self.save_cookie_to_db("atcoder.sqlite3")
     }
 }
 
