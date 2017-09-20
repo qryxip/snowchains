@@ -26,7 +26,7 @@ $ snowchains set contest <contest>     # e.g. "agc001"
 $ snowchains download (--open-browser) # The username and password required when not yet signed-in
 $ $EDITOR ./snowchains/<target>.yml    # Add more test cases
 $ snowchains judge <target> (<language>)
-$ snowchains submit <target> (<language>) (--open-browser)
+$ snowchains submit <target> (<language>) (--skip-judging) (--open-browser)
 ```
 
 ## Config File (snowchains.yml)
@@ -91,9 +91,9 @@ languages:
     capitalize_src: true
     capitalize_bin: true
     src: "csharp/%/%.cs"
-    bin: "csharp/%/bin/Release/%.exe"
+    bin: "csharp/%/bin/Release/%"
     working_dir: "csharp/"
-    build: "msbuild .\\csharp.sln /p:Configuration=Release"
+    build: "MSBuild .\\csharp.sln /p:Configuration=Release"
     atcoder_lang_id: 3006
   -
     # *nix
@@ -144,16 +144,19 @@ Or simply:
 ```yaml
 ---
 service: "atcoder"
-contest: "agc001"
+contest: "chokuda_s001"
 default_lang: "c++"
 languages:
   -
     name: "c++"
     type: "build"
-    src: "./"
-    bin: "./build/"
-    extension: "cc"
+    capitalize_src: false
+    capitalize_bin: false
+    src: "cc/%.cc"
+    bin: "cc/build/%"
+    working_dir: "cc/"
     build: "ninja"
+    atcoder_lang_id: 3003
 ```
 
 ## Test Cases
@@ -166,7 +169,6 @@ languages:
 ```console
 $ #snowchains login <service>
 $ #snowchains participate <service> <contest>
-$ cd <wherever-under-the-project>
 $ snowchains download (--open-browser)
 ```
 

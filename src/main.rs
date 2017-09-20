@@ -95,13 +95,20 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         Arg::with_name("lang").help("Language name")
     }
 
+    fn arg_skip_judging() -> Arg<'static, 'static> {
+        Arg::with_name("skip-judging").long("skip-judging").help(
+            "Whether to skip judging",
+        )
+    }
+
     static USAGE_INIT_CONFIG: &'static str = "snowchains init-config <default-lang> <dir>";
     static USAGE_SET: &'static str = "snowchains set <key> <value>";
     static USAGE_LOGIN: &'static str = "snowchains login <service>";
     static USAGE_PARTICIPATE: &'static str = "snowchains participate <service> <contest>";
     static USAGE_DOWNLOAD: &'static str = "snowchains download [--open-browser]";
     static USAGE_JUDGE: &'static str = "snowchains judge <target> [lang]";
-    static USAGE_SUBMIT: &'static str = "snowchains submit <target> [lang] [--open-browser]";
+    static USAGE_SUBMIT: &'static str = "snowchains submit <target> [lang] [--skip-judging] \
+                                         [--open-browser]";
 
     let subcommand_init_config = SubCommand::with_name("init-config")
         .about("Creates 'snowchains.yml'")
@@ -142,6 +149,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         .usage(USAGE_SUBMIT)
         .arg(arg_target())
         .arg(arg_lang())
+        .arg(arg_skip_judging())
         .arg(arg_open_browser());
 
     let matches = app_from_crate!()
@@ -214,14 +222,18 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
         let lang = matches.value_of("lang");
+        let skip_judging = matches.is_present("skip-judging");
         let open_browser = matches.is_present("open-browser");
         let service_name = config.service_name()?;
         let contest_name = config.contest_name()?;
-        let testcase_path = config.testcase_path(target)?;
         let src_path = config.src_path(target, lang)?;
-        let run_command = config.construct_run_command(target, lang)?;
-        let build_command = config.construct_build_command(lang)?;
-        judge::judge(testcase_path, run_command, build_command)?;
+        if !skip_judging {
+            let testcase_path = config.testcase_path(target)?;
+            let run_command = config.construct_run_command(target, lang)?;
+            let build_command = config.construct_build_command(lang)?;
+            judge::judge(testcase_path, run_command, build_command)?;
+            println!("");
+        }
         return Ok(match service_name {
             ServiceName::AtCoder => unimplemented!(),
             ServiceName::AtCoderBeta => {

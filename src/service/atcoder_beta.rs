@@ -57,11 +57,17 @@ pub fn submit(
     src_path: &Path,
     open_browser: bool,
 ) -> ServiceResult<()> {
-    println!("");
     let contest = Contest::new(contest_name)?;
     let mut atcoder = AtCoderBeta::load_or_login(None)?;
     atcoder.register_to_contest(&contest)?;
-    atcoder.submit_code(contest, task, lang_id, src_path, open_browser)
+    atcoder.submit_code(
+        contest,
+        task,
+        lang_id,
+        src_path,
+        open_browser,
+    )?;
+    atcoder.save()
 }
 
 
