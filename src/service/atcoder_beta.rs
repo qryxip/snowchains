@@ -15,17 +15,17 @@ use webbrowser;
 
 /// Logins to "beta.atcoder.jp".
 pub fn login() -> ServiceResult<()> {
-    let atcoder = AtCoderBeta::load_or_login(Some("Already signed in."))?;
-    Ok(atcoder.save()?)
+    AtCoderBeta::load_or_login(Some("Already signed in."))?
+        .save()
 }
 
 
 /// Participates in given contest.
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
     let contest = &Contest::new(contest_name)?;
-    AtCoderBeta::load_or_login(None)?.register_to_contest(
-        contest,
-    )
+    let mut atcoder = AtCoderBeta::load_or_login(None)?;
+    atcoder.register_to_contest(contest)?;
+    atcoder.save()
 }
 
 
@@ -39,7 +39,13 @@ pub fn download(
     let contest = Contest::new(contest_name)?;
     let mut atcoder = AtCoderBeta::load_or_login(None)?;
     atcoder.register_to_contest(&contest)?;
-    atcoder.download_all_tasks(contest, dir_to_save, extension, open_browser)
+    atcoder.download_all_tasks(
+        contest,
+        dir_to_save,
+        extension,
+        open_browser,
+    )?;
+    atcoder.save()
 }
 
 
@@ -76,18 +82,27 @@ impl DerefMut for AtCoderBeta {
 
 impl AtCoderBeta {
     fn load_or_login(message: Option<&'static str>) -> ServiceResult<Self> {
-        if let Ok(mut session) = ScrapingSession::from_db("atcoder-beta.sqlite3") {
-            if session.http_get("https://beta.atcoder.jp/settings").is_ok() {
-                if let Some(message) = message {
-                    println!("{}", message);
-                }
-                return Ok(AtCoderBeta(session));
+        let mut atcoder = AtCoderBeta(ScrapingSession::from_db("atcoder-beta.sqlite3")?);
+        if !atcoder.no_cookie() && atcoder.http_get("https://beta.atcoder.jp/settings").is_ok() {
+            if let Some(message) = message {
+                println!("{}", message);
             }
+        } else {
+            atcoder.login()?;
         }
-        Self::login()
+        Ok(atcoder)
     }
 
-    fn login() -> ServiceResult<Self> {
+    fn login(&mut self) -> ServiceResult<()> {
+        while let Err(e) = self.try_logging_in() {
+            e.print_chain_colored();
+            eprintln!("Failed to login. Try again.");
+            self.clear_cookies();
+        }
+        Ok(())
+    }
+
+    fn try_logging_in(&mut self) -> ServiceResult<()> {
         #[derive(Serialize)]
         struct PostData {
             username: String,
@@ -95,32 +110,17 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
-        fn try_logging_in() -> ServiceResult<ScrapingSession> {
-            let (username, password) = super::read_username_and_password("Username: ")?;
-            let mut session = ScrapingSession::new()?;
-            let csrf_token = extract_csrf_token(session.http_get(URL)?)?;
-            let data = PostData {
-                username: username,
-                password: password,
-                csrf_token: csrf_token,
-            };
-            static URL: &'static str = "https://beta.atcoder.jp/login";
-            let _ = session.http_post_urlencoded(URL, data, StatusCode::Found)?;
-            let _ = session.http_get("https://beta.atcoder.jp/settings")?;
-            Ok(session)
-        }
-
-        let session = loop {
-            match try_logging_in() {
-                Ok(session) => break session,
-                Err(e) => {
-                    e.print_chain_colored();
-                    eprintln!("Failed to login. try again.");
-                }
-            }
+        let csrf_token = extract_csrf_token(self.http_get(URL)?)?;
+        let (username, password) = super::read_username_and_password("Username: ")?;
+        let data = PostData {
+            username: username,
+            password: password,
+            csrf_token: csrf_token,
         };
-        println!("Succeeded to login.");
-        Ok(AtCoderBeta(session))
+        static URL: &'static str = "https://beta.atcoder.jp/login";
+        let _ = self.http_post_urlencoded(URL, data, StatusCode::Found)?;
+        let _ = self.http_get("https://beta.atcoder.jp/settings")?;
+        Ok(println!("Succeeded to login."))
     }
 
     fn register_to_contest(&mut self, contest: &Contest) -> ServiceResult<()> {
@@ -159,7 +159,7 @@ impl AtCoderBeta {
                 webbrowser::open(&url)?;
             }
         }
-        Ok(self.save()?)
+        Ok(())
     }
 
     #[allow(non_snake_case)]
@@ -217,8 +217,8 @@ impl AtCoderBeta {
         bail!(ServiceErrorKind::NoSuchProblem(task.to_owned()));
     }
 
-    fn save(&self) -> ServiceResult<()> {
-        self.save_cookie_to_db("atcoder-beta.sqlite3")
+    fn save(self) -> ServiceResult<()> {
+        self.0.save_cookie_to_db()
     }
 }
 

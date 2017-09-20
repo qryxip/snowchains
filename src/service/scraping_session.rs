@@ -2,49 +2,61 @@ use error::{ServiceErrorKind, ServiceResult};
 use util;
 
 use cookie::{self, Cookie, CookieJar};
-use reqwest::{self, Client, IntoUrl, RedirectPolicy, Response, StatusCode};
+use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode};
 use reqwest::header::{ContentType, Cookie as RequestCookie, SetCookie, UserAgent};
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_urlencoded;
 use std::fmt;
 use std::fs;
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 use term::{Attr, color};
 
 
 pub struct ScrapingSession {
+    sqlite_path: PathBuf,
+    sqlite_connection: Option<Connection>,
     client: Client,
     cookie_jar: CookieJar,
 }
 
 impl ScrapingSession {
-    /// Crates a new `ScrapingSession`, which has no cookie.
-    pub fn new() -> reqwest::Result<Self> {
+    /// Crates a new `ScrapingSession`.
+    pub fn new(sqlite_name: &'static str) -> ServiceResult<Self> {
+        let path = get_schema_path_creating_dirs(sqlite_name)?;
         let client = Client::builder()?.redirect(RedirectPolicy::none()).build()?;
         Ok(Self {
+            sqlite_path: path,
+            sqlite_connection: None,
             client: client,
             cookie_jar: CookieJar::new(),
         })
     }
 
-    /// Creates a new `ScrapingSession` loading cookies from `~/.local/share/snowchains/<name>`.
-    pub fn from_db(name: &str) -> ServiceResult<Self> {
-        let (conn, path) = connect_and_try_crating_table(name)?;
-        let mut cookie_jar = CookieJar::new();
-        let mut stmt = conn.prepare("SELECT cookie FROM cookies")?;
-        for cookie in stmt.query_map::<String, _>(&[], |row| row.get(0))? {
-            cookie_jar.add(Cookie::parse(cookie?)?);
-        }
-        let mut session = Self::new()?;
+    /// Creates a new `ScrapingSession` connecting `~/.local/share/snowchains/<name>`.
+    pub fn from_db(sqlite_name: &'static str) -> ServiceResult<Self> {
+        let mut session = Self::new(sqlite_name)?;
+        let conn = connect_and_try_crating_table(&session.sqlite_path)?;
+        let cookie_jar = {
+            let mut cookie_jar = CookieJar::new();
+            let mut stmt = conn.prepare("SELECT cookie FROM cookies")?;
+            for cookie in stmt.query_map::<String, _>(&[], |row| row.get(0))? {
+                cookie_jar.add(Cookie::parse(cookie?)?);
+            }
+            cookie_jar
+        };
+        session.sqlite_connection = Some(conn);
         session.cookie_jar = cookie_jar;
-        println!("Loaded cookies from {}", path.display());
         Ok(session)
     }
 
-    /// Save all cookies to `~/.local/share/snowchains/<name>`, erasing previous cookies.
-    pub fn save_cookie_to_db(&self, name: &str) -> ServiceResult<()> {
-        let (conn, path) = connect_and_try_crating_table(name)?;
+    /// Save all cookies to the sqlite database, erasing previous cookies.
+    pub fn save_cookie_to_db(self) -> ServiceResult<()> {
+        let conn = match self.sqlite_connection {
+            Some(conn) => conn,
+            None => connect_and_try_crating_table(&self.sqlite_path)?,
+        };
         conn.execute("DELETE FROM cookies", &[])?;
         for cookie in self.cookie_jar.iter().map(Cookie::to_string) {
             conn.execute(
@@ -52,12 +64,22 @@ impl ScrapingSession {
                 &[&cookie],
             )?;
         }
-        Ok(println!("Saved cookies to {}", path.display()))
+        let path = self.sqlite_path.display();
+        match conn.close() {
+            Ok(()) => println!("Closed {}", path),
+            Err(_) => eprint_decorated!(Attr::Bold, Some(color::RED), "Failed to close {}", path),
+        }
+        Ok(())
     }
 
-    /// Gets a cookie for `name`.
-    pub fn cookie_value(&self, name: &str) -> Option<&str> {
-        self.cookie_jar.get(name).map(Cookie::value)
+    /// Whether `self` has no cookie.
+    pub fn no_cookie(&self) -> bool {
+        self.cookie_jar.iter().next().is_none()
+    }
+
+    /// Delete all cookies.
+    pub fn clear_cookies(&mut self) {
+        self.cookie_jar = CookieJar::new();
     }
 
     /// Sends a GET request to `url`, expecting the response code is 200.
@@ -194,19 +216,25 @@ fn user_agent() -> UserAgent {
 }
 
 
-fn connect_and_try_crating_table(name: &str) -> ServiceResult<(Connection, PathBuf)> {
+fn get_schema_path_creating_dirs(name: &str) -> io::Result<PathBuf> {
     let mut path = util::home_dir_as_io_result()?;
     path.push(".local");
     path.push("share");
     path.push("snowchains");
     fs::create_dir_all(&path)?;
     path.push(name);
+    Ok(path)
+}
+
+
+fn connect_and_try_crating_table(path: &Path) -> ServiceResult<Connection> {
     let conn = Connection::open(&path)?;
+    println!("Opened {}", path.display());
     conn.execute(
         "CREATE TABLE IF NOT EXISTS cookies (cookie TEXT NOT NULL)",
         &[],
     )?;
-    Ok((conn, path))
+    Ok(conn)
 }
 
 

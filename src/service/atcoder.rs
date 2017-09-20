@@ -24,12 +24,14 @@ pub fn login() -> ServiceResult<()> {
             return Ok(println!("Already signed in."));
         }
     }
-    AtCoder::login_and_save().map(|_| ())
+    AtCoder::login()?.save()
 }
 
 
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
-    AtCoder::load_or_login()?.participate(contest_name)
+    let mut atcoder = AtCoder::load_or_login()?;
+    atcoder.participate(contest_name)?;
+    atcoder.save()
 }
 
 
@@ -70,7 +72,7 @@ impl AtCoder {
                 return Ok(AtCoder(session));
             }
         }
-        Self::login_and_save()
+        Self::login()
     }
 
     fn participate(&mut self, contest_name: &str) -> ServiceResult<()> {
@@ -109,10 +111,10 @@ impl AtCoder {
                 Err(e) => return Err(e),
             }
         }
-        Ok(self.save()?)
+        Ok(())
     }
 
-    fn login_and_save() -> ServiceResult<Self> {
+    fn login() -> ServiceResult<Self> {
         #[derive(Serialize)]
         struct PostData {
             name: String,
@@ -128,26 +130,18 @@ impl AtCoder {
         }
 
         static URL: &'static str = "https://practice.contest.atcoder.jp/login";
-        let mut session = ScrapingSession::new()?;
+        let mut session = ScrapingSession::new("atcoder.sqlite3")?;
         session.http_get(URL)?;
         while let Err(e) = session.http_post_urlencoded(URL, post_data()?, StatusCode::Found) {
             eprint_decorated!(TermAttr::Bold, Some(color::RED), "error: ");
             eprintln!("{:?}", e);
             println!("Failed to sign in. try again.")
         }
-        let atcoder = AtCoder(session);
-        atcoder.show_username();
-        atcoder.save()?;
-        Ok(atcoder)
+        Ok(AtCoder(session))
     }
 
-    fn show_username(&self) {
-        let username = self.cookie_value("_user_name").unwrap_or_default();
-        println!("Hello, {}.", username);
-    }
-
-    fn save(&self) -> ServiceResult<()> {
-        self.save_cookie_to_db("atcoder.sqlite3")
+    fn save(self) -> ServiceResult<()> {
+        self.0.save_cookie_to_db()
     }
 }
 
