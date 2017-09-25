@@ -70,11 +70,6 @@ error_chain! {
     }
 
     errors {
-        UnsupportedContest(name: String) {
-            description("Unsupported contest name")
-                display("Unsupported contest name \"{}\"", name)
-        }
-
         NoSuchProblem(name: String) {
             description("No such problem")
                 display("No such problem: \"{}\"", name)

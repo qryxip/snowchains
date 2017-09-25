@@ -22,7 +22,7 @@ pub fn login() -> ServiceResult<()> {
 
 /// Participates in given contest.
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
-    let contest = &Contest::new(contest_name)?;
+    let contest = &Contest::new(contest_name);
     let mut atcoder = AtCoderBeta::load_or_login(None)?;
     atcoder.register_to_contest(contest)?;
     atcoder.save()
@@ -36,7 +36,7 @@ pub fn download(
     extension: TestCaseFileExtension,
     open_browser: bool,
 ) -> ServiceResult<()> {
-    let contest = Contest::new(contest_name)?;
+    let contest = Contest::new(contest_name);
     let mut atcoder = AtCoderBeta::load_or_login(None)?;
     atcoder.register_to_contest(&contest)?;
     atcoder.download_all_tasks(
@@ -57,7 +57,7 @@ pub fn submit(
     src_path: &Path,
     open_browser: bool,
 ) -> ServiceResult<()> {
-    let contest = Contest::new(contest_name)?;
+    let contest = Contest::new(contest_name);
     let mut atcoder = AtCoderBeta::load_or_login(None)?;
     atcoder.register_to_contest(&contest)?;
     atcoder.submit_code(
@@ -230,40 +230,36 @@ impl AtCoderBeta {
 
 
 enum Contest {
-    Practice,
     AbcBefore007(u32),
     Abc(u32),
     ArcBefore019(u32),
     Arc(u32),
     Agc(u32),
     ChokudaiS(u32),
+    Other(String),
 }
 
 impl Contest {
-    fn new(s: &str) -> ServiceResult<Self> {
+    fn new(s: &str) -> Self {
         let regex = Regex::new(r"^\s*([a-zA-Z_]+)(\d\d\d)\s*$").unwrap();
         if let Some(caps) = regex.captures(s) {
             let name = caps[1].to_lowercase();
-            let number = caps[2].parse::<u32>().unwrap();
-            if number == 0 {
-                bail!(ServiceErrorKind::UnsupportedContest(s.to_owned()));
-            } else if name == "practice" {
-                return Ok(Contest::Practice);
-            } else if name == "abc" && number < 7 {
-                return Ok(Contest::AbcBefore007(number));
+            let number = caps[2].parse::<u32>().unwrap_or(0);
+            if name == "abc" && number < 7 {
+                return Contest::AbcBefore007(number);
             } else if name == "abc" {
-                return Ok(Contest::Abc(number));
+                return Contest::Abc(number);
             } else if name == "arc" && number < 19 {
-                return Ok(Contest::ArcBefore019(number));
+                return Contest::ArcBefore019(number);
             } else if name == "arc" {
-                return Ok(Contest::Arc(number));
+                return Contest::Arc(number);
             } else if name == "agc" {
-                return Ok(Contest::Agc(number));
+                return Contest::Agc(number);
             } else if name == "chokudai_s" || name == "chokudais" {
-                return Ok(Contest::ChokudaiS(number));
+                return Contest::ChokudaiS(number);
             }
         }
-        bail!(ServiceErrorKind::UnsupportedContest(s.to_owned()));
+        Contest::Other(s.to_owned())
     }
 
     fn style(&self) -> SampleCaseStyle {
@@ -277,13 +273,13 @@ impl Contest {
     fn top_url(&self) -> String {
         static BASE: &'static str = "https://beta.atcoder.jp/contests/";
         match *self {
-            Contest::Practice => format!("{}practice", BASE),
             Contest::AbcBefore007(n) => format!("{}abc{:>03}", BASE, n),
             Contest::Abc(n) => format!("{}abc{:>03}", BASE, n),
             Contest::ArcBefore019(n) => format!("{}arc{:>03}", BASE, n),
             Contest::Arc(n) => format!("{}arc{:>03}", BASE, n),
             Contest::Agc(n) => format!("{}agc{:>03}", BASE, n),
             Contest::ChokudaiS(n) => format!("{}chokudai_s{:>03}", BASE, n),
+            Contest::Other(ref s) => format!("{}{}", BASE, s),
         }
     }
 
