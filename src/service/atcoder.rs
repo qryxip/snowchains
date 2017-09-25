@@ -1,4 +1,4 @@
-use error::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
+use error::{PrintChainColored, ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
 use service::scraping_session::ScrapingSession;
 use testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
 
@@ -10,21 +10,17 @@ use select::predicate::{Attr as HtmlAttr, Class, Name, Predicate, Text};
 use std::io::Read;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
-use term::{Attr as TermAttr, color};
 
 
 pub fn login() -> ServiceResult<()> {
-    fn verify(session: &mut ScrapingSession) -> bool {
-        static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-        session.http_get(URL).is_ok()
+    static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
+    let mut atcoder = AtCoder(ScrapingSession::start("atcoder.sqlite3")?);
+    if atcoder.http_get(URL).is_err() {
+        atcoder.login()?;
+    } else {
+        println!("Already logged in.");
     }
-
-    if let Ok(mut session) = ScrapingSession::from_db("atcoder.sqlite3") {
-        if verify(&mut session) {
-            return Ok(println!("Already signed in."));
-        }
-    }
-    AtCoder::login()?.save()
+    Ok(())
 }
 
 
@@ -62,17 +58,12 @@ impl DerefMut for AtCoder {
 
 impl AtCoder {
     fn load_or_login() -> ServiceResult<Self> {
-        fn verify(session: &mut ScrapingSession) -> bool {
-            static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-            session.http_get(URL).is_ok()
+        static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
+        let mut atcoder = AtCoder(ScrapingSession::start("atcoder.sqlite3")?);
+        if atcoder.http_get(URL).is_err() {
+            atcoder.login()?;
         }
-
-        if let Ok(mut session) = ScrapingSession::from_db("atcoder.sqlite3") {
-            if verify(&mut session) {
-                return Ok(AtCoder(session));
-            }
-        }
-        Self::login()
+        Ok(atcoder)
     }
 
     fn participate(&mut self, contest_name: &str) -> ServiceResult<()> {
@@ -114,7 +105,7 @@ impl AtCoder {
         Ok(())
     }
 
-    fn login() -> ServiceResult<Self> {
+    fn login(&mut self) -> ServiceResult<()> {
         #[derive(Serialize)]
         struct PostData {
             name: String,
@@ -130,14 +121,12 @@ impl AtCoder {
         }
 
         static URL: &'static str = "https://practice.contest.atcoder.jp/login";
-        let mut session = ScrapingSession::new("atcoder.sqlite3")?;
-        session.http_get(URL)?;
-        while let Err(e) = session.http_post_urlencoded(URL, post_data()?, StatusCode::Found) {
-            eprint_decorated!(TermAttr::Bold, Some(color::RED), "error: ");
-            eprintln!("{:?}", e);
+        let _ = self.http_get(URL)?;
+        while let Err(e) = self.http_post_urlencoded(URL, post_data()?, StatusCode::Found) {
+            e.print_chain_colored();
             println!("Failed to sign in. try again.")
         }
-        Ok(AtCoder(session))
+        Ok(())
     }
 
     fn save(self) -> ServiceResult<()> {
@@ -205,7 +194,7 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<Cases> {
             }
             samples
         };
-        Some(Cases::from_text(timelimit, samples))
+        Some(Cases::from_text(Some(timelimit), samples))
     }
 
     super::quit_on_failure(extract(Document::from_read(html)?), Cases::is_empty)

@@ -88,7 +88,7 @@ impl DerefMut for AtCoderBeta {
 
 impl AtCoderBeta {
     fn load_or_login(message: Option<&'static str>) -> ServiceResult<Self> {
-        let mut atcoder = AtCoderBeta(ScrapingSession::from_db("atcoder-beta.sqlite3")?);
+        let mut atcoder = AtCoderBeta(ScrapingSession::start("atcoder-beta.sqlite3")?);
         if !atcoder.no_cookie() && atcoder.http_get("https://beta.atcoder.jp/settings").is_ok() {
             if let Some(message) = message {
                 println!("{}", message);
@@ -403,7 +403,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<Cases> {
                 try_opt!(extract_for_lang(&document, re_in_en, re_out_en, "lang-en"))
             }
         };
-        Some(Cases::from_text(timelimit, samples))
+        Some(Cases::from_text(Some(timelimit), samples))
     }
 
     super::quit_on_failure(extract(document), Cases::is_empty)

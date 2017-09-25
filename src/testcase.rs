@@ -39,9 +39,12 @@ impl IntoIterator for Cases {
 
 impl Cases {
     /// Constructs a `Cases` with a timelimit value and pairs of input/output samples.
-    pub fn from_text(timelimit: u64, cases: Vec<(String, String)>) -> Self {
+    pub fn from_text<I: IntoIterator<Item = (String, String)>>(
+        timelimit: Option<u64>,
+        cases: I,
+    ) -> Self {
         Self {
-            timelimit: Some(timelimit),
+            timelimit: timelimit,
             cases: cases
                 .into_iter()
                 .map(|(expected, input)| {

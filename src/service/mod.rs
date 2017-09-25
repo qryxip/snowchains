@@ -1,5 +1,6 @@
 pub mod atcoder;
 pub mod atcoder_beta;
+pub mod hackerrank;
 mod scraping_session;
 
 use error::{ServiceError, ServiceErrorKind, ServiceResult};
@@ -34,8 +35,7 @@ fn read_username_and_password(username_prompt: &'static str) -> io::Result<(Stri
 ///
 /// # Errors
 ///
-/// Returns `Err(ServiceError::from(ServiceErrorKind::ScrapingFailed))` if the above condition is
-/// not satisfied.
+/// Returns `Err` if the above condition is not satisfied.
 fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> ServiceResult<T> {
     if let Some(x) = o {
         if !f(&x) {

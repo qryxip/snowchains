@@ -21,9 +21,9 @@ $ cargo install --git https://github.com/wariuni/snowchains
 
 ```console
 $ snowchains init-config <language> ./
-$ snowchains set service <service>     # "atcoder", "atcoder-beta"
+$ snowchains set service <service>     # "atcoder", "atcoder-beta", "hackerrank"
 $ snowchains set contest <contest>     # e.g. "agc001"
-$ snowchains download (--open-browser) # The username and password required when not yet signed-in
+$ snowchains download (--open-browser) # The username and password required when not yet logged-in
 $ $EDITOR ./snowchains/<target>.yml    # Add more test cases
 $ snowchains judge <target> (<language>)
 $ snowchains submit <target> (<language>) (--skip-judging) (--open-browser)
@@ -41,14 +41,14 @@ testcase_extension: "yml" # default: "yml"
 default_lang: "c++"
 
 # test file: <testcases>/<target-name>.<testcase_extension>
-# source:    <<src> % <target-name (the first letter is capitalized if <capitalize_src>)>>.<extension>
-# binary:    <<bin> % <target-name (the first letter is capitalized if <capitalize_bin>)>>(.exe)
+# source:    <<src> % <target-name (converted to CamlCase if <camelize_src>)>>.<extension>
+# binary:    <<bin> % <target-name (converted to CamlCase if <camelize_bin>)>>(.exe)
 languages:
   -
     name: "c"
     type: "build"
-    capitalize_src: false # default: false
-    capitalize_bin: false # default: false
+    camelize_src: false # default: false
+    camelize_bin: false # default: false
     src: "c/%.c"
     bin: "c/build/%"
     working_dir: "c/"
@@ -57,8 +57,8 @@ languages:
   -
     name: "c++"
     type: "build"
-    capitalize_src: false
-    capitalize_bin: false
+    camelize_src: false
+    camelize_bin: false
     src: "cc/%.cc"
     bin: "cc/build/%"
     working_dir: "cc/"
@@ -67,8 +67,8 @@ languages:
   -
     name: "rust"
     type: "build"
-    capitalize_src: false
-    capitalize_bin: false
+    camelize_src: false
+    camelize_bin: false
     src: "rust/src/bin/%.rs"
     bin: "rust/target/release/%"
     working_dir: "rust/"
@@ -77,8 +77,8 @@ languages:
   -
     name: "haskell"
     type: "build"
-    capitalize_src: true
-    capitalize_bin: false
+    camelize_src: true
+    camelize_bin: false
     src: "haskell/src/%.hs"
     bin: "~/.local/bin/problem-%"
     working_dir: "haskell/"
@@ -88,8 +88,8 @@ languages:
     # Windows
     name: "c#"
     type: "build"
-    capitalize_src: true
-    capitalize_bin: true
+    camelize_src: true
+    camelize_bin: true
     src: "csharp/%/%.cs"
     bin: "csharp/%/bin/Release/%"
     working_dir: "csharp/"
@@ -99,8 +99,8 @@ languages:
     # *nix
     name: "mono"
     type: "vm"
-    capitalize_src: true # default: true
-    capitalize_bin: true # default: true
+    camelize_src: true # default: true
+    camelize_bin: true # default: true
     src: "csharp/%/%.cs"
     build_working_dir: "csharp/"
     runtime_working_dir: "csharp/"
@@ -110,8 +110,8 @@ languages:
   -
     name: "java"
     type: "vm"
-    capitalize_src: true
-    capitalize_bin: true
+    camelize_src: true
+    camelize_bin: true
     src: "java/src/main/java/%.java"
     build_working_dir: "java/"
     runtime_working_dir: "java/build/classes/java/main/"
@@ -121,8 +121,8 @@ languages:
   -
     name: "scala"
     type: "vm"
-    capitalize_src: true
-    capitalize_bin: true
+    camelize_src: true
+    camelize_bin: true
     src: "scala/src/main/%.scala"
     build_working_dir: "scala/"
     runtime_working_dir: "scala/target/scala-2.12/classes/"
@@ -132,7 +132,7 @@ languages:
   -
     name: "python3"
     type: "script"
-    capitalize: false    # default: false
+    camelize: false    # default: false
     src: "python/%.py"
     working_dir: "python/"
     runtime: "python3 %" # or shebang
@@ -150,8 +150,8 @@ languages:
   -
     name: "c++"
     type: "build"
-    capitalize_src: false
-    capitalize_bin: false
+    camelize_src: false
+    camelize_bin: false
     src: "cc/%.cc"
     bin: "cc/build/%"
     working_dir: "cc/"
@@ -165,6 +165,7 @@ languages:
 
 - [x] atcoder (abcxxx, arcxxx, agcxxx, chokudai_sxxx)
 - [x] atcoder-beta (〃)
+- [x] hackerrank
 
 ```console
 $ #snowchains login <service>

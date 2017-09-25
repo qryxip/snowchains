@@ -2,42 +2,47 @@ use error::{ServiceErrorKind, ServiceResult};
 use util;
 
 use cookie::{self, Cookie, CookieJar};
+use pbr::{MultiBar, Units};
 use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode};
-use reqwest::header::{ContentType, Cookie as RequestCookie, SetCookie, UserAgent};
+use reqwest::header::{ContentLength, ContentType, Cookie as RequestCookie, Headers, SetCookie,
+                      UserAgent};
 use rusqlite::Connection;
 use serde::Serialize;
+use serde_json;
 use serde_urlencoded;
 use std::fmt;
 use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::io::{Cursor, Read, Write};
+use std::path::PathBuf;
+use std::thread;
 use term::{Attr, color};
+use zip::ZipArchive;
 
 
 pub struct ScrapingSession {
-    sqlite_path: PathBuf,
-    sqlite_connection: Option<Connection>,
-    client: Client,
     cookie_jar: CookieJar,
+    reqwest_client: Client,
+    sqlite: (Connection, PathBuf),
 }
 
 impl ScrapingSession {
-    /// Crates a new `ScrapingSession`.
-    pub fn new(sqlite_name: &'static str) -> ServiceResult<Self> {
-        let path = get_schema_path_creating_dirs(sqlite_name)?;
-        let client = Client::builder()?.redirect(RedirectPolicy::none()).build()?;
-        Ok(Self {
-            sqlite_path: path,
-            sqlite_connection: None,
-            client: client,
-            cookie_jar: CookieJar::new(),
-        })
-    }
-
-    /// Creates a new `ScrapingSession` connecting `~/.local/share/snowchains/<name>`.
-    pub fn from_db(sqlite_name: &'static str) -> ServiceResult<Self> {
-        let mut session = Self::new(sqlite_name)?;
-        let conn = connect_and_try_crating_table(&session.sqlite_path)?;
+    /// Creates a new `ScrapingSession` connecting `~/.local/share/snowchains/<sqlite_name>`.
+    pub fn start(sqlite_name: &'static str) -> ServiceResult<Self> {
+        let path = {
+            let mut path = util::home_dir_as_io_result()?;
+            path.push(".local");
+            path.push("share");
+            path.push("snowchains");
+            fs::create_dir_all(&path)?;
+            path.push(sqlite_name);
+            path
+        };
+        let conn = Connection::open(&path)?;
+        println!("Opened {}", path.display());
+        let _ = conn.execute(
+            "CREATE TABLE IF NOT EXISTS cookies (cookie TEXT NOT NULL)",
+            &[],
+        )?;
         let cookie_jar = {
             let mut cookie_jar = CookieJar::new();
             let mut stmt = conn.prepare("SELECT cookie FROM cookies")?;
@@ -46,30 +51,12 @@ impl ScrapingSession {
             }
             cookie_jar
         };
-        session.sqlite_connection = Some(conn);
-        session.cookie_jar = cookie_jar;
-        Ok(session)
-    }
-
-    /// Save all cookies to the sqlite database, erasing previous cookies.
-    pub fn save_cookie_to_db(self) -> ServiceResult<()> {
-        let conn = match self.sqlite_connection {
-            Some(conn) => conn,
-            None => connect_and_try_crating_table(&self.sqlite_path)?,
-        };
-        conn.execute("DELETE FROM cookies", &[])?;
-        for cookie in self.cookie_jar.iter().map(Cookie::to_string) {
-            conn.execute(
-                "INSERT INTO cookies (cookie) VALUES (?1)",
-                &[&cookie],
-            )?;
-        }
-        let path = self.sqlite_path.display();
-        match conn.close() {
-            Ok(()) => println!("Closed {}", path),
-            Err(_) => eprint_decorated!(Attr::Bold, Some(color::RED), "Failed to close {}", path),
-        }
-        Ok(())
+        let client = Client::builder()?.redirect(RedirectPolicy::none()).build()?;
+        Ok(Self {
+            cookie_jar: cookie_jar,
+            reqwest_client: client,
+            sqlite: (conn, path),
+        })
     }
 
     /// Whether `self` has no cookie.
@@ -86,15 +73,12 @@ impl ScrapingSession {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if an IO error occurs, or the response code is not 200.
+    /// Returns `Err` if the http access fails, or the response code is not 200.
     ///
     /// # Panics
     ///
     /// Panics when `url` is invalid.
-    pub fn http_get<U>(&mut self, url: U) -> ServiceResult<Response>
-    where
-        U: Clone + fmt::Display + IntoUrl,
-    {
+    pub fn http_get(&mut self, url: &str) -> ServiceResult<Response> {
         self.http_get_expecting(url, StatusCode::Ok)
     }
 
@@ -102,67 +86,201 @@ impl ScrapingSession {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if an IO error occurs, or the response code differs from `expected_status`.
+    /// Returns `Err` if the http access fails, or the response code differs from `expected_status`.
     ///
     /// # Panics
     ///
     /// Panics when `url` is invalid.
-    pub fn http_get_expecting<U>(
+    pub fn http_get_expecting(
         &mut self,
-        url: U,
+        url: &str,
         expected_status: StatusCode,
-    ) -> ServiceResult<Response>
-    where
-        U: Clone + fmt::Display + IntoUrl,
-    {
-        print_decorated!(Attr::Bold, None, "GET ");
-        print_and_flush!("{} ... ", url);
-
-        let response = self.client
-            .get(url.clone())?
-            .header(user_agent())
-            .header(self.cookie_jar.as_request_cookie())
-            .send()?;
-
-        self.add_setcookie_to_jar(&response)?;
-
+    ) -> ServiceResult<Response> {
+        let response = self.send_get(url)?;
         if response.status() == expected_status {
             println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
             Ok(response)
         } else {
             println_decorated!(Attr::Bold, Some(color::RED), "{}", response.status());
             bail!(ServiceErrorKind::UnexpectedHttpCode(
-                expected_status,
+                vec![expected_status],
                 response.status(),
             ))
         }
+    }
+
+    /// Sends a GET request to `url` and if the response code is `status1`, returns `Ok(Some)` else
+    /// if it is `status2`, returns `Ok(None)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the http access fails, or the response code is not `status1` nor `status2`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `url` is invalid.
+    pub fn http_get_as_opt(
+        &mut self,
+        url: &str,
+        status1: StatusCode,
+        status2: StatusCode,
+    ) -> ServiceResult<Option<Response>> {
+        let response = self.send_get(url)?;
+        if response.status() == status1 {
+            println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
+            Ok(Some(response))
+        } else if response.status() == status2 {
+            println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
+            Ok(None)
+        } else {
+            println_decorated!(Attr::Bold, Some(color::RED), "{}", response.status());
+            bail!(ServiceErrorKind::UnexpectedHttpCode(
+                vec![status1, status2],
+                response.status(),
+            ))
+        }
+    }
+
+    /// Sends GET requests to `urls` expecting the response data are all zips.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if:
+    /// - Any of http access fails
+    /// - Any of response code is not 200
+    /// - Any of downloaded zip is invalid
+    ///
+    /// # Panics
+    ///
+    /// Panics when any of `urls` is invalid.
+    pub fn http_get_zips(
+        &mut self,
+        urls: &[String],
+    ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
+        let mut responses = vec![];
+        for ref url in urls {
+            responses.push(self.http_get(url.as_str())?);
+        }
+        println!("Downloading...");
+        let mut mb = MultiBar::new();
+        let mut handles = vec![];
+        for mut response in responses.into_iter() {
+            let content_length = response.headers().get::<ContentLength>().map(|l| **l);
+            let mut pb = mb.create_bar(content_length.unwrap_or(0));
+            pb.set_units(Units::Bytes);
+            handles.push(thread::spawn(
+                move || -> ServiceResult<ZipArchive<Cursor<Vec<u8>>>> {
+                    let mut cursor = Cursor::new(Vec::<u8>::with_capacity(
+                        content_length.unwrap_or(50 * 1024 * 1024) as usize,
+                    ));
+                    let mut buf = [0; 10 * 1024];
+                    loop {
+                        let n = response.read(&mut buf)?;
+                        if n == 0 {
+                            break;
+                        }
+                        cursor.write(&buf[0..n])?;
+                        let num_bytes = cursor.position();
+                        if content_length.is_none() {
+                            pb.total = num_bytes;
+                        }
+                        pb.set(num_bytes);
+                    }
+                    pb.finish();
+                    Ok(ZipArchive::new(cursor)?)
+                },
+            ));
+        }
+        mb.listen();
+        let mut zips = vec![];
+        for handle in handles.into_iter() {
+            zips.push(match handle.join() {
+                Ok(zip) => zip,
+                Err(_) => bail!(ServiceErrorKind::Thread),
+            }?);
+        }
+        Ok(zips)
     }
 
     /// Sends a POST request, serializing `data`.
     ///
     /// # Errors
     ///
-    /// Returns `Err` if an IO error occurs, or the response code differs from `expected_status`.
+    /// Returns `Err` if the http access or serialization fails, or the response code differs from
+    /// `expected_status`.
     ///
     /// # Panics
     ///
     /// Panics when `url` is invalid.
-    pub fn http_post_urlencoded<U, T>(
+    pub fn http_post_urlencoded<T: Serialize>(
         &mut self,
-        url: U,
+        url: &str,
         data: T,
         expected_status: StatusCode,
-    ) -> ServiceResult<Response>
-    where
-        U: Clone + fmt::Display + IntoUrl,
-        T: Serialize,
-    {
+    ) -> ServiceResult<Response> {
         self.http_post(
             url,
             serde_urlencoded::to_string(data)?,
             expected_status,
             ContentType::form_url_encoded(),
+            &[],
         )
+    }
+
+    /// Sends a POST request, serializing `data` and appending a "X-CSRF-Token" header.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the http access or serialization fails, or the response code differs from
+    /// `expected_status`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `url` is invalid.
+    pub fn http_post_json_with_csrf_token<T: Serialize>(
+        &mut self,
+        url: &str,
+        data: T,
+        expected_status: StatusCode,
+        csrf_token: String,
+    ) -> ServiceResult<Response> {
+        self.http_post(
+            url,
+            serde_json::to_string(&data)?,
+            expected_status,
+            ContentType::json(),
+            &[("X-CSRF-Token", csrf_token)],
+        )
+    }
+
+    /// Save all cookies to the sqlite database, erasing previous cookies.
+    pub fn save_cookie_to_db(self) -> ServiceResult<()> {
+        let (conn, path) = self.sqlite;
+        let _ = conn.execute("DELETE FROM cookies", &[])?;
+        for cookie in self.cookie_jar.iter().map(Cookie::to_string) {
+            let _ = conn.execute(
+                "INSERT INTO cookies (cookie) VALUES (?1)",
+                &[&cookie],
+            )?;
+        }
+        let path = path.display();
+        match conn.close() {
+            Ok(()) => println!("Closed {}", path),
+            Err(_) => eprint_decorated!(Attr::Bold, Some(color::RED), "Failed to close {}", path),
+        }
+        Ok(())
+    }
+
+    fn send_get<U: Clone + fmt::Display + IntoUrl>(&mut self, url: U) -> ServiceResult<Response> {
+        print_decorated!(Attr::Bold, None, "GET ");
+        print_and_flush!("{} ... ", url);
+        let response = self.reqwest_client
+            .get(url.clone())?
+            .header(user_agent())
+            .header(self.cookie_jar.as_request_cookie())
+            .send()?;
+        self.add_setcookie_to_jar(&response)?;
+        Ok(response)
     }
 
     fn http_post<U: Clone + fmt::Display + IntoUrl>(
@@ -171,16 +289,22 @@ impl ScrapingSession {
         data: String,
         expected_status: StatusCode,
         content_type: ContentType,
+        extra_headers: &[(&'static str, String)],
     ) -> ServiceResult<Response> {
         print_decorated!(Attr::Bold, None, "POST ");
         print_and_flush!("{} ... ", url);
 
-        let response = self.client
+        let mut headers = Headers::new();
+        headers.set(user_agent());
+        headers.set(self.cookie_jar.as_request_cookie());
+        headers.set(content_type);
+        for &(header_name, ref header_value) in extra_headers {
+            headers.set_raw(header_name, header_value.as_str());
+        }
+        let response = self.reqwest_client
             .post(url.clone())?
             .body(data)
-            .header(user_agent())
-            .header(self.cookie_jar.as_request_cookie())
-            .header(content_type)
+            .headers(headers)
             .send()?;
 
         self.add_setcookie_to_jar(&response)?;
@@ -191,7 +315,7 @@ impl ScrapingSession {
         } else {
             println_decorated!(Attr::Bold, Some(color::RED), "{}", response.status());
             bail!(ServiceErrorKind::UnexpectedHttpCode(
-                expected_status,
+                vec![expected_status],
                 response.status(),
             ))
         }
@@ -213,28 +337,6 @@ impl ScrapingSession {
 
 fn user_agent() -> UserAgent {
     UserAgent::new("snowchains <https://github.com/wariuni/snowchains>")
-}
-
-
-fn get_schema_path_creating_dirs(name: &str) -> io::Result<PathBuf> {
-    let mut path = util::home_dir_as_io_result()?;
-    path.push(".local");
-    path.push("share");
-    path.push("snowchains");
-    fs::create_dir_all(&path)?;
-    path.push(name);
-    Ok(path)
-}
-
-
-fn connect_and_try_crating_table(path: &Path) -> ServiceResult<Connection> {
-    let conn = Connection::open(&path)?;
-    println!("Opened {}", path.display());
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS cookies (cookie TEXT NOT NULL)",
-        &[],
-    )?;
-    Ok(conn)
 }
 
 

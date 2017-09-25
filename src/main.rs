@@ -1,6 +1,7 @@
 #![recursion_limit = "1024"]
 
 extern crate cookie;
+extern crate pbr;
 extern crate regex;
 extern crate reqwest;
 extern crate rpassword;
@@ -14,6 +15,7 @@ extern crate serde_yaml;
 extern crate term;
 extern crate toml;
 extern crate webbrowser;
+extern crate zip;
 #[macro_use]
 extern crate clap;
 #[macro_use]
@@ -33,10 +35,9 @@ mod util;
 
 use config::{Config, PropertyKey, ServiceName};
 use error::SnowchainsResult;
-use service::{atcoder, atcoder_beta};
+use service::{atcoder, atcoder_beta, hackerrank};
 
 use clap::{AppSettings, Arg, SubCommand};
-
 
 quick_main_colored!(|| -> SnowchainsResult<()> {
     fn arg_default_lang() -> Arg<'static, 'static> {
@@ -69,6 +70,13 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     }
 
     fn arg_service() -> Arg<'static, 'static> {
+        Arg::with_name("service")
+            .possible_values(&["atcoder", "atcoder-beta", "hackerrank"])
+            .help("Service name")
+            .required(true)
+    }
+
+    fn arg_service_for_participate() -> Arg<'static, 'static> {
         Arg::with_name("service")
             .possible_values(&["atcoder", "atcoder-beta"])
             .help("Service name")
@@ -130,7 +138,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     let subcommand_participate = SubCommand::with_name("participate")
         .about("Participates in a contest")
         .usage(USAGE_PARTICIPATE)
-        .arg(arg_service())
+        .arg(arg_service_for_participate())
         .arg(arg_contest());
 
     let subcommand_download = SubCommand::with_name("download")
@@ -189,6 +197,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         return Ok(match service_name {
             ServiceName::AtCoder => atcoder::login(),
             ServiceName::AtCoderBeta => atcoder_beta::login(),
+            ServiceName::HackerRank => hackerrank::login(),
         }?);
     } else if let Some(matches) = matches.subcommand_matches("participate") {
         let service_name = value_t!(matches, "service", ServiceName).unwrap();
@@ -196,6 +205,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         return Ok(match service_name {
             ServiceName::AtCoder => atcoder::participate(contest_name),
             ServiceName::AtCoderBeta => atcoder_beta::participate(contest_name),
+            ServiceName::HackerRank => unreachable!(),
         }?);
     } else if let Some(matches) = matches.subcommand_matches("download") {
         let config = Config::load_from_file()?;
@@ -208,6 +218,9 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
             ServiceName::AtCoder => atcoder::download(&contest_name, &dir_to_save, extension),
             ServiceName::AtCoderBeta => {
                 atcoder_beta::download(&contest_name, &dir_to_save, extension, open_browser)
+            }
+            ServiceName::HackerRank => {
+                hackerrank::download(&contest_name, &dir_to_save, extension, open_browser)
             }
         }?);
     } else if let Some(matches) = matches.subcommand_matches("judge") {
@@ -240,6 +253,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
                 let lang_id = config.atcoder_lang_id(lang)?;
                 atcoder_beta::submit(&contest_name, &target, lang_id, &src_path, open_browser)
             }
+            ServiceName::HackerRank => unimplemented!(),
         }?);
     }
     unreachable!();

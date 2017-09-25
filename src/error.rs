@@ -12,6 +12,7 @@ use std::process::ExitStatus;
 use std::sync::mpsc::RecvError;
 use term::{Attr, color};
 use toml;
+use zip::result::ZipError;
 
 
 pub trait PrintChainColored {
@@ -57,13 +58,15 @@ error_chain! {
     }
 
     foreign_links {
+        CookieParse(cookie::ParseError);
+        Io(io::Error);
+        Recv(RecvError);
         Reqwest(reqwest::Error);
         Rusqlite(rusqlite::Error);
-        Url(UrlError);
-        Io(io::Error);
         SerdeJson(serde_json::Error);
         SerdeUrlencodedSer(serde_urlencoded::ser::Error);
-        CookieParse(cookie::ParseError);
+        Url(UrlError);
+        Zip(ZipError);
     }
 
     errors {
@@ -87,9 +90,16 @@ error_chain! {
                 display("Failed to replace the class name in {}", path.display())
         }
 
-        UnexpectedHttpCode(expected: StatusCode, actual: StatusCode) {
+        Thread {
+            description("Error of std::thread")
+                display("Thread error")
+        }
+
+        UnexpectedHttpCode(expected: Vec<StatusCode>, actual: StatusCode) {
             description("Unexpected HTTP response code")
-                display("The response code is {}, expected {}", actual, expected)
+                display("The response code is {}, expected {}",
+                        actual,
+                        expected.iter().map(StatusCode::to_string).collect::<Vec<_>>().join(" or "))
         }
     }
 }
@@ -137,8 +147,8 @@ error_chain! {
         Io(io::Error);
         SerdeJson(serde_json::Error);
         SerdeYaml(serde_yaml::Error);
-        TomlSer(toml::ser::Error);
         TomlDe(toml::de::Error);
+        TomlSer(toml::ser::Error);
     }
 }
 

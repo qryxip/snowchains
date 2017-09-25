@@ -40,7 +40,7 @@ pub fn create_file_and_dirs(path: &Path) -> io::Result<File> {
 }
 
 
-/// Returns a `String` read from given source.
+/// Returns a `String` read from `read`.
 pub fn string_from_read<R: Read>(read: R) -> io::Result<String> {
     let mut read = read;
     let mut buf = String::new();
@@ -76,11 +76,11 @@ pub fn home_dir_as_io_result() -> io::Result<PathBuf> {
 
 pub trait OkAsRefOr {
     type Item;
-    /// Get the value `&x` if `Some(ref x) = self`.
+    /// Get the value `Ok(&x)` if `Some(ref x) = self`.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `self` is `None`.
+    /// Returns `Err(e)` if `self` is `None`.
     fn ok_as_ref_or<E>(&self, e: E) -> Result<&Self::Item, E>;
 }
 
@@ -122,17 +122,27 @@ impl<T> UnwrapAsRefMut for Option<T> {
 }
 
 
-pub trait CapitalizeFirst {
-    /// Capitalizes the first letter.
-    fn capitalize_first(&self) -> String;
+pub trait ToCamlCase {
+    /// Converts `self` to CamlCase.
+    fn to_caml_case(&self) -> String;
 }
 
-impl CapitalizeFirst for str {
-    fn capitalize_first(&self) -> String {
-        let mut chars = self.chars();
-        chars
-            .next()
-            .map(|c| format!("{}{}", c.to_uppercase(), chars.as_str()))
-            .unwrap_or_default()
+impl ToCamlCase for str {
+    fn to_caml_case(&self) -> String {
+        let mut s = String::new();
+        let mut p = true;
+        for c in self.chars() {
+            match c.to_uppercase().next() {
+                Some('-') | Some('_') => {
+                    p = true;
+                }
+                Some(c) if p => {
+                    p = false;
+                    s.push(c)
+                }
+                _ => s.push(c),
+            }
+        }
+        s
     }
 }

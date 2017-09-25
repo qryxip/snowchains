@@ -1,7 +1,7 @@
 use error::{ConfigError, ConfigErrorKind, ConfigResult};
 use judge::CommandParameters;
 use testcase::{TestCaseFileExtension, TestCaseFilePath};
-use util::{self, CapitalizeFirst};
+use util::{self, ToCamlCase};
 
 use serde_yaml;
 use std::env;
@@ -16,8 +16,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
     let csharp_or_mono = if cfg!(target_os = "windows") {
         Project::Build(BuildProject {
             name: "c#".to_owned(),
-            capitalize_src: true,
-            capitalize_bin: true,
+            camelize_src: true,
+            camelize_bin: true,
             src: PercentFormat("csharp/%/%.cs".to_owned()),
             bin: PercentFormat("csharp/%/bin/Release/%.exe".to_owned()),
             working_dir: InputPath("csharp/".to_owned()),
@@ -29,8 +29,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
     } else {
         Project::Vm(VmProject {
             name: "mono".to_owned(),
-            capitalize_src: true,
-            capitalize_bin: true,
+            camelize_src: true,
+            camelize_bin: true,
             src: PercentFormat("csharp/%/%.cs".to_owned()),
             build_working_dir: InputPath("csharp/".to_owned()),
             runtime_working_dir: InputPath("csharp/".to_owned()),
@@ -52,8 +52,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
         languages: vec![
             Project::Build(BuildProject {
                 name: "c".to_owned(),
-                capitalize_src: false,
-                capitalize_bin: false,
+                camelize_src: false,
+                camelize_bin: false,
                 src: PercentFormat("c/%.c".to_owned()),
                 bin: PercentFormat("c/build/%".to_owned()),
                 working_dir: InputPath("c/".to_owned()),
@@ -62,8 +62,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             }),
             Project::Build(BuildProject {
                 name: "c++".to_owned(),
-                capitalize_src: false,
-                capitalize_bin: false,
+                camelize_src: false,
+                camelize_bin: false,
                 src: PercentFormat("cc/%.cc".to_owned()),
                 bin: PercentFormat("cc/build/%".to_owned()),
                 working_dir: InputPath("cc/".to_owned()),
@@ -72,8 +72,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             }),
             Project::Build(BuildProject {
                 name: "rust".to_owned(),
-                capitalize_src: false,
-                capitalize_bin: false,
+                camelize_src: false,
+                camelize_bin: false,
                 src: PercentFormat("rust/src/bin/%.rs".to_owned()),
                 bin: PercentFormat("rust/target/release/%".to_owned()),
                 working_dir: InputPath("rust/".to_owned()),
@@ -82,8 +82,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             }),
             Project::Build(BuildProject {
                 name: "haskell".to_owned(),
-                capitalize_src: true,
-                capitalize_bin: false,
+                camelize_src: true,
+                camelize_bin: false,
                 src: PercentFormat("haskell/src/%.hs".to_owned()),
                 bin: PercentFormat("~/.local/bin/problem-%".to_owned()),
                 working_dir: InputPath("haskell/".to_owned()),
@@ -93,8 +93,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             csharp_or_mono,
             Project::Vm(VmProject {
                 name: "java".to_owned(),
-                capitalize_src: true,
-                capitalize_bin: true,
+                camelize_src: true,
+                camelize_bin: true,
                 src: PercentFormat("java/src/main/java/%.java".to_owned()),
                 build_working_dir: InputPath("java/".to_owned()),
                 runtime_working_dir: InputPath("java/build/classes/java/main/".to_owned()),
@@ -106,8 +106,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             }),
             Project::Vm(VmProject {
                 name: "scala".to_owned(),
-                capitalize_src: true,
-                capitalize_bin: true,
+                camelize_src: true,
+                camelize_bin: true,
                 src: PercentFormat("scala/src/main/scala/%.scala".to_owned()),
                 build_working_dir: InputPath("scala/".to_owned()),
                 runtime_working_dir: InputPath("scala/target/scala-2.12/classes/".to_owned()),
@@ -117,7 +117,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             }),
             Project::Script(ScriptProject {
                 name: "python3".to_owned(),
-                capitalize: false,
+                camelize: false,
                 src: PercentFormat("python/%.py".to_owned()),
                 working_dir: InputPath("python/".to_owned()),
                 runtime: Some(PercentFormat("python3 %".to_owned())),
@@ -298,6 +298,8 @@ pub enum ServiceName {
     AtCoder,
     #[serde(rename = "atcoder-beta")]
     AtCoderBeta,
+    #[serde(rename = "hackerrank")]
+    HackerRank,
 }
 
 impl FromStr for ServiceName {
@@ -308,6 +310,7 @@ impl FromStr for ServiceName {
         return match &s {
             s if s == "atcoder" => Ok(ServiceName::AtCoder),
             s if s == "atcoder-beta" => Ok(ServiceName::AtCoderBeta),
+            s if s == "hackerrank" => Ok(ServiceName::HackerRank),
             _ => Err(()),
         };
     }
@@ -372,17 +375,17 @@ impl Project {
     }
 
     fn src(&self, base: &Path, target_name: &str) -> io::Result<PathBuf> {
-        let capitalize = match *self {
-            Project::Script(ScriptProject { capitalize, .. }) => capitalize,
-            Project::Build(BuildProject { capitalize_src, .. }) => capitalize_src,
-            Project::Vm(VmProject { capitalize_src, .. }) => capitalize_src,
+        let camelize = match *self {
+            Project::Script(ScriptProject { camelize, .. }) => camelize,
+            Project::Build(BuildProject { camelize_src, .. }) => camelize_src,
+            Project::Vm(VmProject { camelize_src, .. }) => camelize_src,
         };
         let src = match *self {
             Project::Script(ScriptProject { ref src, .. }) => src,
             Project::Build(BuildProject { ref src, .. }) => src,
             Project::Vm(VmProject { ref src, .. }) => src,
         };
-        src.resolve_as_path(base, target_name, capitalize)
+        src.resolve_as_path(base, target_name, camelize)
     }
 
     fn atcoder_lang_id(&self) -> Option<u32> {
@@ -416,7 +419,7 @@ impl Project {
     ) -> io::Result<CommandParameters> {
         match *self {
             Project::Script(ScriptProject {
-                                capitalize,
+                                camelize,
                                 ref working_dir,
                                 ref runtime,
                                 ..
@@ -424,19 +427,19 @@ impl Project {
                 let working_dir = working_dir.resolve(base)?;
                 let o = self.src(base, target_name)?.to_string_lossy().to_string();
                 Ok(if let Some(ref runtime) = *runtime {
-                    runtime.to_run_command(&o, capitalize, working_dir)
+                    runtime.to_run_command(&o, camelize, working_dir)
                 } else {
                     CommandParameters::new(o, vec![], working_dir)
                 })
             }
             Project::Build(BuildProject {
-                               capitalize_bin,
+                               camelize_bin,
                                ref bin,
                                ref working_dir,
                                ..
                            }) => {
                 let working_dir = working_dir.resolve(base)?;
-                let mut bin_path = bin.resolve_as_path(base, target_name, capitalize_bin)?;
+                let mut bin_path = bin.resolve_as_path(base, target_name, camelize_bin)?;
                 if cfg!(target_os = "windows") {
                     bin_path.set_extension("exe");
                 }
@@ -447,14 +450,14 @@ impl Project {
                 ))
             }
             Project::Vm(VmProject {
-                            capitalize_bin,
+                            camelize_bin,
                             ref runtime_working_dir,
                             ref runtime,
                             ..
                         }) => {
                 Ok(runtime.to_run_command(
                     target_name,
-                    capitalize_bin,
+                    camelize_bin,
                     runtime_working_dir.resolve(base)?,
                 ))
             }
@@ -467,7 +470,7 @@ impl Project {
 struct ScriptProject {
     name: String,
     #[serde(default)]
-    capitalize: bool,
+    camelize: bool,
     src: PercentFormat,
     working_dir: InputPath,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -481,9 +484,9 @@ struct ScriptProject {
 struct BuildProject {
     name: String,
     #[serde(default)]
-    capitalize_src: bool,
+    camelize_src: bool,
     #[serde(default)]
-    capitalize_bin: bool,
+    camelize_bin: bool,
     src: PercentFormat,
     bin: PercentFormat,
     working_dir: InputPath,
@@ -498,9 +501,9 @@ struct BuildProject {
 struct VmProject {
     name: String,
     #[serde(default = "always_true")]
-    capitalize_src: bool,
+    camelize_src: bool,
     #[serde(default = "always_true")]
-    capitalize_bin: bool,
+    camelize_bin: bool,
     src: PercentFormat,
     build_working_dir: InputPath,
     runtime_working_dir: InputPath,
@@ -541,27 +544,22 @@ impl PercentFormat {
         &self,
         base: &Path,
         target_name: &str,
-        capitalize: bool,
+        camelize: bool,
     ) -> io::Result<PathBuf> {
-        let rel_path = InputPath(self.format(&target_name, capitalize));
+        let rel_path = InputPath(self.format(&target_name, camelize));
         rel_path.resolve(base)
     }
 
-    fn to_run_command(
-        &self,
-        arg: &str,
-        capitalize: bool,
-        working_dir: PathBuf,
-    ) -> CommandParameters {
-        CommandParameters::wrap_in_sh_or_cmd_if_necessary(self.format(arg, capitalize), working_dir)
+    fn to_run_command(&self, arg: &str, camelize: bool, working_dir: PathBuf) -> CommandParameters {
+        CommandParameters::wrap_in_sh_or_cmd_if_necessary(self.format(arg, camelize), working_dir)
     }
 
-    fn format(&self, arg: &str, capitalize: bool) -> String {
+    fn format(&self, arg: &str, camelize: bool) -> String {
         // e.g.
         // `PercentFormat("cc/%.cc".to_owned()).format("a", false) == "cc/a.cc"`
         // `PercentFormat("csharp/%/%.cs".to_owned()).format("a", true) == "csharp/A/A.cs"`
-        let arg = if capitalize {
-            arg.capitalize_first()
+        let arg = if camelize {
+            arg.to_caml_case()
         } else {
             arg.to_owned()
         };
