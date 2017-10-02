@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::thread;
 use term::{Attr, color};
 use zip::ZipArchive;
+use zip::result::ZipResult;
 
 
 pub struct ScrapingSession {
@@ -37,18 +38,20 @@ impl ScrapingSession {
             path.push(sqlite_name);
             path
         };
-        let conn = Connection::open(&path)?;
+        let mut conn = Connection::open(&path)?;
         println!("Opened {}", path.display());
-        let _ = conn.execute(
-            "CREATE TABLE IF NOT EXISTS cookies (cookie TEXT NOT NULL)",
-            &[],
-        )?;
         let cookie_jar = {
+            let transaction = conn.transaction()?;
+            let sql = "CREATE TABLE IF NOT EXISTS cookie (cookie TEXT NOT NULL)";
+            transaction.execute(sql, &[])?;
             let mut cookie_jar = CookieJar::new();
-            let mut stmt = conn.prepare("SELECT cookie FROM cookies")?;
-            for cookie in stmt.query_map::<String, _>(&[], |row| row.get(0))? {
-                cookie_jar.add(Cookie::parse(cookie?)?);
+            {
+                let mut stmt = transaction.prepare("SELECT cookie FROM cookie")?;
+                for cookie in stmt.query_map::<String, _>(&[], |row| row.get(0))? {
+                    cookie_jar.add(Cookie::parse(cookie?)?);
+                }
             }
+            transaction.commit()?;
             cookie_jar
         };
         let client = Client::builder()?.redirect(RedirectPolicy::none()).build()?;
@@ -158,40 +161,41 @@ impl ScrapingSession {
         urls: &[String],
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
         let mut responses = vec![];
-        for ref url in urls {
-            responses.push(self.http_get(url.as_str())?);
+        for url in urls {
+            responses.push(self.http_get(&url)?);
         }
+
         println!("Downloading...");
         let mut mb = MultiBar::new();
-        let mut handles = vec![];
-        for mut response in responses.into_iter() {
-            let content_length = response.headers().get::<ContentLength>().map(|l| **l);
-            let mut pb = mb.create_bar(content_length.unwrap_or(0));
-            pb.set_units(Units::Bytes);
-            handles.push(thread::spawn(
-                move || -> ServiceResult<ZipArchive<Cursor<Vec<u8>>>> {
-                    let mut cursor = Cursor::new(Vec::<u8>::with_capacity(
+        let handles = responses
+            .into_iter()
+            .map(|mut response| {
+                let content_length = response.headers().get::<ContentLength>().map(|l| **l);
+                let mut pb = mb.create_bar(content_length.unwrap_or(0));
+                pb.set_units(Units::Bytes);
+                thread::spawn(move || -> ZipResult<_> {
+                    let mut cursor = Cursor::new(Vec::with_capacity(
                         content_length.unwrap_or(50 * 1024 * 1024) as usize,
                     ));
                     let mut buf = [0; 10 * 1024];
                     loop {
                         let n = response.read(&mut buf)?;
                         if n == 0 {
-                            break;
+                            pb.finish();
+                            break ZipArchive::new(cursor);
                         }
                         cursor.write(&buf[0..n])?;
-                        let num_bytes = cursor.position();
+                        let pos = cursor.position();
                         if content_length.is_none() {
-                            pb.total = num_bytes;
+                            pb.total = pos;
                         }
-                        pb.set(num_bytes);
+                        pb.set(pos);
                     }
-                    pb.finish();
-                    Ok(ZipArchive::new(cursor)?)
-                },
-            ));
-        }
+                })
+            })
+            .collect::<Vec<_>>();
         mb.listen();
+
         let mut zips = vec![];
         for handle in handles.into_iter() {
             zips.push(match handle.join() {
@@ -255,13 +259,15 @@ impl ScrapingSession {
 
     /// Save all cookies to the sqlite database, erasing previous cookies.
     pub fn save_cookie_to_db(self) -> ServiceResult<()> {
-        let (conn, path) = self.sqlite;
-        let _ = conn.execute("DELETE FROM cookies", &[])?;
-        for cookie in self.cookie_jar.iter().map(Cookie::to_string) {
-            let _ = conn.execute(
-                "INSERT INTO cookies (cookie) VALUES (?1)",
-                &[&cookie],
-            )?;
+        let (mut conn, path) = self.sqlite;
+        {
+            let transaction = conn.transaction()?;
+            transaction.execute("DELETE FROM cookie", &[])?;
+            for cookie in self.cookie_jar.iter().map(Cookie::to_string) {
+                let sql = "INSERT INTO cookie VALUES (?1)";
+                transaction.execute(sql, &[&cookie])?;
+            }
+            transaction.commit()?;
         }
         let path = path.display();
         match conn.close() {

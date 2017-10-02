@@ -6,18 +6,14 @@ use std::path::{Path, PathBuf};
 
 /// Calls `File::open(path)` and if the result is `Err`, replace the error with new one which
 /// message contains `path`.
-pub fn open_file_remembering_path(path: &Path) -> io::Result<File> {
-    match File::open(path) {
-        Ok(file) => Ok(file),
-        Err(ref e) if e.kind() == io::ErrorKind::NotFound => Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("No such file: {:?}", path),
-        )),
-        Err(ref e) => Err(io::Error::new(
-            e.kind(),
-            format!("IO error occured while opening {:?}: {}", path, e),
-        )),
-    }
+pub fn open_file(path: &Path) -> io::Result<File> {
+    File::open(path).map_err(|e| if e.kind() == io::ErrorKind::NotFound {
+        let message = format!("No such file: {:?}", path);
+        io::Error::new(io::ErrorKind::NotFound, message)
+    } else {
+        let message = format!("An IO error occured while opening {:?}: {}", path, e);
+        io::Error::new(e.kind(), message)
+    })
 }
 
 
@@ -26,17 +22,14 @@ pub fn create_file_and_dirs(path: &Path) -> io::Result<File> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    match File::create(path) {
-        Ok(file) => Ok(file),
-        Err(ref e) => Err(io::Error::new(
-            e.kind(),
-            format!(
-                "IO error occured while opening/creating {:?}: {}",
-                path,
-                e
-            ),
-        )),
-    }
+    File::create(path).map_err(|e| {
+        let message = format!(
+            "An IO error occured while opening/creating {:?}: {}",
+            path,
+            e
+        );
+        io::Error::new(e.kind(), message)
+    })
 }
 
 
@@ -49,9 +42,9 @@ pub fn string_from_read<R: Read>(read: R) -> io::Result<String> {
 }
 
 
-/// Equals to `string_from_read(open_file_remembering_path(path)?)`.
+/// Equals to `string_from_read(open_file(path)?)`.
 pub fn string_from_file_path(path: &Path) -> io::Result<String> {
-    string_from_read(open_file_remembering_path(path)?)
+    string_from_read(open_file(path)?)
 }
 
 

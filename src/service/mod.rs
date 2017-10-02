@@ -48,7 +48,7 @@ fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> ServiceResu
 
 /// Reads a source code from `path`, replacing a class name with `class_name` if necessary.
 fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> ServiceResult<String> {
-    fn replace(file: File, regex: Regex, class_name: &'static str) -> io::Result<Option<String>> {
+    let replace = move |file: File, regex: Regex, stem: &OsStr| -> io::Result<Option<String>> {
         let code = BufReader::new(file);
         let mut replaced = vec![];
         let mut is_replaced = false;
@@ -56,30 +56,32 @@ fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> Ser
             let line = line?;
             if !is_replaced {
                 if let Some(caps) = regex.captures(&line) {
-                    replaced.push(format!("{}{}{}", &caps[1], class_name, &caps[3]));
-                    is_replaced = true;
-                    continue;
+                    if OsStr::new(&caps[2]) == stem {
+                        replaced.push(format!("{}{}{}", &caps[1], class_name, &caps[3]));
+                        is_replaced = true;
+                        continue;
+                    }
                 }
             }
             replaced.push(line);
         }
 
         Ok(if is_replaced {
-            replaced.push("\n".to_owned());
             Some(replaced.join("\n"))
         } else {
             None
         })
-    }
+    };
 
-    let file = util::open_file_remembering_path(path)?;
+    let file = util::open_file(path)?;
+    let stem = path.file_stem().unwrap_or_default();
     let e = || ServiceError::from(ServiceErrorKind::ReplacingClassNameFailure(path.to_owned()));
     if path.extension() == Some(OsStr::new("java")) {
-        let regex = Regex::new(r"^(public\s+class\s+)([a-zA-Z0-9_]+)(.*)$").unwrap();
-        replace(file, regex, class_name)?.ok_or_else(e)
+        let regex = Regex::new(r"^(public\s+class\s+)([a-zA-Z_\$][a-zA-Z0-9_\$]*)(.*)$").unwrap();
+        replace(file, regex, stem)?.ok_or_else(e)
     } else if path.extension() == Some(OsStr::new("scala")) {
-        let regex = Regex::new(r"^(object\s+)([a-zA-Z0-9_]+)(.*)$").unwrap();
-        replace(file, regex, class_name)?.ok_or_else(e)
+        let regex = Regex::new(r"^(object\s+)([a-zA-Z_\$][a-zA-Z0-9_\$]*)(.*)$").unwrap();
+        replace(file, regex, stem)?.ok_or_else(e)
     } else {
         Ok(util::string_from_read(file)?)
     }

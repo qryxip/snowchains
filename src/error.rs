@@ -43,6 +43,7 @@ error_chain!{
     links {
         Service(ServiceError, ServiceErrorKind);
         Judge(JudgeError, JudgeErrorKind);
+        TestCase(TestCaseError, TestCaseErrorKind);
         Config(ConfigError, ConfigErrorKind);
     }
 }

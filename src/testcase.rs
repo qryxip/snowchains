@@ -11,10 +11,14 @@ use std::vec;
 use toml;
 
 
+pub fn append(path: &TestCaseFilePath, input: &str, output: Option<&str>) -> TestCaseResult<()> {
+    Cases::load(&path)?.append(input, output).save(&path)
+}
+
+
 /// Set of the timelimit and test cases.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Cases {
-    #[serde(skip_serializing_if = "Option::is_none")]
     timelimit: Option<u64>,
     cases: Vec<Case>,
 }
@@ -47,13 +51,7 @@ impl Cases {
             timelimit: timelimit,
             cases: cases
                 .into_iter()
-                .map(|(expected, input)| {
-                    Case {
-                        timelimit: None,
-                        expected: Some(NonNestedValue::NonArray(NonArrayValue::String(expected))),
-                        input: NonNestedValue::NonArray(NonArrayValue::String(input)),
-                    }
-                })
+                .map(|(output, input)| Case::from_strings(input, Some(output)))
                 .collect(),
         }
     }
@@ -95,6 +93,12 @@ impl Cases {
         println!("Saved to {}", path.display());
         Ok(())
     }
+
+    fn append(self, input: &str, output: Option<&str>) -> Self {
+        let mut this = self;
+        this.cases.push(Case::from_strings(input, output));
+        this
+    }
 }
 
 
@@ -115,6 +119,16 @@ impl Into<(String, String, Option<u64>)> for Case {
             self.expected.map(|x| x.into()).unwrap_or_default(),
             self.timelimit,
         )
+    }
+}
+
+impl Case {
+    fn from_strings<S1: Into<String>, S2: Into<String>>(input: S1, output: Option<S2>) -> Self {
+        Self {
+            input: NonNestedValue::string(input.into()),
+            expected: output.map(|s| NonNestedValue::string(s.into())),
+            timelimit: None,
+        }
     }
 }
 
@@ -215,6 +229,12 @@ impl Into<String> for NonNestedValue {
                 s
             }
         }
+    }
+}
+
+impl NonNestedValue {
+    fn string<S: Into<String>>(s: S) -> Self {
+        NonNestedValue::NonArray(NonArrayValue::String(s.into()))
     }
 }
 

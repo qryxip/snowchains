@@ -39,6 +39,7 @@ use service::{atcoder, atcoder_beta, hackerrank};
 
 use clap::{AppSettings, Arg, SubCommand};
 
+
 quick_main_colored!(|| -> SnowchainsResult<()> {
     fn arg_default_lang() -> Arg<'static, 'static> {
         Arg::with_name("default-lang")
@@ -99,6 +100,16 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         Arg::with_name("target").help("Target name").required(true)
     }
 
+    fn arg_input() -> Arg<'static, 'static> {
+        Arg::with_name("input")
+            .help("\"input\" value to append")
+            .required(true)
+    }
+
+    fn arg_output() -> Arg<'static, 'static> {
+        Arg::with_name("output").help("\"expected\" value to append")
+    }
+
     fn arg_lang() -> Arg<'static, 'static> {
         Arg::with_name("lang").help("Language name")
     }
@@ -114,6 +125,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     static USAGE_LOGIN: &'static str = "snowchains login <service>";
     static USAGE_PARTICIPATE: &'static str = "snowchains participate <service> <contest>";
     static USAGE_DOWNLOAD: &'static str = "snowchains download [--open-browser]";
+    static USAGE_APPEND: &'static str = "snowchains append <target> <input> [output]";
     static USAGE_JUDGE: &'static str = "snowchains judge <target> [lang]";
     static USAGE_SUBMIT: &'static str = "snowchains submit <target> [lang] [--skip-judging] \
                                          [--open-browser]";
@@ -146,6 +158,13 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         .usage(USAGE_DOWNLOAD)
         .arg(arg_open_browser());
 
+    let subcommand_append = SubCommand::with_name("append")
+        .about("Appends a test case to a file")
+        .usage(USAGE_APPEND)
+        .arg(arg_target())
+        .arg(arg_input())
+        .arg(arg_output());
+
     let subcommand_judge = SubCommand::with_name("judge")
         .about("Tests a binary or script")
         .usage(USAGE_JUDGE)
@@ -165,12 +184,13 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         .setting(AppSettings::VersionlessSubcommands)
         .usage(
             format!(
-                "{}\n    {}\n    {}\n    {}\n    {}\n    {}\n    {}",
+                "{}\n    {}\n    {}\n    {}\n    {}\n    {}\n    {}\n    {}",
                 USAGE_INIT_CONFIG,
                 USAGE_SET,
                 USAGE_LOGIN,
                 USAGE_PARTICIPATE,
                 USAGE_DOWNLOAD,
+                USAGE_APPEND,
                 USAGE_JUDGE,
                 USAGE_SUBMIT
             ).as_str(),
@@ -180,8 +200,9 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         .subcommand(subcommand_login.display_order(3))
         .subcommand(subcommand_participate.display_order(4))
         .subcommand(subcommand_download.display_order(5))
-        .subcommand(subcommand_judge.display_order(6))
-        .subcommand(subcommand_submit.display_order(7))
+        .subcommand(subcommand_append.display_order(6))
+        .subcommand(subcommand_judge.display_order(7))
+        .subcommand(subcommand_submit.display_order(8))
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("init-config") {
@@ -223,6 +244,13 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
                 hackerrank::download(&contest_name, &dir_to_save, extension, open_browser)
             }
         }?);
+    } else if let Some(matches) = matches.subcommand_matches("append") {
+        let config = Config::load_from_file()?;
+        let target = matches.value_of("target").unwrap();
+        let input = matches.value_of("input").unwrap();
+        let output = matches.value_of("output");
+        let path = config.testcase_path(target)?;
+        return Ok(testcase::append(&path, input, output)?);
     } else if let Some(matches) = matches.subcommand_matches("judge") {
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();

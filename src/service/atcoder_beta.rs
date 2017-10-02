@@ -382,17 +382,17 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<Cases> {
                 None
             };
         }
-        return_none_unless!(!samples.is_empty());
+        return_none_if!(samples.is_empty());
         Some(samples)
     }
 
     fn extract(document: Document) -> Option<Cases> {
         let timelimit = try_opt!(extract_timelimit_as_millis(&document));
         let samples = {
-            let re_in_ja = Regex::new(r"^入力例 \d+$").unwrap();
-            let re_out_ja = Regex::new(r"^出力例 \d+$").unwrap();
-            let re_in_en = Regex::new(r"^Sample Input \d+$").unwrap();
-            let re_out_en = Regex::new(r"^Sample Output \d+$").unwrap();
+            let re_in_ja = Regex::new(r"^入力例 \d+.*$").unwrap();
+            let re_out_ja = Regex::new(r"^出力例 \d+.*$").unwrap();
+            let re_in_en = Regex::new(r"^Sample Input \d+.*$").unwrap();
+            let re_out_en = Regex::new(r"^Sample Output \d+.*$").unwrap();
             if let Some(samples) = extract_for_lang(&document, re_in_ja, re_out_ja, "lang-ja") {
                 samples
             } else {
@@ -402,7 +402,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<Cases> {
         Some(Cases::from_text(Some(timelimit), samples))
     }
 
-    super::quit_on_failure(extract(document), Cases::is_empty)
+    Ok(extract(document).unwrap_or(Cases::from_text(None, vec![])))
 }
 
 

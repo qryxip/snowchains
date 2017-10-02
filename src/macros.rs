@@ -23,6 +23,15 @@ macro_rules! try_opt {
 }
 
 
+macro_rules! return_none_if {
+    ($x: expr) => {
+        if $x {
+            return None;
+        }
+    }
+}
+
+
 macro_rules! return_none_unless {
     ($x: expr) => {
         if !$x {
