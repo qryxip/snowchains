@@ -8,28 +8,26 @@ use select::document::Document;
 use select::node::Node;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
 use std::io::Read;
-use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use webbrowser;
 
 
 /// Logins to "beta.atcoder.jp".
 pub fn login() -> ServiceResult<()> {
-    AtCoderBeta::load_or_login(Some("Already signed in."))?
-        .save()
+    AtCoderBeta::start(true)?.save()
 }
 
 
 /// Participates in given contest.
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
     let contest = &Contest::new(contest_name);
-    let mut atcoder = AtCoderBeta::load_or_login(None)?;
+    let mut atcoder = AtCoderBeta::start(false)?;
     atcoder.register_to_contest(contest)?;
     atcoder.save()
 }
 
 
-/// Access to pages of the problems and extract pairs of sample input/output from them.
+/// Accesses to pages of the problems and extract pairs of sample input/output from them.
 pub fn download(
     contest_name: &str,
     dir_to_save: &Path,
@@ -37,7 +35,7 @@ pub fn download(
     open_browser: bool,
 ) -> ServiceResult<()> {
     let contest = Contest::new(contest_name);
-    let mut atcoder = AtCoderBeta::load_or_login(None)?;
+    let mut atcoder = AtCoderBeta::start(false)?;
     atcoder.register_to_contest(&contest)?;
     atcoder.download_all_tasks(
         contest,
@@ -56,9 +54,10 @@ pub fn submit(
     lang_id: u32,
     src_path: &Path,
     open_browser: bool,
+    force: bool,
 ) -> ServiceResult<()> {
     let contest = Contest::new(contest_name);
-    let mut atcoder = AtCoderBeta::load_or_login(None)?;
+    let mut atcoder = AtCoderBeta::start(false)?;
     atcoder.register_to_contest(&contest)?;
     atcoder.submit_code(
         contest,
@@ -66,32 +65,23 @@ pub fn submit(
         lang_id,
         src_path,
         open_browser,
+        force,
     )?;
     atcoder.save()
 }
 
 
-struct AtCoderBeta(ScrapingSession);
-
-impl Deref for AtCoderBeta {
-    type Target = ScrapingSession;
-    fn deref(&self) -> &ScrapingSession {
-        &self.0
-    }
-}
-
-impl DerefMut for AtCoderBeta {
-    fn deref_mut(&mut self) -> &mut ScrapingSession {
-        &mut self.0
-    }
+custom_derive! {
+    #[derive(NewtypeDeref, NewtypeDerefMut)]
+    struct AtCoderBeta(ScrapingSession);
 }
 
 impl AtCoderBeta {
-    fn load_or_login(message: Option<&'static str>) -> ServiceResult<Self> {
+    fn start(eprints_message_if_already_logged_in: bool) -> ServiceResult<Self> {
         let mut atcoder = AtCoderBeta(ScrapingSession::start("atcoder-beta.sqlite3")?);
-        if !atcoder.no_cookie() && atcoder.http_get("https://beta.atcoder.jp/settings").is_ok() {
-            if let Some(message) = message {
-                println!("{}", message);
+        if atcoder.has_cookie() && atcoder.http_get("https://beta.atcoder.jp/settings").is_ok() {
+            if eprints_message_if_already_logged_in {
+                eprintln!("Already logged in.");
             }
         } else {
             atcoder.login()?;
@@ -135,9 +125,9 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
-        let token =
-            PostData { csrf_token: extract_csrf_token(self.http_get(&contest.top_url())?)? };
-        self.http_post_urlencoded(&contest.registration_url(), token, StatusCode::Found)
+        let csrf_token = extract_csrf_token(self.http_get(&contest.top_url())?)?;
+        let data = PostData { csrf_token: csrf_token };
+        self.http_post_urlencoded(&contest.registration_url(), data, StatusCode::Found)
             .map(|_| ())
     }
 
@@ -176,6 +166,7 @@ impl AtCoderBeta {
         lang_id: u32,
         src_path: &Path,
         open_browser: bool,
+        force: bool,
     ) -> ServiceResult<()> {
         #[derive(Serialize)]
         struct PostData {
@@ -199,6 +190,19 @@ impl AtCoderBeta {
                         break;
                     }
                 };
+                if !(force || contest.is_practice()) {
+                    let url = contest.standings_url();
+                    let (c1, c2) = (StatusCode::Ok, StatusCode::Found);
+                    if self.http_get_as_opt(&url, c1, c2)?.is_none() {
+                        let page = self.http_get(&contest.submissions_url())?;
+                        if check_if_accepted(page, &task_screen_name)? {
+                            return Ok(eprintln!(
+                                "Your code seems to be already accepted. Append \"--force\" to \
+                                 force submit."
+                            ));
+                        }
+                    }
+                }
                 let source_code = super::replace_class_name_if_necessary(src_path, "Main")?;
                 let csrf_token = {
                     let url = format!("https://beta.atcoder.jp{}", relative_url);
@@ -230,9 +234,10 @@ impl AtCoderBeta {
 
 
 enum Contest {
+    Practice,
     AbcBefore007(u32),
     Abc(u32),
-    ArcBefore019(u32),
+    ArcBefore058(u32),
     Arc(u32),
     Agc(u32),
     ChokudaiS(u32),
@@ -249,8 +254,8 @@ impl Contest {
                 return Contest::AbcBefore007(number);
             } else if name == "abc" {
                 return Contest::Abc(number);
-            } else if name == "arc" && number < 19 {
-                return Contest::ArcBefore019(number);
+            } else if name == "arc" && number < 58 {
+                return Contest::ArcBefore058(number);
             } else if name == "arc" {
                 return Contest::Arc(number);
             } else if name == "agc" {
@@ -258,6 +263,8 @@ impl Contest {
             } else if name == "chokudai_s" || name == "chokudais" {
                 return Contest::ChokudaiS(number);
             }
+        } else if s == "practice" {
+            return Contest::Practice;
         }
         Contest::Other(s.to_owned())
     }
@@ -265,17 +272,25 @@ impl Contest {
     fn style(&self) -> SampleCaseStyle {
         match *self {
             Contest::AbcBefore007(_) |
-            Contest::ArcBefore019(_) => SampleCaseStyle::Old,
+            Contest::ArcBefore058(_) => SampleCaseStyle::Old,
             _ => SampleCaseStyle::New,
+        }
+    }
+
+    fn is_practice(&self) -> bool {
+        match *self {
+            Contest::Practice => true,
+            _ => false,
         }
     }
 
     fn top_url(&self) -> String {
         static BASE: &'static str = "https://beta.atcoder.jp/contests/";
         match *self {
+            Contest::Practice => format!("{}practice", BASE),
             Contest::AbcBefore007(n) => format!("{}abc{:>03}", BASE, n),
             Contest::Abc(n) => format!("{}abc{:>03}", BASE, n),
-            Contest::ArcBefore019(n) => format!("{}arc{:>03}", BASE, n),
+            Contest::ArcBefore058(n) => format!("{}arc{:>03}", BASE, n),
             Contest::Arc(n) => format!("{}arc{:>03}", BASE, n),
             Contest::Agc(n) => format!("{}agc{:>03}", BASE, n),
             Contest::ChokudaiS(n) => format!("{}chokudai_s{:>03}", BASE, n),
@@ -297,6 +312,10 @@ impl Contest {
 
     fn submissions_url(&self) -> String {
         format!("{}/submissions/me", self.top_url())
+    }
+
+    fn standings_url(&self) -> String {
+        format!("{}/standings", self.top_url())
     }
 }
 
@@ -387,7 +406,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<Cases> {
     }
 
     fn extract(document: Document) -> Option<Cases> {
-        let timelimit = try_opt!(extract_timelimit_as_millis(&document));
+        let timelimit = extract_timelimit_as_millis(&document);
         let samples = {
             let re_in_ja = Regex::new(r"^入力例 \d+.*$").unwrap();
             let re_out_ja = Regex::new(r"^出力例 \d+.*$").unwrap();
@@ -399,7 +418,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<Cases> {
                 try_opt!(extract_for_lang(&document, re_in_en, re_out_en, "lang-en"))
             }
         };
-        Some(Cases::from_text(Some(timelimit), samples))
+        Some(Cases::from_text(timelimit, samples))
     }
 
     Ok(extract(document).unwrap_or(Cases::from_text(None, vec![])))
@@ -416,4 +435,39 @@ fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
     let text = try_opt!(document.find(predicate).next()).text();
     let caps = try_opt!(re_timelimit.captures(&text));
     Some(1000 * try_opt!(caps[1].parse::<u64>().ok()))
+}
+
+
+fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<bool> {
+    fn check(document: Document, task_screen_name: &str) -> Option<bool> {
+        let regex = Regex::new(r"^/contests/\w+/tasks/(\w+)$").unwrap();
+        let predicate = Attr("id", "main-container")
+            .child(And(Name("div"), Class("row")))
+            .child(And(Name("div"), Class("col-sm-12")))
+            .child(And(Name("div"), Class("panel-submission")))
+            .child(And(Name("div"), Class("table-responsive")))
+            .child(And(Name("table"), Class("table")))
+            .child(Name("tbody"))
+            .child(Name("tr"));
+        for node in document.find(predicate) {
+            let url =
+                try_opt!(try_opt!(node.find(Name("td").child(Name("a"))).nth(0)).attr("href"));
+            if let Some(caps) = regex.captures(url) {
+                if &caps[1] == task_screen_name {
+                    let predicate = Name("td").child(Name("span")).child(Text);
+                    if let Some(node) = node.find(predicate).nth(0) {
+                        if node.text() == "AC" {
+                            return Some(true);
+                        }
+                    }
+                }
+            }
+        }
+        Some(false)
+    }
+
+    match check(Document::from_read(html)?, task_screen_name) {
+        Some(p) => Ok(p),
+        None => bail!(ServiceErrorKind::ScrapingFailed),
+    }
 }

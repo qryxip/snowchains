@@ -9,7 +9,6 @@ use select::document::Document;
 use select::predicate::Attr;
 use serde_json;
 use std::io::{Read, Seek};
-use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use webbrowser;
 use zip::ZipArchive;
@@ -33,19 +32,9 @@ pub fn download(
 }
 
 
-struct HackerRank(ScrapingSession);
-
-impl Deref for HackerRank {
-    type Target = ScrapingSession;
-    fn deref(&self) -> &ScrapingSession {
-        &self.0
-    }
-}
-
-impl DerefMut for HackerRank {
-    fn deref_mut(&mut self) -> &mut ScrapingSession {
-        &mut self.0
-    }
+custom_derive! {
+    #[derive(NewtypeDeref, NewtypeDerefMut)]
+    struct HackerRank(ScrapingSession);
 }
 
 impl HackerRank {

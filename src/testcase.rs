@@ -90,14 +90,16 @@ impl Cases {
             TestCaseFileExtension::Yml => serde_yaml::to_string(self)?,
         };
         file.write_all(serialized.as_bytes())?;
-        println!("Saved to {}", path.display());
-        Ok(())
+        Ok(if self.is_empty() {
+            println!("Saved to {} (no sample extracted)", path.display());
+        } else {
+            println!("Saved to {}", path.display());
+        })
     }
 
-    fn append(self, input: &str, output: Option<&str>) -> Self {
-        let mut this = self;
-        this.cases.push(Case::from_strings(input, output));
-        this
+    fn append(mut self, input: &str, output: Option<&str>) -> Self {
+        self.cases.push(Case::from_strings(input, output));
+        self
     }
 }
 

@@ -8,7 +8,6 @@ use select::document::Document;
 use select::node::Node;
 use select::predicate::{Attr as HtmlAttr, Class, Name, Predicate, Text};
 use std::io::Read;
-use std::ops::{Deref, DerefMut};
 use std::path::Path;
 
 
@@ -41,19 +40,9 @@ pub fn download(
 }
 
 
-struct AtCoder(ScrapingSession);
-
-impl Deref for AtCoder {
-    type Target = ScrapingSession;
-    fn deref(&self) -> &ScrapingSession {
-        &self.0
-    }
-}
-
-impl DerefMut for AtCoder {
-    fn deref_mut(&mut self) -> &mut ScrapingSession {
-        &mut self.0
-    }
+custom_derive! {
+    #[derive(NewtypeDeref, NewtypeDerefMut)]
+    struct AtCoder(ScrapingSession);
 }
 
 impl AtCoder {

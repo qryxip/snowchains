@@ -19,7 +19,11 @@ extern crate zip;
 #[macro_use]
 extern crate clap;
 #[macro_use]
+extern crate custom_derive;
+#[macro_use]
 extern crate error_chain;
+#[macro_use]
+extern crate newtype_derive;
 #[macro_use]
 extern crate serde_derive;
 
@@ -120,6 +124,12 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         )
     }
 
+    fn arg_force() -> Arg<'static, 'static> {
+        Arg::with_name("force").long("force").help(
+            "Whether to submit even if the contest is active and your code is already accepted",
+        )
+    }
+
     static USAGE_INIT_CONFIG: &'static str = "snowchains init-config <default-lang> <dir>";
     static USAGE_SET: &'static str = "snowchains set <key> <value>";
     static USAGE_LOGIN: &'static str = "snowchains login <service>";
@@ -127,57 +137,58 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     static USAGE_DOWNLOAD: &'static str = "snowchains download [--open-browser]";
     static USAGE_APPEND: &'static str = "snowchains append <target> <input> [output]";
     static USAGE_JUDGE: &'static str = "snowchains judge <target> [lang]";
-    static USAGE_SUBMIT: &'static str = "snowchains submit <target> [lang] [--skip-judging] \
-                                         [--open-browser]";
+    static USAGE_SUBMIT: &'static str = "snowchains submit <target> [lang] [--open-browser] \
+                                         [--skip-judging] [--force]";
 
     let subcommand_init_config = SubCommand::with_name("init-config")
         .about("Creates 'snowchains.yml'")
         .usage(USAGE_INIT_CONFIG)
-        .arg(arg_default_lang())
-        .arg(arg_dir());
+        .arg(arg_default_lang().display_order(1))
+        .arg(arg_dir().display_order(2));
 
     let subcommand_set = SubCommand::with_name("set")
         .about("Sets a property in 'snowchains.yml'")
         .usage(USAGE_SET)
-        .arg(arg_key())
-        .arg(arg_value());
+        .arg(arg_key().display_order(1))
+        .arg(arg_value().display_order(2));
 
     let subcommand_login = SubCommand::with_name("login")
         .about("Logins to a service")
         .usage(USAGE_LOGIN)
-        .arg(arg_service());
+        .arg(arg_service().display_order(1));
 
     let subcommand_participate = SubCommand::with_name("participate")
         .about("Participates in a contest")
         .usage(USAGE_PARTICIPATE)
-        .arg(arg_service_for_participate())
-        .arg(arg_contest());
+        .arg(arg_service_for_participate().display_order(1))
+        .arg(arg_contest().display_order(2));
 
     let subcommand_download = SubCommand::with_name("download")
         .about("Downloads test cases")
         .usage(USAGE_DOWNLOAD)
-        .arg(arg_open_browser());
+        .arg(arg_open_browser().display_order(1));
 
     let subcommand_append = SubCommand::with_name("append")
         .about("Appends a test case to a file")
         .usage(USAGE_APPEND)
-        .arg(arg_target())
-        .arg(arg_input())
-        .arg(arg_output());
+        .arg(arg_target().display_order(1))
+        .arg(arg_input().display_order(2))
+        .arg(arg_output().display_order(3));
 
     let subcommand_judge = SubCommand::with_name("judge")
         .about("Tests a binary or script")
         .usage(USAGE_JUDGE)
-        .arg(arg_target())
-        .arg(arg_lang());
+        .arg(arg_target().display_order(1))
+        .arg(arg_lang().display_order(2));
 
     let subcommand_submit = SubCommand::with_name("submit")
         .about("Submits code")
         .usage(USAGE_SUBMIT)
         .arg(arg_target())
         .arg(arg_lang())
-        .arg(arg_skip_judging())
-        .arg(arg_open_browser());
+        .arg(arg_open_browser().display_order(1))
+        .arg(arg_skip_judging().display_order(2))
+        .arg(arg_force().display_order(3));
 
     let matches = app_from_crate!()
         .setting(AppSettings::SubcommandRequiredElseHelp)
@@ -263,8 +274,9 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
         let lang = matches.value_of("lang");
-        let skip_judging = matches.is_present("skip-judging");
         let open_browser = matches.is_present("open-browser");
+        let skip_judging = matches.is_present("skip-judging");
+        let force = matches.is_present("force");
         let service_name = config.service_name()?;
         let contest_name = config.contest_name()?;
         let src_path = config.src_path(target, lang)?;
@@ -279,7 +291,14 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
             ServiceName::AtCoder => unimplemented!(),
             ServiceName::AtCoderBeta => {
                 let lang_id = config.atcoder_lang_id(lang)?;
-                atcoder_beta::submit(&contest_name, &target, lang_id, &src_path, open_browser)
+                atcoder_beta::submit(
+                    &contest_name,
+                    &target,
+                    lang_id,
+                    &src_path,
+                    open_browser,
+                    force,
+                )
             }
             ServiceName::HackerRank => unimplemented!(),
         }?);

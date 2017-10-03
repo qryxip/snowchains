@@ -62,9 +62,9 @@ impl ScrapingSession {
         })
     }
 
-    /// Whether `self` has no cookie.
-    pub fn no_cookie(&self) -> bool {
-        self.cookie_jar.iter().next().is_none()
+    /// Whether `self` has any cookie.
+    pub fn has_cookie(&self) -> bool {
+        self.cookie_jar.iter().next().is_some()
     }
 
     /// Delete all cookies.
