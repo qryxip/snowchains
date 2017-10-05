@@ -58,14 +58,14 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
         testcase_extension: TestCaseFileExtension::Yml,
         default_lang: lang.to_owned(),
         languages: vec![
-            Project::Build(BuildProject {
+            Project::Compilation(CompilationProject {
                 name: "c".to_owned(),
                 camelize_src: false,
                 camelize_bin: false,
                 src: PercentFormat("c/%.c".to_owned()),
                 bin: PercentFormat(append_exe_if_windows("c/build/%")),
                 working_dir: InputPath("c/".to_owned()),
-                build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
+                compile: PercentFormat(append_exe_if_windows("gcc -std=c11 -O2 -o build/% %.c")),
                 atcoder_lang_id: Some(3002),
             }),
             Project::Build(BuildProject {
@@ -246,10 +246,13 @@ impl Config {
     /// Constructs arguments of build command for given or default language.
     pub fn construct_build_command(
         &self,
+        target_name: &str,
         lang: Option<&str>,
     ) -> ConfigResult<Option<CommandParameters>> {
         let project = self.project(lang)?;
-        Ok(project.construct_build_command(&self.base_dir)?)
+        Ok(
+            project.construct_build_command(&self.base_dir, target_name)?,
+        )
     }
 
     /// Constructs arguments of build executionfor given or default language.
@@ -327,13 +330,12 @@ impl FromStr for ServiceName {
 
 
 fn default_testcases_path() -> InputPath {
-    InputPath(
-        if cfg!(target_os = "windows") {
-            ".\\snowchains\\"
-        } else {
-            "./snowchains/"
-        }.to_owned(),
-    )
+    let suf = if cfg!(target_os = "windows") {
+        "\\"
+    } else {
+        "/"
+    };
+    InputPath(format!("snowchains{}", suf))
 }
 
 
@@ -370,6 +372,7 @@ fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Project {
     Script(ScriptProject),
+    Compilation(CompilationProject),
     Build(BuildProject),
     Vm(VmProject),
 }
@@ -378,6 +381,7 @@ impl Project {
     fn name(&self) -> &str {
         match *self {
             Project::Script(ScriptProject { ref name, .. }) => &name,
+            Project::Compilation(CompilationProject { ref name, .. }) => &name,
             Project::Build(BuildProject { ref name, .. }) => &name,
             Project::Vm(VmProject { ref name, .. }) => &name,
         }
@@ -386,11 +390,13 @@ impl Project {
     fn src(&self, base: &Path, target_name: &str) -> io::Result<PathBuf> {
         let camelize = match *self {
             Project::Script(ScriptProject { camelize, .. }) => camelize,
+            Project::Compilation(CompilationProject { camelize_src, .. }) => camelize_src,
             Project::Build(BuildProject { camelize_src, .. }) => camelize_src,
             Project::Vm(VmProject { camelize_src, .. }) => camelize_src,
         };
         let src = match *self {
             Project::Script(ScriptProject { ref src, .. }) => src,
+            Project::Compilation(CompilationProject { ref src, .. }) => src,
             Project::Build(BuildProject { ref src, .. }) => src,
             Project::Vm(VmProject { ref src, .. }) => src,
         };
@@ -400,13 +406,30 @@ impl Project {
     fn atcoder_lang_id(&self) -> Option<u32> {
         match *self {
             Project::Script(ScriptProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
+            Project::Compilation(CompilationProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
             Project::Build(BuildProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
             Project::Vm(VmProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
         }.clone()
     }
 
-    fn construct_build_command(&self, base: &Path) -> ConfigResult<Option<CommandParameters>> {
+    fn construct_build_command(
+        &self,
+        base: &Path,
+        target_name: &str,
+    ) -> ConfigResult<Option<CommandParameters>> {
         match *self {
+            Project::Compilation(CompilationProject {
+                                     camelize_src,
+                                     ref working_dir,
+                                     ref compile,
+                                     ..
+                                 }) => {
+                Ok(Some(compile.to_command(
+                    target_name,
+                    camelize_src,
+                    working_dir.resolve(base)?,
+                )))
+            }
             Project::Build(BuildProject {
                                ref working_dir,
                                build: Some(ref build),
@@ -426,6 +449,19 @@ impl Project {
         base: &Path,
         target_name: &str,
     ) -> io::Result<CommandParameters> {
+        let construct_for_comp_or_build = |camelize_bin: bool,
+                                           bin: &PercentFormat,
+                                           working_dir: &InputPath|
+         -> io::Result<CommandParameters> {
+            let working_dir = working_dir.resolve(base)?;
+            let bin_path = bin.resolve_as_path(base, target_name, camelize_bin)?;
+            Ok(CommandParameters::new(
+                bin_path.to_string_lossy().to_string(),
+                vec![],
+                working_dir,
+            ))
+        };
+
         match *self {
             Project::Script(ScriptProject {
                                 camelize,
@@ -436,32 +472,30 @@ impl Project {
                 let working_dir = working_dir.resolve(base)?;
                 let o = self.src(base, target_name)?.to_string_lossy().to_string();
                 Ok(if let Some(ref runtime) = *runtime {
-                    runtime.to_run_command(&o, camelize, working_dir)
+                    runtime.to_command(&o, camelize, working_dir)
                 } else {
                     CommandParameters::new(o, vec![], working_dir)
                 })
             }
+            Project::Compilation(CompilationProject {
+                                     camelize_bin,
+                                     ref bin,
+                                     ref working_dir,
+                                     ..
+                                 }) => construct_for_comp_or_build(camelize_bin, bin, working_dir),
             Project::Build(BuildProject {
                                camelize_bin,
                                ref bin,
                                ref working_dir,
                                ..
-                           }) => {
-                let working_dir = working_dir.resolve(base)?;
-                let bin_path = bin.resolve_as_path(base, target_name, camelize_bin)?;
-                Ok(CommandParameters::new(
-                    bin_path.to_string_lossy().to_string(),
-                    vec![],
-                    working_dir,
-                ))
-            }
+                           }) => construct_for_comp_or_build(camelize_bin, bin, working_dir),
             Project::Vm(VmProject {
                             camelize_bin,
                             ref runtime_working_dir,
                             ref runtime,
                             ..
                         }) => {
-                Ok(runtime.to_run_command(
+                Ok(runtime.to_command(
                     target_name,
                     camelize_bin,
                     runtime_working_dir.resolve(base)?,
@@ -478,8 +512,26 @@ struct ScriptProject {
     #[serde(default)]
     camelize: bool,
     src: PercentFormat,
+    #[serde(default)]
     working_dir: InputPath,
     runtime: Option<PercentFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    atcoder_lang_id: Option<u32>,
+}
+
+
+#[derive(Serialize, Deserialize)]
+struct CompilationProject {
+    name: String,
+    #[serde(default)]
+    camelize_src: bool,
+    #[serde(default)]
+    camelize_bin: bool,
+    src: PercentFormat,
+    bin: PercentFormat,
+    #[serde(default)]
+    working_dir: InputPath,
+    compile: PercentFormat,
     #[serde(skip_serializing_if = "Option::is_none")]
     atcoder_lang_id: Option<u32>,
 }
@@ -494,6 +546,7 @@ struct BuildProject {
     camelize_bin: bool,
     src: PercentFormat,
     bin: PercentFormat,
+    #[serde(default)]
     working_dir: InputPath,
     build: Option<ScalarOrVec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -509,7 +562,9 @@ struct VmProject {
     #[serde(default = "always_true")]
     camelize_bin: bool,
     src: PercentFormat,
+    #[serde(default)]
     build_working_dir: InputPath,
+    #[serde(default)]
     runtime_working_dir: InputPath,
     build: Option<ScalarOrVec<String>>,
     runtime: PercentFormat,
@@ -520,6 +575,13 @@ struct VmProject {
 
 #[derive(Serialize, Deserialize)]
 struct InputPath(String);
+
+impl Default for InputPath {
+    fn default() -> Self {
+        InputPath("".to_owned())
+    }
+}
+
 impl InputPath {
     fn resolve(&self, base: &Path) -> io::Result<PathBuf> {
         if self.0.chars().next() == Some('~') {
@@ -553,7 +615,7 @@ impl PercentFormat {
         rel_path.resolve(base)
     }
 
-    fn to_run_command(&self, arg: &str, camelize: bool, working_dir: PathBuf) -> CommandParameters {
+    fn to_command(&self, arg: &str, camelize: bool, working_dir: PathBuf) -> CommandParameters {
         CommandParameters::wrap_in_sh_or_cmd_if_necessary(self.format(arg, camelize), working_dir)
     }
 

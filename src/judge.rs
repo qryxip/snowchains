@@ -80,7 +80,7 @@ pub fn judge(
     }
 
     if let Some(build_command) = build_command {
-        print_decorated!(Attr::Bold, Some(color::CYAN), "Build command:     ");
+        print_decorated!(Attr::Bold, Some(color::CYAN), "Command:           ");
         println!("{}", build_command.display_args());
         print_decorated!(Attr::Bold, Some(color::CYAN), "Working directory: ");
         println!("{}", build_command.display_working_dir());

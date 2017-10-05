@@ -51,18 +51,18 @@ languages:
     camelize_bin: false   # default: false
     src: "c/%.c"
     bin: "c/build/%"
-    working_dir: "c/"
-    build: "ninja"        # optional
+    working_dir: "c/"     # default: ""
+    compile: "gcc -std=c11 -O2 -o build/% %.c"
     atcoder_lang_id: 3002 # see HTML source or open the inspector, and search by "option"
   -
     name: "c++"
     type: "build"
-    camelize_src: false
-    camelize_bin: false
+    camelize_src: false # default: false
+    camelize_bin: false # default: false
     src: "cc/%.cc"
     bin: "cc/build/%"
-    working_dir: "cc/"
-    build: "ninja"
+    working_dir: "cc/"  # default: ""
+    build: "ninja"      # optional
     atcoder_lang_id: 3003
   -
     name: "rust"
@@ -77,11 +77,11 @@ languages:
   -
     name: "haskell"
     type: "vm"
-    camelize_src: true  # default: true
-    camelize_bin: false # default: true
+    camelize_src: true                # default: true
+    camelize_bin: false               # default: true
     src: "haskell/src/%.hs"
-    build_working_dir: "haskell/src/"
-    runtime_working_dir: "haskell/"
+    build_working_dir: "haskell/src/" # default: ""
+    runtime_working_dir: "haskell/"   # default: ""
     build: "stack install"
     runtime: "stack run %"
     atcoder_lang_id: 3014
