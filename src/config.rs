@@ -13,6 +13,14 @@ use std::str::FromStr;
 
 /// Creates `snowchains.yml` in `dir`.
 pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
+    fn append_exe_if_windows(path: &str) -> String {
+        if cfg!(target_os = "windows") {
+            format!("{}.exe", path)
+        } else {
+            path.to_owned()
+        }
+    }
+
     let csharp_or_mono = if cfg!(target_os = "windows") {
         Project::Build(BuildProject {
             name: "c#".to_owned(),
@@ -55,7 +63,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 camelize_src: false,
                 camelize_bin: false,
                 src: PercentFormat("c/%.c".to_owned()),
-                bin: PercentFormat("c/build/%".to_owned()),
+                bin: PercentFormat(append_exe_if_windows("c/build/%")),
                 working_dir: InputPath("c/".to_owned()),
                 build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
                 atcoder_lang_id: Some(3002),
@@ -65,7 +73,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 camelize_src: false,
                 camelize_bin: false,
                 src: PercentFormat("cc/%.cc".to_owned()),
-                bin: PercentFormat("cc/build/%".to_owned()),
+                bin: PercentFormat(append_exe_if_windows("cc/build/%")),
                 working_dir: InputPath("cc/".to_owned()),
                 build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
                 atcoder_lang_id: Some(3003),
@@ -75,19 +83,20 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 camelize_src: false,
                 camelize_bin: false,
                 src: PercentFormat("rust/src/bin/%.rs".to_owned()),
-                bin: PercentFormat("rust/target/release/%".to_owned()),
+                bin: PercentFormat(append_exe_if_windows("rust/target/release/%.exe")),
                 working_dir: InputPath("rust/".to_owned()),
                 build: Some(ScalarOrVec::Scalar("cargo build --release".to_owned())),
                 atcoder_lang_id: Some(3504),
             }),
-            Project::Build(BuildProject {
+            Project::Vm(VmProject {
                 name: "haskell".to_owned(),
                 camelize_src: true,
                 camelize_bin: false,
                 src: PercentFormat("haskell/src/%.hs".to_owned()),
-                bin: PercentFormat("~/.local/bin/problem-%".to_owned()),
-                working_dir: InputPath("haskell/".to_owned()),
-                build: Some(ScalarOrVec::Scalar("stack install".to_owned())),
+                build_working_dir: InputPath("haskell/src/".to_owned()),
+                runtime_working_dir: InputPath("haskell/".to_owned()),
+                build: Some(ScalarOrVec::Scalar("stack build".to_owned())),
+                runtime: PercentFormat("stack run %".to_owned()),
                 atcoder_lang_id: Some(3014),
             }),
             csharp_or_mono,
@@ -439,10 +448,7 @@ impl Project {
                                ..
                            }) => {
                 let working_dir = working_dir.resolve(base)?;
-                let mut bin_path = bin.resolve_as_path(base, target_name, camelize_bin)?;
-                if cfg!(target_os = "windows") {
-                    bin_path.set_extension("exe");
-                }
+                let bin_path = bin.resolve_as_path(base, target_name, camelize_bin)?;
                 Ok(CommandParameters::new(
                     bin_path.to_string_lossy().to_string(),
                     vec![],
@@ -473,7 +479,6 @@ struct ScriptProject {
     camelize: bool,
     src: PercentFormat,
     working_dir: InputPath,
-    #[serde(skip_serializing_if = "Option::is_none")]
     runtime: Option<PercentFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
     atcoder_lang_id: Option<u32>,
@@ -490,7 +495,6 @@ struct BuildProject {
     src: PercentFormat,
     bin: PercentFormat,
     working_dir: InputPath,
-    #[serde(skip_serializing_if = "Option::is_none")]
     build: Option<ScalarOrVec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     atcoder_lang_id: Option<u32>,
@@ -507,7 +511,6 @@ struct VmProject {
     src: PercentFormat,
     build_working_dir: InputPath,
     runtime_working_dir: InputPath,
-    #[serde(skip_serializing_if = "Option::is_none")]
     build: Option<ScalarOrVec<String>>,
     runtime: PercentFormat,
     #[serde(skip_serializing_if = "Option::is_none")]

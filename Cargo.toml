@@ -3,7 +3,7 @@ authors = ["wariuni <wariuni@gmail.com>"]
 description = "Tools for online programming contests"
 license = "MIT"
 name = "snowchains"
-version = "0.11.3"
+version = "0.11.4"
 [dependencies]
 clap = "2.26.2"
 cookie = "0.10.0"

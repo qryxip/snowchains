@@ -26,7 +26,7 @@ $ snowchains set contest <contest>     # e.g. "agc001"
 $ snowchains download (--open-browser) # The username and password required when not yet logged-in
 $ $EDITOR ./snowchains/<target>.yml    # Add more test cases
 $ snowchains judge <target> (<language>)
-$ snowchains submit <target> (<language>) (--skip-judging) (--open-browser)
+$ snowchains submit <target> (<language>) (--open-browser) (--skip-judging) (--force)
 ```
 
 ## Config File (snowchains.yml)
@@ -41,14 +41,14 @@ testcase_extension: "yml" # default: "yml"
 default_lang: "c++"
 
 # test file: <testcases>/<target-name>.<testcase_extension>
-# source:    <<src> % <target-name (converted to CamlCase if <camelize_src>)>>.<extension>
-# binary:    <<bin> % <target-name (converted to CamlCase if <camelize_bin>)>>(.exe)
+# source:    <<src> % <target-name (converted to CamlCase if <camelize_src>)>>
+# binary:    <<bin> % <target-name (converted to CamlCase if <camelize_bin>)>>
 languages:
   -
     name: "c"
     type: "build"
-    camelize_src: false # default: false
-    camelize_bin: false # default: false
+    camelize_src: false   # default: false
+    camelize_bin: false   # default: false
     src: "c/%.c"
     bin: "c/build/%"
     working_dir: "c/"
@@ -76,13 +76,14 @@ languages:
     atcoder_lang_id: 3504
   -
     name: "haskell"
-    type: "build"
-    camelize_src: true
-    camelize_bin: false
+    type: "vm"
+    camelize_src: true  # default: true
+    camelize_bin: false # default: true
     src: "haskell/src/%.hs"
-    bin: "~/.local/bin/problem-%"
-    working_dir: "haskell/"
+    build_working_dir: "haskell/src/"
+    runtime_working_dir: "haskell/"
     build: "stack install"
+    runtime: "stack run %"
     atcoder_lang_id: 3014
   -
     # Windows
@@ -91,7 +92,7 @@ languages:
     camelize_src: true
     camelize_bin: true
     src: "csharp/%/%.cs"
-    bin: "csharp/%/bin/Release/%"
+    bin: "csharp/%/bin/Release/%.exe"
     working_dir: "csharp/"
     build: "MSBuild .\\csharp.sln /p:Configuration=Release"
     atcoder_lang_id: 3006
@@ -132,7 +133,7 @@ languages:
   -
     name: "python3"
     type: "script"
-    camelize: false    # default: false
+    camelize: false      # default: false
     src: "python/%.py"
     working_dir: "python/"
     runtime: "python3 %" # or shebang
@@ -163,7 +164,7 @@ languages:
 
 ### Download
 
-- [x] atcoder (abcxxx, arcxxx, agcxxx, chokudai_sxxx)
+- [x] atcoder (e.g. abcxxx, arcxxx, agcxxx, chokudai_sxxx)
 - [x] atcoder-beta (〃)
 - [x] hackerrank
 
