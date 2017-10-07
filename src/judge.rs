@@ -1,10 +1,11 @@
 use error::{JudgeErrorKind, JudgeResult};
 use testcase::{Case, Cases, TestCaseFilePath};
-use util::{self, UnwrapAsRefMut};
+use util::{self, Foreach, UnwrapAsRefMut};
 
 use std::fmt;
+use std::fs;
 use std::io::{self, Write};
-use std::path::{self, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
@@ -22,15 +23,6 @@ pub fn judge(
     run_command: CommandParameters,
     build_command: Option<CommandParameters>,
 ) -> JudgeResult<()> {
-    fn build(build_command: CommandParameters) -> JudgeResult<()> {
-        let status = build_command.status_inherited()?;
-        if status.success() {
-            Ok(())
-        } else {
-            bail!(JudgeErrorKind::BuildFailure(status));
-        }
-    }
-
     fn judge_one(case: Case, run_command: CommandParameters) -> JudgeResult<JudgeOutput> {
         fn run_program(case: Case, run_command: CommandParameters) -> io::Result<JudgeOutput> {
             let (input, expected, timelimit) = case.into();
@@ -80,11 +72,7 @@ pub fn judge(
     }
 
     if let Some(build_command) = build_command {
-        print_decorated!(Attr::Bold, Some(color::CYAN), "Command:           ");
-        println!("{}", build_command.display_args());
-        print_decorated!(Attr::Bold, Some(color::CYAN), "Working directory: ");
-        println!("{}", build_command.display_working_dir());
-        build(build_command)?;
+        build_command.execute_as_build_command()?;
         println!("");
     }
 
@@ -115,11 +103,11 @@ pub fn judge(
         println!("All of the {} test{} passed.", num_cases, suf);
         Ok(())
     } else {
-        for (i, output) in all_outputs.into_iter().enumerate() {
+        all_outputs.into_iter().enumerate().foreach(|(i, output)| {
             eprintln!("");
             output.eprint_title(i, num_cases);
             output.eprint_details();
-        }
+        });
         bail!(JudgeErrorKind::TestFailed(num_failures))
     }
 }
@@ -130,50 +118,101 @@ pub struct CommandParameters {
     arg0: String,
     rest_args: Vec<String>,
     working_dir: PathBuf,
+    src_and_bin: Option<(PathBuf, PathBuf)>,
 }
 
 impl CommandParameters {
-    pub fn new(arg0: String, rest_args: Vec<String>, working_dir: PathBuf) -> Self {
-        Self {
-            arg0: arg0,
-            rest_args: rest_args,
-            working_dir: working_dir,
-        }
-    }
-
-    pub fn wrap_in_sh_or_cmd_if_necessary(command: String, working_dir: PathBuf) -> Self {
-        if command.find(|c| " \t\n#&|;".contains(c)).is_none() {
-            Self::new(command, vec![], working_dir)
-        } else {
+    /// Constructs a new `CommandParameters`.
+    ///
+    /// Wraps `command` in `sh` or `cmd` if necessary.
+    pub fn new(
+        command: String,
+        working_dir: PathBuf,
+        src_and_bin: Option<(PathBuf, PathBuf)>,
+    ) -> Self {
+        if command
+            .find(|c| "@#$^&*;|?\\<>()[]{}'\"".contains(c))
+            .is_some()
+        {
             let (arg0, c) = if cfg!(target_os = "windows") {
                 ("cmd".to_owned(), "/C".to_owned())
             } else {
                 ("sh".to_owned(), "-c".to_owned())
             };
-            Self::new(arg0, vec![c, command], working_dir)
+            Self {
+                arg0: arg0,
+                rest_args: vec![c, command],
+                working_dir: working_dir,
+                src_and_bin: src_and_bin,
+            }
+        } else if command.find(char::is_whitespace).is_some() {
+            let mut it = command.split_whitespace();
+            let arg0 = it.next().unwrap_or_default().to_owned();
+            let rest_args = it.map(str::to_owned).collect();
+            Self {
+                arg0: arg0,
+                rest_args: rest_args,
+                working_dir: working_dir,
+                src_and_bin: src_and_bin,
+            }
+        } else {
+            Self {
+                arg0: command,
+                rest_args: vec![],
+                working_dir: working_dir,
+                src_and_bin: src_and_bin,
+            }
         }
     }
 
     fn display_args(&self) -> String {
         let mut s: String = format!("{:?}", self.arg0);
-        for arg in &self.rest_args {
-            s.push_str(&format!(" {:?}", arg));
-        }
+        self.rest_args.iter().foreach(
+            |arg| s += &format!(" {:?}", arg),
+        );
         s
     }
 
-    fn display_working_dir(&self) -> path::Display {
-        self.working_dir.display()
+    fn display_working_dir(&self) -> String {
+        format!("{}", self.working_dir.display())
     }
 
-    fn status_inherited(self) -> io::Result<ExitStatus> {
-        Command::new(&self.arg0)
+    fn print_args_and_working_dir(&self) {
+        print_decorated!(Attr::Bold, Some(color::CYAN), "Command:           ");
+        println!("{}", self.display_args());
+        print_decorated!(Attr::Bold, Some(color::CYAN), "Working directory: ");
+        println!("{}", self.working_dir.display());
+    }
+
+    fn execute_as_build_command(self) -> JudgeResult<()> {
+        if let &Some((ref src, ref bin)) = &self.src_and_bin {
+            if let (Ok(src_meta), Ok(bin_meta)) = (src.metadata(), bin.metadata()) {
+                if let (Ok(t1), Ok(t2)) = (src_meta.modified(), bin_meta.modified()) {
+                    if t1 < t2 {
+                        println!("{} is up to date.", bin.display());
+                        return Ok(());
+                    }
+                }
+            } else if let Some(dir) = bin.parent() {
+                if !dir.exists() {
+                    fs::create_dir_all(dir)?;
+                    println!("Created {}", dir.display());
+                }
+            }
+        }
+        self.print_args_and_working_dir();
+        let status = Command::new(&self.arg0)
             .args(self.rest_args)
             .current_dir(self.working_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
-            .status()
+            .status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            bail!(JudgeErrorKind::BuildFailure(status));
+        }
     }
 
     fn spawn_piped(self) -> io::Result<Child> {
@@ -214,17 +253,13 @@ impl fmt::Display for JudgeOutput {
 
 impl JudgeOutput {
     fn print_title(&self, i: usize, n: usize) {
-        for _ in 0..format!("{}", n).len() - format!("{}", i + 1).len() {
-            print!(" ");
-        }
+        (0..format!("{}", n).len() - format!("{}", i + 1).len()).foreach(|_| print!(" "));
         print_decorated!(Attr::Bold, None, "{}/{} ", i + 1, n);
         println_decorated!(Attr::Bold, Some(self.color()), "{}", self);
     }
 
     fn eprint_title(&self, i: usize, n: usize) {
-        for _ in 0..format!("{}", n).len() - format!("{}", i + 1).len() {
-            eprint!(" ");
-        }
+        (0..format!("{}", n).len() - format!("{}", i + 1).len()).foreach(|_| eprint!(" "));
         eprint_decorated!(Attr::Bold, None, "{}/{} ", i + 1, n);
         eprintln_decorated!(Attr::Bold, Some(self.color()), "{}", self);
     }

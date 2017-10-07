@@ -13,7 +13,7 @@ use std::str::FromStr;
 
 /// Creates `snowchains.yml` in `dir`.
 pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
-    fn append_exe_if_windows(path: &str) -> String {
+    fn append_exe_if_windows(path: &'static str) -> String {
         if cfg!(target_os = "windows") {
             format!("{}.exe", path)
         } else {
@@ -22,33 +22,27 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
     }
 
     let csharp_or_mono = if cfg!(target_os = "windows") {
-        Project::Build(BuildProject {
-            name: "c#".to_owned(),
-            camelize_src: true,
-            camelize_bin: true,
-            src: PercentFormat("csharp/%/%.cs".to_owned()),
-            bin: PercentFormat("csharp/%/bin/Release/%.exe".to_owned()),
-            working_dir: InputPath("csharp/".to_owned()),
-            build: Some(ScalarOrVec::Scalar(
-                "msbuild .\\csharp.sln /p:Configuration=Release".to_owned(),
-            )),
-            atcoder_lang_id: Some(3006),
-        })
+        LangProperty::new(
+            "c#",
+            "csharp/{C}/{C}.cs",
+            Some("csharp/{C}/bin/Release/{C}.exe"),
+            Some("msbuild .\\csharp.sln /p:Configuration=Release"),
+            "$bin",
+            "csharp/",
+            "csharp/",
+            Some(3006),
+        )
     } else {
-        Project::Vm(VmProject {
-            name: "mono".to_owned(),
-            camelize_src: true,
-            camelize_bin: true,
-            src: PercentFormat("csharp/%/%.cs".to_owned()),
-            build_working_dir: InputPath("csharp/".to_owned()),
-            runtime_working_dir: InputPath("csharp/".to_owned()),
-            build: Some(ScalarOrVec::Scalar(
-                "msbuild.exe ./csharp.sln /p:Configuration=Release"
-                    .to_owned(),
-            )),
-            runtime: PercentFormat("mono ./%/bin/Release/%.exe".to_owned()),
-            atcoder_lang_id: Some(3006),
-        })
+        LangProperty::new(
+            "mono",
+            "csharp/{C}/{C}.cs",
+            Some("csharp/{C}/bin/Release/{C}.exe"),
+            Some("msbuild.exe ./csharp.sln /p:Configuration=Release"),
+            "mono $bin",
+            "csharp/",
+            "csharp/",
+            Some(3006),
+        )
     };
 
     let config = Config {
@@ -58,80 +52,77 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
         testcase_extension: TestCaseFileExtension::Yml,
         default_lang: lang.to_owned(),
         languages: vec![
-            Project::Compilation(CompilationProject {
-                name: "c".to_owned(),
-                camelize_src: false,
-                camelize_bin: false,
-                src: PercentFormat("c/%.c".to_owned()),
-                bin: PercentFormat(append_exe_if_windows("c/build/%")),
-                working_dir: InputPath("c/".to_owned()),
-                compile: PercentFormat(append_exe_if_windows("gcc -std=c11 -O2 -o build/% %.c")),
-                atcoder_lang_id: Some(3002),
-            }),
-            Project::Build(BuildProject {
-                name: "c++".to_owned(),
-                camelize_src: false,
-                camelize_bin: false,
-                src: PercentFormat("cc/%.cc".to_owned()),
-                bin: PercentFormat(append_exe_if_windows("cc/build/%")),
-                working_dir: InputPath("cc/".to_owned()),
-                build: Some(ScalarOrVec::Scalar("ninja".to_owned())),
-                atcoder_lang_id: Some(3003),
-            }),
-            Project::Build(BuildProject {
-                name: "rust".to_owned(),
-                camelize_src: false,
-                camelize_bin: false,
-                src: PercentFormat("rust/src/bin/%.rs".to_owned()),
-                bin: PercentFormat(append_exe_if_windows("rust/target/release/%.exe")),
-                working_dir: InputPath("rust/".to_owned()),
-                build: Some(ScalarOrVec::Scalar("cargo build --release".to_owned())),
-                atcoder_lang_id: Some(3504),
-            }),
-            Project::Vm(VmProject {
-                name: "haskell".to_owned(),
-                camelize_src: true,
-                camelize_bin: false,
-                src: PercentFormat("haskell/src/%.hs".to_owned()),
-                build_working_dir: InputPath("haskell/src/".to_owned()),
-                runtime_working_dir: InputPath("haskell/".to_owned()),
-                build: Some(ScalarOrVec::Scalar("stack build".to_owned())),
-                runtime: PercentFormat("stack run %".to_owned()),
-                atcoder_lang_id: Some(3014),
-            }),
+            LangProperty::new(
+                "c",
+                "c/{}.c",
+                Some(append_exe_if_windows("c/build/{}")),
+                Some("gcc -std=c11 -O2 -o $bin $src"),
+                "$bin",
+                "c/",
+                "c/",
+                Some(3002)
+            ),
+            LangProperty::new(
+                "c++",
+                "cc/{}.cc",
+                Some(append_exe_if_windows("cc/build/{}")),
+                Some("g++ -std=c++14 -O2 -o $bin $src"),
+                "$bin",
+                "cc/",
+                "cc/",
+                Some(3003)
+            ),
+            LangProperty::new(
+                "rust",
+                "rust/src/bin/{}.rs",
+                Some(append_exe_if_windows("rust/target/release/{}")),
+                Some("rustc -O -o $bin $src"),
+                "$bin",
+                "rust/",
+                "rust/",
+                Some(3504)
+            ),
+            LangProperty::new::<String>(
+                "haskell",
+                "haskell/src/{C}.hs",
+                None,
+                Some("stack build"),
+                "stack exec {}",
+                "haskell/",
+                "haskell/",
+                Some(3014)
+            ),
+            LangProperty::new(
+                "java",
+                "java/src/main/java/{C}.java",
+                Some("java/build/classes/java/main/{C}.class"),
+                Some("javac $src"),
+                "java {C}",
+                "java/build/classes/java/main/",
+                "java/build/classes/java/main/",
+                Some(3016)
+            ),
+            LangProperty::new(
+                "scala",
+                "scala/src/main/scala/{C}.scala",
+                Some("scala/target/scala-2.12/classes/{C}.class"),
+                Some("scalac -optimise $src"),
+                "scala {C}",
+                "scala/target/scala-2.12/classes/",
+                "scala/target/scala-2.12/classes/",
+                Some(3025)
+            ),
             csharp_or_mono,
-            Project::Vm(VmProject {
-                name: "java".to_owned(),
-                camelize_src: true,
-                camelize_bin: true,
-                src: PercentFormat("java/src/main/java/%.java".to_owned()),
-                build_working_dir: InputPath("java/".to_owned()),
-                runtime_working_dir: InputPath("java/build/classes/java/main/".to_owned()),
-                build: Some(ScalarOrVec::Scalar(
-                    "gradle --daemon compileJava".to_owned(),
-                )),
-                runtime: PercentFormat("java %".to_owned()),
-                atcoder_lang_id: Some(3016),
-            }),
-            Project::Vm(VmProject {
-                name: "scala".to_owned(),
-                camelize_src: true,
-                camelize_bin: true,
-                src: PercentFormat("scala/src/main/scala/%.scala".to_owned()),
-                build_working_dir: InputPath("scala/".to_owned()),
-                runtime_working_dir: InputPath("scala/target/scala-2.12/classes/".to_owned()),
-                build: Some(ScalarOrVec::Scalar("sbt compile".to_owned())),
-                runtime: PercentFormat("scala %".to_owned()),
-                atcoder_lang_id: Some(3025),
-            }),
-            Project::Script(ScriptProject {
-                name: "python3".to_owned(),
-                camelize: false,
-                src: PercentFormat("python/%.py".to_owned()),
-                working_dir: InputPath("python/".to_owned()),
-                runtime: Some(PercentFormat("python3 %".to_owned())),
-                atcoder_lang_id: Some(3023),
-            }),
+            LangProperty::new::<String>(
+                "python3",
+                "python/{}.py",
+                None,
+                None,
+                "python3 $src",
+                "python",
+                "python",
+                Some(3023)
+            ),
         ],
         base_dir: PathBuf::new(),
     };
@@ -180,7 +171,7 @@ pub struct Config {
     #[serde(default)]
     testcase_extension: TestCaseFileExtension,
     default_lang: String,
-    languages: Vec<Project>,
+    languages: Vec<LangProperty>,
     #[serde(skip)]
     base_dir: PathBuf,
 }
@@ -231,14 +222,14 @@ impl Config {
 
     /// Returns the path of the source file.
     pub fn src_path(&self, target_name: &str, lang: Option<&str>) -> ConfigResult<PathBuf> {
-        let project = self.project(lang)?;
-        Ok(project.src(&self.base_dir, target_name)?)
+        let lang = self.lang_property(lang)?;
+        Ok(lang.resolve_src(&self.base_dir, target_name)?)
     }
 
     /// Returns the `lang_id` of given or default language
     pub fn atcoder_lang_id(&self, lang: Option<&str>) -> ConfigResult<u32> {
-        let project = self.project(lang)?;
-        project.atcoder_lang_id().ok_or_else(|| {
+        let lang = self.lang_property(lang)?;
+        lang.atcoder_lang_id.ok_or_else(|| {
             ConfigError::from(ConfigErrorKind::PropertyNotSet("atcoder_lang_id"))
         })
     }
@@ -249,10 +240,8 @@ impl Config {
         target_name: &str,
         lang: Option<&str>,
     ) -> ConfigResult<Option<CommandParameters>> {
-        let project = self.project(lang)?;
-        Ok(
-            project.construct_build_command(&self.base_dir, target_name)?,
-        )
+        let lang = self.lang_property(lang)?;
+        Ok(lang.construct_build_command(&self.base_dir, target_name)?)
     }
 
     /// Constructs arguments of build executionfor given or default language.
@@ -261,18 +250,18 @@ impl Config {
         target_name: &str,
         lang: Option<&str>,
     ) -> ConfigResult<CommandParameters> {
-        let project = self.project(lang)?;
-        Ok(project.construct_run_command(&self.base_dir, target_name)?)
+        let lang = self.lang_property(lang)?;
+        Ok(lang.construct_run_command(&self.base_dir, target_name)?)
     }
 
-    fn project(&self, lang: Option<&str>) -> ConfigResult<&Project> {
-        let lang = lang.unwrap_or(&self.default_lang);
-        for project in &self.languages {
-            if project.name() == lang {
-                return Ok(project);
+    fn lang_property(&self, lang_name: Option<&str>) -> ConfigResult<&LangProperty> {
+        let lang_name = lang_name.unwrap_or(&self.default_lang);
+        for lang in &self.languages {
+            if lang.name == lang_name {
+                return Ok(lang);
             }
         }
-        bail!(ConfigErrorKind::NoSuchLanguage(lang.to_owned()))
+        bail!(ConfigErrorKind::NoSuchLanguage(lang_name.to_owned()))
     }
 }
 
@@ -339,13 +328,8 @@ fn default_testcases_path() -> InputPath {
 }
 
 
-fn always_true() -> bool {
-    true
-}
-
-
 fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
-    fn snowchain_yml_exists<P: AsRef<Path>>(dir: P) -> io::Result<bool> {
+    fn snowchain_yml_exists(dir: &Path) -> io::Result<bool> {
         for entry in fs::read_dir(dir)? {
             let path = entry?.path();
             if path.is_file() && path.file_name().unwrap() == "snowchains.yml" {
@@ -369,207 +353,79 @@ fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
 
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-enum Project {
-    Script(ScriptProject),
-    Compilation(CompilationProject),
-    Build(BuildProject),
-    Vm(VmProject),
+struct LangProperty {
+    name: String,
+    src: BraceFormat,
+    bin: Option<BraceFormat>,
+    build: Option<BraceFormat>,
+    #[serde(default = "BraceFormat::bin")]
+    run: BraceFormat,
+    #[serde(default)]
+    build_working_dir: InputPath,
+    #[serde(default)]
+    runtime_working_dir: InputPath,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    atcoder_lang_id: Option<u32>,
 }
 
-impl Project {
-    fn name(&self) -> &str {
-        match *self {
-            Project::Script(ScriptProject { ref name, .. }) => &name,
-            Project::Compilation(CompilationProject { ref name, .. }) => &name,
-            Project::Build(BuildProject { ref name, .. }) => &name,
-            Project::Vm(VmProject { ref name, .. }) => &name,
+impl LangProperty {
+    fn new<S: Into<String>>(
+        name: &'static str,
+        src: &'static str,
+        bin: Option<S>,
+        build: Option<&'static str>,
+        run: &'static str,
+        build_working_dir: &'static str,
+        runtime_working_dir: &'static str,
+        atcoder_lang_id: Option<u32>,
+    ) -> Self {
+        Self {
+            name: name.to_owned(),
+            src: BraceFormat(src.to_owned()),
+            bin: bin.map(|bin| BraceFormat(bin.into())),
+            build: build.map(|build| BraceFormat(build.to_owned())),
+            run: BraceFormat(run.to_owned()),
+            build_working_dir: InputPath(build_working_dir.to_owned()),
+            runtime_working_dir: InputPath(runtime_working_dir.to_owned()),
+            atcoder_lang_id: atcoder_lang_id,
         }
     }
 
-    fn src(&self, base: &Path, target_name: &str) -> io::Result<PathBuf> {
-        let camelize = match *self {
-            Project::Script(ScriptProject { camelize, .. }) => camelize,
-            Project::Compilation(CompilationProject { camelize_src, .. }) => camelize_src,
-            Project::Build(BuildProject { camelize_src, .. }) => camelize_src,
-            Project::Vm(VmProject { camelize_src, .. }) => camelize_src,
-        };
-        let src = match *self {
-            Project::Script(ScriptProject { ref src, .. }) => src,
-            Project::Compilation(CompilationProject { ref src, .. }) => src,
-            Project::Build(BuildProject { ref src, .. }) => src,
-            Project::Vm(VmProject { ref src, .. }) => src,
-        };
-        src.resolve_as_path(base, target_name, camelize)
-    }
-
-    fn atcoder_lang_id(&self) -> Option<u32> {
-        match *self {
-            Project::Script(ScriptProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
-            Project::Compilation(CompilationProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
-            Project::Build(BuildProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
-            Project::Vm(VmProject { ref atcoder_lang_id, .. }) => atcoder_lang_id,
-        }.clone()
+    fn resolve_src(&self, base: &Path, target: &str) -> io::Result<PathBuf> {
+        self.src.resolve_as_path(base, target)
     }
 
     fn construct_build_command(
         &self,
         base: &Path,
-        target_name: &str,
+        target: &str,
     ) -> ConfigResult<Option<CommandParameters>> {
-        match *self {
-            Project::Compilation(CompilationProject {
-                                     camelize_src,
-                                     ref working_dir,
-                                     ref compile,
-                                     ..
-                                 }) => {
-                Ok(Some(compile.to_command(
-                    target_name,
-                    camelize_src,
-                    working_dir.resolve(base)?,
-                )))
-            }
-            Project::Build(BuildProject {
-                               ref working_dir,
-                               build: Some(ref build),
-                               ..
-                           }) => Ok(Some(build.to_command(working_dir.resolve(base)?))),
-            Project::Vm(VmProject {
-                            ref build_working_dir,
-                            build: Some(ref build),
-                            ..
-                        }) => Ok(Some(build.to_command(build_working_dir.resolve(base)?))),
-            _ => Ok(None),
-        }
+        let (working_dir, src, bin) = self.resolve_params(base, target)?;
+        Ok(self.build.as_ref().map(|build| {
+            build.to_build_command(target, working_dir, Some(src), bin)
+        }))
     }
 
-    fn construct_run_command(
+    fn construct_run_command(&self, base: &Path, target: &str) -> ConfigResult<CommandParameters> {
+        let (working_dir, src, bin) = self.resolve_params(base, target)?;
+        let src = src.display().to_string();
+        let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
+        Ok(self.run.to_run_command(target, working_dir, &src, &bin))
+    }
+
+    fn resolve_params(
         &self,
         base: &Path,
-        target_name: &str,
-    ) -> io::Result<CommandParameters> {
-        let construct_for_comp_or_build = |camelize_bin: bool,
-                                           bin: &PercentFormat,
-                                           working_dir: &InputPath|
-         -> io::Result<CommandParameters> {
-            let working_dir = working_dir.resolve(base)?;
-            let bin_path = bin.resolve_as_path(base, target_name, camelize_bin)?;
-            Ok(CommandParameters::new(
-                bin_path.to_string_lossy().to_string(),
-                vec![],
-                working_dir,
-            ))
+        target: &str,
+    ) -> ConfigResult<(PathBuf, PathBuf, Option<PathBuf>)> {
+        let working_dir = self.build_working_dir.resolve(base)?;
+        let src = self.src.resolve_as_path(base, target)?;
+        let bin = match self.bin {
+            Some(ref bin) => Some(bin.resolve_as_path(base, target)?),
+            None => None,
         };
-
-        match *self {
-            Project::Script(ScriptProject {
-                                camelize,
-                                ref working_dir,
-                                ref runtime,
-                                ..
-                            }) => {
-                let working_dir = working_dir.resolve(base)?;
-                let o = self.src(base, target_name)?.to_string_lossy().to_string();
-                Ok(if let Some(ref runtime) = *runtime {
-                    runtime.to_command(&o, camelize, working_dir)
-                } else {
-                    CommandParameters::new(o, vec![], working_dir)
-                })
-            }
-            Project::Compilation(CompilationProject {
-                                     camelize_bin,
-                                     ref bin,
-                                     ref working_dir,
-                                     ..
-                                 }) => construct_for_comp_or_build(camelize_bin, bin, working_dir),
-            Project::Build(BuildProject {
-                               camelize_bin,
-                               ref bin,
-                               ref working_dir,
-                               ..
-                           }) => construct_for_comp_or_build(camelize_bin, bin, working_dir),
-            Project::Vm(VmProject {
-                            camelize_bin,
-                            ref runtime_working_dir,
-                            ref runtime,
-                            ..
-                        }) => {
-                Ok(runtime.to_command(
-                    target_name,
-                    camelize_bin,
-                    runtime_working_dir.resolve(base)?,
-                ))
-            }
-        }
+        Ok((working_dir, src, bin))
     }
-}
-
-
-#[derive(Serialize, Deserialize)]
-struct ScriptProject {
-    name: String,
-    #[serde(default)]
-    camelize: bool,
-    src: PercentFormat,
-    #[serde(default)]
-    working_dir: InputPath,
-    runtime: Option<PercentFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    atcoder_lang_id: Option<u32>,
-}
-
-
-#[derive(Serialize, Deserialize)]
-struct CompilationProject {
-    name: String,
-    #[serde(default)]
-    camelize_src: bool,
-    #[serde(default)]
-    camelize_bin: bool,
-    src: PercentFormat,
-    bin: PercentFormat,
-    #[serde(default)]
-    working_dir: InputPath,
-    compile: PercentFormat,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    atcoder_lang_id: Option<u32>,
-}
-
-
-#[derive(Serialize, Deserialize)]
-struct BuildProject {
-    name: String,
-    #[serde(default)]
-    camelize_src: bool,
-    #[serde(default)]
-    camelize_bin: bool,
-    src: PercentFormat,
-    bin: PercentFormat,
-    #[serde(default)]
-    working_dir: InputPath,
-    build: Option<ScalarOrVec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    atcoder_lang_id: Option<u32>,
-}
-
-
-#[derive(Serialize, Deserialize)]
-struct VmProject {
-    name: String,
-    #[serde(default = "always_true")]
-    camelize_src: bool,
-    #[serde(default = "always_true")]
-    camelize_bin: bool,
-    src: PercentFormat,
-    #[serde(default)]
-    build_working_dir: InputPath,
-    #[serde(default)]
-    runtime_working_dir: InputPath,
-    build: Option<ScalarOrVec<String>>,
-    runtime: PercentFormat,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    atcoder_lang_id: Option<u32>,
 }
 
 
@@ -602,64 +458,135 @@ impl InputPath {
 
 
 #[derive(Serialize, Deserialize)]
-struct PercentFormat(String);
+struct BraceFormat(String);
 
-impl PercentFormat {
-    fn resolve_as_path(
+impl BraceFormat {
+    fn bin() -> Self {
+        BraceFormat("$bin".to_owned())
+    }
+
+    fn resolve_as_path(&self, base: &Path, target: &str) -> io::Result<PathBuf> {
+        InputPath(self.format(&target, "", "")).resolve(base)
+    }
+
+    fn to_build_command(
         &self,
-        base: &Path,
-        target_name: &str,
-        camelize: bool,
-    ) -> io::Result<PathBuf> {
-        let rel_path = InputPath(self.format(&target_name, camelize));
-        rel_path.resolve(base)
-    }
-
-    fn to_command(&self, arg: &str, camelize: bool, working_dir: PathBuf) -> CommandParameters {
-        CommandParameters::wrap_in_sh_or_cmd_if_necessary(self.format(arg, camelize), working_dir)
-    }
-
-    fn format(&self, arg: &str, camelize: bool) -> String {
-        // e.g.
-        // `PercentFormat("cc/%.cc".to_owned()).format("a", false) == "cc/a.cc"`
-        // `PercentFormat("csharp/%/%.cs".to_owned()).format("a", true) == "csharp/A/A.cs"`
-        let arg = if camelize {
-            arg.to_caml_case()
-        } else {
-            arg.to_owned()
+        target: &str,
+        working_dir: PathBuf,
+        src: Option<PathBuf>,
+        bin: Option<PathBuf>,
+    ) -> CommandParameters {
+        let src_s = src.as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let bin_s = bin.as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let src_and_bin = match (src, bin) {
+            (Some(src), Some(bin)) => Some((src, bin)),
+            _ => None,
         };
-        let mut formatted = String::new();
-        for c in self.0.chars() {
-            if c == '%' {
-                formatted.push_str(&arg);
-            } else {
-                formatted.push(c);
-            }
+        let command = self.format(target, &src_s, &bin_s);
+        CommandParameters::new(command, working_dir, src_and_bin)
+    }
+
+    fn to_run_command(
+        &self,
+        target: &str,
+        working_dir: PathBuf,
+        src: &str,
+        bin: &str,
+    ) -> CommandParameters {
+        let command = self.format(target, src, bin);
+        CommandParameters::new(command, working_dir, None)
+    }
+
+    fn format(&self, target: &str, src: &str, bin: &str) -> String {
+        enum St {
+            Nest(usize),
+            Format(Option<char>),
+            Var(String),
         }
-        formatted
+
+        let (mut r, mut s) = (String::new(), St::Nest(0));
+        macro_rules! close_format(($str: expr) => { {
+            r += $str;
+            St::Nest(0)
+        } });
+        macro_rules! close_var(($var: expr, $next_state: expr, $c: expr) => { {
+            let v = $var.to_lowercase();
+            r += if v == "src" { src } else if v == "bin" { bin } else { "" };
+            if let Some(c) = $c { r.push(c); }
+            $next_state
+        } });
+        macro_rules! read_one(($c: expr) => { {
+            r.push($c);
+            St::Nest(0)
+        } });
+        macro_rules! push_to_var(($var: expr, $c: expr) => { {
+            St::Var(
+                if $c != '}' {
+                    let mut v = $var;
+                    v.push($c);
+                    v
+                } else {
+                    $var
+                }
+            )
+        } });
+        for c in self.0.chars() {
+            s = match (c, s) {
+                ('{', St::Nest(0)) => St::Format(None),
+                ('{', St::Nest(n)) => St::Nest(n + 1),
+                ('}', St::Nest(1)) => close_format!(target),
+                ('}', St::Nest(n)) if n > 1 => St::Nest(n - 1),
+                ('$', St::Nest(0)) => St::Var("".to_owned()),
+                (c, St::Nest(0)) => read_one!(c),
+                ('{', St::Format(_)) => St::Nest(2),
+                ('}', St::Format(Some('c'))) |
+                ('}', St::Format(Some('C'))) => close_format!(&target.to_caml_case()),
+                ('}', St::Format(_)) => close_format!(target),
+                (c, St::Format(None)) if c != ' ' => St::Format(Some(c)),
+                (c, St::Format(Some(_))) if c != ' ' => St::Nest(1),
+                ('{', St::Var(v)) => close_var!(v, St::Format(None), None),
+                (' ', St::Var(v)) => close_var!(v, St::Nest(0), Some(' ')),
+                ('$', St::Var(v)) => close_var!(v, St::Var("".to_owned()), None),
+                (c, St::Var(v)) => push_to_var!(v, c),
+                (_, s) => s,
+            };
+        }
+        if let St::Var(v) = s {
+            close_var!(v, St::Nest(0), None);
+        }
+        r
     }
 }
 
 
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-enum ScalarOrVec<T> {
-    Scalar(T),
-    Vec(Vec<T>),
-}
+#[cfg(test)]
+mod tests {
+    use super::BraceFormat;
 
-impl ScalarOrVec<String> {
-    fn to_command(&self, working_dir: PathBuf) -> CommandParameters {
-        match *self {
-            ScalarOrVec::Scalar(ref arg0) => {
-                CommandParameters::wrap_in_sh_or_cmd_if_necessary(arg0.clone(), working_dir)
-            }
-            ScalarOrVec::Vec(ref values) => {
-                let mut it = values.iter();
-                let arg0 = it.next().cloned().unwrap_or_default();
-                let rest_args = it.cloned().collect();
-                CommandParameters::new(arg0, rest_args, working_dir)
-            }
-        }
+
+    #[test]
+    fn test_braceformat_format() {
+        let format = BraceFormat("cc/{}.cc".to_owned());
+        assert_eq!("cc/a.cc", format.format("a", "", ""));
+        let format = BraceFormat("csharp/{C}/{C}.cs".to_owned());
+        assert_eq!("csharp/A/A.cs", format.format("a", "", ""));
+        let format = BraceFormat("gcc -o $bin $src".to_owned());
+        assert_eq!("gcc -o BIN SRC", format.format("", "SRC", "BIN"));
+        let format = BraceFormat("{}/{{}}".to_owned());
+        assert_eq!("name/name", format.format("name", "", ""));
+        let format = BraceFormat("{}/{aaa C}/{}".to_owned());
+        assert_eq!("name/name/name", format.format("name", "", ""));
+        let format = BraceFormat("{}/{ C }/{C}".to_owned());
+        assert_eq!("name/Name/Name", format.format("name", "", ""));
+        let format = BraceFormat("{}/{".to_owned());
+        assert_eq!("name/", format.format("name", "", ""));
+        let format = BraceFormat("{}/}".to_owned());
+        assert_eq!("name/}", format.format("name", "", ""));
+        let format = BraceFormat("}/{}".to_owned());
+        assert_eq!("}/name", format.format("name", "", ""));
     }
 }

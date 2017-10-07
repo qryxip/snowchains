@@ -41,60 +41,66 @@ testcase_extension: "yml" # default: "yml"
 default_lang: "c++"
 
 # test file: <testcases>/<target-name>.<testcase_extension>
-# source:    <<src> % <target-name (converted to CamlCase if <camelize_src>)>>
-# binary:    <<bin> % <target-name (converted to CamlCase if <camelize_bin>)>>
+# source:    <<src> % <target-name>>
+# binary:    <<bin> % <target-name>>
+# e.g.
+# "cc/{}.cc" % "problem-a"          ⊦ "cc/problem-a.cc"
+# "csharp/{C}/{C}.cs" % "problem-a" ⊦ "csharp/ProblemA/ProblemA.cs"
 languages:
   -
     name: "c"
-    type: "build"
-    camelize_src: false   # default: false
-    camelize_bin: false   # default: false
-    src: "c/%.c"
-    bin: "c/build/%"
-    working_dir: "c/"     # default: ""
-    compile: "gcc -std=c11 -O2 -o build/% %.c"
-    atcoder_lang_id: 3002 # see HTML source or open the inspector, and search by "option"
+    src: "c/{}.c"
+    bin: "c/build/{}"                     # optional
+    build "gcc -std=c11 -O2 -o $bin $src" # optional
+    run: "$bin"                           # default: "$bin"
+    build_working_dir: "c/"               # default: ""
+    runtime_working_dir: "c/"             # default: ""
+    atcoder_lang_id: 3002                 # see HTML source or open the inspector, and search by "option"
   -
     name: "c++"
-    type: "build"
-    camelize_src: false # default: false
-    camelize_bin: false # default: false
-    src: "cc/%.cc"
-    bin: "cc/build/%"
-    working_dir: "cc/"  # default: ""
-    build: "ninja"      # optional
+    src: "cc/{}.cc"
+    bin: "cc/build/{}"
+    build "ninja"
+    run: "$bin"
+    build_working_dir: "cc/"
+    runtime_working_dir: "cc/"
     atcoder_lang_id: 3003
   -
     name: "rust"
-    type: "build"
-    camelize_src: false
-    camelize_bin: false
-    src: "rust/src/bin/%.rs"
-    bin: "rust/target/release/%"
-    working_dir: "rust/"
-    build: "cargo build --release" # or ["cargo", "build", "--release"]
+    src: "rust/src/bin/{}.rs"
+    bin: "rust/target/release/{}"
+    build "rustc -O -o $bin $src"
+    run: "$bin"
+    build_working_dir: "rust/"
+    runtime_working_dir: "rust/"
     atcoder_lang_id: 3504
   -
-    name: "haskell"
-    type: "vm"
-    camelize_src: true                # default: true
-    camelize_bin: false               # default: true
-    src: "haskell/src/%.hs"
-    build_working_dir: "haskell/src/" # default: ""
-    runtime_working_dir: "haskell/"   # default: ""
-    build: "stack install"
-    runtime: "stack run %"
-    atcoder_lang_id: 3014
+    name: "python3"
+    src: "python/{}.py"
+    bin: ~
+    build: ~
+    run: "python3 $src"
+    build_working_dir: ""
+    runtime_working_dir: "python/" 
+    atcoder_lang_id: 3023
+  -
+    name: "java"
+    src: "java/src/main/java/{C}.java"
+    bin: ~
+    build: "javac $src"
+    run: "java {C}"
+    build_working_dir: "java/build/classes/java/main"
+    runtime_working_dir: "java/build/classes/java/main/"
+    atcoder_lang_id: 3016 # a main class name is replaced with "Main" in AtCoder
   -
     # Windows
     name: "c#"
-    type: "build"
-    camelize_src: true
-    camelize_bin: true
-    src: "csharp/%/%.cs"
-    bin: "csharp/%/bin/Release/%.exe"
-    working_dir: "csharp/"
+    src: "csharp/{C}/{C}.cs"
+    bin: "csharp/{C}/bin/Release/{C}.exe"
     build: "MSBuild .\\csharp.sln /p:Configuration=Release"
+    run: "$bin"
+    build_working_dir: "csharp/"
+    runtime_working_dir: "csharp/"
     atcoder_lang_id: 3006
   -
     # *nix
@@ -108,36 +114,6 @@ languages:
     build: "msbuild.exe ./csharp.sln /p:Configuration=Release"
     runtime: "mono ./%/bin/Release/%.exe"
     atcoder_lang_id: 3006
-  -
-    name: "java"
-    type: "vm"
-    camelize_src: true
-    camelize_bin: true
-    src: "java/src/main/java/%.java"
-    build_working_dir: "java/"
-    runtime_working_dir: "java/build/classes/java/main/"
-    build: "gradle --daemon compileJava"
-    runtime: "java %"
-    atcoder_lang_id: 3016 # class names are replaced with "Main" in AtCoder
-  -
-    name: "scala"
-    type: "vm"
-    camelize_src: true
-    camelize_bin: true
-    src: "scala/src/main/%.scala"
-    build_working_dir: "scala/"
-    runtime_working_dir: "scala/target/scala-2.12/classes/"
-    build: "sbt compile"
-    runtime: "scala %"
-    atcoder_lang_id: 3025
-  -
-    name: "python3"
-    type: "script"
-    camelize: false      # default: false
-    src: "python/%.py"
-    working_dir: "python/"
-    runtime: "python3 %" # or shebang
-    atcoder_lang_id: 3023
 ```
 
 Or simply:
@@ -150,13 +126,12 @@ default_lang: "c++"
 languages:
   -
     name: "c++"
-    type: "build"
-    camelize_src: false
-    camelize_bin: false
-    src: "cc/%.cc"
-    bin: "cc/build/%"
-    working_dir: "cc/"
-    build: "ninja"
+    src: "cc/{}.cc"
+    bin: "cc/build/{}"
+    build "g++ -std=c++14 -O2 -o $bin $src"
+    run: "$bin"
+    build_working_dir: "cc/"
+    runtime_working_dir: "cc/"
     atcoder_lang_id: 3003
 ```
 
@@ -164,9 +139,9 @@ languages:
 
 ### Download
 
-- [x] atcoder (e.g. abcxxx, arcxxx, agcxxx, chokudai_sxxx)
-- [x] atcoder-beta (〃)
-- [x] hackerrank
+- [x] atcoder (http://{}/contest.atcoder.jp)
+- [x] atcoder-beta (https://beta.atcoder.jp/contests/{})
+- [x] hackerrank (https://www.hackerrank.com/contests/{})
 
 ```console
 $ #snowchains login <service>

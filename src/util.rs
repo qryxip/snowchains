@@ -2,6 +2,7 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::str;
 
 
 /// Calls `File::open(path)` and if the result is `Err`, replace the error with new one which
@@ -137,5 +138,20 @@ impl ToCamlCase for str {
             }
         }
         s
+    }
+}
+
+
+pub trait Foreach {
+    type Item;
+    /// Substitution of `Iterator::for_each`.
+    fn foreach<F: FnMut(Self::Item)>(self, f: F);
+}
+
+impl<T, I: Iterator<Item = T> + Sized> Foreach for I {
+    type Item = T;
+
+    fn foreach<F: FnMut(T)>(self, mut f: F) {
+        self.fold((), move |(), x| f(x));
     }
 }
