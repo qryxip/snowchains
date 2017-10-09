@@ -13,15 +13,15 @@ use std::time::{Duration, Instant};
 use term::{Attr, color};
 
 
-/// Tests for given test case file path, executaion command, and build command.
+/// Tests for given test case file path, executaion command, and compilation command.
 ///
 /// # Errors
 ///
-/// Returns `Err` if build or execution command fails, or any test fails.
+/// Returns `Err` if compilation or execution command fails, or any test fails.
 pub fn judge(
     testcase_path: TestCaseFilePath,
     run_command: CommandParameters,
-    build_command: Option<CommandParameters>,
+    compilation_command: Option<CommandParameters>,
 ) -> JudgeResult<()> {
     fn judge_one(case: Case, run_command: CommandParameters) -> JudgeResult<JudgeOutput> {
         fn run_program(case: Case, run_command: CommandParameters) -> io::Result<JudgeOutput> {
@@ -31,10 +31,8 @@ pub fn judge(
             child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
 
             let status = child.wait()?;
-            let t = {
-                let t = start.elapsed();
-                (1000000000 * t.as_secs() + t.subsec_nanos() as u64 + 999999) / 1000000
-            };
+            let t = start.elapsed();
+            let t = (1000000000 * t.as_secs() + t.subsec_nanos() as u64 + 999999) / 1000000;
             let stdout = util::string_from_read(child.stdout.unwrap())?;
             let stderr = util::string_from_read(child.stderr.unwrap())?;
 
@@ -51,59 +49,47 @@ pub fn judge(
 
         let (tx, rx) = mpsc::channel();
         let case_cloned = case.clone();
-        let command_arg0 = run_command.arg0.clone();
         thread::spawn(move || {
             let _ = tx.send(run_program(case_cloned, run_command));
         });
-        if let (input, expected, Some(timelimit)) = case.into() {
-            match rx.recv_timeout(Duration::from_millis(timelimit + 50)) {
-                Err(_) => Ok(JudgeOutput::Tle(timelimit, input, expected)),
-                Ok(Err(ref e)) if e.kind() == io::ErrorKind::NotFound => {
-                    bail!(io::Error::new(
-                        io::ErrorKind::NotFound,
-                        format!("Command not found: '{}'", command_arg0),
-                    ))
-                }
-                Ok(output) => Ok(output?),
-            }
+        Ok(if let (input, expected, Some(timelimit)) = case.into() {
+            rx.recv_timeout(Duration::from_millis(timelimit + 50))
+                .unwrap_or_else(|_| Ok(JudgeOutput::Tle(timelimit, input, expected)))?
         } else {
-            Ok(rx.recv()??)
-        }
+            rx.recv()??
+        })
     }
 
-    if let Some(build_command) = build_command {
-        build_command.execute_as_build_command()?;
+    if let Some(compilation_command) = compilation_command {
+        compilation_command.execute_as_compilation_command()?;
         println!("");
     }
 
     let cases = Cases::load(&testcase_path)?;
     let num_cases = cases.num_cases();
     let suf = if num_cases > 1 { "s" } else { "" };
-    let mut all_outputs = vec![];
-    let mut num_failures = 0;
 
     print_decorated!(Attr::Bold, Some(color::CYAN), "Test file:         ");
     println!("{}", testcase_path.build().display());
-    print_decorated!(Attr::Bold, Some(color::CYAN), "Command:           ");
-    println!("{}", run_command.display_args());
-    print_decorated!(Attr::Bold, Some(color::CYAN), "Working directory: ");
-    println!("{}", run_command.display_working_dir());
+    run_command.print_args_and_working_dir();
     println!("Running {} test{}...", num_cases, suf);
-    for (i, case) in cases.into_iter().enumerate() {
-        let output = judge_one(case, run_command.clone())?;
-        output.print_title(i, num_cases);
-        match output {
-            JudgeOutput::Ac(..) => {}
-            _ => num_failures += 1,
-        }
-        all_outputs.push(output);
-    }
 
+    let outputs = cases
+        .into_iter()
+        .enumerate()
+        .map(|(i, case)| {
+            let output = judge_one(case, run_command.clone())?;
+            output.print_title(i, num_cases);
+            Ok(output)
+        })
+        .collect::<JudgeResult<Vec<_>>>()?;
+
+    let num_failures = outputs.iter().filter(|output| !output.success()).count();
     if num_failures == 0 {
         println!("All of the {} test{} passed.", num_cases, suf);
         Ok(())
     } else {
-        all_outputs.into_iter().enumerate().foreach(|(i, output)| {
+        outputs.into_iter().enumerate().foreach(|(i, output)| {
             eprintln!("");
             output.eprint_title(i, num_cases);
             output.eprint_details();
@@ -165,18 +151,6 @@ impl CommandParameters {
         }
     }
 
-    fn display_args(&self) -> String {
-        let mut s: String = format!("{:?}", self.arg0);
-        self.rest_args.iter().foreach(
-            |arg| s += &format!(" {:?}", arg),
-        );
-        s
-    }
-
-    fn display_working_dir(&self) -> String {
-        format!("{}", self.working_dir.display())
-    }
-
     fn print_args_and_working_dir(&self) {
         print_decorated!(Attr::Bold, Some(color::CYAN), "Command:           ");
         println!("{}", self.display_args());
@@ -184,7 +158,7 @@ impl CommandParameters {
         println!("{}", self.working_dir.display());
     }
 
-    fn execute_as_build_command(self) -> JudgeResult<()> {
+    fn execute_as_compilation_command(self) -> JudgeResult<()> {
         if let &Some((ref src, ref bin)) = &self.src_and_bin {
             if let (Ok(src_meta), Ok(bin_meta)) = (src.metadata(), bin.metadata()) {
                 if let (Ok(t1), Ok(t2)) = (src_meta.modified(), bin_meta.modified()) {
@@ -211,7 +185,7 @@ impl CommandParameters {
         if status.success() {
             Ok(())
         } else {
-            bail!(JudgeErrorKind::BuildFailure(status));
+            bail!(JudgeErrorKind::CompilationFailure(status));
         }
     }
 
@@ -223,6 +197,14 @@ impl CommandParameters {
             .stderr(Stdio::piped())
             .current_dir(self.working_dir)
             .spawn()
+    }
+
+    fn display_args(&self) -> String {
+        let mut s: String = format!("{:?}", self.arg0);
+        self.rest_args.iter().foreach(
+            |arg| s += &format!(" {:?}", arg),
+        );
+        s
     }
 }
 
@@ -239,7 +221,6 @@ enum JudgeOutput {
     Re(u64, String, String, String, String, ExitStatus),
 }
 
-
 impl fmt::Display for JudgeOutput {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -252,6 +233,13 @@ impl fmt::Display for JudgeOutput {
 }
 
 impl JudgeOutput {
+    fn success(&self) -> bool {
+        match *self {
+            JudgeOutput::Ac(..) => true,
+            _ => false,
+        }
+    }
+
     fn print_title(&self, i: usize, n: usize) {
         (0..format!("{}", n).len() - format!("{}", i + 1).len()).foreach(|_| print!(" "));
         print_decorated!(Attr::Bold, None, "{}/{} ", i + 1, n);
@@ -313,5 +301,42 @@ impl JudgeOutput {
             JudgeOutput::Wa(..) => color::YELLOW,
             JudgeOutput::Re(..) => color::YELLOW,
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::CommandParameters;
+
+    use std::path::PathBuf;
+
+
+    #[test]
+    fn assert_commands_wrapped_in_sh_or_cmd() {
+        fn make_command(command: &'static str) -> CommandParameters {
+            CommandParameters::new(command.to_owned(), PathBuf::new(), None)
+        }
+
+        assert_eq!(
+            "\"cargo\" \"build\" \"--release\"",
+            make_command("cargo build --release").display_args()
+        );
+
+        let command = make_command("sleep 1 && cargo build --release").display_args();
+        let display = if cfg!(target_os = "windows") {
+            "\"cmd\" \"/C\" \"sleep 1 && cargo build --release\""
+        } else {
+            "\"sh\" \"-c\" \"sleep 1 && cargo build --release\""
+        };
+        assert_eq!(display, command);
+
+        let command = make_command("echo 'Hello, World!'").display_args();
+        let display = if cfg!(target_os = "windows") {
+            "\"cmd\" \"/C\" \"echo \\'Hello, World!\\'\""
+        } else {
+            "\"sh\" \"-c\" \"echo \\'Hello, World!\\'\""
+        };
+        assert_eq!(display, command);
     }
 }

@@ -73,29 +73,29 @@ error_chain! {
     errors {
         NoSuchProblem(name: String) {
             description("No such problem")
-                display("No such problem: \"{}\"", name)
+            display("No such problem: \"{}\"", name)
         }
 
         ScrapingFailed {
             description("Scraping failed")
-                display("Scraping faild")
+            display("Scraping faild")
         }
 
         ReplacingClassNameFailure(path: PathBuf) {
             description("Replacing the class name fails")
-                display("Failed to replace the class name in {}", path.display())
+            display("Failed to replace the class name in {}", path.display())
         }
 
         Thread {
             description("Error of std::thread")
-                display("Thread error")
+            display("Thread error")
         }
 
         UnexpectedHttpCode(expected: Vec<StatusCode>, actual: StatusCode) {
             description("Unexpected HTTP response code")
-                display("The response code is {}, expected {}",
-                        actual,
-                        expected.iter().map(StatusCode::to_string).collect::<Vec<_>>().join(" or "))
+            display("The response code is {}, expected {}",
+                    actual,
+                    expected.iter().map(StatusCode::to_string).collect::<Vec<_>>().join(" or "))
         }
     }
 }
@@ -116,19 +116,16 @@ error_chain! {
     }
 
     errors {
-        BuildFailure(status: ExitStatus) {
-            description("Build failed")
-                display("Build failed{}",
-                        if let Some(code) = status.code() {
-                            format!(" with code {}", code)
-                        } else {
-                            "".to_owned()
-                        })
+        CompilationFailure(status: ExitStatus) {
+            description("Compilation failed")
+            display("Compilation failed{}",
+                     if let Some(code) = status.code() { format!(" with code {}", code) }
+                     else {"".to_owned() })
         }
 
         TestFailed(n: usize) {
             description("Test faild")
-                display("{} Test{} failed", n, if *n > 0 { "s" } else { "" })
+            display("{} Test{} failed", n, if *n > 0 { "s" } else { "" })
         }
     }
 }
@@ -163,22 +160,22 @@ error_chain! {
     errors {
         ConfigFileNotFound {
             description("\"snowchains.yml\" not found")
-                display("\"snowchains.yml\" not found")
+            display("\"snowchains.yml\" not found")
         }
 
         UnsupportedExtension(extension: String) {
             description("Unsupported extension")
-                display("Unsupported extension: \"{}\"", extension)
+            display("Unsupported extension: \"{}\"", extension)
         }
 
         NoSuchLanguage(name: String) {
             description("Language not found")
-                display("No such language: \"{}\"", name)
+            display("No such language: \"{}\"", name)
         }
 
         PropertyNotSet(property: &'static str) {
             description("Property not set")
-                display("Property not set: \"{}\"", property)
+            display("Property not set: \"{}\"", property)
         }
     }
 }

@@ -268,8 +268,8 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let lang = matches.value_of("lang");
         let testcase_path = config.testcase_path(target)?;
         let run_command = config.construct_run_command(target, lang)?;
-        let build_command = config.construct_build_command(target, lang)?;
-        return Ok(judge::judge(testcase_path, run_command, build_command)?);
+        let comp_command = config.construct_compilation_command(target, lang)?;
+        return Ok(judge::judge(testcase_path, run_command, comp_command)?);
     } else if let Some(matches) = matches.subcommand_matches("submit") {
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
@@ -283,8 +283,8 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         if !skip_judging {
             let testcase_path = config.testcase_path(target)?;
             let run_command = config.construct_run_command(target, lang)?;
-            let build_command = config.construct_build_command(target, lang)?;
-            judge::judge(testcase_path, run_command, build_command)?;
+            let comp_command = config.construct_compilation_command(target, lang)?;
+            judge::judge(testcase_path, run_command, comp_command)?;
             println!("");
         }
         return Ok(match service_name {

@@ -50,47 +50,47 @@ languages:
   -
     name: "c++"
     src: "cc/{}.cc"
-    bin: "cc/build/{}"                       # optional
-    build: "g++ -std=c++14 -O2 -o $bin $src" # optional
-    run: "$bin"                              # default: "$bin"
-    build_working_dir: "cc/"                 # default: ""
-    runtime_working_dir: "cc/"               # default: ""
-    atcoder_lang_id: 3003                    # see the HTML source or open DevTools, and search by "option"
+    bin: "cc/build/{}"                         # optional
+    compile: "g++ -std=c++14 -O2 -o $bin $src" # optional
+    run: "$bin"                                # default: "$bin"
+    compilation_working_dir: "cc/"             # default: ""
+    runtime_working_dir: "cc/"                 # default: ""
+    atcoder_lang_id: 3003                      # see the HTML source or open DevTools, and search by "option"
   -
     name: "rust"
     src: "rust/src/bin/{}.rs"
     bin: "rust/target/release/{}"
-    build "rustc -O -o $bin $src"
+    compile: "rustc -O -o $bin $src"
     run: "$bin"
-    build_working_dir: "rust/"
+    compilation_working_dir: "rust/"
     runtime_working_dir: "rust/"
     atcoder_lang_id: 3504
   -
     name: "python3"
     src: "python/{}.py"
     bin: ~
-    build: ~
+    compile: ~
     run: "python3 $src"
-    build_working_dir: ""
+    compilation_working_dir: ""
     runtime_working_dir: "python/" 
     atcoder_lang_id: 3023
   -
     name: "java"
     src: "java/src/main/java/{C}.java"
-    bin: ~
-    build: "javac $src"
-    run: "java {C}"
-    build_working_dir: "java/build/classes/java/main"
-    runtime_working_dir: "java/build/classes/java/main/"
+    bin: "java/build/classes/java/main/{C}.class"
+    compile: "javac -d ./build/classes/java/main/ $src"
+    run: "java -classpath ./build/classes/java/main/ {C}"
+    compilation_working_dir: "java/"
+    runtime_working_dir: "java/"
     atcoder_lang_id: 3016 # a main class name is replaced with "Main" in AtCoder
   -
     # Windows
     name: "c#"
     src: "csharp/{C}/{C}.cs"
     bin: "csharp/{C}/bin/Release/{C}.exe"
-    build: "csc /o+ /r:System.Numerics /out:$bin $src"
+    compile: "csc /o+ /r:System.Numerics /out:$bin $src"
     run: "$bin"
-    build_working_dir: "csharp/"
+    compilation_working_dir: "csharp/"
     runtime_working_dir: "csharp/"
     atcoder_lang_id: 3006
   -
@@ -98,9 +98,9 @@ languages:
     name: "c#"
     src: "csharp/{C}/{C}.cs"
     bin: "csharp/{C}/bin/Release/{C}.exe"
-    build: "mcs -o+ -r:System.Numerics -out:$bin $src"
+    compile: "mcs -o+ -r:System.Numerics -out:$bin $src"
     run: "mono ./%/bin/Release/%.exe"
-    build_working_dir: "csharp/"
+    compilation_working_dir: "csharp/"
     runtime_working_dir: "csharp/"
     atcoder_lang_id: 3006
 ```
@@ -117,9 +117,9 @@ languages:
     name: "c++"
     src: "cc/{}.cc"
     bin: "cc/build/{}"
-    build "g++ -std=c++14 -O2 -o $bin $src"
+    compile "g++ -std=c++14 -O2 -o $bin $src"
     run: "$bin"
-    build_working_dir: "cc/"
+    compilation_working_dir: "cc/"
     runtime_working_dir: "cc/"
     atcoder_lang_id: 3003
 ```

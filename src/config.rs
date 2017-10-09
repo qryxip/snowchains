@@ -234,17 +234,20 @@ impl Config {
         })
     }
 
-    /// Constructs arguments of build command for given or default language.
-    pub fn construct_build_command(
+    /// Constructs arguments of compilation command for given or default language.
+    pub fn construct_compilation_command(
         &self,
         target_name: &str,
         lang: Option<&str>,
     ) -> ConfigResult<Option<CommandParameters>> {
         let lang = self.lang_property(lang)?;
-        Ok(lang.construct_build_command(&self.base_dir, target_name)?)
+        Ok(lang.construct_compilation_command(
+            &self.base_dir,
+            target_name,
+        )?)
     }
 
-    /// Constructs arguments of build executionfor given or default language.
+    /// Constructs arguments of execution command for given or default language.
     pub fn construct_run_command(
         &self,
         target_name: &str,
@@ -357,11 +360,11 @@ struct LangProperty {
     name: String,
     src: BraceFormat,
     bin: Option<BraceFormat>,
-    build: Option<BraceFormat>,
+    compile: Option<BraceFormat>,
     #[serde(default = "BraceFormat::bin")]
     run: BraceFormat,
     #[serde(default)]
-    build_working_dir: InputPath,
+    compilation_working_dir: InputPath,
     #[serde(default)]
     runtime_working_dir: InputPath,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -373,9 +376,9 @@ impl LangProperty {
         name: &'static str,
         src: &'static str,
         bin: Option<S>,
-        build: Option<&'static str>,
+        compile: Option<&'static str>,
         run: &'static str,
-        build_working_dir: &'static str,
+        compilation_working_dir: &'static str,
         runtime_working_dir: &'static str,
         atcoder_lang_id: Option<u32>,
     ) -> Self {
@@ -383,9 +386,9 @@ impl LangProperty {
             name: name.to_owned(),
             src: BraceFormat(src.to_owned()),
             bin: bin.map(|bin| BraceFormat(bin.into())),
-            build: build.map(|build| BraceFormat(build.to_owned())),
+            compile: compile.map(|comp| BraceFormat(comp.to_owned())),
             run: BraceFormat(run.to_owned()),
-            build_working_dir: InputPath(build_working_dir.to_owned()),
+            compilation_working_dir: InputPath(compilation_working_dir.to_owned()),
             runtime_working_dir: InputPath(runtime_working_dir.to_owned()),
             atcoder_lang_id: atcoder_lang_id,
         }
@@ -395,36 +398,37 @@ impl LangProperty {
         self.src.resolve_as_path(base, target)
     }
 
-    fn construct_build_command(
+    fn construct_compilation_command(
         &self,
         base: &Path,
         target: &str,
     ) -> ConfigResult<Option<CommandParameters>> {
-        let (working_dir, src, bin) = self.resolve_params(base, target)?;
-        Ok(self.build.as_ref().map(|build| {
-            build.to_build_command(target, working_dir, Some(src), bin)
+        let working_dir = self.compilation_working_dir.resolve(base)?;
+        let (src, bin) = self.resolve_src_and_bin(base, target)?;
+        Ok(self.compile.as_ref().map(|build| {
+            build.to_compilation_command(target, working_dir, Some(src), bin)
         }))
     }
 
     fn construct_run_command(&self, base: &Path, target: &str) -> ConfigResult<CommandParameters> {
-        let (working_dir, src, bin) = self.resolve_params(base, target)?;
+        let working_dir = self.runtime_working_dir.resolve(base)?;
+        let (src, bin) = self.resolve_src_and_bin(base, target)?;
         let src = src.display().to_string();
         let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
         Ok(self.run.to_run_command(target, working_dir, &src, &bin))
     }
 
-    fn resolve_params(
+    fn resolve_src_and_bin(
         &self,
         base: &Path,
         target: &str,
-    ) -> ConfigResult<(PathBuf, PathBuf, Option<PathBuf>)> {
-        let working_dir = self.build_working_dir.resolve(base)?;
+    ) -> ConfigResult<(PathBuf, Option<PathBuf>)> {
         let src = self.src.resolve_as_path(base, target)?;
         let bin = match self.bin {
             Some(ref bin) => Some(bin.resolve_as_path(base, target)?),
             None => None,
         };
-        Ok((working_dir, src, bin))
+        Ok((src, bin))
     }
 }
 
@@ -469,7 +473,7 @@ impl BraceFormat {
         InputPath(self.format(&target, "", "")).resolve(base)
     }
 
-    fn to_build_command(
+    fn to_compilation_command(
         &self,
         target: &str,
         working_dir: PathBuf,
