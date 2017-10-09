@@ -44,27 +44,18 @@ default_lang: "c++"
 # source:    <<src> % <target-name>>
 # binary:    <<bin> % <target-name>>
 # e.g.
-# "cc/{}.cc" % "problem-a"          ⊦ "cc/problem-a.cc"
-# "csharp/{C}/{C}.cs" % "problem-a" ⊦ "csharp/ProblemA/ProblemA.cs"
+# "cc/{}.cc" % "problem-a"          ⊦ <the directory which has snowchains.yml>/"cc/problem-a.cc"
+# "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yml>/"csharp/ProblemA/ProblemA.cs"
 languages:
-  -
-    name: "c"
-    src: "c/{}.c"
-    bin: "c/build/{}"                     # optional
-    build "gcc -std=c11 -O2 -o $bin $src" # optional
-    run: "$bin"                           # default: "$bin"
-    build_working_dir: "c/"               # default: ""
-    runtime_working_dir: "c/"             # default: ""
-    atcoder_lang_id: 3002                 # see HTML source or open the inspector, and search by "option"
   -
     name: "c++"
     src: "cc/{}.cc"
-    bin: "cc/build/{}"
-    build "ninja"
-    run: "$bin"
-    build_working_dir: "cc/"
-    runtime_working_dir: "cc/"
-    atcoder_lang_id: 3003
+    bin: "cc/build/{}"                       # optional
+    build: "g++ -std=c++14 -O2 -o $bin $src" # optional
+    run: "$bin"                              # default: "$bin"
+    build_working_dir: "cc/"                 # default: ""
+    runtime_working_dir: "cc/"               # default: ""
+    atcoder_lang_id: 3003                    # see the HTML source or open DevTools, and search by "option"
   -
     name: "rust"
     src: "rust/src/bin/{}.rs"
@@ -97,22 +88,20 @@ languages:
     name: "c#"
     src: "csharp/{C}/{C}.cs"
     bin: "csharp/{C}/bin/Release/{C}.exe"
-    build: "MSBuild .\\csharp.sln /p:Configuration=Release"
+    build: "csc /o+ /r:System.Numerics /out:$bin $src"
     run: "$bin"
     build_working_dir: "csharp/"
     runtime_working_dir: "csharp/"
     atcoder_lang_id: 3006
   -
     # *nix
-    name: "mono"
-    type: "vm"
-    camelize_src: true # default: true
-    camelize_bin: true # default: true
-    src: "csharp/%/%.cs"
+    name: "c#"
+    src: "csharp/{C}/{C}.cs"
+    bin: "csharp/{C}/bin/Release/{C}.exe"
+    build: "mcs -o+ -r:System.Numerics -out:$bin $src"
+    run: "mono ./%/bin/Release/%.exe"
     build_working_dir: "csharp/"
     runtime_working_dir: "csharp/"
-    build: "msbuild.exe ./csharp.sln /p:Configuration=Release"
-    runtime: "mono ./%/bin/Release/%.exe"
     atcoder_lang_id: 3006
 ```
 

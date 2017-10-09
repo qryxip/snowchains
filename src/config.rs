@@ -26,7 +26,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             "c#",
             "csharp/{C}/{C}.cs",
             Some("csharp/{C}/bin/Release/{C}.exe"),
-            Some("msbuild .\\csharp.sln /p:Configuration=Release"),
+            Some("csc /o+ /r:System.Numerics /out:$bin $src"),
             "$bin",
             "csharp/",
             "csharp/",
@@ -34,10 +34,10 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
         )
     } else {
         LangProperty::new(
-            "mono",
+            "c#",
             "csharp/{C}/{C}.cs",
             Some("csharp/{C}/bin/Release/{C}.exe"),
-            Some("msbuild.exe ./csharp.sln /p:Configuration=Release"),
+            Some("mcs -o+ -r:System.Numerics -out:$bin $src"),
             "mono $bin",
             "csharp/",
             "csharp/",
@@ -56,7 +56,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 "c",
                 "c/{}.c",
                 Some(append_exe_if_windows("c/build/{}")),
-                Some("gcc -std=c11 -O2 -o $bin $src"),
+                Some("gcc -std=c11 -O2 -lm -o $bin $src"),
                 "$bin",
                 "c/",
                 "c/",
@@ -82,12 +82,12 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 "rust/",
                 Some(3504)
             ),
-            LangProperty::new::<String>(
+            LangProperty::new(
                 "haskell",
                 "haskell/src/{C}.hs",
-                None,
-                Some("stack build"),
-                "stack exec {}",
+                Some("haskell/target/{}"),
+                Some("stack ghc -- -O2 -o $bin $src"),
+                "$bin",
                 "haskell/",
                 "haskell/",
                 Some(3014)
@@ -96,20 +96,20 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 "java",
                 "java/src/main/java/{C}.java",
                 Some("java/build/classes/java/main/{C}.class"),
-                Some("javac $src"),
-                "java {C}",
-                "java/build/classes/java/main/",
-                "java/build/classes/java/main/",
+                Some("javac -d ./build/classes/java/main/ $src"),
+                "java -classpath ./build/classes/java/main/ {C}",
+                "java/",
+                "java/",
                 Some(3016)
             ),
             LangProperty::new(
                 "scala",
                 "scala/src/main/scala/{C}.scala",
                 Some("scala/target/scala-2.12/classes/{C}.class"),
-                Some("scalac -optimise $src"),
-                "scala {C}",
-                "scala/target/scala-2.12/classes/",
-                "scala/target/scala-2.12/classes/",
+                Some("scalac -optimise -d ./target/scala-2.12/classes/ $src"),
+                "scala -classpath ./target/scala-2.12/classes/ {C}",
+                "scala/",
+                "scala/",
                 Some(3025)
             ),
             csharp_or_mono,
@@ -119,8 +119,8 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 None,
                 None,
                 "python3 $src",
-                "python",
-                "python",
+                "",
+                "python/",
                 Some(3023)
             ),
         ],
@@ -256,12 +256,12 @@ impl Config {
 
     fn lang_property(&self, lang_name: Option<&str>) -> ConfigResult<&LangProperty> {
         let lang_name = lang_name.unwrap_or(&self.default_lang);
-        for lang in &self.languages {
-            if lang.name == lang_name {
-                return Ok(lang);
-            }
-        }
-        bail!(ConfigErrorKind::NoSuchLanguage(lang_name.to_owned()))
+        self.languages
+            .iter()
+            .find(|lang| lang.name == lang_name)
+            .ok_or_else(|| {
+                ConfigError::from(ConfigErrorKind::NoSuchLanguage(lang_name.to_owned()))
+            })
     }
 }
 
@@ -524,15 +524,9 @@ impl BraceFormat {
             St::Nest(0)
         } });
         macro_rules! push_to_var(($var: expr, $c: expr) => { {
-            St::Var(
-                if $c != '}' {
-                    let mut v = $var;
-                    v.push($c);
-                    v
-                } else {
-                    $var
-                }
-            )
+            let mut v = $var;
+            if $c != '}' { v.push($c); }
+            St::Var(v)
         } });
         for c in self.0.chars() {
             s = match (c, s) {

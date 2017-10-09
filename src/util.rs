@@ -125,18 +125,16 @@ impl ToCamlCase for str {
     fn to_caml_case(&self) -> String {
         let mut s = String::new();
         let mut p = true;
-        for c in self.chars() {
-            match c.to_uppercase().next() {
-                Some('-') | Some('_') => {
-                    p = true;
-                }
-                Some(c) if p => {
-                    p = false;
-                    s.push(c)
-                }
-                _ => s.push(c),
+        self.chars().foreach(|c| match c.to_uppercase().next() {
+            Some('-') | Some('_') => {
+                p = true;
             }
-        }
+            Some(c) if p => {
+                p = false;
+                s.push(c)
+            }
+            _ => s.push(c),
+        });
         s
     }
 }
@@ -144,11 +142,11 @@ impl ToCamlCase for str {
 
 pub trait Foreach {
     type Item;
-    /// Substitution of `Iterator::for_each`.
+    /// A substitution of `Iterator::for_each`, which is unstable until Rust 1.21.
     fn foreach<F: FnMut(Self::Item)>(self, f: F);
 }
 
-impl<T, I: Iterator<Item = T> + Sized> Foreach for I {
+impl<T, I: Iterator<Item = T>> Foreach for I {
     type Item = T;
 
     fn foreach<F: FnMut(T)>(self, mut f: F) {
