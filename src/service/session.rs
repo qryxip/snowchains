@@ -20,13 +20,13 @@ use zip::ZipArchive;
 use zip::result::ZipResult;
 
 
-pub struct ScrapingSession {
+pub struct HttpSession {
     cookie_jar: CookieJar,
     reqwest_client: Client,
     sqlite: (Connection, PathBuf),
 }
 
-impl ScrapingSession {
+impl HttpSession {
     /// Creates a new `ScrapingSession` connecting `~/.local/share/snowchains/<sqlite_name>`.
     pub fn start(sqlite_name: &'static str) -> ServiceResult<Self> {
         let path = {

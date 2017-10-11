@@ -34,7 +34,7 @@ mod config;
 mod error;
 mod judge;
 mod service;
-mod testcase;
+mod testsuite;
 mod util;
 
 use config::{Config, PropertyKey, ServiceName};
@@ -62,8 +62,8 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
             .help("Property key")
             .possible_value("service")
             .possible_value("contest")
-            .possible_value("testcases")
-            .possible_value("testcase_extension")
+            .possible_value("testsuite")
+            .possible_value("testsuite_extension")
             .possible_value("default_lang")
             .required(true)
     }
@@ -169,7 +169,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         .arg(arg_open_browser().display_order(1));
 
     let subcommand_append = SubCommand::with_name("append")
-        .about("Appends a test case to a file")
+        .about("Appends a test case to a test suite file")
         .usage(USAGE_APPEND)
         .arg(arg_target().display_order(1))
         .arg(arg_input().display_order(2))
@@ -244,8 +244,8 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let open_browser = matches.is_present("open-browser");
         let service_name = config.service_name()?;
         let contest_name = config.contest_name()?;
-        let dir_to_save = config.testcase_dir()?;
-        let extension = config.testcase_extension();
+        let dir_to_save = config.suite_dir()?;
+        let extension = config.suite_extension();
         return Ok(match service_name {
             ServiceName::AtCoder => atcoder::download(&contest_name, &dir_to_save, extension),
             ServiceName::AtCoderBeta => {
@@ -260,16 +260,16 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let target = matches.value_of("target").unwrap();
         let input = matches.value_of("input").unwrap();
         let output = matches.value_of("output");
-        let path = config.testcase_path(target)?;
-        return Ok(testcase::append(&path, input, output)?);
+        let path = config.suite_path(target)?;
+        return Ok(testsuite::append(&path, input, output)?);
     } else if let Some(matches) = matches.subcommand_matches("judge") {
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
         let lang = matches.value_of("lang");
-        let testcase_path = config.testcase_path(target)?;
+        let suite_path = config.suite_path(target)?;
         let run_command = config.construct_run_command(target, lang)?;
         let comp_command = config.construct_compilation_command(target, lang)?;
-        return Ok(judge::judge(testcase_path, run_command, comp_command)?);
+        return Ok(judge::judge(suite_path, run_command, comp_command)?);
     } else if let Some(matches) = matches.subcommand_matches("submit") {
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
@@ -281,10 +281,10 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let contest_name = config.contest_name()?;
         let src_path = config.src_path(target, lang)?;
         if !skip_judging {
-            let testcase_path = config.testcase_path(target)?;
+            let suite_path = config.suite_path(target)?;
             let run_command = config.construct_run_command(target, lang)?;
             let comp_command = config.construct_compilation_command(target, lang)?;
-            judge::judge(testcase_path, run_command, comp_command)?;
+            judge::judge(suite_path, run_command, comp_command)?;
             println!("");
         }
         return Ok(match service_name {

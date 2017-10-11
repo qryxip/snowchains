@@ -1,10 +1,10 @@
 use error::{JudgeErrorKind, JudgeResult};
-use testcase::{Case, Cases, TestCaseFilePath};
+use testsuite::{SuiteFilePath, TestCase, TestSuite};
 use util::{self, Foreach, UnwrapAsRefMut};
 
-use std::fmt;
+use std::fmt::{self, Write as _FmtWrite};
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Write as _IoWrite};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
@@ -19,12 +19,12 @@ use term::{Attr, color};
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
 pub fn judge(
-    testcase_path: TestCaseFilePath,
-    run_command: CommandParameters,
-    compilation_command: Option<CommandParameters>,
+    suite_path: SuiteFilePath,
+    run_command: CommandProperty,
+    compilation_command: Option<CommandProperty>,
 ) -> JudgeResult<()> {
-    fn judge_one(case: Case, run_command: CommandParameters) -> JudgeResult<JudgeOutput> {
-        fn run_program(case: Case, run_command: CommandParameters) -> io::Result<JudgeOutput> {
+    fn judge_one(case: TestCase, run_command: CommandProperty) -> JudgeResult<JudgeOutput> {
+        fn run_program(case: TestCase, run_command: CommandProperty) -> io::Result<JudgeOutput> {
             let (input, expected, timelimit) = case.into();
             let mut child = run_command.spawn_piped()?;
             let start = Instant::now();
@@ -65,16 +65,16 @@ pub fn judge(
         println!("");
     }
 
-    let cases = Cases::load(&testcase_path)?;
-    let num_cases = cases.num_cases();
+    let suite = TestSuite::load(&suite_path)?;
+    let num_cases = suite.num_cases();
     let suf = if num_cases > 1 { "s" } else { "" };
 
-    print_decorated!(Attr::Bold, Some(color::CYAN), "Test file:         ");
-    println!("{}", testcase_path.build().display());
+    print_decorated!(Attr::Bold, Some(color::CYAN), "Test suite:        ");
+    println!("{}", suite_path.build().display());
     run_command.print_args_and_working_dir();
     println!("Running {} test{}...", num_cases, suf);
 
-    let outputs = cases
+    let outputs = suite
         .into_iter()
         .enumerate()
         .map(|(i, case)| {
@@ -86,28 +86,27 @@ pub fn judge(
 
     let num_failures = outputs.iter().filter(|output| !output.success()).count();
     if num_failures == 0 {
-        println!("All of the {} test{} passed.", num_cases, suf);
-        Ok(())
+        Ok(println!("All of the {} test{} passed.", num_cases, suf))
     } else {
         outputs.into_iter().enumerate().foreach(|(i, output)| {
             eprintln!("");
             output.eprint_title(i, num_cases);
             output.eprint_details();
         });
-        bail!(JudgeErrorKind::TestFailed(num_failures))
+        bail!(JudgeErrorKind::TestFailure(num_failures))
     }
 }
 
 
 #[derive(Clone)]
-pub struct CommandParameters {
+pub struct CommandProperty {
     arg0: String,
     rest_args: Vec<String>,
     working_dir: PathBuf,
     src_and_bin: Option<(PathBuf, PathBuf)>,
 }
 
-impl CommandParameters {
+impl CommandProperty {
     /// Constructs a new `CommandParameters`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
@@ -158,13 +157,12 @@ impl CommandParameters {
         println!("{}", self.working_dir.display());
     }
 
-    fn execute_as_compilation_command(self) -> JudgeResult<()> {
+    fn execute_as_compilation_command(&self) -> JudgeResult<()> {
         if let &Some((ref src, ref bin)) = &self.src_and_bin {
             if let (Ok(src_meta), Ok(bin_meta)) = (src.metadata(), bin.metadata()) {
                 if let (Ok(t1), Ok(t2)) = (src_meta.modified(), bin_meta.modified()) {
                     if t1 < t2 {
-                        println!("{} is up to date.", bin.display());
-                        return Ok(());
+                        return Ok(println!("{} is up to date.", bin.display()));
                     }
                 }
             } else if let Some(dir) = bin.parent() {
@@ -176,8 +174,8 @@ impl CommandParameters {
         }
         self.print_args_and_working_dir();
         let status = Command::new(&self.arg0)
-            .args(self.rest_args)
-            .current_dir(self.working_dir)
+            .args(&self.rest_args)
+            .current_dir(&self.working_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -189,22 +187,22 @@ impl CommandParameters {
         }
     }
 
-    fn spawn_piped(self) -> io::Result<Child> {
+    fn spawn_piped(&self) -> io::Result<Child> {
         Command::new(&self.arg0)
-            .args(self.rest_args)
+            .args(&self.rest_args)
+            .current_dir(&self.working_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(self.working_dir)
             .spawn()
     }
 
     fn display_args(&self) -> String {
-        let mut s: String = format!("{:?}", self.arg0);
-        self.rest_args.iter().foreach(
-            |arg| s += &format!(" {:?}", arg),
-        );
-        s
+        let arg0 = format!("{:?}", self.arg0);
+        self.rest_args.iter().fold(arg0, |mut s, arg| {
+            write!(s, " {:?}", arg).unwrap();
+            s
+        })
     }
 }
 
@@ -307,36 +305,30 @@ impl JudgeOutput {
 
 #[cfg(test)]
 mod tests {
-    use super::CommandParameters;
+    use super::CommandProperty;
 
     use std::path::PathBuf;
 
 
     #[test]
     fn assert_commands_wrapped_in_sh_or_cmd() {
-        fn make_command(command: &'static str) -> CommandParameters {
-            CommandParameters::new(command.to_owned(), PathBuf::new(), None)
+        fn display(command: &'static str) -> String {
+            CommandProperty::new(command.to_owned(), PathBuf::new(), None).display_args()
         }
 
-        assert_eq!(
-            "\"cargo\" \"build\" \"--release\"",
-            make_command("cargo build --release").display_args()
-        );
+        fn wrap(command: &'static str) -> String {
+            if cfg!(target_os = "windows") {
+                format!("\"cmd\" \"/C\" {:?}", command)
+            } else {
+                format!("\"sh\" \"-c\" {:?}", command)
+            }
+        }
 
-        let command = make_command("sleep 1 && cargo build --release").display_args();
-        let display = if cfg!(target_os = "windows") {
-            "\"cmd\" \"/C\" \"sleep 1 && cargo build --release\""
-        } else {
-            "\"sh\" \"-c\" \"sleep 1 && cargo build --release\""
-        };
-        assert_eq!(display, command);
-
-        let command = make_command("echo 'Hello, World!'").display_args();
-        let display = if cfg!(target_os = "windows") {
-            "\"cmd\" \"/C\" \"echo \\'Hello, World!\\'\""
-        } else {
-            "\"sh\" \"-c\" \"echo \\'Hello, World!\\'\""
-        };
-        assert_eq!(display, command);
+        let command = "cargo build --release";
+        assert_eq!("\"cargo\" \"build\" \"--release\"", display(command));
+        let command = "sleep 1 && cargo build --release";
+        assert_eq!(wrap(command), display(command));
+        let command = "echo 'Hello, World!'";
+        assert_eq!(wrap(command), display(command));
     }
 }

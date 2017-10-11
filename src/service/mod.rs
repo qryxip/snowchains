@@ -1,7 +1,7 @@
 pub mod atcoder;
 pub mod atcoder_beta;
 pub mod hackerrank;
-mod scraping_session;
+mod session;
 
 use error::{ServiceError, ServiceErrorKind, ServiceResult};
 use util;

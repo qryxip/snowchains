@@ -36,16 +36,16 @@ $ snowchains submit <target> (<language>) (--open-browser) (--skip-judging) (--f
 ---
 service: "atcoder-beta"   # optional
 contest: "chokudai_s001"  # optional
-testcases: "snowchains/"  # default: "./snowchains/"
-testcase_extension: "yml" # default: "yml"
+testsuite: "snowchains/"  # default: "./snowchains/"
+testsuite_extension: "yml" # default: "yml"
 default_lang: "c++"
 
-# test file: <testcases>/<target-name>.<testcase_extension>
+# test file: <testsuite>/<target-name>.<testsuite_extension>
 # source:    <<src> % <target-name>>
 # binary:    <<bin> % <target-name>>
 # e.g.
-# "cc/{}.cc" % "problem-a"          ⊦ <the directory which has snowchains.yml>/"cc/problem-a.cc"
-# "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yml>/"csharp/ProblemA/ProblemA.cs"
+# "cc/{}.cc" % "problem-a"          ⊦ <the directory which has snowchains.yml>/cc/problem-a.cc
+# "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yml>/csharp/ProblemA/ProblemA.cs
 languages:
   -
     name: "c++"
@@ -99,7 +99,7 @@ languages:
     src: "csharp/{C}/{C}.cs"
     bin: "csharp/{C}/bin/Release/{C}.exe"
     compile: "mcs -o+ -r:System.Numerics -out:$bin $src"
-    run: "mono ./%/bin/Release/%.exe"
+    run: "mono $bin"
     compilation_working_dir: "csharp/"
     runtime_working_dir: "csharp/"
     atcoder_lang_id: 3006
@@ -111,16 +111,18 @@ Or simply:
 ---
 service: "atcoder"
 contest: "chokuda_s001"
+testsuite: "snowchains/"
+testsuite_extension: "yml"
 default_lang: "c++"
 languages:
   -
     name: "c++"
-    src: "cc/{}.cc"
-    bin: "cc/build/{}"
-    compile "g++ -std=c++14 -O2 -o $bin $src"
+    src: "{}.cc"
+    bin: "build/{}"
+    compile: "g++ -std=c++14 -O2 -o $bin $src"
     run: "$bin"
-    compilation_working_dir: "cc/"
-    runtime_working_dir: "cc/"
+    compilation_working_dir: ""
+    runtime_working_dir: ""
     atcoder_lang_id: 3003
 ```
 

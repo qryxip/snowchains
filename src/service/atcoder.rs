@@ -1,6 +1,6 @@
 use error::{PrintChainColored, ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
-use service::scraping_session::ScrapingSession;
-use testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
+use service::session::HttpSession;
+use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
 use regex::Regex;
 use reqwest::StatusCode;
@@ -13,7 +13,7 @@ use std::path::Path;
 
 pub fn login() -> ServiceResult<()> {
     static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-    let mut atcoder = AtCoder(ScrapingSession::start("atcoder.sqlite3")?);
+    let mut atcoder = AtCoder(HttpSession::start("atcoder.sqlite3")?);
     if atcoder.http_get(URL).is_err() {
         atcoder.login()?;
     } else {
@@ -33,7 +33,7 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
 pub fn download(
     contest_name: &str,
     dir_to_save: &Path,
-    extension: TestCaseFileExtension,
+    extension: SuiteFileExtension,
 ) -> ServiceResult<()> {
     let mut atcoder = AtCoder::load_or_login()?;
     atcoder.download_all_tasks(contest_name, dir_to_save, extension)
@@ -42,13 +42,13 @@ pub fn download(
 
 custom_derive! {
     #[derive(NewtypeDeref, NewtypeDerefMut)]
-    struct AtCoder(ScrapingSession);
+    struct AtCoder(HttpSession);
 }
 
 impl AtCoder {
     fn load_or_login() -> ServiceResult<Self> {
         static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-        let mut atcoder = AtCoder(ScrapingSession::start("atcoder.sqlite3")?);
+        let mut atcoder = AtCoder(HttpSession::start("atcoder.sqlite3")?);
         if atcoder.http_get(URL).is_err() {
             atcoder.login()?;
         }
@@ -67,7 +67,7 @@ impl AtCoder {
         &mut self,
         contest_name: &str,
         dir_to_save: &Path,
-        extension: TestCaseFileExtension,
+        extension: SuiteFileExtension,
     ) -> ServiceResult<()> {
         let names_and_pathes = {
             let url = format!("http://{}.contest.atcoder.jp/assignments", contest_name);
@@ -78,10 +78,10 @@ impl AtCoder {
         for (alphabet, path) in names_and_pathes {
             let url = format!("http://{}.contest.atcoder.jp{}", contest_name, path);
             match extract_cases(self.http_get(&url)?) {
-                Ok(cases) => {
-                    cases.save(&TestCaseFilePath::new(
+                Ok(suite) => {
+                    suite.save(&SuiteFilePath::new(
                         &dir_to_save,
-                        &alphabet.to_lowercase(),
+                        alphabet.to_lowercase(),
                         extension,
                     ))?;
                 }
@@ -145,7 +145,7 @@ fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, Stri
 }
 
 
-fn extract_cases<R: Read>(html: R) -> ServiceResult<Cases> {
+fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
     fn try_extracting_sample(section_node: Node, regex: &Regex) -> Option<String> {
         let title = try_opt!(section_node.find(Name("h3")).next()).text();
         let sample = try_opt!(section_node.find(Name("pre")).next()).text();
@@ -153,7 +153,7 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<Cases> {
         Some(sample)
     }
 
-    fn extract(document: Document) -> Option<Cases> {
+    fn extract(document: Document) -> Option<TestSuite> {
         let timelimit = {
             let re_timelimit = Regex::new("\\D*([0-9]+)sec.*").unwrap();
             let predicate = HtmlAttr("id", "outer-inner").child(Name("p")).child(Text);
@@ -183,8 +183,8 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<Cases> {
             }
             samples
         };
-        Some(Cases::from_text(Some(timelimit), samples))
+        Some(TestSuite::from_text(Some(timelimit), samples))
     }
 
-    super::quit_on_failure(extract(Document::from_read(html)?), Cases::is_empty)
+    super::quit_on_failure(extract(Document::from_read(html)?), TestSuite::is_empty)
 }

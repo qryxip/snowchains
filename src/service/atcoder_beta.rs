@@ -1,6 +1,6 @@
 use error::{PrintChainColored, ServiceErrorKind, ServiceResult};
-use service::scraping_session::ScrapingSession;
-use testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
+use service::session::HttpSession;
+use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
 use regex::Regex;
 use reqwest::StatusCode;
@@ -31,7 +31,7 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
 pub fn download(
     contest_name: &str,
     dir_to_save: &Path,
-    extension: TestCaseFileExtension,
+    extension: SuiteFileExtension,
     open_browser: bool,
 ) -> ServiceResult<()> {
     let contest = Contest::new(contest_name);
@@ -73,12 +73,12 @@ pub fn submit(
 
 custom_derive! {
     #[derive(NewtypeDeref, NewtypeDerefMut)]
-    struct AtCoderBeta(ScrapingSession);
+    struct AtCoderBeta(HttpSession);
 }
 
 impl AtCoderBeta {
     fn start(eprints_message_if_already_logged_in: bool) -> ServiceResult<Self> {
-        let mut atcoder = AtCoderBeta(ScrapingSession::start("atcoder-beta.sqlite3")?);
+        let mut atcoder = AtCoderBeta(HttpSession::start("atcoder-beta.sqlite3")?);
         if atcoder.has_cookie() && atcoder.http_get("https://beta.atcoder.jp/settings").is_ok() {
             if eprints_message_if_already_logged_in {
                 eprintln!("Already logged in.");
@@ -135,19 +135,19 @@ impl AtCoderBeta {
         &mut self,
         contest: Contest,
         dir_to_save: &Path,
-        extension: TestCaseFileExtension,
+        extension: SuiteFileExtension,
         open_browser: bool,
     ) -> ServiceResult<()> {
         let mut outputs = vec![];
         let urls_with_names = extract_task_urls_with_names(self.http_get(&contest.tasks_url())?)?;
         for (name, relative_url) in urls_with_names {
             let url = format!("https://beta.atcoder.jp{}", relative_url);
-            let cases = extract_cases(self.http_get(&url)?, &contest.style())?;
-            let path = TestCaseFilePath::new(&dir_to_save, &name.to_lowercase(), extension);
-            outputs.push((url, cases, path));
+            let suite = extract_cases(self.http_get(&url)?, &contest.style())?;
+            let path = SuiteFilePath::new(&dir_to_save, name.to_lowercase(), extension);
+            outputs.push((url, suite, path));
         }
-        for &(_, ref cases, ref path) in &outputs {
-            cases.save(&path)?;
+        for &(_, ref suite, ref path) in &outputs {
+            suite.save(&path)?;
         }
         if open_browser {
             for (url, ..) in outputs.into_iter() {
@@ -361,7 +361,7 @@ fn extract_task_urls_with_names<R: Read>(html: R) -> ServiceResult<Vec<(String, 
 }
 
 
-fn extract_cases<R: Read>(html: R, style: &SampleCaseStyle) -> ServiceResult<Cases> {
+fn extract_cases<R: Read>(html: R, style: &SampleCaseStyle) -> ServiceResult<TestSuite> {
     let document = Document::from_read(html)?;
     match *style {
         SampleCaseStyle::New => extract_cases_from_new_style(document),
@@ -370,7 +370,7 @@ fn extract_cases<R: Read>(html: R, style: &SampleCaseStyle) -> ServiceResult<Cas
 }
 
 
-fn extract_cases_from_new_style(document: Document) -> ServiceResult<Cases> {
+fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> {
     fn try_extracting_from_section(section_node: Node, regex: &Regex) -> Option<String> {
         let title = try_opt!(section_node.find(Name("h3")).next()).text();
         let sample = try_opt!(section_node.find(Name("pre")).next()).text();
@@ -405,7 +405,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<Cases> {
         Some(samples)
     }
 
-    fn extract(document: Document) -> Option<Cases> {
+    fn extract(document: Document) -> Option<TestSuite> {
         let timelimit = extract_timelimit_as_millis(&document);
         let samples = {
             let re_in_ja = Regex::new(r"^入力例 \d+.*$").unwrap();
@@ -418,10 +418,10 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<Cases> {
                 try_opt!(extract_for_lang(&document, re_in_en, re_out_en, "lang-en"))
             }
         };
-        Some(Cases::from_text(timelimit, samples))
+        Some(TestSuite::from_text(timelimit, samples))
     }
 
-    Ok(extract(document).unwrap_or(Cases::from_text(None, vec![])))
+    Ok(extract(document).unwrap_or_default())
 }
 
 

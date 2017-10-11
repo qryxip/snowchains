@@ -1,4 +1,4 @@
-use error::TestCaseResult;
+use error::SuiteFileResult;
 use util;
 
 use serde_json;
@@ -11,37 +11,45 @@ use std::vec;
 use toml;
 
 
-pub fn append(path: &TestCaseFilePath, input: &str, output: Option<&str>) -> TestCaseResult<()> {
-    Cases::load(&path)?.append(input, output).save(&path)
+pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
+    TestSuite::load(&path)?.append(input, output).save(&path)
 }
 
 
 /// Set of the timelimit and test cases.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Cases {
+pub struct TestSuite {
     timelimit: Option<u64>,
-    cases: Vec<Case>,
+    cases: Vec<TestCase>,
 }
 
-impl IntoIterator for Cases {
-    type Item = Case;
-    type IntoIter = vec::IntoIter<Case>;
+impl Default for TestSuite {
+    fn default() -> Self {
+        Self {
+            timelimit: None,
+            cases: vec![],
+        }
+    }
+}
 
-    fn into_iter(self) -> vec::IntoIter<Case> {
-        let mut this = self;
-        let timelimit = this.timelimit;
+impl IntoIterator for TestSuite {
+    type Item = TestCase;
+    type IntoIter = vec::IntoIter<TestCase>;
+
+    fn into_iter(mut self) -> vec::IntoIter<TestCase> {
+        let timelimit = self.timelimit;
         if let Some(timelimit) = timelimit {
-            for case in &mut this.cases {
+            for case in &mut self.cases {
                 if case.timelimit.is_none() {
                     case.timelimit = Some(timelimit);
                 }
             }
         }
-        this.cases.into_iter()
+        self.cases.into_iter()
     }
 }
 
-impl Cases {
+impl TestSuite {
     /// Constructs a `Cases` with a timelimit value and pairs of input/output samples.
     pub fn from_text<I: IntoIterator<Item = (String, String)>>(
         timelimit: Option<u64>,
@@ -51,20 +59,21 @@ impl Cases {
             timelimit: timelimit,
             cases: cases
                 .into_iter()
-                .map(|(output, input)| Case::from_strings(input, Some(output)))
+                .map(|(output, input)| {
+                    TestCase::from_strings(input, Some(output))
+                })
                 .collect(),
         }
     }
 
-    /// Loads from given path and deserializes it into `Cases`.
-    pub fn load(path: &TestCaseFilePath) -> TestCaseResult<Self> {
+    /// Loads from given path and deserializes it into `TestSuite`.
+    pub fn load(path: &SuiteFilePath) -> SuiteFileResult<Self> {
         let (path, extension) = (path.build(), path.extension);
         let text = util::string_from_file_path(&path)?;
         match extension {
-            TestCaseFileExtension::Json => Ok(serde_json::from_str(&text)?),
-            TestCaseFileExtension::Toml => Ok(toml::from_str(&text)?),
-            TestCaseFileExtension::Yaml |
-            TestCaseFileExtension::Yml => Ok(serde_yaml::from_str(&text)?),
+            SuiteFileExtension::Json => Ok(serde_json::from_str(&text)?),
+            SuiteFileExtension::Toml => Ok(toml::from_str(&text)?),
+            SuiteFileExtension::Yaml | SuiteFileExtension::Yml => Ok(serde_yaml::from_str(&text)?),
         }
     }
 
@@ -79,15 +88,14 @@ impl Cases {
     }
 
     /// Serializes `self` and save it to given path.
-    pub fn save(&self, path: &TestCaseFilePath) -> TestCaseResult<()> {
+    pub fn save(&self, path: &SuiteFilePath) -> SuiteFileResult<()> {
         fs::create_dir_all(&path.dir)?;
         let (path, extension) = (path.build(), path.extension);
         let mut file = File::create(&path)?;
         let serialized = match extension {
-            TestCaseFileExtension::Json => serde_json::to_string(self)?,
-            TestCaseFileExtension::Toml => toml::to_string(self)?,
-            TestCaseFileExtension::Yaml |
-            TestCaseFileExtension::Yml => serde_yaml::to_string(self)?,
+            SuiteFileExtension::Json => serde_json::to_string(self)?,
+            SuiteFileExtension::Toml => toml::to_string(self)?,
+            SuiteFileExtension::Yaml | SuiteFileExtension::Yml => serde_yaml::to_string(self)?,
         };
         file.write_all(serialized.as_bytes())?;
         Ok(if self.is_empty() {
@@ -98,7 +106,7 @@ impl Cases {
     }
 
     fn append(mut self, input: &str, output: Option<&str>) -> Self {
-        self.cases.push(Case::from_strings(input, output));
+        self.cases.push(TestCase::from_strings(input, output));
         self
     }
 }
@@ -106,7 +114,7 @@ impl Cases {
 
 /// Set of input/output strings and timelimit.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Case {
+pub struct TestCase {
     input: NonNestedValue,
     #[serde(skip_serializing_if = "Option::is_none")]
     expected: Option<NonNestedValue>,
@@ -114,7 +122,7 @@ pub struct Case {
     timelimit: Option<u64>,
 }
 
-impl Into<(String, String, Option<u64>)> for Case {
+impl Into<(String, String, Option<u64>)> for TestCase {
     fn into(self) -> (String, String, Option<u64>) {
         (
             self.input.into(),
@@ -124,7 +132,7 @@ impl Into<(String, String, Option<u64>)> for Case {
     }
 }
 
-impl Case {
+impl TestCase {
     fn from_strings<S1: Into<String>, S2: Into<String>>(input: S1, output: Option<S2>) -> Self {
         Self {
             input: NonNestedValue::string(input.into()),
@@ -136,17 +144,17 @@ impl Case {
 
 
 /// File path which extension is 'json', 'toml', 'yaml', or 'yml'.
-pub struct TestCaseFilePath {
+pub struct SuiteFilePath {
     dir: PathBuf,
     name: String,
-    extension: TestCaseFileExtension,
+    extension: SuiteFileExtension,
 }
 
-impl TestCaseFilePath {
-    pub fn new(dir: &Path, name: &str, extension: TestCaseFileExtension) -> Self {
+impl SuiteFilePath {
+    pub fn new<S: Into<String>>(dir: &Path, name: S, extension: SuiteFileExtension) -> Self {
         Self {
             dir: PathBuf::from(dir),
-            name: name.to_owned(),
+            name: name.into(),
             extension: extension,
         }
     }
@@ -160,39 +168,45 @@ impl TestCaseFilePath {
 }
 
 
-/// Extension of test case files.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+/// Extension of a test suite file.
+#[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum TestCaseFileExtension {
+pub enum SuiteFileExtension {
     Json,
     Toml,
     Yaml,
     Yml,
 }
 
-impl Default for TestCaseFileExtension {
+impl Default for SuiteFileExtension {
     fn default() -> Self {
-        TestCaseFileExtension::Yml
+        SuiteFileExtension::Yml
     }
 }
 
-impl fmt::Display for TestCaseFileExtension {
+impl fmt::Display for SuiteFileExtension {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", format!("{:?}", self).to_lowercase())
+        let s = match *self {
+            SuiteFileExtension::Json => "json",
+            SuiteFileExtension::Toml => "toml",
+            SuiteFileExtension::Yaml => "yaml",
+            SuiteFileExtension::Yml => "yml",
+        };
+        write!(f, "{}", s)
     }
 }
 
-impl TestCaseFileExtension {
+impl SuiteFileExtension {
     pub fn from_str(s: &str) -> Option<Self> {
         let s = s.to_lowercase();
         if s == "json" {
-            Some(TestCaseFileExtension::Json)
+            Some(SuiteFileExtension::Json)
         } else if s == "toml" {
-            Some(TestCaseFileExtension::Toml)
+            Some(SuiteFileExtension::Toml)
         } else if s == "yaml" {
-            Some(TestCaseFileExtension::Yaml)
+            Some(SuiteFileExtension::Yaml)
         } else if s == "yml" {
-            Some(TestCaseFileExtension::Yml)
+            Some(SuiteFileExtension::Yml)
         } else {
             None
         }

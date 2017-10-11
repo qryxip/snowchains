@@ -80,6 +80,7 @@ pub trait OkAsRefOr {
 
 impl<T> OkAsRefOr for Option<T> {
     type Item = T;
+
     fn ok_as_ref_or<E>(&self, e: E) -> Result<&T, E> {
         match *self {
             Some(ref x) => Ok(x),

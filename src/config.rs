@@ -1,9 +1,10 @@
 use error::{ConfigError, ConfigErrorKind, ConfigResult};
-use judge::CommandParameters;
-use testcase::{TestCaseFileExtension, TestCaseFilePath};
+use judge::CommandProperty;
+use testsuite::{SuiteFileExtension, SuiteFilePath};
 use util::{self, ToCamlCase};
 
 use serde_yaml;
+use std::borrow::Cow;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -12,12 +13,12 @@ use std::str::FromStr;
 
 
 /// Creates `snowchains.yml` in `dir`.
-pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
-    fn append_exe_if_windows(path: &'static str) -> String {
+pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
+    fn append_exe_if_windows(path: &'static str) -> Cow<'static, str> {
         if cfg!(target_os = "windows") {
-            format!("{}.exe", path)
+            format!("{}.exe", path).into()
         } else {
-            path.to_owned()
+            path.into()
         }
     }
 
@@ -48,9 +49,9 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
     let config = Config {
         service: Some(ServiceName::AtCoderBeta),
         contest: Some("chokudai_s001".to_owned()),
-        testcases: InputPath("snowchains/".to_owned()),
-        testcase_extension: TestCaseFileExtension::Yml,
-        default_lang: lang.to_owned(),
+        testsuite: InputPath("snowchains/".to_owned()),
+        testsuite_extension: SuiteFileExtension::Yml,
+        default_lang: lang_name.to_owned(),
         languages: vec![
             LangProperty::new(
                 "c",
@@ -85,7 +86,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
             LangProperty::new(
                 "haskell",
                 "haskell/src/{C}.hs",
-                Some("haskell/target/{}"),
+                Some(append_exe_if_windows("haskell/target/{}")),
                 Some("stack ghc -- -O2 -o $bin $src"),
                 "$bin",
                 "haskell/",
@@ -113,7 +114,7 @@ pub fn create_config_file(lang: &str, dir: &str) -> ConfigResult<()> {
                 Some(3025)
             ),
             csharp_or_mono,
-            LangProperty::new::<String>(
+            LangProperty::new::<&'static str>(
                 "python3",
                 "python/{}.py",
                 None,
@@ -141,35 +142,31 @@ pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
     match key {
         PropertyKey::Service => config.service = Some(serde_yaml::from_str(value)?),
         PropertyKey::Contest => config.contest = Some(value.to_owned()),
-        PropertyKey::Testcases => config.testcases = InputPath(value.to_owned()),
-        PropertyKey::TestcaseExtension => {
-            if let Some(extension) = TestCaseFileExtension::from_str(value) {
-                config.testcase_extension = extension;
+        PropertyKey::TestSuite => config.testsuite = InputPath(value.to_owned()),
+        PropertyKey::TestSuiteExtension => {
+            if let Some(extension) = SuiteFileExtension::from_str(value) {
+                config.testsuite_extension = extension;
             } else {
                 bail!(ConfigErrorKind::UnsupportedExtension(value.to_owned()));
             }
         }
         PropertyKey::DefaultLang => config.default_lang = value.to_owned(),
     }
+    let mut file = util::create_file_and_dirs(&find_base()?.1)?;
     let config = serde_yaml::to_string(&config)?;
-    Ok(util::create_file_and_dirs(&find_base()?.1)?.write_all(
-        config
-            .as_bytes(),
-    )?)
+    Ok(file.write_all(config.as_bytes())?)
 }
 
 
 /// Config data.
 #[derive(Serialize, Deserialize)]
 pub struct Config {
-    #[serde(skip_serializing_if = "Option::is_none")]
     service: Option<ServiceName>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     contest: Option<String>,
-    #[serde(default = "default_testcases_path")]
-    testcases: InputPath,
+    #[serde(default = "InputPath::default_test_suite_path")]
+    testsuite: InputPath,
     #[serde(default)]
-    testcase_extension: TestCaseFileExtension,
+    testsuite_extension: SuiteFileExtension,
     default_lang: String,
     languages: Vec<LangProperty>,
     #[serde(skip)]
@@ -201,34 +198,34 @@ impl Config {
         }
     }
 
-    /// Get `testcase_extension`.
-    pub fn testcase_extension(&self) -> TestCaseFileExtension {
-        self.testcase_extension
+    /// Get `testsuite_extension`.
+    pub fn suite_extension(&self) -> SuiteFileExtension {
+        self.testsuite_extension
     }
 
-    /// Get the absolute path of the test case files directory
-    pub fn testcase_dir(&self) -> ConfigResult<PathBuf> {
-        Ok(self.testcases.resolve(&self.base_dir)?)
+    /// Get the absolute path of the test suite files directory
+    pub fn suite_dir(&self) -> ConfigResult<PathBuf> {
+        Ok(self.testsuite.resolve(&self.base_dir)?)
     }
 
-    /// Returns the absolute path of test case file.
-    pub fn testcase_path(&self, target_name: &str) -> ConfigResult<TestCaseFilePath> {
-        Ok(TestCaseFilePath::new(
-            &self.testcase_dir()?,
-            target_name,
-            self.testcase_extension,
+    /// Returns the absolute path of test suite file.
+    pub fn suite_path(&self, target: &str) -> ConfigResult<SuiteFilePath> {
+        Ok(SuiteFilePath::new(
+            &self.suite_dir()?,
+            target,
+            self.testsuite_extension,
         ))
     }
 
     /// Returns the path of the source file.
-    pub fn src_path(&self, target_name: &str, lang: Option<&str>) -> ConfigResult<PathBuf> {
-        let lang = self.lang_property(lang)?;
-        Ok(lang.resolve_src(&self.base_dir, target_name)?)
+    pub fn src_path(&self, target: &str, lang_name: Option<&str>) -> ConfigResult<PathBuf> {
+        let lang = self.lang_property(lang_name)?;
+        Ok(lang.resolve_src(&self.base_dir, target)?)
     }
 
     /// Returns the `lang_id` of given or default language
-    pub fn atcoder_lang_id(&self, lang: Option<&str>) -> ConfigResult<u32> {
-        let lang = self.lang_property(lang)?;
+    pub fn atcoder_lang_id(&self, lang_name: Option<&str>) -> ConfigResult<u32> {
+        let lang = self.lang_property(lang_name)?;
         lang.atcoder_lang_id.ok_or_else(|| {
             ConfigError::from(ConfigErrorKind::PropertyNotSet("atcoder_lang_id"))
         })
@@ -237,24 +234,21 @@ impl Config {
     /// Constructs arguments of compilation command for given or default language.
     pub fn construct_compilation_command(
         &self,
-        target_name: &str,
-        lang: Option<&str>,
-    ) -> ConfigResult<Option<CommandParameters>> {
-        let lang = self.lang_property(lang)?;
-        Ok(lang.construct_compilation_command(
-            &self.base_dir,
-            target_name,
-        )?)
+        target: &str,
+        lang_name: Option<&str>,
+    ) -> ConfigResult<Option<CommandProperty>> {
+        let lang = self.lang_property(lang_name)?;
+        Ok(lang.construct_compilation_command(&self.base_dir, target)?)
     }
 
     /// Constructs arguments of execution command for given or default language.
     pub fn construct_run_command(
         &self,
-        target_name: &str,
-        lang: Option<&str>,
-    ) -> ConfigResult<CommandParameters> {
-        let lang = self.lang_property(lang)?;
-        Ok(lang.construct_run_command(&self.base_dir, target_name)?)
+        target: &str,
+        lang_name: Option<&str>,
+    ) -> ConfigResult<CommandProperty> {
+        let lang = self.lang_property(lang_name)?;
+        Ok(lang.construct_run_command(&self.base_dir, target)?)
     }
 
     fn lang_property(&self, lang_name: Option<&str>) -> ConfigResult<&LangProperty> {
@@ -273,8 +267,8 @@ impl Config {
 pub enum PropertyKey {
     Service,
     Contest,
-    Testcases,
-    TestcaseExtension,
+    TestSuite,
+    TestSuiteExtension,
     DefaultLang,
 }
 
@@ -286,8 +280,8 @@ impl FromStr for PropertyKey {
         return match &s {
             s if s == "service" => Ok(PropertyKey::Service),
             s if s == "contest" => Ok(PropertyKey::Contest),
-            s if s == "testcases" => Ok(PropertyKey::Testcases),
-            s if s == "testcase_extension" => Ok(PropertyKey::TestcaseExtension),
+            s if s == "testsuite" => Ok(PropertyKey::TestSuite),
+            s if s == "testsuite_extension" => Ok(PropertyKey::TestSuiteExtension),
             s if s == "default_lang" => Ok(PropertyKey::DefaultLang),
             _ => Err(()),
         };
@@ -318,16 +312,6 @@ impl FromStr for ServiceName {
             _ => Err(()),
         };
     }
-}
-
-
-fn default_testcases_path() -> InputPath {
-    let suf = if cfg!(target_os = "windows") {
-        "\\"
-    } else {
-        "/"
-    };
-    InputPath(format!("snowchains{}", suf))
 }
 
 
@@ -367,12 +351,11 @@ struct LangProperty {
     compilation_working_dir: InputPath,
     #[serde(default)]
     runtime_working_dir: InputPath,
-    #[serde(skip_serializing_if = "Option::is_none")]
     atcoder_lang_id: Option<u32>,
 }
 
 impl LangProperty {
-    fn new<S: Into<String>>(
+    fn new<S: Into<Cow<'static, str>>>(
         name: &'static str,
         src: &'static str,
         bin: Option<S>,
@@ -385,7 +368,7 @@ impl LangProperty {
         Self {
             name: name.to_owned(),
             src: BraceFormat(src.to_owned()),
-            bin: bin.map(|bin| BraceFormat(bin.into())),
+            bin: bin.map(|bin| BraceFormat(bin.into().into_owned())),
             compile: compile.map(|comp| BraceFormat(comp.to_owned())),
             run: BraceFormat(run.to_owned()),
             compilation_working_dir: InputPath(compilation_working_dir.to_owned()),
@@ -402,7 +385,7 @@ impl LangProperty {
         &self,
         base: &Path,
         target: &str,
-    ) -> ConfigResult<Option<CommandParameters>> {
+    ) -> ConfigResult<Option<CommandProperty>> {
         let working_dir = self.compilation_working_dir.resolve(base)?;
         let (src, bin) = self.resolve_src_and_bin(base, target)?;
         Ok(self.compile.as_ref().map(|build| {
@@ -410,7 +393,7 @@ impl LangProperty {
         }))
     }
 
-    fn construct_run_command(&self, base: &Path, target: &str) -> ConfigResult<CommandParameters> {
+    fn construct_run_command(&self, base: &Path, target: &str) -> ConfigResult<CommandProperty> {
         let working_dir = self.runtime_working_dir.resolve(base)?;
         let (src, bin) = self.resolve_src_and_bin(base, target)?;
         let src = src.display().to_string();
@@ -443,6 +426,10 @@ impl Default for InputPath {
 }
 
 impl InputPath {
+    fn default_test_suite_path() -> Self {
+        InputPath("snowchains/".to_owned())
+    }
+
     fn resolve(&self, base: &Path) -> io::Result<PathBuf> {
         if self.0.chars().next() == Some('~') {
             let mut pathbuf = util::home_dir_as_io_result()?;
@@ -479,7 +466,7 @@ impl BraceFormat {
         working_dir: PathBuf,
         src: Option<PathBuf>,
         bin: Option<PathBuf>,
-    ) -> CommandParameters {
+    ) -> CommandProperty {
         let src_s = src.as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_default();
@@ -491,7 +478,7 @@ impl BraceFormat {
             _ => None,
         };
         let command = self.format(target, &src_s, &bin_s);
-        CommandParameters::new(command, working_dir, src_and_bin)
+        CommandProperty::new(command, working_dir, src_and_bin)
     }
 
     fn to_run_command(
@@ -500,9 +487,9 @@ impl BraceFormat {
         working_dir: PathBuf,
         src: &str,
         bin: &str,
-    ) -> CommandParameters {
+    ) -> CommandProperty {
         let command = self.format(target, src, bin);
-        CommandParameters::new(command, working_dir, None)
+        CommandProperty::new(command, working_dir, None)
     }
 
     fn format(&self, target: &str, src: &str, bin: &str) -> String {

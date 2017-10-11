@@ -1,6 +1,6 @@
 use error::ServiceResult;
-use service::scraping_session::ScrapingSession;
-use testcase::{Cases, TestCaseFileExtension, TestCaseFilePath};
+use service::session::HttpSession;
+use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 use util;
 
 use regex::Regex;
@@ -23,7 +23,7 @@ pub fn login() -> ServiceResult<()> {
 pub fn download(
     contest: &str,
     dir_to_save: &Path,
-    extension: TestCaseFileExtension,
+    extension: SuiteFileExtension,
     open_browser: bool,
 ) -> ServiceResult<()> {
     HackerRank::start(false)?
@@ -34,13 +34,13 @@ pub fn download(
 
 custom_derive! {
     #[derive(NewtypeDeref, NewtypeDerefMut)]
-    struct HackerRank(ScrapingSession);
+    struct HackerRank(HttpSession);
 }
 
 impl HackerRank {
-    fn start(prints_message_on_already_logged_in: bool) -> ServiceResult<Self> {
+    fn start(prints_message_when_already_logged_in: bool) -> ServiceResult<Self> {
         static URL: &'static str = "https://www.hackerrank.com/login";
-        let mut hackerrank = HackerRank(ScrapingSession::start("hackerrank.sqlite3")?);
+        let mut hackerrank = HackerRank(HttpSession::start("hackerrank.sqlite3")?);
         if let Some(response) = hackerrank.http_get_as_opt(
             URL,
             StatusCode::Ok,
@@ -56,7 +56,7 @@ impl HackerRank {
                 hackerrank.clear_cookies();
                 response = hackerrank.http_get(URL)?;
             }
-        } else if prints_message_on_already_logged_in {
+        } else if prints_message_when_already_logged_in {
             eprintln!("Already signed in.");
         }
         Ok(hackerrank)
@@ -95,7 +95,7 @@ impl HackerRank {
         mut self,
         contest: &str,
         dir_to_save: &Path,
-        extension: TestCaseFileExtension,
+        extension: SuiteFileExtension,
         open_browser: bool,
     ) -> ServiceResult<Self> {
         #[derive(Deserialize)]
@@ -119,7 +119,7 @@ impl HackerRank {
             .map(|model| model.slug)
         {
             zip_urls.push(format!("{}/{}/download_testcases", url, slug));
-            paths.push(TestCaseFilePath::new(dir_to_save, &slug, extension));
+            paths.push(SuiteFilePath::new(dir_to_save, slug.clone(), extension));
             urls.push(format!(
                 "https://www.hackerrank.com/contests/{}/challenges/{}",
                 contest,
@@ -132,8 +132,8 @@ impl HackerRank {
         for zip in zips {
             extracted.push(extract_samples_from_zip(zip)?);
         }
-        for (cases, path) in extracted.into_iter().zip(paths) {
-            cases.save(&path)?;
+        for (suite, path) in extracted.into_iter().zip(paths) {
+            suite.save(&path)?;
         }
         if open_browser {
             for url in urls.into_iter() {
@@ -161,7 +161,7 @@ fn extract_csrf_token(html: Response) -> ServiceResult<String> {
 }
 
 
-fn extract_samples_from_zip<R: Read + Seek>(zip: ZipArchive<R>) -> ZipResult<Cases> {
+fn extract_samples_from_zip<R: Read + Seek>(zip: ZipArchive<R>) -> ZipResult<TestSuite> {
     let in_regex = Regex::new(r"input/input[0-9]+\.txt").unwrap();
     let out_regex = Regex::new(r"output/output[0-9]+\.txt").unwrap();
     let mut zip = zip;
@@ -174,5 +174,5 @@ fn extract_samples_from_zip<R: Read + Seek>(zip: ZipArchive<R>) -> ZipResult<Cas
             outputs.push(util::string_from_read(file)?);
         }
     }
-    Ok(Cases::from_text(None, outputs.into_iter().zip(inputs)))
+    Ok(TestSuite::from_text(None, outputs.into_iter().zip(inputs)))
 }

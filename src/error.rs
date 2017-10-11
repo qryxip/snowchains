@@ -43,7 +43,7 @@ error_chain!{
     links {
         Service(ServiceError, ServiceErrorKind);
         Judge(JudgeError, JudgeErrorKind);
-        TestCase(TestCaseError, TestCaseErrorKind);
+        SuiteFile(SuiteFileError, SuiteFileErrorKind);
         Config(ConfigError, ConfigErrorKind);
     }
 }
@@ -55,7 +55,7 @@ error_chain! {
     }
 
     links {
-        TestCase(TestCaseError, TestCaseErrorKind);
+        SuiteFile(SuiteFileError, SuiteFileErrorKind);
     }
 
     foreign_links {
@@ -107,7 +107,7 @@ error_chain! {
     }
 
     links {
-        TestCase(TestCaseError, TestCaseErrorKind);
+        SuiteFile(SuiteFileError, SuiteFileErrorKind);
     }
 
     foreign_links {
@@ -123,7 +123,7 @@ error_chain! {
                      else {"".to_owned() })
         }
 
-        TestFailed(n: usize) {
+        TestFailure(n: usize) {
             description("Test faild")
             display("{} Test{} failed", n, if *n > 0 { "s" } else { "" })
         }
@@ -133,7 +133,7 @@ error_chain! {
 
 error_chain! {
     types {
-        TestCaseError, TestCaseErrorKind, TestCaseResultExt, TestCaseResult;
+        SuiteFileError, SuiteFileErrorKind, SuiteFileResultExt, SuiteFileResult;
     }
 
     foreign_links {
