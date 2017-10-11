@@ -126,11 +126,11 @@ languages:
     atcoder_lang_id: 3003
 ```
 
-## Test Cases
+## Test Suite
 
 ### Download
 
-- [x] atcoder (http://{}/contest.atcoder.jp)
+- [x] atcoder (http://{}.contest.atcoder.jp)
 - [x] atcoder-beta (https://beta.atcoder.jp/contests/{})
 - [x] hackerrank (https://www.hackerrank.com/contests/{})
 
@@ -223,11 +223,26 @@ input = ["1000", "1000 1000", "ooooooooooooooooooooooooooooo"]
                (with-current-buffer buffer
                  (erase-buffer))))
            (let ((problem-name (match-string 1 file-path)))
-             (term-run "snowchains" "*snowchains*" "judge" problem-name "rust")))
+             (term-run "snowchains" "*snowchains*" "submit" problem-name)))
           ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
            (cargo-process-run-bin (match-string 1 file-path)))
           (t
            (cargo-process-run)))))
+
+(defun my-rust-test ()
+  (interactive)
+  (let ((file-path (buffer-file-name)))
+    (cond ((string-match (format "^.*/%s/src/bin/\\(.+\\)\\.rs$" my-rust--snowchains-crate) file-path)
+           (let ((buffer (get-buffer "*snowchains*")))
+             (when buffer
+               (with-current-buffer buffer
+                 (erase-buffer))))
+           (let ((problem-name (match-string 1 file-path)))
+             (term-run "snowchains" "*snowchains*" "judge" problem-name)))
+          ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
+           (cargo-process--start "Test Bin" (concat "cargo test --bin " (match-string 1 file-path))))
+          (t
+           (cargo-process-test)))))
 
 (defconst my-rust--snowchains-crate "contest/rust")
 ```

@@ -7,6 +7,7 @@ use std::fmt;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::vec;
 use toml;
 
@@ -20,7 +21,7 @@ pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteF
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TestSuite {
     timelimit: Option<u64>,
-    cases: Vec<TestCase>,
+    cases: Vec<ReducibleCase>,
 }
 
 impl Default for TestSuite {
@@ -45,7 +46,11 @@ impl IntoIterator for TestSuite {
                 }
             }
         }
-        self.cases.into_iter()
+        self.cases
+            .into_iter()
+            .map(ReducibleCase::reduce)
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 }
 
@@ -60,7 +65,7 @@ impl TestSuite {
             cases: cases
                 .into_iter()
                 .map(|(output, input)| {
-                    TestCase::from_strings(input, Some(output))
+                    ReducibleCase::from_strings(input, Some(output))
                 })
                 .collect(),
         }
@@ -106,39 +111,30 @@ impl TestSuite {
     }
 
     fn append(mut self, input: &str, output: Option<&str>) -> Self {
-        self.cases.push(TestCase::from_strings(input, output));
+        self.cases.push(ReducibleCase::from_strings(input, output));
         self
     }
 }
 
 
-/// Set of input/output strings and timelimit.
-#[derive(Clone, Serialize, Deserialize)]
+/// Pair of `input` and `expected`.
+///
+/// Note that `expected` is empty IFF omitted.
+#[derive(Clone)]
 pub struct TestCase {
-    input: NonNestedValue,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    expected: Option<NonNestedValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    input: Arc<String>,
+    expected: Arc<String>,
     timelimit: Option<u64>,
 }
 
-impl Into<(String, String, Option<u64>)> for TestCase {
-    fn into(self) -> (String, String, Option<u64>) {
-        (
-            self.input.into(),
-            self.expected.map(|x| x.into()).unwrap_or_default(),
-            self.timelimit,
-        )
-    }
-}
-
 impl TestCase {
-    fn from_strings<S1: Into<String>, S2: Into<String>>(input: S1, output: Option<S2>) -> Self {
-        Self {
-            input: NonNestedValue::string(input.into()),
-            expected: output.map(|s| NonNestedValue::string(s.into())),
-            timelimit: None,
-        }
+    /// # Example
+    ///
+    /// ```
+    /// let (input, expected, timelimit) = self.values()
+    /// ```
+    pub fn values(&self) -> (Arc<String>, Arc<String>, Option<u64>) {
+        (self.input.clone(), self.expected.clone(), self.timelimit)
     }
 }
 
@@ -215,15 +211,46 @@ impl SuiteFileExtension {
 
 
 #[derive(Clone, Serialize, Deserialize)]
+struct ReducibleCase {
+    input: NonNestedValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expected: Option<NonNestedValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timelimit: Option<u64>,
+}
+
+impl ReducibleCase {
+    fn from_strings<S1: Into<String>, S2: Into<String>>(input: S1, output: Option<S2>) -> Self {
+        Self {
+            input: NonNestedValue::string(input.into()),
+            expected: output.map(|s| NonNestedValue::string(s.into())),
+            timelimit: None,
+        }
+    }
+
+    fn reduce(self) -> TestCase {
+        TestCase {
+            input: Arc::new(self.input.reduce()),
+            expected: Arc::new(self.expected.map(|v| v.reduce()).unwrap_or_default()),
+            timelimit: self.timelimit,
+        }
+    }
+}
+
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 enum NonNestedValue {
     Array(Vec<NonArrayValue>),
     NonArray(NonArrayValue),
 }
 
+impl NonNestedValue {
+    fn string<S: Into<String>>(s: S) -> Self {
+        NonNestedValue::NonArray(NonArrayValue::String(s.into()))
+    }
 
-impl Into<String> for NonNestedValue {
-    fn into(self) -> String {
+    fn reduce(self) -> String {
         use std::fmt::Write;
 
         fn as_lines<T: fmt::Display>(a: &[T]) -> String {
@@ -245,12 +272,6 @@ impl Into<String> for NonNestedValue {
                 s
             }
         }
-    }
-}
-
-impl NonNestedValue {
-    fn string<S: Into<String>>(s: S) -> Self {
-        NonNestedValue::NonArray(NonArrayValue::String(s.into()))
     }
 }
 

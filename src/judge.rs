@@ -7,6 +7,7 @@ use std::fs;
 use std::io::{self, Write as _IoWrite};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -23,9 +24,9 @@ pub fn judge(
     run_command: CommandProperty,
     compilation_command: Option<CommandProperty>,
 ) -> JudgeResult<()> {
-    fn judge_one(case: TestCase, run_command: CommandProperty) -> JudgeResult<JudgeOutput> {
-        fn run_program(case: TestCase, run_command: CommandProperty) -> io::Result<JudgeOutput> {
-            let (input, expected, timelimit) = case.into();
+    fn judge_one(case: TestCase, run_command: Arc<CommandProperty>) -> JudgeResult<JudgeOutput> {
+        fn run_program(case: &TestCase, run_command: &CommandProperty) -> io::Result<JudgeOutput> {
+            let (input, expected, timelimit) = case.values();
             let mut child = run_command.spawn_piped()?;
             let start = Instant::now();
             child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
@@ -33,9 +34,10 @@ pub fn judge(
             let status = child.wait()?;
             let t = start.elapsed();
             let t = (1000000000 * t.as_secs() + t.subsec_nanos() as u64 + 999999) / 1000000;
-            let stdout = util::string_from_read(child.stdout.unwrap())?;
-            let stderr = util::string_from_read(child.stderr.unwrap())?;
+            let stdout = Arc::new(util::string_from_read(child.stdout.unwrap())?);
+            let stderr = Arc::new(util::string_from_read(child.stderr.unwrap())?);
 
+            // `expected` is empty IFF omitted.
             if timelimit.is_some() && t > timelimit.unwrap() {
                 Ok(JudgeOutput::Tle(timelimit.unwrap(), input, expected))
             } else if status.success() && (expected.is_empty() || expected == stdout) {
@@ -48,11 +50,12 @@ pub fn judge(
         }
 
         let (tx, rx) = mpsc::channel();
+        let case = Arc::new(case);
         let case_cloned = case.clone();
         thread::spawn(move || {
-            let _ = tx.send(run_program(case_cloned, run_command));
+            let _ = tx.send(run_program(&case_cloned, &run_command));
         });
-        Ok(if let (input, expected, Some(timelimit)) = case.into() {
+        Ok(if let (input, expected, Some(timelimit)) = case.values() {
             rx.recv_timeout(Duration::from_millis(timelimit + 50))
                 .unwrap_or_else(|_| Ok(JudgeOutput::Tle(timelimit, input, expected)))?
         } else {
@@ -65,6 +68,7 @@ pub fn judge(
         println!("");
     }
 
+    let run_command = Arc::new(run_command);
     let suite = TestSuite::load(&suite_path)?;
     let num_cases = suite.num_cases();
     let suf = if num_cases > 1 { "s" } else { "" };
@@ -209,14 +213,14 @@ impl CommandProperty {
 
 enum JudgeOutput {
     // Each string may be empty.
-    // (<elapsed>, <input>, <expected = stdout>, <stderr>)
-    Ac(u64, String, String, String),
+    // (<elapsed>, <input>, <stdout>, <stderr>)
+    Ac(u64, Arc<String>, Arc<String>, Arc<String>),
     // (<timelimit>, <input>, <expected>)
-    Tle(u64, String, String),
+    Tle(u64, Arc<String>, Arc<String>),
     // (<elapsed>, <input>, <expected>, <stdout>, <stderr>)
-    Wa(u64, String, String, String, String),
+    Wa(u64, Arc<String>, Arc<String>, Arc<String>, Arc<String>),
     // (<elapsed>, <input>, <expected>, <stdout>, <stderr>, <status>)
-    Re(u64, String, String, String, String, ExitStatus),
+    Re(u64, Arc<String>, Arc<String>, Arc<String>, Arc<String>, ExitStatus),
 }
 
 impl fmt::Display for JudgeOutput {
