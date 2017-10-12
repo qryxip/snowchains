@@ -146,7 +146,7 @@ fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, Stri
 
 
 fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
-    fn try_extracting_sample(section_node: Node, regex: &Regex) -> Option<String> {
+    fn try_extracting_sample(section_node: Node, regex: &'static Regex) -> Option<String> {
         let title = try_opt!(section_node.find(Name("h3")).next()).text();
         let sample = try_opt!(section_node.find(Name("pre")).next()).text();
         return_none_unless!(regex.is_match(&title));
@@ -162,8 +162,10 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
             1000 * caps[1].parse::<u64>().unwrap()
         };
         let samples = {
-            let re_input = Regex::new("^入力例 ([0-9]+)$").unwrap();
-            let re_output = Regex::new("^出力例 ([0-9]+)$").unwrap();
+            lazy_static! {
+                static ref RE_INPUT: Regex = Regex::new("^入力例 ([0-9]+)$").unwrap();
+                static ref RE_OUTPUT: Regex = Regex::new("^出力例 ([0-9]+)$").unwrap();
+            }
             let predicate = HtmlAttr("id", "task-statement")
                 .child(Class("lang"))
                 .child(Class("lang-ja"))
@@ -172,10 +174,10 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
             let (mut samples, mut input_sample) = (vec![], None);
             for node in document.find(predicate) {
                 input_sample = if let Some(input_sample) = input_sample {
-                    let output_sample = try_opt!(try_extracting_sample(node, &re_output));
+                    let output_sample = try_opt!(try_extracting_sample(node, &RE_OUTPUT));
                     samples.push((output_sample, input_sample));
                     None
-                } else if let Some(input_sample) = try_extracting_sample(node, &re_input) {
+                } else if let Some(input_sample) = try_extracting_sample(node, &RE_INPUT) {
                     Some(input_sample)
                 } else {
                     None

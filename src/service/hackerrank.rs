@@ -162,15 +162,17 @@ fn extract_csrf_token(html: Response) -> ServiceResult<String> {
 
 
 fn extract_samples_from_zip<R: Read + Seek>(zip: ZipArchive<R>) -> ZipResult<TestSuite> {
-    let in_regex = Regex::new(r"input/input[0-9]+\.txt").unwrap();
-    let out_regex = Regex::new(r"output/output[0-9]+\.txt").unwrap();
+    lazy_static! {
+        static ref IN_REGEX: Regex = Regex::new(r"input/input[0-9]+\.txt").unwrap();
+        static ref OUT_REGEX: Regex = Regex::new(r"output/output[0-9]+\.txt").unwrap();
+    }
     let mut zip = zip;
     let (mut inputs, mut outputs) = (vec![], vec![]);
     for i in 0..zip.len() {
         let file = zip.by_index(i)?;
-        if in_regex.is_match(file.name()) {
+        if IN_REGEX.is_match(file.name()) {
             inputs.push(util::string_from_read(file)?);
-        } else if out_regex.is_match(file.name()) {
+        } else if OUT_REGEX.is_match(file.name()) {
             outputs.push(util::string_from_read(file)?);
         }
     }

@@ -183,8 +183,10 @@ impl AtCoderBeta {
         {
             if name.to_uppercase() == task.to_uppercase() {
                 let task_screen_name = {
-                    let regex = Regex::new(r"^.*/([a-z0-9_]+)/?$").unwrap();
-                    if let Some(caps) = regex.captures(&relative_url) {
+                    lazy_static! {
+                        static ref REGEX: Regex = Regex::new(r"^.*/([a-z0-9_]+)/?$").unwrap();
+                    }
+                    if let Some(caps) = REGEX.captures(&relative_url) {
                         caps[1].to_owned()
                     } else {
                         break;
@@ -380,8 +382,8 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
 
     fn extract_for_lang(
         document: &Document,
-        re_input: Regex,
-        re_output: Regex,
+        re_input: &'static Regex,
+        re_output: &'static Regex,
         lang_class_name: &'static str,
     ) -> Option<Vec<(String, String)>> {
         let predicate = Attr("id", "task-statement")
@@ -406,16 +408,23 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
     }
 
     fn extract(document: Document) -> Option<TestSuite> {
+        lazy_static! {
+            static ref RE_IN_JA: Regex = Regex::new(r"^入力例 \d+.*$").unwrap();
+            static ref RE_OUT_JA: Regex = Regex::new(r"^出力例 \d+.*$").unwrap();
+            static ref RE_IN_EN: Regex = Regex::new(r"^Sample Input \d+.*$").unwrap();
+            static ref RE_OUT_EN: Regex = Regex::new(r"^Sample Output \d+.*$").unwrap();
+        }
         let timelimit = extract_timelimit_as_millis(&document);
         let samples = {
-            let re_in_ja = Regex::new(r"^入力例 \d+.*$").unwrap();
-            let re_out_ja = Regex::new(r"^出力例 \d+.*$").unwrap();
-            let re_in_en = Regex::new(r"^Sample Input \d+.*$").unwrap();
-            let re_out_en = Regex::new(r"^Sample Output \d+.*$").unwrap();
-            if let Some(samples) = extract_for_lang(&document, re_in_ja, re_out_ja, "lang-ja") {
+            if let Some(samples) = extract_for_lang(&document, &RE_IN_JA, &RE_OUT_JA, "lang-ja") {
                 samples
             } else {
-                try_opt!(extract_for_lang(&document, re_in_en, re_out_en, "lang-en"))
+                try_opt!(extract_for_lang(
+                    &document,
+                    &RE_IN_EN,
+                    &RE_OUT_EN,
+                    "lang-en",
+                ))
             }
         };
         Some(TestSuite::from_text(timelimit, samples))

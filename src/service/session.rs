@@ -54,7 +54,7 @@ impl HttpSession {
             transaction.commit()?;
             cookie_jar
         };
-        let client = Client::builder()?.redirect(RedirectPolicy::none()).build()?;
+        let client = Client::builder().redirect(RedirectPolicy::none()).build()?;
         Ok(Self {
             cookie_jar: cookie_jar,
             reqwest_client: client,
@@ -281,7 +281,7 @@ impl HttpSession {
         print_decorated!(Attr::Bold, None, "GET ");
         print_and_flush!("{} ... ", url);
         let response = self.reqwest_client
-            .get(url.clone())?
+            .get(url.clone())
             .header(user_agent())
             .header(self.cookie_jar.as_request_cookie())
             .send()?;
@@ -308,7 +308,7 @@ impl HttpSession {
             headers.set_raw(header_name, header_value.as_str());
         }
         let response = self.reqwest_client
-            .post(url.clone())?
+            .post(url.clone())
             .body(data)
             .headers(headers)
             .send()?;
