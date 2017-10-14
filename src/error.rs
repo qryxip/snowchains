@@ -1,5 +1,6 @@
 use cookie;
 use error_chain::ChainedError;
+use log::SetLoggerError;
 use regex;
 use reqwest::{self, StatusCode, UrlError};
 use rusqlite;
@@ -45,6 +46,10 @@ error_chain!{
         Judge(JudgeError, JudgeErrorKind);
         SuiteFile(SuiteFileError, SuiteFileErrorKind);
         Config(ConfigError, ConfigErrorKind);
+    }
+
+    foreign_links {
+        SetLogger(SetLoggerError);
     }
 }
 
@@ -121,6 +126,11 @@ error_chain! {
             display("Compilation failed{}",
                      if let Some(code) = status.code() { format!(" with code {}", code) }
                      else {"".to_owned() })
+        }
+
+        CommandNotFound(command: String) {
+            description("Command not found")
+            display("No such command: {:?}", command)
         }
 
         TestFailure(n: usize) {

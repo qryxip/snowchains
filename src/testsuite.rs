@@ -103,10 +103,11 @@ impl TestSuite {
             SuiteFileExtension::Yaml | SuiteFileExtension::Yml => serde_yaml::to_string(self)?,
         };
         file.write_all(serialized.as_bytes())?;
-        Ok(if self.is_empty() {
-            println!("Saved to {} (no sample extracted)", path.display());
-        } else {
-            println!("Saved to {}", path.display());
+        print!("Saved to {}", path.display());
+        Ok(match self.num_cases() {
+            0 => println!(" (no sample case extracted)"),
+            1 => println!(" (1 sample case extracted)"),
+            n => println!(" ({} sample cases extracted)", n),
         })
     }
 

@@ -152,9 +152,11 @@ pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
         }
         PropertyKey::DefaultLang => config.default_lang = value.to_owned(),
     }
-    let mut file = util::create_file_and_dirs(&find_base()?.1)?;
+    let path = find_base()?.1;
+    let mut file = util::create_file_and_dirs(&path)?;
     let config = serde_yaml::to_string(&config)?;
-    Ok(file.write_all(config.as_bytes())?)
+    file.write_all(config.as_bytes())?;
+    Ok(println!("Saved to {}", path.display()))
 }
 
 
@@ -179,6 +181,7 @@ impl Config {
         let (base, path) = find_base()?;
         let mut config = serde_yaml::from_str::<Self>(&util::string_from_file_path(&path)?)?;
         config.base_dir = base;
+        println!("Loaded {}", path.display());
         Ok(config)
     }
 

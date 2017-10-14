@@ -46,7 +46,8 @@ fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> ServiceResu
 }
 
 
-/// Reads a source code from `path`, replacing a class name with `class_name` if necessary.
+/// Reads a source code from `path`, replacing the main class name with `class_name` if the source
+/// code is Java or Scala.
 fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> ServiceResult<String> {
     let replace = move |file: File, regex: &Regex, stem: &OsStr| -> io::Result<Option<String>> {
         let code = BufReader::new(file);
@@ -67,6 +68,10 @@ fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> Ser
         }
 
         Ok(if is_replaced {
+            info!(
+                "The main class name was successfully replaced with {:?}",
+                class_name
+            );
             Some(replaced.join("\n"))
         } else {
             None
@@ -74,18 +79,19 @@ fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> Ser
     };
 
     lazy_static! {
-        static ref RE_JAVA: Regex =
-            Regex::new(r"^(public\s+class\s+)([a-zA-Z_\$][a-zA-Z0-9_\$]*)(.*)$").unwrap();
-        static ref RE_SCALA: Regex =
-            Regex::new(r"^(object\s+)([a-zA-Z_\$][a-zA-Z0-9_\$]*)(.*)$").unwrap();
+        static ref RE_JAVA_CLASS: Regex =
+            Regex::new(r"^(\s*public\s+class\s+)([a-zA-Z_\$][a-zA-Z0-9_\$]*)(.*)$").unwrap();
+        static ref RE_SCALA_CLASS: Regex =
+            Regex::new(r"^(\s*object\s+)([a-zA-Z_\$][a-zA-Z0-9_\$]*)(.*)$").unwrap();
     }
     let file = util::open_file(path)?;
     let stem = path.file_stem().unwrap_or_default();
+    let extension = path.extension();
     let e = || ServiceError::from(ServiceErrorKind::ReplacingClassNameFailure(path.to_owned()));
-    if path.extension() == Some(OsStr::new("java")) {
-        replace(file, &RE_JAVA, stem)?.ok_or_else(e)
-    } else if path.extension() == Some(OsStr::new("scala")) {
-        replace(file, &RE_SCALA, stem)?.ok_or_else(e)
+    if extension == Some(OsStr::new("java")) {
+        replace(file, &RE_JAVA_CLASS, stem)?.ok_or_else(e)
+    } else if extension == Some(OsStr::new("scala")) {
+        replace(file, &RE_SCALA_CLASS, stem)?.ok_or_else(e)
     } else {
         Ok(util::string_from_read(file)?)
     }

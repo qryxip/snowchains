@@ -1,4 +1,4 @@
-use error::{JudgeErrorKind, JudgeResult};
+use error::{JudgeError, JudgeErrorKind, JudgeResult};
 use testsuite::{SuiteFilePath, TestCase, TestSuite};
 use util::{self, Foreach, UnwrapAsRefMut};
 
@@ -52,15 +52,16 @@ pub fn judge(
         let (tx, rx) = mpsc::channel();
         let case = Arc::new(case);
         let case_cloned = case.clone();
+        let run_command_cloned = run_command.clone();
         thread::spawn(move || {
-            let _ = tx.send(run_program(&case_cloned, &run_command));
+            let _ = tx.send(run_program(&case_cloned, &run_command_cloned));
         });
-        Ok(if let (input, expected, Some(timelimit)) = case.values() {
+        if let (input, expected, Some(timelimit)) = case.values() {
             rx.recv_timeout(Duration::from_millis(timelimit + 50))
-                .unwrap_or_else(|_| Ok(JudgeOutput::Tle(timelimit, input, expected)))?
+                .unwrap_or_else(|_| Ok(JudgeOutput::Tle(timelimit, input, expected)))
         } else {
-            rx.recv()??
-        })
+            rx.recv()?
+        }.wrap_not_found_error_message(run_command.arg0.clone())
     }
 
     if let Some(compilation_command) = compilation_command {
@@ -88,7 +89,7 @@ pub fn judge(
         })
         .collect::<JudgeResult<Vec<_>>>()?;
 
-    let num_failures = outputs.iter().filter(|output| !output.success()).count();
+    let num_failures = outputs.iter().filter(|output| output.failure()).count();
     if num_failures == 0 {
         Ok(println!("All of the {} test{} passed.", num_cases, suf))
     } else {
@@ -119,38 +120,33 @@ impl CommandProperty {
         working_dir: PathBuf,
         src_and_bin: Option<(PathBuf, PathBuf)>,
     ) -> Self {
-        if command
-            .find(|c| "@#$^&*;|?\\<>()[]{}'\"".contains(c))
-            .is_some()
-        {
-            let (arg0, c) = if cfg!(target_os = "windows") {
-                ("cmd".to_owned(), "/C".to_owned())
+        fn wrap_if_necessary(command: String) -> (String, Vec<String>) {
+            if command
+                .find(|c| "@#$^&*;|?\\<>()[]{}'\"".contains(c))
+                .is_some()
+            {
+                let (arg0, c) = if cfg!(target_os = "windows") {
+                    ("cmd".to_owned(), "/C".to_owned())
+                } else {
+                    ("sh".to_owned(), "-c".to_owned())
+                };
+                (arg0, vec![c, command])
+            } else if command.find(char::is_whitespace).is_some() {
+                let mut it = command.split_whitespace();
+                let arg0 = it.next().unwrap_or_default().to_owned();
+                let rest_args = it.map(str::to_owned).collect();
+                (arg0, rest_args)
             } else {
-                ("sh".to_owned(), "-c".to_owned())
-            };
-            Self {
-                arg0: arg0,
-                rest_args: vec![c, command],
-                working_dir: working_dir,
-                src_and_bin: src_and_bin,
+                (command, vec![])
             }
-        } else if command.find(char::is_whitespace).is_some() {
-            let mut it = command.split_whitespace();
-            let arg0 = it.next().unwrap_or_default().to_owned();
-            let rest_args = it.map(str::to_owned).collect();
-            Self {
-                arg0: arg0,
-                rest_args: rest_args,
-                working_dir: working_dir,
-                src_and_bin: src_and_bin,
-            }
-        } else {
-            Self {
-                arg0: command,
-                rest_args: vec![],
-                working_dir: working_dir,
-                src_and_bin: src_and_bin,
-            }
+        }
+
+        let (arg0, rest_args) = wrap_if_necessary(command);
+        Self {
+            arg0: arg0,
+            rest_args: rest_args,
+            working_dir: working_dir,
+            src_and_bin: src_and_bin,
         }
     }
 
@@ -183,7 +179,8 @@ impl CommandProperty {
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
-            .status()?;
+            .status()
+            .wrap_not_found_error_message(self.arg0.clone())?;
         if status.success() {
             Ok(())
         } else {
@@ -235,10 +232,10 @@ impl fmt::Display for JudgeOutput {
 }
 
 impl JudgeOutput {
-    fn success(&self) -> bool {
+    fn failure(&self) -> bool {
         match *self {
-            JudgeOutput::Ac(..) => true,
-            _ => false,
+            JudgeOutput::Ac(..) => false,
+            _ => true,
         }
     }
 
@@ -255,19 +252,19 @@ impl JudgeOutput {
     }
 
     fn eprint_details(&self) {
-        fn eprint_section(head: &'static str, s: &str) {
+        fn eprint_section(head: &'static str, content: &str) {
             eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "{}:", head);
-            if s.is_empty() {
+            if content.is_empty() {
                 eprintln_decorated!(Attr::Bold, Some(color::YELLOW), "EMPTY");
             } else {
-                util::eprintln_trimming_last_newline(s);
+                util::eprintln_trimming_last_newline(content);
             }
         }
 
-        fn eprint_section_unless_empty(head: &'static str, s: &str) {
-            if !s.is_empty() {
+        fn eprint_section_unless_empty(head: &'static str, content: &str) {
+            if !content.is_empty() {
                 eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "{}:", head);
-                util::eprintln_trimming_last_newline(s);
+                util::eprintln_trimming_last_newline(content);
             }
         }
 
@@ -303,6 +300,25 @@ impl JudgeOutput {
             JudgeOutput::Wa(..) => color::YELLOW,
             JudgeOutput::Re(..) => color::YELLOW,
         }
+    }
+}
+
+
+trait WrapNotFoundErrorMessage {
+    type Item;
+    fn wrap_not_found_error_message(self, arg0: String) -> JudgeResult<Self::Item>;
+}
+
+impl<T> WrapNotFoundErrorMessage for io::Result<T> {
+    type Item = T;
+
+    fn wrap_not_found_error_message(self, arg0: String) -> JudgeResult<T> {
+        self.map_err(|e| -> JudgeError {
+            match e.kind() {
+                io::ErrorKind::NotFound => JudgeErrorKind::CommandNotFound(arg0).into(),
+                _ => e.into(),
+            }
+        })
     }
 }
 

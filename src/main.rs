@@ -1,6 +1,7 @@
 #![recursion_limit = "1024"]
 
 extern crate cookie;
+extern crate env_logger;
 extern crate pbr;
 extern crate regex;
 extern crate reqwest;
@@ -25,6 +26,8 @@ extern crate error_chain;
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
+extern crate log;
+#[macro_use]
 extern crate newtype_derive;
 #[macro_use]
 extern crate serde_derive;
@@ -47,6 +50,8 @@ use clap::{AppSettings, Arg, SubCommand};
 
 
 quick_main_colored!(|| -> SnowchainsResult<()> {
+    env_logger::init()?;
+
     fn arg_default_lang() -> Arg<'static, 'static> {
         Arg::with_name("default-lang")
             .help("Default language")
@@ -219,45 +224,51 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("init-config") {
+        info!("Running command \"init-config\"");
         let lang = matches.value_of("default-lang").unwrap();
         let dir = matches.value_of("dir").unwrap();
         return Ok(config::create_config_file(lang, dir)?);
     } else if let Some(matches) = matches.subcommand_matches("set") {
+        info!("Running command \"set\"");
         let key = value_t!(matches, "key", PropertyKey).unwrap();
         let value = matches.value_of("value").unwrap();
         return Ok(config::set_property(key, value)?);
     } else if let Some(matches) = matches.subcommand_matches("login") {
-        let service_name = value_t!(matches, "service", ServiceName).unwrap();
-        return Ok(match service_name {
+        info!("Running command \"login\"");
+        let service = value_t!(matches, "service", ServiceName).unwrap();
+        return Ok(match service {
             ServiceName::AtCoder => atcoder::login(),
             ServiceName::AtCoderBeta => atcoder_beta::login(),
             ServiceName::HackerRank => hackerrank::login(),
         }?);
     } else if let Some(matches) = matches.subcommand_matches("participate") {
-        let service_name = value_t!(matches, "service", ServiceName).unwrap();
-        let contest_name = matches.value_of("contest").unwrap();
-        return Ok(match service_name {
-            ServiceName::AtCoder => atcoder::participate(contest_name),
-            ServiceName::AtCoderBeta => atcoder_beta::participate(contest_name),
+        info!("Running command \"participate\"");
+        let service = value_t!(matches, "service", ServiceName).unwrap();
+        let contest = matches.value_of("contest").unwrap();
+        return Ok(match service {
+            ServiceName::AtCoder => atcoder::participate(contest),
+            ServiceName::AtCoderBeta => atcoder_beta::participate(contest),
             ServiceName::HackerRank => unreachable!(),
         }?);
     } else if let Some(matches) = matches.subcommand_matches("download") {
+        info!("Running command \"download\"");
         let config = Config::load_from_file()?;
         let open_browser = matches.is_present("open-browser");
-        let service_name = config.service_name()?;
-        let contest_name = config.contest_name()?;
+        let service = config.service_name()?;
+        let contest = config.contest_name()?;
         let dir_to_save = config.suite_dir()?;
         let extension = config.suite_extension();
-        return Ok(match service_name {
-            ServiceName::AtCoder => atcoder::download(&contest_name, &dir_to_save, extension),
+        return Ok(match service {
+            ServiceName::AtCoder => atcoder::download(&contest, &dir_to_save, extension),
             ServiceName::AtCoderBeta => {
-                atcoder_beta::download(&contest_name, &dir_to_save, extension, open_browser)
+                atcoder_beta::download(&contest, &dir_to_save, extension, open_browser)
             }
             ServiceName::HackerRank => {
-                hackerrank::download(&contest_name, &dir_to_save, extension, open_browser)
+                hackerrank::download(&contest, &dir_to_save, extension, open_browser)
             }
         }?);
     } else if let Some(matches) = matches.subcommand_matches("append") {
+        info!("Running command \"append\"");
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
         let input = matches.value_of("input").unwrap();
@@ -265,6 +276,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let path = config.suite_path(target)?;
         return Ok(testsuite::append(&path, input, output)?);
     } else if let Some(matches) = matches.subcommand_matches("judge") {
+        info!("Running command \"judge\"");
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
         let lang = matches.value_of("lang");
@@ -273,14 +285,15 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let comp_command = config.construct_compilation_command(target, lang)?;
         return Ok(judge::judge(suite_path, run_command, comp_command)?);
     } else if let Some(matches) = matches.subcommand_matches("submit") {
+        info!("Running command \"submit\"");
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
         let lang = matches.value_of("lang");
         let open_browser = matches.is_present("open-browser");
         let skip_judging = matches.is_present("skip-judging");
         let force = matches.is_present("force");
-        let service_name = config.service_name()?;
-        let contest_name = config.contest_name()?;
+        let service = config.service_name()?;
+        let contest = config.contest_name()?;
         let src_path = config.src_path(target, lang)?;
         if !skip_judging {
             let suite_path = config.suite_path(target)?;
@@ -289,18 +302,11 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
             judge::judge(suite_path, run_command, comp_command)?;
             println!("");
         }
-        return Ok(match service_name {
+        return Ok(match service {
             ServiceName::AtCoder => unimplemented!(),
             ServiceName::AtCoderBeta => {
                 let lang_id = config.atcoder_lang_id(lang)?;
-                atcoder_beta::submit(
-                    &contest_name,
-                    &target,
-                    lang_id,
-                    &src_path,
-                    open_browser,
-                    force,
-                )
+                atcoder_beta::submit(&contest, &target, lang_id, &src_path, open_browser, force)
             }
             ServiceName::HackerRank => unimplemented!(),
         }?);

@@ -95,7 +95,7 @@ impl AtCoderBeta {
             eprintln!("Failed to login. Try again.");
             self.clear_cookies();
         }
-        Ok(())
+        Ok(println!("Succeeded to login."))
     }
 
     fn try_logging_in(&mut self) -> ServiceResult<()> {
@@ -116,7 +116,7 @@ impl AtCoderBeta {
         static URL: &'static str = "https://beta.atcoder.jp/login";
         let _ = self.http_post_urlencoded(URL, data, StatusCode::Found)?;
         let _ = self.http_get("https://beta.atcoder.jp/settings")?;
-        Ok(println!("Succeeded to login."))
+        Ok(())
     }
 
     fn register_to_contest(&mut self, contest: &Contest) -> ServiceResult<()> {
@@ -354,6 +354,11 @@ fn extract_task_urls_with_names<R: Read>(html: R) -> ServiceResult<Vec<(String, 
             let node = try_opt!(node.find(Name("a")).next());
             let url = try_opt!(node.attr("href")).to_owned();
             let name = try_opt!(node.find(Text).next()).text();
+            info!(
+                "Extracting problem links: Found #main-container>[[omitted]]>a[href={:?}]{{{}}}",
+                url,
+                name
+            );
             names_and_pathes.push((name, url));
         }
         Some(names_and_pathes)
@@ -367,7 +372,7 @@ fn extract_cases<R: Read>(html: R, style: &SampleCaseStyle) -> ServiceResult<Tes
     let document = Document::from_read(html)?;
     match *style {
         SampleCaseStyle::New => extract_cases_from_new_style(document),
-        SampleCaseStyle::Old => unimplemented!(),
+        SampleCaseStyle::Old => extract_cases_from_new_style(document),
     }
 }
 
@@ -377,6 +382,11 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
         let title = try_opt!(section_node.find(Name("h3")).next()).text();
         let sample = try_opt!(section_node.find(Name("pre")).next()).text();
         return_none_unless!(regex.is_match(&title));
+        info!(
+            "Extracting sample cases: Found h3{{{}}}+pre{{{:?}}}",
+            title,
+            sample
+        );
         Some(sample)
     }
 
@@ -393,6 +403,10 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
             .child(Name("section"));
         let (mut samples, mut input_sample) = (vec![], None);
         for node in document.find(predicate) {
+            info!(
+                "Extracting sample cases: Found #task-statement>span.lang>span.{}>div.part>section>",
+                lang_class_name
+            );
             input_sample = if let Some(input_sample) = input_sample {
                 let output_sample = try_opt!(try_extracting_from_section(node, &re_output));
                 samples.push((output_sample, input_sample));
@@ -416,9 +430,11 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
         }
         let timelimit = extract_timelimit_as_millis(&document);
         let samples = {
+            info!("Extracting sample cases: Searching \"入力例\" and \"出力例\"");
             if let Some(samples) = extract_for_lang(&document, &RE_IN_JA, &RE_OUT_JA, "lang-ja") {
                 samples
             } else {
+                info!("Extracting sample cases: Searching \"Sample Input\" and \"Sample Output\"");
                 try_opt!(extract_for_lang(
                     &document,
                     &RE_IN_EN,
@@ -435,21 +451,34 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
 
 
 fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
-    let re_timelimit = Regex::new(r"^\D*(\d+)\s*sec.*$").unwrap();
+    lazy_static! {
+        static ref RE_TIMELIMIT: Regex = Regex::new(r"^\D*(\d+)\s*sec.*$").unwrap();
+    }
     let predicate = Attr("id", "main-container")
         .child(And(Name("div"), Class("row")))
         .child(And(Name("div"), Class("col-sm-12")))
         .child(Name("p"))
         .child(Text);
     let text = try_opt!(document.find(predicate).next()).text();
-    let caps = try_opt!(re_timelimit.captures(&text));
-    Some(1000 * try_opt!(caps[1].parse::<u64>().ok()))
+    info!(
+        "Extracting timelimit: Found #main-container>div.row>div.col-sm-12>p{{{:?}}}",
+        text
+    );
+    let caps = try_opt!(RE_TIMELIMIT.captures(&text));
+    let timelimit = 1000 * try_opt!(caps[1].parse::<u64>().ok());
+    info!(
+        "Extracting timelimit: Successfully extracted: {}ms",
+        timelimit
+    );
+    Some(timelimit)
 }
 
 
 fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<bool> {
     fn check(document: Document, task_screen_name: &str) -> Option<bool> {
-        let regex = Regex::new(r"^/contests/\w+/tasks/(\w+)$").unwrap();
+        lazy_static! {
+            static ref RE_URL: Regex = Regex::new(r"^/contests/\w+/tasks/(\w+)$").unwrap();
+        }
         let predicate = Attr("id", "main-container")
             .child(And(Name("div"), Class("row")))
             .child(And(Name("div"), Class("col-sm-12")))
@@ -459,12 +488,15 @@ fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<
             .child(Name("tbody"))
             .child(Name("tr"));
         for node in document.find(predicate) {
+            info!("Extracting submissions: Found #main-container>[[omitted]]>tr>");
             let url =
                 try_opt!(try_opt!(node.find(Name("td").child(Name("a"))).nth(0)).attr("href"));
-            if let Some(caps) = regex.captures(url) {
+            info!("Extracting submissions: Found td>a[href={:?}]", url);
+            if let Some(caps) = RE_URL.captures(url) {
                 if &caps[1] == task_screen_name {
                     let predicate = Name("td").child(Name("span")).child(Text);
                     if let Some(node) = node.find(predicate).nth(0) {
+                        info!("Extracting submissions: Found td>span{{{}}}", node.text());
                         if node.text() == "AC" {
                             return Some(true);
                         }
