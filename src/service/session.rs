@@ -1,17 +1,16 @@
 use error::{ServiceErrorKind, ServiceResult};
 use util;
 
+use bincode::{self, Infinite};
 use cookie::{self, Cookie, CookieJar};
 use pbr::{MultiBar, Units};
 use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode};
 use reqwest::header::{ContentLength, ContentType, Cookie as RequestCookie, Headers, SetCookie,
                       UserAgent};
-use rusqlite::Connection;
 use serde::Serialize;
 use serde_json;
 use serde_urlencoded;
 use std::fmt;
-use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
 use std::thread;
@@ -23,43 +22,49 @@ use zip::result::ZipResult;
 pub struct HttpSession {
     cookie_jar: CookieJar,
     reqwest_client: Client,
-    sqlite: (Connection, PathBuf),
+    path_to_save_cookies: PathBuf,
 }
 
 impl HttpSession {
-    /// Creates a new `ScrapingSession` connecting `~/.local/share/snowchains/<sqlite_name>`.
-    pub fn start(sqlite_name: &'static str) -> ServiceResult<Self> {
+    /// Creates a new `HttpSession` loading `~/.local/share/snowchains/<file_name>` if it exists.
+    pub fn start(file_name: &'static str) -> ServiceResult<Self> {
         let path = {
             let mut path = util::home_dir_as_io_result()?;
             path.push(".local");
             path.push("share");
             path.push("snowchains");
-            fs::create_dir_all(&path)?;
-            path.push(sqlite_name);
+            path.push(file_name);
             path
         };
-        let mut conn = Connection::open(&path)?;
-        println!("Opened {}", path.display());
-        let cookie_jar = {
-            let transaction = conn.transaction()?;
-            let sql = "CREATE TABLE IF NOT EXISTS cookie (cookie TEXT NOT NULL)";
-            transaction.execute(sql, &[])?;
-            let mut cookie_jar = CookieJar::new();
+        let jar = if path.exists() {
+            let mut file = util::open_file(&path)?;
+            println!("Loaded {}", path.display());
+            let mut jar = CookieJar::new();
+            for cookie in bincode::deserialize_from::<_, Vec<String>, _>(&mut file, Infinite)?
+                .into_iter()
             {
-                let mut stmt = transaction.prepare("SELECT cookie FROM cookie")?;
-                for cookie in stmt.query_map::<String, _>(&[], |row| row.get(0))? {
-                    cookie_jar.add(Cookie::parse(cookie?)?);
-                }
+                jar.add(Cookie::parse(cookie)?);
             }
-            transaction.commit()?;
-            cookie_jar
+            jar
+        } else {
+            println!("{} not found. It will be created.", path.display());
+            CookieJar::new()
         };
         let client = Client::builder().redirect(RedirectPolicy::none()).build()?;
         Ok(Self {
-            cookie_jar: cookie_jar,
+            cookie_jar: jar,
             reqwest_client: client,
-            sqlite: (conn, path),
+            path_to_save_cookies: path,
         })
+    }
+
+    /// Moves `self` and save its cookies to a file.
+    pub fn save_cookies(self) -> ServiceResult<()> {
+        let (jar, path) = (self.cookie_jar, self.path_to_save_cookies);
+        let mut file = util::create_file_and_dirs(&path)?;
+        let cookies = jar.iter().map(Cookie::to_string).collect::<Vec<_>>();
+        bincode::serialize_into(&mut file, &cookies, Infinite)?;
+        Ok(println!("Saved to {}", path.display()))
     }
 
     /// Whether `self` has any cookie.
@@ -255,26 +260,6 @@ impl HttpSession {
             ContentType::json(),
             &[("X-CSRF-Token", csrf_token)],
         )
-    }
-
-    /// Save all cookies to the sqlite database, erasing previous cookies.
-    pub fn save_cookie_to_db(self) -> ServiceResult<()> {
-        let (mut conn, path) = self.sqlite;
-        {
-            let transaction = conn.transaction()?;
-            transaction.execute("DELETE FROM cookie", &[])?;
-            for cookie in self.cookie_jar.iter().map(Cookie::to_string) {
-                let sql = "INSERT INTO cookie VALUES (?1)";
-                transaction.execute(sql, &[&cookie])?;
-            }
-            transaction.commit()?;
-        }
-        let path = path.display();
-        match conn.close() {
-            Ok(()) => println!("Closed {}", path),
-            Err(_) => eprint_decorated!(Attr::Bold, Some(color::RED), "Failed to close {}", path),
-        }
-        Ok(())
     }
 
     fn send_get<U: Clone + fmt::Display + IntoUrl>(&mut self, url: U) -> ServiceResult<Response> {

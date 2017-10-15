@@ -1,12 +1,12 @@
 #![recursion_limit = "1024"]
 
+extern crate bincode;
 extern crate cookie;
 extern crate env_logger;
 extern crate pbr;
 extern crate regex;
 extern crate reqwest;
 extern crate rpassword;
-extern crate rusqlite;
 extern crate rprompt;
 extern crate select;
 extern crate serde;

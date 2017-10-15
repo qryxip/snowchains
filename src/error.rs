@@ -1,9 +1,9 @@
+use bincode;
 use cookie;
 use error_chain::ChainedError;
 use log::SetLoggerError;
 use regex;
 use reqwest::{self, StatusCode, UrlError};
-use rusqlite;
 use serde_json;
 use serde_urlencoded;
 use serde_yaml;
@@ -64,11 +64,11 @@ error_chain! {
     }
 
     foreign_links {
+        Bincode(bincode::Error);
         CookieParse(cookie::ParseError);
         Io(io::Error);
         Recv(RecvError);
         Reqwest(reqwest::Error);
-        Rusqlite(rusqlite::Error);
         SerdeJson(serde_json::Error);
         SerdeUrlencodedSer(serde_urlencoded::ser::Error);
         Url(UrlError);

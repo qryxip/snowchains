@@ -40,7 +40,7 @@ custom_derive! {
 impl HackerRank {
     fn start(prints_message_when_already_logged_in: bool) -> ServiceResult<Self> {
         static URL: &'static str = "https://www.hackerrank.com/login";
-        let mut hackerrank = HackerRank(HttpSession::start("hackerrank.sqlite3")?);
+        let mut hackerrank = HackerRank(HttpSession::start("hackerrank")?);
         if let Some(response) = hackerrank.http_get_as_opt(
             URL,
             StatusCode::Ok,
@@ -145,7 +145,7 @@ impl HackerRank {
     }
 
     fn save(self) -> ServiceResult<()> {
-        self.0.save_cookie_to_db()
+        self.0.save_cookies()
     }
 }
 

@@ -78,7 +78,7 @@ custom_derive! {
 
 impl AtCoderBeta {
     fn start(eprints_message_if_already_logged_in: bool) -> ServiceResult<Self> {
-        let mut atcoder = AtCoderBeta(HttpSession::start("atcoder-beta.sqlite3")?);
+        let mut atcoder = AtCoderBeta(HttpSession::start("atcoderbeta")?);
         if atcoder.has_cookie() && atcoder.http_get("https://beta.atcoder.jp/settings").is_ok() {
             if eprints_message_if_already_logged_in {
                 eprintln!("Already logged in.");
@@ -230,7 +230,7 @@ impl AtCoderBeta {
     }
 
     fn save(self) -> ServiceResult<()> {
-        self.0.save_cookie_to_db()
+        self.0.save_cookies()
     }
 }
 

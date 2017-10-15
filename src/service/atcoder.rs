@@ -13,7 +13,7 @@ use std::path::Path;
 
 pub fn login() -> ServiceResult<()> {
     static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-    let mut atcoder = AtCoder(HttpSession::start("atcoder.sqlite3")?);
+    let mut atcoder = AtCoder(HttpSession::start("atcoder")?);
     if atcoder.http_get(URL).is_err() {
         atcoder.login()?;
     } else {
@@ -119,7 +119,7 @@ impl AtCoder {
     }
 
     fn save(self) -> ServiceResult<()> {
-        self.0.save_cookie_to_db()
+        self.0.save_cookies()
     }
 }
 
