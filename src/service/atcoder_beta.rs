@@ -24,7 +24,7 @@ pub fn login() -> ServiceResult<()> {
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
     let contest = &Contest::new(contest_name);
     let mut atcoder = AtCoderBeta::start(false)?;
-    atcoder.register_to_contest(contest)?;
+    atcoder.register_to_contest(contest, true)?;
     atcoder.save()
 }
 
@@ -38,12 +38,13 @@ pub fn download(
 ) -> ServiceResult<()> {
     let contest = Contest::new(contest_name);
     let mut atcoder = AtCoderBeta::start(false)?;
-    atcoder.register_to_contest(&contest)?;
+    let (_, tasks_page) = atcoder.register_to_contest(&contest, false)?;
     atcoder.download_all_tasks(
         contest,
         dir_to_save,
         extension,
         open_browser,
+        tasks_page,
     )?;
     atcoder.save()
 }
@@ -60,14 +61,15 @@ pub fn submit(
 ) -> ServiceResult<()> {
     let contest = Contest::new(contest_name);
     let mut atcoder = AtCoderBeta::start(false)?;
-    atcoder.register_to_contest(&contest)?;
+    let (active_p, tasks_page) = atcoder.register_to_contest(&contest, false)?;
     atcoder.submit_code(
         contest,
         task,
         lang_id,
         src_path,
         open_browser,
-        force,
+        !force && active_p,
+        tasks_page,
     )?;
     atcoder.save()
 }
@@ -108,7 +110,7 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
-        let csrf_token = extract_csrf_token(self.http_get(URL)?)?;
+        let csrf_token = extract_csrf_token(&Document::from_read(self.http_get(URL)?)?)?;
         let (username, password) = super::read_username_and_password("Username: ")?;
         let data = PostData {
             username: username,
@@ -121,16 +123,46 @@ impl AtCoderBeta {
         Ok(())
     }
 
-    fn register_to_contest(&mut self, contest: &Contest) -> ServiceResult<()> {
+    fn register_to_contest(
+        &mut self,
+        contest: &Contest,
+        explicit: bool,
+    ) -> ServiceResult<(bool, Option<Document>)> {
+        // Returns whether `contest` is active and HTML data of `/tasks`
+        use reqwest::StatusCode::{Found as Code302, Ok as Code200};
+
         #[derive(Serialize)]
         struct PostData {
             csrf_token: String,
         }
 
-        let csrf_token = extract_csrf_token(self.http_get(&contest.top_url())?)?;
-        let data = PostData { csrf_token: csrf_token };
-        self.http_post_urlencoded(&contest.registration_url(), data, StatusCode::Found)
-            .map(|_| ())
+        match self.http_get_as_opt(&contest.top_url(), Code200, Code302)? {
+            None => bail!(ServiceErrorKind::ContestNotFound(contest.to_string())),
+            Some(response) => {
+                let document = Document::from_read(response)?;
+                let duration = extract_contest_duration(&document)?;
+                match duration.check_current_status(contest.to_string()) {
+                    ContestStatus::Finished => return Ok((false, None)),
+                    ContestStatus::Active => {} // fall through
+                    ContestStatus::NotBegun(s, t) => {
+                        if !explicit {
+                            bail!(ServiceErrorKind::ContestNotBegun(s, t))
+                        }
+                    }
+                }
+                let not_practice = contest.not_practice_contest();
+                let url = contest.tasks_url();
+                if let Some(response) = self.http_get_as_opt(&url, Code200, Code302)? {
+                    let csrf_token = extract_csrf_token(&document)?;
+                    let data = PostData { csrf_token: csrf_token };
+                    let url = contest.registration_url();
+                    self.http_post_urlencoded(&url, data, Code302)?;
+                    Ok((not_practice, Some(Document::from_read(response)?)))
+                } else {
+                    Ok((not_practice, None))
+                }
+            }
+        }
     }
 
     fn download_all_tasks(
@@ -139,23 +171,26 @@ impl AtCoderBeta {
         dir_to_save: &Path,
         extension: SuiteFileExtension,
         open_browser: bool,
+        tasks_page: Option<Document>,
     ) -> ServiceResult<()> {
-        self.current_contest_status(&contest)?.raise_if_not_begun(
-            &contest,
-        )?;
-        let mut outputs = vec![];
-        let urls_with_names = extract_task_urls_with_names(self.http_get(&contest.tasks_url())?)?;
-        for (name, relative_url) in urls_with_names {
-            let url = format!("https://beta.atcoder.jp{}", relative_url);
-            let suite = extract_cases(self.http_get(&url)?, &contest.style())?;
-            let path = SuiteFilePath::new(&dir_to_save, name.to_lowercase(), extension);
-            outputs.push((url, suite, path));
-        }
+        let tasks_page = match tasks_page {
+            Some(tasks_page) => tasks_page,
+            None => Document::from_read(self.http_get(&contest.tasks_url())?)?,
+        };
+        let outputs = extract_task_urls_with_names(&tasks_page)?
+            .into_iter()
+            .map(|(name, relative_url)| -> ServiceResult<_> {
+                let url = format!("https://beta.atcoder.jp{}", relative_url);
+                let suite = extract_cases(self.http_get(&url)?, &contest.style())?;
+                let path = SuiteFilePath::new(&dir_to_save, name.to_lowercase(), extension);
+                Ok((url, suite, path))
+            })
+            .collect::<ServiceResult<Vec<_>>>()?;
         for &(_, ref suite, ref path) in &outputs {
             suite.save(&path)?;
         }
         if open_browser {
-            for (url, ..) in outputs.into_iter() {
+            for (url, _, _) in outputs.into_iter() {
                 println!("Opening {} in default browser...", url);
                 webbrowser::open(&url)?;
             }
@@ -171,7 +206,8 @@ impl AtCoderBeta {
         lang_id: u32,
         src_path: &Path,
         open_browser: bool,
-        force: bool,
+        checks_if_accepted: bool,
+        tasks_page: Option<Document>,
     ) -> ServiceResult<()> {
         #[derive(Serialize)]
         struct PostData {
@@ -183,15 +219,12 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
-        let active_p = {
-            let status = self.current_contest_status(&contest)?;
-            status.raise_if_not_begun(&contest)?;
-            status.is_active()
+        let tasks_page = match tasks_page {
+            Some(tasks_page) => tasks_page,
+            None => Document::from_read(self.http_get(&contest.tasks_url())?)?,
         };
 
-        for (name, relative_url) in
-            extract_task_urls_with_names(self.http_get(&contest.tasks_url())?)?
-        {
+        for (name, relative_url) in extract_task_urls_with_names(&tasks_page)? {
             if name.to_uppercase() == task.to_uppercase() {
                 let task_screen_name = {
                     lazy_static! {
@@ -203,19 +236,16 @@ impl AtCoderBeta {
                         break;
                     }
                 };
-                if !(force || contest.is_practice()) && active_p {
+                if checks_if_accepted {
                     let page = self.http_get(&contest.submissions_url())?;
                     if check_if_accepted(page, &task_screen_name)? {
-                        return Ok(eprintln!(
-                            "Your code seems to be already accepted. Append \"--force\" to \
-                             force submit."
-                        ));
+                        bail!(ServiceErrorKind::AlreadyAccepted);
                     }
                 }
                 let source_code = super::replace_class_name_if_necessary(src_path, "Main")?;
                 let csrf_token = {
                     let url = format!("https://beta.atcoder.jp{}", relative_url);
-                    extract_csrf_token(self.http_get(&url)?)?
+                    extract_csrf_token(&Document::from_read(self.http_get(&url)?)?)?
                 };
                 let data = PostData {
                     dataTaskScreenName: task_screen_name,
@@ -236,19 +266,13 @@ impl AtCoderBeta {
         bail!(ServiceErrorKind::NoSuchProblem(task.to_owned()));
     }
 
-    fn current_contest_status(&mut self, contest: &Contest) -> ServiceResult<ContestStatus> {
-        let status = extract_contest_duration(self.http_get(&contest.top_url())?)?
-            .check_current_status();
-        info!("Contest status: {:?}", status);
-        Ok(status)
-    }
-
     fn save(self) -> ServiceResult<()> {
         self.0.save_cookies()
     }
 }
 
 
+#[derive(Clone)]
 enum Contest {
     Practice,
     AbcBefore007(u32),
@@ -308,10 +332,10 @@ impl Contest {
         }
     }
 
-    fn is_practice(&self) -> bool {
+    fn not_practice_contest(&self) -> bool {
         match *self {
-            Contest::Practice => true,
-            _ => false,
+            Contest::Practice => false,
+            _ => true,
         }
     }
 
@@ -351,36 +375,17 @@ impl Contest {
 enum ContestStatus {
     Finished,
     Active,
-    NotBegun(DateTime<Local>),
-}
-
-impl ContestStatus {
-    fn is_active(&self) -> bool {
-        match *self {
-            ContestStatus::Active => true,
-            _ => false,
-        }
-    }
-
-    fn raise_if_not_begun(&self, contest: &Contest) -> ServiceResult<()> {
-        if let ContestStatus::NotBegun(ref t) = *self {
-            bail!(ServiceErrorKind::ContestNotBegun(
-                contest.to_string(),
-                t.clone(),
-            ));
-        }
-        Ok(())
-    }
+    NotBegun(String, DateTime<Local>),
 }
 
 
 struct ContestDuration(DateTime<Utc>, DateTime<Utc>);
 
 impl ContestDuration {
-    fn check_current_status(&self) -> ContestStatus {
+    fn check_current_status(&self, contest_name: String) -> ContestStatus {
         let now = Utc::now();
         if now < self.0 {
-            ContestStatus::NotBegun(self.0.with_timezone(&Local))
+            ContestStatus::NotBegun(contest_name, self.0.with_timezone(&Local))
         } else if now > self.1 {
             ContestStatus::Finished
         } else {
@@ -396,19 +401,19 @@ enum SampleCaseStyle {
 }
 
 
-fn extract_csrf_token<R: Read>(html: R) -> ServiceResult<String> {
-    fn extract(document: Document) -> Option<String> {
+fn extract_csrf_token(document: &Document) -> ServiceResult<String> {
+    fn extract(document: &Document) -> Option<String> {
         try_opt!(document.find(Attr("name", "csrf_token")).next())
             .attr("value")
             .map(str::to_owned)
     }
 
-    super::quit_on_failure(extract(Document::from_read(html)?), String::is_empty)
+    super::quit_on_failure(extract(document), String::is_empty)
 }
 
 
-fn extract_task_urls_with_names<R: Read>(html: R) -> ServiceResult<Vec<(String, String)>> {
-    fn extract(document: Document) -> Option<Vec<(String, String)>> {
+fn extract_task_urls_with_names(document: &Document) -> ServiceResult<Vec<(String, String)>> {
+    fn extract(document: &Document) -> Option<Vec<(String, String)>> {
         let mut names_and_pathes = vec![];
         let predicate = Attr("id", "main-container")
             .child(And(Name("div"), Class("row")))
@@ -432,7 +437,7 @@ fn extract_task_urls_with_names<R: Read>(html: R) -> ServiceResult<Vec<(String, 
         Some(names_and_pathes)
     }
 
-    super::quit_on_failure(extract(Document::from_read(html)?), Vec::is_empty)
+    super::quit_on_failure(extract(document), Vec::is_empty)
 }
 
 
@@ -543,7 +548,7 @@ fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
 }
 
 
-fn extract_contest_duration<R: Read>(html: R) -> ServiceResult<ContestDuration> {
+fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuration> {
     fn extract(document: &Document) -> Option<(String, String)> {
         let predicate = Name("time").child(Text);
         let t1 = try_opt!(document.find(predicate).nth(0)).text();
@@ -553,7 +558,7 @@ fn extract_contest_duration<R: Read>(html: R) -> ServiceResult<ContestDuration> 
         Some((t1, t2))
     }
 
-    match extract(&Document::from_read(html)?) {
+    match extract(document) {
         Some((t1, t2)) => {
             static FORMAT: &'static str = "%F %T%z";
             let t1 = DateTime::parse_from_str(&t1, FORMAT)?.with_timezone(&Utc);

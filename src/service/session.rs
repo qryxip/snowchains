@@ -38,7 +38,7 @@ impl HttpSession {
         };
         let jar = if path.exists() {
             let mut file = util::open_file(&path)?;
-            println!("Loaded {}", path.display());
+            println!("Loaded cookies from {}", path.display());
             let mut jar = CookieJar::new();
             for cookie in bincode::deserialize_from::<_, Vec<String>, _>(&mut file, Infinite)?
                 .into_iter()
@@ -64,7 +64,7 @@ impl HttpSession {
         let mut file = util::create_file_and_dirs(&path)?;
         let cookies = jar.iter().map(Cookie::to_string).collect::<Vec<_>>();
         bincode::serialize_into(&mut file, &cookies, Infinite)?;
-        Ok(println!("Saved to {}", path.display()))
+        Ok(println!("Saved cookies to {}", path.display()))
     }
 
     /// Whether `self` has any cookie.

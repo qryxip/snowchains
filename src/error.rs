@@ -78,9 +78,19 @@ error_chain! {
     }
 
     errors {
+        AlreadyAccepted {
+            description("Found an accepted submission")
+            display("Found an accepted submission. Add \"--force\" to submit")
+        }
+
         ContestNotBegun(contest_name: String, begins_at: DateTime<Local>) {
             description("Contest has not begun yet")
             display("{} will begin at {}", contest_name, begins_at)
+        }
+
+        ContestNotFound(contest_name: String) {
+            description("Contest has not found")
+                display("{} not found", contest_name)
         }
 
         NoSuchProblem(name: String) {
@@ -95,7 +105,7 @@ error_chain! {
 
         ScrapingFailed {
             description("Scraping failed")
-                display("Scraping faild")
+                display("Scraping failed")
         }
 
         Thread {
