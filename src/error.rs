@@ -1,4 +1,5 @@
 use bincode;
+use chrono::{self, DateTime, Local};
 use cookie;
 use error_chain::ChainedError;
 use log::SetLoggerError;
@@ -65,6 +66,7 @@ error_chain! {
 
     foreign_links {
         Bincode(bincode::Error);
+        ChronoParse(chrono::ParseError);
         CookieParse(cookie::ParseError);
         Io(io::Error);
         Recv(RecvError);
@@ -76,19 +78,24 @@ error_chain! {
     }
 
     errors {
+        ContestNotBegun(contest_name: String, begins_at: DateTime<Local>) {
+            description("Contest has not begun yet")
+            display("{} will begin at {}", contest_name, begins_at)
+        }
+
         NoSuchProblem(name: String) {
             description("No such problem")
             display("No such problem: \"{}\"", name)
         }
 
-        ScrapingFailed {
-            description("Scraping failed")
-            display("Scraping faild")
-        }
-
         ReplacingClassNameFailure(path: PathBuf) {
             description("Replacing the class name fails")
             display("Failed to replace the class name in {}", path.display())
+        }
+
+        ScrapingFailed {
+            description("Scraping failed")
+                display("Scraping faild")
         }
 
         Thread {

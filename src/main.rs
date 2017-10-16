@@ -1,6 +1,7 @@
 #![recursion_limit = "1024"]
 
 extern crate bincode;
+extern crate chrono;
 extern crate cookie;
 extern crate env_logger;
 extern crate pbr;

@@ -2,11 +2,13 @@ use error::{PrintChainColored, ServiceErrorKind, ServiceResult};
 use service::session::HttpSession;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
+use chrono::{DateTime, Local, Utc};
 use regex::Regex;
 use reqwest::StatusCode;
 use select::document::Document;
 use select::node::Node;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
+use std::fmt;
 use std::io::Read;
 use std::path::Path;
 use webbrowser;
@@ -27,7 +29,7 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
 }
 
 
-/// Accesses to pages of the problems and extract pairs of sample input/output from them.
+/// Accesses to pages of the problems and extracts pairs of sample input/output from them.
 pub fn download(
     contest_name: &str,
     dir_to_save: &Path,
@@ -193,16 +195,23 @@ impl AtCoderBeta {
                     }
                 };
                 if !(force || contest.is_practice()) {
-                    let url = contest.standings_url();
-                    let (c1, c2) = (StatusCode::Ok, StatusCode::Found);
-                    if self.http_get_as_opt(&url, c1, c2)?.is_none() {
-                        let page = self.http_get(&contest.submissions_url())?;
-                        if check_if_accepted(page, &task_screen_name)? {
-                            return Ok(eprintln!(
-                                "Your code seems to be already accepted. Append \"--force\" to \
-                                 force submit."
-                            ));
+                    let status = extract_contest_duration(self.http_get(&contest.top_url())?)?
+                        .check_current_status();
+                    info!("Submission: Contest status: {:?}", status);
+                    match status {
+                        ContestStatus::Active => {
+                            let page = self.http_get(&contest.submissions_url())?;
+                            if check_if_accepted(page, &task_screen_name)? {
+                                return Ok(eprintln!(
+                                    "Your code seems to be already accepted. Append \"--force\" to \
+                                     force submit."
+                                ));
+                            }
                         }
+                        ContestStatus::NotBegun(t) => {
+                            bail!(ServiceErrorKind::ContestNotBegun(contest.to_string(), t));
+                        }
+                        ContestStatus::Finished => {}
                     }
                 }
                 let source_code = super::replace_class_name_if_necessary(src_path, "Main")?;
@@ -246,9 +255,24 @@ enum Contest {
     Other(String),
 }
 
+impl fmt::Display for Contest {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Contest::Practice => write!(f, "practice contest"),
+            Contest::AbcBefore007(n) => write!(f, "ABC{:>03}", n),
+            Contest::Abc(n) => write!(f, "ABC{:>03}", n),
+            Contest::ArcBefore058(n) => write!(f, "ARC{:>03}", n),
+            Contest::Arc(n) => write!(f, "ARC{:>03}", n),
+            Contest::Agc(n) => write!(f, "AGC{:>03}", n),
+            Contest::ChokudaiS(n) => write!(f, "Chokudai SpeedRun {:>03}", n),
+            Contest::Other(ref s) => write!(f, "{}", s),
+        }
+    }
+}
+
 impl Contest {
     fn new(s: &str) -> Self {
-        let regex = Regex::new(r"^\s*([a-zA-Z_]+)(\d\d\d)\s*$").unwrap();
+        let regex = Regex::new(r"^\s*([a-zA-Z_]+)(\d{3})\s*$").unwrap();
         if let Some(caps) = regex.captures(s) {
             let name = caps[1].to_lowercase();
             let number = caps[2].parse::<u32>().unwrap_or(0);
@@ -315,9 +339,29 @@ impl Contest {
     fn submissions_url(&self) -> String {
         format!("{}/submissions/me", self.top_url())
     }
+}
 
-    fn standings_url(&self) -> String {
-        format!("{}/standings", self.top_url())
+
+#[derive(Debug)]
+enum ContestStatus {
+    Finished,
+    Active,
+    NotBegun(DateTime<Local>),
+}
+
+
+struct ContestDuration(DateTime<Utc>, DateTime<Utc>);
+
+impl ContestDuration {
+    fn check_current_status(&self) -> ContestStatus {
+        let now = Utc::now();
+        if now < self.0 {
+            ContestStatus::NotBegun(self.0.with_timezone(&Local))
+        } else if now > self.1 {
+            ContestStatus::Finished
+        } else {
+            ContestStatus::Active
+        }
     }
 }
 
@@ -404,7 +448,8 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
         let (mut samples, mut input_sample) = (vec![], None);
         for node in document.find(predicate) {
             info!(
-                "Extracting sample cases: Found #task-statement>span.lang>span.{}>div.part>section>",
+                "Extracting sample cases: Found #task-statement>span.lang>span.{}>div.part>section\
+                 >",
                 lang_class_name
             );
             input_sample = if let Some(input_sample) = input_sample {
@@ -474,6 +519,28 @@ fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
 }
 
 
+fn extract_contest_duration<R: Read>(html: R) -> ServiceResult<ContestDuration> {
+    fn extract(document: &Document) -> Option<(String, String)> {
+        let predicate = Name("time").child(Text);
+        let t1 = try_opt!(document.find(predicate).nth(0)).text();
+        info!("Extracting contest duration: Found time{{{}}}", t1);
+        let t2 = try_opt!(document.find(predicate).nth(1)).text();
+        info!("Extracting contest duration: Found time{{{}}}", t2);
+        Some((t1, t2))
+    }
+
+    match extract(&Document::from_read(html)?) {
+        Some((t1, t2)) => {
+            static FORMAT: &'static str = "%F %T%z";
+            let t1 = DateTime::parse_from_str(&t1, FORMAT)?.with_timezone(&Utc);
+            let t2 = DateTime::parse_from_str(&t2, FORMAT)?.with_timezone(&Utc);
+            Ok(ContestDuration(t1, t2))
+        }
+        None => bail!(ServiceErrorKind::ScrapingFailed),
+    }
+}
+
+
 fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<bool> {
     fn check(document: Document, task_screen_name: &str) -> Option<bool> {
         lazy_static! {
@@ -504,6 +571,7 @@ fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<
                 }
             }
         }
+        info!("Extracting submissions: \"AC\" not found");
         Some(false)
     }
 

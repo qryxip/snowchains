@@ -109,7 +109,7 @@ Or simply:
 
 ```yaml
 ---
-service: "atcoder"
+service: "atcoder-beta"
 contest: "chokuda_s001"
 testsuite: "snowchains/"
 testsuite_extension: "yml"
