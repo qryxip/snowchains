@@ -140,6 +140,9 @@ impl AtCoderBeta {
         extension: SuiteFileExtension,
         open_browser: bool,
     ) -> ServiceResult<()> {
+        self.current_contest_status(&contest)?.raise_if_not_begun(
+            &contest,
+        )?;
         let mut outputs = vec![];
         let urls_with_names = extract_task_urls_with_names(self.http_get(&contest.tasks_url())?)?;
         for (name, relative_url) in urls_with_names {
@@ -180,6 +183,12 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
+        let active_p = {
+            let status = self.current_contest_status(&contest)?;
+            status.raise_if_not_begun(&contest)?;
+            status.is_active()
+        };
+
         for (name, relative_url) in
             extract_task_urls_with_names(self.http_get(&contest.tasks_url())?)?
         {
@@ -194,24 +203,13 @@ impl AtCoderBeta {
                         break;
                     }
                 };
-                if !(force || contest.is_practice()) {
-                    let status = extract_contest_duration(self.http_get(&contest.top_url())?)?
-                        .check_current_status();
-                    info!("Submission: Contest status: {:?}", status);
-                    match status {
-                        ContestStatus::Active => {
-                            let page = self.http_get(&contest.submissions_url())?;
-                            if check_if_accepted(page, &task_screen_name)? {
-                                return Ok(eprintln!(
-                                    "Your code seems to be already accepted. Append \"--force\" to \
-                                     force submit."
-                                ));
-                            }
-                        }
-                        ContestStatus::NotBegun(t) => {
-                            bail!(ServiceErrorKind::ContestNotBegun(contest.to_string(), t));
-                        }
-                        ContestStatus::Finished => {}
+                if !(force || contest.is_practice()) && active_p {
+                    let page = self.http_get(&contest.submissions_url())?;
+                    if check_if_accepted(page, &task_screen_name)? {
+                        return Ok(eprintln!(
+                            "Your code seems to be already accepted. Append \"--force\" to \
+                             force submit."
+                        ));
                     }
                 }
                 let source_code = super::replace_class_name_if_necessary(src_path, "Main")?;
@@ -236,6 +234,13 @@ impl AtCoderBeta {
             }
         }
         bail!(ServiceErrorKind::NoSuchProblem(task.to_owned()));
+    }
+
+    fn current_contest_status(&mut self, contest: &Contest) -> ServiceResult<ContestStatus> {
+        let status = extract_contest_duration(self.http_get(&contest.top_url())?)?
+            .check_current_status();
+        info!("Contest status: {:?}", status);
+        Ok(status)
     }
 
     fn save(self) -> ServiceResult<()> {
@@ -347,6 +352,25 @@ enum ContestStatus {
     Finished,
     Active,
     NotBegun(DateTime<Local>),
+}
+
+impl ContestStatus {
+    fn is_active(&self) -> bool {
+        match *self {
+            ContestStatus::Active => true,
+            _ => false,
+        }
+    }
+
+    fn raise_if_not_begun(&self, contest: &Contest) -> ServiceResult<()> {
+        if let ContestStatus::NotBegun(ref t) = *self {
+            bail!(ServiceErrorKind::ContestNotBegun(
+                contest.to_string(),
+                t.clone(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 
