@@ -24,7 +24,7 @@ pub fn login() -> ServiceResult<()> {
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
     let contest = &Contest::new(contest_name);
     let mut atcoder = AtCoderBeta::start(false)?;
-    atcoder.register_to_contest(contest, true)?;
+    atcoder.register_to_contest_explicitly(contest)?;
     atcoder.save()
 }
 
@@ -38,7 +38,7 @@ pub fn download(
 ) -> ServiceResult<()> {
     let contest = Contest::new(contest_name);
     let mut atcoder = AtCoderBeta::start(false)?;
-    let (_, tasks_page) = atcoder.register_to_contest(&contest, false)?;
+    let (_, tasks_page) = atcoder.register_to_contest_if_necessary(&contest)?;
     atcoder.download_all_tasks(
         contest,
         dir_to_save,
@@ -61,7 +61,7 @@ pub fn submit(
 ) -> ServiceResult<()> {
     let contest = Contest::new(contest_name);
     let mut atcoder = AtCoderBeta::start(false)?;
-    let (active_p, tasks_page) = atcoder.register_to_contest(&contest, false)?;
+    let (active_p, tasks_page) = atcoder.register_to_contest_if_necessary(&contest)?;
     atcoder.submit_code(
         contest,
         task,
@@ -123,10 +123,36 @@ impl AtCoderBeta {
         Ok(())
     }
 
+    fn register_to_contest_explicitly(&mut self, contest: &Contest) -> ServiceResult<()> {
+        fn f(status: ContestStatus) -> ServiceResult<bool> {
+            Ok(match status {
+                ContestStatus::NotBegun(..) => false,
+                ContestStatus::Active => true,
+                ContestStatus::Finished => false,
+            })
+        }
+        self.register_to_contest(contest, f).map(|_| ())
+    }
+
+    fn register_to_contest_if_necessary(
+        &mut self,
+        contest: &Contest,
+    ) -> ServiceResult<(bool, Option<Document>)> {
+        // Returns whether `contest` is active and HTML data of `/tasks`
+        fn f(status: ContestStatus) -> ServiceResult<bool> {
+            match status {
+                ContestStatus::NotBegun(s, t) => bail!(ServiceErrorKind::ContestNotBegun(s, t)),
+                ContestStatus::Active => Ok(true),
+                ContestStatus::Finished => Ok(false),
+            }
+        }
+        self.register_to_contest(contest, f)
+    }
+
     fn register_to_contest(
         &mut self,
         contest: &Contest,
-        explicit: bool,
+        f: fn(ContestStatus) -> ServiceResult<bool>,
     ) -> ServiceResult<(bool, Option<Document>)> {
         // Returns whether `contest` is active and HTML data of `/tasks`
         use reqwest::StatusCode::{Found as Code302, Ok as Code200};
@@ -141,25 +167,17 @@ impl AtCoderBeta {
             Some(response) => {
                 let document = Document::from_read(response)?;
                 let duration = extract_contest_duration(&document)?;
-                match duration.check_current_status(contest.to_string()) {
-                    ContestStatus::Finished => return Ok((false, None)),
-                    ContestStatus::Active => {} // fall through
-                    ContestStatus::NotBegun(s, t) => {
-                        if !explicit {
-                            bail!(ServiceErrorKind::ContestNotBegun(s, t))
-                        }
-                    }
-                }
-                let not_practice = contest.not_practice_contest();
+                let active_p = contest.is_practice_contest() ||
+                    f(duration.check_current_status(contest.to_string()))?;
                 let url = contest.tasks_url();
                 if let Some(response) = self.http_get_as_opt(&url, Code200, Code302)? {
+                    Ok((active_p, Some(Document::from_read(response)?)))
+                } else {
                     let csrf_token = extract_csrf_token(&document)?;
                     let data = PostData { csrf_token: csrf_token };
                     let url = contest.registration_url();
                     self.http_post_urlencoded(&url, data, Code302)?;
-                    Ok((not_practice, Some(Document::from_read(response)?)))
-                } else {
-                    Ok((not_practice, None))
+                    Ok((active_p, None))
                 }
             }
         }
@@ -332,10 +350,10 @@ impl Contest {
         }
     }
 
-    fn not_practice_contest(&self) -> bool {
+    fn is_practice_contest(&self) -> bool {
         match *self {
-            Contest::Practice => false,
-            _ => true,
+            Contest::Practice => true,
+            _ => false,
         }
     }
 
