@@ -136,9 +136,8 @@ impl HackerRank {
             suite.save(&path)?;
         }
         if open_browser {
-            for url in urls.into_iter() {
-                println!("Opening {} in default browser...", url);
-                webbrowser::open(&url)?;
+            for ref url in &urls {
+                super::open_browser_with_message(&url)?;
             }
         }
         Ok(self)

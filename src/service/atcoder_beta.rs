@@ -11,7 +11,6 @@ use select::predicate::{And, Attr, Class, Name, Predicate, Text};
 use std::fmt;
 use std::io::Read;
 use std::path::Path;
-use webbrowser;
 
 
 /// Logins to "beta.atcoder.jp".
@@ -124,14 +123,11 @@ impl AtCoderBeta {
     }
 
     fn register_to_contest_explicitly(&mut self, contest: &Contest) -> ServiceResult<()> {
-        fn f(status: ContestStatus) -> ServiceResult<bool> {
-            Ok(match status {
-                ContestStatus::NotBegun(..) => false,
-                ContestStatus::Active => true,
-                ContestStatus::Finished => false,
-            })
-        }
-        self.register_to_contest(contest, f).map(|_| ())
+        self.register_to_contest(contest, |status| match status {
+            ContestStatus::NotBegun(..) => Ok(false),
+            ContestStatus::Active => Ok(true),
+            ContestStatus::Finished => Ok(false),
+        }).map(|_| ())
     }
 
     fn register_to_contest_if_necessary(
@@ -139,14 +135,11 @@ impl AtCoderBeta {
         contest: &Contest,
     ) -> ServiceResult<(bool, Option<Document>)> {
         // Returns whether `contest` is active and HTML data of `/tasks`
-        fn f(status: ContestStatus) -> ServiceResult<bool> {
-            match status {
-                ContestStatus::NotBegun(s, t) => bail!(ServiceErrorKind::ContestNotBegun(s, t)),
-                ContestStatus::Active => Ok(true),
-                ContestStatus::Finished => Ok(false),
-            }
-        }
-        self.register_to_contest(contest, f)
+        self.register_to_contest(contest, |status| match status {
+            ContestStatus::NotBegun(s, t) => bail!(ServiceErrorKind::ContestNotBegun(s, t)),
+            ContestStatus::Active => Ok(true),
+            ContestStatus::Finished => Ok(false),
+        })
     }
 
     fn register_to_contest(
@@ -166,10 +159,10 @@ impl AtCoderBeta {
             None => bail!(ServiceErrorKind::ContestNotFound(contest.to_string())),
             Some(response) => {
                 let document = Document::from_read(response)?;
+                let url = contest.tasks_url();
                 let duration = extract_contest_duration(&document)?;
                 let active_p = contest.is_practice_contest() ||
                     f(duration.check_current_status(contest.to_string()))?;
-                let url = contest.tasks_url();
                 if let Some(response) = self.http_get_as_opt(&url, Code200, Code302)? {
                     Ok((active_p, Some(Document::from_read(response)?)))
                 } else {
@@ -208,9 +201,9 @@ impl AtCoderBeta {
             suite.save(&path)?;
         }
         if open_browser {
-            for (url, _, _) in outputs.into_iter() {
-                println!("Opening {} in default browser...", url);
-                webbrowser::open(&url)?;
+            super::open_browser_with_message(&contest.submissions_url())?;
+            for &(ref url, _, _) in &outputs {
+                super::open_browser_with_message(url)?;
             }
         }
         Ok(())
@@ -274,9 +267,7 @@ impl AtCoderBeta {
                 let url = contest.submission_url();
                 let _ = self.http_post_urlencoded(&url, data, StatusCode::Found)?;
                 if open_browser {
-                    let url = contest.submissions_url();
-                    println!("Opening {} in default browser...", url);
-                    webbrowser::open(&url)?;
+                    super::open_browser_with_message(&contest.submissions_url())?;
                 }
                 return Ok(());
             }

@@ -14,20 +14,41 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 use term::{Attr, color};
+use webbrowser;
 
 
 /// Reads username and password from stdin, showing the prompts on stderr.
 ///
-/// The password is not hidden if `rpassword::prompt_password_stderr` fails.
+/// If fails to read a password because of `BrokenPipe`, askes a password again without hiding the
+/// input.
 fn read_username_and_password(username_prompt: &'static str) -> io::Result<(String, String)> {
     let username = rprompt::prompt_reply_stderr(username_prompt)?;
     let password = rpassword::prompt_password_stderr("Password: ").or_else(
-        |_| {
-            eprintln_decorated!(Attr::Bold, Some(color::BRIGHT_MAGENTA), "FALLBACK");
-            rprompt::prompt_reply_stderr("Password (not hidden): ")
+        |e| {
+            if e.kind() == io::ErrorKind::BrokenPipe {
+                eprintln_decorated!(Attr::Bold, Some(color::BRIGHT_MAGENTA), "FALLBACK");
+                rprompt::prompt_reply_stderr("Password (not hidden): ")
+            } else {
+                Err(e)
+            }
         },
     )?;
     Ok((username, password))
+}
+
+
+/// Opens `url` with default browser after printing a message.
+///
+/// # Errors
+///
+/// Returns `Err` if the exit status code is not 0.
+fn open_browser_with_message(url: &str) -> ServiceResult<()> {
+    println!("Opening {} in default browser...", url);
+    let status = webbrowser::open(url)?.status;
+    if !status.success() {
+        bail!(ServiceErrorKind::Webbrowser(status));
+    }
+    Ok(())
 }
 
 

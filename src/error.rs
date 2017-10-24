@@ -89,13 +89,13 @@ error_chain! {
         }
 
         ContestNotFound(contest_name: String) {
-            description("Contest has not found")
-                display("{} not found", contest_name)
+            description("Contest not found")
+            display("{} not found", contest_name)
         }
 
         NoSuchProblem(name: String) {
             description("No such problem")
-            display("No such problem: \"{}\"", name)
+            display("No such problem: {:?}", name)
         }
 
         ReplacingClassNameFailure(path: PathBuf) {
@@ -105,7 +105,7 @@ error_chain! {
 
         ScrapingFailed {
             description("Scraping failed")
-                display("Scraping failed")
+            display("Scraping failed")
         }
 
         Thread {
@@ -118,6 +118,13 @@ error_chain! {
             display("The response code is {}, expected {}",
                     actual,
                     expected.iter().map(StatusCode::to_string).collect::<Vec<_>>().join(" or "))
+        }
+
+        Webbrowser(status: ExitStatus) {
+            description("Failed to open a URL in the default browser")
+            display("The default browser terminated abnormally {}",
+                    if let Some(code) = status.code() { format!("with code {}", code) }
+                    else { "without code".to_owned() })
         }
     }
 }
@@ -138,16 +145,16 @@ error_chain! {
     }
 
     errors {
-        CompilationFailure(status: ExitStatus) {
-            description("Compilation failed")
-            display("Compilation failed{}",
-                     if let Some(code) = status.code() { format!(" with code {}", code) }
-                     else {"".to_owned() })
-        }
-
         CommandNotFound(command: String) {
             description("Command not found")
             display("No such command: {:?}", command)
+        }
+
+        CompilationFailure(status: ExitStatus) {
+            description("Compilation command failed")
+            display("The compilation command terminated abnormally {}",
+                    if let Some(code) = status.code() { format!("with code {}", code) }
+                    else {"without code".to_owned() })
         }
 
         TestFailure(n: usize) {
@@ -190,11 +197,6 @@ error_chain! {
             display("\"snowchains.yml\" not found")
         }
 
-        UnsupportedExtension(extension: String) {
-            description("Unsupported extension")
-            display("Unsupported extension: \"{}\"", extension)
-        }
-
         NoSuchLanguage(name: String) {
             description("Language not found")
             display("No such language: \"{}\"", name)
@@ -203,6 +205,11 @@ error_chain! {
         PropertyNotSet(property: &'static str) {
             description("Property not set")
             display("Property not set: \"{}\"", property)
+        }
+
+        UnsupportedExtension(extension: String) {
+            description("Unsupported extension")
+            display("Unsupported extension: \"{}\"", extension)
         }
     }
 }
