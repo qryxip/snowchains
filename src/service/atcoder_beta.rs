@@ -15,15 +15,17 @@ use std::path::Path;
 
 /// Logins to "beta.atcoder.jp".
 pub fn login() -> ServiceResult<()> {
-    AtCoderBeta::start(true)?.save()
+    let mut atcoder = AtCoderBeta::start()?;
+    atcoder.login_if_not(true)?;
+    atcoder.save()
 }
 
 
-/// Participates in given contest.
+/// Participates in a `contest_name`.
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
     let contest = &Contest::new(contest_name);
-    let mut atcoder = AtCoderBeta::start(false)?;
-    atcoder.register_to_contest_explicitly(contest)?;
+    let mut atcoder = AtCoderBeta::start()?;
+    atcoder.register_explicitly(contest)?;
     atcoder.save()
 }
 
@@ -35,15 +37,12 @@ pub fn download(
     extension: SuiteFileExtension,
     open_browser: bool,
 ) -> ServiceResult<()> {
-    let contest = Contest::new(contest_name);
-    let mut atcoder = AtCoderBeta::start(false)?;
-    let (_, tasks_page) = atcoder.register_to_contest_if_necessary(&contest)?;
-    atcoder.download_all_tasks(
-        contest,
+    let mut atcoder = AtCoderBeta::start()?;
+    atcoder.download(
+        &Contest::new(contest_name),
         dir_to_save,
         extension,
         open_browser,
-        tasks_page,
     )?;
     atcoder.save()
 }
@@ -56,19 +55,16 @@ pub fn submit(
     lang_id: u32,
     src_path: &Path,
     open_browser: bool,
-    force: bool,
+    skip_checking_if_accepted: bool,
 ) -> ServiceResult<()> {
-    let contest = Contest::new(contest_name);
-    let mut atcoder = AtCoderBeta::start(false)?;
-    let (active_p, tasks_page) = atcoder.register_to_contest_if_necessary(&contest)?;
-    atcoder.submit_code(
-        contest,
+    let mut atcoder = AtCoderBeta::start()?;
+    atcoder.submit(
+        &Contest::new(contest_name),
         task,
         lang_id,
         src_path,
         open_browser,
-        !force && active_p,
-        tasks_page,
+        skip_checking_if_accepted,
     )?;
     atcoder.save()
 }
@@ -80,25 +76,23 @@ custom_derive! {
 }
 
 impl AtCoderBeta {
-    fn start(eprints_message_if_already_logged_in: bool) -> ServiceResult<Self> {
-        let mut atcoder = AtCoderBeta(HttpSession::start("atcoderbeta")?);
-        if atcoder.has_cookie() && atcoder.http_get("https://beta.atcoder.jp/settings").is_ok() {
-            if eprints_message_if_already_logged_in {
-                eprintln!("Already logged in.");
-            }
-        } else {
-            atcoder.login()?;
-        }
-        Ok(atcoder)
+    fn start() -> ServiceResult<Self> {
+        Ok(AtCoderBeta(HttpSession::start("atcoderbeta")?))
     }
 
-    fn login(&mut self) -> ServiceResult<()> {
-        while let Err(e) = self.try_logging_in() {
-            e.print_chain_colored();
-            eprintln!("Failed to login. Try again.");
-            self.clear_cookies();
+    fn login_if_not(&mut self, eprints_message_if_already_logged_in: bool) -> ServiceResult<()> {
+        if self.has_cookie() && self.http_get("https://beta.atcoder.jp/settings").is_ok() {
+            Ok(if eprints_message_if_already_logged_in {
+                eprintln!("Already logged in.");
+            })
+        } else {
+            while let Err(e) = self.try_logging_in() {
+                e.print_chain_colored();
+                eprintln!("Failed to login. Try again.");
+                self.clear_cookies();
+            }
+            Ok(println!("Succeeded to login."))
         }
-        Ok(println!("Succeeded to login."))
     }
 
     fn try_logging_in(&mut self) -> ServiceResult<()> {
@@ -122,32 +116,23 @@ impl AtCoderBeta {
         Ok(())
     }
 
-    fn register_to_contest_explicitly(&mut self, contest: &Contest) -> ServiceResult<()> {
-        self.register_to_contest(contest, |status| match status {
-            ContestStatus::NotBegun(..) => Ok(false),
-            ContestStatus::Active => Ok(true),
-            ContestStatus::Finished => Ok(false),
-        }).map(|_| ())
+    fn register_explicitly(&mut self, contest: &Contest) -> ServiceResult<()> {
+        self.register_if_active_or_explicit(contest, true)
     }
 
-    fn register_to_contest_if_necessary(
-        &mut self,
-        contest: &Contest,
-    ) -> ServiceResult<(bool, Option<Document>)> {
-        // Returns whether `contest` is active and HTML data of `/tasks`
-        self.register_to_contest(contest, |status| match status {
-            ContestStatus::NotBegun(s, t) => bail!(ServiceErrorKind::ContestNotBegun(s, t)),
-            ContestStatus::Active => Ok(true),
-            ContestStatus::Finished => Ok(false),
-        })
+    fn fetch_tasks_page(&mut self, contest: &Contest) -> ServiceResult<Document> {
+        if let Ok(response) = self.http_get(&contest.url_tasks()) {
+            return Ok(Document::from_read(response)?);
+        }
+        self.register_if_active_or_explicit(contest, false)?;
+        Ok(Document::from_read(self.http_get(&contest.url_tasks())?)?)
     }
 
-    fn register_to_contest(
+    fn register_if_active_or_explicit(
         &mut self,
         contest: &Contest,
-        f: fn(ContestStatus) -> ServiceResult<bool>,
-    ) -> ServiceResult<(bool, Option<Document>)> {
-        // Returns whether `contest` is active and HTML data of `/tasks`
+        explicit: bool,
+    ) -> ServiceResult<()> {
         use reqwest::StatusCode::{Found as Code302, Ok as Code200};
 
         #[derive(Serialize)]
@@ -155,43 +140,39 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
-        match self.http_get_as_opt(&contest.top_url(), Code200, Code302)? {
+        match self.http_get_as_opt(&contest.url_top(), Code200, Code302)? {
             None => bail!(ServiceErrorKind::ContestNotFound(contest.to_string())),
             Some(response) => {
-                let document = Document::from_read(response)?;
-                let url = contest.tasks_url();
-                let duration = extract_contest_duration(&document)?;
-                let active_p = contest.is_practice_contest() ||
-                    f(duration.check_current_status(contest.to_string()))?;
-                if let Some(response) = self.http_get_as_opt(&url, Code200, Code302)? {
-                    Ok((active_p, Some(Document::from_read(response)?)))
-                } else {
-                    let csrf_token = extract_csrf_token(&document)?;
-                    let data = PostData { csrf_token: csrf_token };
-                    let url = contest.registration_url();
-                    self.http_post_urlencoded(&url, data, Code302)?;
-                    Ok((active_p, None))
+                let page = Document::from_read(response)?;
+                let duration = extract_contest_duration(&page)?;
+                let status = duration.check_current_status(contest.to_string());
+                if !explicit {
+                    status.raise_if_not_begun()?;
                 }
+                if explicit || contest.is_practice_contest() || status.is_active() {
+                    self.login_if_not(false)?;
+                    let page = Document::from_read(self.http_get(&contest.url_top())?)?;
+                    let data = PostData { csrf_token: extract_csrf_token(&page)? };
+                    let url = contest.url_register();
+                    self.http_post_urlencoded(&url, data, Code302)?;
+                }
+                Ok(())
             }
         }
     }
 
-    fn download_all_tasks(
+    fn download(
         &mut self,
-        contest: Contest,
+        contest: &Contest,
         dir_to_save: &Path,
         extension: SuiteFileExtension,
         open_browser: bool,
-        tasks_page: Option<Document>,
     ) -> ServiceResult<()> {
-        let tasks_page = match tasks_page {
-            Some(tasks_page) => tasks_page,
-            None => Document::from_read(self.http_get(&contest.tasks_url())?)?,
-        };
+        let tasks_page = self.fetch_tasks_page(contest)?;
         let outputs = extract_task_urls_with_names(&tasks_page)?
             .into_iter()
             .map(|(name, relative_url)| -> ServiceResult<_> {
-                let url = format!("https://beta.atcoder.jp{}", relative_url);
+                let url = resolve_url(&relative_url);
                 let suite = extract_cases(self.http_get(&url)?, &contest.style())?;
                 let path = SuiteFilePath::new(&dir_to_save, name.to_lowercase(), extension);
                 Ok((url, suite, path))
@@ -201,7 +182,7 @@ impl AtCoderBeta {
             suite.save(&path)?;
         }
         if open_browser {
-            super::open_browser_with_message(&contest.submissions_url())?;
+            super::open_browser_with_message(&contest.url_submissions_me())?;
             for &(ref url, _, _) in &outputs {
                 super::open_browser_with_message(url)?;
             }
@@ -210,15 +191,14 @@ impl AtCoderBeta {
     }
 
     #[allow(non_snake_case)]
-    fn submit_code(
+    fn submit(
         &mut self,
-        contest: Contest,
+        contest: &Contest,
         task: &str,
         lang_id: u32,
         src_path: &Path,
         open_browser: bool,
-        checks_if_accepted: bool,
-        tasks_page: Option<Document>,
+        skip_checking_if_accepted: bool,
     ) -> ServiceResult<()> {
         #[derive(Serialize)]
         struct PostData {
@@ -230,11 +210,15 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
-        let tasks_page = match tasks_page {
-            Some(tasks_page) => tasks_page,
-            None => Document::from_read(self.http_get(&contest.tasks_url())?)?,
-        };
-
+        let tasks_page = self.fetch_tasks_page(contest)?;
+        let checks_if_accepted = !skip_checking_if_accepted ||
+            !contest.is_practice_contest() &&
+                {
+                    let duration = extract_contest_duration(&tasks_page)?;
+                    let status = duration.check_current_status(contest.to_string());
+                    status.raise_if_not_begun()?;
+                    status.is_active()
+                };
         for (name, relative_url) in extract_task_urls_with_names(&tasks_page)? {
             if name.to_uppercase() == task.to_uppercase() {
                 let task_screen_name = {
@@ -248,26 +232,26 @@ impl AtCoderBeta {
                     }
                 };
                 if checks_if_accepted {
-                    let page = self.http_get(&contest.submissions_url())?;
+                    let page = self.http_get(&contest.url_submissions_me())?;
                     if check_if_accepted(page, &task_screen_name)? {
                         bail!(ServiceErrorKind::AlreadyAccepted);
                     }
                 }
                 let source_code = super::replace_class_name_if_necessary(src_path, "Main")?;
                 let csrf_token = {
-                    let url = format!("https://beta.atcoder.jp{}", relative_url);
+                    let url = resolve_url(&relative_url);
                     extract_csrf_token(&Document::from_read(self.http_get(&url)?)?)?
                 };
+                let url = contest.url_submit();
                 let data = PostData {
                     dataTaskScreenName: task_screen_name,
                     dataLanguageId: lang_id,
                     sourceCode: source_code,
                     csrf_token: csrf_token,
                 };
-                let url = contest.submission_url();
-                let _ = self.http_post_urlencoded(&url, data, StatusCode::Found)?;
+                self.http_post_urlencoded(&url, data, StatusCode::Found)?;
                 if open_browser {
-                    super::open_browser_with_message(&contest.submissions_url())?;
+                    super::open_browser_with_message(&contest.url_submissions_me())?;
                 }
                 return Ok(());
             }
@@ -348,7 +332,7 @@ impl Contest {
         }
     }
 
-    fn top_url(&self) -> String {
+    fn url_top(&self) -> String {
         static BASE: &'static str = "https://beta.atcoder.jp/contests/";
         match *self {
             Contest::Practice => format!("{}practice", BASE),
@@ -362,20 +346,20 @@ impl Contest {
         }
     }
 
-    fn tasks_url(&self) -> String {
-        format!("{}/tasks", self.top_url())
+    fn url_tasks(&self) -> String {
+        format!("{}/tasks", self.url_top())
     }
 
-    fn registration_url(&self) -> String {
-        format!("{}/register", self.top_url())
+    fn url_register(&self) -> String {
+        format!("{}/register", self.url_top())
     }
 
-    fn submission_url(&self) -> String {
-        format!("{}/submit", self.top_url())
+    fn url_submit(&self) -> String {
+        format!("{}/submit", self.url_top())
     }
 
-    fn submissions_url(&self) -> String {
-        format!("{}/submissions/me", self.top_url())
+    fn url_submissions_me(&self) -> String {
+        format!("{}/submissions/me", self.url_top())
     }
 }
 
@@ -385,6 +369,24 @@ enum ContestStatus {
     Finished,
     Active,
     NotBegun(String, DateTime<Local>),
+}
+
+impl ContestStatus {
+    fn is_active(&self) -> bool {
+        match *self {
+            ContestStatus::Active => true,
+            _ => false,
+        }
+    }
+
+    fn raise_if_not_begun(&self) -> ServiceResult<()> {
+        match *self {
+            ContestStatus::NotBegun(ref s, ref t) => {
+                bail!(ServiceErrorKind::ContestNotBegun(s.clone(), t.clone()))
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 
@@ -407,6 +409,11 @@ impl ContestDuration {
 enum SampleCaseStyle {
     New,
     Old,
+}
+
+
+fn resolve_url(relative_url: &str) -> String {
+    format!("https://beta.atcoder.jp{}", relative_url)
 }
 
 

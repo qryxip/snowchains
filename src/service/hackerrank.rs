@@ -10,7 +10,6 @@ use select::predicate::Attr;
 use serde_json;
 use std::io::{Read, Seek};
 use std::path::Path;
-use webbrowser;
 use zip::ZipArchive;
 use zip::result::ZipResult;
 

@@ -19,17 +19,18 @@ use webbrowser;
 
 /// Reads username and password from stdin, showing the prompts on stderr.
 ///
-/// If fails to read a password because of `BrokenPipe`, askes a password again without hiding the
+/// If fails to read a password because of OS error 6, askes a password again without hiding the
 /// input.
 fn read_username_and_password(username_prompt: &'static str) -> io::Result<(String, String)> {
     let username = rprompt::prompt_reply_stderr(username_prompt)?;
     let password = rpassword::prompt_password_stderr("Password: ").or_else(
         |e| {
-            if e.kind() == io::ErrorKind::BrokenPipe {
-                eprintln_decorated!(Attr::Bold, Some(color::BRIGHT_MAGENTA), "FALLBACK");
-                rprompt::prompt_reply_stderr("Password (not hidden): ")
-            } else {
-                Err(e)
+            match e.raw_os_error() {
+                Some(6) => {
+                    eprintln_decorated!(Attr::Bold, Some(color::BRIGHT_MAGENTA), "FALLBACK");
+                    rprompt::prompt_reply_stderr("Password (not hidden): ")
+                }
+                _ => Err(e),
             }
         },
     )?;
@@ -41,7 +42,7 @@ fn read_username_and_password(username_prompt: &'static str) -> io::Result<(Stri
 ///
 /// # Errors
 ///
-/// Returns `Err` if the exit status code is not 0.
+/// Returns `Err` if the exit status code is not 0 or an IO error occures.
 fn open_browser_with_message(url: &str) -> ServiceResult<()> {
     println!("Opening {} in default browser...", url);
     let status = webbrowser::open(url)?.status;
@@ -72,28 +73,28 @@ fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> ServiceResu
 fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> ServiceResult<String> {
     let replace = move |file: File, regex: &Regex, stem: &OsStr| -> io::Result<Option<String>> {
         let code = BufReader::new(file);
-        let mut replaced = vec![];
-        let mut is_replaced = false;
+        let mut processed = vec![];
+        let mut replaced_p = false;
         for line in code.lines() {
             let line = line?;
-            if !is_replaced {
+            if !replaced_p {
                 if let Some(caps) = regex.captures(&line) {
                     if OsStr::new(&caps[2]) == stem {
-                        replaced.push(format!("{}{}{}", &caps[1], class_name, &caps[3]));
-                        is_replaced = true;
+                        processed.push(format!("{}{}{}", &caps[1], class_name, &caps[3]));
+                        replaced_p = true;
                         continue;
                     }
                 }
             }
-            replaced.push(line);
+            processed.push(line);
         }
 
-        Ok(if is_replaced {
+        Ok(if replaced_p {
             info!(
                 "The main class name was successfully replaced with {:?}",
                 class_name
             );
-            Some(replaced.join("\n"))
+            Some(processed.join("\n"))
         } else {
             None
         })
