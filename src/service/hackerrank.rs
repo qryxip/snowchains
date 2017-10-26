@@ -132,7 +132,7 @@ impl HackerRank {
             extracted.push(extract_samples_from_zip(zip)?);
         }
         for (suite, path) in extracted.into_iter().zip(paths) {
-            suite.save(&path)?;
+            suite.save(&path, true)?;
         }
         if open_browser {
             for ref url in &urls {

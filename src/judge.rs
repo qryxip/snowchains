@@ -1,11 +1,11 @@
 use error::{JudgeError, JudgeErrorKind, JudgeResult};
-use testsuite::{SuiteFilePath, TestCase, TestSuite};
+use testsuite::{self, SuiteFileExtension, TestCase};
 use util::{self, Foreach, UnwrapAsRefMut};
 
 use std::fmt::{self, Write as _FmtWrite};
 use std::fs;
 use std::io::{self, Write as _IoWrite};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -20,35 +20,49 @@ use term::{Attr, color};
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
 pub fn judge(
-    suite_path: SuiteFilePath,
+    suite_dir: &Path,
+    suite_file_stem: &str,
+    suite_extensions: &[SuiteFileExtension],
     run_command: CommandProperty,
     compilation_command: Option<CommandProperty>,
 ) -> JudgeResult<()> {
-    fn judge_one(case: TestCase, run_command: Arc<CommandProperty>) -> JudgeResult<JudgeOutput> {
-        fn run_program(case: &TestCase, run_command: &CommandProperty) -> io::Result<JudgeOutput> {
-            let (input, expected, timelimit) = case.values();
-            let mut child = run_command.spawn_piped()?;
-            let start = Instant::now();
-            child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
+    fn judge_cases(cases: Vec<TestCase>, run_command: Arc<CommandProperty>) -> JudgeResult<()> {
+        let num_cases = cases.len();
+        let suf = if num_cases > 1 { "s" } else { "" };
 
-            let status = child.wait()?;
-            let t = start.elapsed();
-            let t = (1000000000 * t.as_secs() + t.subsec_nanos() as u64 + 999999) / 1000000;
-            let stdout = Arc::new(util::string_from_read(child.stdout.unwrap())?);
-            let stderr = Arc::new(util::string_from_read(child.stderr.unwrap())?);
+        run_command.print_args_and_working_dir();
+        println!("Running {} test{}...", num_cases, suf);
 
-            // `expected` is empty IFF omitted.
-            if timelimit.is_some() && t > timelimit.unwrap() {
-                Ok(JudgeOutput::Tle(timelimit.unwrap(), input, expected))
-            } else if status.success() && (expected.is_empty() || expected == stdout) {
-                Ok(JudgeOutput::Ac(t, input, stdout, stderr))
-            } else if status.success() {
-                Ok(JudgeOutput::Wa(t, input, expected, stdout, stderr))
-            } else {
-                Ok(JudgeOutput::Re(t, input, expected, stdout, stderr, status))
-            }
+        let mut last_path = None;
+        let outputs = cases
+            .into_iter()
+            .enumerate()
+            .map(|(i, case)| {
+                let path = case.get_path();
+                if Some(&path) != last_path.as_ref() {
+                    println!("Running test cases in {}", path.display());
+                    last_path = Some(case.get_path());
+                }
+                let output = judge_one(case, run_command.clone())?;
+                output.print_title(i, num_cases);
+                Ok(output)
+            })
+            .collect::<JudgeResult<Vec<_>>>()?;
+
+        let num_failures = outputs.iter().filter(|output| output.failure()).count();
+        if num_failures == 0 {
+            Ok(println!("All of the {} test{} passed.", num_cases, suf))
+        } else {
+            outputs.into_iter().enumerate().foreach(|(i, output)| {
+                eprintln!("");
+                output.eprint_title(i, num_cases);
+                output.eprint_details();
+            });
+            bail!(JudgeErrorKind::TestFailure(num_failures))
         }
+    }
 
+    fn judge_one(case: TestCase, run_command: Arc<CommandProperty>) -> JudgeResult<JudgeOutput> {
         let (tx, rx) = mpsc::channel();
         let case = Arc::new(case);
         let case_cloned = case.clone();
@@ -64,42 +78,37 @@ pub fn judge(
         }.wrap_not_found_error_message(run_command.arg0.clone())
     }
 
+    fn run_program(case: &TestCase, run_command: &CommandProperty) -> io::Result<JudgeOutput> {
+        let (input, expected, timelimit) = case.values();
+        let mut child = run_command.spawn_piped()?;
+        let start = Instant::now();
+        child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
+
+        let status = child.wait()?;
+        let t = start.elapsed();
+        let t = (1000000000 * t.as_secs() + t.subsec_nanos() as u64 + 999999) / 1000000;
+        let stdout = Arc::new(util::string_from_read(child.stdout.unwrap())?);
+        let stderr = Arc::new(util::string_from_read(child.stderr.unwrap())?);
+
+        // `expected` is empty IFF omitted.
+        if timelimit.is_some() && t > timelimit.unwrap() {
+            Ok(JudgeOutput::Tle(timelimit.unwrap(), input, expected))
+        } else if status.success() && (expected.is_empty() || expected == stdout) {
+            Ok(JudgeOutput::Ac(t, input, stdout, stderr))
+        } else if status.success() {
+            Ok(JudgeOutput::Wa(t, input, expected, stdout, stderr))
+        } else {
+            Ok(JudgeOutput::Re(t, input, expected, stdout, stderr, status))
+        }
+    }
+
     if let Some(compilation_command) = compilation_command {
         compilation_command.execute_as_compilation_command()?;
         println!("");
     }
-
+    let cases = testsuite::load_and_merge_all_cases(suite_dir, suite_file_stem, suite_extensions)?;
     let run_command = Arc::new(run_command);
-    let suite = TestSuite::load(&suite_path)?;
-    let num_cases = suite.num_cases();
-    let suf = if num_cases > 1 { "s" } else { "" };
-
-    print_decorated!(Attr::Bold, Some(color::CYAN), "Test suite:        ");
-    println!("{}", suite_path.build().display());
-    run_command.print_args_and_working_dir();
-    println!("Running {} test{}...", num_cases, suf);
-
-    let outputs = suite
-        .into_iter()
-        .enumerate()
-        .map(|(i, case)| {
-            let output = judge_one(case, run_command.clone())?;
-            output.print_title(i, num_cases);
-            Ok(output)
-        })
-        .collect::<JudgeResult<Vec<_>>>()?;
-
-    let num_failures = outputs.iter().filter(|output| output.failure()).count();
-    if num_failures == 0 {
-        Ok(println!("All of the {} test{} passed.", num_cases, suf))
-    } else {
-        outputs.into_iter().enumerate().foreach(|(i, output)| {
-            eprintln!("");
-            output.eprint_title(i, num_cases);
-            output.eprint_details();
-        });
-        bail!(JudgeErrorKind::TestFailure(num_failures))
-    }
+    judge_cases(cases, run_command)
 }
 
 

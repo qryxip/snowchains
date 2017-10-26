@@ -7,51 +7,59 @@ use std::fmt;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
-use std::vec;
 use toml;
 
 
 pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
-    TestSuite::load(&path)?.append(input, output).save(&path)
+    let mut suite = TestSuite::load(path)?;
+    suite.append(input, output);
+    suite.save(path, false)
 }
+
+
+pub fn load_and_merge_all_cases(
+    dir: &Path,
+    stem: &str,
+    extensions: &[SuiteFileExtension],
+) -> SuiteFileResult<Vec<TestCase>> {
+    let existing_suites = extensions
+        .iter()
+        .filter_map(|&ext| {
+            let path = SuiteFilePath::new(dir, stem, ext);
+            if path.build().exists() {
+                Some(TestSuite::load(&path))
+            } else {
+                None
+            }
+        })
+        .collect::<SuiteFileResult<Vec<_>>>()?;
+
+    Ok(
+        existing_suites
+            .into_iter()
+            .flat_map(|suite| {
+                let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
+                let path = Arc::new(path);
+                cases.into_iter().map(move |case| {
+                    case.reduce(path.clone(), timelimit)
+                })
+            })
+            .collect(),
+    )
+}
+
+
 
 
 /// Set of the timelimit and test cases.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct TestSuite {
     timelimit: Option<u64>,
     cases: Vec<ReducibleCase>,
-}
-
-impl Default for TestSuite {
-    fn default() -> Self {
-        Self {
-            timelimit: None,
-            cases: vec![],
-        }
-    }
-}
-
-impl IntoIterator for TestSuite {
-    type Item = TestCase;
-    type IntoIter = vec::IntoIter<TestCase>;
-
-    fn into_iter(mut self) -> vec::IntoIter<TestCase> {
-        let timelimit = self.timelimit;
-        if let Some(timelimit) = timelimit {
-            for case in &mut self.cases {
-                if case.timelimit.is_none() {
-                    case.timelimit = Some(timelimit);
-                }
-            }
-        }
-        self.cases
-            .into_iter()
-            .map(ReducibleCase::reduce)
-            .collect::<Vec<_>>()
-            .into_iter()
-    }
+    #[serde(skip)]
+    path: PathBuf,
 }
 
 impl TestSuite {
@@ -68,18 +76,21 @@ impl TestSuite {
                     ReducibleCase::from_strings(input, Some(output))
                 })
                 .collect(),
+            path: PathBuf::default(),
         }
     }
 
-    /// Loads from given path and deserializes it into `TestSuite`.
+    /// Loads from `path` and deserializes it into `TestSuite`.
     pub fn load(path: &SuiteFilePath) -> SuiteFileResult<Self> {
         let (path, extension) = (path.build(), path.extension);
         let text = util::string_from_file_path(&path)?;
-        match extension {
-            SuiteFileExtension::Json => Ok(serde_json::from_str(&text)?),
-            SuiteFileExtension::Toml => Ok(toml::from_str(&text)?),
-            SuiteFileExtension::Yaml | SuiteFileExtension::Yml => Ok(serde_yaml::from_str(&text)?),
-        }
+        let mut suite: Self = match extension {
+            SuiteFileExtension::Json => serde_json::from_str(&text)?,
+            SuiteFileExtension::Toml => toml::from_str(&text)?,
+            SuiteFileExtension::Yaml | SuiteFileExtension::Yml => serde_yaml::from_str(&text)?,
+        };
+        suite.path = path;
+        Ok(suite)
     }
 
     /// Whether `self` has no test case.
@@ -93,8 +104,8 @@ impl TestSuite {
     }
 
     /// Serializes `self` and save it to given path.
-    pub fn save(&self, path: &SuiteFilePath) -> SuiteFileResult<()> {
-        fs::create_dir_all(&path.dir)?;
+    pub fn save(&self, path: &SuiteFilePath, prints_num_cases: bool) -> SuiteFileResult<()> {
+        fs::create_dir_all(&path.directory)?;
         let (path, extension) = (path.build(), path.extension);
         let mut file = File::create(&path)?;
         let serialized = match extension {
@@ -104,25 +115,28 @@ impl TestSuite {
         };
         file.write_all(serialized.as_bytes())?;
         print!("Saved to {}", path.display());
-        Ok(match self.num_cases() {
-            0 => println!(" (no sample case extracted)"),
-            1 => println!(" (1 sample case extracted)"),
-            n => println!(" ({} sample cases extracted)", n),
-        })
+        if prints_num_cases {
+            match self.num_cases() {
+                0 => print!(" (no sample case extracted)"),
+                1 => print!(" (1 sample case extracted)"),
+                n => print!(" ({} sample cases extracted)", n),
+            }
+        }
+        Ok(println!(""))
     }
 
-    fn append(mut self, input: &str, output: Option<&str>) -> Self {
+    fn append(&mut self, input: &str, output: Option<&str>) {
         self.cases.push(ReducibleCase::from_strings(input, output));
-        self
     }
 }
 
 
 /// Pair of `input` and `expected`.
 ///
-/// Note that `expected` is empty IFF omitted.
+/// `expected` is empty IFF omitted.
 #[derive(Clone)]
 pub struct TestCase {
+    path: Arc<PathBuf>,
     input: Arc<String>,
     expected: Arc<String>,
     timelimit: Option<u64>,
@@ -137,28 +151,33 @@ impl TestCase {
     pub fn values(&self) -> (Arc<String>, Arc<String>, Option<u64>) {
         (self.input.clone(), self.expected.clone(), self.timelimit)
     }
+
+    /// Gets `self::path`.
+    pub fn get_path(&self) -> Arc<PathBuf> {
+        self.path.clone()
+    }
 }
 
 
 /// File path which extension is 'json', 'toml', 'yaml', or 'yml'.
 pub struct SuiteFilePath {
-    dir: PathBuf,
-    name: String,
+    directory: PathBuf,
+    stem: String,
     extension: SuiteFileExtension,
 }
 
 impl SuiteFilePath {
-    pub fn new<S: Into<String>>(dir: &Path, name: S, extension: SuiteFileExtension) -> Self {
+    pub fn new<S: Into<String>>(directory: &Path, stem: S, extension: SuiteFileExtension) -> Self {
         Self {
-            dir: PathBuf::from(dir),
-            name: name.into(),
+            directory: PathBuf::from(directory),
+            stem: stem.into(),
             extension: extension,
         }
     }
 
     pub fn build(&self) -> PathBuf {
-        let mut path = PathBuf::from(&self.dir);
-        path.push(&self.name);
+        let mut path = PathBuf::from(&self.directory);
+        path.push(&self.stem);
         path.set_extension(&self.extension.to_string());
         path
     }
@@ -193,19 +212,21 @@ impl fmt::Display for SuiteFileExtension {
     }
 }
 
-impl SuiteFileExtension {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for SuiteFileExtension {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, ()> {
         let s = s.to_lowercase();
         if s == "json" {
-            Some(SuiteFileExtension::Json)
+            Ok(SuiteFileExtension::Json)
         } else if s == "toml" {
-            Some(SuiteFileExtension::Toml)
+            Ok(SuiteFileExtension::Toml)
         } else if s == "yaml" {
-            Some(SuiteFileExtension::Yaml)
+            Ok(SuiteFileExtension::Yaml)
         } else if s == "yml" {
-            Some(SuiteFileExtension::Yml)
+            Ok(SuiteFileExtension::Yml)
         } else {
-            None
+            Err(())
         }
     }
 }
@@ -229,11 +250,12 @@ impl ReducibleCase {
         }
     }
 
-    fn reduce(self) -> TestCase {
+    fn reduce(self, path: Arc<PathBuf>, timelimit: Option<u64>) -> TestCase {
         TestCase {
+            path: path,
             input: Arc::new(self.input.reduce()),
             expected: Arc::new(self.expected.map(|v| v.reduce()).unwrap_or_default()),
-            timelimit: self.timelimit,
+            timelimit: self.timelimit.or(timelimit),
         }
     }
 }

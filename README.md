@@ -34,15 +34,16 @@ $ snowchains submit <target> (<language>) (--open-browser) (--skip-judging) (--f
 ```yaml
 # Example
 ---
-service: "atcoder-beta"   # optional
-contest: "chokudai_s001"  # optional
-testsuite: "snowchains/"  # default: "./snowchains/"
-testsuite_extension: "yml" # default: "yml"
+service: "atcoder-beta"                                # optional
+contest: "chokudai_s001"                               # optional
+testsuites: "snowchains/"                              # default: 〃
+extension_on_downloading: "yml"                        # default: 〃
+extensions_on_judging: ["json", "toml", "yaml", "yml"] # default: 〃
 default_lang: "c++"
 
-# test file: <testsuite>/<target-name>.<testsuite_extension>
-# source:    <<src> % <target-name>>
-# binary:    <<bin> % <target-name>>
+# test files: <testsuite>/<target-name>.<extension> for <extension> in each <extensions_on_judging>
+# source:     <<src> % <target-name>>
+# binary:     <<bin> % <target-name>>
 # e.g.
 # "cc/{}.cc" % "problem-a"          ⊦ <the directory which has snowchains.yml>/cc/problem-a.cc
 # "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yml>/csharp/ProblemA/ProblemA.cs
@@ -111,8 +112,9 @@ Or simply:
 ---
 service: "atcoder-beta"
 contest: "chokuda_s001"
-testsuite: "snowchains/"
-testsuite_extension: "yml"
+testsuites: "snowchains/"
+extension_on_downloading: "yml"
+extensions_on_judging: ["json", "toml", "yaml", "yml"]
 default_lang: "c++"
 languages:
   -

@@ -46,6 +46,7 @@ mod util;
 use config::{Config, PropertyKey, ServiceName};
 use error::SnowchainsResult;
 use service::{atcoder, atcoder_beta, hackerrank};
+use testsuite::{SuiteFileExtension, SuiteFilePath};
 
 use clap::{AppSettings, Arg, SubCommand};
 
@@ -70,8 +71,8 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
             .help("Property key")
             .possible_value("service")
             .possible_value("contest")
-            .possible_value("testsuite")
-            .possible_value("testsuite_extension")
+            .possible_value("testsuites")
+            .possible_value("extension_on_downloading")
             .possible_value("default_lang")
             .required(true)
     }
@@ -110,6 +111,13 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
 
     fn arg_target() -> Arg<'static, 'static> {
         Arg::with_name("target").help("Target name").required(true)
+    }
+
+    fn arg_extension() -> Arg<'static, 'static> {
+        Arg::with_name("extension")
+            .help("Extension")
+            .possible_values(&["json", "toml", "yaml", "yml"])
+            .required(true)
     }
 
     fn arg_input() -> Arg<'static, 'static> {
@@ -180,8 +188,9 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         .about("Appends a test case to a test suite file")
         .usage(USAGE_APPEND)
         .arg(arg_target().display_order(1))
-        .arg(arg_input().display_order(2))
-        .arg(arg_output().display_order(3));
+        .arg(arg_extension().display_order(2))
+        .arg(arg_input().display_order(3))
+        .arg(arg_output().display_order(4));
 
     let subcommand_judge = SubCommand::with_name("judge")
         .about("Tests a binary or script")
@@ -258,7 +267,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let service = config.service_name()?;
         let contest = config.contest_name()?;
         let dir_to_save = config.suite_dir()?;
-        let extension = config.suite_extension();
+        let extension = config.get_extension_on_downloading();
         return Ok(match service {
             ServiceName::AtCoder => atcoder::download(&contest, &dir_to_save, extension),
             ServiceName::AtCoderBeta => {
@@ -272,19 +281,23 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         info!("Running command \"append\"");
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
+        let extension = value_t!(matches, "extension", SuiteFileExtension).unwrap();
         let input = matches.value_of("input").unwrap();
         let output = matches.value_of("output");
-        let path = config.suite_path(target)?;
+        let dir = config.suite_dir()?;
+        let path = SuiteFilePath::new(&dir, target, extension);
         return Ok(testsuite::append(&path, input, output)?);
     } else if let Some(matches) = matches.subcommand_matches("judge") {
         info!("Running command \"judge\"");
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
         let lang = matches.value_of("lang");
-        let suite_path = config.suite_path(target)?;
+        let dir = config.suite_dir()?;
+        let extensions = config.get_extensions_on_judging();
         let run_command = config.construct_run_command(target, lang)?;
         let comp_command = config.construct_compilation_command(target, lang)?;
-        return Ok(judge::judge(suite_path, run_command, comp_command)?);
+        judge::judge(&dir, target, extensions, run_command, comp_command)?;
+        return Ok(());
     } else if let Some(matches) = matches.subcommand_matches("submit") {
         info!("Running command \"submit\"");
         let config = Config::load_from_file()?;
@@ -297,10 +310,11 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let contest = config.contest_name()?;
         let src_path = config.src_path(target, lang)?;
         if !skip_judging {
-            let suite_path = config.suite_path(target)?;
+            let dir = config.suite_dir()?;
+            let extensions = config.get_extensions_on_judging();
             let run_command = config.construct_run_command(target, lang)?;
             let comp_command = config.construct_compilation_command(target, lang)?;
-            judge::judge(suite_path, run_command, comp_command)?;
+            judge::judge(&dir, target, extensions, run_command, comp_command)?;
             println!("");
         }
         return Ok(match service {

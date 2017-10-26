@@ -179,7 +179,7 @@ impl AtCoderBeta {
             })
             .collect::<ServiceResult<Vec<_>>>()?;
         for &(_, ref suite, ref path) in &outputs {
-            suite.save(&path)?;
+            suite.save(&path, true)?;
         }
         if open_browser {
             super::open_browser_with_message(&contest.url_submissions_me())?;

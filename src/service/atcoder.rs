@@ -79,11 +79,8 @@ impl AtCoder {
             let url = format!("http://{}.contest.atcoder.jp{}", contest_name, path);
             match extract_cases(self.http_get(&url)?) {
                 Ok(suite) => {
-                    suite.save(&SuiteFilePath::new(
-                        &dir_to_save,
-                        alphabet.to_lowercase(),
-                        extension,
-                    ))?;
+                    let path = SuiteFilePath::new(&dir_to_save, alphabet.to_lowercase(), extension);
+                    suite.save(&path, true)?;
                 }
                 Err(ServiceError(ServiceErrorKind::ScrapingFailed, _)) => {
                     println!("Failed to scrape. Ignoring.");

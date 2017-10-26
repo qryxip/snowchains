@@ -1,6 +1,6 @@
 use error::{ConfigError, ConfigErrorKind, ConfigResult};
 use judge::CommandProperty;
-use testsuite::{SuiteFileExtension, SuiteFilePath};
+use testsuite::SuiteFileExtension;
 use util::{self, ToCamlCase};
 
 use serde_yaml;
@@ -49,8 +49,9 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
     let config = Config {
         service: Some(ServiceName::AtCoderBeta),
         contest: Some("chokudai_s001".to_owned()),
-        testsuite: InputPath("snowchains/".to_owned()),
-        testsuite_extension: SuiteFileExtension::Yml,
+        testsuites: InputPath("snowchains/".to_owned()),
+        extension_on_downloading: SuiteFileExtension::Yml,
+        extensions_on_judging: default_extensions(),
         default_lang: lang_name.to_owned(),
         languages: vec![
             LangProperty::new(
@@ -127,6 +128,7 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
         ],
         base_dir: PathBuf::new(),
     };
+
     let config = serde_yaml::to_string(&config)?;
     let mut path = PathBuf::from(dir);
     path.push("snowchains.yml");
@@ -142,10 +144,10 @@ pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
     match key {
         PropertyKey::Service => config.service = Some(serde_yaml::from_str(value)?),
         PropertyKey::Contest => config.contest = Some(value.to_owned()),
-        PropertyKey::TestSuite => config.testsuite = InputPath(value.to_owned()),
-        PropertyKey::TestSuiteExtension => {
-            if let Some(extension) = SuiteFileExtension::from_str(value) {
-                config.testsuite_extension = extension;
+        PropertyKey::TestSuites => config.testsuites = InputPath(value.to_owned()),
+        PropertyKey::ExtensionOnDownloading => {
+            if let Ok(extension) = SuiteFileExtension::from_str(value) {
+                config.extension_on_downloading = extension;
             } else {
                 bail!(ConfigErrorKind::UnsupportedExtension(value.to_owned()));
             }
@@ -166,9 +168,11 @@ pub struct Config {
     service: Option<ServiceName>,
     contest: Option<String>,
     #[serde(default = "InputPath::default_test_suite_path")]
-    testsuite: InputPath,
+    testsuites: InputPath,
     #[serde(default)]
-    testsuite_extension: SuiteFileExtension,
+    extension_on_downloading: SuiteFileExtension,
+    #[serde(default = "default_extensions")]
+    extensions_on_judging: Vec<SuiteFileExtension>,
     default_lang: String,
     languages: Vec<LangProperty>,
     #[serde(skip)]
@@ -201,23 +205,19 @@ impl Config {
         }
     }
 
-    /// Get `testsuite_extension`.
-    pub fn suite_extension(&self) -> SuiteFileExtension {
-        self.testsuite_extension
+    /// Get the attribute `extension_on_downloading`.
+    pub fn get_extension_on_downloading(&self) -> SuiteFileExtension {
+        self.extension_on_downloading
+    }
+
+    /// Get the attribute `extensions_on_judging`.
+    pub fn get_extensions_on_judging(&self) -> &[SuiteFileExtension] {
+        &self.extensions_on_judging
     }
 
     /// Get the absolute path of the test suite files directory
     pub fn suite_dir(&self) -> ConfigResult<PathBuf> {
-        Ok(self.testsuite.resolve(&self.base_dir)?)
-    }
-
-    /// Returns the absolute path of test suite file.
-    pub fn suite_path(&self, target: &str) -> ConfigResult<SuiteFilePath> {
-        Ok(SuiteFilePath::new(
-            &self.suite_dir()?,
-            target,
-            self.testsuite_extension,
-        ))
+        Ok(self.testsuites.resolve(&self.base_dir)?)
     }
 
     /// Returns the path of the source file.
@@ -270,8 +270,8 @@ impl Config {
 pub enum PropertyKey {
     Service,
     Contest,
-    TestSuite,
-    TestSuiteExtension,
+    TestSuites,
+    ExtensionOnDownloading,
     DefaultLang,
 }
 
@@ -283,8 +283,8 @@ impl FromStr for PropertyKey {
         return match &s {
             s if s == "service" => Ok(PropertyKey::Service),
             s if s == "contest" => Ok(PropertyKey::Contest),
-            s if s == "testsuite" => Ok(PropertyKey::TestSuite),
-            s if s == "testsuite_extension" => Ok(PropertyKey::TestSuiteExtension),
+            s if s == "testsuites" => Ok(PropertyKey::TestSuites),
+            s if s == "extension_on_downloading" => Ok(PropertyKey::ExtensionOnDownloading),
             s if s == "default_lang" => Ok(PropertyKey::DefaultLang),
             _ => Err(()),
         };
@@ -339,6 +339,12 @@ fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
             bail!(ConfigErrorKind::ConfigFileNotFound);
         }
     }
+}
+
+
+fn default_extensions() -> Vec<SuiteFileExtension> {
+    use testsuite::SuiteFileExtension::{Json, Toml, Yaml, Yml};
+    vec![Json, Toml, Yaml, Yml]
 }
 
 
@@ -509,7 +515,7 @@ impl BraceFormat {
         } });
         macro_rules! close_var(($var: expr, $next_state: expr, $c: expr) => { {
             let v = $var.to_lowercase();
-            r += if v == "src" { src } else if v == "bin" { bin } else { "" };
+            r += match v.as_str() { "src" => src, "bin" => bin, _ => "" };
             if let Some(c) = $c { r.push(c); }
             $next_state
         } });
