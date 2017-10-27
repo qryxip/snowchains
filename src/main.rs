@@ -151,7 +151,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     static USAGE_LOGIN: &'static str = "snowchains login <service>";
     static USAGE_PARTICIPATE: &'static str = "snowchains participate <service> <contest>";
     static USAGE_DOWNLOAD: &'static str = "snowchains download [--open-browser]";
-    static USAGE_APPEND: &'static str = "snowchains append <target> <input> [output]";
+    static USAGE_APPEND: &'static str = "snowchains append <target> <extension> <input> [output]";
     static USAGE_JUDGE: &'static str = "snowchains judge <target> [lang]";
     static USAGE_SUBMIT: &'static str = "snowchains submit <target> [lang] [--open-browser] \
                                          [--skip-judging] [--force]";

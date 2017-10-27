@@ -261,17 +261,36 @@ impl JudgeOutput {
     }
 
     fn eprint_details(&self) {
+        const THRESHOLD_TO_OMIT: usize = 1024;
+
+        fn eprint_size(num_bytes: usize) {
+            let (attr, color) = (Attr::Bold, Some(color::YELLOW));
+            if num_bytes > 10 * 1024 * 1024 {
+                eprintln_decorated!(attr, color, "OMITTED ({}MB)", num_bytes / (1024 * 1024));
+            } else if num_bytes > 10 * 1024 {
+                eprintln_decorated!(attr, color, "OMITTED ({}KB)", num_bytes / 1024);
+            } else {
+                eprintln_decorated!(attr, color, "OMITTED ({}B)", num_bytes);
+            }
+        }
+
         fn eprint_section(head: &'static str, content: &str) {
+            let num_bytes = content.as_bytes().len();
             eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "{}:", head);
-            if content.is_empty() {
+            if num_bytes == 0 {
                 eprintln_decorated!(Attr::Bold, Some(color::YELLOW), "EMPTY");
+            } else if num_bytes > THRESHOLD_TO_OMIT {
+                eprint_size(num_bytes);
             } else {
                 util::eprintln_trimming_last_newline(content);
             }
         }
 
         fn eprint_section_unless_empty(head: &'static str, content: &str) {
-            if !content.is_empty() {
+            let num_bytes = content.as_bytes().len();
+            if num_bytes > THRESHOLD_TO_OMIT {
+                eprint_size(num_bytes);
+            } else if num_bytes > 0 {
                 eprintln_decorated!(Attr::Bold, Some(color::MAGENTA), "{}:", head);
                 util::eprintln_trimming_last_newline(content);
             }
