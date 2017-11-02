@@ -23,14 +23,14 @@ pub fn judge(
     suite_dir: &Path,
     suite_file_stem: &str,
     suite_extensions: &[SuiteFileExtension],
-    run_command: CommandProperty,
-    compilation_command: Option<CommandProperty>,
+    judging_command: JudgingCommand,
+    compilation_command: Option<CompilationCommand>,
 ) -> JudgeResult<()> {
-    fn judge_cases(cases: Vec<TestCase>, run_command: Arc<CommandProperty>) -> JudgeResult<()> {
+    fn judge_cases(cases: Vec<TestCase>, command: Arc<JudgingCommand>) -> JudgeResult<()> {
         let num_cases = cases.len();
         let suf = if num_cases > 1 { "s" } else { "" };
 
-        run_command.print_args_and_working_dir();
+        command.print_args_and_working_dir();
         println!("Running {} test{}...", num_cases, suf);
 
         let mut last_path = None;
@@ -43,7 +43,7 @@ pub fn judge(
                     println!("Running test cases in {}", path.display());
                     last_path = Some(case.get_path());
                 }
-                let output = judge_one(case, run_command.clone())?;
+                let output = judge_one(case, command.clone())?;
                 output.print_title(i, num_cases);
                 Ok(output)
             })
@@ -62,25 +62,25 @@ pub fn judge(
         }
     }
 
-    fn judge_one(case: TestCase, run_command: Arc<CommandProperty>) -> JudgeResult<JudgeOutput> {
+    fn judge_one(case: TestCase, command: Arc<JudgingCommand>) -> JudgeResult<JudgeOutput> {
         let (tx, rx) = mpsc::channel();
         let case = Arc::new(case);
         let case_cloned = case.clone();
-        let run_command_cloned = run_command.clone();
+        let command_cloned = command.clone();
         thread::spawn(move || {
-            let _ = tx.send(run_program(&case_cloned, &run_command_cloned));
+            let _ = tx.send(run_program(&case_cloned, &command_cloned));
         });
         if let (input, expected, Some(timelimit)) = case.values() {
             rx.recv_timeout(Duration::from_millis(timelimit + 50))
                 .unwrap_or_else(|_| Ok(JudgeOutput::Tle(timelimit, input, expected)))
         } else {
             rx.recv()?
-        }.wrap_not_found_error_message(run_command.arg0.clone())
+        }.wrap_not_found_error_message(|| command.get_arg0())
     }
 
-    fn run_program(case: &TestCase, run_command: &CommandProperty) -> io::Result<JudgeOutput> {
+    fn run_program(case: &TestCase, command: &JudgingCommand) -> io::Result<JudgeOutput> {
         let (input, expected, timelimit) = case.values();
-        let mut child = run_command.spawn_piped()?;
+        let mut child = command.spawn_piped()?;
         let start = Instant::now();
         child.stdin.unwrap_as_ref_mut().write_all(input.as_bytes())?;
 
@@ -103,25 +103,22 @@ pub fn judge(
     }
 
     if let Some(compilation_command) = compilation_command {
-        compilation_command.execute_as_compilation_command()?;
+        compilation_command.execute()?;
         println!("");
     }
     let cases = testsuite::load_and_merge_all_cases(suite_dir, suite_file_stem, suite_extensions)?;
-    let run_command = Arc::new(run_command);
-    judge_cases(cases, run_command)
+    let judging_command = Arc::new(judging_command);
+    judge_cases(cases, judging_command)
 }
 
 
-#[derive(Clone)]
-pub struct CommandProperty {
-    arg0: String,
-    rest_args: Vec<String>,
-    working_dir: PathBuf,
+pub struct CompilationCommand {
+    command: CommandProperty,
     src_and_bin: Option<(PathBuf, PathBuf)>,
 }
 
-impl CommandProperty {
-    /// Constructs a new `CommandParameters`.
+impl CompilationCommand {
+    /// Constructs a new `CompilationCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
     pub fn new(
@@ -129,6 +126,88 @@ impl CommandProperty {
         working_dir: PathBuf,
         src_and_bin: Option<(PathBuf, PathBuf)>,
     ) -> Self {
+        Self {
+            command: CommandProperty::new(command, working_dir),
+            src_and_bin: src_and_bin,
+        }
+    }
+
+    fn print_args_and_working_dir(&self) {
+        self.command.print_args_and_working_dir();
+    }
+
+    fn execute(&self) -> JudgeResult<()> {
+        if let &Some((ref src, ref bin)) = &self.src_and_bin {
+            if let (Ok(src_meta), Ok(bin_meta)) = (src.metadata(), bin.metadata()) {
+                if let (Ok(t1), Ok(t2)) = (src_meta.modified(), bin_meta.modified()) {
+                    if t1 < t2 {
+                        return Ok(println!("{} is up to date.", bin.display()));
+                    }
+                }
+            } else if let Some(dir) = bin.parent() {
+                if !dir.exists() {
+                    fs::create_dir_all(dir)?;
+                    println!("Created {}", dir.display());
+                }
+            }
+        }
+        self.print_args_and_working_dir();
+        let status = Command::new(&self.command.arg0)
+            .args(&self.command.rest_args)
+            .current_dir(&self.command.working_dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .wrap_not_found_error_message(|| self.command.arg0.clone())?;
+        if status.success() {
+            Ok(())
+        } else {
+            bail!(JudgeErrorKind::CompilationFailure(status));
+        }
+    }
+}
+
+
+pub struct JudgingCommand(CommandProperty);
+
+impl JudgingCommand {
+    /// Constructs a new `JudgingCommand`.
+    ///
+    /// Wraps `command` in `sh` or `cmd` if necessary.
+    pub fn new(command: String, working_dir: PathBuf) -> Self {
+        JudgingCommand(CommandProperty::new(command, working_dir))
+    }
+
+    fn print_args_and_working_dir(&self) {
+        self.0.print_args_and_working_dir();
+    }
+
+    fn get_arg0(&self) -> String {
+        self.0.arg0.clone()
+    }
+
+    fn spawn_piped(&self) -> io::Result<Child> {
+        Command::new(&self.0.arg0)
+            .args(&self.0.rest_args)
+            .current_dir(&self.0.working_dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    }
+}
+
+
+#[derive(Clone)]
+struct CommandProperty {
+    arg0: String,
+    rest_args: Vec<String>,
+    working_dir: PathBuf,
+}
+
+impl CommandProperty {
+    fn new(command: String, working_dir: PathBuf) -> Self {
         fn wrap_if_necessary(command: String) -> (String, Vec<String>) {
             if command
                 .find(|c| "@#$^&*;|?\\<>()[]{}'\"".contains(c))
@@ -155,7 +234,6 @@ impl CommandProperty {
             arg0: arg0,
             rest_args: rest_args,
             working_dir: working_dir,
-            src_and_bin: src_and_bin,
         }
     }
 
@@ -164,47 +242,6 @@ impl CommandProperty {
         println!("{}", self.display_args());
         print_decorated!(Attr::Bold, Some(color::CYAN), "Working directory: ");
         println!("{}", self.working_dir.display());
-    }
-
-    fn execute_as_compilation_command(&self) -> JudgeResult<()> {
-        if let &Some((ref src, ref bin)) = &self.src_and_bin {
-            if let (Ok(src_meta), Ok(bin_meta)) = (src.metadata(), bin.metadata()) {
-                if let (Ok(t1), Ok(t2)) = (src_meta.modified(), bin_meta.modified()) {
-                    if t1 < t2 {
-                        return Ok(println!("{} is up to date.", bin.display()));
-                    }
-                }
-            } else if let Some(dir) = bin.parent() {
-                if !dir.exists() {
-                    fs::create_dir_all(dir)?;
-                    println!("Created {}", dir.display());
-                }
-            }
-        }
-        self.print_args_and_working_dir();
-        let status = Command::new(&self.arg0)
-            .args(&self.rest_args)
-            .current_dir(&self.working_dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status()
-            .wrap_not_found_error_message(self.arg0.clone())?;
-        if status.success() {
-            Ok(())
-        } else {
-            bail!(JudgeErrorKind::CompilationFailure(status));
-        }
-    }
-
-    fn spawn_piped(&self) -> io::Result<Child> {
-        Command::new(&self.arg0)
-            .args(&self.rest_args)
-            .current_dir(&self.working_dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
     }
 
     fn display_args(&self) -> String {
@@ -334,16 +371,19 @@ impl JudgeOutput {
 
 trait WrapNotFoundErrorMessage {
     type Item;
-    fn wrap_not_found_error_message(self, arg0: String) -> JudgeResult<Self::Item>;
+    fn wrap_not_found_error_message<F: FnOnce() -> String>(
+        self,
+        arg0: F,
+    ) -> JudgeResult<Self::Item>;
 }
 
 impl<T> WrapNotFoundErrorMessage for io::Result<T> {
     type Item = T;
 
-    fn wrap_not_found_error_message(self, arg0: String) -> JudgeResult<T> {
+    fn wrap_not_found_error_message<F: FnOnce() -> String>(self, arg0: F) -> JudgeResult<T> {
         self.map_err(|e| -> JudgeError {
             match e.kind() {
-                io::ErrorKind::NotFound => JudgeErrorKind::CommandNotFound(arg0).into(),
+                io::ErrorKind::NotFound => JudgeErrorKind::CommandNotFound(arg0()).into(),
                 _ => e.into(),
             }
         })
@@ -361,7 +401,7 @@ mod tests {
     #[test]
     fn assert_commands_wrapped_in_sh_or_cmd() {
         fn display(command: &'static str) -> String {
-            CommandProperty::new(command.to_owned(), PathBuf::new(), None).display_args()
+            CommandProperty::new(command.to_owned(), PathBuf::new()).display_args()
         }
 
         fn wrap(command: &'static str) -> String {

@@ -1,5 +1,5 @@
 use error::{ConfigError, ConfigErrorKind, ConfigResult};
-use judge::CommandProperty;
+use judge::{CompilationCommand, JudgingCommand};
 use testsuite::SuiteFileExtension;
 use util::{self, ToCamlCase};
 
@@ -239,19 +239,19 @@ impl Config {
         &self,
         target: &str,
         lang_name: Option<&str>,
-    ) -> ConfigResult<Option<CommandProperty>> {
+    ) -> ConfigResult<Option<CompilationCommand>> {
         let lang = self.lang_property(lang_name)?;
         Ok(lang.construct_compilation_command(&self.base_dir, target)?)
     }
 
     /// Constructs arguments of execution command for given or default language.
-    pub fn construct_run_command(
+    pub fn construct_judging_command(
         &self,
         target: &str,
         lang_name: Option<&str>,
-    ) -> ConfigResult<CommandProperty> {
+    ) -> ConfigResult<JudgingCommand> {
         let lang = self.lang_property(lang_name)?;
-        Ok(lang.construct_run_command(&self.base_dir, target)?)
+        Ok(lang.construct_judging_command(&self.base_dir, target)?)
     }
 
     fn lang_property(&self, lang_name: Option<&str>) -> ConfigResult<&LangProperty> {
@@ -394,7 +394,7 @@ impl LangProperty {
         &self,
         base: &Path,
         target: &str,
-    ) -> ConfigResult<Option<CommandProperty>> {
+    ) -> ConfigResult<Option<CompilationCommand>> {
         let working_dir = self.compilation_working_dir.resolve(base)?;
         let (src, bin) = self.resolve_src_and_bin(base, target)?;
         Ok(self.compile.as_ref().map(|build| {
@@ -402,12 +402,12 @@ impl LangProperty {
         }))
     }
 
-    fn construct_run_command(&self, base: &Path, target: &str) -> ConfigResult<CommandProperty> {
+    fn construct_judging_command(&self, base: &Path, target: &str) -> ConfigResult<JudgingCommand> {
         let working_dir = self.runtime_working_dir.resolve(base)?;
         let (src, bin) = self.resolve_src_and_bin(base, target)?;
         let src = src.display().to_string();
         let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
-        Ok(self.run.to_run_command(target, working_dir, &src, &bin))
+        Ok(self.run.to_judging_command(target, working_dir, &src, &bin))
     }
 
     fn resolve_src_and_bin(
@@ -475,7 +475,7 @@ impl BraceFormat {
         working_dir: PathBuf,
         src: Option<PathBuf>,
         bin: Option<PathBuf>,
-    ) -> CommandProperty {
+    ) -> CompilationCommand {
         let src_s = src.as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_default();
@@ -487,18 +487,18 @@ impl BraceFormat {
             _ => None,
         };
         let command = self.format(target, &src_s, &bin_s);
-        CommandProperty::new(command, working_dir, src_and_bin)
+        CompilationCommand::new(command, working_dir, src_and_bin)
     }
 
-    fn to_run_command(
+    fn to_judging_command(
         &self,
         target: &str,
         working_dir: PathBuf,
         src: &str,
         bin: &str,
-    ) -> CommandProperty {
+    ) -> JudgingCommand {
         let command = self.format(target, src, bin);
-        CommandProperty::new(command, working_dir, None)
+        JudgingCommand::new(command, working_dir)
     }
 
     fn format(&self, target: &str, src: &str, bin: &str) -> String {

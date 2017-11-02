@@ -51,8 +51,6 @@ pub fn load_and_merge_all_cases(
 }
 
 
-
-
 /// Set of the timelimit and test cases.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct TestSuite {
