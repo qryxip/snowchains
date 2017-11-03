@@ -441,9 +441,7 @@ impl InputPath {
 
     fn resolve(&self, base: &Path) -> io::Result<PathBuf> {
         if self.0.chars().next() == Some('~') {
-            let mut pathbuf = util::home_dir_as_io_result()?;
-            pathbuf.push(self.0.chars().skip(2).collect::<String>());
-            return Ok(pathbuf);
+            return util::path_under_home(&[&self.0.chars().skip(2).collect::<String>()]);
         }
         let path = PathBuf::from(&self.0);
         if path.is_absolute() {

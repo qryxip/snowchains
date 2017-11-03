@@ -4,7 +4,7 @@ use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 use util;
 
 use regex::Regex;
-use reqwest::{Response, StatusCode};
+use reqwest::Response;
 use select::document::Document;
 use select::predicate::Attr;
 use serde_json;
@@ -40,12 +40,7 @@ impl HackerRank {
     fn start(prints_message_when_already_logged_in: bool) -> ServiceResult<Self> {
         static URL: &'static str = "https://www.hackerrank.com/login";
         let mut hackerrank = HackerRank(HttpSession::start("hackerrank")?);
-        if let Some(response) = hackerrank.http_get_as_opt(
-            URL,
-            StatusCode::Ok,
-            StatusCode::Found,
-        )?
-        {
+        if let Some(response) = hackerrank.http_get_as_opt(URL, 200, 302)? {
             let mut response = response;
             loop {
                 if hackerrank.try_logging_in(response)? {
@@ -84,7 +79,7 @@ impl HackerRank {
         let response = self.http_post_json_with_csrf_token(
             "https://www.hackerrank.com/auth/login",
             data,
-            StatusCode::Ok,
+            200,
             csrf_token,
         )?;
         Ok(serde_json::from_reader::<_, ResponseData>(response)?.status)

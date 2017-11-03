@@ -8,11 +8,11 @@ use std::str;
 /// Calls `File::open(path)` and if the result is `Err`, replace the error with new one which
 /// message contains `path`.
 pub fn open_file(path: &Path) -> io::Result<File> {
-    File::open(path).map_err(|e| if e.kind() == io::ErrorKind::NotFound {
-        let message = format!("No such file: {:?}", path);
-        io::Error::new(io::ErrorKind::NotFound, message)
-    } else {
-        let message = format!("An IO error occured while opening {:?}: {}", path, e);
+    File::open(path).map_err(|e| {
+        let message = match e.kind() {
+            io::ErrorKind::NotFound => format!("No such file: {:?}", path),
+            _ => format!("An IO error occured while opening {:?}: {}", path, e),
+        };
         io::Error::new(e.kind(), message)
     })
 }
@@ -59,12 +59,20 @@ pub fn eprintln_trimming_last_newline(s: &str) {
 }
 
 
-/// Returns the path the current user's home directory as `io::Result`.
-pub fn home_dir_as_io_result() -> io::Result<PathBuf> {
-    env::home_dir().ok_or(io::Error::new(
+/// Returns `~/<names>` as `io::Result`.
+///
+/// # Errors
+///
+/// Returns `Err` if a home directory not found.
+pub fn path_under_home(names: &[&str]) -> io::Result<PathBuf> {
+    let home_dir = env::home_dir().ok_or(io::Error::new(
         io::ErrorKind::Other,
         "Home directory not found",
-    ))
+    ))?;
+    Ok(names.iter().fold(home_dir, |mut path, name| {
+        path.push(name);
+        path
+    }))
 }
 
 
@@ -94,7 +102,7 @@ pub trait UnwrapAsRefMut {
     type Item;
     /// Gets the value `&mut x` if `Some(ref mut x) = self`.
     ///
-    /// # Panics
+    /// # Panic
     ///
     /// Panics if `self` is `None`.
     fn unwrap_as_ref_mut(&mut self) -> &mut Self::Item;

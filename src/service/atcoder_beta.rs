@@ -4,7 +4,6 @@ use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
 use chrono::{DateTime, Local, Utc};
 use regex::Regex;
-use reqwest::StatusCode;
 use select::document::Document;
 use select::node::Node;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
@@ -111,7 +110,7 @@ impl AtCoderBeta {
             csrf_token: csrf_token,
         };
         static URL: &'static str = "https://beta.atcoder.jp/login";
-        let _ = self.http_post_urlencoded(URL, data, StatusCode::Found)?;
+        let _ = self.http_post_urlencoded(URL, data, 302)?;
         let _ = self.http_get("https://beta.atcoder.jp/settings")?;
         Ok(())
     }
@@ -133,14 +132,12 @@ impl AtCoderBeta {
         contest: &Contest,
         explicit: bool,
     ) -> ServiceResult<()> {
-        use reqwest::StatusCode::{Found as Code302, Ok as Code200};
-
         #[derive(Serialize)]
         struct PostData {
             csrf_token: String,
         }
 
-        match self.http_get_as_opt(&contest.url_top(), Code200, Code302)? {
+        match self.http_get_as_opt(&contest.url_top(), 200, 302)? {
             None => bail!(ServiceErrorKind::ContestNotFound(contest.to_string())),
             Some(response) => {
                 let page = Document::from_read(response)?;
@@ -154,7 +151,7 @@ impl AtCoderBeta {
                     let page = Document::from_read(self.http_get(&contest.url_top())?)?;
                     let data = PostData { csrf_token: extract_csrf_token(&page)? };
                     let url = contest.url_register();
-                    self.http_post_urlencoded(&url, data, Code302)?;
+                    self.http_post_urlencoded(&url, data, 302)?;
                 }
                 Ok(())
             }
@@ -249,7 +246,7 @@ impl AtCoderBeta {
                     sourceCode: source_code,
                     csrf_token: csrf_token,
                 };
-                self.http_post_urlencoded(&url, data, StatusCode::Found)?;
+                self.http_post_urlencoded(&url, data, 302)?;
                 if open_browser {
                     super::open_browser_with_message(&contest.url_submissions_me())?;
                 }

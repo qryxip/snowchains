@@ -4,13 +4,12 @@ use util;
 use bincode::{self, Infinite};
 use cookie::{self, Cookie, CookieJar};
 use pbr::{MultiBar, Units};
-use reqwest::{Client, IntoUrl, RedirectPolicy, Response, StatusCode};
+use reqwest::{Client, RedirectPolicy, Response, StatusCode};
 use reqwest::header::{ContentLength, ContentType, Cookie as RequestCookie, Headers, SetCookie,
                       UserAgent};
 use serde::Serialize;
 use serde_json;
 use serde_urlencoded;
-use std::fmt;
 use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
 use std::thread;
@@ -28,23 +27,19 @@ pub struct HttpSession {
 impl HttpSession {
     /// Creates a new `HttpSession` loading `~/.local/share/snowchains/<file_name>` if it exists.
     pub fn start(file_name: &'static str) -> ServiceResult<Self> {
-        let path = {
-            let mut path = util::home_dir_as_io_result()?;
-            path.push(".local");
-            path.push("share");
-            path.push("snowchains");
-            path.push(file_name);
-            path
-        };
+        let path = util::path_under_home(&[".local", "share", "snowchains", file_name])?;
         let jar = if path.exists() {
             let mut file = util::open_file(&path)?;
-            println!("Loaded cookies from {}", path.display());
-            let mut jar = CookieJar::new();
-            for cookie in bincode::deserialize_from::<_, Vec<String>, _>(&mut file, Infinite)?
+            let jar = bincode::deserialize_from::<_, Vec<String>, _>(&mut file, Infinite)?
                 .into_iter()
-            {
-                jar.add(Cookie::parse(cookie)?);
-            }
+                .map(Cookie::parse)
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .fold(CookieJar::new(), |mut jar, cookie| {
+                    jar.add(cookie);
+                    jar
+                });
+            println!("Loaded cookies from {}", path.display());
             jar
         } else {
             println!("{} not found. It will be created.", path.display());
@@ -72,7 +67,7 @@ impl HttpSession {
         self.cookie_jar.iter().next().is_some()
     }
 
-    /// Delete all cookies.
+    /// Deletes all cookies.
     pub fn clear_cookies(&mut self) {
         self.cookie_jar = CookieJar::new();
     }
@@ -81,40 +76,29 @@ impl HttpSession {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if the http access fails, or the response code is not 200.
-    ///
-    /// # Panics
-    ///
-    /// Panics when `url` is invalid.
+    /// Returns `Err` if:
+    /// - `url` is invalid
+    /// - The http access fails
+    /// - The response code is not 200
     pub fn http_get(&mut self, url: &str) -> ServiceResult<Response> {
-        self.http_get_expecting(url, StatusCode::Ok)
+        self.send_get(url, StatusCode::Ok, &[StatusCode::Ok])
     }
 
     /// Sends a GET request to `url`.
     ///
     /// # Errors
     ///
-    /// Returns `Err` if the http access fails, or the response code differs from `expected_status`.
-    ///
-    /// # Panics
-    ///
-    /// Panics when `url` is invalid.
+    /// Returns `Err` if:
+    /// - `url` is invalid
+    /// - The http access fails
+    /// - The response code differs from `expected_status`
     pub fn http_get_expecting(
         &mut self,
         url: &str,
-        expected_status: StatusCode,
+        expected_status: u16,
     ) -> ServiceResult<Response> {
-        let response = self.send_get(url)?;
-        if response.status() == expected_status {
-            println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
-            Ok(response)
-        } else {
-            println_decorated!(Attr::Bold, Some(color::RED), "{}", response.status());
-            bail!(ServiceErrorKind::UnexpectedHttpCode(
-                vec![expected_status],
-                response.status(),
-            ))
-        }
+        let expected_status = status_from_u16(expected_status)?;
+        self.send_get(url, expected_status, &[expected_status])
     }
 
     /// Sends a GET request to `url` and if the response code is `status1`, returns `Ok(Some)` else
@@ -122,31 +106,21 @@ impl HttpSession {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if the http access fails, or the response code is not `status1` nor `status2`.
-    ///
-    /// # Panics
-    ///
-    /// Panics when `url` is invalid.
+    /// Returns `Err` if:
+    /// - `url` is invalid
+    /// - The http access fails
+    /// - The response code is not `status1` nor `status2`.
     pub fn http_get_as_opt(
         &mut self,
         url: &str,
-        status1: StatusCode,
-        status2: StatusCode,
+        status1: u16,
+        status2: u16,
     ) -> ServiceResult<Option<Response>> {
-        let response = self.send_get(url)?;
-        if response.status() == status1 {
-            println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
-            Ok(Some(response))
-        } else if response.status() == status2 {
-            println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
-            Ok(None)
-        } else {
-            println_decorated!(Attr::Bold, Some(color::RED), "{}", response.status());
-            bail!(ServiceErrorKind::UnexpectedHttpCode(
-                vec![status1, status2],
-                response.status(),
-            ))
-        }
+        let (status1, status2) = (status_from_u16(status1)?, status_from_u16(status2)?);
+        let response = self.send_get(url, status1, &[status1, status2])?;
+        Ok(Some(response).into_iter().find(|response| {
+            response.status() == status1
+        }))
     }
 
     /// Sends GET requests to `urls` expecting the response data are all zips.
@@ -154,18 +128,15 @@ impl HttpSession {
     /// # Errors
     ///
     /// Returns `Err` if:
+    /// - Any of `urls` is invalid
     /// - Any of http access fails
     /// - Any of response code is not 200
     /// - Any of downloaded zip is invalid
-    ///
-    /// # Panics
-    ///
-    /// Panics when any of `urls` is invalid.
     pub fn http_get_zips(
         &mut self,
         urls: &[String],
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
-        let mut responses = vec![];
+        let mut responses = Vec::with_capacity(urls.len());
         for url in urls {
             responses.push(self.http_get(&url)?);
         }
@@ -215,22 +186,20 @@ impl HttpSession {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if the http access or serialization fails, or the response code differs from
-    /// `expected_status`.
-    ///
-    /// # Panics
-    ///
-    /// Panics when `url` is invalid.
+    /// Returns `Err` if:
+    /// - `url` is invalid
+    /// - The http access or serialization fails
+    /// - The response code differs from `expected_status`
     pub fn http_post_urlencoded<T: Serialize>(
         &mut self,
         url: &str,
         data: T,
-        expected_status: StatusCode,
+        expected_status: u16,
     ) -> ServiceResult<Response> {
-        self.http_post(
+        self.send_post(
             url,
             serde_urlencoded::to_string(data)?,
-            expected_status,
+            status_from_u16(expected_status)?,
             ContentType::form_url_encoded(),
             &[],
         )
@@ -240,76 +209,71 @@ impl HttpSession {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if the http access or serialization fails, or the response code differs from
-    /// `expected_status`.
-    ///
-    /// # Panics
-    ///
-    /// Panics when `url` is invalid.
+    /// Returns `Err` if:
+    /// - `url` is invalid
+    /// - The http access or serialization fails
+    /// - The response code differs from `expected_status`
     pub fn http_post_json_with_csrf_token<T: Serialize>(
         &mut self,
         url: &str,
         data: T,
-        expected_status: StatusCode,
+        expected_status: u16,
         csrf_token: String,
     ) -> ServiceResult<Response> {
-        self.http_post(
+        self.send_post(
             url,
             serde_json::to_string(&data)?,
-            expected_status,
+            status_from_u16(expected_status)?,
             ContentType::json(),
             &[("X-CSRF-Token", csrf_token)],
         )
     }
 
-    fn send_get<U: Clone + fmt::Display + IntoUrl>(&mut self, url: U) -> ServiceResult<Response> {
-        print_decorated!(Attr::Bold, None, "GET ");
-        print_and_flush!("{} ... ", url);
+    fn send_get(
+        &mut self,
+        url: &str,
+        expected_status: StatusCode,
+        acceptable_statuses: &[StatusCode],
+    ) -> ServiceResult<Response> {
+        print_decorated!(Attr::Bold, None, "GET");
+        print_and_flush!(" {} ... ", url);
         let response = self.reqwest_client
-            .get(url.clone())
+            .get(url)
             .header(user_agent())
             .header(self.cookie_jar.as_request_cookie())
             .send()?;
         self.add_setcookie_to_jar(&response)?;
-        Ok(response)
+        response.print_status(expected_status);
+        response.filter_by_status(acceptable_statuses)
     }
 
-    fn http_post<U: Clone + fmt::Display + IntoUrl>(
+    fn send_post(
         &mut self,
-        url: U,
+        url: &str,
         data: String,
-        expected_status: StatusCode,
+        acceptable_status: StatusCode,
         content_type: ContentType,
         extra_headers: &[(&'static str, String)],
     ) -> ServiceResult<Response> {
-        print_decorated!(Attr::Bold, None, "POST ");
-        print_and_flush!("{} ... ", url);
-
-        let mut headers = Headers::new();
-        headers.set(user_agent());
-        headers.set(self.cookie_jar.as_request_cookie());
-        headers.set(content_type);
-        for &(header_name, ref header_value) in extra_headers {
-            headers.set_raw(header_name, header_value.as_str());
-        }
+        print_decorated!(Attr::Bold, None, "POST");
+        print_and_flush!(" {} ... ", url);
         let response = self.reqwest_client
-            .post(url.clone())
+            .post(url)
             .body(data)
-            .headers(headers)
+            .headers({
+                let mut headers = Headers::new();
+                headers.set(user_agent());
+                headers.set(self.cookie_jar.as_request_cookie());
+                headers.set(content_type);
+                for &(header_name, ref header_value) in extra_headers {
+                    headers.set_raw(header_name, header_value.as_str());
+                }
+                headers
+            })
             .send()?;
-
         self.add_setcookie_to_jar(&response)?;
-
-        if response.status() == expected_status {
-            println_decorated!(Attr::Bold, Some(color::GREEN), "{}", response.status());
-            Ok(response)
-        } else {
-            println_decorated!(Attr::Bold, Some(color::RED), "{}", response.status());
-            bail!(ServiceErrorKind::UnexpectedHttpCode(
-                vec![expected_status],
-                response.status(),
-            ))
-        }
+        response.print_status(acceptable_status);
+        response.filter_by_status(&[acceptable_status])
     }
 
     fn add_setcookie_to_jar(&mut self, response: &Response) -> Result<(), cookie::ParseError> {
@@ -326,6 +290,11 @@ impl HttpSession {
 }
 
 
+fn status_from_u16(number: u16) -> ServiceResult<StatusCode> {
+    StatusCode::try_from(number).map_err(|_| ServiceErrorKind::InvalidStatusCode(number).into())
+}
+
+
 fn user_agent() -> UserAgent {
     UserAgent::new("snowchains <https://github.com/wariuni/snowchains>")
 }
@@ -337,10 +306,43 @@ trait AsRequestCookie {
 
 impl AsRequestCookie for CookieJar {
     fn as_request_cookie(&self) -> RequestCookie {
-        let mut request_cookie = RequestCookie::new();
-        for cookie in self.iter() {
-            request_cookie.append(cookie.name().to_owned(), cookie.value().to_owned());
+        self.iter().fold(
+            RequestCookie::new(),
+            |mut header, cookie| {
+                header.append(cookie.name().to_owned(), cookie.value().to_owned());
+                header
+            },
+        )
+    }
+}
+
+
+trait ResponseExt
+where
+    Self: Sized,
+{
+    fn print_status(&self, expected_status: StatusCode);
+    fn filter_by_status(self, acceptable_statuses: &[StatusCode]) -> ServiceResult<Self>;
+}
+
+impl ResponseExt for Response {
+    fn print_status(&self, expected_status: StatusCode) {
+        let color = if self.status() == expected_status {
+            color::GREEN
+        } else {
+            color::RED
+        };
+        println_decorated!(Attr::Bold, Some(color), "{}", self.status());
+    }
+
+    fn filter_by_status(self, acceptable_statuses: &[StatusCode]) -> ServiceResult<Self> {
+        if acceptable_statuses.contains(&self.status()) {
+            Ok(self)
+        } else {
+            bail!(ServiceErrorKind::UnexpectedHttpCode(
+                acceptable_statuses.iter().cloned().collect(),
+                self.status(),
+            ))
         }
-        request_cookie
     }
 }

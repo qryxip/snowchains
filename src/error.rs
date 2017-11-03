@@ -93,6 +93,11 @@ error_chain! {
             display("{} not found", contest_name)
         }
 
+        InvalidStatusCode(code: u16) {
+            description("Invalid status code (should be unreachable as long as `code` is constant)")
+            display("Invalid status code: {}", code)
+        }
+
         NoSuchProblem(name: String) {
             description("No such problem")
             display("No such problem: {:?}", name)
@@ -109,7 +114,7 @@ error_chain! {
         }
 
         Thread {
-            description("Error of std::thread")
+            description("Thread error")
             display("Thread error")
         }
 

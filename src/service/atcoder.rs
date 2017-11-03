@@ -3,7 +3,6 @@ use service::session::HttpSession;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
 use regex::Regex;
-use reqwest::StatusCode;
 use select::document::Document;
 use select::node::Node;
 use select::predicate::{Attr as HtmlAttr, Class, Name, Predicate, Text};
@@ -60,7 +59,7 @@ impl AtCoder {
             "https://{}.contest.atcoder.jp/participants/insert",
             contest_name
         );
-        self.http_get_expecting(&url, StatusCode::Found).map(|_| ())
+        self.http_get_expecting(&url, 302).map(|_| ())
     }
 
     fn download_all_tasks(
@@ -108,7 +107,7 @@ impl AtCoder {
 
         static URL: &'static str = "https://practice.contest.atcoder.jp/login";
         let _ = self.http_get(URL)?;
-        while let Err(e) = self.http_post_urlencoded(URL, post_data()?, StatusCode::Found) {
+        while let Err(e) = self.http_post_urlencoded(URL, post_data()?, 302) {
             e.print_chain_colored();
             println!("Failed to sign in. try again.")
         }
