@@ -294,9 +294,9 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let lang = matches.value_of("lang");
         let dir = config.suite_dir()?;
         let extensions = config.get_extensions_on_judging();
-        let judging = config.construct_judging_command(target, lang)?;
+        let solver = config.construct_solver(target, lang)?;
         let compilation = config.construct_compilation_command(target, lang)?;
-        judge::judge(&dir, target, extensions, judging, compilation)?;
+        judge::judge(&dir, target, extensions, solver, compilation)?;
         return Ok(());
     } else if let Some(matches) = matches.subcommand_matches("submit") {
         info!("Running command \"submit\"");
@@ -312,9 +312,9 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         if !skip_judging {
             let dir = config.suite_dir()?;
             let extensions = config.get_extensions_on_judging();
-            let judging = config.construct_judging_command(target, lang)?;
+            let solver = config.construct_solver(target, lang)?;
             let compilation = config.construct_compilation_command(target, lang)?;
-            judge::judge(&dir, target, extensions, judging, compilation)?;
+            judge::judge(&dir, target, extensions, solver, compilation)?;
             println!("");
         }
         return Ok(match service {

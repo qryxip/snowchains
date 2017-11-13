@@ -4,9 +4,8 @@ use testsuite::SuiteFileExtension;
 use util::{self, ToCamlCase};
 
 use serde_yaml;
+use std::{env, fs};
 use std::borrow::Cow;
-use std::env;
-use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -245,13 +244,13 @@ impl Config {
     }
 
     /// Constructs arguments of execution command for given or default language.
-    pub fn construct_judging_command(
+    pub fn construct_solver(
         &self,
         target: &str,
         lang_name: Option<&str>,
     ) -> ConfigResult<JudgingCommand> {
         let lang = self.lang_property(lang_name)?;
-        Ok(lang.construct_judging_command(&self.base_dir, target)?)
+        Ok(lang.construct_solver(&self.base_dir, target)?)
     }
 
     fn lang_property(&self, lang_name: Option<&str>) -> ConfigResult<&LangProperty> {
@@ -402,12 +401,12 @@ impl LangProperty {
         }))
     }
 
-    fn construct_judging_command(&self, base: &Path, target: &str) -> ConfigResult<JudgingCommand> {
+    fn construct_solver(&self, base: &Path, target: &str) -> ConfigResult<JudgingCommand> {
         let working_dir = self.runtime_working_dir.resolve(base)?;
         let (src, bin) = self.resolve_src_and_bin(base, target)?;
         let src = src.display().to_string();
         let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
-        Ok(self.run.to_judging_command(target, working_dir, &src, &bin))
+        Ok(self.run.to_solver(target, working_dir, &src, &bin))
     }
 
     fn resolve_src_and_bin(
@@ -488,7 +487,7 @@ impl BraceFormat {
         CompilationCommand::new(command, working_dir, src_and_bin)
     }
 
-    fn to_judging_command(
+    fn to_solver(
         &self,
         target: &str,
         working_dir: PathBuf,

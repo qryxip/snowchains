@@ -1,4 +1,4 @@
-use error::SuiteFileResult;
+use error::{SuiteFileErrorKind, SuiteFileResult};
 use util;
 
 use serde_json;
@@ -9,12 +9,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::vec;
 use toml;
 
 
 pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
     let mut suite = TestSuite::load(path)?;
-    suite.append(input, output);
+    suite.append(input, output)?;
     suite.save(path, false)
 }
 
@@ -23,7 +24,7 @@ pub fn load_and_merge_all_cases(
     dir: &Path,
     stem: &str,
     extensions: &[SuiteFileExtension],
-) -> SuiteFileResult<Vec<TestCase>> {
+) -> SuiteFileResult<TestCases> {
     let existing_suites = extensions
         .iter()
         .filter_map(|&ext| {
@@ -36,45 +37,62 @@ pub fn load_and_merge_all_cases(
         })
         .collect::<SuiteFileResult<Vec<_>>>()?;
 
-    Ok(
-        existing_suites
-            .into_iter()
-            .flat_map(|suite| {
-                let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
-                let path = Arc::new(path);
-                cases.into_iter().map(move |case| {
-                    case.reduce(path.clone(), timelimit)
+    if existing_suites.iter().all(TestSuite::is_simple) {
+        Ok(TestCases::Simple(
+            existing_suites
+                .into_iter()
+                .map(TestSuite::unwrap_to_simple)
+                .flat_map(|suite| {
+                    let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
+                    let path = Arc::new(path);
+                    cases.into_iter().map(move |case| {
+                        case.reduce(path.clone(), timelimit)
+                    })
                 })
-            })
-            .collect(),
-    )
+                .collect(),
+        ))
+    } else if existing_suites.iter().all(TestSuite::is_interactive) {
+        Ok(TestCases::Interactive(
+            existing_suites
+                .into_iter()
+                .map(TestSuite::unwrap_to_interactive)
+                .flat_map(|suite| {
+                    let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
+                    cases.into_iter().map(move |case| {
+                        case.appended(path.clone(), timelimit)
+                    })
+                })
+                .collect(),
+        ))
+    } else {
+        bail!(SuiteFileErrorKind::DifferentTypesOfSuites);
+    }
 }
 
 
 /// Set of the timelimit and test cases.
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct TestSuite {
-    timelimit: Option<u64>,
-    cases: Vec<ReducibleCase>,
-    #[serde(skip)]
-    path: PathBuf,
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum TestSuite {
+    Simple(SimpleSuite),
+    Interactive(InteractiveSuite),
+}
+
+impl Default for TestSuite {
+    fn default() -> Self {
+        TestSuite::Interactive(InteractiveSuite::default())
+    }
 }
 
 impl TestSuite {
-    /// Constructs a `Cases` with a timelimit value and pairs of input/output samples.
-    pub fn from_text<I: IntoIterator<Item = (String, String)>>(
-        timelimit: Option<u64>,
-        cases: I,
-    ) -> Self {
-        Self {
-            timelimit: timelimit,
-            cases: cases
-                .into_iter()
-                .map(|(output, input)| {
-                    ReducibleCase::from_strings(input, Some(output))
-                })
-                .collect(),
-            path: PathBuf::default(),
+    /// Constructs a `Cases` with `timelimit` and `cases`.
+    ///
+    /// Returns `InteractiveSuite` if `cases` is empty, otherwise returns `SimpleSuite`.
+    pub fn from_samples(timelimit: Option<u64>, cases: Vec<(String, String)>) -> Self {
+        if cases.is_empty() {
+            TestSuite::Interactive(InteractiveSuite::without_cases(timelimit))
+        } else {
+            TestSuite::Simple(SimpleSuite::from_samples(timelimit, cases.into_iter()))
         }
     }
 
@@ -87,18 +105,27 @@ impl TestSuite {
             SuiteFileExtension::Toml => toml::from_str(&text)?,
             SuiteFileExtension::Yaml | SuiteFileExtension::Yml => serde_yaml::from_str(&text)?,
         };
-        suite.path = path;
+        match suite {
+            TestSuite::Simple(ref mut suite) => suite.path = path,
+            TestSuite::Interactive(ref mut suite) => suite.path = path,
+        }
         Ok(suite)
     }
 
     /// Whether `self` has no test case.
     pub fn is_empty(&self) -> bool {
-        self.cases.is_empty()
+        match *self {
+            TestSuite::Simple(ref suite) => suite.is_empty(),
+            TestSuite::Interactive(ref suite) => suite.is_empty(),
+        }
     }
 
     /// Returns the number of test cases of `self`.
     pub fn num_cases(&self) -> usize {
-        self.cases.len()
+        match *self {
+            TestSuite::Simple(ref suite) => suite.num_cases(),
+            TestSuite::Interactive(ref suite) => suite.num_cases(),
+        }
     }
 
     /// Serializes `self` and save it to given path.
@@ -123,8 +150,118 @@ impl TestSuite {
         Ok(println!(""))
     }
 
+    fn is_simple(&self) -> bool {
+        match *self {
+            TestSuite::Simple(_) => true,
+            TestSuite::Interactive(_) => false,
+        }
+    }
+
+    fn is_interactive(&self) -> bool {
+        !self.is_simple()
+    }
+
+    fn unwrap_to_simple(self) -> SimpleSuite {
+        match self {
+            TestSuite::Simple(suite) => suite,
+            TestSuite::Interactive(_) => unreachable!(),
+        }
+    }
+
+    fn unwrap_to_interactive(self) -> InteractiveSuite {
+        match self {
+            TestSuite::Simple(_) => unreachable!(),
+            TestSuite::Interactive(suite) => suite,
+        }
+    }
+
+    fn append(&mut self, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
+        match *self {
+            TestSuite::Simple(ref mut suite) => Ok(suite.append(input, output)),
+            TestSuite::Interactive(_) => bail!(SuiteFileErrorKind::SuiteIsInteractive),
+        }
+    }
+}
+
+
+/// Set of the timelimit and test cases.
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct SimpleSuite {
+    timelimit: Option<u64>,
+    cases: Vec<ReducibleCase>,
+    #[serde(skip)]
+    path: PathBuf,
+}
+
+
+impl SimpleSuite {
+    /// Constructs a `Cases` with a timelimit value and pairs of input/output samples.
+    fn from_samples(timelimit: Option<u64>, cases: vec::IntoIter<(String, String)>) -> Self {
+        Self {
+            timelimit: timelimit,
+            cases: cases
+                .map(|(output, input)| {
+                    ReducibleCase::from_strings(input, Some(output))
+                })
+                .collect(),
+            path: PathBuf::default(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.cases.is_empty()
+    }
+
+    fn num_cases(&self) -> usize {
+        self.cases.len()
+    }
+
     fn append(&mut self, input: &str, output: Option<&str>) {
         self.cases.push(ReducibleCase::from_strings(input, output));
+    }
+}
+
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct InteractiveSuite {
+    timelimit: Option<u64>,
+    cases: Vec<InteractiveCase>,
+    #[serde(skip)]
+    path: PathBuf,
+}
+
+impl InteractiveSuite {
+    fn without_cases(timelimit: Option<u64>) -> Self {
+        Self {
+            timelimit: timelimit,
+            cases: vec![],
+            path: PathBuf::new(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.cases.is_empty()
+    }
+
+    fn num_cases(&self) -> usize {
+        self.cases.len()
+    }
+}
+
+
+/// `Vec<SimpleCase>` or `Vec<ReducibleCase>`.
+pub enum TestCases {
+    Simple(Vec<SimpleCase>),
+    Interactive(Vec<InteractiveCase>),
+}
+
+impl TestCases {
+    /// Returns the length of its content.
+    pub fn len(&self) -> usize {
+        match *self {
+            TestCases::Simple(ref cases) => cases.len(),
+            TestCases::Interactive(ref cases) => cases.len(),
+        }
     }
 }
 
@@ -133,14 +270,14 @@ impl TestSuite {
 ///
 /// `expected` is empty IFF omitted.
 #[derive(Clone)]
-pub struct TestCase {
+pub struct SimpleCase {
     path: Arc<PathBuf>,
     input: Arc<String>,
     expected: Arc<String>,
     timelimit: Option<u64>,
 }
 
-impl TestCase {
+impl SimpleCase {
     /// # Example
     ///
     /// ```
@@ -153,6 +290,38 @@ impl TestCase {
     /// Gets `self::path`.
     pub fn get_path(&self) -> Arc<PathBuf> {
         self.path.clone()
+    }
+}
+
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct InteractiveCase {
+    tester: String,
+    timelimit: Option<u64>,
+    #[serde(skip)]
+    path: PathBuf,
+}
+
+impl InteractiveCase {
+    /// Gets `self.tester` as `&str`.
+    pub fn get_tester(&self) -> &str {
+        &self.tester
+    }
+
+    /// Gets `self.timelimit`.
+    pub fn get_timelimit(&self) -> Option<u64> {
+        self.timelimit
+    }
+
+    /// Gets `self::path` as `Arc`.
+    pub fn get_path(&self) -> Arc<PathBuf> {
+        Arc::new(self.path.clone())
+    }
+
+    fn appended<P: Into<PathBuf>>(mut self, path: P, timelimit: Option<u64>) -> Self {
+        self.path = path.into();
+        self.timelimit = self.timelimit.or(timelimit);
+        self
     }
 }
 
@@ -248,8 +417,8 @@ impl ReducibleCase {
         }
     }
 
-    fn reduce(self, path: Arc<PathBuf>, timelimit: Option<u64>) -> TestCase {
-        TestCase {
+    fn reduce(self, path: Arc<PathBuf>, timelimit: Option<u64>) -> SimpleCase {
+        SimpleCase {
             path: path,
             input: Arc::new(self.input.reduce()),
             expected: Arc::new(self.expected.map(|v| v.reduce()).unwrap_or_default()),

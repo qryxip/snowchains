@@ -144,11 +144,13 @@ $ snowchains download (--open-browser)
 
 ### Format
 
-Here's exmaples for [Welcome to AtCoder](https://beta.atcoder.jp/contests/practice/tasks/practice_1).
+Here are exmaples for [Task A of Welcome to AtCoder](https://beta.atcoder.jp/contests/practice/tasks/practice_1).
 
 #### YAML
+
 ```yaml
 ---
+type: "simple"  # "simple" or "interactive"
 timelimit: 2000 # Optional
 
 # Possible types of "expected" and "input":
@@ -171,6 +173,7 @@ cases:
 #### TOML
 
 ```toml
+type = "simple"
 timelimit = 2000
 
 [[cases]]
@@ -190,6 +193,7 @@ input = ["1000", "1000 1000", "ooooooooooooooooooooooooooooo"]
 
 ```json
 {
+  "type": "simple",
   "timelimit": 2000,
   "cases": [
     {
@@ -206,6 +210,74 @@ input = ["1000", "1000 1000", "ooooooooooooooooooooooooooooo"]
     }
   ]
 }
+```
+
+#### Interactive
+
+Here is a exmaple for [Task B of Welcome to AtCoder](https://beta.atcoder.jp/contests/practice/tasks/practice_2).
+
+```yaml
+---
+type: "simple"
+timelimit: 2000
+
+cases:
+  -
+    tester: "./tester.py 1 2 3 4 5" # relative from `runtime_working_dir`
+  -
+    tester: "./tester.py 5 4 3 2 1"
+  - 
+    tester: "./tester.py 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 \
+             7 6 5 4 3 2 1"
+```
+
+```python
+#!/usr/bin/env python3
+# coding: utf-8
+import sys
+from sys import stdin
+
+import regex
+
+
+def main() -> None:
+    try:
+        weights = [int(s) for s in sys.argv[1:]]
+        num_queries = num_queries_for_num_balls(len(weights))
+        print(f'{len(weights)} {num_queries}', flush=True)
+        for _ in range(0, num_queries):
+            query = regex.split('\s+', stdin.readline())
+            if query[0] == '?':
+                i, j = ord(query[1]) - ord('A'), ord(query[2]) - ord('A')
+                print('<' if weights[i] < weights[j] else '>', flush=True)
+            elif query[0] == '!':
+                answer = [ord(c) - ord('A') for c in query[1]]
+                if len(answer) != len(weights) or \
+                        any(weights[i] >= weights[j]
+                            for i, j in zip(answer[:-1], answer[1:])):
+                    raise RuntimeError('Wrong answer')
+                else:
+                    break
+            else:
+                raise RuntimeError('Unexpected input')
+        else:
+            raise RuntimeError('Run out of queries')
+    except (RuntimeError, IndexError, ValueError) as e:
+        print(f'{e.__class__.__name__}: {e}')
+        sys.exit(1)
+
+
+def num_queries_for_num_balls(num_balls: int) -> int:
+    if num_balls == 26:
+        return 100
+    elif num_balls == 5:
+        return 7
+    else:
+        raise RuntimeError("must be 5 or 26 characters")
+
+
+if __name__ == '__main__':
+    main()
 ```
 
 ## Editor Integrations

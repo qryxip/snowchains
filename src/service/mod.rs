@@ -6,28 +6,32 @@ mod session;
 use error::{ServiceError, ServiceErrorKind, ServiceResult};
 use util;
 
+use {rpassword, rprompt, webbrowser};
 use regex::Regex;
-use rpassword;
-use rprompt;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 use term::{Attr, color};
-use webbrowser;
 
 
 /// Reads username and password from stdin, showing the prompts on stderr.
 ///
-/// If fails to read a password because of OS error 6, askes a password again without hiding the
-/// input.
+/// If fails to read a password because of OS error 6 or 32, askes a password again without hiding
+/// the input.
 fn read_username_and_password(username_prompt: &'static str) -> io::Result<(String, String)> {
+    let errno_brokenpipe = if cfg!(target_os = "windows") { 6 } else { 32 };
     let username = rprompt::prompt_reply_stderr(username_prompt)?;
     let password = rpassword::prompt_password_stderr("Password: ").or_else(
         |e| {
             match e.raw_os_error() {
-                Some(6) => {
-                    eprintln_decorated!(Attr::Bold, Some(color::BRIGHT_MAGENTA), "FALLBACK");
+                Some(n) if n == errno_brokenpipe => {
+                    eprintln_decorated!(
+                        Attr::Bold,
+                        Some(color::BRIGHT_MAGENTA),
+                        "FALLBACK (os error {})",
+                        n
+                    );
                     rprompt::prompt_reply_stderr("Password (not hidden): ")
                 }
                 _ => Err(e),

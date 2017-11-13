@@ -1,8 +1,7 @@
-use std::env;
+use std::{env, str};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::str;
 
 
 /// Calls `File::open(path)` and if the result is `Err`, replace the error with new one which
@@ -93,33 +92,6 @@ impl<T> OkAsRefOr for Option<T> {
         match *self {
             Some(ref x) => Ok(x),
             None => Err(e),
-        }
-    }
-}
-
-
-pub trait UnwrapAsRefMut {
-    type Item;
-    /// Gets the value `&mut x` if `Some(ref mut x) = self`.
-    ///
-    /// # Panic
-    ///
-    /// Panics if `self` is `None`.
-    fn unwrap_as_ref_mut(&mut self) -> &mut Self::Item;
-}
-
-impl<T> UnwrapAsRefMut for Option<T> {
-    type Item = T;
-
-    fn unwrap_as_ref_mut(&mut self) -> &mut T {
-        match *self {
-            Some(ref mut x) => x,
-            None => {
-                panic!(
-                    "called `<Option as UnwrapAsRefMut>::unwrap_as_ref_mut` \
-                     on a `None` value"
-                )
-            }
         }
     }
 }

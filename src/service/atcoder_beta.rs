@@ -530,7 +530,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
                 ))
             }
         };
-        Some(TestSuite::from_text(timelimit, samples))
+        Some(TestSuite::from_samples(timelimit, samples))
     }
 
     Ok(extract(document).unwrap_or_default())

@@ -159,12 +159,12 @@ error_chain! {
             description("Compilation command failed")
             display("The compilation command terminated abnormally {}",
                     if let Some(code) = status.code() { format!("with code {}", code) }
-                    else {"without code".to_owned() })
+                    else { "without code".to_owned() })
         }
 
-        TestFailure(n: usize) {
+        TestFailure(n: usize, d: usize) {
             description("Test faild")
-            display("{} Test{} failed", n, if *n > 0 { "s" } else { "" })
+            display("{}/{} Test{} failed", n, d, if *n > 0 { "s" } else { "" })
         }
     }
 }
@@ -181,6 +181,18 @@ error_chain! {
         SerdeYaml(serde_yaml::Error);
         TomlDe(toml::de::Error);
         TomlSer(toml::ser::Error);
+    }
+
+    errors {
+        DifferentTypesOfSuites {
+            description("Different types of suites")
+            display("Different types of suites")
+        }
+
+        SuiteIsInteractive {
+            description("Target suite is interactive")
+            display("Target suite is interactive")
+        }
     }
 }
 

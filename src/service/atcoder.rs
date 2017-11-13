@@ -181,7 +181,7 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
             }
             samples
         };
-        Some(TestSuite::from_text(Some(timelimit), samples))
+        Some(TestSuite::from_samples(Some(timelimit), samples))
     }
 
     super::quit_on_failure(extract(Document::from_read(html)?), TestSuite::is_empty)

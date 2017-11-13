@@ -136,10 +136,9 @@ impl HttpSession {
         &mut self,
         urls: &[String],
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
-        let mut responses = Vec::with_capacity(urls.len());
-        for url in urls {
-            responses.push(self.http_get(&url)?);
-        }
+        let responses = urls.iter()
+            .map(|url| self.http_get(url))
+            .collect::<Result<Vec<_>, _>>()?;
 
         println!("Downloading...");
         let mut mb = MultiBar::new();
@@ -243,7 +242,7 @@ impl HttpSession {
             .header(self.cookie_jar.as_request_cookie())
             .send()?;
         self.add_setcookie_to_jar(&response)?;
-        response.print_status(expected_status);
+        response.print_status(expected_status, acceptable_statuses);
         response.filter_by_status(acceptable_statuses)
     }
 
@@ -272,7 +271,7 @@ impl HttpSession {
             })
             .send()?;
         self.add_setcookie_to_jar(&response)?;
-        response.print_status(acceptable_status);
+        response.print_status(acceptable_status, &[]);
         response.filter_by_status(&[acceptable_status])
     }
 
@@ -321,14 +320,16 @@ trait ResponseExt
 where
     Self: Sized,
 {
-    fn print_status(&self, expected_status: StatusCode);
+    fn print_status(&self, expected_status: StatusCode, other_acceptable_statuses: &[StatusCode]);
     fn filter_by_status(self, acceptable_statuses: &[StatusCode]) -> ServiceResult<Self>;
 }
 
 impl ResponseExt for Response {
-    fn print_status(&self, expected_status: StatusCode) {
+    fn print_status(&self, expected_status: StatusCode, other_acceptable_statuses: &[StatusCode]) {
         let color = if self.status() == expected_status {
             color::GREEN
+        } else if other_acceptable_statuses.contains(&self.status()) {
+            color::YELLOW
         } else {
             color::RED
         };
