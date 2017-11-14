@@ -240,35 +240,33 @@ from sys import stdin
 
 
 def main() -> None:
-    try:
-        weights = [int(s) for s in sys.argv[1:]]
-        num_queries = 7 if len(weights) == 5 else 100
+    weights = [int(s) for s in sys.argv[1:]]
+    num_queries = 7 if len(weights) == 5 else 100
 
-        def reply_to_question(c1, c2):
-            i, j = ord(c1) - ord('A'), ord(c2) - ord('A')
-            print('<' if weights[i] < weights[j] else '>', flush=True)
+    def reply(c1, c2):
+        i, j = ord(c1) - ord('A'), ord(c2) - ord('A')
+        print('<' if weights[i] < weights[j] else '>', flush=True)
 
-        def is_correct(answer):
-            return len(answer) == len(weights) and \
-                   all(weights[i] < weights[j]
-                       for i, j in zip(answer[:-1], answer[1:]))
+    def is_correct(answer):
+        answer = [ord(c) - ord('A') for c in answer]
+        is_correct_length = len(answer) == len(weights)
+        is_sorted = all(weights[i] < weights[j]
+                        for i, j in zip(answer[:-1], answer[1:]))
+        return is_correct_length and is_sorted
 
-        print(f'{len(weights)} {num_queries}', flush=True)
-        for _ in range(0, num_queries):
-            query = re.split('\s+', stdin.readline())
-            if query[0] == '?':
-                reply_to_question(query[1], query[2])
-            elif query[0] == '!':
-                if not is_correct([ord(c) - ord('A') for c in query[1]]):
-                    raise RuntimeError('Wrong answer')
-                break
-            else:
-                raise RuntimeError('Unexpected input')
+    print(f'{len(weights)} {num_queries}', flush=True)
+    for _ in range(0, num_queries):
+        query = re.split('\s+', stdin.readline())
+        if query[0] == '?':
+            reply(query[1], query[2])
+        elif query[0] == '!':
+            if not is_correct(query[1]):
+                raise RuntimeError('Wrong answer')
+            break
         else:
-            raise RuntimeError('Run out of queries')
-    except (RuntimeError, IndexError, ValueError) as e:
-        print(f'{e.__class__.__name__}: {e}')
-        sys.exit(1)
+            raise RuntimeError('Unexpected input')
+    else:
+        raise RuntimeError('Run out of queries')
 
 
 if __name__ == '__main__':

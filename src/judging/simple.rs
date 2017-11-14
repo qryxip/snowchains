@@ -120,7 +120,7 @@ impl JudgingOutput for SimpleOutput {
             } else if num_bytes > THRESHOLD_TO_OMIT {
                 eprint_size(num_bytes);
             } else {
-                util::eprintln_trimming_last_newline(content);
+                util::eprintln_trimming_trailing_newline(content);
             }
         }
 
@@ -130,7 +130,7 @@ impl JudgingOutput for SimpleOutput {
                 eprint_size(num_bytes);
             } else if num_bytes > 0 {
                 eprintln_bold!(Some(color::MAGENTA), "{}:", head);
-                util::eprintln_trimming_last_newline(content);
+                util::eprintln_trimming_trailing_newline(content);
             }
         }
 

@@ -48,8 +48,8 @@ pub fn string_from_file_path(path: &Path) -> io::Result<String> {
 }
 
 
-/// Prints the given string ignoring the last newline if it exists.
-pub fn eprintln_trimming_last_newline(s: &str) {
+/// Prints `s` ignoring a trailing newline if it exists.
+pub fn eprintln_trimming_trailing_newline(s: &str) {
     if s.chars().last() == Some('\n') {
         eprint_and_flush!("{}", s);
     } else {

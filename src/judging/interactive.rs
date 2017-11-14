@@ -2,6 +2,7 @@ use super::{JudgingCommand, MillisRoundedUp, WrapNotFoundErrorMessage};
 use error::JudgingResult;
 use judging::JudgingOutput;
 use testsuite::InteractiveCase;
+use util;
 
 use std::fmt;
 use std::io::{self, BufRead, BufReader, Write};
@@ -32,8 +33,8 @@ pub fn judge(
         match result {
             Err(_) => Ok(InteractiveOutput::exceeded(timelimit, couts)),
             Ok(result) => {
-                let (succeeded, t) = result.wrap_not_found_error_message(|| solver.arg0_name())?;
-                Ok(InteractiveOutput::new(Some(timelimit), t, succeeded, couts))
+                let (s, t, e1, e2) = result.wrap_not_found_error_message(|| solver.arg0_name())?;
+                Ok(InteractiveOutput::new(Some(timelimit), t, s, couts, e1, e2))
             }
         }
     } else {
@@ -41,8 +42,8 @@ pub fn judge(
         let couts = cout_rx.try_iter().collect::<Vec<_>>();
         result
             .wrap_not_found_error_message(|| solver.arg0_name())
-            .map(|(succeeded, t)| {
-                InteractiveOutput::new(None, t, succeeded, couts)
+            .map(|(s, t, e1, e2)| {
+                InteractiveOutput::new(None, t, s, couts, e1, e2)
             })
     }
 }
@@ -52,7 +53,7 @@ fn run(
     solver: &JudgingCommand,
     tester: &JudgingCommand,
     mut cout_tx: Sender<InteractiveConsoleOut>,
-) -> io::Result<(bool, Duration)> {
+) -> io::Result<(bool, Duration, String, String)> {
     // TODO: Capture stderrs.
     use self::InteractiveConsoleOut::{SolverTerminated, TesterTerminated};
 
@@ -91,7 +92,12 @@ fn run(
             let _ = cout_tx.send(SolverTerminated(solver_status_code, elapsed));
             let tester_status_code = tester.wait()?.code();
             let _ = cout_tx.send(TesterTerminated(tester_status_code, elapsed));
-            Ok((tester_status_code == Some(0), elapsed))
+            Ok((
+                tester_status_code == Some(0),
+                elapsed,
+                util::string_from_read(solver.stderr.as_mut().unwrap())?,
+                util::string_from_read(tester.stderr.as_mut().unwrap())?,
+            ))
         }
         Terminated::Tester => {
             let tester_status_code = tester.wait()?.code();
@@ -103,7 +109,12 @@ fn run(
                 let _ = solver.kill()?;
                 let _ = cout_tx.send(TesterTerminated(None, elapsed));
             }
-            Ok((tester_status_code == Some(0), elapsed))
+            Ok((
+                tester_status_code == Some(0),
+                elapsed,
+                util::string_from_read(solver.stderr.as_mut().unwrap())?,
+                util::string_from_read(tester.stderr.as_mut().unwrap())?,
+            ))
         }
     }
 }
@@ -171,6 +182,8 @@ pub struct InteractiveOutput {
     kind: InteractiveOutputKind,
     elapsed: Duration,
     console_outs: Vec<InteractiveConsoleOut>,
+    solver_stderr: String,
+    tester_stderr: String,
 }
 
 impl fmt::Display for InteractiveOutput {
@@ -211,13 +224,26 @@ impl JudgingOutput for InteractiveOutput {
                 .unwrap_or(1)
         };
 
-        if self.console_outs.is_empty() {
+        if self.solver_stderr.is_empty() && self.tester_stderr.is_empty() &&
+            self.console_outs.is_empty()
+        {
             return eprintln_bold!(Some(color::YELLOW), "EMPTY");
         }
         let tester_len = max_length(InteractiveConsoleOut::is_tester_s);
         let solver_len = max_length(InteractiveConsoleOut::is_solver_s);
         for cout in &self.console_outs {
             cout.eprint_aligned(tester_len, solver_len);
+        }
+        if !self.solver_stderr.is_empty() || !self.tester_stderr.is_empty() {
+            eprintln!("");
+        }
+        if !self.solver_stderr.is_empty() {
+            eprintln_bold!(Some(color::MAGENTA), "Solver stderr:");
+            util::eprintln_trimming_trailing_newline(&self.solver_stderr);
+        }
+        if !self.tester_stderr.is_empty() {
+            eprintln_bold!(Some(color::MAGENTA), "Tester stderr:");
+            util::eprintln_trimming_trailing_newline(&self.tester_stderr);
         }
     }
 }
@@ -228,6 +254,8 @@ impl InteractiveOutput {
         elapsed: Duration,
         succeeded: bool,
         console_outs: Vec<InteractiveConsoleOut>,
+        solver_stderr: String,
+        tester_stderr: String,
     ) -> Self {
         let kind = if succeeded && (timelimit.is_none() || timelimit.unwrap() >= elapsed) {
             InteractiveOutputKind::Success
@@ -238,6 +266,8 @@ impl InteractiveOutput {
             kind: kind,
             elapsed: elapsed,
             console_outs: console_outs,
+            solver_stderr: solver_stderr,
+            tester_stderr: tester_stderr,
         }
     }
 
@@ -246,6 +276,8 @@ impl InteractiveOutput {
             kind: InteractiveOutputKind::Failure,
             elapsed: timelimit,
             console_outs: console_outs,
+            solver_stderr: "".to_owned(),
+            tester_stderr: "".to_owned(),
         }
     }
 }
