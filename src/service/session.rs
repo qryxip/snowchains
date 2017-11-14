@@ -13,7 +13,7 @@ use serde_urlencoded;
 use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
 use std::thread;
-use term::{Attr, color};
+use term::color;
 use zip::ZipArchive;
 use zip::result::ZipResult;
 
@@ -234,7 +234,7 @@ impl HttpSession {
         expected_status: StatusCode,
         acceptable_statuses: &[StatusCode],
     ) -> ServiceResult<Response> {
-        print_decorated!(Attr::Bold, None, "GET");
+        print_bold!(None, "GET");
         print_and_flush!(" {} ... ", url);
         let response = self.reqwest_client
             .get(url)
@@ -254,7 +254,7 @@ impl HttpSession {
         content_type: ContentType,
         extra_headers: &[(&'static str, String)],
     ) -> ServiceResult<Response> {
-        print_decorated!(Attr::Bold, None, "POST");
+        print_bold!(None, "POST");
         print_and_flush!(" {} ... ", url);
         let response = self.reqwest_client
             .post(url)
@@ -333,7 +333,7 @@ impl ResponseExt for Response {
         } else {
             color::RED
         };
-        println_decorated!(Attr::Bold, Some(color), "{}", self.status());
+        println_bold!(Some(color), "{}", self.status());
     }
 
     fn filter_by_status(self, acceptable_statuses: &[StatusCode]) -> ServiceResult<Self> {

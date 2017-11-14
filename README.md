@@ -234,30 +234,34 @@ cases:
 ```python
 #!/usr/bin/env python3
 # coding: utf-8
+import re
 import sys
 from sys import stdin
-
-import regex
 
 
 def main() -> None:
     try:
         weights = [int(s) for s in sys.argv[1:]]
-        num_queries = num_queries_for_num_balls(len(weights))
+        num_queries = 7 if len(weights) == 5 else 100
+
+        def reply_to_question(c1, c2):
+            i, j = ord(c1) - ord('A'), ord(c2) - ord('A')
+            print('<' if weights[i] < weights[j] else '>', flush=True)
+
+        def is_correct(answer):
+            return len(answer) == len(weights) and \
+                   all(weights[i] < weights[j]
+                       for i, j in zip(answer[:-1], answer[1:]))
+
         print(f'{len(weights)} {num_queries}', flush=True)
         for _ in range(0, num_queries):
-            query = regex.split('\s+', stdin.readline())
+            query = re.split('\s+', stdin.readline())
             if query[0] == '?':
-                i, j = ord(query[1]) - ord('A'), ord(query[2]) - ord('A')
-                print('<' if weights[i] < weights[j] else '>', flush=True)
+                reply_to_question(query[1], query[2])
             elif query[0] == '!':
-                answer = [ord(c) - ord('A') for c in query[1]]
-                if len(answer) != len(weights) or \
-                        any(weights[i] >= weights[j]
-                            for i, j in zip(answer[:-1], answer[1:])):
+                if not is_correct([ord(c) - ord('A') for c in query[1]]):
                     raise RuntimeError('Wrong answer')
-                else:
-                    break
+                break
             else:
                 raise RuntimeError('Unexpected input')
         else:
@@ -265,15 +269,6 @@ def main() -> None:
     except (RuntimeError, IndexError, ValueError) as e:
         print(f'{e.__class__.__name__}: {e}')
         sys.exit(1)
-
-
-def num_queries_for_num_balls(num_balls: int) -> int:
-    if num_balls == 26:
-        return 100
-    elif num_balls == 5:
-        return 7
-    else:
-        raise RuntimeError("must be 5 or 26 characters")
 
 
 if __name__ == '__main__':

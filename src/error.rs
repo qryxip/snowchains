@@ -12,7 +12,7 @@ use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::sync::mpsc::RecvError;
-use term::{Attr, color};
+use term::color;
 use toml;
 use zip::result::ZipError;
 
@@ -24,10 +24,10 @@ pub trait PrintChainColored {
 
 impl<E: ChainedError> PrintChainColored for E {
     fn print_chain_colored(&self) {
-        eprint_decorated!(Attr::Bold, Some(color::RED), "Error: ");
+        eprint_bold!(Some(color::RED), "Error: ");
         eprintln!("{}", self);
         for e_kind in self.iter().skip(1) {
-            eprint_decorated!(Attr::Bold, None, "Caused by: ");
+            eprint_bold!(None, "Caused by: ");
             eprintln!("{}", e_kind);
         }
         if let Some(backtrace) = self.backtrace() {
@@ -44,7 +44,7 @@ error_chain!{
 
     links {
         Service(ServiceError, ServiceErrorKind);
-        Judge(JudgeError, JudgeErrorKind);
+        Judging(JudgingError, JudgingErrorKind);
         SuiteFile(SuiteFileError, SuiteFileErrorKind);
         Config(ConfigError, ConfigErrorKind);
     }
@@ -137,7 +137,7 @@ error_chain! {
 
 error_chain! {
     types {
-        JudgeError, JudgeErrorKind, JudgeResultExt, JudgeResult;
+        JudgingError, JudgingErrorKind, JudgingResultExt, JudgingResult;
     }
 
     links {

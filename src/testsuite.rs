@@ -1,18 +1,17 @@
 use error::{SuiteFileErrorKind, SuiteFileResult};
 use util;
 
-use serde_json;
-use serde_yaml;
-use std::fmt;
+use {serde_json, serde_yaml, toml};
+use std::{fmt, vec};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::vec;
-use toml;
+use std::time::Duration;
 
 
+/// Appends `input` and `output` to a test suite read from `path`.
 pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.append(input, output)?;
@@ -20,6 +19,7 @@ pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteF
 }
 
 
+/// Merge test suites in `dir` which filename stem equals `stem` and extension is in `extensions`.
 pub fn load_and_merge_all_cases(
     dir: &Path,
     stem: &str,
@@ -70,7 +70,7 @@ pub fn load_and_merge_all_cases(
 }
 
 
-/// Set of the timelimit and test cases.
+/// `SimpelSuite` or `InteractiveSuite`.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum TestSuite {
@@ -85,7 +85,7 @@ impl Default for TestSuite {
 }
 
 impl TestSuite {
-    /// Constructs a `Cases` with `timelimit` and `cases`.
+    /// Constructs a `TestSuite` with `timelimit` and `cases`.
     ///
     /// Returns `InteractiveSuite` if `cases` is empty, otherwise returns `SimpleSuite`.
     pub fn from_samples(timelimit: Option<u64>, cases: Vec<(String, String)>) -> Self {
@@ -283,8 +283,9 @@ impl SimpleCase {
     /// ```
     /// let (input, expected, timelimit) = self.values()
     /// ```
-    pub fn values(&self) -> (Arc<String>, Arc<String>, Option<u64>) {
-        (self.input.clone(), self.expected.clone(), self.timelimit)
+    pub fn values(&self) -> (Arc<String>, Arc<String>, Option<Duration>) {
+        let timelimit = self.timelimit.map(Duration::from_millis);
+        (self.input.clone(), self.expected.clone(), timelimit)
     }
 
     /// Gets `self::path`.
@@ -308,9 +309,9 @@ impl InteractiveCase {
         &self.tester
     }
 
-    /// Gets `self.timelimit`.
-    pub fn get_timelimit(&self) -> Option<u64> {
-        self.timelimit
+    /// Gets the timelimit as `Option<Duration>`.
+    pub fn get_timelimit(&self) -> Option<Duration> {
+        self.timelimit.map(Duration::from_millis)
     }
 
     /// Gets `self::path` as `Arc`.

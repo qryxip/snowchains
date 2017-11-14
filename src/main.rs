@@ -36,9 +36,10 @@ extern crate serde_derive;
 #[macro_use]
 mod macros;
 
+mod command;
 mod config;
 mod error;
-mod judge;
+mod judging;
 mod service;
 mod testsuite;
 mod util;
@@ -296,7 +297,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let extensions = config.get_extensions_on_judging();
         let solver = config.construct_solver(target, lang)?;
         let compilation = config.construct_compilation_command(target, lang)?;
-        judge::judge(&dir, target, extensions, solver, compilation)?;
+        judging::judge(&dir, target, extensions, solver, compilation)?;
         return Ok(());
     } else if let Some(matches) = matches.subcommand_matches("submit") {
         info!("Running command \"submit\"");
@@ -314,7 +315,7 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
             let extensions = config.get_extensions_on_judging();
             let solver = config.construct_solver(target, lang)?;
             let compilation = config.construct_compilation_command(target, lang)?;
-            judge::judge(&dir, target, extensions, solver, compilation)?;
+            judging::judge(&dir, target, extensions, solver, compilation)?;
             println!("");
         }
         return Ok(match service {

@@ -1,5 +1,5 @@
+use command::{CompilationCommand, JudgingCommand};
 use error::{ConfigError, ConfigErrorKind, ConfigResult};
-use judge::{CompilationCommand, JudgingCommand};
 use testsuite::SuiteFileExtension;
 use util::{self, ToCamlCase};
 

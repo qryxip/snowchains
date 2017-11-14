@@ -12,7 +12,7 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
-use term::{Attr, color};
+use term::color;
 
 
 /// Reads username and password from stdin, showing the prompts on stderr.
@@ -26,12 +26,7 @@ fn read_username_and_password(username_prompt: &'static str) -> io::Result<(Stri
         |e| {
             match e.raw_os_error() {
                 Some(n) if n == errno_brokenpipe => {
-                    eprintln_decorated!(
-                        Attr::Bold,
-                        Some(color::BRIGHT_MAGENTA),
-                        "FALLBACK (os error {})",
-                        n
-                    );
+                    eprintln_bold!(Some(color::BRIGHT_MAGENTA), "FALLBACK (os error {})", n);
                     rprompt::prompt_reply_stderr("Password (not hidden): ")
                 }
                 _ => Err(e),
