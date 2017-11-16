@@ -1,12 +1,15 @@
 use command::{CompilationCommand, JudgingCommand};
-use error::{ConfigError, ConfigErrorKind, ConfigResult};
+use error::{ConfigError, ConfigErrorKind, ConfigResult, PathFormatError, PathFormatResult};
 use testsuite::SuiteFileExtension;
 use util::{self, ToCamlCase};
 
+use regex::Regex;
 use serde_yaml;
 use std::{env, fs};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::{self, Write};
+use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -350,11 +353,11 @@ fn default_extensions() -> Vec<SuiteFileExtension> {
 #[derive(Serialize, Deserialize)]
 struct LangProperty {
     name: String,
-    src: BraceFormat,
-    bin: Option<BraceFormat>,
-    compile: Option<BraceFormat>,
-    #[serde(default = "BraceFormat::bin")]
-    run: BraceFormat,
+    src: PathFormat,
+    bin: Option<PathFormat>,
+    compile: Option<PathFormat>,
+    #[serde(default = "PathFormat::bin")]
+    run: PathFormat,
     #[serde(default)]
     compilation_working_dir: InputPath,
     #[serde(default)]
@@ -375,17 +378,17 @@ impl LangProperty {
     ) -> Self {
         Self {
             name: name.to_owned(),
-            src: BraceFormat(src.to_owned()),
-            bin: bin.map(|bin| BraceFormat(bin.into().into_owned())),
-            compile: compile.map(|comp| BraceFormat(comp.to_owned())),
-            run: BraceFormat(run.to_owned()),
+            src: PathFormat(src.to_owned()),
+            bin: bin.map(|bin| PathFormat(bin.into().into_owned())),
+            compile: compile.map(|comp| PathFormat(comp.to_owned())),
+            run: PathFormat(run.to_owned()),
             compilation_working_dir: InputPath(compilation_working_dir.to_owned()),
             runtime_working_dir: InputPath(runtime_working_dir.to_owned()),
             atcoder_lang_id: atcoder_lang_id,
         }
     }
 
-    fn resolve_src(&self, base: &Path, target: &str) -> io::Result<PathBuf> {
+    fn resolve_src(&self, base: &Path, target: &str) -> ConfigResult<PathBuf> {
         self.src.resolve_as_path(base, target)
     }
 
@@ -396,9 +399,17 @@ impl LangProperty {
     ) -> ConfigResult<Option<CompilationCommand>> {
         let working_dir = self.compilation_working_dir.resolve(base)?;
         let (src, bin) = self.resolve_src_and_bin(base, target)?;
-        Ok(self.compile.as_ref().map(|build| {
-            build.to_compilation_command(target, working_dir, Some(src), bin)
-        }))
+        if let Some(comp) = self.compile.as_ref() {
+            let command = comp.to_compilation_command(
+                target,
+                working_dir,
+                Some(src),
+                bin,
+            )?;
+            Ok(Some(command))
+        } else {
+            Ok(None)
+        }
     }
 
     fn construct_solver(&self, base: &Path, target: &str) -> ConfigResult<JudgingCommand> {
@@ -406,7 +417,7 @@ impl LangProperty {
         let (src, bin) = self.resolve_src_and_bin(base, target)?;
         let src = src.display().to_string();
         let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
-        Ok(self.run.to_solver(target, working_dir, &src, &bin))
+        self.run.to_solver(target, working_dir, &src, &bin)
     }
 
     fn resolve_src_and_bin(
@@ -455,15 +466,16 @@ impl InputPath {
 
 
 #[derive(Serialize, Deserialize)]
-struct BraceFormat(String);
+struct PathFormat(String);
 
-impl BraceFormat {
+impl PathFormat {
     fn bin() -> Self {
-        BraceFormat("$bin".to_owned())
+        PathFormat("$bin".to_owned())
     }
 
-    fn resolve_as_path(&self, base: &Path, target: &str) -> io::Result<PathBuf> {
-        InputPath(self.format(&target, "", "")).resolve(base)
+    fn resolve_as_path(&self, base: &Path, target: &str) -> ConfigResult<PathBuf> {
+        let path = self.format(&target, &HashMap::new())?;
+        Ok(InputPath(path).resolve(base)?)
     }
 
     fn to_compilation_command(
@@ -472,7 +484,7 @@ impl BraceFormat {
         working_dir: PathBuf,
         src: Option<PathBuf>,
         bin: Option<PathBuf>,
-    ) -> CompilationCommand {
+    ) -> ConfigResult<CompilationCommand> {
         let src_s = src.as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_default();
@@ -483,8 +495,9 @@ impl BraceFormat {
             (Some(src), Some(bin)) => Some((src, bin)),
             _ => None,
         };
-        let command = self.format(target, &src_s, &bin_s);
-        CompilationCommand::new(command, working_dir, src_and_bin)
+        let keywords = HashMap::from_iter(vec![("src", src_s.as_str()), ("bin", bin_s.as_str())]);
+        let command = self.format(target, &keywords)?;
+        Ok(CompilationCommand::new(command, working_dir, src_and_bin))
     }
 
     fn to_solver(
@@ -493,91 +506,191 @@ impl BraceFormat {
         working_dir: PathBuf,
         src: &str,
         bin: &str,
-    ) -> JudgingCommand {
-        let command = self.format(target, src, bin);
-        JudgingCommand::new(command, working_dir)
+    ) -> ConfigResult<JudgingCommand> {
+        let keywords = HashMap::from_iter(vec![("src", src), ("bin", bin)]);
+        let command = self.format(target, &keywords)?;
+        Ok(JudgingCommand::new(command, working_dir))
     }
 
-    fn format(&self, target: &str, src: &str, bin: &str) -> String {
-        enum St {
-            Nest(usize),
-            Format(Option<char>),
+    fn format(
+        &self,
+        target: &str,
+        keywords: &HashMap<&'static str, &str>,
+    ) -> PathFormatResult<String> {
+        enum Token {
+            Text(String),
             Var(String),
+            Target(String),
         }
 
-        let (mut r, mut s) = (String::new(), St::Nest(0));
-        macro_rules! close_format(($str: expr) => { {
-            r += $str;
-            St::Nest(0)
-        } });
-        macro_rules! close_var(($var: expr, $next_state: expr, $c: expr) => { {
-            let v = $var.to_lowercase();
-            r += match v.as_str() { "src" => src, "bin" => bin, _ => "" };
-            if let Some(c) = $c { r.push(c); }
-            $next_state
-        } });
-        macro_rules! read_one(($c: expr) => { {
-            r.push($c);
-            St::Nest(0)
-        } });
-        macro_rules! push_to_var(($var: expr, $c: expr) => { {
-            let mut v = $var;
-            if $c != '}' { v.push($c); }
-            St::Var(v)
-        } });
-        for c in self.0.chars() {
-            s = match (c, s) {
-                ('{', St::Nest(0)) => St::Format(None),
-                ('{', St::Nest(n)) => St::Nest(n + 1),
-                ('}', St::Nest(1)) => close_format!(target),
-                ('}', St::Nest(n)) if n > 1 => St::Nest(n - 1),
-                ('$', St::Nest(0)) => St::Var("".to_owned()),
-                (c, St::Nest(0)) => read_one!(c),
-                ('{', St::Format(_)) => St::Nest(2),
-                ('}', St::Format(Some('c'))) |
-                ('}', St::Format(Some('C'))) => close_format!(&target.to_caml_case()),
-                ('}', St::Format(_)) => close_format!(target),
-                (c, St::Format(None)) if c != ' ' => St::Format(Some(c)),
-                (c, St::Format(Some(_))) if c != ' ' => St::Nest(1),
-                ('{', St::Var(v)) => close_var!(v, St::Format(None), None),
-                (' ', St::Var(v)) => close_var!(v, St::Nest(0), Some(' ')),
-                ('$', St::Var(v)) => close_var!(v, St::Var("".to_owned()), None),
-                (c, St::Var(v)) => push_to_var!(v, c),
-                (_, s) => s,
-            };
+        impl Token {
+            fn format(
+                &self,
+                whole: &str,
+                target: &str,
+                keywords: &HashMap<&'static str, &str>,
+                f: &mut String,
+            ) -> PathFormatResult<()> {
+                fn trim_lr(s: &str) -> String {
+                    lazy_static! {
+                        static ref CENTOR: Regex = Regex::new(r"^\s*(\S*)\s*$").unwrap();
+                    }
+                    match CENTOR.captures(s) {
+                        Some(cap) => cap[1].to_owned(),
+                        None => s.to_owned(),
+                    }
+                }
+
+                match *self {
+                    Token::Text(ref s) => Ok(f.push_str(s)),
+                    Token::Var(ref s) => {
+                        match keywords.get(s.as_str()) {
+                            Some(v) => Ok(f.push_str(v)),
+                            None => {
+                                let (whole, s) = (whole.to_owned(), s.to_owned());
+                                let keywords = keywords.keys().cloned().collect();
+                                Err(PathFormatError::NoSuchKeyword(whole, s, keywords))
+                            }
+                        }
+                    }
+                    Token::Target(ref s) => {
+                        let s = trim_lr(s);
+                        if s == "" {
+                            Ok(f.push_str(target))
+                        } else if ["c", "C"].contains(&s.as_str()) {
+                            Ok(f.push_str(&target.to_caml_case()))
+                        } else {
+                            let whole = whole.to_owned();
+                            static EXPECTED_KWS: &'static [&'static str] = &["c", "C"];
+                            Err(PathFormatError::NoSuchSpecifier(whole, s, EXPECTED_KWS))
+                        }
+                    }
+                }
+            }
         }
-        if let St::Var(v) = s {
-            close_var!(v, St::Nest(0), None);
+
+        enum State {
+            Plain(String),
+            Dollar(String),
+            Brace(String),
         }
-        r
+
+        impl State {
+            fn push(mut self, c: char) -> Self {
+                match self {
+                    State::Plain(ref mut s) => s.push(c),
+                    State::Dollar(ref mut s) => s.push(c),
+                    State::Brace(ref mut s) => s.push(c),
+                }
+                self
+            }
+
+            fn plain(self, chars: Vec<char>, tokens: &mut Vec<Token>) -> Self {
+                self.close(State::Plain(String::from_iter(chars)), tokens)
+            }
+
+            fn var(self, tokens: &mut Vec<Token>) -> Self {
+                self.close(State::Dollar("".to_owned()), tokens)
+            }
+
+            fn brace(self, tokens: &mut Vec<Token>) -> Self {
+                self.close(State::Brace("".to_owned()), tokens)
+            }
+
+            fn close(self, next: Self, tokens: &mut Vec<Token>) -> Self {
+                match self {
+                    State::Plain(ref s) if s.is_empty() => {}
+                    State::Plain(s) => tokens.push(Token::Text(s)),
+                    State::Dollar(s) => tokens.push(Token::Var(s)),
+                    State::Brace(s) => tokens.push(Token::Target(s)),
+                }
+                next
+            }
+
+            fn end(self, whole: &str, tokens: &mut Vec<Token>) -> PathFormatResult<()> {
+                match self {
+                    State::Plain(s) => Ok(tokens.push(Token::Text(s))),
+                    State::Dollar(s) => Ok(tokens.push(Token::Var(s))),
+                    State::Brace(_) => Err(PathFormatError::Syntax(whole.to_owned())),
+                }
+            }
+        }
+
+        let syntax_error = || PathFormatError::Syntax(self.0.clone());
+
+        let tokens = {
+            let mut state = State::Plain("".to_owned());
+            let mut tokens = vec![];
+            for c in self.0.chars() {
+                state = match (c, state) {
+                    ('$', state @ State::Plain(_)) => state.var(&mut tokens),
+                    ('{', state @ State::Plain(_)) => state.brace(&mut tokens),
+                    ('}', State::Plain(_)) => return Err(syntax_error()),
+                    (c, state @ State::Plain(_)) => state.push(c),
+                    ('$', state @ State::Dollar(_)) => state.var(&mut tokens),
+                    ('{', state @ State::Dollar(_)) => state.brace(&mut tokens),
+                    ('}', State::Dollar(_)) => return Err(syntax_error()),
+                    (' ', state @ State::Dollar(_)) => state.plain(vec![' '], &mut tokens),
+                    ('/', state @ State::Dollar(_)) => state.plain(vec!['/'], &mut tokens),
+                    ('\\', state @ State::Dollar(_)) => state.plain(vec!['\\'], &mut tokens),
+                    (c, state @ State::Dollar(_)) => state.push(c),
+                    ('{', State::Brace(_)) => return Err(syntax_error()),
+                    ('}', state @ State::Brace(_)) => state.plain(vec![], &mut tokens),
+                    (c, state @ State::Brace(_)) => state.push(c),
+                }
+            }
+            state.end(&self.0, &mut tokens)?;
+            tokens
+        };
+
+        let mut formatted = "".to_owned();
+        for token in tokens.into_iter() {
+            token.format(&self.0, target, keywords, &mut formatted)?;
+        }
+        Ok(formatted)
     }
 }
 
 
 #[cfg(test)]
 mod tests {
-    use super::BraceFormat;
+    use super::PathFormat;
+    use std::collections::HashMap;
+    use std::iter::FromIterator;
 
 
     #[test]
-    fn test_braceformat_format() {
-        let format = BraceFormat("cc/{}.cc".to_owned());
-        assert_eq!("cc/a.cc", format.format("a", "", ""));
-        let format = BraceFormat("csharp/{C}/{C}.cs".to_owned());
-        assert_eq!("csharp/A/A.cs", format.format("a", "", ""));
-        let format = BraceFormat("gcc -o $bin $src".to_owned());
-        assert_eq!("gcc -o BIN SRC", format.format("", "SRC", "BIN"));
-        let format = BraceFormat("{}/{{}}".to_owned());
-        assert_eq!("name/name", format.format("name", "", ""));
-        let format = BraceFormat("{}/{aaa C}/{}".to_owned());
-        assert_eq!("name/name/name", format.format("name", "", ""));
-        let format = BraceFormat("{}/{ C }/{C}".to_owned());
-        assert_eq!("name/Name/Name", format.format("name", "", ""));
-        let format = BraceFormat("{}/{".to_owned());
-        assert_eq!("name/", format.format("name", "", ""));
-        let format = BraceFormat("{}/}".to_owned());
-        assert_eq!("name/}", format.format("name", "", ""));
-        let format = BraceFormat("}/{}".to_owned());
-        assert_eq!("}/name", format.format("name", "", ""));
+    fn test_pathformat_format() {
+        let format = PathFormat("cc/{}.cc".to_owned());
+        let keywords = HashMap::new();
+        assert_eq!("cc/a.cc", format.format("a", &keywords).unwrap());
+        let format = PathFormat("csharp/{C}/{C}.cs".to_owned());
+        let keywords = HashMap::new();
+        assert_eq!("csharp/A/A.cs", format.format("a", &keywords).unwrap());
+        let format = PathFormat("gcc -o $bin $src".to_owned());
+        let keywords = HashMap::from_iter(vec![("src", "SRC"), ("bin", "BIN")]);
+        assert_eq!("gcc -o BIN SRC", format.format("", &keywords).unwrap());
+        let format = PathFormat("{ c }/{c}/{C}".to_owned());
+        let keywords = HashMap::new();
+        assert_eq!("Name/Name/Name", format.format("name", &keywords).unwrap());
+        let format = PathFormat("$foo/$bar/$baz".to_owned());
+        let keywords = HashMap::from_iter(vec![("foo", "FOO"), ("bar", "BAR"), ("baz", "BAZ")]);
+        assert_eq!("FOO/BAR/BAZ", format.format("", &keywords).unwrap());
+        let format = PathFormat("$$$".to_owned());
+        let keywords = HashMap::from_iter(vec![("", "AAA")]);
+        assert_eq!("AAAAAAAAA", format.format("", &keywords).unwrap());
+
+        let format = PathFormat("{}/{{}}".to_owned());
+        assert!(format.format("", &HashMap::new()).is_err());
+        let format = PathFormat("{}/{".to_owned());
+        assert!(format.format("", &HashMap::new()).is_err());
+        let format = PathFormat("{}/}".to_owned());
+        assert!(format.format("", &HashMap::new()).is_err());
+        let format = PathFormat("}/{}".to_owned());
+        assert!(format.format("", &HashMap::new()).is_err());
+        let format = PathFormat("{}/{aaa C}/{}".to_owned());
+        assert!(format.format("", &HashMap::new()).is_err());
+        let format = PathFormat("$unexistingkeyword".to_owned());
+        assert!(format.format("", &HashMap::new()).is_err());
     }
 }

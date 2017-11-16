@@ -8,6 +8,8 @@ use reqwest::{self, StatusCode, UrlError};
 use serde_json;
 use serde_urlencoded;
 use serde_yaml;
+use std::error::Error;
+use std::fmt;
 use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
@@ -203,6 +205,7 @@ error_chain! {
     }
 
     foreign_links {
+        PathFormat(PathFormatError);
         Io(io::Error);
         Regex(regex::Error);
         SerdeYaml(serde_yaml::Error);
@@ -228,5 +231,37 @@ error_chain! {
             description("Unsupported extension")
             display("Unsupported extension: \"{}\"", extension)
         }
+    }
+}
+
+
+pub type PathFormatResult<T> = Result<T, PathFormatError>;
+
+
+#[derive(Debug)]
+pub enum PathFormatError {
+    Syntax(String),
+    NoSuchSpecifier(String, String, &'static [&'static str]),
+    NoSuchKeyword(String, String, Vec<&'static str>),
+}
+
+impl fmt::Display for PathFormatError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PathFormatError::Syntax(ref s) => write!(f, "Syntax error: {:?}", s),
+            PathFormatError::NoSuchSpecifier(ref s, ref sp, sps) => {
+                write!(f, "No such format specifier {:?}", sp)?;
+                write!(f, " (expected {:?}): {:?}", sps, s)
+            }
+            PathFormatError::NoSuchKeyword(ref s, ref kw, ref kws) => {
+                write!(f, "No such keyword {:?} (expected {:?}): {:?}", kw, kws, s)
+            }
+        }
+    }
+}
+
+impl Error for PathFormatError {
+    fn description(&self) -> &str {
+        "Error about format string in config file"
     }
 }
