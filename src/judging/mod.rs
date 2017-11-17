@@ -5,13 +5,12 @@ use self::interactive::InteractiveOutput;
 use self::simple::SimpleOutput;
 use command::{CompilationCommand, JudgingCommand};
 use error::{JudgingError, JudgingErrorKind, JudgingResult};
-use testsuite::{self, SuiteFileExtension, TestCases};
+use testsuite::{SuiteFilePaths, TestCases};
 use util::Foreach;
 
 use std::fmt;
 use std::io;
 use std::iter::FromIterator;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,9 +21,7 @@ use std::time::Duration;
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
 pub fn judge(
-    suite_dir: &Path,
-    suite_file_stem: &str,
-    suite_extensions: &[SuiteFileExtension],
+    suite_paths: &SuiteFilePaths,
     solver: JudgingCommand,
     compilation: Option<CompilationCommand>,
 ) -> JudgingResult<()> {
@@ -107,9 +104,7 @@ pub fn judge(
         compilation.execute()?;
         println!("");
     }
-    let cases = testsuite::load_and_merge_all_cases(suite_dir, suite_file_stem, suite_extensions)?;
-    let solver = Arc::new(solver);
-    judge_all(cases, solver)
+    judge_all(suite_paths.load_and_merge_all()?, Arc::new(solver))
 }
 
 

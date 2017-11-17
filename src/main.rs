@@ -86,14 +86,14 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
 
     fn arg_service() -> Arg<'static, 'static> {
         Arg::with_name("service")
-            .possible_values(&["atcoder", "atcoder-beta", "hackerrank"])
+            .possible_values(&["atcoder", "atcoderbeta", "hackerrank"])
             .help("Service name")
             .required(true)
     }
 
     fn arg_service_for_participate() -> Arg<'static, 'static> {
         Arg::with_name("service")
-            .possible_values(&["atcoder", "atcoder-beta"])
+            .possible_values(&["atcoder", "atcoderbeta"])
             .help("Service name")
             .required(true)
     }
@@ -293,11 +293,10 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let config = Config::load_from_file()?;
         let target = matches.value_of("target").unwrap();
         let lang = matches.value_of("lang");
-        let dir = config.suite_dir()?;
-        let extensions = config.get_extensions_on_judging();
+        let paths = config.suite_paths(target)?;
         let solver = config.construct_solver(target, lang)?;
         let compilation = config.construct_compilation_command(target, lang)?;
-        judging::judge(&dir, target, extensions, solver, compilation)?;
+        judging::judge(&paths, solver, compilation)?;
         return Ok(());
     } else if let Some(matches) = matches.subcommand_matches("submit") {
         info!("Running command \"submit\"");
@@ -311,11 +310,10 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         let contest = config.contest_name()?;
         let src_path = config.src_path(target, lang)?;
         if !skip_judging {
-            let dir = config.suite_dir()?;
-            let extensions = config.get_extensions_on_judging();
+            let paths = config.suite_paths(target)?;
             let solver = config.construct_solver(target, lang)?;
             let compilation = config.construct_compilation_command(target, lang)?;
-            judging::judge(&dir, target, extensions, solver, compilation)?;
+            judging::judge(&paths, solver, compilation)?;
             println!("");
         }
         return Ok(match service {

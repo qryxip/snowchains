@@ -21,7 +21,7 @@ $ cargo install --git https://github.com/wariuni/snowchains
 
 ```console
 $ snowchains init-config <language> ./
-$ snowchains set service <service>     # "atcoder", "atcoder-beta", "hackerrank"
+$ snowchains set service <service>     # "atcoder", "atcoderbeta", "hackerrank"
 $ snowchains set contest <contest>     # e.g. "agc001"
 $ snowchains download (--open-browser) # The username and password required when not yet logged-in
 $ $EDITOR ./snowchains/<target>.yml    # Add more test cases
@@ -34,9 +34,9 @@ $ snowchains submit <target> (<language>) (--open-browser) (--skip-judging) (--f
 ```yaml
 # Example
 ---
-service: "atcoder-beta"                                # optional
+service: "atcoderbeta"                                 # optional
 contest: "chokudai_s001"                               # optional
-testsuites: "snowchains/"                              # default: 〃
+testsuites: "snowchains/$service/$contest/"            # default: 〃
 extension_on_downloading: "yml"                        # default: 〃
 extensions_on_judging: ["json", "toml", "yaml", "yml"] # default: 〃
 default_lang: "c++"
@@ -110,9 +110,9 @@ Or simply:
 
 ```yaml
 ---
-service: "atcoder-beta"
+service: "atcoderbeta"
 contest: "chokuda_s001"
-testsuites: "snowchains/"
+testsuites: "snowchains/$service/$contest/"
 extension_on_downloading: "yml"
 extensions_on_judging: ["json", "toml", "yaml", "yml"]
 default_lang: "c++"
@@ -133,7 +133,7 @@ languages:
 ### Download
 
 - [x] atcoder (http://{}.contest.atcoder.jp)
-- [x] atcoder-beta (https://beta.atcoder.jp/contests/{})
+- [x] atcoderbeta (https://beta.atcoder.jp/contests/{})
 - [x] hackerrank (https://www.hackerrank.com/contests/{})
 
 ```console

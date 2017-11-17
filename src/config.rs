@@ -1,11 +1,11 @@
 use command::{CompilationCommand, JudgingCommand};
 use error::{ConfigError, ConfigErrorKind, ConfigResult, PathFormatError, PathFormatResult};
-use testsuite::SuiteFileExtension;
-use util::{self, ToCamlCase};
+use testsuite::{SuiteFileExtension, SuiteFilePaths};
+use util::{self, Camelize};
 
 use regex::Regex;
 use serde_yaml;
-use std::{env, fs};
+use std::{env, fmt, fs};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{self, Write};
@@ -51,7 +51,7 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
     let config = Config {
         service: Some(ServiceName::AtCoderBeta),
         contest: Some("chokudai_s001".to_owned()),
-        testsuites: InputPath("snowchains/".to_owned()),
+        testsuites: PathFormat::default_testsuites(),
         extension_on_downloading: SuiteFileExtension::Yml,
         extensions_on_judging: default_extensions(),
         default_lang: lang_name.to_owned(),
@@ -146,7 +146,7 @@ pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
     match key {
         PropertyKey::Service => config.service = Some(serde_yaml::from_str(value)?),
         PropertyKey::Contest => config.contest = Some(value.to_owned()),
-        PropertyKey::TestSuites => config.testsuites = InputPath(value.to_owned()),
+        PropertyKey::TestSuites => config.testsuites = PathFormat(value.to_owned()),
         PropertyKey::ExtensionOnDownloading => {
             if let Ok(extension) = SuiteFileExtension::from_str(value) {
                 config.extension_on_downloading = extension;
@@ -169,8 +169,8 @@ pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
 pub struct Config {
     service: Option<ServiceName>,
     contest: Option<String>,
-    #[serde(default = "InputPath::default_test_suite_path")]
-    testsuites: InputPath,
+    #[serde(default = "PathFormat::default_testsuites")]
+    testsuites: PathFormat,
     #[serde(default)]
     extension_on_downloading: SuiteFileExtension,
     #[serde(default = "default_extensions")]
@@ -191,7 +191,7 @@ impl Config {
         Ok(config)
     }
 
-    /// Get `service`.
+    /// Gets `service`.
     pub fn service_name(&self) -> ConfigResult<ServiceName> {
         match self.service.clone() {
             Some(service) => Ok(service),
@@ -199,7 +199,7 @@ impl Config {
         }
     }
 
-    /// Get `contest`.
+    /// Gets `contest`.
     pub fn contest_name(&self) -> ConfigResult<String> {
         match self.contest.clone() {
             Some(contest) => Ok(contest),
@@ -207,19 +207,25 @@ impl Config {
         }
     }
 
-    /// Get the attribute `extension_on_downloading`.
+    /// Gets the attribute `extension_on_downloading`.
     pub fn get_extension_on_downloading(&self) -> SuiteFileExtension {
         self.extension_on_downloading
     }
 
-    /// Get the attribute `extensions_on_judging`.
-    pub fn get_extensions_on_judging(&self) -> &[SuiteFileExtension] {
-        &self.extensions_on_judging
+    /// Gets the absolute path of the test suite files directory
+    pub fn suite_dir(&self) -> ConfigResult<PathBuf> {
+        let service = self.service.map(|s| s.to_string()).unwrap_or_default();
+        let contest = self.contest.clone().unwrap_or_default();
+        let keywords = vec![("service", service.as_str()), ("contest", contest.as_str())];
+        let keywords = HashMap::from_iter(keywords);
+        let ref base = self.base_dir;
+        self.testsuites.resolve_as_path(base, "", &keywords)
     }
 
-    /// Get the absolute path of the test suite files directory
-    pub fn suite_dir(&self) -> ConfigResult<PathBuf> {
-        Ok(self.testsuites.resolve(&self.base_dir)?)
+    pub fn suite_paths(&self, target: &str) -> ConfigResult<SuiteFilePaths> {
+        let dir = self.suite_dir()?;
+        let ref exts = self.extensions_on_judging;
+        Ok(SuiteFilePaths::new(&dir, target, exts))
     }
 
     /// Returns the path of the source file.
@@ -228,7 +234,7 @@ impl Config {
         Ok(lang.resolve_src(&self.base_dir, target)?)
     }
 
-    /// Returns the `lang_id` of given or default language
+    /// Returns the `lang_id` of `lang_name` or a default language
     pub fn atcoder_lang_id(&self, lang_name: Option<&str>) -> ConfigResult<u32> {
         let lang = self.lang_property(lang_name)?;
         lang.atcoder_lang_id.ok_or_else(|| {
@@ -281,13 +287,12 @@ impl FromStr for PropertyKey {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, ()> {
-        let s = s.to_lowercase();
-        return match &s {
-            s if s == "service" => Ok(PropertyKey::Service),
-            s if s == "contest" => Ok(PropertyKey::Contest),
-            s if s == "testsuites" => Ok(PropertyKey::TestSuites),
-            s if s == "extension_on_downloading" => Ok(PropertyKey::ExtensionOnDownloading),
-            s if s == "default_lang" => Ok(PropertyKey::DefaultLang),
+        return match s.to_lowercase().as_str() {
+            "service" => Ok(PropertyKey::Service),
+            "contest" => Ok(PropertyKey::Contest),
+            "testsuites" => Ok(PropertyKey::TestSuites),
+            "extension_on_downloading" => Ok(PropertyKey::ExtensionOnDownloading),
+            "default_lang" => Ok(PropertyKey::DefaultLang),
             _ => Err(()),
         };
     }
@@ -295,25 +300,34 @@ impl FromStr for PropertyKey {
 
 
 /// Names of programming contest services.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum ServiceName {
     #[serde(rename = "atcoder")]
     AtCoder,
-    #[serde(rename = "atcoder-beta")]
+    #[serde(rename = "atcoderbeta")]
     AtCoderBeta,
     #[serde(rename = "hackerrank")]
     HackerRank,
+}
+
+impl fmt::Display for ServiceName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ServiceName::AtCoder => write!(f, "atcoder"),
+            ServiceName::AtCoderBeta => write!(f, "atcoderbeta"),
+            ServiceName::HackerRank => write!(f, "hackerrank"),
+        }
+    }
 }
 
 impl FromStr for ServiceName {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, ()> {
-        let s = s.to_lowercase();
-        return match &s {
-            s if s == "atcoder" => Ok(ServiceName::AtCoder),
-            s if s == "atcoder-beta" => Ok(ServiceName::AtCoderBeta),
-            s if s == "hackerrank" => Ok(ServiceName::HackerRank),
+        return match s.to_lowercase().as_str() {
+            "atcoder" => Ok(ServiceName::AtCoder),
+            "atcoderbeta" => Ok(ServiceName::AtCoderBeta),
+            "hackerrank" => Ok(ServiceName::HackerRank),
             _ => Err(()),
         };
     }
@@ -389,7 +403,7 @@ impl LangProperty {
     }
 
     fn resolve_src(&self, base: &Path, target: &str) -> ConfigResult<PathBuf> {
-        self.src.resolve_as_path(base, target)
+        self.src.resolve_as_path(base, target, &HashMap::new())
     }
 
     fn construct_compilation_command(
@@ -425,9 +439,9 @@ impl LangProperty {
         base: &Path,
         target: &str,
     ) -> ConfigResult<(PathBuf, Option<PathBuf>)> {
-        let src = self.src.resolve_as_path(base, target)?;
+        let src = self.src.resolve_as_path(base, target, &HashMap::new())?;
         let bin = match self.bin {
-            Some(ref bin) => Some(bin.resolve_as_path(base, target)?),
+            Some(ref bin) => Some(bin.resolve_as_path(base, target, &HashMap::new())?),
             None => None,
         };
         Ok((src, bin))
@@ -445,22 +459,18 @@ impl Default for InputPath {
 }
 
 impl InputPath {
-    fn default_test_suite_path() -> Self {
-        InputPath("snowchains/".to_owned())
-    }
-
     fn resolve(&self, base: &Path) -> io::Result<PathBuf> {
         if self.0.chars().next() == Some('~') {
             return util::path_under_home(&[&self.0.chars().skip(2).collect::<String>()]);
         }
         let path = PathBuf::from(&self.0);
-        if path.is_absolute() {
-            Ok(path)
+        Ok(if path.is_absolute() {
+            path
         } else {
             let mut pathbuf = PathBuf::from(base);
             pathbuf.push(path);
-            Ok(pathbuf)
-        }
+            pathbuf
+        })
     }
 }
 
@@ -469,12 +479,21 @@ impl InputPath {
 struct PathFormat(String);
 
 impl PathFormat {
+    fn default_testsuites() -> Self {
+        PathFormat("snowchains/$service/$contest/{}.$extension".to_owned())
+    }
+
     fn bin() -> Self {
         PathFormat("$bin".to_owned())
     }
 
-    fn resolve_as_path(&self, base: &Path, target: &str) -> ConfigResult<PathBuf> {
-        let path = self.format(&target, &HashMap::new())?;
+    fn resolve_as_path(
+        &self,
+        base: &Path,
+        target: &str,
+        keywords: &HashMap<&'static str, &str>,
+    ) -> ConfigResult<PathBuf> {
+        let path = self.format(&target, keywords)?;
         Ok(InputPath(path).resolve(base)?)
     }
 
@@ -558,7 +577,7 @@ impl PathFormat {
                         if s == "" {
                             Ok(f.push_str(target))
                         } else if ["c", "C"].contains(&s.as_str()) {
-                            Ok(f.push_str(&target.to_caml_case()))
+                            Ok(f.push_str(&target.camelize()))
                         } else {
                             let whole = whole.to_owned();
                             static EXPECTED_KWS: &'static [&'static str] = &["c", "C"];

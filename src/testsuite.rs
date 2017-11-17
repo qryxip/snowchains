@@ -19,57 +19,6 @@ pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteF
 }
 
 
-/// Merge test suites in `dir` which filename stem equals `stem` and extension is in `extensions`.
-pub fn load_and_merge_all_cases(
-    dir: &Path,
-    stem: &str,
-    extensions: &[SuiteFileExtension],
-) -> SuiteFileResult<TestCases> {
-    let existing_suites = extensions
-        .iter()
-        .filter_map(|&ext| {
-            let path = SuiteFilePath::new(dir, stem, ext);
-            if path.build().exists() {
-                Some(TestSuite::load(&path))
-            } else {
-                None
-            }
-        })
-        .collect::<SuiteFileResult<Vec<_>>>()?;
-
-    if existing_suites.iter().all(TestSuite::is_simple) {
-        Ok(TestCases::Simple(
-            existing_suites
-                .into_iter()
-                .map(TestSuite::unwrap_to_simple)
-                .flat_map(|suite| {
-                    let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
-                    let path = Arc::new(path);
-                    cases.into_iter().map(move |case| {
-                        case.reduce(path.clone(), timelimit)
-                    })
-                })
-                .collect(),
-        ))
-    } else if existing_suites.iter().all(TestSuite::is_interactive) {
-        Ok(TestCases::Interactive(
-            existing_suites
-                .into_iter()
-                .map(TestSuite::unwrap_to_interactive)
-                .flat_map(|suite| {
-                    let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
-                    cases.into_iter().map(move |case| {
-                        case.appended(path.clone(), timelimit)
-                    })
-                })
-                .collect(),
-        ))
-    } else {
-        bail!(SuiteFileErrorKind::DifferentTypesOfSuites);
-    }
-}
-
-
 /// `SimpelSuite` or `InteractiveSuite`.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -323,6 +272,69 @@ impl InteractiveCase {
         self.path = path.into();
         self.timelimit = self.timelimit.or(timelimit);
         self
+    }
+}
+
+
+pub struct SuiteFilePaths {
+    directory: PathBuf,
+    stem: String,
+    extensions: Vec<SuiteFileExtension>,
+}
+
+impl SuiteFilePaths {
+    pub fn new(directory: &Path, stem: &str, extensions: &[SuiteFileExtension]) -> Self {
+        Self {
+            directory: directory.to_owned(),
+            stem: stem.to_owned(),
+            extensions: extensions.iter().cloned().collect(),
+        }
+    }
+
+    /// Merge test suites in `dir` which filename stem equals `stem` and extension is in `extensions`.
+    pub fn load_and_merge_all(&self) -> SuiteFileResult<TestCases> {
+        let existing_suites = self.extensions
+            .iter()
+            .filter_map(|&ext| {
+                let path = SuiteFilePath::new(&self.directory, self.stem.clone(), ext);
+                if path.build().exists() {
+                    Some(TestSuite::load(&path))
+                } else {
+                    None
+                }
+            })
+            .collect::<SuiteFileResult<Vec<_>>>()?;
+
+        if existing_suites.iter().all(TestSuite::is_simple) {
+            Ok(TestCases::Simple(
+                existing_suites
+                    .into_iter()
+                    .map(TestSuite::unwrap_to_simple)
+                    .flat_map(|suite| {
+                        let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
+                        let path = Arc::new(path);
+                        cases.into_iter().map(move |case| {
+                            case.reduce(path.clone(), timelimit)
+                        })
+                    })
+                    .collect(),
+            ))
+        } else if existing_suites.iter().all(TestSuite::is_interactive) {
+            Ok(TestCases::Interactive(
+                existing_suites
+                    .into_iter()
+                    .map(TestSuite::unwrap_to_interactive)
+                    .flat_map(|suite| {
+                        let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
+                        cases.into_iter().map(move |case| {
+                            case.appended(path.clone(), timelimit)
+                        })
+                    })
+                    .collect(),
+            ))
+        } else {
+            bail!(SuiteFileErrorKind::DifferentTypesOfSuites);
+        }
     }
 }
 

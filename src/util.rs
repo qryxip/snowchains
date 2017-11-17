@@ -97,13 +97,13 @@ impl<T> OkAsRefOr for Option<T> {
 }
 
 
-pub trait ToCamlCase {
+pub trait Camelize {
     /// Converts `self` to CamlCase.
-    fn to_caml_case(&self) -> String;
+    fn camelize(&self) -> String;
 }
 
-impl ToCamlCase for str {
-    fn to_caml_case(&self) -> String {
+impl Camelize for str {
+    fn camelize(&self) -> String {
         let mut s = String::new();
         let mut p = true;
         self.chars().foreach(|c| match c.to_uppercase().next() {
