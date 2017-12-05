@@ -21,10 +21,10 @@ $ cargo install --git https://github.com/wariuni/snowchains
 
 ```console
 $ snowchains init-config <language> ./
-$ snowchains set service <service>     # "atcoder", "atcoderbeta", "hackerrank"
-$ snowchains set contest <contest>     # e.g. "agc001"
-$ snowchains download (--open-browser) # The username and password required when not yet logged-in
-$ $EDITOR ./snowchains/<target>.yml    # Add more test cases
+$ snowchains set service <service>                      # "atcoder", "atcoderbeta", "hackerrank"
+$ snowchains set contest <contest>                      # e.g. "agc001"
+$ snowchains download (--open-browser)                  # The username and password required when not yet logged-in
+$ $EDITOR ./snowchains/<service>/<contest>/<target>.yml # Add more test cases
 $ snowchains judge <target> (<language>)
 $ snowchains submit <target> (<language>) (--open-browser) (--skip-judging) (--force)
 ```
@@ -80,7 +80,7 @@ languages:
     src: "java/src/main/java/{C}.java"
     bin: "java/build/classes/java/main/{C}.class"
     compile: "javac -d ./build/classes/java/main/ $src"
-    run: "java -classpath ./build/classes/java/main/ {C}"
+    run: "java -classpath ./build/classes/java/main/{C}"
     compilation_working_dir: "java/"
     runtime_working_dir: "java/"
     atcoder_lang_id: 3016 # a main class name is replaced with "Main" in AtCoder

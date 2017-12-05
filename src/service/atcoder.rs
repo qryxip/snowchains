@@ -128,10 +128,10 @@ fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, Stri
             .child(Name("tbody"))
             .child(Name("tr"));
         for node in document.find(predicate) {
-            let node = try_opt!(node.find(Name("td")).next());
-            let node = try_opt!(node.find(Name("a")).next());
-            let url = try_opt!(node.attr("href")).to_owned();
-            let text = try_opt!(node.find(Text).next()).text();
+            let node = node.find(Name("td")).next()?;
+            let node = node.find(Name("a")).next()?;
+            let url = node.attr("href")?.to_owned();
+            let text = node.find(Text).next()?.text();
             names_and_pathes.push((text, url));
         }
         Some(names_and_pathes)
@@ -143,8 +143,8 @@ fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, Stri
 
 fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
     fn try_extracting_sample(section_node: Node, regex: &'static Regex) -> Option<String> {
-        let title = try_opt!(section_node.find(Name("h3")).next()).text();
-        let sample = try_opt!(section_node.find(Name("pre")).next()).text();
+        let title = section_node.find(Name("h3")).next()?.text();
+        let sample = section_node.find(Name("pre")).next()?.text();
         return_none_unless!(regex.is_match(&title));
         Some(sample)
     }
@@ -153,8 +153,8 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
         let timelimit = {
             let re_timelimit = Regex::new("\\D*([0-9]+)sec.*").unwrap();
             let predicate = HtmlAttr("id", "outer-inner").child(Name("p")).child(Text);
-            let text = try_opt!(document.find(predicate).nth(0)).text();
-            let caps = try_opt!(re_timelimit.captures(&text));
+            let text = document.find(predicate).nth(0)?.text();
+            let caps = re_timelimit.captures(&text)?;
             1000 * caps[1].parse::<u64>().unwrap()
         };
         let samples = {
@@ -170,7 +170,7 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
             let (mut samples, mut input_sample) = (vec![], None);
             for node in document.find(predicate) {
                 input_sample = if let Some(input_sample) = input_sample {
-                    let output_sample = try_opt!(try_extracting_sample(node, &RE_OUTPUT));
+                    let output_sample = try_extracting_sample(node, &RE_OUTPUT)?;
                     samples.push((output_sample, input_sample));
                     None
                 } else if let Some(input_sample) = try_extracting_sample(node, &RE_INPUT) {

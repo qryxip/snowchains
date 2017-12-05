@@ -416,7 +416,9 @@ fn resolve_url(relative_url: &str) -> String {
 
 fn extract_csrf_token(document: &Document) -> ServiceResult<String> {
     fn extract(document: &Document) -> Option<String> {
-        try_opt!(document.find(Attr("name", "csrf_token")).next())
+        document
+            .find(Attr("name", "csrf_token"))
+            .next()?
             .attr("value")
             .map(str::to_owned)
     }
@@ -436,10 +438,10 @@ fn extract_task_urls_with_names(document: &Document) -> ServiceResult<Vec<(Strin
             .child(Name("tbody"))
             .child(Name("tr"));
         for node in document.find(predicate) {
-            let node = try_opt!(node.find(And(Name("td"), Class("text-center"))).next());
-            let node = try_opt!(node.find(Name("a")).next());
-            let url = try_opt!(node.attr("href")).to_owned();
-            let name = try_opt!(node.find(Text).next()).text();
+            let node = node.find(And(Name("td"), Class("text-center"))).next()?;
+            let node = node.find(Name("a")).next()?;
+            let url = node.attr("href")?.to_owned();
+            let name = node.find(Text).next()?.text();
             info!(
                 "Extracting problem links: Found #main-container>[[omitted]]>a[href={:?}]{{{}}}",
                 url,
@@ -465,8 +467,8 @@ fn extract_cases<R: Read>(html: R, style: &SampleCaseStyle) -> ServiceResult<Tes
 
 fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> {
     fn try_extracting_from_section(section_node: Node, regex: &Regex) -> Option<String> {
-        let title = try_opt!(section_node.find(Name("h3")).next()).text();
-        let sample = try_opt!(section_node.find(Name("pre")).next()).text();
+        let title = section_node.find(Name("h3")).next()?.text();
+        let sample = section_node.find(Name("pre")).next()?.text();
         return_none_unless!(regex.is_match(&title));
         info!(
             "Extracting sample cases: Found h3{{{}}}+pre{{{:?}}}",
@@ -495,7 +497,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
                 lang_class_name
             );
             input_sample = if let Some(input_sample) = input_sample {
-                let output_sample = try_opt!(try_extracting_from_section(node, &re_output));
+                let output_sample = try_extracting_from_section(node, &re_output)?;
                 samples.push((output_sample, input_sample));
                 None
             } else if let Some(input_sample) = try_extracting_from_section(node, &re_input) {
@@ -522,12 +524,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
                 samples
             } else {
                 info!("Extracting sample cases: Searching \"Sample Input\" and \"Sample Output\"");
-                try_opt!(extract_for_lang(
-                    &document,
-                    &RE_IN_EN,
-                    &RE_OUT_EN,
-                    "lang-en",
-                ))
+                extract_for_lang(&document, &RE_IN_EN, &RE_OUT_EN, "lang-en")?
             }
         };
         Some(TestSuite::from_samples(timelimit, samples))
@@ -546,13 +543,13 @@ fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
         .child(And(Name("div"), Class("col-sm-12")))
         .child(Name("p"))
         .child(Text);
-    let text = try_opt!(document.find(predicate).next()).text();
+    let text = document.find(predicate).next()?.text();
     info!(
         "Extracting timelimit: Found #main-container>div.row>div.col-sm-12>p{{{:?}}}",
         text
     );
-    let caps = try_opt!(RE_TIMELIMIT.captures(&text));
-    let timelimit = 1000 * try_opt!(caps[1].parse::<u64>().ok());
+    let caps = RE_TIMELIMIT.captures(&text)?;
+    let timelimit = 1000 * caps[1].parse::<u64>().ok()?;
     info!(
         "Extracting timelimit: Successfully extracted: {}ms",
         timelimit
@@ -564,9 +561,9 @@ fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
 fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuration> {
     fn extract(document: &Document) -> Option<(String, String)> {
         let predicate = Name("time").child(Text);
-        let t1 = try_opt!(document.find(predicate).nth(0)).text();
+        let t1 = document.find(predicate).nth(0)?.text();
         info!("Extracting contest duration: Found time{{{}}}", t1);
-        let t2 = try_opt!(document.find(predicate).nth(1)).text();
+        let t2 = document.find(predicate).nth(1)?.text();
         info!("Extracting contest duration: Found time{{{}}}", t2);
         Some((t1, t2))
     }
@@ -598,8 +595,7 @@ fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<
             .child(Name("tr"));
         for node in document.find(predicate) {
             info!("Extracting submissions: Found #main-container>[[omitted]]>tr>");
-            let url =
-                try_opt!(try_opt!(node.find(Name("td").child(Name("a"))).nth(0)).attr("href"));
+            let url = node.find(Name("td").child(Name("a"))).nth(0)?.attr("href")?;
             info!("Extracting submissions: Found td>a[href={:?}]", url);
             if let Some(caps) = RE_URL.captures(url) {
                 if &caps[1] == task_screen_name {

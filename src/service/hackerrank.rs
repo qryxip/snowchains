@@ -145,7 +145,9 @@ impl HackerRank {
 
 fn extract_csrf_token(html: Response) -> ServiceResult<String> {
     fn extract(document: Document) -> Option<String> {
-        try_opt!(document.find(Attr("name", "csrf-token")).next())
+        document
+            .find(Attr("name", "csrf-token"))
+            .next()?
             .attr("content")
             .map(str::to_owned)
     }

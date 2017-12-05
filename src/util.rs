@@ -106,7 +106,7 @@ impl Camelize for str {
     fn camelize(&self) -> String {
         let mut s = String::new();
         let mut p = true;
-        self.chars().foreach(|c| match c.to_uppercase().next() {
+        self.chars().for_each(|c| match c.to_uppercase().next() {
             Some('-') | Some('_') => {
                 p = true;
             }
@@ -117,20 +117,5 @@ impl Camelize for str {
             _ => s.push(c),
         });
         s
-    }
-}
-
-
-pub trait Foreach {
-    type Item;
-    /// A substitution of `Iterator::for_each`, which is unstable until Rust 1.21.
-    fn foreach<F: FnMut(Self::Item)>(self, f: F);
-}
-
-impl<T, I: Iterator<Item = T>> Foreach for I {
-    type Item = T;
-
-    fn foreach<F: FnMut(T)>(self, mut f: F) {
-        self.fold((), move |(), x| f(x));
     }
 }

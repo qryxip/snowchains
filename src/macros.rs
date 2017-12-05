@@ -11,14 +11,6 @@ macro_rules! quick_main_colored { ($main: expr) => {
 } }
 
 
-macro_rules! try_opt { ($option: expr) => {
-    match $option {
-        Some(x) => x,
-        None => return None,
-    }
-} }
-
-
 macro_rules! return_none_if { ($x: expr) => { if $x { return None; } } }
 
 

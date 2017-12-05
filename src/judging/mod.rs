@@ -6,7 +6,6 @@ use self::simple::SimpleOutput;
 use command::{CompilationCommand, JudgingCommand};
 use error::{JudgingError, JudgingErrorKind, JudgingResult};
 use testsuite::{SuiteFilePaths, TestCases};
-use util::Foreach;
 
 use std::fmt;
 use std::io;
@@ -76,7 +75,7 @@ pub fn judge(
             }
 
             fn eprint_failure_details<O: JudgingOutput>(outputs: &[O], num_cases: usize) {
-                outputs.iter().enumerate().foreach(|(i, o)| {
+                outputs.iter().enumerate().for_each(|(i, o)| {
                     eprintln!("");
                     o.eprint_title(i, num_cases);
                     o.eprint_details();
@@ -120,13 +119,13 @@ where
     fn eprint_details(&self);
 
     fn print_title(&self, i: usize, n: usize) {
-        (0..format!("{}", n).len() - format!("{}", i + 1).len()).foreach(|_| print!(" "));
+        (0..format!("{}", n).len() - format!("{}", i + 1).len()).for_each(|_| print!(" "));
         print_bold!(None, "{}/{} ", i + 1, n);
         println_bold!(Some(self.color()), "{}", self);
     }
 
     fn eprint_title(&self, i: usize, n: usize) {
-        (0..format!("{}", n).len() - format!("{}", i + 1).len()).foreach(|_| eprint!(" "));
+        (0..format!("{}", n).len() - format!("{}", i + 1).len()).for_each(|_| eprint!(" "));
         eprint_bold!(None, "{}/{} ", i + 1, n);
         eprintln_bold!(Some(self.color()), "{}", self);
     }
