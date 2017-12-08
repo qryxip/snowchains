@@ -5,6 +5,7 @@ use util::{self, Camelize};
 
 use regex::Regex;
 use serde_yaml;
+
 use std::{env, fmt, fs};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -480,7 +481,7 @@ struct PathFormat(String);
 
 impl PathFormat {
     fn default_testsuites() -> Self {
-        PathFormat("snowchains/$service/$contest/{}.$extension".to_owned())
+        PathFormat("snowchains/$service/$contest/".to_owned())
     }
 
     fn bin() -> Self {

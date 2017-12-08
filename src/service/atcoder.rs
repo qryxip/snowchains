@@ -6,6 +6,7 @@ use regex::Regex;
 use select::document::Document;
 use select::node::Node;
 use select::predicate::{Attr as HtmlAttr, Class, Name, Predicate, Text};
+
 use std::io::Read;
 use std::path::Path;
 

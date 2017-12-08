@@ -4,6 +4,8 @@ use judging::JudgingOutput;
 use testsuite::InteractiveCase;
 use util;
 
+use term::color;
+
 use std::fmt;
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout};
@@ -11,7 +13,6 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
-use term::color;
 
 
 /// Tests for `case` and `solver` and returns one `InteractiveOutput`.

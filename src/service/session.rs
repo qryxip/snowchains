@@ -10,13 +10,13 @@ use reqwest::header::{ContentLength, ContentType, Cookie as RequestCookie, Heade
 use serde::Serialize;
 use serde_json;
 use serde_urlencoded;
-use std::io::{Cursor, Read, Write};
-use std::path::PathBuf;
-use std::thread;
 use term::color;
 use zip::ZipArchive;
 use zip::result::ZipResult;
 
+use std::io::{Cursor, Read, Write};
+use std::path::PathBuf;
+use std::thread;
 
 pub struct HttpSession {
     cookie_jar: CookieJar,

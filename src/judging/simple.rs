@@ -4,12 +4,13 @@ use error::JudgingResult;
 use testsuite::SimpleCase;
 use util;
 
+use term::color;
+
 use std::{fmt, thread};
 use std::io::{self, Write};
 use std::process::ExitStatus;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
-use term::color;
 
 
 /// Tests for `case` and `solver` and returns one `SimpleOutput`.

@@ -1,11 +1,12 @@
 use error::{JudgingErrorKind, JudgingResult};
 
+use term::color;
+
 use std::fmt::Write;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use term::color;
 
 
 /// Compilation command.

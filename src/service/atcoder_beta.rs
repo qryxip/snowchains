@@ -7,6 +7,7 @@ use regex::Regex;
 use select::document::Document;
 use select::node::Node;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
+
 use std::fmt;
 use std::io::Read;
 use std::path::Path;

@@ -2,6 +2,7 @@ use error::{SuiteFileErrorKind, SuiteFileResult};
 use util;
 
 use {serde_json, serde_yaml, toml};
+
 use std::{fmt, vec};
 use std::fs::{self, File};
 use std::io::Write;

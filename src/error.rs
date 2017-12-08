@@ -8,16 +8,16 @@ use reqwest::{self, StatusCode, UrlError};
 use serde_json;
 use serde_urlencoded;
 use serde_yaml;
+use term::color;
+use toml;
+use zip::result::ZipError;
+
 use std::error::Error;
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::sync::mpsc::RecvError;
-use term::color;
-use toml;
-use zip::result::ZipError;
-
 
 pub trait PrintChainColored {
     /// Prints the chained errors of `self` like `quick_main!`, coloring with `term`.

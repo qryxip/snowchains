@@ -159,15 +159,12 @@ timelimit: 2000 # Optional
 # * String (a '\n' is appended automatically if missing)
 # * Array of [Integer|Float|String] (in TOML, arrays cannot contain different types of data)
 cases:
-  -
-    expected: "6 test"
+  - expected: "6 test"
     input: "1\n2 3\ntest"
-  -
-    timelimit: 10 # Override "timelimit"
+  - timelimit: 10 # Override "timelimit"
     expected: ['456 myonmyon']
     input: [72, '128 256', 'myonmyon']
-  -
-    input: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"] # "expected" is optional
+  - input: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"] # "expected" is optional
 ```
 
 #### TOML
@@ -222,49 +219,51 @@ type: "simple"
 timelimit: 2000
 
 cases:
-  -
-    tester: "./tester.py 1 2 3 4 5" # relative from `runtime_working_dir`
-  -
-    tester: "./tester.py 5 4 3 2 1"
-  - 
-    tester: "./tester.py 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 \
+  - tester: "./tester.py 1 2 3 4 5" # relative from `runtime_working_dir`
+  - tester: "./tester.py 5 4 3 2 1"
+  - tester: "./tester.py 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 \
              7 6 5 4 3 2 1"
 ```
 
 ```python
 #!/usr/bin/env python3
-# coding: utf-8
-import re
+import string
 import sys
-from sys import stdin
+from typing import Tuple
+
+import click
+import regex
 
 
-def main() -> None:
-    weights = [int(s) for s in sys.argv[1:]]
-    num_queries = 7 if len(weights) == 5 else 100
+@click.command()
+@click.argument('ws', type=int, nargs=-1)
+def main(ws: Tuple[int, ...]) -> None:
+    ws = list(ws)
+    q = 7 if len(ws) == 5 else 100
 
     def reply(c1, c2):
-        i, j = ord(c1) - ord('A'), ord(c2) - ord('A')
-        print('<' if weights[i] < weights[j] else '>', flush=True)
+        print('<' if ws[as_index(c1)] < ws[as_index(c2)] else '>', flush=True)
 
-    def is_correct(answer):
-        answer = [ord(c) - ord('A') for c in answer]
-        is_correct_length = len(answer) == len(weights)
-        is_sorted = all(weights[i] < weights[j]
-                        for i, j in zip(answer[:-1], answer[1:]))
-        return is_correct_length and is_sorted
+    def is_correct(a):
+        return (len(a) == len(ws) and
+                all(c in a for c in string.ascii_uppercase[:len(ws)]) and
+                all(ws[as_index(c1)] < ws[as_index(c2)]
+                    for c1, c2 in zip(a[:-1], a[1:])))
 
-    print(f'{len(weights)} {num_queries}', flush=True)
-    for _ in range(0, num_queries):
-        query = re.split('\s+', stdin.readline())
-        if query[0] == '?':
-            reply(query[1], query[2])
-        elif query[0] == '!':
-            if not is_correct(query[1]):
+    def as_index(c):
+        return ord(c) - ord('A')
+
+    print(f'{len(ws)} {q}', flush=True)
+    for _ in range(q):
+        ts = regex.split('[ \n]', sys.stdin.readline())
+        if ts[0] == '?':
+            reply(ts[1], ts[2])
+        elif ts[0] == '!':
+            if not is_correct(ts[1]):
                 raise RuntimeError('Wrong answer')
             break
         else:
-            raise RuntimeError('Unexpected input')
+            raise RuntimeError('Invalid input')
     else:
         raise RuntimeError('Run out of queries')
 

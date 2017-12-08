@@ -8,11 +8,11 @@ use reqwest::Response;
 use select::document::Document;
 use select::predicate::Attr;
 use serde_json;
-use std::io::{Read, Seek};
-use std::path::Path;
 use zip::ZipArchive;
 use zip::result::ZipResult;
 
+use std::io::{Read, Seek};
+use std::path::Path;
 
 pub fn login() -> ServiceResult<()> {
     HackerRank::start(true)?.save()

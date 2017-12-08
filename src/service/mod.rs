@@ -8,12 +8,12 @@ use util;
 
 use {rpassword, rprompt, webbrowser};
 use regex::Regex;
+use term::color;
+
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
-use term::color;
-
 
 /// Reads username and password from stdin, showing the prompts on stderr.
 ///
