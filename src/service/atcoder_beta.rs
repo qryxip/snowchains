@@ -77,11 +77,14 @@ custom_derive! {
 
 impl AtCoderBeta {
     fn start() -> ServiceResult<Self> {
-        Ok(AtCoderBeta(HttpSession::start("atcoderbeta")?))
+        Ok(AtCoderBeta(HttpSession::start(
+            "atcoderbeta",
+            "https://beta.atcoder.jp",
+        )?))
     }
 
     fn login_if_not(&mut self, eprints_message_if_already_logged_in: bool) -> ServiceResult<()> {
-        if self.has_cookie() && self.http_get("https://beta.atcoder.jp/settings").is_ok() {
+        if self.has_cookie() && self.http_get("/settings").is_ok() {
             Ok(if eprints_message_if_already_logged_in {
                 eprintln!("Already logged in.");
             })
@@ -169,8 +172,7 @@ impl AtCoderBeta {
         let tasks_page = self.fetch_tasks_page(contest)?;
         let outputs = extract_task_urls_with_names(&tasks_page)?
             .into_iter()
-            .map(|(name, relative_url)| -> ServiceResult<_> {
-                let url = resolve_url(&relative_url);
+            .map(|(name, url)| -> ServiceResult<_> {
                 let suite = extract_cases(self.http_get(&url)?, &contest.style())?;
                 let path = SuiteFilePath::new(&dir_to_save, name.to_lowercase(), extension);
                 Ok((url, suite, path))
@@ -217,13 +219,13 @@ impl AtCoderBeta {
                     status.raise_if_not_begun()?;
                     status.is_active()
                 };
-        for (name, relative_url) in extract_task_urls_with_names(&tasks_page)? {
+        for (name, url) in extract_task_urls_with_names(&tasks_page)? {
             if name.to_uppercase() == task.to_uppercase() {
                 let task_screen_name = {
                     lazy_static! {
                         static ref REGEX: Regex = Regex::new(r"^.*/([a-z0-9_]+)/?$").unwrap();
                     }
-                    if let Some(caps) = REGEX.captures(&relative_url) {
+                    if let Some(caps) = REGEX.captures(&url) {
                         caps[1].to_owned()
                     } else {
                         break;
@@ -236,10 +238,7 @@ impl AtCoderBeta {
                     }
                 }
                 let source_code = super::replace_class_name_if_necessary(src_path, "Main")?;
-                let csrf_token = {
-                    let url = resolve_url(&relative_url);
-                    extract_csrf_token(&Document::from_read(self.http_get(&url)?)?)?
-                };
+                let csrf_token = extract_csrf_token(&Document::from_read(self.http_get(&url)?)?)?;
                 let url = contest.url_submit();
                 let data = PostData {
                     dataTaskScreenName: task_screen_name,
@@ -331,7 +330,7 @@ impl Contest {
     }
 
     fn url_top(&self) -> String {
-        static BASE: &'static str = "https://beta.atcoder.jp/contests/";
+        static BASE: &'static str = "/contests/";
         match *self {
             Contest::Practice => format!("{}practice", BASE),
             Contest::AbcBefore007(n) => format!("{}abc{:>03}", BASE, n),
@@ -407,11 +406,6 @@ impl ContestDuration {
 enum SampleCaseStyle {
     New,
     Old,
-}
-
-
-fn resolve_url(relative_url: &str) -> String {
-    format!("https://beta.atcoder.jp{}", relative_url)
 }
 
 

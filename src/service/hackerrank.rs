@@ -38,9 +38,11 @@ custom_derive! {
 
 impl HackerRank {
     fn start(prints_message_when_already_logged_in: bool) -> ServiceResult<Self> {
-        static URL: &'static str = "https://www.hackerrank.com/login";
-        let mut hackerrank = HackerRank(HttpSession::start("hackerrank")?);
-        if let Some(response) = hackerrank.http_get_as_opt(URL, 200, 302)? {
+        let mut hackerrank = HackerRank(HttpSession::start(
+            "hackerrank",
+            "https://www.hackerrank.com",
+        )?);
+        if let Some(response) = hackerrank.http_get_as_opt("/login", 200, 302)? {
             let mut response = response;
             loop {
                 if hackerrank.try_logging_in(response)? {
@@ -48,7 +50,7 @@ impl HackerRank {
                 }
                 eprintln!("Failed to login. Try again.");
                 hackerrank.clear_cookies();
-                response = hackerrank.http_get(URL)?;
+                response = hackerrank.http_get("/login")?;
             }
         } else if prints_message_when_already_logged_in {
             eprintln!("Already signed in.");
@@ -77,7 +79,7 @@ impl HackerRank {
             remember_me: true,
         };
         let response = self.http_post_json_with_csrf_token(
-            "https://www.hackerrank.com/auth/login",
+            "/auth/login",
             data,
             200,
             csrf_token,
@@ -102,10 +104,7 @@ impl HackerRank {
             slug: String,
         }
 
-        let url = format!(
-            "https://www.hackerrank.com/rest/contests/{}/challenges",
-            contest
-        );
+        let url = format!("/rest/contests/{}/challenges", contest);
         let (mut zip_urls, mut paths, mut urls) = (vec![], vec![], vec![]);
         for slug in serde_json::from_reader::<_, Challenges>(self.http_get(&url)?)?
             .models
@@ -114,11 +113,7 @@ impl HackerRank {
         {
             zip_urls.push(format!("{}/{}/download_testcases", url, slug));
             paths.push(SuiteFilePath::new(dir_to_save, slug.clone(), extension));
-            urls.push(format!(
-                "https://www.hackerrank.com/contests/{}/challenges/{}",
-                contest,
-                slug
-            ));
+            urls.push(format!("/{}/challenges/{}", contest, slug));
         }
         let zips = self.http_get_zips(&zip_urls)?;
         println!("Extracting...");

@@ -14,19 +14,21 @@ use term::color;
 use zip::ZipArchive;
 use zip::result::ZipResult;
 
+use std::borrow::Cow;
 use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
 use std::thread;
 
 pub struct HttpSession {
+    base_url: &'static str,
     cookie_jar: CookieJar,
     reqwest_client: Client,
     path_to_save_cookies: PathBuf,
 }
 
 impl HttpSession {
-    /// Creates a new `HttpSession` loading `~/.local/share/snowchains/<file_name>` if it exists.
-    pub fn start(file_name: &'static str) -> ServiceResult<Self> {
+    /// Creates a new `HttpSession` loading a file in `~/.local/share/snowchains/` if it exists.
+    pub fn start(file_name: &'static str, base_url: &'static str) -> ServiceResult<Self> {
         let path = util::path_under_home(&[".local", "share", "snowchains", file_name])?;
         let jar = if path.exists() {
             let mut file = util::open_file(&path)?;
@@ -47,6 +49,7 @@ impl HttpSession {
         };
         let client = Client::builder().redirect(RedirectPolicy::none()).build()?;
         Ok(Self {
+            base_url: base_url,
             cookie_jar: jar,
             reqwest_client: client,
             path_to_save_cookies: path,
@@ -234,10 +237,11 @@ impl HttpSession {
         expected_status: StatusCode,
         acceptable_statuses: &[StatusCode],
     ) -> ServiceResult<Response> {
+        let url = to_absolute(self.base_url, url);
         print_bold!(None, "GET");
         print_and_flush!(" {} ... ", url);
         let response = self.reqwest_client
-            .get(url)
+            .get(url.as_ref())
             .header(user_agent())
             .header(self.cookie_jar.as_request_cookie())
             .send()?;
@@ -254,10 +258,11 @@ impl HttpSession {
         content_type: ContentType,
         extra_headers: &[(&'static str, String)],
     ) -> ServiceResult<Response> {
+        let url = to_absolute(self.base_url, url);
         print_bold!(None, "POST");
         print_and_flush!(" {} ... ", url);
         let response = self.reqwest_client
-            .post(url)
+            .post(url.as_ref())
             .body(data)
             .headers({
                 let mut headers = Headers::new();
@@ -285,6 +290,15 @@ impl HttpSession {
             self.cookie_jar.add(Cookie::parse(cookie.to_string())?);
         }
         Ok(())
+    }
+}
+
+
+fn to_absolute<'a>(base_url: &'static str, relative_or_absolute_url: &'a str) -> Cow<'a, str> {
+    if relative_or_absolute_url.chars().next() == Some('/') {
+        Cow::Owned(format!("{}{}", base_url, relative_or_absolute_url))
+    } else {
+        Cow::Borrowed(relative_or_absolute_url)
     }
 }
 

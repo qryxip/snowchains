@@ -13,7 +13,7 @@ use std::path::Path;
 
 pub fn login() -> ServiceResult<()> {
     static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-    let mut atcoder = AtCoder(HttpSession::start("atcoder")?);
+    let mut atcoder = AtCoder(HttpSession::start("atcoder", "https://atcoder.jp")?);
     if atcoder.http_get(URL).is_err() {
         atcoder.login()?;
     } else {
@@ -48,7 +48,7 @@ custom_derive! {
 impl AtCoder {
     fn load_or_login() -> ServiceResult<Self> {
         static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-        let mut atcoder = AtCoder(HttpSession::start("atcoder.sqlite3")?);
+        let mut atcoder = AtCoder(HttpSession::start("atcoder", "https://atcoder.jp")?);
         if atcoder.http_get(URL).is_err() {
             atcoder.login()?;
         }
