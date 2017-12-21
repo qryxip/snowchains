@@ -14,7 +14,6 @@ use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-
 /// Creates `snowchains.yml` in `dir`.
 pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
     fn append_exe_if_windows(path: &'static str) -> Cow<'static, str> {
@@ -65,7 +64,7 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
                 "$bin",
                 "c/",
                 "c/",
-                Some(3002)
+                Some(3002),
             ),
             LangProperty::new(
                 "c++",
@@ -75,7 +74,7 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
                 "$bin",
                 "cc/",
                 "cc/",
-                Some(3003)
+                Some(3003),
             ),
             LangProperty::new(
                 "rust",
@@ -85,7 +84,7 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
                 "$bin",
                 "rust/",
                 "rust/",
-                Some(3504)
+                Some(3504),
             ),
             LangProperty::new(
                 "haskell",
@@ -95,7 +94,7 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
                 "$bin",
                 "haskell/",
                 "haskell/",
-                Some(3014)
+                Some(3014),
             ),
             LangProperty::new(
                 "java",
@@ -105,7 +104,7 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
                 "java -classpath ./build/classes/java/main/ {C}",
                 "java/",
                 "java/",
-                Some(3016)
+                Some(3016),
             ),
             LangProperty::new(
                 "scala",
@@ -115,7 +114,7 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
                 "scala -classpath ./target/scala-2.12/classes/ {C}",
                 "scala/",
                 "scala/",
-                Some(3025)
+                Some(3025),
             ),
             csharp_or_mono,
             LangProperty::new::<&'static str>(
@@ -126,7 +125,7 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
                 "python3 $src",
                 "",
                 "python/",
-                Some(3023)
+                Some(3023),
             ),
         ],
         base_dir: PathBuf::new(),
@@ -135,11 +134,8 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
     let config = serde_yaml::to_string(&config)?;
     let mut path = PathBuf::from(dir);
     path.push("snowchains.yml");
-    Ok(util::create_file_and_dirs(&path)?.write_all(
-        config.as_bytes(),
-    )?)
+    Ok(util::create_file_and_dirs(&path)?.write_all(config.as_bytes())?)
 }
-
 
 /// Sets a property in `snowchains.yml`.
 pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
@@ -164,22 +160,17 @@ pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
     Ok(println!("Saved to {}", path.display()))
 }
 
-
 /// Config data.
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     service: Option<ServiceName>,
     contest: Option<String>,
-    #[serde(default = "PathFormat::default_testsuites")]
-    testsuites: PathFormat,
-    #[serde(default)]
-    extension_on_downloading: SuiteFileExtension,
-    #[serde(default = "default_extensions")]
-    extensions_on_judging: Vec<SuiteFileExtension>,
+    #[serde(default = "PathFormat::default_testsuites")] testsuites: PathFormat,
+    #[serde(default)] extension_on_downloading: SuiteFileExtension,
+    #[serde(default = "default_extensions")] extensions_on_judging: Vec<SuiteFileExtension>,
     default_lang: String,
     languages: Vec<LangProperty>,
-    #[serde(skip)]
-    base_dir: PathBuf,
+    #[serde(skip)] base_dir: PathBuf,
 }
 
 impl Config {
@@ -238,9 +229,8 @@ impl Config {
     /// Returns the `lang_id` of `lang_name` or a default language
     pub fn atcoder_lang_id(&self, lang_name: Option<&str>) -> ConfigResult<u32> {
         let lang = self.lang_property(lang_name)?;
-        lang.atcoder_lang_id.ok_or_else(|| {
-            ConfigError::from(ConfigErrorKind::PropertyNotSet("atcoder_lang_id"))
-        })
+        lang.atcoder_lang_id
+            .ok_or_else(|| ConfigError::from(ConfigErrorKind::PropertyNotSet("atcoder_lang_id")))
     }
 
     /// Constructs arguments of compilation command for given or default language.
@@ -268,12 +258,9 @@ impl Config {
         self.languages
             .iter()
             .find(|lang| lang.name == lang_name)
-            .ok_or_else(|| {
-                ConfigError::from(ConfigErrorKind::NoSuchLanguage(lang_name.to_owned()))
-            })
+            .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(lang_name.to_owned())))
     }
 }
-
 
 /// Property names of `snowchains.yml`.
 pub enum PropertyKey {
@@ -299,16 +286,12 @@ impl FromStr for PropertyKey {
     }
 }
 
-
 /// Names of programming contest services.
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum ServiceName {
-    #[serde(rename = "atcoder")]
-    AtCoder,
-    #[serde(rename = "atcoderbeta")]
-    AtCoderBeta,
-    #[serde(rename = "hackerrank")]
-    HackerRank,
+    #[serde(rename = "atcoder")] AtCoder,
+    #[serde(rename = "atcoderbeta")] AtCoderBeta,
+    #[serde(rename = "hackerrank")] HackerRank,
 }
 
 impl fmt::Display for ServiceName {
@@ -334,7 +317,6 @@ impl FromStr for ServiceName {
     }
 }
 
-
 fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
     fn snowchain_yml_exists(dir: &Path) -> io::Result<bool> {
         for entry in fs::read_dir(dir)? {
@@ -358,12 +340,10 @@ fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
     }
 }
 
-
 fn default_extensions() -> Vec<SuiteFileExtension> {
     use testsuite::SuiteFileExtension::{Json, Toml, Yaml, Yml};
     vec![Json, Toml, Yaml, Yml]
 }
-
 
 #[derive(Serialize, Deserialize)]
 struct LangProperty {
@@ -371,12 +351,9 @@ struct LangProperty {
     src: PathFormat,
     bin: Option<PathFormat>,
     compile: Option<PathFormat>,
-    #[serde(default = "PathFormat::bin")]
-    run: PathFormat,
-    #[serde(default)]
-    compilation_working_dir: InputPath,
-    #[serde(default)]
-    runtime_working_dir: InputPath,
+    #[serde(default = "PathFormat::bin")] run: PathFormat,
+    #[serde(default)] compilation_working_dir: InputPath,
+    #[serde(default)] runtime_working_dir: InputPath,
     atcoder_lang_id: Option<u32>,
 }
 
@@ -415,12 +392,7 @@ impl LangProperty {
         let working_dir = self.compilation_working_dir.resolve(base)?;
         let (src, bin) = self.resolve_src_and_bin(base, target)?;
         if let Some(comp) = self.compile.as_ref() {
-            let command = comp.to_compilation_command(
-                target,
-                working_dir,
-                Some(src),
-                bin,
-            )?;
+            let command = comp.to_compilation_command(target, working_dir, Some(src), bin)?;
             Ok(Some(command))
         } else {
             Ok(None)
@@ -449,7 +421,6 @@ impl LangProperty {
     }
 }
 
-
 #[derive(Serialize, Deserialize)]
 struct InputPath(String);
 
@@ -474,7 +445,6 @@ impl InputPath {
         })
     }
 }
-
 
 #[derive(Serialize, Deserialize)]
 struct PathFormat(String);
@@ -563,16 +533,14 @@ impl PathFormat {
 
                 match *self {
                     Token::Text(ref s) => Ok(f.push_str(s)),
-                    Token::Var(ref s) => {
-                        match keywords.get(s.as_str()) {
-                            Some(v) => Ok(f.push_str(v)),
-                            None => {
-                                let (whole, s) = (whole.to_owned(), s.to_owned());
-                                let keywords = keywords.keys().cloned().collect();
-                                Err(PathFormatError::NoSuchKeyword(whole, s, keywords))
-                            }
+                    Token::Var(ref s) => match keywords.get(s.as_str()) {
+                        Some(v) => Ok(f.push_str(v)),
+                        None => {
+                            let (whole, s) = (whole.to_owned(), s.to_owned());
+                            let keywords = keywords.keys().cloned().collect();
+                            Err(PathFormatError::NoSuchKeyword(whole, s, keywords))
                         }
-                    }
+                    },
                     Token::Target(ref s) => {
                         let s = trim_lr(s);
                         if s == "" {
@@ -671,13 +639,11 @@ impl PathFormat {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::PathFormat;
     use std::collections::HashMap;
     use std::iter::FromIterator;
-
 
     #[test]
     fn test_pathformat_format() {

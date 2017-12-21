@@ -14,7 +14,6 @@ use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-
 /// Tests for `case` and `solver` and returns one `InteractiveOutput`.
 pub fn judge(
     case: InteractiveCase,
@@ -43,12 +42,9 @@ pub fn judge(
         let couts = cout_rx.try_iter().collect::<Vec<_>>();
         result
             .wrap_not_found_error_message(|| solver.arg0_name())
-            .map(|(s, t, e1, e2)| {
-                InteractiveOutput::new(None, t, s, couts, e1, e2)
-            })
+            .map(|(s, t, e1, e2)| InteractiveOutput::new(None, t, s, couts, e1, e2))
     }
 }
-
 
 fn run(
     solver: &JudgingCommand,
@@ -120,7 +116,6 @@ fn run(
     }
 }
 
-
 fn interact(
     process: &mut InteractiveProcess,
     cout_tx: &mut Sender<InteractiveConsoleOut>,
@@ -151,14 +146,12 @@ fn interact(
     Ok(Some(out_cloned))
 }
 
-
 fn read_pipe(pipe: &mut BufReader<&mut ChildStdout>) -> io::Result<Option<String>> {
     const INIT_BUF_SIZE: usize = 4096;
     let mut out = String::with_capacity(INIT_BUF_SIZE);
     pipe.read_line(&mut out)?;
     Ok(if out.is_empty() { None } else { Some(out) })
 }
-
 
 struct InteractiveProcess<'a> {
     start: Instant,
@@ -177,7 +170,6 @@ impl<'a> InteractiveProcess<'a> {
         }
     }
 }
-
 
 pub struct InteractiveOutput {
     kind: InteractiveOutputKind,
@@ -225,8 +217,8 @@ impl JudgingOutput for InteractiveOutput {
                 .unwrap_or(1)
         };
 
-        if self.solver_stderr.is_empty() && self.tester_stderr.is_empty() &&
-            self.console_outs.is_empty()
+        if self.solver_stderr.is_empty() && self.tester_stderr.is_empty()
+            && self.console_outs.is_empty()
         {
             return eprintln_bold!(Some(color::YELLOW), "EMPTY");
         }
@@ -283,30 +275,26 @@ impl InteractiveOutput {
     }
 }
 
-
 enum InteractiveOutputKind {
     Success,
     Failure,
 }
 
-
 enum InteractiveConsoleOut {
     SolverStdout(Arc<String>, Duration),
-    #[allow(dead_code)]
-    SolverStderr(Arc<String>, Duration),
+    #[allow(dead_code)] SolverStderr(Arc<String>, Duration),
     SolverTerminated(Option<i32>, Duration),
     TesterStdout(Arc<String>, Duration),
-    #[allow(dead_code)]
-    TesterStderr(Arc<String>, Duration),
+    #[allow(dead_code)] TesterStderr(Arc<String>, Duration),
     TesterTerminated(Option<i32>, Duration),
 }
 
 impl InteractiveConsoleOut {
     fn is_solver_s(&self) -> bool {
         match *self {
-            InteractiveConsoleOut::SolverStdout(..) |
-            InteractiveConsoleOut::SolverStderr(..) |
-            InteractiveConsoleOut::SolverTerminated(..) => true,
+            InteractiveConsoleOut::SolverStdout(..)
+            | InteractiveConsoleOut::SolverStderr(..)
+            | InteractiveConsoleOut::SolverTerminated(..) => true,
             _ => false,
         }
     }

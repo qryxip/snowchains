@@ -12,14 +12,12 @@ use std::fmt;
 use std::io::Read;
 use std::path::Path;
 
-
 /// Logins to "beta.atcoder.jp".
 pub fn login() -> ServiceResult<()> {
     let mut atcoder = AtCoderBeta::start()?;
     atcoder.login_if_not(true)?;
     atcoder.save()
 }
-
 
 /// Participates in a `contest_name`.
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
@@ -28,7 +26,6 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
     atcoder.register_explicitly(contest)?;
     atcoder.save()
 }
-
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output from them.
 pub fn download(
@@ -46,7 +43,6 @@ pub fn download(
     )?;
     atcoder.save()
 }
-
 
 /// Submits a source code.
 pub fn submit(
@@ -68,7 +64,6 @@ pub fn submit(
     )?;
     atcoder.save()
 }
-
 
 custom_derive! {
     #[derive(NewtypeDeref, NewtypeDerefMut)]
@@ -153,7 +148,9 @@ impl AtCoderBeta {
                 if explicit || contest.is_practice_contest() || status.is_active() {
                     self.login_if_not(false)?;
                     let page = Document::from_read(self.http_get(&contest.url_top())?)?;
-                    let data = PostData { csrf_token: extract_csrf_token(&page)? };
+                    let data = PostData {
+                        csrf_token: extract_csrf_token(&page)?,
+                    };
                     let url = contest.url_register();
                     self.http_post_urlencoded(&url, data, 302)?;
                 }
@@ -202,23 +199,19 @@ impl AtCoderBeta {
     ) -> ServiceResult<()> {
         #[derive(Serialize)]
         struct PostData {
-            #[serde(rename = "data.TaskScreenName")]
-            dataTaskScreenName: String,
-            #[serde(rename = "data.LanguageId")]
-            dataLanguageId: u32,
+            #[serde(rename = "data.TaskScreenName")] dataTaskScreenName: String,
+            #[serde(rename = "data.LanguageId")] dataLanguageId: u32,
             sourceCode: String,
             csrf_token: String,
         }
 
         let tasks_page = self.fetch_tasks_page(contest)?;
-        let checks_if_accepted = !skip_checking_if_accepted ||
-            !contest.is_practice_contest() &&
-                {
-                    let duration = extract_contest_duration(&tasks_page)?;
-                    let status = duration.check_current_status(contest.to_string());
-                    status.raise_if_not_begun()?;
-                    status.is_active()
-                };
+        let checks_if_accepted = !skip_checking_if_accepted || !contest.is_practice_contest() && {
+            let duration = extract_contest_duration(&tasks_page)?;
+            let status = duration.check_current_status(contest.to_string());
+            status.raise_if_not_begun()?;
+            status.is_active()
+        };
         for (name, url) in extract_task_urls_with_names(&tasks_page)? {
             if name.to_uppercase() == task.to_uppercase() {
                 let task_screen_name = {
@@ -260,7 +253,6 @@ impl AtCoderBeta {
         self.0.save_cookies()
     }
 }
-
 
 #[derive(Clone)]
 enum Contest {
@@ -316,8 +308,7 @@ impl Contest {
 
     fn style(&self) -> SampleCaseStyle {
         match *self {
-            Contest::AbcBefore007(_) |
-            Contest::ArcBefore058(_) => SampleCaseStyle::Old,
+            Contest::AbcBefore007(_) | Contest::ArcBefore058(_) => SampleCaseStyle::Old,
             _ => SampleCaseStyle::New,
         }
     }
@@ -360,7 +351,6 @@ impl Contest {
     }
 }
 
-
 #[derive(Debug)]
 enum ContestStatus {
     Finished,
@@ -386,7 +376,6 @@ impl ContestStatus {
     }
 }
 
-
 struct ContestDuration(DateTime<Utc>, DateTime<Utc>);
 
 impl ContestDuration {
@@ -402,12 +391,10 @@ impl ContestDuration {
     }
 }
 
-
 enum SampleCaseStyle {
     New,
     Old,
 }
-
 
 fn extract_csrf_token(document: &Document) -> ServiceResult<String> {
     fn extract(document: &Document) -> Option<String> {
@@ -420,7 +407,6 @@ fn extract_csrf_token(document: &Document) -> ServiceResult<String> {
 
     super::quit_on_failure(extract(document), String::is_empty)
 }
-
 
 fn extract_task_urls_with_names(document: &Document) -> ServiceResult<Vec<(String, String)>> {
     fn extract(document: &Document) -> Option<Vec<(String, String)>> {
@@ -439,8 +425,7 @@ fn extract_task_urls_with_names(document: &Document) -> ServiceResult<Vec<(Strin
             let name = node.find(Text).next()?.text();
             info!(
                 "Extracting problem links: Found #main-container>[[omitted]]>a[href={:?}]{{{}}}",
-                url,
-                name
+                url, name
             );
             names_and_pathes.push((name, url));
         }
@@ -450,7 +435,6 @@ fn extract_task_urls_with_names(document: &Document) -> ServiceResult<Vec<(Strin
     super::quit_on_failure(extract(document), Vec::is_empty)
 }
 
-
 fn extract_cases<R: Read>(html: R, style: &SampleCaseStyle) -> ServiceResult<TestSuite> {
     let document = Document::from_read(html)?;
     match *style {
@@ -459,7 +443,6 @@ fn extract_cases<R: Read>(html: R, style: &SampleCaseStyle) -> ServiceResult<Tes
     }
 }
 
-
 fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> {
     fn try_extracting_from_section(section_node: Node, regex: &Regex) -> Option<String> {
         let title = section_node.find(Name("h3")).next()?.text();
@@ -467,8 +450,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
         return_none_unless!(regex.is_match(&title));
         info!(
             "Extracting sample cases: Found h3{{{}}}+pre{{{:?}}}",
-            title,
-            sample
+            title, sample
         );
         Some(sample)
     }
@@ -528,7 +510,6 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
     Ok(extract(document).unwrap_or_default())
 }
 
-
 fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
     lazy_static! {
         static ref RE_TIMELIMIT: Regex = Regex::new(r"^\D*(\d+)\s*sec.*$").unwrap();
@@ -552,7 +533,6 @@ fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
     Some(timelimit)
 }
 
-
 fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuration> {
     fn extract(document: &Document) -> Option<(String, String)> {
         let predicate = Name("time").child(Text);
@@ -573,7 +553,6 @@ fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuratio
         None => bail!(ServiceErrorKind::ScrapingFailed),
     }
 }
-
 
 fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<bool> {
     fn check(document: Document, task_screen_name: &str) -> Option<bool> {

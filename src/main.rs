@@ -1,5 +1,20 @@
 #![recursion_limit = "1024"]
 
+#[macro_use]
+extern crate clap;
+#[macro_use]
+extern crate custom_derive;
+#[macro_use]
+extern crate error_chain;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate log;
+#[macro_use]
+extern crate newtype_derive;
+#[macro_use]
+extern crate serde_derive;
+
 extern crate bincode;
 extern crate chrono;
 extern crate cookie;
@@ -18,20 +33,6 @@ extern crate term;
 extern crate toml;
 extern crate webbrowser;
 extern crate zip;
-#[macro_use]
-extern crate clap;
-#[macro_use]
-extern crate custom_derive;
-#[macro_use]
-extern crate error_chain;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate newtype_derive;
-#[macro_use]
-extern crate serde_derive;
 
 #[macro_use]
 mod macros;
@@ -50,7 +51,6 @@ use service::{atcoder, atcoder_beta, hackerrank};
 use testsuite::{SuiteFileExtension, SuiteFilePath};
 
 use clap::{AppSettings, Arg, SubCommand};
-
 
 quick_main_colored!(|| -> SnowchainsResult<()> {
     env_logger::init()?;
@@ -79,9 +79,9 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     }
 
     fn arg_value() -> Arg<'static, 'static> {
-        Arg::with_name("value").help("Property value").required(
-            true,
-        )
+        Arg::with_name("value")
+            .help("Property value")
+            .required(true)
     }
 
     fn arg_service() -> Arg<'static, 'static> {
@@ -99,15 +99,15 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     }
 
     fn arg_contest() -> Arg<'static, 'static> {
-        Arg::with_name("contest").help("Contest name").required(
-            true,
-        )
+        Arg::with_name("contest")
+            .help("Contest name")
+            .required(true)
     }
 
     fn arg_open_browser() -> Arg<'static, 'static> {
-        Arg::with_name("open-browser").long("open-browser").help(
-            "Whether to open the browser",
-        )
+        Arg::with_name("open-browser")
+            .long("open-browser")
+            .help("Whether to open the browser")
     }
 
     fn arg_target() -> Arg<'static, 'static> {
@@ -136,9 +136,9 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     }
 
     fn arg_skip_judging() -> Arg<'static, 'static> {
-        Arg::with_name("skip-judging").long("skip-judging").help(
-            "Whether to skip judging",
-        )
+        Arg::with_name("skip-judging")
+            .long("skip-judging")
+            .help("Whether to skip judging")
     }
 
     fn arg_force() -> Arg<'static, 'static> {

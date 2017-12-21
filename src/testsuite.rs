@@ -11,14 +11,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-
 /// Appends `input` and `output` to a test suite read from `path`.
 pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.append(input, output)?;
     suite.save(path, false)
 }
-
 
 /// `SimpelSuite` or `InteractiveSuite`.
 #[derive(Clone, Serialize, Deserialize)]
@@ -133,16 +131,13 @@ impl TestSuite {
     }
 }
 
-
 /// Set of the timelimit and test cases.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct SimpleSuite {
     timelimit: Option<u64>,
     cases: Vec<ReducibleCase>,
-    #[serde(skip)]
-    path: PathBuf,
+    #[serde(skip)] path: PathBuf,
 }
-
 
 impl SimpleSuite {
     /// Constructs a `Cases` with a timelimit value and pairs of input/output samples.
@@ -150,9 +145,7 @@ impl SimpleSuite {
         Self {
             timelimit: timelimit,
             cases: cases
-                .map(|(output, input)| {
-                    ReducibleCase::from_strings(input, Some(output))
-                })
+                .map(|(output, input)| ReducibleCase::from_strings(input, Some(output)))
                 .collect(),
             path: PathBuf::default(),
         }
@@ -171,13 +164,11 @@ impl SimpleSuite {
     }
 }
 
-
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct InteractiveSuite {
     timelimit: Option<u64>,
     cases: Vec<InteractiveCase>,
-    #[serde(skip)]
-    path: PathBuf,
+    #[serde(skip)] path: PathBuf,
 }
 
 impl InteractiveSuite {
@@ -198,7 +189,6 @@ impl InteractiveSuite {
     }
 }
 
-
 /// `Vec<SimpleCase>` or `Vec<ReducibleCase>`.
 pub enum TestCases {
     Simple(Vec<SimpleCase>),
@@ -214,7 +204,6 @@ impl TestCases {
         }
     }
 }
-
 
 /// Pair of `input` and `expected`.
 ///
@@ -244,13 +233,11 @@ impl SimpleCase {
     }
 }
 
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct InteractiveCase {
     tester: String,
     timelimit: Option<u64>,
-    #[serde(skip)]
-    path: PathBuf,
+    #[serde(skip)] path: PathBuf,
 }
 
 impl InteractiveCase {
@@ -275,7 +262,6 @@ impl InteractiveCase {
         self
     }
 }
-
 
 pub struct SuiteFilePaths {
     directory: PathBuf,
@@ -314,9 +300,9 @@ impl SuiteFilePaths {
                     .flat_map(|suite| {
                         let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
                         let path = Arc::new(path);
-                        cases.into_iter().map(move |case| {
-                            case.reduce(path.clone(), timelimit)
-                        })
+                        cases
+                            .into_iter()
+                            .map(move |case| case.reduce(path.clone(), timelimit))
                     })
                     .collect(),
             ))
@@ -327,9 +313,9 @@ impl SuiteFilePaths {
                     .map(TestSuite::unwrap_to_interactive)
                     .flat_map(|suite| {
                         let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
-                        cases.into_iter().map(move |case| {
-                            case.appended(path.clone(), timelimit)
-                        })
+                        cases
+                            .into_iter()
+                            .map(move |case| case.appended(path.clone(), timelimit))
                     })
                     .collect(),
             ))
@@ -338,7 +324,6 @@ impl SuiteFilePaths {
         }
     }
 }
-
 
 /// File path which extension is 'json', 'toml', 'yaml', or 'yml'.
 pub struct SuiteFilePath {
@@ -363,7 +348,6 @@ impl SuiteFilePath {
         path
     }
 }
-
 
 /// Extension of a test suite file.
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -412,14 +396,11 @@ impl FromStr for SuiteFileExtension {
     }
 }
 
-
 #[derive(Clone, Serialize, Deserialize)]
 struct ReducibleCase {
     input: NonNestedValue,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    expected: Option<NonNestedValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    timelimit: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")] expected: Option<NonNestedValue>,
+    #[serde(skip_serializing_if = "Option::is_none")] timelimit: Option<u64>,
 }
 
 impl ReducibleCase {
@@ -440,7 +421,6 @@ impl ReducibleCase {
         }
     }
 }
-
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -478,7 +458,6 @@ impl NonNestedValue {
         }
     }
 }
-
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]

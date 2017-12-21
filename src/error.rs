@@ -38,7 +38,6 @@ impl<E: ChainedError> PrintChainColored for E {
     }
 }
 
-
 error_chain!{
     types{
         SnowchainsError, SnowchainsErrorKind, SnowchainsResultExt, SnowchainsResult;
@@ -55,7 +54,6 @@ error_chain!{
         SetLogger(SetLoggerError);
     }
 }
-
 
 error_chain! {
     types {
@@ -136,7 +134,6 @@ error_chain! {
     }
 }
 
-
 error_chain! {
     types {
         JudgingError, JudgingErrorKind, JudgingResultExt, JudgingResult;
@@ -171,7 +168,6 @@ error_chain! {
     }
 }
 
-
 error_chain! {
     types {
         SuiteFileError, SuiteFileErrorKind, SuiteFileResultExt, SuiteFileResult;
@@ -197,7 +193,6 @@ error_chain! {
         }
     }
 }
-
 
 error_chain! {
     types {
@@ -234,9 +229,7 @@ error_chain! {
     }
 }
 
-
 pub type PathFormatResult<T> = Result<T, PathFormatError>;
-
 
 #[derive(Debug)]
 pub enum PathFormatError {

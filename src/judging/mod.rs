@@ -13,7 +13,6 @@ use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::Duration;
 
-
 /// Tests for given test case file paths, executaion command, and compilation command.
 ///
 /// # Errors
@@ -106,7 +105,6 @@ pub fn judge(
     judge_all(suite_paths.load_and_merge_all()?, Arc::new(solver))
 }
 
-
 trait JudgingOutput
 where
     Self: fmt::Display,
@@ -131,7 +129,6 @@ where
     }
 }
 
-
 trait WrapNotFoundErrorMessage {
     type Item;
     /// Maps `io::Error` to `JudgingError`.
@@ -153,7 +150,6 @@ impl<T> WrapNotFoundErrorMessage for io::Result<T> {
         })
     }
 }
-
 
 trait MillisRoundedUp {
     /// As milliseconds rounded up.

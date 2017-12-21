@@ -8,7 +8,6 @@ use std::io;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
-
 /// Compilation command.
 pub struct CompilationCommand {
     command: CommandProperty,
@@ -55,12 +54,10 @@ impl CompilationCommand {
             .stderr(Stdio::inherit())
             .status()
             .map_err(|e| match e.kind() {
-                io::ErrorKind::NotFound => {
-                    io::Error::new(
-                        io::ErrorKind::NotFound,
-                        format!("{:?} not found", self.command.arg0.clone()),
-                    )
-                }
+                io::ErrorKind::NotFound => io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("{:?} not found", self.command.arg0.clone()),
+                ),
                 _ => e,
             })?;
         if status.success() {
@@ -70,7 +67,6 @@ impl CompilationCommand {
         }
     }
 }
-
 
 /// Command for simple/interactive testing.
 pub struct JudgingCommand(CommandProperty);
@@ -118,7 +114,6 @@ impl JudgingCommand {
             .spawn()
     }
 }
-
 
 #[derive(Clone)]
 struct CommandProperty {
@@ -174,13 +169,11 @@ impl CommandProperty {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::CommandProperty;
 
     use std::path::PathBuf;
-
 
     #[test]
     fn assert_commands_wrapped_in_sh_or_cmd() {

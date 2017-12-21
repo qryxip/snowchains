@@ -121,9 +121,9 @@ impl HttpSession {
     ) -> ServiceResult<Option<Response>> {
         let (status1, status2) = (status_from_u16(status1)?, status_from_u16(status2)?);
         let response = self.send_get(url, status1, &[status1, status2])?;
-        Ok(Some(response).into_iter().find(|response| {
-            response.status() == status1
-        }))
+        Ok(Some(response)
+            .into_iter()
+            .find(|response| response.status() == status1))
     }
 
     /// Sends GET requests to `urls` expecting the response data are all zips.
@@ -152,9 +152,9 @@ impl HttpSession {
                 let mut pb = mb.create_bar(content_length.unwrap_or(0));
                 pb.set_units(Units::Bytes);
                 thread::spawn(move || -> ZipResult<_> {
-                    let mut cursor = Cursor::new(Vec::with_capacity(
-                        content_length.unwrap_or(50 * 1024 * 1024) as usize,
-                    ));
+                    let mut cursor = Cursor::new(Vec::with_capacity(content_length
+                        .unwrap_or(50 * 1024 * 1024)
+                        as usize));
                     let mut buf = [0; 10 * 1024];
                     loop {
                         let n = response.read(&mut buf)?;
@@ -293,7 +293,6 @@ impl HttpSession {
     }
 }
 
-
 fn to_absolute<'a>(base_url: &'static str, relative_or_absolute_url: &'a str) -> Cow<'a, str> {
     if relative_or_absolute_url.chars().next() == Some('/') {
         Cow::Owned(format!("{}{}", base_url, relative_or_absolute_url))
@@ -302,16 +301,13 @@ fn to_absolute<'a>(base_url: &'static str, relative_or_absolute_url: &'a str) ->
     }
 }
 
-
 fn status_from_u16(number: u16) -> ServiceResult<StatusCode> {
     StatusCode::try_from(number).map_err(|_| ServiceErrorKind::InvalidStatusCode(number).into())
 }
 
-
 fn user_agent() -> UserAgent {
     UserAgent::new("snowchains <https://github.com/wariuni/snowchains>")
 }
-
 
 trait AsRequestCookie {
     fn as_request_cookie(&self) -> RequestCookie;
@@ -319,16 +315,13 @@ trait AsRequestCookie {
 
 impl AsRequestCookie for CookieJar {
     fn as_request_cookie(&self) -> RequestCookie {
-        self.iter().fold(
-            RequestCookie::new(),
-            |mut header, cookie| {
+        self.iter()
+            .fold(RequestCookie::new(), |mut header, cookie| {
                 header.append(cookie.name().to_owned(), cookie.value().to_owned());
                 header
-            },
-        )
+            })
     }
 }
-
 
 trait ResponseExt
 where

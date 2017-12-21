@@ -3,7 +3,6 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-
 /// Calls `File::open(path)` and if the result is `Err`, replace the error with new one which
 /// message contains `path`.
 pub fn open_file(path: &Path) -> io::Result<File> {
@@ -16,7 +15,6 @@ pub fn open_file(path: &Path) -> io::Result<File> {
     })
 }
 
-
 /// Calls `fs::create_dir_all` and `File::create`.
 pub fn create_file_and_dirs(path: &Path) -> io::Result<File> {
     if let Some(dir) = path.parent() {
@@ -25,13 +23,11 @@ pub fn create_file_and_dirs(path: &Path) -> io::Result<File> {
     File::create(path).map_err(|e| {
         let message = format!(
             "An IO error occured while opening/creating {:?}: {}",
-            path,
-            e
+            path, e
         );
         io::Error::new(e.kind(), message)
     })
 }
-
 
 /// Returns a `String` read from `read`.
 pub fn string_from_read<R: Read>(read: R) -> io::Result<String> {
@@ -41,12 +37,10 @@ pub fn string_from_read<R: Read>(read: R) -> io::Result<String> {
     Ok(buf)
 }
 
-
 /// Equals to `string_from_read(open_file(path)?)`.
 pub fn string_from_file_path(path: &Path) -> io::Result<String> {
     string_from_read(open_file(path)?)
 }
-
 
 /// Prints `s` ignoring a trailing newline if it exists.
 pub fn eprintln_trimming_trailing_newline(s: &str) {
@@ -56,7 +50,6 @@ pub fn eprintln_trimming_trailing_newline(s: &str) {
         eprintln!("{}", s);
     }
 }
-
 
 /// Returns `~/<names>` as `io::Result`.
 ///
@@ -73,7 +66,6 @@ pub fn path_under_home(names: &[&str]) -> io::Result<PathBuf> {
         path
     }))
 }
-
 
 pub trait OkAsRefOr {
     type Item;
@@ -95,7 +87,6 @@ impl<T> OkAsRefOr for Option<T> {
         }
     }
 }
-
 
 pub trait Camelize {
     /// Converts `self` to CamlCase.

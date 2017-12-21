@@ -10,7 +10,6 @@ use select::predicate::{Attr as HtmlAttr, Class, Name, Predicate, Text};
 use std::io::Read;
 use std::path::Path;
 
-
 pub fn login() -> ServiceResult<()> {
     static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
     let mut atcoder = AtCoder(HttpSession::start("atcoder", "https://atcoder.jp")?);
@@ -22,13 +21,11 @@ pub fn login() -> ServiceResult<()> {
     Ok(())
 }
 
-
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
     let mut atcoder = AtCoder::load_or_login()?;
     atcoder.participate(contest_name)?;
     atcoder.save()
 }
-
 
 pub fn download(
     contest_name: &str,
@@ -38,7 +35,6 @@ pub fn download(
     let mut atcoder = AtCoder::load_or_login()?;
     atcoder.download_all_tasks(contest_name, dir_to_save, extension)
 }
-
 
 custom_derive! {
     #[derive(NewtypeDeref, NewtypeDerefMut)]
@@ -71,9 +67,7 @@ impl AtCoder {
     ) -> ServiceResult<()> {
         let names_and_pathes = {
             let url = format!("http://{}.contest.atcoder.jp/assignments", contest_name);
-            extract_names_and_pathes(self.http_get(&url)?).chain_err(
-                || "Probably 404",
-            )?
+            extract_names_and_pathes(self.http_get(&url)?).chain_err(|| "Probably 404")?
         };
         for (alphabet, path) in names_and_pathes {
             let url = format!("http://{}.contest.atcoder.jp{}", contest_name, path);
@@ -120,7 +114,6 @@ impl AtCoder {
     }
 }
 
-
 fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, String)>> {
     fn extract(document: Document) -> Option<Vec<(String, String)>> {
         let mut names_and_pathes = vec![];
@@ -140,7 +133,6 @@ fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, Stri
 
     super::quit_on_failure(extract(Document::from_read(html)?), Vec::is_empty)
 }
-
 
 fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
     fn try_extracting_sample(section_node: Node, regex: &'static Regex) -> Option<String> {

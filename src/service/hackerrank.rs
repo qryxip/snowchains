@@ -18,7 +18,6 @@ pub fn login() -> ServiceResult<()> {
     HackerRank::start(true)?.save()
 }
 
-
 pub fn download(
     contest: &str,
     dir_to_save: &Path,
@@ -29,7 +28,6 @@ pub fn download(
         .download(contest, dir_to_save, extension, open_browser)?
         .save()
 }
-
 
 custom_derive! {
     #[derive(NewtypeDeref, NewtypeDerefMut)]
@@ -78,12 +76,7 @@ impl HackerRank {
             password: password,
             remember_me: true,
         };
-        let response = self.http_post_json_with_csrf_token(
-            "/auth/login",
-            data,
-            200,
-            csrf_token,
-        )?;
+        let response = self.http_post_json_with_csrf_token("/auth/login", data, 200, csrf_token)?;
         Ok(serde_json::from_reader::<_, ResponseData>(response)?.status)
     }
 
@@ -137,7 +130,6 @@ impl HackerRank {
     }
 }
 
-
 fn extract_csrf_token(html: Response) -> ServiceResult<String> {
     fn extract(document: Document) -> Option<String> {
         document
@@ -149,7 +141,6 @@ fn extract_csrf_token(html: Response) -> ServiceResult<String> {
 
     super::quit_on_failure(extract(Document::from_read(html)?), String::is_empty)
 }
-
 
 fn extract_samples_from_zip<R: Read + Seek>(zip: ZipArchive<R>) -> ZipResult<TestSuite> {
     lazy_static! {

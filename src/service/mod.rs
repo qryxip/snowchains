@@ -22,20 +22,16 @@ use std::path::Path;
 fn read_username_and_password(username_prompt: &'static str) -> io::Result<(String, String)> {
     let errno_brokenpipe = if cfg!(target_os = "windows") { 6 } else { 32 };
     let username = rprompt::prompt_reply_stderr(username_prompt)?;
-    let password = rpassword::prompt_password_stderr("Password: ").or_else(
-        |e| {
-            match e.raw_os_error() {
-                Some(n) if n == errno_brokenpipe => {
-                    eprintln_bold!(Some(color::BRIGHT_MAGENTA), "FALLBACK (os error {})", n);
-                    rprompt::prompt_reply_stderr("Password (not hidden): ")
-                }
-                _ => Err(e),
+    let password =
+        rpassword::prompt_password_stderr("Password: ").or_else(|e| match e.raw_os_error() {
+            Some(n) if n == errno_brokenpipe => {
+                eprintln_bold!(Some(color::BRIGHT_MAGENTA), "FALLBACK (os error {})", n);
+                rprompt::prompt_reply_stderr("Password (not hidden): ")
             }
-        },
-    )?;
+            _ => Err(e),
+        })?;
     Ok((username, password))
 }
-
 
 /// Opens `url` with default browser after printing a message.
 ///
@@ -51,7 +47,6 @@ fn open_browser_with_message(url: &str) -> ServiceResult<()> {
     Ok(())
 }
 
-
 /// Gets the value `x` if `Some(x) = o` and `!f(x)`.
 ///
 /// # Errors
@@ -65,7 +60,6 @@ fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> ServiceResu
     }
     bail!(ServiceErrorKind::ScrapingFailed);
 }
-
 
 /// Reads a source code from `path`, replacing the main class name with `class_name` if the source
 /// code is Java or Scala.

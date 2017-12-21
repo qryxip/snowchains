@@ -9,9 +9,8 @@ use term::color;
 use std::{fmt, thread};
 use std::io::{self, Write};
 use std::process::ExitStatus;
-use std::sync::{Arc, mpsc};
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
-
 
 /// Tests for `case` and `solver` and returns one `SimpleOutput`.
 pub fn judge(case: SimpleCase, solver: Arc<JudgingCommand>) -> JudgingResult<SimpleOutput> {
@@ -29,7 +28,6 @@ pub fn judge(case: SimpleCase, solver: Arc<JudgingCommand>) -> JudgingResult<Sim
         rx.recv()?
     }?)
 }
-
 
 fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
     let (input, expected, timelimit) = case.values();
@@ -54,7 +52,6 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
     }
 }
 
-
 /// Test result.
 pub enum SimpleOutput {
     // Each string may be empty.
@@ -65,7 +62,14 @@ pub enum SimpleOutput {
     // (<elapsed>, <input>, <expected>, <stdout>, <stderr>)
     Wa(Duration, Arc<String>, Arc<String>, Arc<String>, Arc<String>),
     // (<elapsed>, <input>, <expected>, <stdout>, <stderr>, <status>)
-    Re(Duration, Arc<String>, Arc<String>, Arc<String>, Arc<String>, ExitStatus),
+    Re(
+        Duration,
+        Arc<String>,
+        Arc<String>,
+        Arc<String>,
+        Arc<String>,
+        ExitStatus,
+    ),
 }
 
 impl fmt::Display for SimpleOutput {

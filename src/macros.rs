@@ -10,12 +10,9 @@ macro_rules! quick_main_colored { ($main: expr) => {
     }
 } }
 
-
 macro_rules! return_none_if { ($x: expr) => { if $x { return None; } } }
 
-
 macro_rules! return_none_unless { ($x: expr) => { if !$x { return None; } } }
-
 
 macro_rules! print_and_flush { ($format: tt $(, $x: expr)*) => {
     {
@@ -25,7 +22,6 @@ macro_rules! print_and_flush { ($format: tt $(, $x: expr)*) => {
     }
 } }
 
-
 macro_rules! eprint_and_flush { ($format: tt$(, $x: expr)*) => {
     {
         use std::io::{self, Write};
@@ -34,26 +30,21 @@ macro_rules! eprint_and_flush { ($format: tt$(, $x: expr)*) => {
     }
 } }
 
-
 macro_rules! print_bold { ($color: expr, $format: tt $(, $x: expr)*) => {
     _write_decorated!(stdout, write, term::Attr::Bold, $color, $format$(, $x)*)
 } }
-
 
 macro_rules! println_bold { ($color: expr, $format: tt $(, $x: expr)*) => {
     _write_decorated!(stdout, writeln, term::Attr::Bold, $color, $format$(, $x)*)
 } }
 
-
 macro_rules! eprint_bold { ($color: expr, $format: tt $(, $x: expr)*) => {
     _write_decorated!(stderr, write, term::Attr::Bold, $color, $format$(, $x)*)
 } }
 
-
 macro_rules! eprintln_bold { ($color: expr, $format: tt $(, $x: expr)*) => {
     _write_decorated!(stderr, writeln, term::Attr::Bold, $color, $format$(, $x)*)
 } }
-
 
 macro_rules! _write_decorated {
     ($out: ident, $write: ident, $attr: expr, $color: expr, $format: tt$(, $x: expr)*) => {
