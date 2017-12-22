@@ -1,14 +1,12 @@
 use bincode;
 use chrono::{self, DateTime, Local};
 use cookie;
-use error_chain::ChainedError;
 use log::SetLoggerError;
 use regex;
 use reqwest::{self, StatusCode, UrlError};
 use serde_json;
 use serde_urlencoded;
 use serde_yaml;
-use term::color;
 use toml;
 use zip::result::ZipError;
 
@@ -18,25 +16,6 @@ use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::sync::mpsc::RecvError;
-
-pub trait PrintChainColored {
-    /// Prints the chained errors of `self` like `quick_main!`, coloring with `term`.
-    fn print_chain_colored(&self);
-}
-
-impl<E: ChainedError> PrintChainColored for E {
-    fn print_chain_colored(&self) {
-        eprint_bold!(Some(color::RED), "Error: ");
-        eprintln!("{}", self);
-        for e_kind in self.iter().skip(1) {
-            eprint_bold!(None, "Caused by: ");
-            eprintln!("{}", e_kind);
-        }
-        if let Some(backtrace) = self.backtrace() {
-            eprintln!("{:?}", backtrace);
-        }
-    }
-}
 
 error_chain!{
     types{

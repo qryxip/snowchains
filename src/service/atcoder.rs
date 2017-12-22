@@ -1,4 +1,4 @@
-use error::{PrintChainColored, ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
+use error::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
 use service::session::HttpSession;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
@@ -102,8 +102,7 @@ impl AtCoder {
 
         static URL: &'static str = "https://practice.contest.atcoder.jp/login";
         let _ = self.http_get(URL)?;
-        while let Err(e) = self.http_post_urlencoded(URL, post_data()?, 302) {
-            e.print_chain_colored();
+        while self.http_post_urlencoded(URL, post_data()?, 302).is_err() {
             println!("Failed to sign in. try again.")
         }
         Ok(())

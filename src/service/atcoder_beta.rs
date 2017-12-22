@@ -1,4 +1,4 @@
-use error::{PrintChainColored, ServiceErrorKind, ServiceResult};
+use error::{ServiceErrorKind, ServiceResult};
 use service::session::HttpSession;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
@@ -84,8 +84,7 @@ impl AtCoderBeta {
                 eprintln!("Already logged in.");
             })
         } else {
-            while let Err(e) = self.try_logging_in() {
-                e.print_chain_colored();
+            while !self.try_logging_in()? {
                 eprintln!("Failed to login. Try again.");
                 self.clear_cookies();
             }
@@ -93,7 +92,7 @@ impl AtCoderBeta {
         }
     }
 
-    fn try_logging_in(&mut self) -> ServiceResult<()> {
+    fn try_logging_in(&mut self) -> ServiceResult<bool> {
         #[derive(Serialize)]
         struct PostData {
             username: String,
@@ -101,17 +100,15 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
-        let csrf_token = extract_csrf_token(&Document::from_read(self.http_get(URL)?)?)?;
+        let csrf_token = extract_csrf_token(&Document::from_read(self.http_get("/login")?)?)?;
         let (username, password) = super::read_username_and_password("Username: ")?;
         let data = PostData {
             username: username,
             password: password,
             csrf_token: csrf_token,
         };
-        static URL: &'static str = "https://beta.atcoder.jp/login";
-        let _ = self.http_post_urlencoded(URL, data, 302)?;
-        let _ = self.http_get("https://beta.atcoder.jp/settings")?;
-        Ok(())
+        self.http_post_urlencoded("/login", data, 302)?;
+        Ok(self.http_get_as_opt("/settings", 200, 302)?.is_some())
     }
 
     fn register_explicitly(&mut self, contest: &Contest) -> ServiceResult<()> {
