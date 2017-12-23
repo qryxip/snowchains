@@ -1,4 +1,4 @@
-use error::{JudgingErrorKind, JudgingResult};
+use errors::{JudgingErrorKind, JudgingResult};
 
 use term::color;
 

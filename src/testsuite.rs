@@ -1,4 +1,4 @@
-use error::{SuiteFileErrorKind, SuiteFileResult};
+use errors::{SuiteFileErrorKind, SuiteFileResult};
 use util;
 
 use {serde_json, serde_yaml, toml};

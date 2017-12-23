@@ -1,10 +1,10 @@
 mod interactive;
 mod simple;
 
-use self::interactive::InteractiveOutput;
-use self::simple::SimpleOutput;
 use command::{CompilationCommand, JudgingCommand};
-use error::{JudgingError, JudgingErrorKind, JudgingResult};
+use errors::{JudgingError, JudgingErrorKind, JudgingResult};
+use judging::interactive::InteractiveOutput;
+use judging::simple::SimpleOutput;
 use testsuite::{SuiteFilePaths, TestCases};
 
 use std::fmt;

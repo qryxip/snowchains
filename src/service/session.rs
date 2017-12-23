@@ -1,4 +1,4 @@
-use error::{ServiceErrorKind, ServiceResult};
+use errors::{ServiceErrorKind, ServiceResult};
 use util;
 
 use bincode::{self, Infinite};
@@ -7,6 +7,7 @@ use pbr::{MultiBar, Units};
 use reqwest::{Client, RedirectPolicy, Response, StatusCode};
 use reqwest::header::{ContentLength, ContentType, Cookie as RequestCookie, Headers, SetCookie,
                       UserAgent};
+use robots_txt::{Robots, SimpleMatcher};
 use serde::Serialize;
 use serde_json;
 use serde_urlencoded;
@@ -18,6 +19,29 @@ use std::borrow::Cow;
 use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
 use std::thread;
+
+static USER_AGENT: &'static str = "snowchains <https://github.com/wariuni/snowchains>";
+
+pub fn assert_not_forbidden_by_robots_txt(
+    url: &'static str,
+    paths: &'static [&'static str],
+) -> ServiceResult<()> {
+    let client = Client::builder().redirect(RedirectPolicy::none()).build()?;
+    print_bold!(None, "GET");
+    print_and_flush!(" {} ... ", url);
+    let response = client.get(url).header(UserAgent::new(USER_AGENT)).send()?;
+    response.print_status(&[StatusCode::Ok, StatusCode::NotFound]);
+    let response = response.filter_by_status(&[StatusCode::Ok, StatusCode::NotFound])?;
+    if response.status() == StatusCode::Ok {
+        let text = util::string_from_read(response)?;
+        let robots = Robots::from_str(&text);
+        let matcher = SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules);
+        if !paths.iter().all(|path| matcher.check_path(path)) {
+            bail!(ServiceErrorKind::ForbiddenByRobotsTxt);
+        }
+    }
+    Ok(())
+}
 
 pub struct HttpSession {
     base_url: &'static str,
@@ -47,7 +71,12 @@ impl HttpSession {
             println!("{} not found. It will be created.", path.display());
             CookieJar::new()
         };
-        let client = Client::builder().redirect(RedirectPolicy::none()).build()?;
+        let mut headers = Headers::new();
+        headers.set(UserAgent::new(USER_AGENT));
+        let client = Client::builder()
+            .redirect(RedirectPolicy::none())
+            .default_headers(headers)
+            .build()?;
         Ok(Self {
             base_url: base_url,
             cookie_jar: jar,
@@ -84,7 +113,7 @@ impl HttpSession {
     /// - The http access fails
     /// - The response code is not 200
     pub fn http_get(&mut self, url: &str) -> ServiceResult<Response> {
-        self.send_get(url, StatusCode::Ok, &[StatusCode::Ok])
+        self.send_get(url, &[StatusCode::Ok])
     }
 
     /// Sends a GET request to `url`.
@@ -98,10 +127,10 @@ impl HttpSession {
     pub fn http_get_expecting(
         &mut self,
         url: &str,
-        expected_status: u16,
+        expected_status: &'static u16,
     ) -> ServiceResult<Response> {
-        let expected_status = status_from_u16(expected_status)?;
-        self.send_get(url, expected_status, &[expected_status])
+        let expected_status = status_from_u16(expected_status);
+        self.send_get(url, &[expected_status])
     }
 
     /// Sends a GET request to `url` and if the response code is `status1`, returns `Ok(Some)` else
@@ -116,11 +145,11 @@ impl HttpSession {
     pub fn http_get_as_opt(
         &mut self,
         url: &str,
-        status1: u16,
-        status2: u16,
+        status1: &'static u16,
+        status2: &'static u16,
     ) -> ServiceResult<Option<Response>> {
-        let (status1, status2) = (status_from_u16(status1)?, status_from_u16(status2)?);
-        let response = self.send_get(url, status1, &[status1, status2])?;
+        let (status1, status2) = (status_from_u16(status1), status_from_u16(status2));
+        let response = self.send_get(url, &[status1, status2])?;
         Ok(Some(response)
             .into_iter()
             .find(|response| response.status() == status1))
@@ -196,12 +225,12 @@ impl HttpSession {
         &mut self,
         url: &str,
         data: T,
-        expected_status: u16,
+        expected_status: &'static u16,
     ) -> ServiceResult<Response> {
         self.send_post(
             url,
             serde_urlencoded::to_string(data)?,
-            status_from_u16(expected_status)?,
+            status_from_u16(expected_status),
             ContentType::form_url_encoded(),
             &[],
         )
@@ -219,42 +248,36 @@ impl HttpSession {
         &mut self,
         url: &str,
         data: T,
-        expected_status: u16,
+        expected_status: &'static u16,
         csrf_token: String,
     ) -> ServiceResult<Response> {
         self.send_post(
             url,
             serde_json::to_string(&data)?,
-            status_from_u16(expected_status)?,
+            status_from_u16(expected_status),
             ContentType::json(),
             &[("X-CSRF-Token", csrf_token)],
         )
     }
 
-    fn send_get(
-        &mut self,
-        url: &str,
-        expected_status: StatusCode,
-        acceptable_statuses: &[StatusCode],
-    ) -> ServiceResult<Response> {
+    fn send_get(&mut self, url: &str, expected_statuses: &[StatusCode]) -> ServiceResult<Response> {
         let url = to_absolute(self.base_url, url);
         print_bold!(None, "GET");
         print_and_flush!(" {} ... ", url);
         let response = self.reqwest_client
             .get(url.as_ref())
-            .header(user_agent())
             .header(self.cookie_jar.as_request_cookie())
             .send()?;
         self.add_setcookie_to_jar(&response)?;
-        response.print_status(expected_status, acceptable_statuses);
-        response.filter_by_status(acceptable_statuses)
+        response.print_status(expected_statuses);
+        response.filter_by_status(expected_statuses)
     }
 
     fn send_post(
         &mut self,
         url: &str,
         data: String,
-        acceptable_status: StatusCode,
+        expected_status: StatusCode,
         content_type: ContentType,
         extra_headers: &[(&'static str, String)],
     ) -> ServiceResult<Response> {
@@ -266,7 +289,6 @@ impl HttpSession {
             .body(data)
             .headers({
                 let mut headers = Headers::new();
-                headers.set(user_agent());
                 headers.set(self.cookie_jar.as_request_cookie());
                 headers.set(content_type);
                 for &(header_name, ref header_value) in extra_headers {
@@ -276,8 +298,8 @@ impl HttpSession {
             })
             .send()?;
         self.add_setcookie_to_jar(&response)?;
-        response.print_status(acceptable_status, &[]);
-        response.filter_by_status(&[acceptable_status])
+        response.print_status(&[expected_status]);
+        response.filter_by_status(&[expected_status])
     }
 
     fn add_setcookie_to_jar(&mut self, response: &Response) -> Result<(), cookie::ParseError> {
@@ -301,12 +323,8 @@ fn to_absolute<'a>(base_url: &'static str, relative_or_absolute_url: &'a str) ->
     }
 }
 
-fn status_from_u16(number: u16) -> ServiceResult<StatusCode> {
-    StatusCode::try_from(number).map_err(|_| ServiceErrorKind::InvalidStatusCode(number).into())
-}
-
-fn user_agent() -> UserAgent {
-    UserAgent::new("snowchains <https://github.com/wariuni/snowchains>")
+fn status_from_u16(number: &'static u16) -> StatusCode {
+    StatusCode::try_from(*number).unwrap()
 }
 
 trait AsRequestCookie {
@@ -327,28 +345,26 @@ trait ResponseExt
 where
     Self: Sized,
 {
-    fn print_status(&self, expected_status: StatusCode, other_acceptable_statuses: &[StatusCode]);
-    fn filter_by_status(self, acceptable_statuses: &[StatusCode]) -> ServiceResult<Self>;
+    fn print_status(&self, expected_statuses: &[StatusCode]);
+    fn filter_by_status(self, expected_statuses: &[StatusCode]) -> ServiceResult<Self>;
 }
 
 impl ResponseExt for Response {
-    fn print_status(&self, expected_status: StatusCode, other_acceptable_statuses: &[StatusCode]) {
-        let color = if self.status() == expected_status {
+    fn print_status(&self, expected_statuses: &[StatusCode]) {
+        let color = if expected_statuses.contains(&self.status()) {
             color::GREEN
-        } else if other_acceptable_statuses.contains(&self.status()) {
-            color::YELLOW
         } else {
             color::RED
         };
         println_bold!(Some(color), "{}", self.status());
     }
 
-    fn filter_by_status(self, acceptable_statuses: &[StatusCode]) -> ServiceResult<Self> {
-        if acceptable_statuses.contains(&self.status()) {
+    fn filter_by_status(self, expected_statuses: &[StatusCode]) -> ServiceResult<Self> {
+        if expected_statuses.contains(&self.status()) {
             Ok(self)
         } else {
             bail!(ServiceErrorKind::UnexpectedHttpCode(
-                acceptable_statuses.iter().cloned().collect(),
+                expected_statuses.iter().cloned().collect(),
                 self.status(),
             ))
         }

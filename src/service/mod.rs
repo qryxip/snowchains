@@ -3,7 +3,7 @@ pub mod atcoder_beta;
 pub mod hackerrank;
 mod session;
 
-use error::{ServiceError, ServiceErrorKind, ServiceResult};
+use errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use util;
 
 use {rpassword, rprompt, webbrowser};

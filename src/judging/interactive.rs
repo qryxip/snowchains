@@ -1,6 +1,5 @@
-use super::{JudgingCommand, MillisRoundedUp, WrapNotFoundErrorMessage};
-use error::JudgingResult;
-use judging::JudgingOutput;
+use errors::JudgingResult;
+use judging::{JudgingCommand, JudgingOutput, MillisRoundedUp, WrapNotFoundErrorMessage};
 use testsuite::InteractiveCase;
 use util;
 

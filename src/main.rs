@@ -22,6 +22,7 @@ extern crate env_logger;
 extern crate pbr;
 extern crate regex;
 extern crate reqwest;
+extern crate robots_txt;
 extern crate rpassword;
 extern crate rprompt;
 extern crate select;
@@ -39,14 +40,14 @@ mod macros;
 
 mod command;
 mod config;
-mod error;
+mod errors;
 mod judging;
 mod service;
 mod testsuite;
 mod util;
 
 use config::{Config, PropertyKey, ServiceName};
-use error::SnowchainsResult;
+use errors::SnowchainsResult;
 use service::{atcoder, atcoder_beta, hackerrank};
 use testsuite::{SuiteFileExtension, SuiteFilePath};
 

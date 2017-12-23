@@ -1,6 +1,6 @@
-use super::{JudgingOutput, MillisRoundedUp};
 use command::JudgingCommand;
-use error::JudgingResult;
+use errors::JudgingResult;
+use judging::{JudgingOutput, MillisRoundedUp};
 use testsuite::SimpleCase;
 use util;
 

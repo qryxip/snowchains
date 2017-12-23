@@ -1,5 +1,5 @@
 use command::{CompilationCommand, JudgingCommand};
-use error::{ConfigError, ConfigErrorKind, ConfigResult, PathFormatError, PathFormatResult};
+use errors::{ConfigError, ConfigErrorKind, ConfigResult, PathFormatError, PathFormatResult};
 use testsuite::{SuiteFileExtension, SuiteFilePaths};
 use util::{self, Camelize};
 

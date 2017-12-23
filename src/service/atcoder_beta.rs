@@ -1,5 +1,5 @@
-use error::{ServiceErrorKind, ServiceResult};
-use service::session::HttpSession;
+use errors::{ServiceErrorKind, ServiceResult};
+use service::session::{self, HttpSession};
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
 use chrono::{DateTime, Local, Utc};
@@ -84,6 +84,10 @@ impl AtCoderBeta {
                 eprintln!("Already logged in.");
             })
         } else {
+            session::assert_not_forbidden_by_robots_txt(
+                "https://beta.atcoder.jp/robots.txt",
+                &["/login", "/settings", "/contests/"],
+            )?;
             while !self.try_logging_in()? {
                 eprintln!("Failed to login. Try again.");
                 self.clear_cookies();
@@ -94,7 +98,7 @@ impl AtCoderBeta {
 
     fn try_logging_in(&mut self) -> ServiceResult<bool> {
         #[derive(Serialize)]
-        struct PostData {
+        struct Payload {
             username: String,
             password: String,
             csrf_token: String,
@@ -102,13 +106,13 @@ impl AtCoderBeta {
 
         let csrf_token = extract_csrf_token(&Document::from_read(self.http_get("/login")?)?)?;
         let (username, password) = super::read_username_and_password("Username: ")?;
-        let data = PostData {
+        let payload = Payload {
             username: username,
             password: password,
             csrf_token: csrf_token,
         };
-        self.http_post_urlencoded("/login", data, 302)?;
-        Ok(self.http_get_as_opt("/settings", 200, 302)?.is_some())
+        self.http_post_urlencoded("/login", payload, &302)?;
+        Ok(self.http_get_as_opt("/settings", &200, &302)?.is_some())
     }
 
     fn register_explicitly(&mut self, contest: &Contest) -> ServiceResult<()> {
@@ -129,11 +133,11 @@ impl AtCoderBeta {
         explicit: bool,
     ) -> ServiceResult<()> {
         #[derive(Serialize)]
-        struct PostData {
+        struct Payload {
             csrf_token: String,
         }
 
-        match self.http_get_as_opt(&contest.url_top(), 200, 302)? {
+        match self.http_get_as_opt(&contest.url_top(), &200, &302)? {
             None => bail!(ServiceErrorKind::ContestNotFound(contest.to_string())),
             Some(response) => {
                 let page = Document::from_read(response)?;
@@ -145,11 +149,11 @@ impl AtCoderBeta {
                 if explicit || contest.is_practice_contest() || status.is_active() {
                     self.login_if_not(false)?;
                     let page = Document::from_read(self.http_get(&contest.url_top())?)?;
-                    let data = PostData {
+                    let payload = Payload {
                         csrf_token: extract_csrf_token(&page)?,
                     };
                     let url = contest.url_register();
-                    self.http_post_urlencoded(&url, data, 302)?;
+                    self.http_post_urlencoded(&url, payload, &302)?;
                 }
                 Ok(())
             }
@@ -195,7 +199,7 @@ impl AtCoderBeta {
         skip_checking_if_accepted: bool,
     ) -> ServiceResult<()> {
         #[derive(Serialize)]
-        struct PostData {
+        struct Payload {
             #[serde(rename = "data.TaskScreenName")] dataTaskScreenName: String,
             #[serde(rename = "data.LanguageId")] dataLanguageId: u32,
             sourceCode: String,
@@ -230,13 +234,13 @@ impl AtCoderBeta {
                 let source_code = super::replace_class_name_if_necessary(src_path, "Main")?;
                 let csrf_token = extract_csrf_token(&Document::from_read(self.http_get(&url)?)?)?;
                 let url = contest.url_submit();
-                let data = PostData {
+                let payload = Payload {
                     dataTaskScreenName: task_screen_name,
                     dataLanguageId: lang_id,
                     sourceCode: source_code,
                     csrf_token: csrf_token,
                 };
-                self.http_post_urlencoded(&url, data, 302)?;
+                self.http_post_urlencoded(&url, payload, &302)?;
                 if open_browser {
                     super::open_browser_with_message(&contest.url_submissions_me())?;
                 }

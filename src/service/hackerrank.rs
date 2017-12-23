@@ -1,5 +1,5 @@
-use error::ServiceResult;
-use service::session::HttpSession;
+use errors::ServiceResult;
+use service::session::{self, HttpSession};
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 use util;
 
@@ -40,7 +40,16 @@ impl HackerRank {
             "hackerrank",
             "https://www.hackerrank.com",
         )?);
-        if let Some(response) = hackerrank.http_get_as_opt("/login", 200, 302)? {
+        if let Some(response) = hackerrank.http_get_as_opt("/login", &200, &302)? {
+            session::assert_not_forbidden_by_robots_txt(
+                "https://www.hackerrank.com/robots.txt",
+                &[
+                    "/login",
+                    "/auth/login",
+                    "/rest/contests/*/challenges",
+                    "/rest/contests/*/challenges/*/download_testcases",
+                ],
+            )?;
             let mut response = response;
             loop {
                 if hackerrank.try_logging_in(response)? {
@@ -76,7 +85,7 @@ impl HackerRank {
             password: password,
             remember_me: true,
         };
-        let response = self.http_post_json_with_csrf_token("/auth/login", data, 200, csrf_token)?;
+        let response = self.http_post_json_with_csrf_token("/auth/login", data, &200, csrf_token)?;
         Ok(serde_json::from_reader::<_, ResponseData>(response)?.status)
     }
 
@@ -106,14 +115,16 @@ impl HackerRank {
         {
             zip_urls.push(format!("{}/{}/download_testcases", url, slug));
             paths.push(SuiteFilePath::new(dir_to_save, slug.clone(), extension));
-            urls.push(format!("/{}/challenges/{}", contest, slug));
+            urls.push(format!(
+                "https://www.hackerrank.com/{}/challenges/{}",
+                contest, slug
+            ));
         }
         let zips = self.http_get_zips(&zip_urls)?;
         println!("Extracting...");
-        let mut extracted = vec![];
-        for zip in zips {
-            extracted.push(extract_samples_from_zip(zip)?);
-        }
+        let extracted = zips.into_iter()
+            .map(extract_samples_from_zip)
+            .collect::<Result<Vec<_>, _>>()?;
         for (suite, path) in extracted.into_iter().zip(paths) {
             suite.save(&path, true)?;
         }

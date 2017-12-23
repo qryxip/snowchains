@@ -72,9 +72,9 @@ error_chain! {
             display("{} not found", contest_name)
         }
 
-        InvalidStatusCode(code: u16) {
-            description("Invalid status code (should be unreachable as long as `code` is constant)")
-            display("Invalid status code: {}", code)
+        ForbiddenByRobotsTxt {
+            description("Forbidden by robots.txt")
+            display("Forbidden by robots.txt")
         }
 
         NoSuchProblem(name: String) {
@@ -84,7 +84,7 @@ error_chain! {
 
         ReplacingClassNameFailure(path: PathBuf) {
             description("Replacing the class name fails")
-            display("Failed to replace the class name in {}", path.display())
+            display("Failed to replace the main class name in {}", path.display())
         }
 
         ScrapingFailed {

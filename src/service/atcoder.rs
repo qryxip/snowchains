@@ -1,4 +1,4 @@
-use error::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
+use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
 use service::session::HttpSession;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
@@ -56,7 +56,7 @@ impl AtCoder {
             "https://{}.contest.atcoder.jp/participants/insert",
             contest_name
         );
-        self.http_get_expecting(&url, 302).map(|_| ())
+        self.http_get_expecting(&url, &302).map(|_| ())
     }
 
     fn download_all_tasks(
@@ -102,7 +102,7 @@ impl AtCoder {
 
         static URL: &'static str = "https://practice.contest.atcoder.jp/login";
         let _ = self.http_get(URL)?;
-        while self.http_post_urlencoded(URL, post_data()?, 302).is_err() {
+        while self.http_post_urlencoded(URL, post_data()?, &302).is_err() {
             println!("Failed to sign in. try again.")
         }
         Ok(())
