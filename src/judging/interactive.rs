@@ -40,8 +40,8 @@ pub fn judge(
         let result = result_rx.recv()?;
         let couts = cout_rx.try_iter().collect::<Vec<_>>();
         result
-            .wrap_not_found_error_message(|| solver.arg0_name())
             .map(|(s, t, e1, e2)| InteractiveOutput::new(None, t, s, couts, e1, e2))
+            .wrap_not_found_error_message(|| solver.arg0_name())
     }
 }
 

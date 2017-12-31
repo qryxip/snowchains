@@ -207,7 +207,7 @@ impl AtCoderBeta {
         }
 
         let tasks_page = self.fetch_tasks_page(contest)?;
-        let checks_if_accepted = !skip_checking_if_accepted || !contest.is_practice_contest() && {
+        let checks_if_accepted = !skip_checking_if_accepted && !contest.is_practice_contest() && {
             let duration = extract_contest_duration(&tasks_page)?;
             let status = duration.check_current_status(contest.to_string());
             status.raise_if_not_begun()?;
@@ -217,9 +217,10 @@ impl AtCoderBeta {
             if name.to_uppercase() == task.to_uppercase() {
                 let task_screen_name = {
                     lazy_static! {
-                        static ref REGEX: Regex = Regex::new(r"^.*/([a-z0-9_]+)/?$").unwrap();
+                        static ref SCREEN_NAME: Regex =
+                            Regex::new(r"\A.*/([a-z0-9_]+)/\z$").unwrap();
                     }
-                    if let Some(caps) = REGEX.captures(&url) {
+                    if let Some(caps) = SCREEN_NAME.captures(&url) {
                         caps[1].to_owned()
                     } else {
                         break;
@@ -284,8 +285,10 @@ impl fmt::Display for Contest {
 
 impl Contest {
     fn new(s: &str) -> Self {
-        let regex = Regex::new(r"^\s*([a-zA-Z_]+)(\d{3})\s*$").unwrap();
-        if let Some(caps) = regex.captures(s) {
+        lazy_static! {
+            static ref NAME: Regex = Regex::new(r"\A\s*([a-zA-Z_]+)(\d{3})\s*\z").unwrap();
+        }
+        if let Some(caps) = NAME.captures(s) {
             let name = caps[1].to_lowercase();
             let number = caps[2].parse::<u32>().unwrap_or(0);
             if name == "abc" && number < 7 {
@@ -490,19 +493,19 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
 
     fn extract(document: Document) -> Option<TestSuite> {
         lazy_static! {
-            static ref RE_IN_JA: Regex = Regex::new(r"^入力例 \d+.*$").unwrap();
-            static ref RE_OUT_JA: Regex = Regex::new(r"^出力例 \d+.*$").unwrap();
-            static ref RE_IN_EN: Regex = Regex::new(r"^Sample Input \d+.*$").unwrap();
-            static ref RE_OUT_EN: Regex = Regex::new(r"^Sample Output \d+.*$").unwrap();
+            static ref IN_JA: Regex = Regex::new(r"\A入力例 \d+.*\z").unwrap();
+            static ref OUT_JA: Regex = Regex::new(r"\A出力例 \d+.*\z").unwrap();
+            static ref IN_EN: Regex = Regex::new(r"\ASample Input \d+.*\z").unwrap();
+            static ref OUT_EN: Regex = Regex::new(r"\ASample Output \d+.*\z").unwrap();
         }
         let timelimit = extract_timelimit_as_millis(&document);
         let samples = {
             info!("Extracting sample cases: Searching \"入力例\" and \"出力例\"");
-            if let Some(samples) = extract_for_lang(&document, &RE_IN_JA, &RE_OUT_JA, "lang-ja") {
+            if let Some(samples) = extract_for_lang(&document, &IN_JA, &OUT_JA, "lang-ja") {
                 samples
             } else {
                 info!("Extracting sample cases: Searching \"Sample Input\" and \"Sample Output\"");
-                extract_for_lang(&document, &RE_IN_EN, &RE_OUT_EN, "lang-en")?
+                extract_for_lang(&document, &IN_EN, &OUT_EN, "lang-en")?
             }
         };
         Some(TestSuite::from_samples(timelimit, samples))
@@ -513,7 +516,7 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
 
 fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
     lazy_static! {
-        static ref RE_TIMELIMIT: Regex = Regex::new(r"^\D*(\d+)\s*sec.*$").unwrap();
+        static ref TIMELIMIT: Regex = Regex::new(r"\A\D*(\d+)\s*sec.*\z").unwrap();
     }
     let predicate = Attr("id", "main-container")
         .child(And(Name("div"), Class("row")))
@@ -525,7 +528,7 @@ fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
         "Extracting timelimit: Found #main-container>div.row>div.col-sm-12>p{{{:?}}}",
         text
     );
-    let caps = RE_TIMELIMIT.captures(&text)?;
+    let caps = TIMELIMIT.captures(&text)?;
     let timelimit = 1000 * caps[1].parse::<u64>().ok()?;
     info!(
         "Extracting timelimit: Successfully extracted: {}ms",
@@ -558,7 +561,7 @@ fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuratio
 fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<bool> {
     fn check(document: Document, task_screen_name: &str) -> Option<bool> {
         lazy_static! {
-            static ref RE_URL: Regex = Regex::new(r"^/contests/\w+/tasks/(\w+)$").unwrap();
+            static ref URL: Regex = Regex::new(r"\A/contests/\w+/tasks/(\w+)\z").unwrap();
         }
         let predicate = Attr("id", "main-container")
             .child(And(Name("div"), Class("row")))
@@ -572,7 +575,7 @@ fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<
             info!("Extracting submissions: Found #main-container>[[omitted]]>tr>");
             let url = node.find(Name("td").child(Name("a"))).nth(0)?.attr("href")?;
             info!("Extracting submissions: Found td>a[href={:?}]", url);
-            if let Some(caps) = RE_URL.captures(url) {
+            if let Some(caps) = URL.captures(url) {
                 if &caps[1] == task_screen_name {
                     let predicate = Name("td").child(Name("span")).child(Text);
                     if let Some(node) = node.find(predicate).nth(0) {

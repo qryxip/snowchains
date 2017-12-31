@@ -16,11 +16,12 @@ use std::time::{Duration, Instant};
 pub fn judge(case: SimpleCase, solver: Arc<JudgingCommand>) -> JudgingResult<SimpleOutput> {
     let (tx, rx) = mpsc::channel();
     let case = Arc::new(case);
-    let case_cloned = case.clone();
-    let solver_cloned = solver.clone();
-    thread::spawn(move || {
-        let _ = tx.send(run(&case_cloned, &solver_cloned));
-    });
+    {
+        let (case, solver) = (case.clone(), solver.clone());
+        thread::spawn(move || {
+            let _ = tx.send(run(&case, &solver));
+        });
+    }
     Ok(if let (input, expected, Some(timelimit)) = case.values() {
         rx.recv_timeout(timelimit + Duration::from_millis(50))
             .unwrap_or_else(|_| Ok(SimpleOutput::Tle(timelimit, input, expected)))

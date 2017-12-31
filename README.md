@@ -208,62 +208,58 @@ Here is a exmaple for [Task B of Welcome to AtCoder](https://beta.atcoder.jp/con
 
 ```yaml
 ---
-type: "simple"
+type: "interactive"
 timelimit: 2000
 
 cases:
-  - tester: "../checkers/py/atcoder_practice_b_checker.py 1 2 3 4 5"
-  - tester: "../checkers/py/atcoder_practice_b_checker.py 5 4 3 2 1"
-  - tester: "../checkers/hs/src/AtcoderPracticeBChecker.hs 1 2 3 4 5 6 7 8 9 \
-             11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26"
-  - tester: "../checkers/hs/src/AtcoderPracticeBChecker.hs 26 25 24 23 22 21 20 \
-             19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1"
+  - tester: "../checkers/py/atcoder_practice_b_checker.py ABCDE"
+  - tester: "../checkers/py/atcoder_practice_b_checker.py EDCBA"
+  - tester: "../checkers/hs/src/AtcoderPracticeBChecker.hs ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  - tester: "../checkers/hs/src/AtcoderPracticeBChecker.hs ZYXWVUTSRQPONMLKJIHGFEDCBA"
 ```
 
 ```python
 #!/usr/bin/env python3
-import string
+import re
 import sys
-from typing import Tuple
-
-import click
-import regex
 
 
-@click.command()
-@click.argument('ws', type=int, nargs=-1)
-def main(ws: Tuple[int, ...]) -> None:
-    ws = list(ws)
-    n = len(ws)
+def main() -> None:
+    bs = sys.argv[1]
+    n = len(bs)
     q = 7 if n == 5 else 100
+
+    def judge(a):
+        if a == bs:
+            sys.exit(0)
+        else:
+            print('Wrong answer', file=sys.stderr)
+            sys.exit(1)
 
     def reply(c1, c2):
         print('<' if weight_by(c1) < weight_by(c2) else '>', flush=True)
 
-    def is_correct(a):
-        return list(map(weight_by, a)) == sorted(ws)
-
     def weight_by(c):
-        return ws[ord(c) - ord('A')]
+        try:
+            return bs.index(c)
+        except ValueError:
+            raise RuntimeError(f'No such ball: {c}')
 
-    print(f'{len(ws)} {q}', flush=True)
+    print(f'{n} {q}', flush=True)
     for _ in range(q):
-        ts = regex.split('[ \n]', sys.stdin.readline())
-        if ts[0] == '?':
+        ts = re.split('[ \n]', sys.stdin.readline())
+        if len(ts) == 4 and ts[0] == '?':
             reply(ts[1], ts[2])
-        elif ts[0] == '!':
-            if not is_correct(ts[1]):
-                raise RuntimeError('Wrong answer')
-            break
+        elif len(ts) == 3 and ts[0] == '!':
+            judge(ts[1])
         else:
             raise RuntimeError('Invalid input')
     else:
-        ts = regex.split('[ \n]', sys.stdin.readline())
-        if ts[0] == '!':
-            if not is_correct(ts[1]):
-                raise RuntimeError('Wrong answer')
-            return
-        raise RuntimeError('Expected "! <answer>" (you have run out of queries)')
+        ts = re.split('[ \n]', sys.stdin.readline())
+        if len(ts) == 3 and ts[0] == '!':
+            judge(ts[1])
+        raise RuntimeError(
+            'Expected "! <answer>" (you have run out of queries)')
 
 
 if __name__ == '__main__':
@@ -272,32 +268,33 @@ if __name__ == '__main__':
 
 ```haskell
 #!/usr/bin/env runhaskell
-module Main where
+{-# LANGUAGE LambdaCase #-}
+module Main (main) where
 
-import Control.Monad (forM_)
-import Data.Char (ord)
-import Data.List (sort)
+import Control.Monad      (forM_)
+import Data.List          (elemIndex)
+import Data.Maybe         (fromMaybe)
 import System.Environment (getArgs)
-import System.Exit (die, exitSuccess)
+import System.Exit        (die, exitSuccess)
+import Text.Printf        (printf)
 
 main :: IO ()
 main = do
-  ws <- (fmap read) <$> getArgs :: IO [Int]
-  let n = length ws
-      q = if n == 5 then 7 else 100 :: Int
-      replyOrJudge ["?", c1 : _, c2 : _]             = reply c1 c2
-      replyOrJudge ["!", a]                          = judge a
-      replyOrJudge _                                 = error "Invalid format"
-      acceptOnlyJudging ["!", a]                     = judge a
-      acceptOnlyJudging _                            = error "Expected \"! <answer>\" (You have run out of queries)"
-      reply c1 c2                                    = putStrLn $ if weightBy c1 < weightBy c2 then "<" else ">"
-      judge a | (weightBy <$> a) == sort ws          = exitSuccess
-              | otherwise                            = die "Wrong answer"
-      weightBy c | ord c - ord 'A' `elem` [0..n - 1] = ws !! (ord c - ord 'A')
-                 | otherwise                         = error $ "Character out of range: " ++ show c
-  putStrLn $ show n ++ " " ++ show q
-  forM_ [1..q] $ \_ -> replyOrJudge =<< words <$> getLine
-  acceptOnlyJudging =<< words <$> getLine
+  bs <- (!! 0) <$> getArgs
+  let n                   = length bs
+      q                   = if n == 5 then 7 else 100 :: Int
+      reply c1 c2         = putStrLn $ if weightBy c1 < weightBy c2 then "<" else ">"
+      judge a | a == bs   = exitSuccess
+              | otherwise = die "Wrong answer"
+      weightBy c          = fromMaybe (error (printf "No such ball: %c" c)) (c `elemIndex` bs)
+  printf "%d %d\n" n q
+  forM_ [1..q] $ \_ -> words <$> getLine >>= \case
+    ["?", [c1], [c2]] -> reply c1 c2
+    ["!", a]          -> judge a
+    _                 -> error "Invalid format"
+  words <$> getLine >>= \case
+    ["!", a] -> judge a
+    _        -> error "Expected \"! <answer>\" (You have run out of queries)"
 ```
 
 ## Editor Integrations

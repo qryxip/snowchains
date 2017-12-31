@@ -94,9 +94,9 @@ fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> Ser
     };
 
     lazy_static! {
-        static ref RE_JAVA_CLASS: Regex =
+        static ref JAVA_CLASS: Regex =
             Regex::new(r"^(\s*public\s+class\s+)([a-zA-Z_\$][a-zA-Z0-9_\$]*)(.*)$").unwrap();
-        static ref RE_SCALA_CLASS: Regex =
+        static ref SCALA_CLASS: Regex =
             Regex::new(r"^(\s*object\s+)([a-zA-Z_\$][a-zA-Z0-9_\$]*)(.*)$").unwrap();
     }
     let file = util::open_file(path)?;
@@ -104,9 +104,9 @@ fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> Ser
     let extension = path.extension();
     let e = || ServiceError::from(ServiceErrorKind::ReplacingClassNameFailure(path.to_owned()));
     if extension == Some(OsStr::new("java")) {
-        replace(file, &RE_JAVA_CLASS, stem)?.ok_or_else(e)
+        replace(file, &JAVA_CLASS, stem)?.ok_or_else(e)
     } else if extension == Some(OsStr::new("scala")) {
-        replace(file, &RE_SCALA_CLASS, stem)?.ok_or_else(e)
+        replace(file, &SCALA_CLASS, stem)?.ok_or_else(e)
     } else {
         Ok(util::string_from_read(file)?)
     }

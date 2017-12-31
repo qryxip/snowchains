@@ -642,6 +642,7 @@ impl PathFormat {
 #[cfg(test)]
 mod tests {
     use super::PathFormat;
+
     use std::collections::HashMap;
     use std::iter::FromIterator;
 

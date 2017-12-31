@@ -68,7 +68,7 @@ impl HttpSession {
             println!("Loaded cookies from {}", path.display());
             jar
         } else {
-            println!("{} not found. It will be created.", path.display());
+            println!("{} not found. New one will be created.", path.display());
             CookieJar::new()
         };
         let mut headers = Headers::new();
@@ -291,8 +291,8 @@ impl HttpSession {
                 let mut headers = Headers::new();
                 headers.set(self.cookie_jar.as_request_cookie());
                 headers.set(content_type);
-                for &(header_name, ref header_value) in extra_headers {
-                    headers.set_raw(header_name, header_value.as_str());
+                for &(name, ref value) in extra_headers {
+                    headers.set_raw(name, value.as_str());
                 }
                 headers
             })
