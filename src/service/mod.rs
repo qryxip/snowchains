@@ -6,7 +6,7 @@ mod session;
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use util;
 
-use {rpassword, rprompt, webbrowser};
+use {rpassword, rprompt};
 use regex::Regex;
 use term::color;
 
@@ -31,20 +31,6 @@ fn read_username_and_password(username_prompt: &'static str) -> io::Result<(Stri
             _ => Err(e),
         })?;
     Ok((username, password))
-}
-
-/// Opens `url` with default browser after printing a message.
-///
-/// # Errors
-///
-/// Returns `Err` if the exit status code is not 0 or an IO error occures.
-fn open_browser_with_message(url: &str) -> ServiceResult<()> {
-    println!("Opening {} in default browser...", url);
-    let status = webbrowser::open(url)?.status;
-    if !status.success() {
-        bail!(ServiceErrorKind::Webbrowser(status));
-    }
-    Ok(())
 }
 
 /// Gets the value `x` if `Some(x) = o` and `!f(x)`.

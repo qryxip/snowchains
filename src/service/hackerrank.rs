@@ -130,7 +130,7 @@ impl HackerRank {
         }
         if open_browser {
             for ref url in &urls {
-                super::open_browser_with_message(&url)?;
+                self.open_in_browser(&url)?;
             }
         }
         Ok(self)

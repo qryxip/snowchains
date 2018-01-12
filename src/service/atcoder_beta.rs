@@ -180,9 +180,9 @@ impl AtCoderBeta {
             suite.save(&path, true)?;
         }
         if open_browser {
-            super::open_browser_with_message(&contest.url_submissions_me())?;
+            self.open_in_browser(&contest.url_submissions_me())?;
             for &(ref url, _, _) in &outputs {
-                super::open_browser_with_message(url)?;
+                self.open_in_browser(url)?;
             }
         }
         Ok(())
@@ -243,7 +243,7 @@ impl AtCoderBeta {
                 };
                 self.http_post_urlencoded(&url, payload, &302)?;
                 if open_browser {
-                    super::open_browser_with_message(&contest.url_submissions_me())?;
+                    self.open_in_browser(&contest.url_submissions_me())?;
                 }
                 return Ok(());
             }

@@ -12,6 +12,7 @@ use serde::Serialize;
 use serde_json;
 use serde_urlencoded;
 use term::color;
+use webbrowser;
 use zip::ZipArchive;
 use zip::result::ZipResult;
 
@@ -51,7 +52,7 @@ pub struct HttpSession {
 }
 
 impl HttpSession {
-    /// Creates a new `HttpSession` loading a file in `~/.local/share/snowchains/` if it exists.
+    /// Creates a new `HttpSession` loading `~/.local/share/snowchains/<file_name>` if it exists.
     pub fn start(file_name: &'static str, base_url: &'static str) -> ServiceResult<Self> {
         let path = util::path_under_home(&[".local", "share", "snowchains", file_name])?;
         let jar = if path.exists() {
@@ -104,6 +105,21 @@ impl HttpSession {
         self.cookie_jar = CookieJar::new();
     }
 
+    /// Opens `url`, which is relative or absolute, with default browser printing a message.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the exit status code is not 0 or an IO error occures.
+    pub fn open_in_browser(&self, url: &str) -> ServiceResult<()> {
+        let url = to_absolute(self.base_url, url);
+        println!("Opening {} in default browser...", url);
+        let status = webbrowser::open(&url)?.status;
+        if !status.success() {
+            bail!(ServiceErrorKind::Webbrowser(status));
+        }
+        Ok(())
+    }
+
     /// Sends a GET request to `url`, expecting the response code is 200.
     ///
     /// # Errors
@@ -124,6 +140,10 @@ impl HttpSession {
     /// - `url` is invalid
     /// - The http access fails
     /// - The response code differs from `expected_status`
+    ///
+    /// # Panics
+    ///
+    /// Panics when `expected_status` is invalid.
     pub fn http_get_expecting(
         &mut self,
         url: &str,
@@ -142,6 +162,10 @@ impl HttpSession {
     /// - `url` is invalid
     /// - The http access fails
     /// - The response code is not `status1` nor `status2`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `status1` or `status2` is invalid.
     pub fn http_get_as_opt(
         &mut self,
         url: &str,
@@ -221,6 +245,10 @@ impl HttpSession {
     /// - `url` is invalid
     /// - The http access or serialization fails
     /// - The response code differs from `expected_status`
+    ///
+    /// # Panics
+    ///
+    /// Panics when `expected_status` is invalid.
     pub fn http_post_urlencoded<T: Serialize>(
         &mut self,
         url: &str,
@@ -244,6 +272,10 @@ impl HttpSession {
     /// - `url` is invalid
     /// - The http access or serialization fails
     /// - The response code differs from `expected_status`
+    ///
+    /// # Panics
+    ///
+    /// Panics when `expected_status` is invalid.
     pub fn http_post_json_with_csrf_token<T: Serialize>(
         &mut self,
         url: &str,
