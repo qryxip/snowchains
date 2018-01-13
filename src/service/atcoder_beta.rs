@@ -218,7 +218,7 @@ impl AtCoderBeta {
                 let task_screen_name = {
                     lazy_static! {
                         static ref SCREEN_NAME: Regex =
-                            Regex::new(r"\A.*/([a-z0-9_]+)/\z$").unwrap();
+                            Regex::new(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)\z$").unwrap();
                     }
                     if let Some(caps) = SCREEN_NAME.captures(&url) {
                         caps[1].to_owned()
