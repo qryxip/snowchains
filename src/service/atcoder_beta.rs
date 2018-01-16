@@ -200,8 +200,10 @@ impl AtCoderBeta {
     ) -> ServiceResult<()> {
         #[derive(Serialize)]
         struct Payload {
-            #[serde(rename = "data.TaskScreenName")] dataTaskScreenName: String,
-            #[serde(rename = "data.LanguageId")] dataLanguageId: u32,
+            #[serde(rename = "data.TaskScreenName")]
+            dataTaskScreenName: String,
+            #[serde(rename = "data.LanguageId")]
+            dataLanguageId: u32,
             sourceCode: String,
             csrf_token: String,
         }

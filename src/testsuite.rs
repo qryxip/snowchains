@@ -136,7 +136,8 @@ impl TestSuite {
 pub struct SimpleSuite {
     timelimit: Option<u64>,
     cases: Vec<ReducibleCase>,
-    #[serde(skip)] path: PathBuf,
+    #[serde(skip)]
+    path: PathBuf,
 }
 
 impl SimpleSuite {
@@ -168,7 +169,8 @@ impl SimpleSuite {
 pub struct InteractiveSuite {
     timelimit: Option<u64>,
     cases: Vec<InteractiveCase>,
-    #[serde(skip)] path: PathBuf,
+    #[serde(skip)]
+    path: PathBuf,
 }
 
 impl InteractiveSuite {
@@ -237,7 +239,8 @@ impl SimpleCase {
 pub struct InteractiveCase {
     tester: String,
     timelimit: Option<u64>,
-    #[serde(skip)] path: PathBuf,
+    #[serde(skip)]
+    path: PathBuf,
 }
 
 impl InteractiveCase {
@@ -399,8 +402,10 @@ impl FromStr for SuiteFileExtension {
 #[derive(Clone, Serialize, Deserialize)]
 struct ReducibleCase {
     input: NonNestedValue,
-    #[serde(skip_serializing_if = "Option::is_none")] expected: Option<NonNestedValue>,
-    #[serde(skip_serializing_if = "Option::is_none")] timelimit: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expected: Option<NonNestedValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timelimit: Option<u64>,
 }
 
 impl ReducibleCase {

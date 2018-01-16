@@ -165,12 +165,16 @@ pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
 pub struct Config {
     service: Option<ServiceName>,
     contest: Option<String>,
-    #[serde(default = "PathFormat::default_testsuites")] testsuites: PathFormat,
-    #[serde(default)] extension_on_downloading: SuiteFileExtension,
-    #[serde(default = "default_extensions")] extensions_on_judging: Vec<SuiteFileExtension>,
+    #[serde(default = "PathFormat::default_testsuites")]
+    testsuites: PathFormat,
+    #[serde(default)]
+    extension_on_downloading: SuiteFileExtension,
+    #[serde(default = "default_extensions")]
+    extensions_on_judging: Vec<SuiteFileExtension>,
     default_lang: String,
     languages: Vec<LangProperty>,
-    #[serde(skip)] base_dir: PathBuf,
+    #[serde(skip)]
+    base_dir: PathBuf,
 }
 
 impl Config {
@@ -351,9 +355,12 @@ struct LangProperty {
     src: PathFormat,
     bin: Option<PathFormat>,
     compile: Option<PathFormat>,
-    #[serde(default = "PathFormat::bin")] run: PathFormat,
-    #[serde(default)] compilation_working_dir: InputPath,
-    #[serde(default)] runtime_working_dir: InputPath,
+    #[serde(default = "PathFormat::bin")]
+    run: PathFormat,
+    #[serde(default)]
+    compilation_working_dir: InputPath,
+    #[serde(default)]
+    runtime_working_dir: InputPath,
     atcoder_lang_id: Option<u32>,
 }
 
