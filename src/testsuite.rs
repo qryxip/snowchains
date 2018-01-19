@@ -141,7 +141,8 @@ pub struct SimpleSuite {
 }
 
 impl SimpleSuite {
-    /// Constructs a `Cases` with a timelimit value and pairs of input/output samples.
+    /// Constructs a `Cases` with a timelimit value and pairs of input/output
+    /// samples.
     fn from_samples(timelimit: Option<u64>, cases: vec::IntoIter<(String, String)>) -> Self {
         Self {
             timelimit: timelimit,
@@ -281,7 +282,8 @@ impl SuiteFilePaths {
         }
     }
 
-    /// Merge test suites in `dir` which filename stem equals `stem` and extension is in `extensions`.
+    /// Merge test suites in `dir` which filename stem equals `stem` and
+    /// extension is in `extensions`.
     pub fn load_and_merge_all(&self) -> SuiteFileResult<TestCases> {
         let existing_suites = self.extensions
             .iter()

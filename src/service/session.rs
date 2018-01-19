@@ -52,7 +52,8 @@ pub struct HttpSession {
 }
 
 impl HttpSession {
-    /// Creates a new `HttpSession` loading `~/.local/share/snowchains/<file_name>` if it exists.
+    /// Creates a new `HttpSession` loading
+    /// `~/.local/share/snowchains/<file_name>` if it exists.
     pub fn start(file_name: &'static str, base_url: &'static str) -> ServiceResult<Self> {
         let path = util::path_under_home(&[".local", "share", "snowchains", file_name])?;
         let jar = if path.exists() {

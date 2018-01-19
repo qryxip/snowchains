@@ -79,7 +79,8 @@ impl JudgingCommand {
         JudgingCommand(CommandProperty::new(command, working_dir))
     }
 
-    /// Creates a new `JudgingCommand` which `working_dir` equals `self.working_dir`.
+    /// Creates a new `JudgingCommand` which `working_dir` equals
+    /// `self.working_dir`.
     pub fn new_in_same_dir<S: Into<String>>(&self, command: S) -> Self {
         JudgingCommand(CommandProperty::new(
             command.into(),

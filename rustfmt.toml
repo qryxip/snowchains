@@ -1,2 +1,5 @@
+wrap_comments = true
 reorder_imports = true
 reorder_imports_in_group = true
+required_version = "0.3.6"
+error_on_unformatted = true

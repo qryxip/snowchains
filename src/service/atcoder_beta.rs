@@ -27,7 +27,8 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
     atcoder.save()
 }
 
-/// Accesses to pages of the problems and extracts pairs of sample input/output from them.
+/// Accesses to pages of the problems and extracts pairs of sample input/output
+/// from them.
 pub fn download(
     contest_name: &str,
     dir_to_save: &Path,

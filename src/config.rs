@@ -237,7 +237,8 @@ impl Config {
             .ok_or_else(|| ConfigError::from(ConfigErrorKind::PropertyNotSet("atcoder_lang_id")))
     }
 
-    /// Constructs arguments of compilation command for given or default language.
+    /// Constructs arguments of compilation command for given or default
+    /// language.
     pub fn construct_compilation_command(
         &self,
         target: &str,
