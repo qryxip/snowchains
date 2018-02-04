@@ -1,5 +1,5 @@
 use errors::{ServiceErrorKind, ServiceResult};
-use service::session::{self, HttpSession};
+use service::session::HttpSession;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
 use chrono::{DateTime, Local, Utc};
@@ -73,11 +73,9 @@ custom_derive! {
 
 impl AtCoderBeta {
     fn start() -> ServiceResult<Self> {
-        Ok(AtCoderBeta(HttpSession::start(
-            "atcoderbeta",
-            "beta.atcoder.jp",
-            true,
-        )?))
+        let mut session = HttpSession::start("atcoderbeta", "beta.atcoder.jp", true)?;
+        session.fetch_robots_txt()?;
+        Ok(AtCoderBeta(session))
     }
 
     fn login_if_not(&mut self, eprints_message_if_already_logged_in: bool) -> ServiceResult<()> {
@@ -86,10 +84,6 @@ impl AtCoderBeta {
                 eprintln!("Already logged in.");
             })
         } else {
-            session::assert_not_forbidden_by_robots_txt(
-                "https://beta.atcoder.jp/robots.txt",
-                &["/login", "/settings", "/contests/"],
-            )?;
             while !self.try_logging_in()? {
                 eprintln!("Failed to login. Try again.");
                 self.clear_cookies();

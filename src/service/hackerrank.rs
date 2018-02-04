@@ -1,5 +1,5 @@
 use errors::ServiceResult;
-use service::session::{self, HttpSession};
+use service::session::HttpSession;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 use util;
 
@@ -41,20 +41,11 @@ impl HackerRank {
             "www.hackerrank.com",
             true,
         )?);
-        let response = hackerrank.http_get_expecting("/login", &[200, 302])?;
+        hackerrank.fetch_robots_txt()?;
+        let mut response = hackerrank.http_get_expecting("/login", &[200, 302])?;
         if response.status().as_u16() == 302 && prints_message_when_already_logged_in {
             eprintln!("Already signed in.");
         } else if response.status().as_u16() == 200 {
-            session::assert_not_forbidden_by_robots_txt(
-                "https://www.hackerrank.com/robots.txt",
-                &[
-                    "/login",
-                    "/auth/login",
-                    "/rest/contests/*/challenges",
-                    "/rest/contests/*/challenges/*/download_testcases",
-                ],
-            )?;
-            let mut response = response;
             loop {
                 if hackerrank.try_logging_in(response)? {
                     break println!("Succeeded to login.");

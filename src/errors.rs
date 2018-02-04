@@ -2,7 +2,7 @@ use bincode;
 use chrono::{self, DateTime, Local};
 use cookie;
 use regex;
-use reqwest::{self, StatusCode, UrlError};
+use reqwest::{self, StatusCode, Url, UrlError};
 use serde_json;
 use serde_urlencoded;
 use serde_yaml;
@@ -67,9 +67,9 @@ error_chain! {
             display("{} not found", contest_name)
         }
 
-        ForbiddenByRobotsTxt {
+        ForbiddenByRobotsTxt(url: Url) {
             description("Forbidden by robots.txt")
-            display("Forbidden by robots.txt")
+            display("Forbidden by robots.txt: {}", url)
         }
 
         NoSuchProblem(name: String) {

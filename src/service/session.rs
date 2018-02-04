@@ -5,7 +5,7 @@ use bincode::{self, Infinite};
 use cookie::{self, Cookie, CookieJar};
 use pbr::{MultiBar, Units};
 use reqwest::{Client, RedirectPolicy, Response, StatusCode, Url, UrlError};
-use reqwest::header::{self, ContentLength, ContentType, Headers, SetCookie, UserAgent};
+use reqwest::header::{self, ContentLength, ContentType, Headers, Location, SetCookie, UserAgent};
 use robots_txt::{Robots, SimpleMatcher};
 use serde::Serialize;
 use serde_json;
@@ -15,39 +15,20 @@ use webbrowser;
 use zip::ZipArchive;
 use zip::result::ZipResult;
 
+use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
 use std::thread;
 
 static USER_AGENT: &'static str = "snowchains <https://github.com/wariuni/snowchains>";
 
-pub fn assert_not_forbidden_by_robots_txt(
-    url: &'static str,
-    paths: &'static [&'static str],
-) -> ServiceResult<()> {
-    let client = Client::builder().redirect(RedirectPolicy::none()).build()?;
-    print_bold!(None, "GET");
-    print_and_flush!(" {} ... ", url);
-    let response = client.get(url).header(UserAgent::new(USER_AGENT)).send()?;
-    response.print_status(&[StatusCode::Ok, StatusCode::NotFound]);
-    let response = response.filter_by_status(vec![StatusCode::Ok, StatusCode::NotFound])?;
-    if response.status() == StatusCode::Ok {
-        let text = util::string_from_read(response)?;
-        let robots = Robots::from_str(&text);
-        let matcher = SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules);
-        if !paths.iter().all(|path| matcher.check_path(path)) {
-            bail!(ServiceErrorKind::ForbiddenByRobotsTxt);
-        }
-    }
-    Ok(())
-}
-
 pub struct HttpSession {
     base_domain: &'static str,
     base_https: bool,
-    cookie_jar: CookieJar,
-    reqwest_client: Client,
     path_to_save_cookies: PathBuf,
+    reqwest_client: Client,
+    cookie_jar: CookieJar,
+    robots_txts: HashMap<&'static str, String>,
 }
 
 impl HttpSession {
@@ -87,9 +68,10 @@ impl HttpSession {
         Ok(Self {
             base_domain: base_domain,
             base_https: base_https,
-            cookie_jar: jar,
-            reqwest_client: client,
             path_to_save_cookies: path,
+            reqwest_client: client,
+            cookie_jar: jar,
+            robots_txts: HashMap::new(),
         })
     }
 
@@ -123,6 +105,29 @@ impl HttpSession {
         let status = webbrowser::open(url.as_str())?.status;
         if !status.success() {
             bail!(ServiceErrorKind::Webbrowser(status));
+        }
+        Ok(())
+    }
+
+    /// Sends a GET request to "/robots.txt" allowing redirects and store the response.
+    ///
+    /// Does nothing when the HTTP status code is 404.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the GET request fails.
+    pub fn fetch_robots_txt(&mut self) -> ServiceResult<()> {
+        let mut response = self.http_get_expecting("/robots.txt", &[200, 301, 302, 404])?;
+        while [301, 302].contains(&response.status().as_u16()) {
+            if let Some(location) = response.headers().get::<Location>().map(Location::to_owned) {
+                response = self.http_get_expecting(&location, &[200, 301, 302, 404])?;
+            } else {
+                return Ok(());
+            }
+        }
+        if response.status().as_u16() == 200 {
+            let robots_txt = util::string_from_read(response)?;
+            self.robots_txts.insert(self.base_domain, robots_txt);
         }
         Ok(())
     }
@@ -212,6 +217,7 @@ impl HttpSession {
     ) -> ServiceResult<Response> {
         let url = resolve_url(self.base_domain, self.base_https, url)?;
         let expected_statuses = statuses_from(expected_statuses);
+        self.assert_not_forbidden_by_robots_txt(&url)?;
         print_bold!(None, "GET");
         print_and_flush!(" {} ... ", url);
         let response = self.reqwest_client
@@ -288,6 +294,7 @@ impl HttpSession {
     ) -> ServiceResult<Response> {
         let url = resolve_url(self.base_domain, self.base_https, url)?;
         let expected_statuses = statuses_from(expected_statuses);
+        self.assert_not_forbidden_by_robots_txt(&url)?;
         print_bold!(None, "POST");
         print_and_flush!(" {} ... ", url);
         let response = self.reqwest_client
@@ -306,6 +313,19 @@ impl HttpSession {
         self.cookie_jar.update(&response)?;
         response.print_status(&expected_statuses);
         response.filter_by_status(expected_statuses)
+    }
+
+    fn assert_not_forbidden_by_robots_txt(&self, url: &Url) -> ServiceResult<()> {
+        if let Some(domain) = url.domain() {
+            if let Some(robots_txt) = self.robots_txts.get(domain) {
+                let robots = Robots::from_str(robots_txt);
+                let matcher = SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules);
+                if !matcher.check_path(url.path()) {
+                    bail!(ServiceErrorKind::ForbiddenByRobotsTxt(url.clone()));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
