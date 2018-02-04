@@ -38,9 +38,13 @@ impl HackerRank {
     fn start(prints_message_when_already_logged_in: bool) -> ServiceResult<Self> {
         let mut hackerrank = HackerRank(HttpSession::start(
             "hackerrank",
-            "https://www.hackerrank.com",
+            "www.hackerrank.com",
+            true,
         )?);
-        if let Some(response) = hackerrank.http_get_as_opt("/login", &200, &302)? {
+        let response = hackerrank.http_get_expecting("/login", &[200, 302])?;
+        if response.status().as_u16() == 302 && prints_message_when_already_logged_in {
+            eprintln!("Already signed in.");
+        } else if response.status().as_u16() == 200 {
             session::assert_not_forbidden_by_robots_txt(
                 "https://www.hackerrank.com/robots.txt",
                 &[
@@ -59,8 +63,6 @@ impl HackerRank {
                 hackerrank.clear_cookies();
                 response = hackerrank.http_get("/login")?;
             }
-        } else if prints_message_when_already_logged_in {
-            eprintln!("Already signed in.");
         }
         Ok(hackerrank)
     }
@@ -85,7 +87,7 @@ impl HackerRank {
             password: password,
             remember_me: true,
         };
-        let response = self.http_post_json_with_csrf_token("/auth/login", data, &200, csrf_token)?;
+        let response = self.http_post_json_with_csrf_token("/auth/login", data, 200, csrf_token)?;
         Ok(serde_json::from_reader::<_, ResponseData>(response)?.status)
     }
 

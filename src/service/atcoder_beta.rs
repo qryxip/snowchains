@@ -75,7 +75,8 @@ impl AtCoderBeta {
     fn start() -> ServiceResult<Self> {
         Ok(AtCoderBeta(HttpSession::start(
             "atcoderbeta",
-            "https://beta.atcoder.jp",
+            "beta.atcoder.jp",
+            true,
         )?))
     }
 
@@ -112,8 +113,9 @@ impl AtCoderBeta {
             password: password,
             csrf_token: csrf_token,
         };
-        self.http_post_urlencoded("/login", payload, &302)?;
-        Ok(self.http_get_as_opt("/settings", &200, &302)?.is_some())
+        self.http_post_urlencoded("/login", payload, 302)?;
+        let response = self.http_get_expecting("/settings", &[200, 302])?;
+        Ok(response.status().as_u16() == 200)
     }
 
     fn register_explicitly(&mut self, contest: &Contest) -> ServiceResult<()> {
@@ -138,27 +140,26 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
-        match self.http_get_as_opt(&contest.url_top(), &200, &302)? {
-            None => bail!(ServiceErrorKind::ContestNotFound(contest.to_string())),
-            Some(response) => {
-                let page = Document::from_read(response)?;
-                let duration = extract_contest_duration(&page)?;
-                let status = duration.check_current_status(contest.to_string());
-                if !explicit {
-                    status.raise_if_not_begun()?;
-                }
-                if explicit || contest.is_practice_contest() || status.is_active() {
-                    self.login_if_not(false)?;
-                    let page = Document::from_read(self.http_get(&contest.url_top())?)?;
-                    let payload = Payload {
-                        csrf_token: extract_csrf_token(&page)?,
-                    };
-                    let url = contest.url_register();
-                    self.http_post_urlencoded(&url, payload, &302)?;
-                }
-                Ok(())
-            }
+        let response = self.http_get_expecting(&contest.url_top(), &[200, 302])?;
+        if response.status().as_u16() == 302 {
+            bail!(ServiceErrorKind::ContestNotFound(contest.to_string()));
         }
+        let page = Document::from_read(response)?;
+        let duration = extract_contest_duration(&page)?;
+        let status = duration.check_current_status(contest.to_string());
+        if !explicit {
+            status.raise_if_not_begun()?;
+        }
+        if explicit || contest.is_practice_contest() || status.is_active() {
+            self.login_if_not(false)?;
+            let page = Document::from_read(self.http_get(&contest.url_top())?)?;
+            let payload = Payload {
+                csrf_token: extract_csrf_token(&page)?,
+            };
+            let url = contest.url_register();
+            self.http_post_urlencoded(&url, payload, 302)?;
+        }
+        Ok(())
     }
 
     fn download(
@@ -244,7 +245,7 @@ impl AtCoderBeta {
                     sourceCode: source_code,
                     csrf_token: csrf_token,
                 };
-                self.http_post_urlencoded(&url, payload, &302)?;
+                self.http_post_urlencoded(&url, payload, 302)?;
                 if open_browser {
                     self.open_in_browser(&contest.url_submissions_me())?;
                 }

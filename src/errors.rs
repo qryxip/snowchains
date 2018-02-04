@@ -1,7 +1,6 @@
 use bincode;
 use chrono::{self, DateTime, Local};
 use cookie;
-use log::SetLoggerError;
 use regex;
 use reqwest::{self, StatusCode, UrlError};
 use serde_json;
@@ -27,10 +26,6 @@ error_chain!{
         Judging(JudgingError, JudgingErrorKind);
         SuiteFile(SuiteFileError, SuiteFileErrorKind);
         Config(ConfigError, ConfigErrorKind);
-    }
-
-    foreign_links {
-        SetLogger(SetLoggerError);
     }
 }
 

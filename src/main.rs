@@ -54,7 +54,7 @@ use testsuite::{SuiteFileExtension, SuiteFilePath};
 use clap::{AppSettings, Arg, SubCommand};
 
 quick_main_colored!(|| -> SnowchainsResult<()> {
-    env_logger::init()?;
+    env_logger::init();
 
     fn arg_default_lang() -> Arg<'static, 'static> {
         Arg::with_name("default-lang")
