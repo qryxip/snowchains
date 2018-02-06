@@ -281,10 +281,12 @@ enum InteractiveOutputKind {
 
 enum InteractiveConsoleOut {
     SolverStdout(Arc<String>, Duration),
-    #[allow(dead_code)] SolverStderr(Arc<String>, Duration),
+    #[allow(dead_code)]
+    SolverStderr(Arc<String>, Duration),
     SolverTerminated(Option<i32>, Duration),
     TesterStdout(Arc<String>, Duration),
-    #[allow(dead_code)] TesterStderr(Arc<String>, Duration),
+    #[allow(dead_code)]
+    TesterStderr(Arc<String>, Duration),
     TesterTerminated(Option<i32>, Duration),
 }
 

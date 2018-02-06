@@ -294,9 +294,12 @@ impl FromStr for PropertyKey {
 /// Names of programming contest services.
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum ServiceName {
-    #[serde(rename = "atcoder")] AtCoder,
-    #[serde(rename = "atcoderbeta")] AtCoderBeta,
-    #[serde(rename = "hackerrank")] HackerRank,
+    #[serde(rename = "atcoder")]
+    AtCoder,
+    #[serde(rename = "atcoderbeta")]
+    AtCoderBeta,
+    #[serde(rename = "hackerrank")]
+    HackerRank,
 }
 
 impl fmt::Display for ServiceName {
