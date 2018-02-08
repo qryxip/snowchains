@@ -195,11 +195,6 @@ error_chain! {
             description("Property not set")
             display("Property not set: \"{}\"", property)
         }
-
-        UnsupportedExtension(extension: String) {
-            description("Unsupported extension")
-            display("Unsupported extension: \"{}\"", extension)
-        }
     }
 }
 

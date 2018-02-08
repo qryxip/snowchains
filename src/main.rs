@@ -46,7 +46,7 @@ mod service;
 mod testsuite;
 mod util;
 
-use config::{Config, PropertyKey, ServiceName};
+use config::{Config, ServiceName};
 use errors::SnowchainsResult;
 use service::{atcoder, atcoder_beta, hackerrank};
 use testsuite::{SuiteFileExtension, SuiteFilePath};
@@ -65,23 +65,6 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     fn arg_dir() -> Arg<'static, 'static> {
         Arg::with_name("dir")
             .help("Directory to create \"snowchains.yml\"")
-            .required(true)
-    }
-
-    fn arg_key() -> Arg<'static, 'static> {
-        Arg::with_name("key")
-            .help("Property key")
-            .possible_value("service")
-            .possible_value("contest")
-            .possible_value("testsuites")
-            .possible_value("extension_on_downloading")
-            .possible_value("default_lang")
-            .required(true)
-    }
-
-    fn arg_value() -> Arg<'static, 'static> {
-        Arg::with_name("value")
-            .help("Property value")
             .required(true)
     }
 
@@ -148,8 +131,8 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         )
     }
 
-    static USAGE_INIT_CONFIG: &'static str = "snowchains init-config <default-lang> <dir>";
-    static USAGE_SET: &'static str = "snowchains set <key> <value>";
+    static USAGE_INIT: &'static str = "snowchains init <default-lang> <dir>";
+    static USAGE_SWITCH: &'static str = "snowchains switch <service> <contest>";
     static USAGE_LOGIN: &'static str = "snowchains login <service>";
     static USAGE_PARTICIPATE: &'static str = "snowchains participate <service> <contest>";
     static USAGE_DOWNLOAD: &'static str = "snowchains download [--open-browser]";
@@ -158,17 +141,17 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
     static USAGE_SUBMIT: &'static str = "snowchains submit <target> [lang] [--open-browser] \
                                          [--skip-judging] [--force]";
 
-    let subcommand_init_config = SubCommand::with_name("init-config")
+    let subcommand_init = SubCommand::with_name("init")
         .about("Creates 'snowchains.yml'")
-        .usage(USAGE_INIT_CONFIG)
+        .usage(USAGE_INIT)
         .arg(arg_default_lang().display_order(1))
         .arg(arg_dir().display_order(2));
 
-    let subcommand_set = SubCommand::with_name("set")
-        .about("Sets a property in 'snowchains.yml'")
-        .usage(USAGE_SET)
-        .arg(arg_key().display_order(1))
-        .arg(arg_value().display_order(2));
+    let subcommand_switch = SubCommand::with_name("switch")
+        .about("Changes <service> and <contest> of 'snowchains.yml'")
+        .usage(USAGE_SWITCH)
+        .arg(arg_service().display_order(1))
+        .arg(arg_contest().display_order(2));
 
     let subcommand_login = SubCommand::with_name("login")
         .about("Logins to a service")
@@ -215,8 +198,8 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         .usage(
             format!(
                 "{}\n    {}\n    {}\n    {}\n    {}\n    {}\n    {}\n    {}",
-                USAGE_INIT_CONFIG,
-                USAGE_SET,
+                USAGE_INIT,
+                USAGE_SWITCH,
                 USAGE_LOGIN,
                 USAGE_PARTICIPATE,
                 USAGE_DOWNLOAD,
@@ -225,8 +208,8 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
                 USAGE_SUBMIT
             ).as_str(),
         )
-        .subcommand(subcommand_init_config.display_order(1))
-        .subcommand(subcommand_set.display_order(2))
+        .subcommand(subcommand_init.display_order(1))
+        .subcommand(subcommand_switch.display_order(2))
         .subcommand(subcommand_login.display_order(3))
         .subcommand(subcommand_participate.display_order(4))
         .subcommand(subcommand_download.display_order(5))
@@ -235,16 +218,16 @@ quick_main_colored!(|| -> SnowchainsResult<()> {
         .subcommand(subcommand_submit.display_order(8))
         .get_matches();
 
-    if let Some(matches) = matches.subcommand_matches("init-config") {
-        info!("Running command \"init-config\"");
+    if let Some(matches) = matches.subcommand_matches("init") {
+        info!("Running command \"init\"");
         let lang = matches.value_of("default-lang").unwrap();
         let dir = matches.value_of("dir").unwrap();
         return Ok(config::create_config_file(lang, dir)?);
-    } else if let Some(matches) = matches.subcommand_matches("set") {
-        info!("Running command \"set\"");
-        let key = value_t!(matches, "key", PropertyKey).unwrap();
-        let value = matches.value_of("value").unwrap();
-        return Ok(config::set_property(key, value)?);
+    } else if let Some(matches) = matches.subcommand_matches("switch") {
+        info!("Running command \"switch\"");
+        let service = value_t!(matches, "service", ServiceName).unwrap();
+        let contest = matches.value_of("contest").unwrap();
+        return Ok(config::switch(service, contest)?);
     } else if let Some(matches) = matches.subcommand_matches("login") {
         info!("Running command \"login\"");
         let service = value_t!(matches, "service", ServiceName).unwrap();

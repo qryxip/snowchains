@@ -6,7 +6,7 @@ use util::{self, Camelize};
 use regex::Regex;
 use serde_yaml;
 
-use std::{env, fmt, fs};
+use std::{cmp, env, fmt, fs};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{self, Write};
@@ -137,27 +137,35 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
     Ok(util::create_file_and_dirs(&path)?.write_all(config.as_bytes())?)
 }
 
-/// Sets a property in `snowchains.yml`.
-pub fn set_property(key: PropertyKey, value: &str) -> ConfigResult<()> {
-    let mut config = Config::load_from_file()?;
-    match key {
-        PropertyKey::Service => config.service = Some(serde_yaml::from_str(value)?),
-        PropertyKey::Contest => config.contest = Some(value.to_owned()),
-        PropertyKey::TestSuites => config.testsuites = PathFormat(value.to_owned()),
-        PropertyKey::ExtensionOnDownloading => {
-            if let Ok(extension) = SuiteFileExtension::from_str(value) {
-                config.extension_on_downloading = extension;
-            } else {
-                bail!(ConfigErrorKind::UnsupportedExtension(value.to_owned()));
-            }
+/// Changes <service> and <contest>.
+pub fn switch(service: ServiceName, contest: &str) -> ConfigResult<()> {
+    fn str_from_opt<T: fmt::Display>(x: &Option<T>) -> Cow<'static, str> {
+        match *x {
+            Some(ref x) => Cow::Owned(x.to_string()),
+            None => Cow::Borrowed("None"),
         }
-        PropertyKey::DefaultLang => config.default_lang = value.to_owned(),
     }
-    let path = find_base()?.1;
-    let mut file = util::create_file_and_dirs(&path)?;
+
+    fn print_change(n: usize, prev: Cow<'static, str>, new: &str) {
+        print!("{}", prev);
+        for _ in 0..n - prev.len() {
+            print!(" ");
+        }
+        println!(" -> {}", new);
+    }
+
+    let mut config = Config::load_from_file()?;
+    let prev_service = str_from_opt(&config.service);
+    let prev_contest = str_from_opt(&config.contest);
+    let n = cmp::max(prev_service.len(), prev_contest.len());
+    config.service = Some(service);
+    config.contest = Some(contest.to_owned());
+    print_change(n, prev_service, service.to_string().as_str());
+    print_change(n, prev_contest, contest);
     let config = serde_yaml::to_string(&config)?;
+    let mut file = util::create_file_and_dirs(&find_base()?.1)?;
     file.write_all(config.as_bytes())?;
-    Ok(println!("Saved to {}", path.display()))
+    Ok(println!("Saved."))
 }
 
 /// Config data.
@@ -264,30 +272,6 @@ impl Config {
             .iter()
             .find(|lang| lang.name == lang_name)
             .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(lang_name.to_owned())))
-    }
-}
-
-/// Property names of `snowchains.yml`.
-pub enum PropertyKey {
-    Service,
-    Contest,
-    TestSuites,
-    ExtensionOnDownloading,
-    DefaultLang,
-}
-
-impl FromStr for PropertyKey {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, ()> {
-        return match s.to_lowercase().as_str() {
-            "service" => Ok(PropertyKey::Service),
-            "contest" => Ok(PropertyKey::Contest),
-            "testsuites" => Ok(PropertyKey::TestSuites),
-            "extension_on_downloading" => Ok(PropertyKey::ExtensionOnDownloading),
-            "default_lang" => Ok(PropertyKey::DefaultLang),
-            _ => Err(()),
-        };
     }
 }
 

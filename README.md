@@ -20,9 +20,8 @@ $ cargo install --git https://github.com/wariuni/snowchains
 ## Usage
 
 ```console
-$ snowchains init-config <language> ./
-$ snowchains set service <service>                      # "atcoder", "atcoderbeta", "hackerrank"
-$ snowchains set contest <contest>                      # e.g. "agc001"
+$ snowchains init <language> ./
+$ snowchains switch <service> <contest>                 # e.g. ("atcoderbeta", "agc001")
 $ snowchains download (--open-browser)                  # The username and password required when not yet logged-in
 $ $EDITOR ./snowchains/<service>/<contest>/<target>.yml # Add more test cases
 $ snowchains judge <target> (<language>)
