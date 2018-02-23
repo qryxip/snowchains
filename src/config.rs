@@ -92,7 +92,7 @@ languages:
     runtime_working_dir: "csharp/"
     atcoder_lang_id: 3006"#
         } else {
-            r#" - name: "c#"
+            r#"  - name: "c#"
     src: "csharp/{C}/{C}.cs"
     bin: "csharp/{C}/bin/Release/{C}.exe"
     compile: "mcs -o+ -r:System.Numerics -out:$bin $src"
