@@ -69,7 +69,7 @@ languages:
     compile: ~
     run: "python3 $src"
     compilation_working_dir: ""
-    runtime_working_dir: "python/" 
+    runtime_working_dir: "python/"
     atcoder_lang_id: 3023
   - name: "java"
     src: "java/src/main/java/{C}.java"

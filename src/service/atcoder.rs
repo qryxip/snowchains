@@ -1,7 +1,7 @@
 use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
-use service::session::HttpSession;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
+use httpsession::HttpSession;
 use regex::Regex;
 use select::document::Document;
 use select::node::Node;
@@ -12,7 +12,7 @@ use std::path::Path;
 
 pub fn login() -> ServiceResult<()> {
     static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-    let mut atcoder = AtCoder(HttpSession::start("atcoder", "atcoder.jp", true)?);
+    let mut atcoder = AtCoder(super::start_session("atcoder", "atcoder.jp")?);
     if atcoder.http_get(URL).is_err() {
         atcoder.login()?;
     } else {
@@ -22,9 +22,7 @@ pub fn login() -> ServiceResult<()> {
 }
 
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
-    let mut atcoder = AtCoder::load_or_login()?;
-    atcoder.participate(contest_name)?;
-    atcoder.save()
+    AtCoder::load_or_login()?.participate(contest_name)
 }
 
 pub fn download(
@@ -44,7 +42,7 @@ custom_derive! {
 impl AtCoder {
     fn load_or_login() -> ServiceResult<Self> {
         static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-        let mut atcoder = AtCoder(HttpSession::start("atcoder", "atcoder.jp", true)?);
+        let mut atcoder = AtCoder(super::start_session("atcoder", "atcoder.jp")?);
         if atcoder.http_get(URL).is_err() {
             atcoder.login()?;
         }
@@ -56,7 +54,8 @@ impl AtCoder {
             "https://{}.contest.atcoder.jp/participants/insert",
             contest_name
         );
-        self.http_get_expecting(&url, &[302]).map(|_| ())
+        self.http_get_expecting(&url, &[302])?;
+        Ok(())
     }
 
     fn download_all_tasks(
@@ -76,7 +75,7 @@ impl AtCoder {
                     let path = SuiteFilePath::new(&dir_to_save, alphabet.to_lowercase(), extension);
                     suite.save(&path, true)?;
                 }
-                Err(ServiceError(ServiceErrorKind::ScrapingFailed, _)) => {
+                Err(ServiceError(ServiceErrorKind::Scrape, _)) => {
                     println!("Failed to scrape. Ignoring.");
                 }
                 Err(e) => return Err(e),
@@ -93,7 +92,7 @@ impl AtCoder {
         }
 
         fn post_data() -> ServiceResult<PostData> {
-            let (user_id, password) = super::read_username_and_password("User ID: ")?;
+            let (user_id, password) = super::ask_username_and_password("User ID: ")?;
             Ok(PostData {
                 name: user_id,
                 password: password,
@@ -102,14 +101,12 @@ impl AtCoder {
 
         static URL: &'static str = "https://practice.contest.atcoder.jp/login";
         let _ = self.http_get(URL)?;
-        while self.http_post_urlencoded(URL, post_data()?, 302).is_err() {
+        while self.http_post_urlencoded(URL, &post_data()?, &[302], None)
+            .is_err()
+        {
             println!("Failed to sign in. try again.")
         }
         Ok(())
-    }
-
-    fn save(self) -> ServiceResult<()> {
-        self.0.save_cookies()
     }
 }
 

@@ -1,10 +1,11 @@
 use errors::ServiceResult;
-use service::session::HttpSession;
+use service::{DownloadZips, OpenInBrowser};
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 use util;
 
+use httpsession::{HttpSession, Response};
+use httpsession::header::Headers;
 use regex::Regex;
-use reqwest::Response;
 use select::document::Document;
 use select::predicate::Attr;
 use serde_json;
@@ -15,7 +16,7 @@ use std::io::{Read, Seek};
 use std::path::Path;
 
 pub fn login() -> ServiceResult<()> {
-    HackerRank::start(true)?.save()
+    HackerRank::start(true).map(|_| ())
 }
 
 pub fn download(
@@ -24,9 +25,7 @@ pub fn download(
     extension: SuiteFileExtension,
     open_browser: bool,
 ) -> ServiceResult<()> {
-    HackerRank::start(false)?
-        .download(contest, dir_to_save, extension, open_browser)?
-        .save()
+    HackerRank::start(false)?.download(contest, dir_to_save, extension, open_browser)
 }
 
 custom_derive! {
@@ -36,12 +35,7 @@ custom_derive! {
 
 impl HackerRank {
     fn start(prints_message_when_already_logged_in: bool) -> ServiceResult<Self> {
-        let mut hackerrank = HackerRank(HttpSession::start(
-            "hackerrank",
-            "www.hackerrank.com",
-            true,
-        )?);
-        hackerrank.fetch_robots_txt()?;
+        let mut hackerrank = HackerRank(super::start_session("hackerrank", "www.hackerrank.com")?);
         let mut response = hackerrank.http_get_expecting("/login", &[200, 302])?;
         if response.status().as_u16() == 302 && prints_message_when_already_logged_in {
             eprintln!("Already signed in.");
@@ -51,7 +45,7 @@ impl HackerRank {
                     break println!("Succeeded to login.");
                 }
                 eprintln!("Failed to login. Try again.");
-                hackerrank.clear_cookies();
+                hackerrank.clear_cookies()?;
                 response = hackerrank.http_get("/login")?;
             }
         }
@@ -71,24 +65,28 @@ impl HackerRank {
             status: bool,
         }
 
-        let (username, password) = super::read_username_and_password("Username: ")?;
+        let (username, password) = super::ask_username_and_password("Username: ")?;
         let csrf_token = extract_csrf_token(html)?;
         let data = PostData {
             login: username,
             password: password,
             remember_me: true,
         };
-        let response = self.http_post_json_with_csrf_token("/auth/login", data, 200, csrf_token)?;
+        let response = self.http_post_json("/auth/login", &data, &[200], {
+            let mut headers = Headers::new();
+            headers.set_raw("X-CSRF-Token", csrf_token);
+            headers
+        })?;
         Ok(serde_json::from_reader::<_, ResponseData>(response)?.status)
     }
 
     fn download(
-        mut self,
+        &mut self,
         contest: &str,
         dir_to_save: &Path,
         extension: SuiteFileExtension,
         open_browser: bool,
-    ) -> ServiceResult<Self> {
+    ) -> ServiceResult<()> {
         #[derive(Deserialize)]
         struct Challenges {
             models: Vec<Model>,
@@ -113,8 +111,8 @@ impl HackerRank {
                 contest, slug
             ));
         }
-        let zips = self.http_get_zips(&zip_urls)?;
-        println!("Extracting...");
+        let zips = self.download_zips(&zip_urls, 50 * 1024 * 1024)?;
+        println!("Extracting zip files...");
         let extracted = zips.into_iter()
             .map(extract_samples_from_zip)
             .collect::<Result<Vec<_>, _>>()?;
@@ -126,11 +124,7 @@ impl HackerRank {
                 self.open_in_browser(&url)?;
             }
         }
-        Ok(self)
-    }
-
-    fn save(self) -> ServiceResult<()> {
-        self.0.save_cookies()
+        Ok(())
     }
 }
 

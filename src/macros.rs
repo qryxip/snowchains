@@ -31,16 +31,6 @@ macro_rules! return_none_unless {
     }
 }
 
-macro_rules! print_and_flush {
-    ($format: tt $(, $x: expr)*) => {
-        {
-            use std::io::{self, Write};
-            print!($format$(, $x)*);
-            io::stdout().flush().unwrap();
-        }
-    }
-}
-
 macro_rules! eprint_and_flush {
     ($format: tt$(, $x: expr)*) => {
         {

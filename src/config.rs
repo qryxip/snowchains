@@ -16,122 +16,93 @@ use std::str::FromStr;
 
 /// Creates `snowchains.yml` in `dir`.
 pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
-    fn append_exe_if_windows(path: &'static str) -> Cow<'static, str> {
-        if cfg!(target_os = "windows") {
-            format!("{}.exe", path).into()
+    let config = format!(
+        r#"---
+service: "atcoderbeta"
+contest: "chokudai_s001"
+testsuites: "snowchains/$service/$contest/"
+extension_on_downloading: "yml"
+extensions_on_judging: ["json", "toml", "yaml", "yml"]
+default_lang: {default_lang}
+
+languages:
+  - name: "c++"
+    src: "cc/{{}}.cc"
+    bin: "cc/build/{{}}{exe}"
+    compile: "g++ -std=c++14 -O2 -o $bin $src"
+    run: "$bin"
+    compilation_working_dir: "cc/"
+    runtime_working_dir: "cc/"
+    atcoder_lang_id: 3003
+  - name: "rust"
+    src: "rust/src/bin/{{}}.rs"
+    bin: "rust/target/release/{{}}{exe}"
+    compile: "rustc -O -o $bin $src"
+    run: "$bin"
+    compilation_working_dir: "rust/"
+    runtime_working_dir: "rust/"
+    atcoder_lang_id: 3504
+  - name: "haskell"
+    src: "haskell/src/{{C}}.hs"
+    bin: "haskell/target/{{C}}{exe}"
+    compile: "stack ghc -- -O2 -o $bin $src"
+    run: "$bin"
+    compilation_working_dir: "haskell/"
+    runtime_working_dir: "haskell/"
+    atcoder_lang_id: 3014
+  - name: "python3"
+    src: "python/{{}}.py"
+    bin: ~
+    compile: ~
+    run: "python3 $src"
+    compilation_working_dir: ""
+    runtime_working_dir: "python/"
+    atcoder_lang_id: 3023
+  - name: "java"
+    src: "java/src/main/java/{{C}}.java"
+    bin: "java/build/classes/java/main/{{C}}.class"
+    compile: "javac -d ./build/classes/java/main/ $src"
+    run: "java -classpath ./build/classes/java/main/{{C}}"
+    compilation_working_dir: "java/"
+    runtime_working_dir: "java/"
+    atcoder_lang_id: 3016
+  - name: "scala"
+    src: "scala/src/main/scala/{{C}}.scala"
+    bin: "scala/target/scala-2.12/classes/{{C}}.class"
+    compile: "scalac -optimise -d ./target/scala-2.12/classes/ $src"
+    run: "scala -classpath ./target/scala-2.12/classes/ {{C}}"
+    compilation_working_dir: "scala/"
+    runtime_working_dir: "scala/"
+    atcoder_lang_id: 3025
+{csharp}
+"#,
+        default_lang = format!("{:?}", lang_name),
+        exe = if cfg!(target_os = "windows") {
+            ".exe"
         } else {
-            path.into()
+            ""
+        },
+        csharp = if cfg!(target_os = "windows") {
+            r#"  - name: "c#"
+    src: "csharp/{C}/{C}.cs"
+    bin: "csharp/{C}/bin/Release/{C}.exe"
+    compile: "csc /o+ /r:System.Numerics /out:$bin $src"
+    run: "$bin"
+    compilation_working_dir: "csharp/"
+    runtime_working_dir: "csharp/"
+    atcoder_lang_id: 3006"#
+        } else {
+            r#" - name: "c#"
+    src: "csharp/{C}/{C}.cs"
+    bin: "csharp/{C}/bin/Release/{C}.exe"
+    compile: "mcs -o+ -r:System.Numerics -out:$bin $src"
+    run: "mono $bin"
+    compilation_working_dir: "csharp/"
+    runtime_working_dir: "csharp/"
+    atcoder_lang_id: 3006"#
         }
-    }
+    );
 
-    let csharp_or_mono = if cfg!(target_os = "windows") {
-        LangProperty::new(
-            "c#",
-            "csharp/{C}/{C}.cs",
-            Some("csharp/{C}/bin/Release/{C}.exe"),
-            Some("csc /o+ /r:System.Numerics /out:$bin $src"),
-            "$bin",
-            "csharp/",
-            "csharp/",
-            Some(3006),
-        )
-    } else {
-        LangProperty::new(
-            "c#",
-            "csharp/{C}/{C}.cs",
-            Some("csharp/{C}/bin/Release/{C}.exe"),
-            Some("mcs -o+ -r:System.Numerics -out:$bin $src"),
-            "mono $bin",
-            "csharp/",
-            "csharp/",
-            Some(3006),
-        )
-    };
-
-    let config = Config {
-        service: Some(ServiceName::AtCoderBeta),
-        contest: Some("chokudai_s001".to_owned()),
-        testsuites: PathFormat::default_testsuites(),
-        extension_on_downloading: SuiteFileExtension::Yml,
-        extensions_on_judging: default_extensions(),
-        default_lang: lang_name.to_owned(),
-        languages: vec![
-            LangProperty::new(
-                "c",
-                "c/{}.c",
-                Some(append_exe_if_windows("c/build/{}")),
-                Some("gcc -std=c11 -O2 -lm -o $bin $src"),
-                "$bin",
-                "c/",
-                "c/",
-                Some(3002),
-            ),
-            LangProperty::new(
-                "c++",
-                "cc/{}.cc",
-                Some(append_exe_if_windows("cc/build/{}")),
-                Some("g++ -std=c++14 -O2 -o $bin $src"),
-                "$bin",
-                "cc/",
-                "cc/",
-                Some(3003),
-            ),
-            LangProperty::new(
-                "rust",
-                "rust/src/bin/{}.rs",
-                Some(append_exe_if_windows("rust/target/release/{}")),
-                Some("rustc -O -o $bin $src"),
-                "$bin",
-                "rust/",
-                "rust/",
-                Some(3504),
-            ),
-            LangProperty::new(
-                "haskell",
-                "haskell/src/{C}.hs",
-                Some(append_exe_if_windows("haskell/target/{}")),
-                Some("stack ghc -- -O2 -o $bin $src"),
-                "$bin",
-                "haskell/",
-                "haskell/",
-                Some(3014),
-            ),
-            LangProperty::new(
-                "java",
-                "java/src/main/java/{C}.java",
-                Some("java/build/classes/java/main/{C}.class"),
-                Some("javac -d ./build/classes/java/main/ $src"),
-                "java -classpath ./build/classes/java/main/ {C}",
-                "java/",
-                "java/",
-                Some(3016),
-            ),
-            LangProperty::new(
-                "scala",
-                "scala/src/main/scala/{C}.scala",
-                Some("scala/target/scala-2.12/classes/{C}.class"),
-                Some("scalac -optimise -d ./target/scala-2.12/classes/ $src"),
-                "scala -classpath ./target/scala-2.12/classes/ {C}",
-                "scala/",
-                "scala/",
-                Some(3025),
-            ),
-            csharp_or_mono,
-            LangProperty::new::<&'static str>(
-                "python3",
-                "python/{}.py",
-                None,
-                None,
-                "python3 $src",
-                "",
-                "python/",
-                Some(3023),
-            ),
-        ],
-        base_dir: PathBuf::new(),
-    };
-
-    let config = serde_yaml::to_string(&config)?;
     let mut path = PathBuf::from(dir);
     path.push("snowchains.yml");
     Ok(util::create_file_and_dirs(&path)?.write_all(config.as_bytes())?)
@@ -141,30 +112,60 @@ pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
 pub fn switch(service: ServiceName, contest: &str) -> ConfigResult<()> {
     fn str_from_opt<T: fmt::Display>(x: &Option<T>) -> Cow<'static, str> {
         match *x {
-            Some(ref x) => Cow::Owned(x.to_string()),
+            Some(ref x) => Cow::Owned(format!("{:?}", x.to_string())),
             None => Cow::Borrowed("None"),
         }
     }
 
-    fn print_change(n: usize, prev: Cow<'static, str>, new: &str) {
+    fn print_change(n: usize, prev: &Cow<'static, str>, new: &str) {
         print!("{}", prev);
         for _ in 0..n - prev.len() {
             print!(" ");
         }
-        println!(" -> {}", new);
+        println!(" -> {:?}", new);
     }
 
-    let mut config = Config::load_from_file()?;
-    let prev_service = str_from_opt(&config.service);
-    let prev_contest = str_from_opt(&config.contest);
+    let (_, path) = find_base()?;
+    let text = util::string_from_file_path(&path)?;
+    println!("Loaded {}", path.display());
+    let (replaced, prev_service, prev_contest) = {
+        let mut replaced = "".to_owned();
+        let (mut prev_service, mut prev_contest) = (None, None);
+        for line in text.lines() {
+            lazy_static! {
+                static ref SERVICE: Regex = Regex::new(r"^service\s*:\s*(\S.*)$").unwrap();
+                static ref CONTEST: Regex = Regex::new(r"^contest\s*:\s*(\S.*)$").unwrap();
+            }
+            if let Some(caps) = SERVICE.captures(line) {
+                prev_service = Some(caps[1].to_owned());
+                replaced += &format!("service: {:?}", service.to_string());
+            } else if let Some(caps) = CONTEST.captures(line) {
+                prev_contest = Some(caps[1].to_owned());
+                replaced += &format!("contest: {:?}", contest);
+            } else {
+                replaced += line;
+            }
+            replaced.push('\n');
+        }
+        if prev_service.is_some() && prev_contest.is_some()
+            && serde_yaml::from_str::<Config>(&replaced).is_ok()
+        {
+            let (prev_service, prev_contest) = (prev_service.unwrap(), prev_contest.unwrap());
+            (replaced, Cow::Owned(prev_service), Cow::Owned(prev_contest))
+        } else {
+            let mut config = serde_yaml::from_str::<Config>(&text)?;
+            let prev_service = str_from_opt(&config.service);
+            let prev_contest = str_from_opt(&config.contest);
+            config.service = Some(service);
+            config.contest = Some(contest.to_owned());
+            (serde_yaml::to_string(&config)?, prev_service, prev_contest)
+        }
+    };
     let n = cmp::max(prev_service.len(), prev_contest.len());
-    config.service = Some(service);
-    config.contest = Some(contest.to_owned());
-    print_change(n, prev_service, service.to_string().as_str());
-    print_change(n, prev_contest, contest);
-    let config = serde_yaml::to_string(&config)?;
-    let mut file = util::create_file_and_dirs(&find_base()?.1)?;
-    file.write_all(config.as_bytes())?;
+    print_change(n, &prev_service, &service.to_string().as_str());
+    print_change(n, &prev_contest, &contest);
+    let mut file = util::create_file_and_dirs(&path)?;
+    file.write_all(replaced.as_bytes())?;
     Ok(println!("Saved."))
 }
 
@@ -277,12 +278,10 @@ impl Config {
 
 /// Names of programming contest services.
 #[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ServiceName {
-    #[serde(rename = "atcoder")]
     AtCoder,
-    #[serde(rename = "atcoderbeta")]
     AtCoderBeta,
-    #[serde(rename = "hackerrank")]
     HackerRank,
 }
 
@@ -353,28 +352,6 @@ struct LangProperty {
 }
 
 impl LangProperty {
-    fn new<S: Into<Cow<'static, str>>>(
-        name: &'static str,
-        src: &'static str,
-        bin: Option<S>,
-        compile: Option<&'static str>,
-        run: &'static str,
-        compilation_working_dir: &'static str,
-        runtime_working_dir: &'static str,
-        atcoder_lang_id: Option<u32>,
-    ) -> Self {
-        Self {
-            name: name.to_owned(),
-            src: PathFormat(src.to_owned()),
-            bin: bin.map(|bin| PathFormat(bin.into().into_owned())),
-            compile: compile.map(|comp| PathFormat(comp.to_owned())),
-            run: PathFormat(run.to_owned()),
-            compilation_working_dir: InputPath(compilation_working_dir.to_owned()),
-            runtime_working_dir: InputPath(runtime_working_dir.to_owned()),
-            atcoder_lang_id: atcoder_lang_id,
-        }
-    }
-
     fn resolve_src(&self, base: &Path, target: &str) -> ConfigResult<PathBuf> {
         self.src.resolve_as_path(base, target, &HashMap::new())
     }

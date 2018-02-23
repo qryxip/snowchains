@@ -1,8 +1,9 @@
 use errors::{ServiceErrorKind, ServiceResult};
-use service::session::HttpSession;
+use service::OpenInBrowser;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
 use chrono::{DateTime, Local, Utc};
+use httpsession::HttpSession;
 use regex::Regex;
 use select::document::Document;
 use select::node::Node;
@@ -14,17 +15,12 @@ use std::path::Path;
 
 /// Logins to "beta.atcoder.jp".
 pub fn login() -> ServiceResult<()> {
-    let mut atcoder = AtCoderBeta::start()?;
-    atcoder.login_if_not(true)?;
-    atcoder.save()
+    AtCoderBeta::start()?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
-    let contest = &Contest::new(contest_name);
-    let mut atcoder = AtCoderBeta::start()?;
-    atcoder.register_explicitly(contest)?;
-    atcoder.save()
+    AtCoderBeta::start()?.register_explicitly(&Contest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
@@ -35,14 +31,12 @@ pub fn download(
     extension: SuiteFileExtension,
     open_browser: bool,
 ) -> ServiceResult<()> {
-    let mut atcoder = AtCoderBeta::start()?;
-    atcoder.download(
+    AtCoderBeta::start()?.download(
         &Contest::new(contest_name),
         dir_to_save,
         extension,
         open_browser,
-    )?;
-    atcoder.save()
+    )
 }
 
 /// Submits a source code.
@@ -54,16 +48,14 @@ pub fn submit(
     open_browser: bool,
     skip_checking_if_accepted: bool,
 ) -> ServiceResult<()> {
-    let mut atcoder = AtCoderBeta::start()?;
-    atcoder.submit(
+    AtCoderBeta::start()?.submit(
         &Contest::new(contest_name),
         task,
         lang_id,
         src_path,
         open_browser,
         skip_checking_if_accepted,
-    )?;
-    atcoder.save()
+    )
 }
 
 custom_derive! {
@@ -73,23 +65,25 @@ custom_derive! {
 
 impl AtCoderBeta {
     fn start() -> ServiceResult<Self> {
-        let mut session = HttpSession::start("atcoderbeta", "beta.atcoder.jp", true)?;
-        session.fetch_robots_txt()?;
+        let session = super::start_session("atcoderbeta", "beta.atcoder.jp")?;
         Ok(AtCoderBeta(session))
     }
 
     fn login_if_not(&mut self, eprints_message_if_already_logged_in: bool) -> ServiceResult<()> {
-        if self.has_cookie() && self.http_get("/settings").is_ok() {
-            Ok(if eprints_message_if_already_logged_in {
-                eprintln!("Already logged in.");
-            })
-        } else {
-            while !self.try_logging_in()? {
-                eprintln!("Failed to login. Try again.");
-                self.clear_cookies();
+        if self.has_cookie() {
+            let response = self.http_get_expecting("/settings", &[200, 302])?;
+            if response.status().as_u16() == 200 {
+                if eprints_message_if_already_logged_in {
+                    eprintln!("Already logged in.");
+                }
+                return Ok(());
             }
-            Ok(println!("Succeeded to login."))
         }
+        while !self.try_logging_in()? {
+            eprintln!("Failed to login. Try again.");
+            self.clear_cookies()?;
+        }
+        Ok(())
     }
 
     fn try_logging_in(&mut self) -> ServiceResult<bool> {
@@ -101,15 +95,19 @@ impl AtCoderBeta {
         }
 
         let csrf_token = extract_csrf_token(&Document::from_read(self.http_get("/login")?)?)?;
-        let (username, password) = super::read_username_and_password("Username: ")?;
+        let (username, password) = super::ask_username_and_password("Username: ")?;
         let payload = Payload {
             username: username,
             password: password,
             csrf_token: csrf_token,
         };
-        self.http_post_urlencoded("/login", payload, 302)?;
+        self.http_post_urlencoded("/login", &payload, &[302], None)?;
         let response = self.http_get_expecting("/settings", &[200, 302])?;
-        Ok(response.status().as_u16() == 200)
+        let success = response.status().as_u16() == 200;
+        if success {
+            println!("Successfully logged in.");
+        }
+        Ok(success)
     }
 
     fn register_explicitly(&mut self, contest: &Contest) -> ServiceResult<()> {
@@ -144,14 +142,14 @@ impl AtCoderBeta {
         if !explicit {
             status.raise_if_not_begun()?;
         }
-        if explicit || contest.is_practice_contest() || status.is_active() {
+        if explicit || *contest == Contest::Practice || status.is_active() {
             self.login_if_not(false)?;
             let page = Document::from_read(self.http_get(&contest.url_top())?)?;
             let payload = Payload {
                 csrf_token: extract_csrf_token(&page)?,
             };
             let url = contest.url_register();
-            self.http_post_urlencoded(&url, payload, 302)?;
+            self.http_post_urlencoded(&url, &payload, &[302], None)?;
         }
         Ok(())
     }
@@ -178,7 +176,7 @@ impl AtCoderBeta {
         if open_browser {
             self.open_in_browser(&contest.url_submissions_me())?;
             for &(ref url, _, _) in &outputs {
-                self.open_in_browser(url)?;
+                self.open_in_browser(&url)?;
             }
         }
         Ok(())
@@ -205,7 +203,7 @@ impl AtCoderBeta {
         }
 
         let tasks_page = self.fetch_tasks_page(contest)?;
-        let checks_if_accepted = !skip_checking_if_accepted && !contest.is_practice_contest() && {
+        let checks_if_accepted = !skip_checking_if_accepted && *contest != Contest::Practice && {
             let duration = extract_contest_duration(&tasks_page)?;
             let status = duration.check_current_status(contest.to_string());
             status.raise_if_not_begun()?;
@@ -215,8 +213,8 @@ impl AtCoderBeta {
             if name.to_uppercase() == task.to_uppercase() {
                 let task_screen_name = {
                     lazy_static! {
-                        static ref SCREEN_NAME: Regex =
-                            Regex::new(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$").unwrap();
+                        static ref SCREEN_NAME: Regex = Regex::new(
+                            r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$").unwrap();
                     }
                     if let Some(caps) = SCREEN_NAME.captures(&url) {
                         caps[1].to_owned()
@@ -239,7 +237,7 @@ impl AtCoderBeta {
                     sourceCode: source_code,
                     csrf_token: csrf_token,
                 };
-                self.http_post_urlencoded(&url, payload, 302)?;
+                self.http_post_urlencoded(&url, &payload, &[302], None)?;
                 if open_browser {
                     self.open_in_browser(&contest.url_submissions_me())?;
                 }
@@ -248,13 +246,9 @@ impl AtCoderBeta {
         }
         bail!(ServiceErrorKind::NoSuchProblem(task.to_owned()));
     }
-
-    fn save(self) -> ServiceResult<()> {
-        self.0.save_cookies()
-    }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 enum Contest {
     Practice,
     AbcBefore007(u32),
@@ -312,13 +306,6 @@ impl Contest {
         match *self {
             Contest::AbcBefore007(_) | Contest::ArcBefore058(_) => SampleCaseStyle::Old,
             _ => SampleCaseStyle::New,
-        }
-    }
-
-    fn is_practice_contest(&self) -> bool {
-        match *self {
-            Contest::Practice => true,
-            _ => false,
         }
     }
 
@@ -552,7 +539,7 @@ fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuratio
             let t2 = DateTime::parse_from_str(&t2, FORMAT)?.with_timezone(&Utc);
             Ok(ContestDuration(t1, t2))
         }
-        None => bail!(ServiceErrorKind::ScrapingFailed),
+        None => bail!(ServiceErrorKind::Scrape),
     }
 }
 
@@ -591,6 +578,6 @@ fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<
 
     match check(Document::from_read(html)?, task_screen_name) {
         Some(p) => Ok(p),
-        None => bail!(ServiceErrorKind::ScrapingFailed),
+        None => bail!(ServiceErrorKind::Scrape),
     }
 }

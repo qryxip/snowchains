@@ -1,26 +1,21 @@
 use bincode;
 use chrono::{self, DateTime, Local};
 use cookie;
+use httpsession;
 use regex;
-use reqwest::{self, StatusCode, Url, UrlError};
+use reqwest::{self, UrlError};
 use serde_json;
 use serde_urlencoded;
 use serde_yaml;
 use toml;
 use zip::result::ZipError;
 
-use std::error::Error;
-use std::fmt;
-use std::io;
+use std::{self, fmt, io};
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::sync::mpsc::RecvError;
 
 error_chain!{
-    types{
-        SnowchainsError, SnowchainsErrorKind, SnowchainsResultExt, SnowchainsResult;
-    }
-
     links {
         Service(ServiceError, ServiceErrorKind);
         Judging(JudgingError, JudgingErrorKind);
@@ -42,6 +37,7 @@ error_chain! {
         Bincode(bincode::Error);
         ChronoParse(chrono::ParseError);
         CookieParse(cookie::ParseError);
+        HttpSession(httpsession::Error);
         Io(io::Error);
         Recv(RecvError);
         Reqwest(reqwest::Error);
@@ -67,22 +63,17 @@ error_chain! {
             display("{} not found", contest_name)
         }
 
-        ForbiddenByRobotsTxt(url: Url) {
-            description("Forbidden by robots.txt")
-            display("Forbidden by robots.txt: {}", url)
-        }
-
         NoSuchProblem(name: String) {
             description("No such problem")
             display("No such problem: {:?}", name)
         }
 
-        ReplacingClassNameFailure(path: PathBuf) {
+        ClassNameReplace(path: PathBuf) {
             description("Replacing the class name fails")
             display("Failed to replace the main class name in {}", path.display())
         }
 
-        ScrapingFailed {
+        Scrape {
             description("Scraping failed")
             display("Scraping failed")
         }
@@ -90,13 +81,6 @@ error_chain! {
         Thread {
             description("Thread error")
             display("Thread error")
-        }
-
-        UnexpectedHttpCode(expected: Vec<StatusCode>, actual: StatusCode) {
-            description("Unexpected HTTP response code")
-            display("The response code is {}, expected {}",
-                    actual,
-                    expected.iter().map(StatusCode::to_string).collect::<Vec<_>>().join(" or "))
         }
 
         Webbrowser(status: ExitStatus) {
@@ -198,7 +182,7 @@ error_chain! {
     }
 }
 
-pub type PathFormatResult<T> = Result<T, PathFormatError>;
+pub type PathFormatResult<T> = std::result::Result<T, PathFormatError>;
 
 #[derive(Debug)]
 pub enum PathFormatError {
@@ -222,7 +206,7 @@ impl fmt::Display for PathFormatError {
     }
 }
 
-impl Error for PathFormatError {
+impl std::error::Error for PathFormatError {
     fn description(&self) -> &str {
         "Error about format string in config file"
     }

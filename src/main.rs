@@ -19,6 +19,7 @@ extern crate bincode;
 extern crate chrono;
 extern crate cookie;
 extern crate env_logger;
+extern crate httpsession;
 extern crate pbr;
 extern crate regex;
 extern crate reqwest;
@@ -47,13 +48,13 @@ mod testsuite;
 mod util;
 
 use config::{Config, ServiceName};
-use errors::SnowchainsResult;
+use errors::Result;
 use service::{atcoder, atcoder_beta, hackerrank};
 use testsuite::{SuiteFileExtension, SuiteFilePath};
 
 use clap::{AppSettings, Arg, SubCommand};
 
-quick_main_colored!(|| -> SnowchainsResult<()> {
+quick_main_colored!(|| -> ::Result<()> {
     env_logger::init();
 
     fn arg_default_lang() -> Arg<'static, 'static> {
