@@ -94,7 +94,7 @@ impl JudgingOutput for SimpleOutput {
         }
     }
 
-    fn color(&self) -> u16 {
+    fn color(&self) -> u32 {
         match *self {
             SimpleOutput::Ac(..) => color::GREEN,
             SimpleOutput::Tle(..) => color::RED,

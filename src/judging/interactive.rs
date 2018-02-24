@@ -199,7 +199,7 @@ impl JudgingOutput for InteractiveOutput {
         }
     }
 
-    fn color(&self) -> u16 {
+    fn color(&self) -> u32 {
         match self.kind {
             InteractiveOutputKind::Success => color::GREEN,
             InteractiveOutputKind::Failure => color::RED,

@@ -112,7 +112,7 @@ where
     /// Whether `self` is a failure.
     fn failure(&self) -> bool;
     /// A color of `self`.
-    fn color(&self) -> u16;
+    fn color(&self) -> u32;
     /// Prints details to stderr.
     fn eprint_details(&self);
 
