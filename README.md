@@ -49,54 +49,80 @@ default_lang: "c++"
 languages:
   - name: "c++"
     src: "cc/{}.cc"
-    bin: "cc/build/{}"                         # optional
-    compile: "g++ -std=c++14 -O2 -o $bin $src" # optional
-    run: "$bin"                                # default: "$bin"
-    compilation_working_dir: "cc/"             # default: ""
-    runtime_working_dir: "cc/"                 # default: ""
-    atcoder_lang_id: 3003                      # see the HTML source or open DevTools, and search by "option"
+    compile:                                     # optional
+      bin: "cc/build/{}"
+      command: "g++ -std=c++14 -O2 -o $bin $src"
+      working_directory: "cc/"                   # default: ""
+    run:
+      command: "$bin"                            # default: "$bin"
+      working_directory: "cc/"                   # default: ""
+    language_ids:                                # optional
+      atcoder: 3003
   - name: "rust"
-    src: "rust/src/bin/{}.rs"
-    bin: "rust/target/release/{}"
-    compile: "rustc -O -o $bin $src"
-    run: "$bin"
-    compilation_working_dir: "rust/"
-    runtime_working_dir: "rust/"
-    atcoder_lang_id: 3504
+    src: "rs/src/bin/{}.rs"
+    compile:
+      bin: "rs/target/release/{}"
+      command: "rustc -O -o $bin $src"
+      working_directory: "rs/"
+    run:
+      command: "$bin"
+      working_directory: "rs/"
+    language_ids:
+      atcoder: 3504
+  - name: "haskell"
+    src: "hs/src/{C}.hs"
+    compile:
+      bin: "hs/target/{C}"
+      command: "stack ghc -- -O2 -o $bin $src"
+      working_directory: "hs/"
+    run:
+      command: "$bin"
+      working_directory: "hs/"
+    language_ids:
+      atcoder: 3014
   - name: "python3"
-    src: "python/{}.py"
-    bin: ~
+    src: "py/{}.py"
     compile: ~
-    run: "python3 $src"
-    compilation_working_dir: ""
-    runtime_working_dir: "python/"
-    atcoder_lang_id: 3023
+    run:
+      command: "./venv/bin/python3 $src"
+      working_directory: "py/"
+    language_ids:
+      atcoder: 3023
   - name: "java"
     src: "java/src/main/java/{C}.java"
-    bin: "java/build/classes/java/main/{C}.class"
-    compile: "javac -d ./build/classes/java/main/ $src"
-    run: "java -classpath ./build/classes/java/main/{C}"
-    compilation_working_dir: "java/"
-    runtime_working_dir: "java/"
-    atcoder_lang_id: 3016 # a main class name is replaced with "Main" in AtCoder
+    compile:
+      bin: "java/build/classes/java/main/{C}.class"
+      command: "javac -d ./build/classes/java/main/ $src"
+      working_directory: "java/"
+    run:
+      command: "java -classpath ./build/classes/java/main/{C}"
+      working_directory: "java/"
+    language_ids:
+      atcoder: 3016
   - # Windows
     name: "c#"
-    src: "csharp/{C}/{C}.cs"
-    bin: "csharp/{C}/bin/Release/{C}.exe"
-    compile: "csc /o+ /r:System.Numerics /out:$bin $src"
-    run: "$bin"
-    compilation_working_dir: "csharp/"
-    runtime_working_dir: "csharp/"
-    atcoder_lang_id: 3006
-  - # *nix
+    src: "cs/{C}/{C}.cs"
+    compile:
+      bin: "cs/{C}/bin/Release/{C}.exe"
+      command: "csc /o+ /r:System.Numerics /out:$bin $src"
+      working_directory: "cs/"
+    run:
+      command: "$bin"
+      working_directory: "cs/"
+    language_ids:
+      atcoder: 3006
+  - # Unix
     name: "c#"
-    src: "csharp/{C}/{C}.cs"
-    bin: "csharp/{C}/bin/Release/{C}.exe"
-    compile: "mcs -o+ -r:System.Numerics -out:$bin $src"
-    run: "mono $bin"
-    compilation_working_dir: "csharp/"
-    runtime_working_dir: "csharp/"
-    atcoder_lang_id: 3006
+    src: "cs/{C}/{C}.cs"
+    compile:
+      bin: "cs/{C}/bin/Release/{C}.exe"
+      command: "mcs -o+ -r:System.Numerics -out:$bin $src"
+      working_directory: "cs/"
+    run:
+      command: "mono $bin"
+      working_directory: "cs/"
+    language_ids:
+      atcoder: 3006
 ```
 
 Or simply:
@@ -104,7 +130,7 @@ Or simply:
 ```yaml
 ---
 service: "atcoderbeta"
-contest: "chokuda_s001"
+contest: "chokudai_s001"
 testsuites: "snowchains/$service/$contest/"
 extension_on_downloading: "yml"
 extensions_on_judging: ["json", "toml", "yaml", "yml"]
@@ -112,12 +138,15 @@ default_lang: "c++"
 languages:
   - name: "c++"
     src: "{}.cc"
-    bin: "build/{}"
-    compile: "g++ -std=c++14 -O2 -o $bin $src"
-    run: "$bin"
-    compilation_working_dir: ""
-    runtime_working_dir: ""
-    atcoder_lang_id: 3003
+    compile:
+      bin: "build/{}"
+      command: "g++ -std=c++14 -O2 -o $bin $src"
+      working_directory: ""
+    run:
+      command: "$bin"
+      working_directory: ""
+    language_ids:
+      atcoder: 3003
 ```
 
 ## Test Suite
@@ -266,7 +295,7 @@ if __name__ == '__main__':
 ```
 
 ```haskell
-#!/usr/bin/env runhaskell
+#!/usr/bin/env runghc
 {-# LANGUAGE LambdaCase #-}
 module Main (main) where
 

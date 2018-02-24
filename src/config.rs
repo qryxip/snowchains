@@ -28,52 +28,75 @@ default_lang: {default_lang}
 languages:
   - name: "c++"
     src: "cc/{{}}.cc"
-    bin: "cc/build/{{}}{exe}"
-    compile: "g++ -std=c++14 -O2 -o $bin $src"
-    run: "$bin"
-    compilation_working_dir: "cc/"
-    runtime_working_dir: "cc/"
-    atcoder_lang_id: 3003
+    compile:
+      bin: "cc/build/{{}}{exe}"
+      command: "g++ -std=c++14 -O2 -o $bin $src"
+      working_directory: "cc/"
+    run:
+      command: "$bin"
+      working_directory: "cc/"
+    language_ids:
+      atcoder: 3003
   - name: "rust"
-    src: "rust/src/bin/{{}}.rs"
-    bin: "rust/target/release/{{}}{exe}"
-    compile: "rustc -O -o $bin $src"
-    run: "$bin"
-    compilation_working_dir: "rust/"
-    runtime_working_dir: "rust/"
-    atcoder_lang_id: 3504
+    src: "rs/src/bin/{{}}.rs"
+    compile:
+      bin: "rs/target/release/{{}}{exe}"
+      command: "rustc -O -o $bin $src"
+      working_directory: "rs/"
+    run:
+      command: "$bin"
+      working_directory: "rs/"
+    language_ids:
+      atcoder: 3504
   - name: "haskell"
-    src: "haskell/src/{{C}}.hs"
-    bin: "haskell/target/{{C}}{exe}"
-    compile: "stack ghc -- -O2 -o $bin $src"
-    run: "$bin"
-    compilation_working_dir: "haskell/"
-    runtime_working_dir: "haskell/"
-    atcoder_lang_id: 3014
-  - name: "python3"
-    src: "python/{{}}.py"
-    bin: ~
+    src: "hs/src/{{C}}.hs"
+    compile:
+      bin: "hs/target/{{C}}{exe}"
+      command: "stack ghc -- -O2 -o $bin $src"
+      working_directory: "hs/"
+    run:
+      command: "$bin"
+      working_directory: "hs/"
+    language_ids:
+      atcoder: 3014
+  - name: "bash"
+    src: "bash/{{}}.bash"
     compile: ~
-    run: "python3 $src"
-    compilation_working_dir: ""
-    runtime_working_dir: "python/"
-    atcoder_lang_id: 3023
+    run:
+      command: "bash $src"
+      working_directory: "bash/"
+    language_ids:
+      atcoder: 3001
+  - name: "python3"
+    src: "py/{{}}.py"
+    compile: ~
+    run:
+      command: "./venv/bin/python3 $src"
+      working_directory: "py/"
+    language_ids:
+      atcoder: 3023
   - name: "java"
     src: "java/src/main/java/{{C}}.java"
-    bin: "java/build/classes/java/main/{{C}}.class"
-    compile: "javac -d ./build/classes/java/main/ $src"
-    run: "java -classpath ./build/classes/java/main/{{C}}"
-    compilation_working_dir: "java/"
-    runtime_working_dir: "java/"
-    atcoder_lang_id: 3016
+    compile:
+      bin: "java/build/classes/java/main/{{C}}.class"
+      command: "javac -d ./build/classes/java/main/ $src"
+      working_directory: "java/"
+    run:
+      command: "java -classpath ./build/classes/java/main/{{C}}"
+      working_directory: "java/"
+    language_ids:
+      atcoder: 3016
   - name: "scala"
     src: "scala/src/main/scala/{{C}}.scala"
-    bin: "scala/target/scala-2.12/classes/{{C}}.class"
-    compile: "scalac -optimise -d ./target/scala-2.12/classes/ $src"
-    run: "scala -classpath ./target/scala-2.12/classes/ {{C}}"
-    compilation_working_dir: "scala/"
-    runtime_working_dir: "scala/"
-    atcoder_lang_id: 3025
+    compile:
+      bin: "scala/target/scala-2.12/classes/{{C}}.class"
+      command: "scalac -optimise -d ./target/scala-2.12/classes/ $src"
+      working_directory: "scala/"
+    run:
+      command: "scala -classpath ./target/scala-2.12/classes/ {{C}}"
+      working_directory: "scala/"
+    language_ids:
+      atcoder: 3025
 {csharp}
 "#,
         default_lang = format!("{:?}", lang_name),
@@ -84,22 +107,28 @@ languages:
         },
         csharp = if cfg!(target_os = "windows") {
             r#"  - name: "c#"
-    src: "csharp/{C}/{C}.cs"
-    bin: "csharp/{C}/bin/Release/{C}.exe"
-    compile: "csc /o+ /r:System.Numerics /out:$bin $src"
-    run: "$bin"
-    compilation_working_dir: "csharp/"
-    runtime_working_dir: "csharp/"
-    atcoder_lang_id: 3006"#
+    src: "cs/{C}/{C}.cs"
+    compile:
+      bin: "cs/{C}/bin/Release/{C}.exe"
+      command: "csc /o+ /r:System.Numerics /out:$bin $src"
+      working_directory: "cs/"
+    run:
+      command: "$bin"
+      working_directory: "cs/"
+    language_ids:
+      atcoder: 3006"#
         } else {
             r#"  - name: "c#"
-    src: "csharp/{C}/{C}.cs"
-    bin: "csharp/{C}/bin/Release/{C}.exe"
-    compile: "mcs -o+ -r:System.Numerics -out:$bin $src"
-    run: "mono $bin"
-    compilation_working_dir: "csharp/"
-    runtime_working_dir: "csharp/"
-    atcoder_lang_id: 3006"#
+    src: "cs/{C}/{C}.cs"
+    compile:
+      bin: "cs/{C}/bin/Release/{C}.exe"
+      command: "mcs -o+ -r:System.Numerics -out:$bin $src"
+      working_directory: "cs/"
+    run:
+      command: "mono $bin"
+      working_directory: "cs/"
+    language_ids:
+      atcoder: 3006"#
         }
     );
 
@@ -242,8 +271,9 @@ impl Config {
     /// Returns the `lang_id` of `lang_name` or a default language
     pub fn atcoder_lang_id(&self, lang_name: Option<&str>) -> ConfigResult<u32> {
         let lang = self.lang_property(lang_name)?;
-        lang.atcoder_lang_id
-            .ok_or_else(|| ConfigError::from(ConfigErrorKind::PropertyNotSet("atcoder_lang_id")))
+        lang.language_ids.atcoder.ok_or_else(|| {
+            ConfigError::from(ConfigErrorKind::PropertyNotSet("language_ids.atcoder"))
+        })
     }
 
     /// Constructs arguments of compilation command for given or default
@@ -340,15 +370,11 @@ fn default_extensions() -> Vec<SuiteFileExtension> {
 struct LangProperty {
     name: String,
     src: PathFormat,
-    bin: Option<PathFormat>,
-    compile: Option<PathFormat>,
-    #[serde(default = "PathFormat::bin")]
-    run: PathFormat,
-    #[serde(default)]
-    compilation_working_dir: InputPath,
-    #[serde(default)]
-    runtime_working_dir: InputPath,
-    atcoder_lang_id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compile: Option<Compile>,
+    run: Run,
+    #[serde(default, skip_serializing_if = "LanguageIds::is_empty")]
+    language_ids: LanguageIds,
 }
 
 impl LangProperty {
@@ -361,22 +387,26 @@ impl LangProperty {
         base: &Path,
         target: &str,
     ) -> ConfigResult<Option<CompilationCommand>> {
-        let working_dir = self.compilation_working_dir.resolve(base)?;
-        let (src, bin) = self.resolve_src_and_bin(base, target)?;
-        if let Some(comp) = self.compile.as_ref() {
-            let command = comp.to_compilation_command(target, working_dir, Some(src), bin)?;
-            Ok(Some(command))
-        } else {
-            Ok(None)
+        match self.compile {
+            None => Ok(None),
+            Some(ref compile) => {
+                let wd = compile.working_directory.resolve(base)?;
+                let src = self.src.resolve_as_path(base, target, &HashMap::new())?;
+                let bin = compile.bin.resolve_as_path(base, target, &HashMap::new())?;
+                let cmd = compile
+                    .command
+                    .to_compilation_command(target, wd, Some(src), Some(bin))?;
+                Ok(Some(cmd))
+            }
         }
     }
 
     fn construct_solver(&self, base: &Path, target: &str) -> ConfigResult<JudgingCommand> {
-        let working_dir = self.runtime_working_dir.resolve(base)?;
+        let wd = self.run.working_directory.resolve(base)?;
         let (src, bin) = self.resolve_src_and_bin(base, target)?;
         let src = src.display().to_string();
         let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
-        self.run.to_solver(target, working_dir, &src, &bin)
+        self.run.command.to_solver(target, wd, &src, &bin)
     }
 
     fn resolve_src_and_bin(
@@ -385,11 +415,51 @@ impl LangProperty {
         target: &str,
     ) -> ConfigResult<(PathBuf, Option<PathBuf>)> {
         let src = self.src.resolve_as_path(base, target, &HashMap::new())?;
-        let bin = match self.bin {
-            Some(ref bin) => Some(bin.resolve_as_path(base, target, &HashMap::new())?),
+        let bin = match self.compile {
+            Some(ref compile) => Some(compile.bin.resolve_as_path(base, target, &HashMap::new())?),
             None => None,
         };
         Ok((src, bin))
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct Compile {
+    bin: PathFormat,
+    command: PathFormat,
+    working_directory: InputPath,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Run {
+    command: PathFormat,
+    working_directory: InputPath,
+}
+
+impl Default for Run {
+    fn default() -> Self {
+        Self {
+            command: PathFormat("$bin".to_owned()),
+            working_directory: InputPath::default(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct LanguageIds {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    atcoder: Option<u32>,
+}
+
+impl Default for LanguageIds {
+    fn default() -> Self {
+        Self { atcoder: None }
+    }
+}
+
+impl LanguageIds {
+    fn is_empty(&self) -> bool {
+        self.atcoder.is_none()
     }
 }
 
@@ -424,10 +494,6 @@ struct PathFormat(String);
 impl PathFormat {
     fn default_testsuites() -> Self {
         PathFormat("snowchains/$service/$contest/".to_owned())
-    }
-
-    fn bin() -> Self {
-        PathFormat("$bin".to_owned())
     }
 
     fn resolve_as_path(
@@ -619,13 +685,13 @@ mod tests {
     use std::iter::FromIterator;
 
     #[test]
-    fn test_pathformat_format() {
+    fn it_parses_paths_correctly() {
         let format = PathFormat("cc/{}.cc".to_owned());
         let keywords = HashMap::new();
         assert_eq!("cc/a.cc", format.format("a", &keywords).unwrap());
-        let format = PathFormat("csharp/{C}/{C}.cs".to_owned());
+        let format = PathFormat("cs/{C}/{C}.cs".to_owned());
         let keywords = HashMap::new();
-        assert_eq!("csharp/A/A.cs", format.format("a", &keywords).unwrap());
+        assert_eq!("cs/A/A.cs", format.format("a", &keywords).unwrap());
         let format = PathFormat("gcc -o $bin $src".to_owned());
         let keywords = HashMap::from_iter(vec![("src", "SRC"), ("bin", "BIN")]);
         assert_eq!("gcc -o BIN SRC", format.format("", &keywords).unwrap());

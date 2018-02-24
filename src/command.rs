@@ -2,9 +2,8 @@ use errors::{JudgingErrorKind, JudgingResult};
 
 use term::color;
 
+use std::{fs, io};
 use std::fmt::Write;
-use std::fs;
-use std::io;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
@@ -50,8 +49,6 @@ impl CompilationCommand {
             .args(&self.command.rest_args)
             .current_dir(&self.command.working_dir)
             .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
             .status()
             .map_err(|e| match e.kind() {
                 io::ErrorKind::NotFound => io::Error::new(
@@ -177,7 +174,7 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn assert_commands_wrapped_in_sh_or_cmd() {
+    fn it_wraps_commands_in_sh_or_cmd() {
         fn display(command: &'static str) -> String {
             CommandProperty::new(command.to_owned(), PathBuf::new()).display_args()
         }
@@ -191,7 +188,7 @@ mod tests {
         }
 
         let command = "cargo build --release";
-        assert_eq!("\"cargo\" \"build\" \"--release\"", display(command));
+        assert_eq!(r#""cargo" "build" "--release""#, display(command));
         let command = "sleep 1 && cargo build --release";
         assert_eq!(wrap(command), display(command));
         let command = "echo 'Hello, World!'";
