@@ -21,14 +21,14 @@ $ cargo install --git https://github.com/wariuni/snowchains
 
 ```console
 $ snowchains init <language> ./
-$ snowchains switch <service> <contest>                 # e.g. ("atcoderbeta", "agc001")
-$ snowchains download (--open-browser)                  # The username and password required when not yet logged-in
-$ $EDITOR ./snowchains/<service>/<contest>/<target>.yml # Add more test cases
+$ snowchains switch <service> <contest>                  # e.g. ("atcoderbeta", "agc001")
+$ snowchains download (--open-browser)                   # The username and password required when not yet logged-in
+$ $EDITOR ./snowchains/<service>/<contest>/<target>.yaml # Add more test cases
 $ snowchains judge <target> (<language>)
 $ snowchains submit <target> (<language>) (--open-browser) (--skip-judging) (--force)
 ```
 
-## Config File (snowchains.yml)
+## Config File (snowchains.yaml)
 
 ```yaml
 # Example
@@ -36,7 +36,7 @@ $ snowchains submit <target> (<language>) (--open-browser) (--skip-judging) (--f
 service: "atcoderbeta"                                 # optional
 contest: "chokudai_s001"                               # optional
 testsuites: "snowchains/$service/$contest/"            # default: 〃
-extension_on_downloading: "yml"                        # default: 〃
+extension_on_downloading: "yaml"                       # default: 〃
 extensions_on_judging: ["json", "toml", "yaml", "yml"] # default: 〃
 default_lang: "c++"
 
@@ -44,8 +44,8 @@ default_lang: "c++"
 # source:     <<src> % <target-name>>
 # binary:     <<bin> % <target-name>>
 # e.g.
-# "cc/{}.cc" % "problem-a"          ⊦ <the directory which has snowchains.yml>/cc/problem-a.cc
-# "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yml>/csharp/ProblemA/ProblemA.cs
+# "cc/{}.cc" % "problem-a"          ⊦ <the directory which has snowchains.yaml>/cc/problem-a.cc
+# "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yaml>/csharp/ProblemA/ProblemA.cs
 languages:
   - name: "c++"
     src: "cc/{}.cc"
@@ -132,7 +132,7 @@ Or simply:
 service: "atcoderbeta"
 contest: "chokudai_s001"
 testsuites: "snowchains/$service/$contest/"
-extension_on_downloading: "yml"
+extension_on_downloading: "yaml"
 extensions_on_judging: ["json", "toml", "yaml", "yml"]
 default_lang: "c++"
 languages:

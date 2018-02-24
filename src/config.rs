@@ -14,14 +14,14 @@ use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-/// Creates `snowchains.yml` in `dir`.
+/// Creates `snowchains.yaml` in `dir`.
 pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
     let config = format!(
         r#"---
 service: "atcoderbeta"
 contest: "chokudai_s001"
 testsuites: "snowchains/$service/$contest/"
-extension_on_downloading: "yml"
+extension_on_downloading: "yaml"
 extensions_on_judging: ["json", "toml", "yaml", "yml"]
 default_lang: {default_lang}
 
@@ -133,7 +133,7 @@ languages:
     );
 
     let mut path = PathBuf::from(dir);
-    path.push("snowchains.yml");
+    path.push("snowchains.yaml");
     Ok(util::create_file_and_dirs(&path)?.write_all(config.as_bytes())?)
 }
 
@@ -216,7 +216,7 @@ pub struct Config {
 }
 
 impl Config {
-    /// Loads and deserializes from the nearest `snowchains.yml`
+    /// Loads and deserializes from the nearest `snowchains.yaml`
     pub fn load_from_file() -> ConfigResult<Self> {
         let (base, path) = find_base()?;
         let mut config = serde_yaml::from_str::<Self>(&util::string_from_file_path(&path)?)?;
@@ -339,10 +339,10 @@ impl FromStr for ServiceName {
 }
 
 fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
-    fn snowchain_yml_exists(dir: &Path) -> io::Result<bool> {
+    fn snowchain_yaml_exists(dir: &Path) -> io::Result<bool> {
         for entry in fs::read_dir(dir)? {
             let path = entry?.path();
-            if path.is_file() && path.file_name().unwrap() == "snowchains.yml" {
+            if path.is_file() && path.file_name().unwrap() == "snowchains.yaml" {
                 return Ok(true);
             }
         }
@@ -351,9 +351,9 @@ fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
 
     let mut dir = env::current_dir()?;
     loop {
-        if let Ok(true) = snowchain_yml_exists(&dir) {
+        if let Ok(true) = snowchain_yaml_exists(&dir) {
             let mut path = dir.clone();
-            path.push("snowchains.yml");
+            path.push("snowchains.yaml");
             return Ok((dir, path));
         } else if !dir.pop() {
             bail!(ConfigErrorKind::ConfigFileNotFound);

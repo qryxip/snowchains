@@ -65,7 +65,7 @@ quick_main_colored!(|| -> ::Result<()> {
 
     fn arg_dir() -> Arg<'static, 'static> {
         Arg::with_name("dir")
-            .help("Directory to create \"snowchains.yml\"")
+            .help("Directory to create \"snowchains.yaml\"")
             .required(true)
     }
 
@@ -143,13 +143,13 @@ quick_main_colored!(|| -> ::Result<()> {
                                          [--skip-judging] [--force]";
 
     let subcommand_init = SubCommand::with_name("init")
-        .about("Creates 'snowchains.yml'")
+        .about("Creates 'snowchains.yaml'")
         .usage(USAGE_INIT)
         .arg(arg_default_lang().display_order(1))
         .arg(arg_dir().display_order(2));
 
     let subcommand_switch = SubCommand::with_name("switch")
-        .about("Changes <service> and <contest> of 'snowchains.yml'")
+        .about("Changes <service> and <contest> of 'snowchains.yaml'")
         .usage(USAGE_SWITCH)
         .arg(arg_service().display_order(1))
         .arg(arg_contest().display_order(2));

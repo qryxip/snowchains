@@ -366,7 +366,7 @@ pub enum SuiteFileExtension {
 
 impl Default for SuiteFileExtension {
     fn default() -> Self {
-        SuiteFileExtension::Yml
+        SuiteFileExtension::Yaml
     }
 }
 

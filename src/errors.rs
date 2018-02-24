@@ -166,8 +166,8 @@ error_chain! {
 
     errors {
         ConfigFileNotFound {
-            description("\"snowchains.yml\" not found")
-            display("\"snowchains.yml\" not found")
+            description("\"snowchains.yaml\" not found")
+            display("\"snowchains.yaml\" not found")
         }
 
         NoSuchLanguage(name: String) {
