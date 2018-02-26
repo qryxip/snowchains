@@ -1,4 +1,4 @@
-use errors::JudgingResult;
+use errors::JudgeResult;
 use judging::{JudgingCommand, JudgingOutput, MillisRoundedUp, WrapNotFoundErrorMessage};
 use testsuite::InteractiveCase;
 use util;
@@ -14,10 +14,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 /// Tests for `case` and `solver` and returns one `InteractiveOutput`.
-pub fn judge(
-    case: InteractiveCase,
-    solver: Arc<JudgingCommand>,
-) -> JudgingResult<InteractiveOutput> {
+pub fn judge(case: InteractiveCase, solver: Arc<JudgingCommand>) -> JudgeResult<InteractiveOutput> {
     let (cout_tx, cout_rx) = mpsc::channel();
     let (result_tx, result_rx) = mpsc::channel();
     let solver_cloned = solver.clone();

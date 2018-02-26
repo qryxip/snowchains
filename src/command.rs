@@ -1,4 +1,4 @@
-use errors::{JudgingErrorKind, JudgingResult};
+use errors::{JudgeErrorKind, JudgeResult};
 
 use term::color;
 
@@ -29,7 +29,7 @@ impl CompilationCommand {
     }
 
     /// Executes the command.
-    pub fn execute(&self) -> JudgingResult<()> {
+    pub fn execute(&self) -> JudgeResult<()> {
         if let &Some((ref src, ref bin)) = &self.src_and_bin {
             if let (Ok(src_meta), Ok(bin_meta)) = (src.metadata(), bin.metadata()) {
                 if let (Ok(t1), Ok(t2)) = (src_meta.modified(), bin_meta.modified()) {
@@ -60,7 +60,7 @@ impl CompilationCommand {
         if status.success() {
             Ok(())
         } else {
-            bail!(JudgingErrorKind::CompilationFailure(status));
+            bail!(JudgeErrorKind::Compile(status));
         }
     }
 }

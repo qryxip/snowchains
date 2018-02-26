@@ -223,7 +223,7 @@ quick_main_colored!(|| -> ::Result<()> {
         info!("Running command \"init\"");
         let lang = matches.value_of("default-lang").unwrap();
         let dir = matches.value_of("dir").unwrap();
-        return Ok(config::create_config_file(lang, dir)?);
+        return Ok(config::init(lang, dir)?);
     } else if let Some(matches) = matches.subcommand_matches("switch") {
         info!("Running command \"switch\"");
         let service = value_t!(matches, "service", ServiceName).unwrap();

@@ -1,13 +1,6 @@
-use bincode;
+use {bincode, cookie, httpsession, regex, serde_json, serde_urlencoded, serde_yaml, toml};
 use chrono::{self, DateTime, Local};
-use cookie;
-use httpsession;
-use regex;
 use reqwest::{self, UrlError};
-use serde_json;
-use serde_urlencoded;
-use serde_yaml;
-use toml;
 use zip::result::ZipError;
 
 use std::{self, fmt, io};
@@ -18,7 +11,7 @@ use std::sync::mpsc::RecvError;
 error_chain!{
     links {
         Service(ServiceError, ServiceErrorKind);
-        Judging(JudgingError, JudgingErrorKind);
+        Judge(JudgeError, JudgeErrorKind);
         SuiteFile(SuiteFileError, SuiteFileErrorKind);
         Config(ConfigError, ConfigErrorKind);
     }
@@ -94,7 +87,7 @@ error_chain! {
 
 error_chain! {
     types {
-        JudgingError, JudgingErrorKind, JudgingResultExt, JudgingResult;
+        JudgeError, JudgeErrorKind, JudgeResultExt, JudgeResult;
     }
 
     links {
@@ -112,15 +105,15 @@ error_chain! {
             display("No such command: {:?}", command)
         }
 
-        CompilationFailure(status: ExitStatus) {
-            description("Compilation command failed")
+        Compile(status: ExitStatus) {
+            description("Compilation failed")
             display("The compilation command terminated abnormally {}",
                     if let Some(code) = status.code() { format!("with code {}", code) }
                     else { "without code".to_owned() })
         }
 
         TestFailure(n: usize, d: usize) {
-            description("Test faild")
+            description("Test failed")
             display("{}/{} Test{} failed", n, d, if *n > 0 { "s" } else { "" })
         }
     }
@@ -158,10 +151,10 @@ error_chain! {
     }
 
     foreign_links {
-        PathFormat(PathFormatError);
         Io(io::Error);
         Regex(regex::Error);
         SerdeYaml(serde_yaml::Error);
+        Template(TemplateError);
     }
 
     errors {
@@ -182,31 +175,34 @@ error_chain! {
     }
 }
 
-pub type PathFormatResult<T> = std::result::Result<T, PathFormatError>;
+pub type TemplateResult<T> = std::result::Result<T, TemplateError>;
 
 #[derive(Debug)]
-pub enum PathFormatError {
+pub enum TemplateError {
     Syntax(String),
     NoSuchSpecifier(String, String, &'static [&'static str]),
     NoSuchKeyword(String, String, Vec<&'static str>),
 }
 
-impl fmt::Display for PathFormatError {
+impl fmt::Display for TemplateError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            PathFormatError::Syntax(ref s) => write!(f, "Syntax error: {:?}", s),
-            PathFormatError::NoSuchSpecifier(ref s, ref sp, sps) => {
-                write!(f, "No such format specifier {:?}", sp)?;
-                write!(f, " (expected {:?}): {:?}", sps, s)
-            }
-            PathFormatError::NoSuchKeyword(ref s, ref kw, ref kws) => {
-                write!(f, "No such keyword {:?} (expected {:?}): {:?}", kw, kws, s)
-            }
+            TemplateError::Syntax(ref s) => write!(f, "Syntax error: {:?}", s),
+            TemplateError::NoSuchSpecifier(ref s, ref specifier, expected) => write!(
+                f,
+                "No such format specifier {:?} (expected {:?}): {:?}",
+                specifier, expected, s
+            ),
+            TemplateError::NoSuchKeyword(ref s, ref keyword, ref expected) => write!(
+                f,
+                "No such keyword {:?} (expected {:?}): {:?}",
+                keyword, expected, s
+            ),
         }
     }
 }
 
-impl std::error::Error for PathFormatError {
+impl std::error::Error for TemplateError {
     fn description(&self) -> &str {
         "Error about format string in config file"
     }

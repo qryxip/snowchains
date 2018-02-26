@@ -115,11 +115,13 @@ impl AtCoderBeta {
     }
 
     fn fetch_tasks_page(&mut self, contest: &Contest) -> ServiceResult<Document> {
-        if let Ok(response) = self.http_get(&contest.url_tasks()) {
-            return Ok(Document::from_read(response)?);
+        let response = self.http_get_expecting(&contest.url_tasks(), &[200, 302, 404])?;
+        if response.status().as_u16() == 200 {
+            Ok(Document::from_read(response)?)
+        } else {
+            self.register_if_active_or_explicit(contest, false)?;
+            Ok(Document::from_read(self.http_get(&contest.url_tasks())?)?)
         }
-        self.register_if_active_or_explicit(contest, false)?;
-        Ok(Document::from_read(self.http_get(&contest.url_tasks())?)?)
     }
 
     fn register_if_active_or_explicit(

@@ -1,5 +1,5 @@
 use command::JudgingCommand;
-use errors::JudgingResult;
+use errors::JudgeResult;
 use judging::{JudgingOutput, MillisRoundedUp};
 use testsuite::SimpleCase;
 use util;
@@ -13,7 +13,7 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 /// Tests for `case` and `solver` and returns one `SimpleOutput`.
-pub fn judge(case: SimpleCase, solver: Arc<JudgingCommand>) -> JudgingResult<SimpleOutput> {
+pub fn judge(case: SimpleCase, solver: Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {
     let (tx, rx) = mpsc::channel();
     let case = Arc::new(case);
     {

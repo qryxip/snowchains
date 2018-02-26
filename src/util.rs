@@ -95,7 +95,7 @@ pub trait Camelize {
 
 impl Camelize for str {
     fn camelize(&self) -> String {
-        let mut s = String::new();
+        let mut s = String::with_capacity(self.len());
         let mut p = true;
         self.chars().for_each(|c| match c.to_uppercase().next() {
             Some('-') | Some('_') => {
@@ -108,5 +108,18 @@ impl Camelize for str {
             _ => s.push(c),
         });
         s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use util::Camelize;
+
+    #[test]
+    fn it_camelizes_a_string_correctly() {
+        assert_eq!("Foo", "foo".camelize());
+        assert_eq!("FooBar", "foo-bar".camelize());
+        assert_eq!("FooBarBaz", "foo-bar-baz".camelize());
+        assert_eq!("Foo bar", "foo bar".camelize());
     }
 }

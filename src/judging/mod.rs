@@ -2,7 +2,7 @@ mod interactive;
 mod simple;
 
 use command::{CompilationCommand, JudgingCommand};
-use errors::{JudgingError, JudgingErrorKind, JudgingResult};
+use errors::{JudgeError, JudgeErrorKind, JudgeResult};
 use judging::interactive::InteractiveOutput;
 use judging::simple::SimpleOutput;
 use testsuite::{SuiteFilePaths, TestCases};
@@ -22,8 +22,8 @@ pub fn judge(
     suite_paths: &SuiteFilePaths,
     solver: JudgingCommand,
     compilation: Option<CompilationCommand>,
-) -> JudgingResult<()> {
-    fn judge_all(cases: TestCases, solver: Arc<JudgingCommand>) -> JudgingResult<()> {
+) -> JudgeResult<()> {
+    fn judge_all(cases: TestCases, solver: Arc<JudgingCommand>) -> JudgeResult<()> {
         let num_cases = cases.len();
         solver.print_args_and_working_dir();
         let suf = if num_cases > 1 { "s" } else { "" };
@@ -41,7 +41,7 @@ pub fn judge(
                 let output = $method(case, solver.clone())?;
                 output.print_title(i, num_cases);
                 Ok(output)
-            }).collect::<JudgingResult<JudgingOutputs>>()?
+            }).collect::<JudgeResult<JudgingOutputs>>()?
         } }
 
         match cases {
@@ -68,7 +68,7 @@ pub fn judge(
     }
 
     impl JudgingOutputs {
-        fn show_result(self, num_cases: usize) -> JudgingResult<()> {
+        fn show_result(self, num_cases: usize) -> JudgeResult<()> {
             fn count_num_failures<O: JudgingOutput>(outputs: &[O]) -> usize {
                 outputs.iter().filter(|o| o.failure()).count()
             }
@@ -93,7 +93,7 @@ pub fn judge(
                     JudgingOutputs::Simple(ref xs) => eprint_failure_details(xs, num_cases),
                     JudgingOutputs::Interactive(ref xs) => eprint_failure_details(xs, num_cases),
                 }
-                bail!(JudgingErrorKind::TestFailure(num_failures, num_cases))
+                bail!(JudgeErrorKind::TestFailure(num_failures, num_cases))
             }
         }
     }
@@ -135,16 +135,16 @@ trait WrapNotFoundErrorMessage {
     fn wrap_not_found_error_message<F: FnOnce() -> String>(
         self,
         arg0: F,
-    ) -> JudgingResult<Self::Item>;
+    ) -> JudgeResult<Self::Item>;
 }
 
 impl<T> WrapNotFoundErrorMessage for io::Result<T> {
     type Item = T;
 
-    fn wrap_not_found_error_message<F: FnOnce() -> String>(self, arg0: F) -> JudgingResult<T> {
-        self.map_err(|e| -> JudgingError {
+    fn wrap_not_found_error_message<F: FnOnce() -> String>(self, arg0: F) -> JudgeResult<T> {
+        self.map_err(|e| -> JudgeError {
             match e.kind() {
-                io::ErrorKind::NotFound => JudgingErrorKind::CommandNotFound(arg0()).into(),
+                io::ErrorKind::NotFound => JudgeErrorKind::CommandNotFound(arg0()).into(),
                 _ => e.into(),
             }
         })

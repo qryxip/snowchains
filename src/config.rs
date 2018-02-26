@@ -1,5 +1,5 @@
 use command::{CompilationCommand, JudgingCommand};
-use errors::{ConfigError, ConfigErrorKind, ConfigResult, PathFormatError, PathFormatResult};
+use errors::{ConfigError, ConfigErrorKind, ConfigResult, TemplateError, TemplateResult};
 use testsuite::{SuiteFileExtension, SuiteFilePaths};
 use util::{self, Camelize};
 
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 /// Creates `snowchains.yaml` in `dir`.
-pub fn create_config_file(lang_name: &str, dir: &str) -> ConfigResult<()> {
+pub fn init(default_lang: &str, dir: &str) -> ConfigResult<()> {
     let config = format!(
         r#"---
 service: "atcoderbeta"
@@ -99,7 +99,7 @@ languages:
       atcoder: 3025
 {csharp}
 "#,
-        default_lang = format!("{:?}", lang_name),
+        default_lang = format!("{:?}", default_lang),
         exe = if cfg!(target_os = "windows") {
             ".exe"
         } else {
@@ -198,13 +198,13 @@ pub fn switch(service: ServiceName, contest: &str) -> ConfigResult<()> {
     Ok(println!("Saved."))
 }
 
-/// Config data.
+/// Config.
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     service: Option<ServiceName>,
     contest: Option<String>,
-    #[serde(default = "PathFormat::default_testsuites")]
-    testsuites: PathFormat,
+    #[serde(default = "Template::default_testsuites")]
+    testsuites: Template,
     #[serde(default)]
     extension_on_downloading: SuiteFileExtension,
     #[serde(default = "default_extensions")]
@@ -369,7 +369,7 @@ fn default_extensions() -> Vec<SuiteFileExtension> {
 #[derive(Serialize, Deserialize)]
 struct LangProperty {
     name: String,
-    src: PathFormat,
+    src: Template,
     #[serde(skip_serializing_if = "Option::is_none")]
     compile: Option<Compile>,
     run: Run,
@@ -425,21 +425,21 @@ impl LangProperty {
 
 #[derive(Serialize, Deserialize)]
 struct Compile {
-    bin: PathFormat,
-    command: PathFormat,
+    bin: Template,
+    command: Template,
     working_directory: InputPath,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Run {
-    command: PathFormat,
+    command: Template,
     working_directory: InputPath,
 }
 
 impl Default for Run {
     fn default() -> Self {
         Self {
-            command: PathFormat("$bin".to_owned()),
+            command: Template("$bin".to_owned()),
             working_directory: InputPath::default(),
         }
     }
@@ -489,11 +489,11 @@ impl InputPath {
 }
 
 #[derive(Serialize, Deserialize)]
-struct PathFormat(String);
+struct Template(String);
 
-impl PathFormat {
+impl Template {
     fn default_testsuites() -> Self {
-        PathFormat("snowchains/$service/$contest/".to_owned())
+        Template("snowchains/$service/$contest/".to_owned())
     }
 
     fn resolve_as_path(
@@ -544,7 +544,7 @@ impl PathFormat {
         &self,
         target: &str,
         keywords: &HashMap<&'static str, &str>,
-    ) -> PathFormatResult<String> {
+    ) -> TemplateResult<String> {
         enum Token {
             Text(String),
             Var(String),
@@ -558,7 +558,7 @@ impl PathFormat {
                 target: &str,
                 keywords: &HashMap<&'static str, &str>,
                 f: &mut String,
-            ) -> PathFormatResult<()> {
+            ) -> TemplateResult<()> {
                 fn trim_lr(s: &str) -> String {
                     lazy_static! {
                         static ref CENTOR: Regex = Regex::new(r"^\s*(\S*)\s*$").unwrap();
@@ -576,7 +576,7 @@ impl PathFormat {
                         None => {
                             let (whole, s) = (whole.to_owned(), s.to_owned());
                             let keywords = keywords.keys().cloned().collect();
-                            Err(PathFormatError::NoSuchKeyword(whole, s, keywords))
+                            Err(TemplateError::NoSuchKeyword(whole, s, keywords))
                         }
                     },
                     Token::Target(ref s) => {
@@ -588,7 +588,7 @@ impl PathFormat {
                         } else {
                             let whole = whole.to_owned();
                             static EXPECTED_KWS: &'static [&'static str] = &["c", "C"];
-                            Err(PathFormatError::NoSuchSpecifier(whole, s, EXPECTED_KWS))
+                            Err(TemplateError::NoSuchSpecifier(whole, s, EXPECTED_KWS))
                         }
                     }
                 }
@@ -633,16 +633,16 @@ impl PathFormat {
                 next
             }
 
-            fn end(self, whole: &str, tokens: &mut Vec<Token>) -> PathFormatResult<()> {
+            fn end(self, whole: &str, tokens: &mut Vec<Token>) -> TemplateResult<()> {
                 match self {
                     State::Plain(s) => Ok(tokens.push(Token::Text(s))),
                     State::Dollar(s) => Ok(tokens.push(Token::Var(s))),
-                    State::Brace(_) => Err(PathFormatError::Syntax(whole.to_owned())),
+                    State::Brace(_) => Err(TemplateError::Syntax(whole.to_owned())),
                 }
             }
         }
 
-        let syntax_error = || PathFormatError::Syntax(self.0.clone());
+        let syntax_error = || TemplateError::Syntax(self.0.clone());
 
         let tokens = {
             let mut state = State::Plain("".to_owned());
@@ -679,43 +679,46 @@ impl PathFormat {
 
 #[cfg(test)]
 mod tests {
-    use super::PathFormat;
+    use super::Template;
 
     use std::collections::HashMap;
     use std::iter::FromIterator;
 
     #[test]
     fn it_parses_paths_correctly() {
-        let format = PathFormat("cc/{}.cc".to_owned());
+        let template = Template("cc/{}.cc".to_owned());
         let keywords = HashMap::new();
-        assert_eq!("cc/a.cc", format.format("a", &keywords).unwrap());
-        let format = PathFormat("cs/{C}/{C}.cs".to_owned());
+        assert_eq!("cc/a.cc", template.format("a", &keywords).unwrap());
+        let template = Template("cs/{C}/{C}.cs".to_owned());
         let keywords = HashMap::new();
-        assert_eq!("cs/A/A.cs", format.format("a", &keywords).unwrap());
-        let format = PathFormat("gcc -o $bin $src".to_owned());
+        assert_eq!("cs/A/A.cs", template.format("a", &keywords).unwrap());
+        let template = Template("gcc -o $bin $src".to_owned());
         let keywords = HashMap::from_iter(vec![("src", "SRC"), ("bin", "BIN")]);
-        assert_eq!("gcc -o BIN SRC", format.format("", &keywords).unwrap());
-        let format = PathFormat("{ c }/{c}/{C}".to_owned());
+        assert_eq!("gcc -o BIN SRC", template.format("", &keywords).unwrap());
+        let template = Template("{ c }/{c}/{C}".to_owned());
         let keywords = HashMap::new();
-        assert_eq!("Name/Name/Name", format.format("name", &keywords).unwrap());
-        let format = PathFormat("$foo/$bar/$baz".to_owned());
+        assert_eq!(
+            "Name/Name/Name",
+            template.format("name", &keywords).unwrap()
+        );
+        let template = Template("$foo/$bar/$baz".to_owned());
         let keywords = HashMap::from_iter(vec![("foo", "FOO"), ("bar", "BAR"), ("baz", "BAZ")]);
-        assert_eq!("FOO/BAR/BAZ", format.format("", &keywords).unwrap());
-        let format = PathFormat("$$$".to_owned());
+        assert_eq!("FOO/BAR/BAZ", template.format("", &keywords).unwrap());
+        let template = Template("$$$".to_owned());
         let keywords = HashMap::from_iter(vec![("", "AAA")]);
-        assert_eq!("AAAAAAAAA", format.format("", &keywords).unwrap());
+        assert_eq!("AAAAAAAAA", template.format("", &keywords).unwrap());
 
-        let format = PathFormat("{}/{{}}".to_owned());
-        assert!(format.format("", &HashMap::new()).is_err());
-        let format = PathFormat("{}/{".to_owned());
-        assert!(format.format("", &HashMap::new()).is_err());
-        let format = PathFormat("{}/}".to_owned());
-        assert!(format.format("", &HashMap::new()).is_err());
-        let format = PathFormat("}/{}".to_owned());
-        assert!(format.format("", &HashMap::new()).is_err());
-        let format = PathFormat("{}/{aaa C}/{}".to_owned());
-        assert!(format.format("", &HashMap::new()).is_err());
-        let format = PathFormat("$unexistingkeyword".to_owned());
-        assert!(format.format("", &HashMap::new()).is_err());
+        let template = Template("{}/{{}}".to_owned());
+        assert!(template.format("", &HashMap::new()).is_err());
+        let template = Template("{}/{".to_owned());
+        assert!(template.format("", &HashMap::new()).is_err());
+        let template = Template("{}/}".to_owned());
+        assert!(template.format("", &HashMap::new()).is_err());
+        let template = Template("}/{}".to_owned());
+        assert!(template.format("", &HashMap::new()).is_err());
+        let template = Template("{}/{aaa C}/{}".to_owned());
+        assert!(template.format("", &HashMap::new()).is_err());
+        let template = Template("$unexistingkeyword".to_owned());
+        assert!(template.format("", &HashMap::new()).is_err());
     }
 }
