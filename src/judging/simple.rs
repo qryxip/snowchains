@@ -76,11 +76,13 @@ pub enum SimpleOutput {
 impl fmt::Display for SimpleOutput {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SimpleOutput::Ac(t, ..) => write!(f, "AC ({}ms)", t.millis_rounded_up()),
-            SimpleOutput::Tle(t, ..) => write!(f, "TLE ({}ms)", t.millis_rounded_up()),
-            SimpleOutput::Wa(t, ..) => write!(f, "WA ({}ms)", t.millis_rounded_up()),
+            SimpleOutput::Ac(t, ..) => write!(f, "Accepted ({}ms)", t.millis_rounded_up()),
+            SimpleOutput::Tle(t, ..) => {
+                write!(f, "Time Limit Exceeded ({}ms)", t.millis_rounded_up())
+            }
+            SimpleOutput::Wa(t, ..) => write!(f, "Wrong Answer ({}ms)", t.millis_rounded_up()),
             SimpleOutput::Re(t, .., status) => {
-                write!(f, "RE ({}, {}ms)", status, t.millis_rounded_up())
+                write!(f, "Runtime Error ({}, {}ms)", status, t.millis_rounded_up())
             }
         }
     }
