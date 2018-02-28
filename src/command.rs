@@ -45,18 +45,11 @@ impl CompilationCommand {
             }
         }
         self.command.print_args_and_working_dir();
-        let status = Command::new(&self.command.arg0)
-            .args(&self.command.rest_args)
-            .current_dir(&self.command.working_dir)
+        let status = self.command
+            .build_checking_wd()?
             .stdin(Stdio::null())
             .status()
-            .map_err(|e| match e.kind() {
-                io::ErrorKind::NotFound => io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!("{:?} not found", self.command.arg0.clone()),
-                ),
-                _ => e,
-            })?;
+            .wrap_not_found_error(&self.command.arg0)?;
         if status.success() {
             Ok(())
         } else {
@@ -103,13 +96,31 @@ impl JudgingCommand {
 
     /// Returns a `Child` which stdin & stdout & stderr are piped.
     pub fn spawn_piped(&self) -> io::Result<Child> {
-        Command::new(&self.0.arg0)
-            .args(&self.0.rest_args)
-            .current_dir(&self.0.working_dir)
+        self.0
+            .build_checking_wd()?
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
+            .wrap_not_found_error(&self.0.arg0)
+    }
+}
+
+trait WrapNotFoundError
+where
+    Self: Sized,
+{
+    fn wrap_not_found_error(self, arg0: &str) -> Self;
+}
+
+impl<T> WrapNotFoundError for io::Result<T> {
+    fn wrap_not_found_error(self, arg0: &str) -> Self {
+        self.map_err(|e| match e.kind() {
+            io::ErrorKind::NotFound => {
+                io::Error::new(io::ErrorKind::NotFound, format!("{:?} not found", arg0))
+            }
+            _ => e,
+        })
     }
 }
 
@@ -164,6 +175,22 @@ impl CommandProperty {
             write!(s, " {:?}", arg).unwrap();
             s
         })
+    }
+
+    fn build_checking_wd(&self) -> io::Result<Command> {
+        if self.working_dir.exists() {
+            let mut command = Command::new(&self.arg0);
+            command.args(&self.rest_args).current_dir(&self.working_dir);
+            Ok(command)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "{} does not exist. Check \"working_directory\" in snowchains.yaml",
+                    self.working_dir.display()
+                ),
+            ))
+        }
     }
 }
 
