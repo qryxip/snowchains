@@ -72,7 +72,7 @@ macro_rules! _write_decorated {
             use term;
 
             if let Some(mut term) = term::$out() {
-                if let Ok(_) = term.attr($attr) {
+                if term.attr($attr).is_ok() {
                     if let Some(color) = $color {
                         let _ = term.fg(color);
                     }

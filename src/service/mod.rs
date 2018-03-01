@@ -12,7 +12,7 @@ use pbr::{MultiBar, Units};
 use regex::Regex;
 use term::color;
 use zip::ZipArchive;
-use zip::result::ZipResult;
+use zip::result::{ZipError, ZipResult};
 
 use std::ffi::OsStr;
 use std::fs::File;
@@ -180,23 +180,33 @@ impl DownloadZips for HttpSession {
                 let mut pb = mb.create_bar(content_length.unwrap_or(0));
                 pb.set_units(Units::Bytes);
                 thread::spawn(move || -> ZipResult<_> {
+                    fn error() -> ZipError {
+                        io::Error::new(io::ErrorKind::Other, "Read failed").into()
+                    }
+
                     let mut cursor = Cursor::new(Vec::with_capacity(match content_length {
                         Some(content_length) => content_length as usize,
                         None => each_capacity_on_content_length_missing,
                     }));
                     let mut buf = [0; 10 * 1024];
                     loop {
-                        let n = response.read(&mut buf)?;
-                        if n == 0 {
+                        let num_read_bytes = response.read(&mut buf)?;
+                        if num_read_bytes == 0 {
                             pb.finish();
                             break ZipArchive::new(cursor);
                         }
-                        cursor.write(&buf[0..n])?;
-                        let pos = cursor.position();
-                        if content_length.is_none() {
-                            pb.total = pos;
+                        if num_read_bytes > 10 * 1024 {
+                            return Err(error());
                         }
-                        pb.set(pos);
+                        let num_written_bytes = cursor.write(&buf[0..num_read_bytes])?;
+                        if num_read_bytes != num_written_bytes {
+                            return Err(error());
+                        }
+                        let position = cursor.position();
+                        if content_length.is_none() {
+                            pb.total = position;
+                        }
+                        pb.set(position);
                     }
                 })
             })
@@ -204,7 +214,7 @@ impl DownloadZips for HttpSession {
         mb.listen();
 
         let mut zips = vec![];
-        for handle in handles.into_iter() {
+        for handle in handles {
             zips.push(match handle.join() {
                 Ok(zip) => zip,
                 Err(_) => bail!(ServiceErrorKind::Thread),

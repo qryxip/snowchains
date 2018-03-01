@@ -23,7 +23,7 @@ pub fn judge(
     solver: JudgingCommand,
     compilation: Option<CompilationCommand>,
 ) -> JudgeResult<()> {
-    fn judge_all(cases: TestCases, solver: Arc<JudgingCommand>) -> JudgeResult<()> {
+    fn judge_all(cases: TestCases, solver: &Arc<JudgingCommand>) -> JudgeResult<()> {
         let num_cases = cases.len();
         solver.print_args_and_working_dir();
         let suf = if num_cases > 1 { "s" } else { "" };
@@ -38,7 +38,7 @@ pub fn judge(
                     println!("Running test cases in {}", path.display());
                     last_path = Some(case.get_path());
                 }
-                let output = $method(case, solver.clone())?;
+                let output = $method(case, solver)?;
                 output.print_title(i, num_cases);
                 Ok(output)
             }).collect::<JudgeResult<JudgingOutputs>>()?
@@ -87,7 +87,8 @@ pub fn judge(
                 JudgingOutputs::Interactive(ref xs) => count_num_failures(xs),
             };
             if num_failures == 0 {
-                Ok(println!("All of the {} test{} passed.", num_cases, suf))
+                println!("All of the {} test{} passed.", num_cases, suf);
+                Ok(())
             } else {
                 match self {
                     JudgingOutputs::Simple(ref xs) => eprint_failure_details(xs, num_cases),
@@ -100,9 +101,9 @@ pub fn judge(
 
     if let Some(compilation) = compilation {
         compilation.execute()?;
-        println!("");
+        println!();
     }
-    judge_all(suite_paths.load_and_merge_all()?, Arc::new(solver))
+    judge_all(suite_paths.load_and_merge_all()?, &Arc::new(solver))
 }
 
 trait JudgingOutput
@@ -158,6 +159,6 @@ trait MillisRoundedUp {
 
 impl MillisRoundedUp for Duration {
     fn millis_rounded_up(self) -> u64 {
-        (1000000000 * self.as_secs() + self.subsec_nanos() as u64 + 999999) / 1000000
+        (1_000_000_000 * self.as_secs() + u64::from(self.subsec_nanos()) + 999_999) / 1_000_000
     }
 }

@@ -97,9 +97,9 @@ impl AtCoderBeta {
         let csrf_token = extract_csrf_token(&Document::from_read(self.http_get("/login")?)?)?;
         let (username, password) = super::ask_username_and_password("Username: ")?;
         let payload = Payload {
-            username: username,
-            password: password,
-            csrf_token: csrf_token,
+            username,
+            password,
+            csrf_token,
         };
         self.http_post_urlencoded("/login", &payload, &[302], None)?;
         let response = self.http_get_expecting("/settings", &[200, 302])?;
@@ -168,17 +168,17 @@ impl AtCoderBeta {
             .into_iter()
             .map(|(name, url)| -> ServiceResult<_> {
                 let suite = extract_cases(self.http_get(&url)?, &contest.style())?;
-                let path = SuiteFilePath::new(&dir_to_save, name.to_lowercase(), extension);
+                let path = SuiteFilePath::new(dir_to_save, name.to_lowercase(), extension);
                 Ok((url, suite, path))
             })
             .collect::<ServiceResult<Vec<_>>>()?;
         for &(_, ref suite, ref path) in &outputs {
-            suite.save(&path, true)?;
+            suite.save(path, true)?;
         }
         if open_browser {
             self.open_in_browser(&contest.url_submissions_me())?;
             for &(ref url, _, _) in &outputs {
-                self.open_in_browser(&url)?;
+                self.open_in_browser(url)?;
             }
         }
         Ok(())
@@ -230,14 +230,14 @@ impl AtCoderBeta {
                         bail!(ServiceErrorKind::AlreadyAccepted);
                     }
                 }
-                let source_code = super::replace_class_name_if_necessary(src_path, "Main")?;
+                let sourceCode = super::replace_class_name_if_necessary(src_path, "Main")?;
                 let csrf_token = extract_csrf_token(&Document::from_read(self.http_get(&url)?)?)?;
                 let url = contest.url_submit();
                 let payload = Payload {
                     dataTaskScreenName: task_screen_name,
                     dataLanguageId: lang_id,
-                    sourceCode: source_code,
-                    csrf_token: csrf_token,
+                    sourceCode,
+                    csrf_token,
                 };
                 self.http_post_urlencoded(&url, &payload, &[302], None)?;
                 if open_browser {
@@ -266,10 +266,8 @@ impl fmt::Display for Contest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Contest::Practice => write!(f, "practice contest"),
-            Contest::AbcBefore007(n) => write!(f, "ABC{:>03}", n),
-            Contest::Abc(n) => write!(f, "ABC{:>03}", n),
-            Contest::ArcBefore058(n) => write!(f, "ARC{:>03}", n),
-            Contest::Arc(n) => write!(f, "ARC{:>03}", n),
+            Contest::AbcBefore007(n) | Contest::Abc(n) => write!(f, "ABC{:>03}", n),
+            Contest::ArcBefore058(n) | Contest::Arc(n) => write!(f, "ARC{:>03}", n),
             Contest::Agc(n) => write!(f, "AGC{:>03}", n),
             Contest::ChokudaiS(n) => write!(f, "Chokudai SpeedRun {:>03}", n),
             Contest::Other(ref s) => write!(f, "{}", s),
@@ -315,10 +313,8 @@ impl Contest {
         static BASE: &'static str = "/contests/";
         match *self {
             Contest::Practice => format!("{}practice", BASE),
-            Contest::AbcBefore007(n) => format!("{}abc{:>03}", BASE, n),
-            Contest::Abc(n) => format!("{}abc{:>03}", BASE, n),
-            Contest::ArcBefore058(n) => format!("{}arc{:>03}", BASE, n),
-            Contest::Arc(n) => format!("{}arc{:>03}", BASE, n),
+            Contest::AbcBefore007(n) | Contest::Abc(n) => format!("{}abc{:>03}", BASE, n),
+            Contest::ArcBefore058(n) | Contest::Arc(n) => format!("{}arc{:>03}", BASE, n),
             Contest::Agc(n) => format!("{}agc{:>03}", BASE, n),
             Contest::ChokudaiS(n) => format!("{}chokudai_s{:>03}", BASE, n),
             Contest::Other(ref s) => format!("{}{}", BASE, s),
@@ -359,8 +355,8 @@ impl ContestStatus {
 
     fn raise_if_not_begun(&self) -> ServiceResult<()> {
         match *self {
-            ContestStatus::NotBegun(ref s, ref t) => {
-                bail!(ServiceErrorKind::ContestNotBegun(s.clone(), t.clone()))
+            ContestStatus::NotBegun(ref s, t) => {
+                bail!(ServiceErrorKind::ContestNotBegun(s.clone(), t))
             }
             _ => Ok(()),
         }
@@ -426,15 +422,12 @@ fn extract_task_urls_with_names(document: &Document) -> ServiceResult<Vec<(Strin
     super::quit_on_failure(extract(document), Vec::is_empty)
 }
 
-fn extract_cases<R: Read>(html: R, style: &SampleCaseStyle) -> ServiceResult<TestSuite> {
+fn extract_cases<R: Read>(html: R, _style: &SampleCaseStyle) -> ServiceResult<TestSuite> {
     let document = Document::from_read(html)?;
-    match *style {
-        SampleCaseStyle::New => extract_cases_from_new_style(document),
-        SampleCaseStyle::Old => extract_cases_from_new_style(document),
-    }
+    extract_cases_from_new_style(&document)
 }
 
-fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> {
+fn extract_cases_from_new_style(document: &Document) -> ServiceResult<TestSuite> {
     fn try_extracting_from_section(section_node: Node, regex: &Regex) -> Option<String> {
         let title = section_node.find(Name("h3")).next()?.text();
         let sample = section_node.find(Name("pre")).next()?.text();
@@ -465,10 +458,10 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
                 lang_class_name
             );
             input_sample = if let Some(input_sample) = input_sample {
-                let output_sample = try_extracting_from_section(node, &re_output)?;
+                let output_sample = try_extracting_from_section(node, re_output)?;
                 samples.push((output_sample, input_sample));
                 None
-            } else if let Some(input_sample) = try_extracting_from_section(node, &re_input) {
+            } else if let Some(input_sample) = try_extracting_from_section(node, re_input) {
                 Some(input_sample)
             } else {
                 None
@@ -478,21 +471,21 @@ fn extract_cases_from_new_style(document: Document) -> ServiceResult<TestSuite> 
         Some(samples)
     }
 
-    fn extract(document: Document) -> Option<TestSuite> {
+    fn extract(document: &Document) -> Option<TestSuite> {
         lazy_static! {
             static ref IN_JA: Regex = Regex::new(r"\A入力例 \d+.*\z").unwrap();
             static ref OUT_JA: Regex = Regex::new(r"\A出力例 \d+.*\z").unwrap();
             static ref IN_EN: Regex = Regex::new(r"\ASample Input \d+.*\z").unwrap();
             static ref OUT_EN: Regex = Regex::new(r"\ASample Output \d+.*\z").unwrap();
         }
-        let timelimit = extract_timelimit_as_millis(&document);
+        let timelimit = extract_timelimit_as_millis(document);
         let samples = {
             info!("Extracting sample cases: Searching \"入力例\" and \"出力例\"");
-            if let Some(samples) = extract_for_lang(&document, &IN_JA, &OUT_JA, "lang-ja") {
+            if let Some(samples) = extract_for_lang(document, &IN_JA, &OUT_JA, "lang-ja") {
                 samples
             } else {
                 info!("Extracting sample cases: Searching \"Sample Input\" and \"Sample Output\"");
-                extract_for_lang(&document, &IN_EN, &OUT_EN, "lang-en")?
+                extract_for_lang(document, &IN_EN, &OUT_EN, "lang-en")?
             }
         };
         Some(TestSuite::from_samples(timelimit, samples))
@@ -546,7 +539,7 @@ fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuratio
 }
 
 fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<bool> {
-    fn check(document: Document, task_screen_name: &str) -> Option<bool> {
+    fn check(document: &Document, task_screen_name: &str) -> Option<bool> {
         lazy_static! {
             static ref URL: Regex = Regex::new(r"\A/contests/\w+/tasks/(\w+)\z").unwrap();
         }
@@ -578,7 +571,7 @@ fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<
         Some(false)
     }
 
-    match check(Document::from_read(html)?, task_screen_name) {
+    match check(&Document::from_read(html)?, task_screen_name) {
         Some(p) => Ok(p),
         None => bail!(ServiceErrorKind::Scrape),
     }

@@ -44,7 +44,7 @@ pub fn string_from_file_path(path: &Path) -> io::Result<String> {
 
 /// Prints `s` ignoring a trailing newline if it exists.
 pub fn eprintln_trimming_trailing_newline(s: &str) {
-    if s.chars().last() == Some('\n') {
+    if s.ends_with('\n') {
         eprint_and_flush!("{}", s);
     } else {
         eprintln!("{}", s);
@@ -57,10 +57,8 @@ pub fn eprintln_trimming_trailing_newline(s: &str) {
 ///
 /// Returns `Err` if a home directory not found.
 pub fn path_under_home(names: &[&str]) -> io::Result<PathBuf> {
-    let home_dir = env::home_dir().ok_or(io::Error::new(
-        io::ErrorKind::Other,
-        "Home directory not found",
-    ))?;
+    let home_dir = env::home_dir()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Home directory not found"))?;
     Ok(names.iter().fold(home_dir, |mut path, name| {
         path.push(name);
         path

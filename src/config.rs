@@ -134,7 +134,8 @@ languages:
 
     let mut path = PathBuf::from(dir);
     path.push("snowchains.yaml");
-    Ok(util::create_file_and_dirs(&path)?.write_all(config.as_bytes())?)
+    util::create_file_and_dirs(&path)?.write_all(config.as_bytes())?;
+    Ok(())
 }
 
 /// Changes <service> and <contest>.
@@ -191,11 +192,12 @@ pub fn switch(service: ServiceName, contest: &str) -> ConfigResult<()> {
         }
     };
     let n = cmp::max(prev_service.len(), prev_contest.len());
-    print_change(n, &prev_service, &service.to_string().as_str());
-    print_change(n, &prev_contest, &contest);
+    print_change(n, &prev_service, &service.to_string());
+    print_change(n, &prev_contest, contest);
     let mut file = util::create_file_and_dirs(&path)?;
     file.write_all(replaced.as_bytes())?;
-    Ok(println!("Saved."))
+    println!("Saved.");
+    Ok(())
 }
 
 /// Config.
@@ -227,7 +229,7 @@ impl Config {
 
     /// Gets `service`.
     pub fn service_name(&self) -> ConfigResult<ServiceName> {
-        match self.service.clone() {
+        match self.service {
             Some(service) => Ok(service),
             None => bail!(ConfigErrorKind::PropertyNotSet("service")),
         }
@@ -252,14 +254,17 @@ impl Config {
         let contest = self.contest.clone().unwrap_or_default();
         let keywords = vec![("service", service.as_str()), ("contest", contest.as_str())];
         let keywords = HashMap::from_iter(keywords);
-        let ref base = self.base_dir;
-        self.testsuites.resolve_as_path(base, "", &keywords)
+        self.testsuites
+            .resolve_as_path(&self.base_dir, "", &keywords)
     }
 
     pub fn suite_paths(&self, target: &str) -> ConfigResult<SuiteFilePaths> {
         let dir = self.suite_dir()?;
-        let ref exts = self.extensions_on_judging;
-        Ok(SuiteFilePaths::new(&dir, target, exts))
+        Ok(SuiteFilePaths::new(
+            &dir,
+            target,
+            &self.extensions_on_judging,
+        ))
     }
 
     /// Returns the path of the source file.
@@ -329,12 +334,12 @@ impl FromStr for ServiceName {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, ()> {
-        return match s.to_lowercase().as_str() {
+        match s.to_lowercase().as_str() {
             "atcoder" => Ok(ServiceName::AtCoder),
             "atcoderbeta" => Ok(ServiceName::AtCoderBeta),
             "hackerrank" => Ok(ServiceName::HackerRank),
             _ => Err(()),
-        };
+        }
     }
 }
 
@@ -474,7 +479,7 @@ impl Default for InputPath {
 
 impl InputPath {
     fn resolve(&self, base: &Path) -> io::Result<PathBuf> {
-        if self.0.chars().next() == Some('~') {
+        if self.0.starts_with('~') {
             return util::path_under_home(&[&self.0.chars().skip(2).collect::<String>()]);
         }
         let path = PathBuf::from(&self.0);
@@ -502,7 +507,7 @@ impl Template {
         target: &str,
         keywords: &HashMap<&'static str, &str>,
     ) -> ConfigResult<PathBuf> {
-        let path = self.format(&target, keywords)?;
+        let path = self.format(target, keywords)?;
         Ok(InputPath(path).resolve(base)?)
     }
 
@@ -570,9 +575,15 @@ impl Template {
                 }
 
                 match *self {
-                    Token::Text(ref s) => Ok(f.push_str(s)),
+                    Token::Text(ref s) => {
+                        *f += s;
+                        Ok(())
+                    }
                     Token::Var(ref s) => match keywords.get(s.as_str()) {
-                        Some(v) => Ok(f.push_str(v)),
+                        Some(v) => {
+                            *f += v;
+                            Ok(())
+                        }
                         None => {
                             let (whole, s) = (whole.to_owned(), s.to_owned());
                             let keywords = keywords.keys().cloned().collect();
@@ -582,9 +593,11 @@ impl Template {
                     Token::Target(ref s) => {
                         let s = trim_lr(s);
                         if s == "" {
-                            Ok(f.push_str(target))
+                            *f += target;
+                            Ok(())
                         } else if ["c", "C"].contains(&s.as_str()) {
-                            Ok(f.push_str(&target.camelize()))
+                            *f += &target.camelize();
+                            Ok(())
                         } else {
                             let whole = whole.to_owned();
                             static EXPECTED_KWS: &'static [&'static str] = &["c", "C"];
@@ -604,9 +617,9 @@ impl Template {
         impl State {
             fn push(mut self, c: char) -> Self {
                 match self {
-                    State::Plain(ref mut s) => s.push(c),
-                    State::Dollar(ref mut s) => s.push(c),
-                    State::Brace(ref mut s) => s.push(c),
+                    State::Plain(ref mut s)
+                    | State::Dollar(ref mut s)
+                    | State::Brace(ref mut s) => s.push(c),
                 }
                 self
             }
@@ -635,8 +648,14 @@ impl Template {
 
             fn end(self, whole: &str, tokens: &mut Vec<Token>) -> TemplateResult<()> {
                 match self {
-                    State::Plain(s) => Ok(tokens.push(Token::Text(s))),
-                    State::Dollar(s) => Ok(tokens.push(Token::Var(s))),
+                    State::Plain(s) => {
+                        tokens.push(Token::Text(s));
+                        Ok(())
+                    }
+                    State::Dollar(s) => {
+                        tokens.push(Token::Var(s));
+                        Ok(())
+                    }
                     State::Brace(_) => Err(TemplateError::Syntax(whole.to_owned())),
                 }
             }
@@ -644,6 +663,7 @@ impl Template {
 
         let syntax_error = || TemplateError::Syntax(self.0.clone());
 
+        #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
         let tokens = {
             let mut state = State::Plain("".to_owned());
             let mut tokens = vec![];
@@ -670,7 +690,7 @@ impl Template {
         };
 
         let mut formatted = "".to_owned();
-        for token in tokens.into_iter() {
+        for token in tokens {
             token.format(&self.0, target, keywords, &mut formatted)?;
         }
         Ok(formatted)

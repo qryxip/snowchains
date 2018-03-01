@@ -72,7 +72,7 @@ impl AtCoder {
             let url = format!("http://{}.contest.atcoder.jp{}", contest_name, path);
             match extract_cases(self.http_get(&url)?) {
                 Ok(suite) => {
-                    let path = SuiteFilePath::new(&dir_to_save, alphabet.to_lowercase(), extension);
+                    let path = SuiteFilePath::new(dir_to_save, alphabet.to_lowercase(), extension);
                     suite.save(&path, true)?;
                 }
                 Err(ServiceError(ServiceErrorKind::Scrape, _)) => {
@@ -95,7 +95,7 @@ impl AtCoder {
             let (user_id, password) = super::ask_username_and_password("User ID: ")?;
             Ok(PostData {
                 name: user_id,
-                password: password,
+                password,
             })
         }
 
@@ -111,7 +111,7 @@ impl AtCoder {
 }
 
 fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, String)>> {
-    fn extract(document: Document) -> Option<Vec<(String, String)>> {
+    fn extract(document: &Document) -> Option<Vec<(String, String)>> {
         let mut names_and_pathes = vec![];
         let predicate = HtmlAttr("id", "outer-inner")
             .child(Name("table"))
@@ -127,7 +127,7 @@ fn extract_names_and_pathes<R: Read>(html: R) -> ServiceResult<Vec<(String, Stri
         Some(names_and_pathes)
     }
 
-    super::quit_on_failure(extract(Document::from_read(html)?), Vec::is_empty)
+    super::quit_on_failure(extract(&Document::from_read(html)?), Vec::is_empty)
 }
 
 fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
@@ -138,7 +138,7 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
         Some(sample)
     }
 
-    fn extract(document: Document) -> Option<TestSuite> {
+    fn extract(document: &Document) -> Option<TestSuite> {
         let timelimit = {
             let re_timelimit = Regex::new("\\D*([0-9]+)sec.*").unwrap();
             let predicate = HtmlAttr("id", "outer-inner").child(Name("p")).child(Text);
@@ -173,5 +173,5 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
         Some(TestSuite::from_samples(Some(timelimit), samples))
     }
 
-    super::quit_on_failure(extract(Document::from_read(html)?), TestSuite::is_empty)
+    super::quit_on_failure(extract(&Document::from_read(html)?), TestSuite::is_empty)
 }

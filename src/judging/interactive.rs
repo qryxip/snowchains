@@ -14,7 +14,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 /// Tests for `case` and `solver` and returns one `InteractiveOutput`.
-pub fn judge(case: InteractiveCase, solver: Arc<JudgingCommand>) -> JudgeResult<InteractiveOutput> {
+#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+pub fn judge(
+    case: InteractiveCase,
+    solver: &Arc<JudgingCommand>,
+) -> JudgeResult<InteractiveOutput> {
     let (cout_tx, cout_rx) = mpsc::channel();
     let (result_tx, result_rx) = mpsc::channel();
     let solver_cloned = solver.clone();
@@ -99,7 +103,7 @@ fn run(
             if let Some(solver_status) = solver.try_wait()? {
                 let _ = cout_tx.send(TesterTerminated(solver_status.code(), elapsed));
             } else {
-                let _ = solver.kill()?;
+                solver.kill()?;
                 let _ = cout_tx.send(TesterTerminated(None, elapsed));
             }
             Ok((
@@ -159,8 +163,8 @@ struct InteractiveProcess<'a> {
 impl<'a> InteractiveProcess<'a> {
     fn new(start: Instant, solver_s: bool, child: &'a mut Child) -> Self {
         Self {
-            start: start,
-            solver_s: solver_s,
+            start,
+            solver_s,
             stdin: child.stdin.as_mut().unwrap(),
             stdout: BufReader::new(child.stdout.as_mut().unwrap()),
         }
@@ -252,11 +256,11 @@ impl InteractiveOutput {
             InteractiveOutputKind::Failure
         };
         Self {
-            kind: kind,
-            elapsed: elapsed,
-            console_outs: console_outs,
-            solver_stderr: solver_stderr,
-            tester_stderr: tester_stderr,
+            kind,
+            elapsed,
+            console_outs,
+            solver_stderr,
+            tester_stderr,
         }
     }
 
@@ -264,7 +268,7 @@ impl InteractiveOutput {
         Self {
             kind: InteractiveOutputKind::Failure,
             elapsed: timelimit,
-            console_outs: console_outs,
+            console_outs,
             solver_stderr: "".to_owned(),
             tester_stderr: "".to_owned(),
         }
@@ -306,16 +310,16 @@ impl InteractiveConsoleOut {
         self.content().chars().count()
     }
 
-    fn content<'a>(&'a self) -> String {
+    fn content(&self) -> String {
         match *self {
-            InteractiveConsoleOut::SolverStdout(ref s, _) => format!("{:?}", s),
-            InteractiveConsoleOut::SolverStderr(ref s, _) => format!("{:?}", s),
-            InteractiveConsoleOut::SolverTerminated(Some(c), _) => format!("exit code: {}", c),
-            InteractiveConsoleOut::SolverTerminated(None, _) => "killed".to_owned(),
-            InteractiveConsoleOut::TesterStdout(ref s, _) => format!("{:?}", s),
-            InteractiveConsoleOut::TesterStderr(ref s, _) => format!("{:?}", s),
-            InteractiveConsoleOut::TesterTerminated(Some(c), _) => format!("exit code: {}", c),
-            InteractiveConsoleOut::TesterTerminated(None, _) => "killed".to_owned(),
+            InteractiveConsoleOut::SolverStdout(ref s, _)
+            | InteractiveConsoleOut::SolverStderr(ref s, _)
+            | InteractiveConsoleOut::TesterStdout(ref s, _)
+            | InteractiveConsoleOut::TesterStderr(ref s, _) => format!("{:?}", s),
+            InteractiveConsoleOut::SolverTerminated(Some(c), _)
+            | InteractiveConsoleOut::TesterTerminated(Some(c), _) => format!("exit code: {}", c),
+            InteractiveConsoleOut::SolverTerminated(None, _)
+            | InteractiveConsoleOut::TesterTerminated(None, _) => "killed".to_owned(),
         }
     }
 

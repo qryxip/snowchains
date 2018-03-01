@@ -95,7 +95,8 @@ impl TestSuite {
                 n => print!(" ({} sample cases extracted)", n),
             }
         }
-        Ok(println!(""))
+        println!();
+        Ok(())
     }
 
     fn is_simple(&self) -> bool {
@@ -125,7 +126,10 @@ impl TestSuite {
 
     fn append(&mut self, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
         match *self {
-            TestSuite::Simple(ref mut suite) => Ok(suite.append(input, output)),
+            TestSuite::Simple(ref mut suite) => {
+                suite.append(input, output);
+                Ok(())
+            }
             TestSuite::Interactive(_) => bail!(SuiteFileErrorKind::SuiteIsInteractive),
         }
     }
@@ -145,7 +149,7 @@ impl SimpleSuite {
     /// samples.
     fn from_samples(timelimit: Option<u64>, cases: vec::IntoIter<(String, String)>) -> Self {
         Self {
-            timelimit: timelimit,
+            timelimit,
             cases: cases
                 .map(|(output, input)| ReducibleCase::from_strings(input, Some(output)))
                 .collect(),
@@ -177,7 +181,7 @@ pub struct InteractiveSuite {
 impl InteractiveSuite {
     fn without_cases(timelimit: Option<u64>) -> Self {
         Self {
-            timelimit: timelimit,
+            timelimit,
             cases: vec![],
             path: PathBuf::new(),
         }
@@ -278,7 +282,7 @@ impl SuiteFilePaths {
         Self {
             directory: directory.to_owned(),
             stem: stem.to_owned(),
-            extensions: extensions.iter().cloned().collect(),
+            extensions: extensions.to_vec(),
         }
     }
 
@@ -342,7 +346,7 @@ impl SuiteFilePath {
         Self {
             directory: PathBuf::from(directory),
             stem: stem.into(),
-            extension: extension,
+            extension,
         }
     }
 
@@ -421,7 +425,7 @@ impl ReducibleCase {
 
     fn reduce(self, path: Arc<PathBuf>, timelimit: Option<u64>) -> SimpleCase {
         SimpleCase {
-            path: path,
+            path,
             input: Arc::new(self.input.reduce()),
             expected: Arc::new(self.expected.map(|v| v.reduce()).unwrap_or_default()),
             timelimit: self.timelimit.or(timelimit),
@@ -457,7 +461,7 @@ impl NonNestedValue {
             NonNestedValue::NonArray(NonArrayValue::Integer(n)) => format!("{}\n", n),
             NonNestedValue::NonArray(NonArrayValue::Float(v)) => format!("{}\n", v),
             NonNestedValue::NonArray(NonArrayValue::String(mut s)) => {
-                if s.chars().last() != Some('\n') {
+                if !s.ends_with('\n') {
                     s.push('\n');
                 }
                 s

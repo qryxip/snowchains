@@ -13,7 +13,7 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 /// Tests for `case` and `solver` and returns one `SimpleOutput`.
-pub fn judge(case: SimpleCase, solver: Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {
+pub fn judge(case: SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {
     let (tx, rx) = mpsc::channel();
     let case = Arc::new(case);
     {
@@ -100,8 +100,7 @@ impl JudgingOutput for SimpleOutput {
         match *self {
             SimpleOutput::Ac(..) => color::GREEN,
             SimpleOutput::Tle(..) => color::RED,
-            SimpleOutput::Wa(..) => color::YELLOW,
-            SimpleOutput::Re(..) => color::YELLOW,
+            SimpleOutput::Wa(..) | SimpleOutput::Re(..) => color::YELLOW,
         }
     }
 

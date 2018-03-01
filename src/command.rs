@@ -24,7 +24,7 @@ impl CompilationCommand {
     ) -> Self {
         Self {
             command: CommandProperty::new(command, working_dir),
-            src_and_bin: src_and_bin,
+            src_and_bin,
         }
     }
 
@@ -34,7 +34,8 @@ impl CompilationCommand {
             if let (Ok(src_meta), Ok(bin_meta)) = (src.metadata(), bin.metadata()) {
                 if let (Ok(t1), Ok(t2)) = (src_meta.modified(), bin_meta.modified()) {
                     if t1 < t2 {
-                        return Ok(println!("{} is up to date.", bin.display()));
+                        println!("{} is up to date.", bin.display());
+                        return Ok(());
                     }
                 }
             } else if let Some(dir) = bin.parent() {
@@ -156,9 +157,9 @@ impl CommandProperty {
 
         let (arg0, rest_args) = wrap_if_necessary(command);
         Self {
-            arg0: arg0,
-            rest_args: rest_args,
-            working_dir: working_dir,
+            arg0,
+            rest_args,
+            working_dir,
         }
     }
 

@@ -69,7 +69,7 @@ impl HackerRank {
         let csrf_token = extract_csrf_token(html)?;
         let data = PostData {
             login: username,
-            password: password,
+            password,
             remember_me: true,
         };
         let response = self.http_post_json("/auth/login", &data, &[200], {
@@ -120,8 +120,8 @@ impl HackerRank {
             suite.save(&path, true)?;
         }
         if open_browser {
-            for ref url in &urls {
-                self.open_in_browser(&url)?;
+            for url in &urls {
+                self.open_in_browser(url)?;
             }
         }
         Ok(())
@@ -129,7 +129,7 @@ impl HackerRank {
 }
 
 fn extract_csrf_token(html: Response) -> ServiceResult<String> {
-    fn extract(document: Document) -> Option<String> {
+    fn extract(document: &Document) -> Option<String> {
         document
             .find(Attr("name", "csrf-token"))
             .next()?
@@ -137,7 +137,7 @@ fn extract_csrf_token(html: Response) -> ServiceResult<String> {
             .map(str::to_owned)
     }
 
-    super::quit_on_failure(extract(Document::from_read(html)?), String::is_empty)
+    super::quit_on_failure(extract(&Document::from_read(html)?), String::is_empty)
 }
 
 fn extract_samples_from_zip<R: Read + Seek>(zip: ZipArchive<R>) -> ZipResult<TestSuite> {
