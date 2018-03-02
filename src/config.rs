@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 /// Creates `snowchains.yaml` in `dir`.
-pub fn init(default_lang: &str, dir: &str) -> ConfigResult<()> {
+pub fn init(default_lang: &str, directory: PathBuf) -> ConfigResult<()> {
     let config = format!(
         r#"---
 service: "atcoderbeta"
@@ -132,7 +132,7 @@ languages:
         }
     );
 
-    let mut path = PathBuf::from(dir);
+    let mut path = directory;
     path.push("snowchains.yaml");
     util::create_file_and_dirs(&path)?.write_all(config.as_bytes())?;
     Ok(())
@@ -331,14 +331,14 @@ impl fmt::Display for ServiceName {
 }
 
 impl FromStr for ServiceName {
-    type Err = ();
+    type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, ()> {
+    fn from_str(s: &str) -> Result<Self, String> {
         match s.to_lowercase().as_str() {
             "atcoder" => Ok(ServiceName::AtCoder),
             "atcoderbeta" => Ok(ServiceName::AtCoderBeta),
             "hackerrank" => Ok(ServiceName::HackerRank),
-            _ => Err(()),
+            _ => Err(format!("Unsupported service name: {:?}", s)),
         }
     }
 }

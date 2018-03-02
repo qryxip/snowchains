@@ -2,8 +2,6 @@
 #![cfg_attr(feature = "cargo-clippy", allow(explicit_write, match_ref_pats))]
 
 #[macro_use]
-extern crate clap;
-#[macro_use]
 extern crate custom_derive;
 #[macro_use]
 extern crate error_chain;
@@ -15,6 +13,8 @@ extern crate log;
 extern crate newtype_derive;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate structopt;
 
 extern crate bincode;
 extern crate chrono;
@@ -53,264 +53,214 @@ use errors::Result;
 use service::{atcoder, atcoder_beta, hackerrank};
 use testsuite::{SuiteFileExtension, SuiteFilePath};
 
-use clap::{AppSettings, Arg, SubCommand};
+use structopt::StructOpt;
+
+use std::path::PathBuf;
 
 quick_main_colored!(|| -> ::Result<()> {
     env_logger::init();
-
-    fn arg_default_lang() -> Arg<'static, 'static> {
-        Arg::with_name("default-lang")
-            .help("Default language")
-            .required(true)
-    }
-
-    fn arg_dir() -> Arg<'static, 'static> {
-        Arg::with_name("dir")
-            .help("Directory to create \"snowchains.yaml\"")
-            .required(true)
-    }
-
-    fn arg_service() -> Arg<'static, 'static> {
-        Arg::with_name("service")
-            .possible_values(&["atcoder", "atcoderbeta", "hackerrank"])
-            .help("Service name")
-            .required(true)
-    }
-
-    fn arg_service_for_participate() -> Arg<'static, 'static> {
-        Arg::with_name("service")
-            .possible_values(&["atcoder", "atcoderbeta"])
-            .help("Service name")
-            .required(true)
-    }
-
-    fn arg_contest() -> Arg<'static, 'static> {
-        Arg::with_name("contest")
-            .help("Contest name")
-            .required(true)
-    }
-
-    fn arg_open_browser() -> Arg<'static, 'static> {
-        Arg::with_name("open-browser")
-            .long("open-browser")
-            .help("Whether to open the browser")
-    }
-
-    fn arg_target() -> Arg<'static, 'static> {
-        Arg::with_name("target").help("Target name").required(true)
-    }
-
-    fn arg_extension() -> Arg<'static, 'static> {
-        Arg::with_name("extension")
-            .help("Extension")
-            .possible_values(&["json", "toml", "yaml", "yml"])
-            .required(true)
-    }
-
-    fn arg_input() -> Arg<'static, 'static> {
-        Arg::with_name("input")
-            .help("\"input\" value to append")
-            .required(true)
-    }
-
-    fn arg_output() -> Arg<'static, 'static> {
-        Arg::with_name("output").help("\"expected\" value to append")
-    }
-
-    fn arg_lang() -> Arg<'static, 'static> {
-        Arg::with_name("lang").help("Language name")
-    }
-
-    fn arg_skip_judging() -> Arg<'static, 'static> {
-        Arg::with_name("skip-judging")
-            .long("skip-judging")
-            .help("Whether to skip judging")
-    }
-
-    fn arg_force() -> Arg<'static, 'static> {
-        Arg::with_name("force").long("force").help(
-            "Whether to submit even if the contest is active and your code is already accepted",
-        )
-    }
-
-    static USAGE_INIT: &'static str = "snowchains init <default-lang> <dir>";
-    static USAGE_SWITCH: &'static str = "snowchains switch <service> <contest>";
-    static USAGE_LOGIN: &'static str = "snowchains login <service>";
-    static USAGE_PARTICIPATE: &'static str = "snowchains participate <service> <contest>";
-    static USAGE_DOWNLOAD: &'static str = "snowchains download [--open-browser]";
-    static USAGE_APPEND: &'static str = "snowchains append <target> <extension> <input> [output]";
-    static USAGE_JUDGE: &'static str = "snowchains judge <target> [lang]";
-    static USAGE_SUBMIT: &'static str = "snowchains submit <target> [lang] [--open-browser] \
-                                         [--skip-judging] [--force]";
-
-    let subcommand_init = SubCommand::with_name("init")
-        .about("Creates 'snowchains.yaml'")
-        .usage(USAGE_INIT)
-        .arg(arg_default_lang().display_order(1))
-        .arg(arg_dir().display_order(2));
-
-    let subcommand_switch = SubCommand::with_name("switch")
-        .about("Changes <service> and <contest> of 'snowchains.yaml'")
-        .usage(USAGE_SWITCH)
-        .arg(arg_service().display_order(1))
-        .arg(arg_contest().display_order(2));
-
-    let subcommand_login = SubCommand::with_name("login")
-        .about("Logins to a service")
-        .usage(USAGE_LOGIN)
-        .arg(arg_service().display_order(1));
-
-    let subcommand_participate = SubCommand::with_name("participate")
-        .about("Participates in a contest")
-        .usage(USAGE_PARTICIPATE)
-        .arg(arg_service_for_participate().display_order(1))
-        .arg(arg_contest().display_order(2));
-
-    let subcommand_download = SubCommand::with_name("download")
-        .about("Downloads test cases")
-        .usage(USAGE_DOWNLOAD)
-        .arg(arg_open_browser().display_order(1));
-
-    let subcommand_append = SubCommand::with_name("append")
-        .about("Appends a test case to a test suite file")
-        .usage(USAGE_APPEND)
-        .arg(arg_target().display_order(1))
-        .arg(arg_extension().display_order(2))
-        .arg(arg_input().display_order(3))
-        .arg(arg_output().display_order(4));
-
-    let subcommand_judge = SubCommand::with_name("judge")
-        .about("Tests a binary or script")
-        .usage(USAGE_JUDGE)
-        .arg(arg_target().display_order(1))
-        .arg(arg_lang().display_order(2));
-
-    let subcommand_submit = SubCommand::with_name("submit")
-        .about("Submits code")
-        .usage(USAGE_SUBMIT)
-        .arg(arg_target())
-        .arg(arg_lang())
-        .arg(arg_open_browser().display_order(1))
-        .arg(arg_skip_judging().display_order(2))
-        .arg(arg_force().display_order(3));
-
-    let matches = app_from_crate!()
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-        .setting(AppSettings::VersionlessSubcommands)
-        .usage(
-            format!(
-                "{}\n    {}\n    {}\n    {}\n    {}\n    {}\n    {}\n    {}",
-                USAGE_INIT,
-                USAGE_SWITCH,
-                USAGE_LOGIN,
-                USAGE_PARTICIPATE,
-                USAGE_DOWNLOAD,
-                USAGE_APPEND,
-                USAGE_JUDGE,
-                USAGE_SUBMIT
-            ).as_str(),
-        )
-        .subcommand(subcommand_init.display_order(1))
-        .subcommand(subcommand_switch.display_order(2))
-        .subcommand(subcommand_login.display_order(3))
-        .subcommand(subcommand_participate.display_order(4))
-        .subcommand(subcommand_download.display_order(5))
-        .subcommand(subcommand_append.display_order(6))
-        .subcommand(subcommand_judge.display_order(7))
-        .subcommand(subcommand_submit.display_order(8))
-        .get_matches();
-
-    if let Some(matches) = matches.subcommand_matches("init") {
-        info!("Running command \"init\"");
-        let lang = matches.value_of("default-lang").unwrap();
-        let dir = matches.value_of("dir").unwrap();
-        config::init(lang, dir)?;
-    } else if let Some(matches) = matches.subcommand_matches("switch") {
-        info!("Running command \"switch\"");
-        let service = value_t!(matches, "service", ServiceName).unwrap();
-        let contest = matches.value_of("contest").unwrap();
-        config::switch(service, contest)?;
-    } else if let Some(matches) = matches.subcommand_matches("login") {
-        info!("Running command \"login\"");
-        let service = value_t!(matches, "service", ServiceName).unwrap();
-        match service {
-            ServiceName::AtCoder => atcoder::login(),
-            ServiceName::AtCoderBeta => atcoder_beta::login(),
-            ServiceName::HackerRank => hackerrank::login(),
-        }?;
-    } else if let Some(matches) = matches.subcommand_matches("participate") {
-        info!("Running command \"participate\"");
-        let service = value_t!(matches, "service", ServiceName).unwrap();
-        let contest = matches.value_of("contest").unwrap();
-        match service {
-            ServiceName::AtCoder => atcoder::participate(contest),
-            ServiceName::AtCoderBeta => atcoder_beta::participate(contest),
-            ServiceName::HackerRank => unreachable!(),
-        }?;
-    } else if let Some(matches) = matches.subcommand_matches("download") {
-        info!("Running command \"download\"");
-        let config = Config::load_from_file()?;
-        let open_browser = matches.is_present("open-browser");
-        let service = config.service_name()?;
-        let contest = config.contest_name()?;
-        let dir_to_save = config.suite_dir()?;
-        let extension = config.get_extension_on_downloading();
-        match service {
-            ServiceName::AtCoder => atcoder::download(&contest, &dir_to_save, extension),
-            ServiceName::AtCoderBeta => {
-                atcoder_beta::download(&contest, &dir_to_save, extension, open_browser)
-            }
-            ServiceName::HackerRank => {
-                hackerrank::download(&contest, &dir_to_save, extension, open_browser)
-            }
-        }?;
-    } else if let Some(matches) = matches.subcommand_matches("append") {
-        info!("Running command \"append\"");
-        let config = Config::load_from_file()?;
-        let target = matches.value_of("target").unwrap();
-        let extension = value_t!(matches, "extension", SuiteFileExtension).unwrap();
-        let input = matches.value_of("input").unwrap();
-        let output = matches.value_of("output");
-        let dir = config.suite_dir()?;
-        let path = SuiteFilePath::new(&dir, target, extension);
-        testsuite::append(&path, input, output)?;
-    } else if let Some(matches) = matches.subcommand_matches("judge") {
-        info!("Running command \"judge\"");
-        let config = Config::load_from_file()?;
-        let target = matches.value_of("target").unwrap();
-        let lang = matches.value_of("lang");
-        let paths = config.suite_paths(target)?;
-        let solver = config.construct_solver(target, lang)?;
-        let compilation = config.construct_compilation_command(target, lang)?;
-        judging::judge(&paths, solver, compilation)?;
-    } else if let Some(matches) = matches.subcommand_matches("submit") {
-        info!("Running command \"submit\"");
-        let config = Config::load_from_file()?;
-        let target = matches.value_of("target").unwrap();
-        let lang = matches.value_of("lang");
-        let open_browser = matches.is_present("open-browser");
-        let skip_judging = matches.is_present("skip-judging");
-        let force = matches.is_present("force");
-        let service = config.service_name()?;
-        let contest = config.contest_name()?;
-        let src_path = config.src_path(target, lang)?;
-        if !skip_judging {
-            let paths = config.suite_paths(target)?;
-            let solver = config.construct_solver(target, lang)?;
-            let compilation = config.construct_compilation_command(target, lang)?;
-            judging::judge(&paths, solver, compilation)?;
-            println!();
+    match Opt::from_args() {
+        Opt::Init {
+            default_language,
+            directory,
+        } => {
+            info!("Running command \"init\"");
+            config::init(&default_language, directory)?;
         }
-        match service {
-            ServiceName::AtCoder => unimplemented!(),
-            ServiceName::AtCoderBeta => {
-                let lang_id = config.atcoder_lang_id(lang)?;
-                atcoder_beta::submit(&contest, target, lang_id, &src_path, open_browser, force)
+        Opt::Switch { service, contest } => {
+            info!("Running command \"switch\"");
+            config::switch(service, &contest)?;
+        }
+        Opt::Login { service } => {
+            info!("Running command \"login\"");
+            match service {
+                ServiceName::AtCoder => atcoder::login(),
+                ServiceName::AtCoderBeta => atcoder_beta::login(),
+                ServiceName::HackerRank => hackerrank::login(),
+            }?;
+        }
+        Opt::Participate { service, contest } => {
+            info!("Running command \"participate\"");
+            match service {
+                ServiceName::AtCoder => atcoder::participate(&contest),
+                ServiceName::AtCoderBeta => atcoder_beta::participate(&contest),
+                ServiceName::HackerRank => unreachable!(),
+            }?;
+        }
+        Opt::Download { open_browser } => {
+            info!("Running command \"download\"");
+            let config = Config::load_from_file()?;
+            let service = config.service_name()?;
+            let contest = config.contest_name()?;
+            let dir_to_save = config.suite_dir()?;
+            let extension = config.get_extension_on_downloading();
+            match service {
+                ServiceName::AtCoder => atcoder::download(&contest, &dir_to_save, extension),
+                ServiceName::AtCoderBeta => {
+                    atcoder_beta::download(&contest, &dir_to_save, extension, open_browser)
+                }
+                ServiceName::HackerRank => {
+                    hackerrank::download(&contest, &dir_to_save, extension, open_browser)
+                }
+            }?;
+        }
+        Opt::Append {
+            target,
+            extension,
+            input,
+            output,
+        } => {
+            info!("Running command \"append\"");
+            let config = Config::load_from_file()?;
+            let dir = config.suite_dir()?;
+            let path = SuiteFilePath::new(&dir, target, extension);
+            testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
+        }
+        Opt::Judge { target, language } => {
+            info!("Running command \"judge\"");
+            let language = language.as_ref().map(String::as_str);
+            let config = Config::load_from_file()?;
+            let paths = config.suite_paths(&target)?;
+            let solver = config.construct_solver(&target, language)?;
+            let compilation = config.construct_compilation_command(&target, language)?;
+            judging::judge(&paths, solver, compilation)?;
+        }
+        Opt::Submit {
+            target,
+            language,
+            open_browser,
+            skip_judging,
+            no_check,
+        } => {
+            info!("Running command \"submit\"");
+            let language = language.as_ref().map(String::as_str);
+            let config = Config::load_from_file()?;
+            let service = config.service_name()?;
+            let contest = config.contest_name()?;
+            let src_path = config.src_path(&target, language)?;
+            if !skip_judging {
+                let paths = config.suite_paths(&target)?;
+                let solver = config.construct_solver(&target, language)?;
+                let compilation = config.construct_compilation_command(&target, language)?;
+                judging::judge(&paths, solver, compilation)?;
+                println!();
             }
-            ServiceName::HackerRank => unimplemented!(),
-        }?;
-    } else {
-        unreachable!();
+            match service {
+                ServiceName::AtCoder => unimplemented!(),
+                ServiceName::AtCoderBeta => {
+                    let lang_id = config.atcoder_lang_id(language)?;
+                    atcoder_beta::submit(
+                        &contest,
+                        &target,
+                        lang_id,
+                        &src_path,
+                        open_browser,
+                        no_check,
+                    )
+                }
+                ServiceName::HackerRank => unimplemented!(),
+            }?;
+        }
     }
     Ok(())
 });
+
+#[derive(StructOpt)]
+#[structopt(usage =
+            "snowchains init <default-language> <directory>\n    \
+             snowchains switch <service> <contest>\n    \
+             snowchains login <service>\n    \
+             snowchains participate <service> <contest>\n    \
+             snowchains download [--open-browser]\n    \
+             snowchains append <target> <extension> <input> [output]\n    \
+             snowchains judge <target> [language]\n    \
+             snowchains submit <target> [language] [--open-browser] [--skip-judging] [--no-check]")]
+enum Opt {
+    #[structopt(name = "init", about = "Creates \"snowchains.yaml\"", raw(display_order = "1"))]
+    Init {
+        #[structopt(name = "default-language", help = "Default language")]
+        default_language: String,
+        #[structopt(name = "directory", help = "Directory to create \"snowchains.yaml\"",
+                    parse(from_os_str))]
+        directory: PathBuf,
+    },
+
+    #[structopt(name = "switch",
+                about = "Changes <service> and <contest> of \"snowchains.yaml\"",
+                raw(display_order = "2"))]
+    Switch {
+        #[structopt(name = "service", help = "Service name",
+                    raw(possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
+        service: ServiceName,
+        #[structopt(name = "contest", help = "Contest name")]
+        contest: String,
+    },
+
+    #[structopt(name = "login", about = "Logges in to a service", raw(display_order = "3"))]
+    Login {
+        #[structopt(name = "service", help = "Service name",
+                    raw(possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
+        service: ServiceName,
+    },
+
+    #[structopt(name = "participate", about = "Participates in a contest",
+                raw(display_order = "4"))]
+    Participate {
+        #[structopt(name = "service", help = "Service name",
+                    raw(possible_values = r#"&["atcoder", "atcoderbeta"]"#))]
+        service: ServiceName,
+        #[structopt(name = "contest", help = "Contest name")]
+        contest: String,
+    },
+
+    #[structopt(name = "download", about = "Downloads test cases",
+                usage = "snowchains download [--open-browser]", raw(display_order = "5"))]
+    Download {
+        #[structopt(long = "open-browser", help = "Opens the pages with your default browser",
+                    raw(display_order = "1"))]
+        open_browser: bool,
+    },
+
+    #[structopt(name = "append", about = "Appends a test case to a test suite file",
+                raw(display_order = "6"))]
+    Append {
+        #[structopt(name = "target", help = "Target name")]
+        target: String,
+        #[structopt(name = "extension", help = "Extension",
+                    raw(possible_values = r#"&["json", "toml", "yaml", "yml"]"#))]
+        extension: SuiteFileExtension,
+        #[structopt(name = "input", help = "\"input\" value to append")]
+        input: String,
+        #[structopt(name = "output", help = "\"expected\" value to append")]
+        output: Option<String>,
+    },
+
+    #[structopt(name = "judge", about = "Tests a binary or script", raw(display_order = "7"))]
+    Judge {
+        #[structopt(name = "target", help = "Target name")]
+        target: String,
+        #[structopt(name = "language", help = "Language name")]
+        language: Option<String>,
+    },
+
+    #[structopt(name = "submit", about = "Submits a source code",
+                usage = "snowchains submit <target> [language] [--open-browser] [--skip-judging] \
+                         [--no-check]",
+                raw(display_order = "8"))]
+    Submit {
+        #[structopt(name = "target", help = "Target name")]
+        target: String,
+        #[structopt(name = "language", help = "Language name")]
+        language: Option<String>,
+        #[structopt(long = "open-browser", help = "Opens the pages with your default browser",
+                    raw(display_order = "1"))]
+        open_browser: bool,
+        #[structopt(long = "skip-judging", help = "Skips judging", raw(display_order = "2"))]
+        skip_judging: bool,
+        #[structopt(long = "no-check",
+                    help = "Submits even if the contest is active and your code is already \
+                            accepted",
+                    raw(display_order = "3"))]
+        no_check: bool,
+    },
+}

@@ -387,9 +387,9 @@ impl fmt::Display for SuiteFileExtension {
 }
 
 impl FromStr for SuiteFileExtension {
-    type Err = ();
+    type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, ()> {
+    fn from_str(s: &str) -> Result<Self, String> {
         let s = s.to_lowercase();
         if s == "json" {
             Ok(SuiteFileExtension::Json)
@@ -400,7 +400,7 @@ impl FromStr for SuiteFileExtension {
         } else if s == "yml" {
             Ok(SuiteFileExtension::Yml)
         } else {
-            Err(())
+            Err(format!("Unsupported extension: {:?}", s))
         }
     }
 }

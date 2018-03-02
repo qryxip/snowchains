@@ -3,14 +3,13 @@ authors = ["wariuni <wariuni@gmail.com>"]
 description = "Tools for online programming contests"
 license = "MIT"
 name = "snowchains"
-version = "0.13.1"
+version = "0.13.2"
 
 [dependencies]
 httpsession = { git = "https://github.com/wariuni/httpsession", tag = "0.1.7" }
 webbrowser = { git = "https://github.com/wariuni/webbrowser-rs", tag = "fix-on-windows" }
 bincode = "1.0.0"
 chrono = "0.4.0"
-clap = "2.30.0"
 cookie = "0.10.1"
 custom_derive = "0.1.7"
 env_logger = "0.5.4"
@@ -30,6 +29,7 @@ serde_derive = "1.0.27"
 serde_json = "1.0.10"
 serde_urlencoded = "0.5.1"
 serde_yaml = "0.7.3"
+structopt = "0.2.4"
 term = "0.5.1"
 toml = "0.4.5"
 zip = { version = "0.3.1", default_features = false }
