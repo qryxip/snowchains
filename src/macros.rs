@@ -1,3 +1,5 @@
+#![cfg_attr(rustfmt, rustfmt_skip)]
+
 macro_rules! quick_main_colored {
     ($main: expr) => {
         fn main() {

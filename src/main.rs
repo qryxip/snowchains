@@ -166,15 +166,15 @@ quick_main_colored!(|| -> ::Result<()> {
 });
 
 #[derive(StructOpt)]
-#[structopt(usage =
-            "snowchains init <default-language> <directory>\n    \
-             snowchains switch <service> <contest>\n    \
-             snowchains login <service>\n    \
-             snowchains participate <service> <contest>\n    \
-             snowchains download [--open-browser]\n    \
-             snowchains append <target> <extension> <input> [output]\n    \
-             snowchains judge <target> [language]\n    \
-             snowchains submit <target> [language] [--open-browser] [--skip-judging] [--no-check]")]
+#[structopt(usage = "snowchains init <default-language> <directory>\n    \
+                     snowchains switch <service> <contest>\n    \
+                     snowchains login <service>\n    \
+                     snowchains participate <service> <contest>\n    \
+                     snowchains download [--open-browser]\n    \
+                     snowchains append <target> <extension> <input> [output]\n    \
+                     snowchains judge <target> [language]\n    \
+                     snowchains submit <target> [language] [--open-browser] [--skip-judging] \
+                     [--no-check]")]
 enum Opt {
     #[structopt(name = "init", about = "Creates \"snowchains.yaml\"", raw(display_order = "1"))]
     Init {

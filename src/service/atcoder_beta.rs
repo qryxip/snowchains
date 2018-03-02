@@ -215,8 +215,8 @@ impl AtCoderBeta {
             if name.to_uppercase() == task.to_uppercase() {
                 let task_screen_name = {
                     lazy_static! {
-                        static ref SCREEN_NAME: Regex = Regex::new(
-                            r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$").unwrap();
+                        static ref SCREEN_NAME: Regex =
+                            Regex::new(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$").unwrap();
                     }
                     if let Some(caps) = SCREEN_NAME.captures(&url) {
                         caps[1].to_owned()

@@ -31,18 +31,24 @@ pub fn judge(
 
         let mut last_path = None;
 
-        macro_rules! judge_all { ($cases: expr, $method: path) => {
-            $cases.into_iter().enumerate().map(|(i, case)| {
-                let path = case.get_path();
-                if Some(&path) != last_path.as_ref() {
-                    println!("Running test cases in {}", path.display());
-                    last_path = Some(case.get_path());
-                }
-                let output = $method(case, solver)?;
-                output.print_title(i, num_cases);
-                Ok(output)
-            }).collect::<JudgeResult<JudgingOutputs>>()?
-        } }
+        macro_rules! judge_all {
+            ($cases: expr, $method: path) => {
+                $cases
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, case)| {
+                        let path = case.get_path();
+                        if Some(&path) != last_path.as_ref() {
+                            println!("Running test cases in {}", path.display());
+                            last_path = Some(case.get_path());
+                        }
+                        let output = $method(case, solver)?;
+                        output.print_title(i, num_cases);
+                        Ok(output)
+                    })
+                    .collect::<JudgeResult<JudgingOutputs>>()?
+            };
+        }
 
         match cases {
             TestCases::Simple(cases) => judge_all!(cases, simple::judge),
