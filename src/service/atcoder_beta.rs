@@ -71,7 +71,7 @@ impl AtCoderBeta {
 
     fn login_if_not(&mut self, eprints_message_if_already_logged_in: bool) -> ServiceResult<()> {
         if self.has_cookie() {
-            let response = self.http_get_expecting("/settings", &[200, 302])?;
+            let response = self.get_expecting("/settings", &[200, 302])?;
             if response.status().as_u16() == 200 {
                 if eprints_message_if_already_logged_in {
                     eprintln!("Already logged in.");
@@ -94,15 +94,15 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
-        let csrf_token = extract_csrf_token(&Document::from_read(self.http_get("/login")?)?)?;
+        let csrf_token = extract_csrf_token(&Document::from_read(self.get("/login")?)?)?;
         let (username, password) = super::ask_username_and_password("Username: ")?;
         let payload = Payload {
             username,
             password,
             csrf_token,
         };
-        self.http_post_urlencoded("/login", &payload, &[302], None)?;
-        let response = self.http_get_expecting("/settings", &[200, 302])?;
+        self.post_urlencoded("/login", &payload, &[302], None)?;
+        let response = self.get_expecting("/settings", &[200, 302])?;
         let success = response.status().as_u16() == 200;
         if success {
             println!("Successfully logged in.");
@@ -115,12 +115,12 @@ impl AtCoderBeta {
     }
 
     fn fetch_tasks_page(&mut self, contest: &Contest) -> ServiceResult<Document> {
-        let response = self.http_get_expecting(&contest.url_tasks(), &[200, 302, 404])?;
+        let response = self.get_expecting(&contest.url_tasks(), &[200, 302, 404])?;
         if response.status().as_u16() == 200 {
             Ok(Document::from_read(response)?)
         } else {
             self.register_if_active_or_explicit(contest, false)?;
-            Ok(Document::from_read(self.http_get(&contest.url_tasks())?)?)
+            Ok(Document::from_read(self.get(&contest.url_tasks())?)?)
         }
     }
 
@@ -134,7 +134,7 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
-        let response = self.http_get_expecting(&contest.url_top(), &[200, 302])?;
+        let response = self.get_expecting(&contest.url_top(), &[200, 302])?;
         if response.status().as_u16() == 302 {
             bail!(ServiceErrorKind::ContestNotFound(contest.to_string()));
         }
@@ -146,12 +146,12 @@ impl AtCoderBeta {
         }
         if explicit || *contest == Contest::Practice || status.is_active() {
             self.login_if_not(false)?;
-            let page = Document::from_read(self.http_get(&contest.url_top())?)?;
+            let page = Document::from_read(self.get(&contest.url_top())?)?;
             let payload = Payload {
                 csrf_token: extract_csrf_token(&page)?,
             };
             let url = contest.url_register();
-            self.http_post_urlencoded(&url, &payload, &[302], None)?;
+            self.post_urlencoded(&url, &payload, &[302], None)?;
         }
         Ok(())
     }
@@ -167,7 +167,7 @@ impl AtCoderBeta {
         let outputs = extract_task_urls_with_names(&tasks_page)?
             .into_iter()
             .map(|(name, url)| -> ServiceResult<_> {
-                let suite = extract_cases(self.http_get(&url)?, &contest.style())?;
+                let suite = extract_cases(self.get(&url)?, &contest.style())?;
                 let path = SuiteFilePath::new(dir_to_save, name.to_lowercase(), extension);
                 Ok((url, suite, path))
             })
@@ -225,13 +225,13 @@ impl AtCoderBeta {
                     }
                 };
                 if checks_if_accepted {
-                    let page = self.http_get(&contest.url_submissions_me())?;
+                    let page = self.get(&contest.url_submissions_me())?;
                     if check_if_accepted(page, &task_screen_name)? {
                         bail!(ServiceErrorKind::AlreadyAccepted);
                     }
                 }
                 let sourceCode = super::replace_class_name_if_necessary(src_path, "Main")?;
-                let csrf_token = extract_csrf_token(&Document::from_read(self.http_get(&url)?)?)?;
+                let csrf_token = extract_csrf_token(&Document::from_read(self.get(&url)?)?)?;
                 let url = contest.url_submit();
                 let payload = Payload {
                     dataTaskScreenName: task_screen_name,
@@ -239,7 +239,7 @@ impl AtCoderBeta {
                     sourceCode,
                     csrf_token,
                 };
-                self.http_post_urlencoded(&url, &payload, &[302], None)?;
+                self.post_urlencoded(&url, &payload, &[302], None)?;
                 if open_browser {
                     self.open_in_browser(&contest.url_submissions_me())?;
                 }

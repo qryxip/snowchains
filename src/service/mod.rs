@@ -31,7 +31,7 @@ fn start_session(filename: &'static str, domain: &'static str) -> httpsession::R
             "snowchains",
             filename,
         ])?))
-        .echo_actions(ColorMode::detect()?.disable_on("NO_COLOR"))
+        .echo_actions(ColorMode::Prefer256.disable_on("NO_COLOR"))
         .timeout(Duration::from_secs(20))
         .redirect(RedirectPolicy::none())
         .default_header(UserAgent::new(
@@ -168,7 +168,7 @@ impl DownloadZips for HttpSession {
         each_capacity_on_content_length_missing: usize,
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
         let responses = urls.iter()
-            .map(|url| self.http_get(url))
+            .map(|url| self.get(url))
             .collect::<Result<Vec<_>, _>>()?;
 
         println!("Downloading zip files...");

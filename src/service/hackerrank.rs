@@ -36,7 +36,7 @@ custom_derive! {
 impl HackerRank {
     fn start(prints_message_when_already_logged_in: bool) -> ServiceResult<Self> {
         let mut hackerrank = HackerRank(super::start_session("hackerrank", "www.hackerrank.com")?);
-        let mut response = hackerrank.http_get_expecting("/login", &[200, 302])?;
+        let mut response = hackerrank.get_expecting("/login", &[200, 302])?;
         if response.status().as_u16() == 302 && prints_message_when_already_logged_in {
             eprintln!("Already signed in.");
         } else if response.status().as_u16() == 200 {
@@ -46,7 +46,7 @@ impl HackerRank {
                 }
                 eprintln!("Failed to login. Try again.");
                 hackerrank.clear_cookies()?;
-                response = hackerrank.http_get("/login")?;
+                response = hackerrank.get("/login")?;
             }
         }
         Ok(hackerrank)
@@ -72,7 +72,7 @@ impl HackerRank {
             password,
             remember_me: true,
         };
-        let response = self.http_post_json("/auth/login", &data, &[200], {
+        let response = self.post_json("/auth/login", &data, &[200], {
             let mut headers = Headers::new();
             headers.set_raw("X-CSRF-Token", csrf_token);
             headers
@@ -99,7 +99,7 @@ impl HackerRank {
 
         let url = format!("/rest/contests/{}/challenges", contest);
         let (mut zip_urls, mut paths, mut urls) = (vec![], vec![], vec![]);
-        for slug in serde_json::from_reader::<_, Challenges>(self.http_get(&url)?)?
+        for slug in serde_json::from_reader::<_, Challenges>(self.get(&url)?)?
             .models
             .into_iter()
             .map(|model| model.slug)

@@ -13,7 +13,7 @@ use std::path::Path;
 pub fn login() -> ServiceResult<()> {
     static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
     let mut atcoder = AtCoder(super::start_session("atcoder", "atcoder.jp")?);
-    if atcoder.http_get(URL).is_err() {
+    if atcoder.get(URL).is_err() {
         atcoder.login()?;
     } else {
         println!("Already logged in.");
@@ -43,7 +43,7 @@ impl AtCoder {
     fn load_or_login() -> ServiceResult<Self> {
         static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
         let mut atcoder = AtCoder(super::start_session("atcoder", "atcoder.jp")?);
-        if atcoder.http_get(URL).is_err() {
+        if atcoder.get(URL).is_err() {
             atcoder.login()?;
         }
         Ok(atcoder)
@@ -54,7 +54,7 @@ impl AtCoder {
             "https://{}.contest.atcoder.jp/participants/insert",
             contest_name
         );
-        self.http_get_expecting(&url, &[302])?;
+        self.get_expecting(&url, &[302])?;
         Ok(())
     }
 
@@ -66,11 +66,11 @@ impl AtCoder {
     ) -> ServiceResult<()> {
         let names_and_pathes = {
             let url = format!("http://{}.contest.atcoder.jp/assignments", contest_name);
-            extract_names_and_pathes(self.http_get(&url)?).chain_err(|| "Probably 404")?
+            extract_names_and_pathes(self.get(&url)?).chain_err(|| "Probably 404")?
         };
         for (alphabet, path) in names_and_pathes {
             let url = format!("http://{}.contest.atcoder.jp{}", contest_name, path);
-            match extract_cases(self.http_get(&url)?) {
+            match extract_cases(self.get(&url)?) {
                 Ok(suite) => {
                     let path = SuiteFilePath::new(dir_to_save, alphabet.to_lowercase(), extension);
                     suite.save(&path, true)?;
@@ -100,8 +100,8 @@ impl AtCoder {
         }
 
         static URL: &'static str = "https://practice.contest.atcoder.jp/login";
-        let _ = self.http_get(URL)?;
-        while self.http_post_urlencoded(URL, &post_data()?, &[302], None)
+        let _ = self.get(URL)?;
+        while self.post_urlencoded(URL, &post_data()?, &[302], None)
             .is_err()
         {
             println!("Failed to sign in. try again.")
