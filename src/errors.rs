@@ -163,6 +163,11 @@ error_chain! {
             display("\"snowchains.yaml\" not found")
         }
 
+        LanguageNotSpecified {
+            description("Language not specified")
+            display("Language not specified")
+        }
+
         NoSuchLanguage(name: String) {
             description("Language not found")
             display("No such language: \"{}\"", name)
@@ -179,23 +184,25 @@ pub type TemplateResult<T> = std::result::Result<T, TemplateError>;
 
 #[derive(Debug)]
 pub enum TemplateError {
+    InvalidVariable(String),
     Syntax(String),
     NoSuchSpecifier(String, String, &'static [&'static str]),
-    NoSuchKeyword(String, String, Vec<&'static str>),
+    NoSuchVariable(String, String, Vec<String>),
 }
 
 impl fmt::Display for TemplateError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            TemplateError::InvalidVariable(ref s) => write!(f, "Invalid variable: {:?}", s),
             TemplateError::Syntax(ref s) => write!(f, "Syntax error: {:?}", s),
             TemplateError::NoSuchSpecifier(ref s, ref specifier, expected) => write!(
                 f,
                 "No such format specifier {:?} (expected {:?}): {:?}",
                 specifier, expected, s
             ),
-            TemplateError::NoSuchKeyword(ref s, ref keyword, ref expected) => write!(
+            TemplateError::NoSuchVariable(ref s, ref keyword, ref expected) => write!(
                 f,
-                "No such keyword {:?} (expected {:?}): {:?}",
+                "No such variable {:?} (expected {:?}): {:?}",
                 keyword, expected, s
             ),
         }

@@ -4,6 +4,7 @@ use testsuite::{SuiteFileExtension, SuiteFilePaths};
 use util::{self, Camelize};
 
 use regex::Regex;
+use rprompt;
 use serde_yaml;
 
 use std::{cmp, env, fmt, fs};
@@ -15,7 +16,29 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 /// Creates `snowchains.yaml` in `dir`.
-pub fn init(default_lang: &str, directory: PathBuf) -> ConfigResult<()> {
+pub fn init(directory: PathBuf) -> ConfigResult<()> {
+    const LANGS: [&str; 8] = [
+        "c++", "rust", "haskell", "bash", "python3", "java", "scala", "c#"
+    ];
+
+    print!("Choose or input:");
+    for (i, lang) in LANGS.iter().enumerate() {
+        println!("{}) {}", i + 1, lang);
+    }
+
+    let ask = |prompt: &'static str| -> io::Result<Cow<'static, str>> {
+        let input = rprompt::prompt_reply_stderr(prompt)?;
+        if let Ok(i) = input.parse::<usize>() {
+            if 0 < i && i <= 8 {
+                return Ok(LANGS[i - 1].into());
+            }
+        }
+        Ok(input.into())
+    };
+
+    let atcoder_default_lang = ask("Atcoder/Atcoder(Beta): ")?;
+    let hackerrank_default_lang = ask("HackerRank: ")?;
+
     let config = format!(
         r#"---
 service: "atcoderbeta"
@@ -23,14 +46,25 @@ contest: "chokudai_s001"
 testsuites: "snowchains/$service/$contest/"
 extension_on_downloading: "yaml"
 extensions_on_judging: ["json", "toml", "yaml", "yml"]
-default_lang: {default_lang}
+
+atcoder:
+  default_language: {atcoder_default_lang:?}
+  variables:
+    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra"
+    "rust_version": "1.15.1"
+
+hackerrank:
+  default_language: {hackerrank_default_lang:?}
+  variables:
+    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra -lm"
+    "rust_version": "1.21.0"
 
 languages:
   - name: "c++"
     src: "cc/{{}}.cc"
     compile:
       bin: "cc/build/{{}}{exe}"
-      command: "g++ -std=c++14 -O2 -o $bin $src"
+      command: "g++ $cxx_flags -o $bin $src"
       working_directory: "cc/"
     run:
       command: "$bin"
@@ -41,7 +75,7 @@ languages:
     src: "rs/src/bin/{{}}.rs"
     compile:
       bin: "rs/target/release/{{}}{exe}"
-      command: "rustc -O -o $bin $src"
+      command: "rustc +$rust_version -o $bin $src"
       working_directory: "rs/"
     run:
       command: "$bin"
@@ -99,7 +133,8 @@ languages:
       atcoder: 3025
 {csharp}
 "#,
-        default_lang = format!("{:?}", default_lang),
+        atcoder_default_lang = atcoder_default_lang,
+        hackerrank_default_lang = hackerrank_default_lang,
         exe = if cfg!(target_os = "windows") {
             ".exe"
         } else {
@@ -211,8 +246,11 @@ pub struct Config {
     extension_on_downloading: SuiteFileExtension,
     #[serde(default = "default_extensions")]
     extensions_on_judging: Vec<SuiteFileExtension>,
-    default_lang: String,
-    languages: Vec<LangProperty>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    atcoder: Option<Service>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hackerrank: Option<Service>,
+    languages: Vec<Language>,
     #[serde(skip)]
     base_dir: PathBuf,
 }
@@ -252,10 +290,9 @@ impl Config {
     pub fn suite_dir(&self) -> ConfigResult<PathBuf> {
         let service = self.service.map(|s| s.to_string()).unwrap_or_default();
         let contest = self.contest.clone().unwrap_or_default();
-        let keywords = vec![("service", service.as_str()), ("contest", contest.as_str())];
-        let keywords = HashMap::from_iter(keywords);
-        self.testsuites
-            .resolve_as_path(&self.base_dir, "", &keywords)
+        let vars = vec![("service", service.as_str()), ("contest", contest.as_str())];
+        let vars = HashMap::from_iter(vars);
+        self.testsuites.resolve_as_path(&self.base_dir, "", &vars)
     }
 
     pub fn suite_paths(&self, target: &str) -> ConfigResult<SuiteFilePaths> {
@@ -269,13 +306,13 @@ impl Config {
 
     /// Returns the path of the source file.
     pub fn src_path(&self, target: &str, lang_name: Option<&str>) -> ConfigResult<PathBuf> {
-        let lang = self.lang_property(lang_name)?;
-        Ok(lang.resolve_src(&self.base_dir, target)?)
+        let (lang, vars) = self.lang_property(lang_name)?;
+        Ok(lang.resolve_src(&self.base_dir, target, vars)?)
     }
 
     /// Returns the `lang_id` of `lang_name` or a default language
     pub fn atcoder_lang_id(&self, lang_name: Option<&str>) -> ConfigResult<u32> {
-        let lang = self.lang_property(lang_name)?;
+        let (lang, _) = self.lang_property(lang_name)?;
         lang.language_ids.atcoder.ok_or_else(|| {
             ConfigError::from(ConfigErrorKind::PropertyNotSet("language_ids.atcoder"))
         })
@@ -288,8 +325,8 @@ impl Config {
         target: &str,
         lang_name: Option<&str>,
     ) -> ConfigResult<Option<CompilationCommand>> {
-        let lang = self.lang_property(lang_name)?;
-        Ok(lang.construct_compilation_command(&self.base_dir, target)?)
+        let (lang, vars) = self.lang_property(lang_name)?;
+        Ok(lang.construct_compilation_command(&self.base_dir, target, vars)?)
     }
 
     /// Constructs arguments of execution command for given or default language.
@@ -298,16 +335,29 @@ impl Config {
         target: &str,
         lang_name: Option<&str>,
     ) -> ConfigResult<JudgingCommand> {
-        let lang = self.lang_property(lang_name)?;
-        Ok(lang.construct_solver(&self.base_dir, target)?)
+        let (lang, vars) = self.lang_property(lang_name)?;
+        Ok(lang.construct_solver(&self.base_dir, target, vars)?)
     }
 
-    fn lang_property(&self, lang_name: Option<&str>) -> ConfigResult<&LangProperty> {
-        let lang_name = lang_name.unwrap_or(&self.default_lang);
-        self.languages
+    fn lang_property(
+        &self,
+        lang_name: Option<&str>,
+    ) -> ConfigResult<(&Language, Option<&HashMap<String, String>>)> {
+        let service_prop = self.service.and_then(|service| match service {
+            ServiceName::AtCoder | ServiceName::AtCoderBeta => self.atcoder.as_ref(),
+            ServiceName::HackerRank => self.hackerrank.as_ref(),
+        });
+        let lang_name = lang_name
+            .or_else(|| service_prop.map(|p| p.default_language.as_ref()))
+            .ok_or_else::<ConfigError, _>(|| ConfigErrorKind::LanguageNotSpecified.into())?;
+        let lang = self.languages
             .iter()
             .find(|lang| lang.name == lang_name)
-            .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(lang_name.to_owned())))
+            .ok_or_else(|| {
+                ConfigError::from(ConfigErrorKind::NoSuchLanguage(lang_name.to_owned()))
+            })?;
+        let vars = service_prop.map(|s| &s.variables);
+        Ok((lang, vars))
     }
 }
 
@@ -372,7 +422,13 @@ fn default_extensions() -> Vec<SuiteFileExtension> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct LangProperty {
+struct Service {
+    default_language: String,
+    variables: HashMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Language {
     name: String,
     src: Template,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -382,15 +438,27 @@ struct LangProperty {
     language_ids: LanguageIds,
 }
 
-impl LangProperty {
-    fn resolve_src(&self, base: &Path, target: &str) -> ConfigResult<PathBuf> {
-        self.src.resolve_as_path(base, target, &HashMap::new())
+impl Language {
+    fn resolve_src(
+        &self,
+        base: &Path,
+        target: &str,
+        extra_vars: Option<&HashMap<String, String>>,
+    ) -> ConfigResult<PathBuf> {
+        let mut vars = HashMap::new();
+        if let Some(extra_vars) = extra_vars {
+            for (k, v) in extra_vars.iter() {
+                vars.insert(k.as_str(), v.as_str());
+            }
+        }
+        self.src.resolve_as_path(base, target, &vars)
     }
 
     fn construct_compilation_command(
         &self,
         base: &Path,
         target: &str,
+        extra_variables: Option<&HashMap<String, String>>,
     ) -> ConfigResult<Option<CompilationCommand>> {
         match self.compile {
             None => Ok(None),
@@ -398,30 +466,48 @@ impl LangProperty {
                 let wd = compile.working_directory.resolve(base)?;
                 let src = self.src.resolve_as_path(base, target, &HashMap::new())?;
                 let bin = compile.bin.resolve_as_path(base, target, &HashMap::new())?;
-                let cmd = compile
-                    .command
-                    .to_compilation_command(target, wd, Some(src), Some(bin))?;
+                let cmd = compile.command.to_compilation_command(
+                    target,
+                    wd,
+                    Some(src),
+                    Some(bin),
+                    extra_variables,
+                )?;
                 Ok(Some(cmd))
             }
         }
     }
 
-    fn construct_solver(&self, base: &Path, target: &str) -> ConfigResult<JudgingCommand> {
+    fn construct_solver(
+        &self,
+        base: &Path,
+        target: &str,
+        extra_vars: Option<&HashMap<String, String>>,
+    ) -> ConfigResult<JudgingCommand> {
         let wd = self.run.working_directory.resolve(base)?;
-        let (src, bin) = self.resolve_src_and_bin(base, target)?;
+        let (src, bin) = self.resolve_src_and_bin(base, target, extra_vars)?;
         let src = src.display().to_string();
         let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
-        self.run.command.to_solver(target, wd, &src, &bin)
+        self.run
+            .command
+            .to_solver(target, wd, &src, &bin, extra_vars)
     }
 
     fn resolve_src_and_bin(
         &self,
         base: &Path,
         target: &str,
+        extra_vars: Option<&HashMap<String, String>>,
     ) -> ConfigResult<(PathBuf, Option<PathBuf>)> {
-        let src = self.src.resolve_as_path(base, target, &HashMap::new())?;
+        let mut vars = HashMap::new();
+        if let Some(extra_vars) = extra_vars {
+            for (k, v) in extra_vars.iter() {
+                vars.insert(k.as_str(), v.as_str());
+            }
+        }
+        let src = self.src.resolve_as_path(base, target, &vars)?;
         let bin = match self.compile {
-            Some(ref compile) => Some(compile.bin.resolve_as_path(base, target, &HashMap::new())?),
+            Some(ref compile) => Some(compile.bin.resolve_as_path(base, target, &vars)?),
             None => None,
         };
         Ok((src, bin))
@@ -479,8 +565,10 @@ impl Default for InputPath {
 
 impl InputPath {
     fn resolve(&self, base: &Path) -> io::Result<PathBuf> {
-        if self.0.starts_with('~') {
-            return util::path_under_home(&[&self.0.chars().skip(2).collect::<String>()]);
+        let mut chars = self.0.chars();
+        let (c1, c2) = (chars.next(), chars.next());
+        if c1 == Some('~') && [Some('/'), Some('\\'), None].contains(&c2) {
+            return util::path_under_home(&[&chars.collect::<String>()]);
         }
         let path = PathBuf::from(&self.0);
         Ok(if path.is_absolute() {
@@ -505,9 +593,9 @@ impl Template {
         &self,
         base: &Path,
         target: &str,
-        keywords: &HashMap<&'static str, &str>,
+        variables: &HashMap<&str, &str>,
     ) -> ConfigResult<PathBuf> {
-        let path = self.format(target, keywords)?;
+        let path = self.format(target, variables)?;
         Ok(InputPath(path).resolve(base)?)
     }
 
@@ -517,19 +605,26 @@ impl Template {
         working_dir: PathBuf,
         src: Option<PathBuf>,
         bin: Option<PathBuf>,
+        extra_vars: Option<&HashMap<String, String>>,
     ) -> ConfigResult<CompilationCommand> {
-        let src_s = src.as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default();
-        let bin_s = bin.as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default();
+        let src_s = src.as_ref().map(|p| p.display().to_string());
+        let bin_s = bin.as_ref().map(|p| p.display().to_string());
+        let vars = {
+            let mut vars = HashMap::new();
+            src_s.as_ref().and_then(|s| vars.insert("src", s.as_str()));
+            bin_s.as_ref().and_then(|s| vars.insert("bin", s.as_str()));
+            if let Some(extra_vars) = extra_vars {
+                for (k, v) in extra_vars.iter() {
+                    vars.insert(k, v);
+                }
+            }
+            vars
+        };
         let src_and_bin = match (src, bin) {
             (Some(src), Some(bin)) => Some((src, bin)),
             _ => None,
         };
-        let keywords = HashMap::from_iter(vec![("src", src_s.as_str()), ("bin", bin_s.as_str())]);
-        let command = self.format(target, &keywords)?;
+        let command = self.format(target, &vars)?;
         Ok(CompilationCommand::new(command, working_dir, src_and_bin))
     }
 
@@ -539,17 +634,31 @@ impl Template {
         working_dir: PathBuf,
         src: &str,
         bin: &str,
+        extra_vars: Option<&HashMap<String, String>>,
     ) -> ConfigResult<JudgingCommand> {
-        let keywords = HashMap::from_iter(vec![("src", src), ("bin", bin)]);
-        let command = self.format(target, &keywords)?;
+        let vars = {
+            let mut vars = HashMap::from_iter(vec![("src", src), ("bin", bin)]);
+            if let Some(extra_vars) = extra_vars {
+                for (k, v) in extra_vars.iter() {
+                    vars.insert(k, v);
+                }
+            }
+            vars
+        };
+        let command = self.format(target, &vars)?;
         Ok(JudgingCommand::new(command, working_dir))
     }
 
-    fn format(
-        &self,
-        target: &str,
-        keywords: &HashMap<&'static str, &str>,
-    ) -> TemplateResult<String> {
+    fn format(&self, target: &str, variables: &HashMap<&str, &str>) -> TemplateResult<String> {
+        for &k in variables.keys() {
+            if ['$', '/', '\\', '{', '}', ' ']
+                .iter()
+                .any(|c| k.contains(*c))
+            {
+                return Err(TemplateError::InvalidVariable(k.to_owned()));
+            }
+        }
+
         enum Token {
             Text(String),
             Var(String),
@@ -561,7 +670,7 @@ impl Template {
                 &self,
                 whole: &str,
                 target: &str,
-                keywords: &HashMap<&'static str, &str>,
+                variables: &HashMap<&str, &str>,
                 f: &mut String,
             ) -> TemplateResult<()> {
                 fn trim_lr(s: &str) -> String {
@@ -579,15 +688,15 @@ impl Template {
                         *f += s;
                         Ok(())
                     }
-                    Token::Var(ref s) => match keywords.get(s.as_str()) {
+                    Token::Var(ref s) => match variables.get(s.as_str()) {
                         Some(v) => {
                             *f += v;
                             Ok(())
                         }
                         None => {
                             let (whole, s) = (whole.to_owned(), s.to_owned());
-                            let keywords = keywords.keys().cloned().collect();
-                            Err(TemplateError::NoSuchKeyword(whole, s, keywords))
+                            let vars = variables.keys().map(|v| (*v).to_owned()).collect();
+                            Err(TemplateError::NoSuchVariable(whole, s, vars))
                         }
                     },
                     Token::Target(ref s) => {
@@ -691,7 +800,7 @@ impl Template {
 
         let mut formatted = "".to_owned();
         for token in tokens {
-            token.format(&self.0, target, keywords, &mut formatted)?;
+            token.format(&self.0, target, variables, &mut formatted)?;
         }
         Ok(formatted)
     }
@@ -705,28 +814,25 @@ mod tests {
     use std::iter::FromIterator;
 
     #[test]
-    fn it_parses_paths_correctly() {
+    fn it_parses_a_path_correctly() {
         let template = Template("cc/{}.cc".to_owned());
-        let keywords = HashMap::new();
-        assert_eq!("cc/a.cc", template.format("a", &keywords).unwrap());
+        let vars = HashMap::new();
+        assert_eq!("cc/a.cc", template.format("a", &vars).unwrap());
         let template = Template("cs/{C}/{C}.cs".to_owned());
-        let keywords = HashMap::new();
-        assert_eq!("cs/A/A.cs", template.format("a", &keywords).unwrap());
+        let vars = HashMap::new();
+        assert_eq!("cs/A/A.cs", template.format("a", &vars).unwrap());
         let template = Template("gcc -o $bin $src".to_owned());
-        let keywords = HashMap::from_iter(vec![("src", "SRC"), ("bin", "BIN")]);
-        assert_eq!("gcc -o BIN SRC", template.format("", &keywords).unwrap());
+        let vars = HashMap::from_iter(vec![("src", "SRC"), ("bin", "BIN")]);
+        assert_eq!("gcc -o BIN SRC", template.format("", &vars).unwrap());
         let template = Template("{ c }/{c}/{C}".to_owned());
-        let keywords = HashMap::new();
-        assert_eq!(
-            "Name/Name/Name",
-            template.format("name", &keywords).unwrap()
-        );
+        let vars = HashMap::new();
+        assert_eq!("Name/Name/Name", template.format("name", &vars).unwrap());
         let template = Template("$foo/$bar/$baz".to_owned());
-        let keywords = HashMap::from_iter(vec![("foo", "FOO"), ("bar", "BAR"), ("baz", "BAZ")]);
-        assert_eq!("FOO/BAR/BAZ", template.format("", &keywords).unwrap());
+        let vars = HashMap::from_iter(vec![("foo", "FOO"), ("bar", "BAR"), ("baz", "BAZ")]);
+        assert_eq!("FOO/BAR/BAZ", template.format("", &vars).unwrap());
         let template = Template("$$$".to_owned());
-        let keywords = HashMap::from_iter(vec![("", "AAA")]);
-        assert_eq!("AAAAAAAAA", template.format("", &keywords).unwrap());
+        let vars = HashMap::from_iter(vec![("", "AAA")]);
+        assert_eq!("AAAAAAAAA", template.format("", &vars).unwrap());
 
         let template = Template("{}/{{}}".to_owned());
         assert!(template.format("", &HashMap::new()).is_err());

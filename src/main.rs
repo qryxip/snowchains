@@ -60,19 +60,16 @@ use std::path::PathBuf;
 quick_main_colored!(|| -> ::Result<()> {
     env_logger::init();
     match Opt::from_args() {
-        Opt::Init {
-            default_language,
-            directory,
-        } => {
-            info!("Running command \"init\"");
-            config::init(&default_language, directory)?;
+        Opt::Init { directory } => {
+            info!("Running \"init\" command");
+            config::init(directory)?;
         }
         Opt::Switch { service, contest } => {
-            info!("Running command \"switch\"");
+            info!("Running \"switch\" command");
             config::switch(service, &contest)?;
         }
         Opt::Login { service } => {
-            info!("Running command \"login\"");
+            info!("Running \"login\" command");
             match service {
                 ServiceName::AtCoder => atcoder::login(),
                 ServiceName::AtCoderBeta => atcoder_beta::login(),
@@ -80,7 +77,7 @@ quick_main_colored!(|| -> ::Result<()> {
             }?;
         }
         Opt::Participate { service, contest } => {
-            info!("Running command \"participate\"");
+            info!("Running \"participate\" command");
             match service {
                 ServiceName::AtCoder => atcoder::participate(&contest),
                 ServiceName::AtCoderBeta => atcoder_beta::participate(&contest),
@@ -88,7 +85,7 @@ quick_main_colored!(|| -> ::Result<()> {
             }?;
         }
         Opt::Download { open_browser } => {
-            info!("Running command \"download\"");
+            info!("Running \"download\" command");
             let config = Config::load_from_file()?;
             let service = config.service_name()?;
             let contest = config.contest_name()?;
@@ -110,14 +107,14 @@ quick_main_colored!(|| -> ::Result<()> {
             input,
             output,
         } => {
-            info!("Running command \"append\"");
+            info!("Running \"append\" command");
             let config = Config::load_from_file()?;
             let dir = config.suite_dir()?;
             let path = SuiteFilePath::new(&dir, target, extension);
             testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
         }
         Opt::Judge { target, language } => {
-            info!("Running command \"judge\"");
+            info!("Running \"judge\" command");
             let language = language.as_ref().map(String::as_str);
             let config = Config::load_from_file()?;
             let paths = config.suite_paths(&target)?;
@@ -132,7 +129,7 @@ quick_main_colored!(|| -> ::Result<()> {
             skip_judging,
             no_check,
         } => {
-            info!("Running command \"submit\"");
+            info!("Running \"submit\" command");
             let language = language.as_ref().map(String::as_str);
             let config = Config::load_from_file()?;
             let service = config.service_name()?;
@@ -178,10 +175,8 @@ quick_main_colored!(|| -> ::Result<()> {
 enum Opt {
     #[structopt(name = "init", about = "Creates \"snowchains.yaml\"", raw(display_order = "1"))]
     Init {
-        #[structopt(name = "default-language", help = "Default language")]
-        default_language: String,
         #[structopt(name = "directory", help = "Directory to create \"snowchains.yaml\"",
-                    parse(from_os_str))]
+                    parse(from_os_str), default_value = ".")]
         directory: PathBuf,
     },
 

@@ -20,7 +20,7 @@ $ cargo install --git https://github.com/wariuni/snowchains
 ## Usage
 
 ```console
-$ snowchains init <language> ./
+$ snowchains init ./
 $ snowchains switch <service> <contest>                  # e.g. ("atcoderbeta", "agc001")
 $ snowchains download (--open-browser)                   # The username and password required when not yet logged-in
 $ $EDITOR ./snowchains/<service>/<contest>/<target>.yaml # Add more test cases
@@ -38,7 +38,18 @@ contest: "chokudai_s001"                               # optional
 testsuites: "snowchains/$service/$contest/"            # default: 〃
 extension_on_downloading: "yaml"                       # default: 〃
 extensions_on_judging: ["json", "toml", "yaml", "yml"] # default: 〃
-default_lang: "c++"
+
+atcoder:
+  default_language: "c++"
+  variables:
+    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra"
+    "rust_version": "1.15.1"
+
+hackerrank:
+  default_language: "c++"
+  variables:
+    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra -lm"
+    "rust_version": "1.21.0"
 
 # test files: <testsuite>/<target-name>.<extension> for <extension> in each <extensions_on_judging>
 # source:     <<src> % <target-name>>
@@ -49,20 +60,20 @@ default_lang: "c++"
 languages:
   - name: "c++"
     src: "cc/{}.cc"
-    compile:                                     # optional
+    compile:                                 # optional
       bin: "cc/build/{}"
-      command: "g++ -std=c++14 -O2 -o $bin $src"
-      working_directory: "cc/"                   # default: ""
+      command: "g++ $cxx_flags -o $bin $src"
+      working_directory: "cc/"               # default: ""
     run:
-      command: "$bin"                            # default: "$bin"
-      working_directory: "cc/"                   # default: ""
-    language_ids:                                # optional
+      command: "$bin"                        # default: "$bin"
+      working_directory: "cc/"               # default: ""
+    language_ids:                            # optional
       atcoder: 3003
   - name: "rust"
     src: "rs/src/bin/{}.rs"
     compile:
       bin: "rs/target/release/{}"
-      command: "rustc -O -o $bin $src"
+      command: "rustc +$rust_version -o $bin $src"
       working_directory: "rs/"
     run:
       command: "$bin"
@@ -134,13 +145,23 @@ contest: "chokudai_s001"
 testsuites: "snowchains/$service/$contest/"
 extension_on_downloading: "yaml"
 extensions_on_judging: ["json", "toml", "yaml", "yml"]
-default_lang: "c++"
+
+atcoder:
+  default_language: "c++"
+  variables:
+    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra"
+
+hackerrank:
+  default_language: "c++"
+  variables:
+    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra -lm"
+
 languages:
   - name: "c++"
     src: "{}.cc"
     compile:
       bin: "build/{}"
-      command: "g++ -std=c++14 -O2 -o $bin $src"
+      command: "g++ $cxx_flags -o $bin $src"
       working_directory: ""
     run:
       command: "$bin"
@@ -296,7 +317,9 @@ if __name__ == '__main__':
 
 ```haskell
 #!/usr/bin/env runghc
+
 {-# LANGUAGE LambdaCase #-}
+
 module Main (main) where
 
 import Control.Monad      (forM_)
@@ -363,5 +386,5 @@ main = do
           (t
            (cargo-process-test)))))
 
-(defconst my-rust--snowchains-crate "contest/rust")
+(defconst my-rust--snowchains-crate "contest/rs")
 ```
