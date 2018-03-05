@@ -1,6 +1,5 @@
 use errors::{JudgeErrorKind, JudgeResult};
-
-use term::color;
+use terminal::Color;
 
 use std::{fs, io};
 use std::fmt::Write;
@@ -164,9 +163,9 @@ impl CommandProperty {
     }
 
     fn print_args_and_working_dir(&self) {
-        print_bold!(Some(color::CYAN), "Command:           ");
+        print_bold!(Color::CommandInfo, "Command:           ");
         println!("{}", self.display_args());
-        print_bold!(Some(color::CYAN), "Working directory: ");
+        print_bold!(Color::CommandInfo, "Working directory: ");
         println!("{}", self.working_dir.display());
     }
 

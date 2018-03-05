@@ -1,9 +1,8 @@
 use errors::JudgeResult;
 use judging::{JudgingCommand, JudgingOutput, MillisRoundedUp, WrapNotFoundErrorMessage};
+use terminal::Color;
 use testsuite::InteractiveCase;
 use util;
-
-use term::color;
 
 use std::fmt;
 use std::io::{self, BufRead, BufReader, Write};
@@ -200,10 +199,10 @@ impl JudgingOutput for InteractiveOutput {
         }
     }
 
-    fn color(&self) -> u32 {
+    fn color(&self) -> Color {
         match self.kind {
-            InteractiveOutputKind::Success => color::GREEN,
-            InteractiveOutputKind::Failure => color::RED,
+            InteractiveOutputKind::Success => Color::Success,
+            InteractiveOutputKind::Failure => Color::Warning,
         }
     }
 
@@ -220,7 +219,7 @@ impl JudgingOutput for InteractiveOutput {
         if self.solver_stderr.is_empty() && self.tester_stderr.is_empty()
             && self.console_outs.is_empty()
         {
-            return eprintln_bold!(Some(color::YELLOW), "EMPTY");
+            return eprintln_bold!(Color::Title, "EMPTY");
         }
         let tester_len = max_length(InteractiveConsoleOut::is_tester_s);
         let solver_len = max_length(InteractiveConsoleOut::is_solver_s);
@@ -231,11 +230,11 @@ impl JudgingOutput for InteractiveOutput {
             eprintln!("");
         }
         if !self.solver_stderr.is_empty() {
-            eprintln_bold!(Some(color::MAGENTA), "Solver stderr:");
+            eprintln_bold!(Color::Title, "Solver stderr:");
             util::eprintln_trimming_trailing_newline(&self.solver_stderr);
         }
         if !self.tester_stderr.is_empty() {
-            eprintln_bold!(Some(color::MAGENTA), "Tester stderr:");
+            eprintln_bold!(Color::Title, "Tester stderr:");
             util::eprintln_trimming_trailing_newline(&self.tester_stderr);
         }
     }
@@ -330,50 +329,51 @@ impl InteractiveConsoleOut {
             }
         }
 
+        #[cfg_attr(rustfmt, rustfmt_skip)]
         let (kind, color, elapsed) = match *self {
             InteractiveConsoleOut::SolverStdout(_, t) => {
-                ("Solver stdout", color::CYAN, t) //
+                ("Solver stdout", Color::SolverStdout, t)
             }
             InteractiveConsoleOut::SolverStderr(_, t) => {
-                ("Solver,stderr", color::BRIGHT_MAGENTA, t)
+                ("Solver,stderr", Color::SolverStderr, t)
             }
             InteractiveConsoleOut::SolverTerminated(Some(0), t) => {
-                ("Solver finished", color::BRIGHT_CYAN, t)
+                ("Solver finished", Color::Success, t)
             }
             InteractiveConsoleOut::SolverTerminated(Some(_), t) => {
-                ("Solver finished", color::RED, t) //
+                ("Solver finished", Color::Fatal, t)
             }
             InteractiveConsoleOut::SolverTerminated(None, t) => {
-                ("Solver killed", color::YELLOW, t) //
+                ("Solver killed", Color::Warning, t)
             }
             InteractiveConsoleOut::TesterStdout(_, t) => {
-                ("Tester stdout", color::GREEN, t) //
+                ("Tester stdout", Color::TesterStdout, t)
             }
             InteractiveConsoleOut::TesterStderr(_, t) => {
-                ("Tester stderr", color::MAGENTA, t) //
+                ("Tester stderr", Color::TesterStderr, t)
             }
             InteractiveConsoleOut::TesterTerminated(Some(0), t) => {
-                ("Tester finished", color::BRIGHT_GREEN, t)
+                ("Tester finished", Color::Success, t)
             }
             InteractiveConsoleOut::TesterTerminated(Some(_), t) => {
-                ("Tester finished", color::RED, t) //
+                ("Tester finished", Color::Warning, t)
             }
             InteractiveConsoleOut::TesterTerminated(None, t) => {
-                ("Tester killed", color::YELLOW, t) //
+                ("Tester killed", Color::Warning, t)
             }
         };
         let elapsed = elapsed.millis_rounded_up();
         let content = self.content();
         let length = content.chars().count();
-        eprint_bold!(Some(color), "{:<15}", kind);
+        eprint_bold!(color, "{:<15}", kind);
         eprint!("│");
         if self.is_solver_s() {
             eprint_spaces(tester_length);
             eprint!("│");
-            eprint_bold!(Some(color), "{}", content);
+            eprint_bold!(color, "{}", content);
             eprint_spaces(solver_length - length);
         } else {
-            eprint_bold!(Some(color), "{}", content);
+            eprint_bold!(color, "{}", content);
             eprint_spaces(tester_length - length);
             eprint!("│");
             eprint_spaces(solver_length);

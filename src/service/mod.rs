@@ -3,6 +3,7 @@ pub mod atcoder_beta;
 pub mod hackerrank;
 
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
+use terminal::Color;
 use util;
 
 use {rpassword, rprompt, webbrowser};
@@ -10,7 +11,6 @@ use httpsession::{self, ColorMode, CookieStoreOption, HttpSession, RedirectPolic
 use httpsession::header::{ContentLength, UserAgent};
 use pbr::{MultiBar, Units};
 use regex::Regex;
-use term::color;
 use zip::ZipArchive;
 use zip::result::{ZipError, ZipResult};
 
@@ -50,7 +50,7 @@ fn ask_username_and_password(username_prompt: &'static str) -> io::Result<(Strin
     let password =
         rpassword::prompt_password_stderr("Password: ").or_else(|e| match e.raw_os_error() {
             Some(n) if n == errno_brokenpipe => {
-                eprintln_bold!(Some(color::BRIGHT_MAGENTA), "FALLBACK (os error {})", n);
+                eprintln_bold!(Color::Warning, "os error {}", n);
                 rprompt::prompt_reply_stderr("Password (not hidden): ")
             }
             _ => Err(e),

@@ -15,13 +15,13 @@ use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-/// Creates `snowchains.yaml` in `dir`.
+/// Creates `snowchains.yaml` in `directory`.
 pub fn init(directory: PathBuf) -> ConfigResult<()> {
     const LANGS: [&str; 8] = [
         "c++", "rust", "haskell", "bash", "python3", "java", "scala", "c#"
     ];
 
-    print!("Choose or input:");
+    println!("Choose or input:");
     for (i, lang) in LANGS.iter().enumerate() {
         println!("{}) {}", i + 1, lang);
     }

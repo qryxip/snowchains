@@ -45,6 +45,7 @@ mod config;
 mod errors;
 mod judging;
 mod service;
+mod terminal;
 mod testsuite;
 mod util;
 
@@ -163,7 +164,7 @@ quick_main_colored!(|| -> ::Result<()> {
 });
 
 #[derive(StructOpt)]
-#[structopt(usage = "snowchains init <default-language> <directory>\n    \
+#[structopt(usage = "snowchains init [directory]\n    \
                      snowchains switch <service> <contest>\n    \
                      snowchains login <service>\n    \
                      snowchains participate <service> <contest>\n    \

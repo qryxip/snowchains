@@ -5,6 +5,7 @@ use command::{CompilationCommand, JudgingCommand};
 use errors::{JudgeError, JudgeErrorKind, JudgeResult};
 use judging::interactive::InteractiveOutput;
 use judging::simple::SimpleOutput;
+use terminal::Color;
 use testsuite::{SuiteFilePaths, TestCases};
 
 use std::fmt;
@@ -119,20 +120,20 @@ where
     /// Whether `self` is a failure.
     fn failure(&self) -> bool;
     /// A color of `self`.
-    fn color(&self) -> u32;
+    fn color(&self) -> Color;
     /// Prints details to stderr.
     fn eprint_details(&self);
 
     fn print_title(&self, i: usize, n: usize) {
         (0..format!("{}", n).len() - format!("{}", i + 1).len()).for_each(|_| print!(" "));
         print_bold!(None, "{}/{} ", i + 1, n);
-        println_bold!(Some(self.color()), "{}", self);
+        println_bold!(self.color(), "{}", self);
     }
 
     fn eprint_title(&self, i: usize, n: usize) {
         (0..format!("{}", n).len() - format!("{}", i + 1).len()).for_each(|_| eprint!(" "));
         eprint_bold!(None, "{}/{} ", i + 1, n);
-        eprintln_bold!(Some(self.color()), "{}", self);
+        eprintln_bold!(self.color(), "{}", self);
     }
 }
 

@@ -1,10 +1,9 @@
 use command::JudgingCommand;
 use errors::JudgeResult;
 use judging::{JudgingOutput, MillisRoundedUp};
+use terminal::Color;
 use testsuite::SimpleCase;
 use util;
-
-use term::color;
 
 use std::{fmt, thread};
 use std::io::{self, Write};
@@ -96,11 +95,11 @@ impl JudgingOutput for SimpleOutput {
         }
     }
 
-    fn color(&self) -> u32 {
+    fn color(&self) -> Color {
         match *self {
-            SimpleOutput::Ac(..) => color::GREEN,
-            SimpleOutput::Tle(..) => color::RED,
-            SimpleOutput::Wa(..) | SimpleOutput::Re(..) => color::YELLOW,
+            SimpleOutput::Ac(..) => Color::Success,
+            SimpleOutput::Tle(..) => Color::Fatal,
+            SimpleOutput::Wa(..) | SimpleOutput::Re(..) => Color::Warning,
         }
     }
 
@@ -110,20 +109,20 @@ impl JudgingOutput for SimpleOutput {
         fn eprint_size(num_bytes: usize) {
             if num_bytes > 10 * 1024 * 1024 {
                 let mb = num_bytes / (1024 * 1024);
-                eprintln_bold!(Some(color::YELLOW), "OMITTED ({}MB)", mb);
+                eprintln_bold!(Color::Warning, "OMITTED ({}MB)", mb);
             } else if num_bytes > 10 * 1024 {
                 let kb = num_bytes / 1024;
-                eprintln_bold!(Some(color::YELLOW), "OMITTED ({}KB)", kb);
+                eprintln_bold!(Color::Warning, "OMITTED ({}KB)", kb);
             } else {
-                eprintln_bold!(Some(color::YELLOW), "OMITTED ({}B)", num_bytes);
+                eprintln_bold!(Color::Warning, "OMITTED ({}B)", num_bytes);
             }
         }
 
         fn eprint_section(head: &'static str, content: &str) {
             let num_bytes = content.as_bytes().len();
-            eprintln_bold!(Some(color::MAGENTA), "{}:", head);
+            eprintln_bold!(Color::Title, "{}:", head);
             if num_bytes == 0 {
-                eprintln_bold!(Some(color::YELLOW), "EMPTY");
+                eprintln_bold!(Color::Warning, "EMPTY");
             } else if num_bytes > THRESHOLD_TO_OMIT {
                 eprint_size(num_bytes);
             } else {
@@ -136,7 +135,7 @@ impl JudgingOutput for SimpleOutput {
             if num_bytes > THRESHOLD_TO_OMIT {
                 eprint_size(num_bytes);
             } else if num_bytes > 0 {
-                eprintln_bold!(Some(color::MAGENTA), "{}:", head);
+                eprintln_bold!(Color::Title, "{}:", head);
                 util::eprintln_trimming_trailing_newline(content);
             }
         }
