@@ -6,11 +6,12 @@ use chrono::{DateTime, Local, Utc};
 use httpsession::HttpSession;
 use regex::Regex;
 use select::document::Document;
-use select::node::Node;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::io::Read;
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
 
 /// Logins to "beta.atcoder.jp".
@@ -58,9 +59,20 @@ pub fn submit(
     )
 }
 
-custom_derive! {
-    #[derive(NewtypeDeref, NewtypeDerefMut)]
-    struct AtCoderBeta(HttpSession);
+pub(self) struct AtCoderBeta(HttpSession);
+
+impl Deref for AtCoderBeta {
+    type Target = HttpSession;
+
+    fn deref(&self) -> &HttpSession {
+        &self.0
+    }
+}
+
+impl DerefMut for AtCoderBeta {
+    fn deref_mut(&mut self) -> &mut HttpSession {
+        &mut self.0
+    }
 }
 
 impl AtCoderBeta {
@@ -167,7 +179,7 @@ impl AtCoderBeta {
         let outputs = extract_task_urls_with_names(&tasks_page)?
             .into_iter()
             .map(|(name, url)| -> ServiceResult<_> {
-                let suite = extract_cases(self.get(&url)?, &contest.style())?;
+                let suite = extract_as_suite(self.get(&url)?, contest.style())?;
                 let path = SuiteFilePath::new(dir_to_save, name.to_lowercase(), extension);
                 Ok((url, suite, path))
             })
@@ -213,10 +225,11 @@ impl AtCoderBeta {
         };
         for (name, url) in extract_task_urls_with_names(&tasks_page)? {
             if name.to_uppercase() == task.to_uppercase() {
+                #[cfg_attr(rustfmt, rustfmt_skip)]
                 let task_screen_name = {
                     lazy_static! {
-                        static ref SCREEN_NAME: Regex =
-                            Regex::new(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$").unwrap();
+                        static ref SCREEN_NAME: Regex = Regex::new(
+                            r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$").unwrap();
                     }
                     if let Some(caps) = SCREEN_NAME.captures(&url) {
                         caps[1].to_owned()
@@ -251,9 +264,9 @@ impl AtCoderBeta {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-enum Contest {
+pub(self) enum Contest {
     Practice,
-    AbcBefore007(u32),
+    AbcBefore042(u32),
     Abc(u32),
     ArcBefore058(u32),
     Arc(u32),
@@ -266,7 +279,7 @@ impl fmt::Display for Contest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Contest::Practice => write!(f, "practice contest"),
-            Contest::AbcBefore007(n) | Contest::Abc(n) => write!(f, "ABC{:>03}", n),
+            Contest::AbcBefore042(n) | Contest::Abc(n) => write!(f, "ABC{:>03}", n),
             Contest::ArcBefore058(n) | Contest::Arc(n) => write!(f, "ARC{:>03}", n),
             Contest::Agc(n) => write!(f, "AGC{:>03}", n),
             Contest::ChokudaiS(n) => write!(f, "Chokudai SpeedRun {:>03}", n),
@@ -276,15 +289,15 @@ impl fmt::Display for Contest {
 }
 
 impl Contest {
-    fn new(s: &str) -> Self {
+    pub(self) fn new(s: &str) -> Self {
         lazy_static! {
             static ref NAME: Regex = Regex::new(r"\A\s*([a-zA-Z_]+)(\d{3})\s*\z").unwrap();
         }
         if let Some(caps) = NAME.captures(s) {
             let name = caps[1].to_lowercase();
             let number = caps[2].parse::<u32>().unwrap_or(0);
-            if name == "abc" && number < 7 {
-                return Contest::AbcBefore007(number);
+            if name == "abc" && number < 42 {
+                return Contest::AbcBefore042(number);
             } else if name == "abc" {
                 return Contest::Abc(number);
             } else if name == "arc" && number < 58 {
@@ -304,8 +317,8 @@ impl Contest {
 
     fn style(&self) -> SampleCaseStyle {
         match *self {
-            Contest::AbcBefore007(_) | Contest::ArcBefore058(_) => SampleCaseStyle::Old,
-            _ => SampleCaseStyle::New,
+            Contest::AbcBefore042(_) | Contest::ArcBefore058(_) => SampleCaseStyle::Old,
+            _ => SampleCaseStyle::Current,
         }
     }
 
@@ -313,7 +326,7 @@ impl Contest {
         static BASE: &'static str = "/contests/";
         match *self {
             Contest::Practice => format!("{}practice", BASE),
-            Contest::AbcBefore007(n) | Contest::Abc(n) => format!("{}abc{:>03}", BASE, n),
+            Contest::AbcBefore042(n) | Contest::Abc(n) => format!("{}abc{:>03}", BASE, n),
             Contest::ArcBefore058(n) | Contest::Arc(n) => format!("{}arc{:>03}", BASE, n),
             Contest::Agc(n) => format!("{}agc{:>03}", BASE, n),
             Contest::ChokudaiS(n) => format!("{}chokudai_s{:>03}", BASE, n),
@@ -378,8 +391,9 @@ impl ContestDuration {
     }
 }
 
-enum SampleCaseStyle {
-    New,
+#[derive(Clone, Copy)]
+pub(self) enum SampleCaseStyle {
+    Current,
     Old,
 }
 
@@ -395,7 +409,9 @@ fn extract_csrf_token(document: &Document) -> ServiceResult<String> {
     super::quit_on_failure(extract(document), String::is_empty)
 }
 
-fn extract_task_urls_with_names(document: &Document) -> ServiceResult<Vec<(String, String)>> {
+pub(self) fn extract_task_urls_with_names(
+    document: &Document,
+) -> ServiceResult<Vec<(String, String)>> {
     fn extract(document: &Document) -> Option<Vec<(String, String)>> {
         let mut names_and_pathes = vec![];
         let predicate = Attr("id", "main-container")
@@ -422,99 +438,157 @@ fn extract_task_urls_with_names(document: &Document) -> ServiceResult<Vec<(Strin
     super::quit_on_failure(extract(document), Vec::is_empty)
 }
 
-fn extract_cases<R: Read>(html: R, _style: &SampleCaseStyle) -> ServiceResult<TestSuite> {
-    let document = Document::from_read(html)?;
-    extract_cases_from_new_style(&document)
-}
-
-fn extract_cases_from_new_style(document: &Document) -> ServiceResult<TestSuite> {
-    fn try_extracting_from_section(section_node: Node, regex: &Regex) -> Option<String> {
-        let title = section_node.find(Name("h3")).next()?.text();
-        let sample = section_node.find(Name("pre")).next()?.text();
-        return_none_unless!(regex.is_match(&title));
-        info!(
-            "Extracting sample cases: Found h3{{{}}}+pre{{{:?}}}",
-            title, sample
-        );
-        Some(sample)
+pub(self) fn extract_as_suite<R: Read>(
+    html: R,
+    style: SampleCaseStyle,
+) -> ServiceResult<TestSuite> {
+    lazy_static! {
+        static ref IN_JA: Regex = Regex::new(r"\A[\s\n]*入力例\s*(\d{1,3})+[.\n]*\z").unwrap();
+        static ref OUT_JA: Regex = Regex::new(r"\A[\s\n]*出力例\s*(\d{1,3})+[.\n]*\z").unwrap();
+        static ref IN_EN: Regex = Regex::new(r"\ASample Input\s?(\d{1,3}).*\z").unwrap();
+        static ref OUT_EN: Regex = Regex::new(r"\ASample Output\s?(\d{1,3}).*\z").unwrap();
     }
 
-    fn extract_for_lang(
-        document: &Document,
-        re_input: &'static Regex,
-        re_output: &'static Regex,
-        lang_class_name: &'static str,
-    ) -> Option<Vec<(String, String)>> {
-        let predicate = Attr("id", "task-statement")
-            .child(And(Name("span"), Class("lang")))
-            .child(And(Name("span"), Class(lang_class_name)))
-            .child(And(Name("div"), Class("part")))
-            .child(Name("section"));
-        let (mut samples, mut input_sample) = (vec![], None);
-        for node in document.find(predicate) {
-            info!(
-                "Extracting sample cases: Found #task-statement>span.lang>span.{}>div.part>section\
-                 >",
-                lang_class_name
-            );
-            input_sample = if let Some(input_sample) = input_sample {
-                let output_sample = try_extracting_from_section(node, re_output)?;
-                samples.push((output_sample, input_sample));
-                None
-            } else if let Some(input_sample) = try_extracting_from_section(node, re_input) {
-                Some(input_sample)
-            } else {
-                None
-            };
-        }
-        return_none_if!(samples.is_empty());
-        Some(samples)
-    }
-
-    fn extract(document: &Document) -> Option<TestSuite> {
-        lazy_static! {
-            static ref IN_JA: Regex = Regex::new(r"\A入力例 \d+.*\z").unwrap();
-            static ref OUT_JA: Regex = Regex::new(r"\A出力例 \d+.*\z").unwrap();
-            static ref IN_EN: Regex = Regex::new(r"\ASample Input \d+.*\z").unwrap();
-            static ref OUT_EN: Regex = Regex::new(r"\ASample Output \d+.*\z").unwrap();
-        }
+    fn extract_from_current_style(document: &Document) -> Option<TestSuite> {
         let timelimit = extract_timelimit_as_millis(document);
         let samples = {
-            info!("Extracting sample cases: Searching \"入力例\" and \"出力例\"");
-            if let Some(samples) = extract_for_lang(document, &IN_JA, &OUT_JA, "lang-ja") {
-                samples
-            } else {
-                info!("Extracting sample cases: Searching \"Sample Input\" and \"Sample Output\"");
-                extract_for_lang(document, &IN_EN, &OUT_EN, "lang-en")?
-            }
+            let predicate = |lang_class: &'static str| {
+                Attr("id", "task-statement")
+                    .child(And(Name("span"), Class("lang")))
+                    .child(And(Name("span"), Class(lang_class)))
+                    .child(And(Name("div"), Class("part")))
+                    .child(Name("section"))
+                    .child(Name("h3").or(Name("pre")))
+            };
+            let info = "\"入力例\" and \"出力例\"";
+            extract_samples(document, predicate("lang-ja"), &IN_JA, &OUT_JA, info).or_else(|| {
+                // There may not be a Japanese page. (e.g. Chokudai SpeedRun 001)
+                let info = "\"Sample Input\" and \"Sample Output\"";
+                extract_samples(document, predicate("lang-en"), &IN_EN, &OUT_EN, info)
+            })?
         };
         Some(TestSuite::from_samples(timelimit, samples))
     }
 
-    Ok(extract(document).unwrap_or_default())
-}
-
-fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
-    lazy_static! {
-        static ref TIMELIMIT: Regex = Regex::new(r"\A\D*(\d+)\s*sec.*\z").unwrap();
+    fn extract_from_old_style(document: &Document) -> Option<TestSuite> {
+        let timelimit = extract_timelimit_as_millis(document);
+        let predicate1 = Attr("id", "task-statement")
+            .child(Name("section"))
+            .child(Name("h3").or(Name("pre")));
+        let predicate2 = Attr("id", "task-statement")
+            .child(And(Name("div"), Class("part")))
+            .child(Name("section"))
+            .child(Name("h3").or(Name("pre")));
+        let predicate3 = Attr("id", "task-statement")
+            .child(And(Name("div"), Class("part")))
+            .child(Name("h3"))
+            .or(Attr("id", "task-statement")
+                .child(And(Name("div"), Class("part")))
+                .child(Name("section"))
+                .child(Name("pre")));
+        let predicate4 = Attr("id", "task-statement").child(Name("h3").or(Name("section")));
+        static INFO1: &str = "#task-statement>section>h3{{...}}+pre{{...}}";
+        static INFO2: &str = "#task-statement>div.part>section>h3{{...}}+pre{{...}}";
+        static INFO3: &str = "#task-statement>div.part>h3{{...}}+section>pre{{...}}";
+        static INFO4: &str = "#task-statement>h3{{...}}+section{{...}}";
+        let samples = extract_samples(document, predicate1, &IN_JA, &OUT_JA, INFO1)
+            .or_else(|| extract_samples(document, predicate2, &IN_JA, &OUT_JA, INFO2))
+            .or_else(|| extract_samples(document, predicate3, &IN_JA, &OUT_JA, INFO3))
+            .or_else(|| extract_samples(document, predicate4, &IN_JA, &OUT_JA, INFO4))?;
+        Some(TestSuite::from_samples(timelimit, samples))
     }
-    let predicate = Attr("id", "main-container")
-        .child(And(Name("div"), Class("row")))
-        .child(And(Name("div"), Class("col-sm-12")))
-        .child(Name("p"))
-        .child(Text);
-    let text = document.find(predicate).next()?.text();
-    info!(
-        "Extracting timelimit: Found #main-container>div.row>div.col-sm-12>p{{{:?}}}",
-        text
-    );
-    let caps = TIMELIMIT.captures(&text)?;
-    let timelimit = 1000 * caps[1].parse::<u64>().ok()?;
-    info!(
-        "Extracting timelimit: Successfully extracted: {}ms",
-        timelimit
-    );
-    Some(timelimit)
+
+    fn extract_samples<P: Predicate>(
+        document: &Document,
+        predicate_for_h3_or_pre_or_section: P,
+        re_input: &Regex,
+        re_output: &Regex,
+        info: &'static str,
+    ) -> Option<Vec<(String, String)>> {
+        info!("Extracting sample cases: Searching {}...", info);
+        let mut inputs = BTreeMap::<u8, _>::new();
+        let mut outputs = BTreeMap::<u8, _>::new();
+        let mut next = None;
+        for node in document.find(predicate_for_h3_or_pre_or_section) {
+            if node.name() == Some("h3") {
+                if let Some(caps) = re_input.captures(&node.text()) {
+                    next = Some((true, caps[1].parse().unwrap()));
+                    info!("Extracting sample cases: Found h3{{{:?}}}", node.text());
+                } else if let Some(caps) = re_output.captures(&node.text()) {
+                    next = Some((false, caps[1].parse().unwrap()));
+                    info!("Extracting sample cases: Found h3{{{:?}}}", node.text());
+                } else {
+                    info!("Extracting sample cases: Skipping h3{{{:?}}}", node.text());
+                }
+            } else if [Some("pre"), Some("section")].contains(&node.name()) {
+                if let Some((is_input, n)) = next {
+                    if is_input {
+                        info!(
+                            "Extracting sample cases: Extracted Input {}: {:?}, from pre{{”}}",
+                            n,
+                            node.text()
+                        );
+                        inputs.insert(n, node.text());
+                    } else {
+                        info!(
+                            "Extracting sample cases: Extracted Output {}: {:?} from pre{{”}}",
+                            n,
+                            node.text()
+                        );
+                        outputs.insert(n, node.text());
+                    }
+                } else {
+                    info!("Extracting sample cases: Skipping pre{{{:?}}}", node.text());
+                }
+                next = None;
+            } else {
+                unreachable!(
+                    r#"Node name should be "h3" "pre", or "section", got {:?}"#,
+                    node.name()
+                );
+            }
+        }
+        let mut samples = vec![];
+        for (i, input) in inputs {
+            if let Some(output) = outputs.remove(&i) {
+                samples.push((input, output));
+            }
+        }
+        if samples.is_empty() {
+            None
+        } else {
+            Some(samples)
+        }
+    }
+
+    fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
+        lazy_static! {
+            static ref TIMELIMIT: Regex = Regex::new(r"\A\D*(\d+)\s*sec.*\z").unwrap();
+        }
+        let predicate = Attr("id", "main-container")
+            .child(And(Name("div"), Class("row")))
+            .child(And(Name("div"), Class("col-sm-12")))
+            .child(Name("p"))
+            .child(Text);
+        let text = document.find(predicate).next()?.text();
+        info!(
+            "Extracting timelimit: Found #main-container>div.row>div.col-sm-12>p{{{:?}}}",
+            text
+        );
+        let caps = TIMELIMIT.captures(&text)?;
+        let timelimit = 1000 * caps[1].parse::<u64>().ok()?;
+        info!(
+            "Extracting timelimit: Successfully extracted: {}ms",
+            timelimit
+        );
+        Some(timelimit)
+    }
+
+    let document = Document::from_read(html)?;
+    Ok(match style {
+        SampleCaseStyle::Current => extract_from_current_style(&document),
+        SampleCaseStyle::Old => extract_from_old_style(&document),
+    }.unwrap_or_default())
 }
 
 fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuration> {
@@ -574,5 +648,117 @@ fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<
     match check(&Document::from_read(html)?, task_screen_name) {
         Some(p) => Ok(p),
         None => bail!(ServiceErrorKind::Scrape),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use service::atcoder_beta::{AtCoderBeta, Contest};
+    use testsuite::TestSuite;
+
+    use httpsession::{HttpSession, RedirectPolicy};
+    use httpsession::header::UserAgent;
+
+    use std::time::Duration;
+
+    #[test]
+    #[ignore]
+    fn it_extracts_task_urls() {
+        let mut atcoder = start();
+        let page = atcoder.fetch_tasks_page(&Contest::new("agc001")).unwrap();
+        let urls_and_names = super::extract_task_urls_with_names(&page).unwrap();
+        static EXPECTED: &[(&str, &str)] = &[
+            ("A", "/contests/agc001/tasks/agc001_a"),
+            ("B", "/contests/agc001/tasks/agc001_b"),
+            ("C", "/contests/agc001/tasks/agc001_c"),
+            ("D", "/contests/agc001/tasks/agc001_d"),
+            ("E", "/contests/agc001/tasks/agc001_e"),
+            ("F", "/contests/agc001/tasks/agc001_f"),
+        ];
+        assert_eq!(EXPECTED.len(), urls_and_names.len());
+        for ((actual_name, actual_url), &(expected_name, expected_url)) in
+            urls_and_names.into_iter().zip(EXPECTED)
+        {
+            assert_eq!(expected_name, actual_name);
+            assert_eq!(expected_url, actual_url);
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_timelimits_and_sample_cases_from_arc058() {
+        let mut atcoder = start();
+        let contest = Contest::new("arc058");
+        let page = atcoder.fetch_tasks_page(&contest).unwrap();
+        let urls_and_names = super::extract_task_urls_with_names(&page).unwrap();
+        let c = TestSuite::from_samples(
+            Some(2000),
+            vec![
+                ("1000 8\n1 3 4 5 6 7 8 9\n".to_owned(), "2000\n".to_owned()),
+                ("9999 1\n0\n".to_owned(), "9999\n".to_owned()),
+            ],
+        );
+        let d = TestSuite::from_samples(
+            Some(2000),
+            vec![
+                ("2 3 1 1\n".to_owned(), "2\n".to_owned()),
+                ("10 7 3 4\n".to_owned(), "3570\n".to_owned()),
+                ("100000 100000 99999 99999\n".to_owned(), "1\n".to_owned()),
+                (
+                    "100000 100000 44444 55555\n".to_owned(),
+                    "738162020\n".to_owned(),
+                ),
+            ],
+        );
+        let e = TestSuite::from_samples(
+            Some(4000),
+            vec![
+                ("3 5 7 5\n".to_owned(), "1\n".to_owned()),
+                ("4 5 7 5\n".to_owned(), "34\n".to_owned()),
+                ("37 4 2 3\n".to_owned(), "863912418\n".to_owned()),
+                ("40 5 7 5\n".to_owned(), "562805100\n".to_owned()),
+            ],
+        );
+        let f = TestSuite::from_samples(
+            Some(5000),
+            vec![
+                ("3 7\nat\ncoder\ncodar\n".to_owned(), "atcodar\n".to_owned()),
+                ("3 7\ncoder\ncodar\nat\n".to_owned(), "codarat\n".to_owned()),
+                (
+                    "4 13\nkyuri\nnamida\nzzzzzzz\naaaaaa\n".to_owned(),
+                    "namidazzzzzzz\n".to_owned(),
+                ),
+            ],
+        );
+        let expected = &[
+            ("C", "/contests/arc058/tasks/arc058_a", c),
+            ("D", "/contests/arc058/tasks/arc058_b", d),
+            ("E", "/contests/arc058/tasks/arc058_c", e),
+            ("F", "/contests/arc058/tasks/arc058_d", f),
+        ];
+        for (
+            &(ref actual_name, ref actual_url),
+            &(ref expected_name, ref expected_url, ref expected_suite),
+        ) in urls_and_names.iter().zip(expected)
+        {
+            assert_eq!(expected_name, actual_name);
+            assert_eq!(expected_url, actual_url);
+            let problem_page = atcoder.get(&actual_url).unwrap();
+            let actual_suite = super::extract_as_suite(problem_page, contest.style()).unwrap();
+            assert_eq!(expected_suite, &actual_suite);
+        }
+    }
+
+    fn start() -> AtCoderBeta {
+        let session = HttpSession::builder()
+            .base("beta.atcoder.jp", true, None)
+            .timeout(Duration::from_secs(3))
+            .redirect(RedirectPolicy::none())
+            .default_header(UserAgent::new(
+                "snowchains <https://github.com/wariuni/snowchains>",
+            ))
+            .with_robots_txt()
+            .unwrap();
+        AtCoderBeta(session)
     }
 }

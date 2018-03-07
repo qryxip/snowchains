@@ -20,6 +20,7 @@ pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteF
 
 /// `SimpelSuite` or `InteractiveSuite`.
 #[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum TestSuite {
     Simple(SimpleSuite),
@@ -137,6 +138,7 @@ impl TestSuite {
 
 /// Set of the timelimit and test cases.
 #[derive(Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct SimpleSuite {
     timelimit: Option<u64>,
     cases: Vec<ReducibleCase>,
@@ -171,6 +173,7 @@ impl SimpleSuite {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct InteractiveSuite {
     timelimit: Option<u64>,
     cases: Vec<InteractiveCase>,
@@ -241,6 +244,7 @@ impl SimpleCase {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct InteractiveCase {
     tester: String,
     timelimit: Option<u64>,
@@ -406,6 +410,7 @@ impl FromStr for SuiteFileExtension {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 struct ReducibleCase {
     input: NonNestedValue,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -434,6 +439,7 @@ impl ReducibleCase {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[serde(untagged)]
 enum NonNestedValue {
     Array(Vec<NonArrayValue>),
@@ -471,6 +477,7 @@ impl NonNestedValue {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[serde(untagged)]
 enum NonArrayValue {
     Integer(i64),

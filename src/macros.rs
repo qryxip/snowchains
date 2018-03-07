@@ -1,12 +1,8 @@
 macro_rules! quick_main_colored {
     ($main: expr) => {
         fn main() {
-            use terminal::Color;
-
-            use std::process;
-
             if let Err(e) = $main() {
-                eprint_bold!(Color::Fatal, "\nError: ");
+                eprint_bold!(terminal::Color::Fatal, "\nError: ");
                 eprintln!("{}", e);
                 for e_kind in e.iter().skip(1) {
                     eprint_bold!(None, "Caused by: ");
@@ -15,16 +11,8 @@ macro_rules! quick_main_colored {
                 if let Some(backtrace) = e.backtrace() {
                     eprintln!("{:?}", backtrace);
                 }
-                process::exit(1);
+                std::process::exit(1);
             }
-        }
-    };
-}
-
-macro_rules! return_none_if {
-    ($x: expr) => {
-        if $x {
-            return None;
         }
     };
 }

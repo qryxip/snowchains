@@ -60,7 +60,7 @@ pub fn eprintln_bold<C: Into<Option<Color>>>(color: C, args: fmt::Arguments) {
 fn write<O: Write>(
     color: Option<(u32, u32, u32)>,
     attr: Option<Attr>,
-    mut term: Box<Terminal<Output = O> + Send>,
+    mut term: Box<Terminal<Output = O>>,
     args: fmt::Arguments,
 ) -> bool {
     let mut try_write = |color: Option<u32>| {
