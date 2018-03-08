@@ -179,7 +179,7 @@ impl AtCoderBeta {
         let outputs = extract_task_urls_with_names(&tasks_page)?
             .into_iter()
             .map(|(name, url)| -> ServiceResult<_> {
-                let suite = extract_as_suite(self.get(&url)?, contest.style())?;
+                let suite = extract_as_suite(self.get(&url)?, contest)?;
                 let path = SuiteFilePath::new(dir_to_save, name.to_lowercase(), extension);
                 Ok((url, suite, path))
             })
@@ -266,10 +266,8 @@ impl AtCoderBeta {
 #[derive(Clone, PartialEq, Eq)]
 pub(self) enum Contest {
     Practice,
-    AbcBefore042(u32),
-    Abc(u32),
-    ArcBefore058(u32),
     Arc(u32),
+    Abc(u32),
     Agc(u32),
     ChokudaiS(u32),
     Other(String),
@@ -279,8 +277,8 @@ impl fmt::Display for Contest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Contest::Practice => write!(f, "practice contest"),
-            Contest::AbcBefore042(n) | Contest::Abc(n) => write!(f, "ABC{:>03}", n),
-            Contest::ArcBefore058(n) | Contest::Arc(n) => write!(f, "ARC{:>03}", n),
+            Contest::Abc(n) => write!(f, "ABC{:>03}", n),
+            Contest::Arc(n) => write!(f, "ARC{:>03}", n),
             Contest::Agc(n) => write!(f, "AGC{:>03}", n),
             Contest::ChokudaiS(n) => write!(f, "Chokudai SpeedRun {:>03}", n),
             Contest::Other(ref s) => write!(f, "{}", s),
@@ -296,12 +294,8 @@ impl Contest {
         if let Some(caps) = NAME.captures(s) {
             let name = caps[1].to_lowercase();
             let number = caps[2].parse::<u32>().unwrap_or(0);
-            if name == "abc" && number < 42 {
-                return Contest::AbcBefore042(number);
-            } else if name == "abc" {
+            if name == "abc" {
                 return Contest::Abc(number);
-            } else if name == "arc" && number < 58 {
-                return Contest::ArcBefore058(number);
             } else if name == "arc" {
                 return Contest::Arc(number);
             } else if name == "agc" {
@@ -315,19 +309,12 @@ impl Contest {
         Contest::Other(s.to_owned())
     }
 
-    fn style(&self) -> SampleCaseStyle {
-        match *self {
-            Contest::AbcBefore042(_) | Contest::ArcBefore058(_) => SampleCaseStyle::Old,
-            _ => SampleCaseStyle::Current,
-        }
-    }
-
     fn url_top(&self) -> String {
         static BASE: &'static str = "/contests/";
         match *self {
             Contest::Practice => format!("{}practice", BASE),
-            Contest::AbcBefore042(n) | Contest::Abc(n) => format!("{}abc{:>03}", BASE, n),
-            Contest::ArcBefore058(n) | Contest::Arc(n) => format!("{}arc{:>03}", BASE, n),
+            Contest::Abc(n) => format!("{}abc{:>03}", BASE, n),
+            Contest::Arc(n) => format!("{}arc{:>03}", BASE, n),
             Contest::Agc(n) => format!("{}agc{:>03}", BASE, n),
             Contest::ChokudaiS(n) => format!("{}chokudai_s{:>03}", BASE, n),
             Contest::Other(ref s) => format!("{}{}", BASE, s),
@@ -391,12 +378,6 @@ impl ContestDuration {
     }
 }
 
-#[derive(Clone, Copy)]
-pub(self) enum SampleCaseStyle {
-    Current,
-    Old,
-}
-
 fn extract_csrf_token(document: &Document) -> ServiceResult<String> {
     fn extract(document: &Document) -> Option<String> {
         document
@@ -438,67 +419,90 @@ pub(self) fn extract_task_urls_with_names(
     super::quit_on_failure(extract(document), Vec::is_empty)
 }
 
-pub(self) fn extract_as_suite<R: Read>(
-    html: R,
-    style: SampleCaseStyle,
-) -> ServiceResult<TestSuite> {
-    lazy_static! {
-        static ref IN_JA: Regex = Regex::new(r"\A[\s\n]*入力例\s*(\d{1,3})+[.\n]*\z").unwrap();
-        static ref OUT_JA: Regex = Regex::new(r"\A[\s\n]*出力例\s*(\d{1,3})+[.\n]*\z").unwrap();
-        static ref IN_EN: Regex = Regex::new(r"\ASample Input\s?(\d{1,3}).*\z").unwrap();
-        static ref OUT_EN: Regex = Regex::new(r"\ASample Output\s?(\d{1,3}).*\z").unwrap();
-    }
-
-    fn extract_from_current_style(document: &Document) -> Option<TestSuite> {
-        let timelimit = extract_timelimit_as_millis(document);
-        let samples = {
-            let predicate = |lang_class: &'static str| {
-                Attr("id", "task-statement")
-                    .child(And(Name("span"), Class("lang")))
-                    .child(And(Name("span"), Class(lang_class)))
-                    .child(And(Name("div"), Class("part")))
-                    .child(Name("section"))
-                    .child(Name("h3").or(Name("pre")))
-            };
-            let info = "\"入力例\" and \"出力例\"";
-            extract_samples(document, predicate("lang-ja"), &IN_JA, &OUT_JA, info).or_else(|| {
-                // There may not be a Japanese page. (e.g. Chokudai SpeedRun 001)
-                let info = "\"Sample Input\" and \"Sample Output\"";
-                extract_samples(document, predicate("lang-en"), &IN_EN, &OUT_EN, info)
-            })?
-        };
-        Some(TestSuite::from_samples(timelimit, samples))
-    }
-
-    fn extract_from_old_style(document: &Document) -> Option<TestSuite> {
-        let timelimit = extract_timelimit_as_millis(document);
+pub(self) fn extract_as_suite<R: Read>(html: R, contest: &Contest) -> ServiceResult<TestSuite> {
+    fn extract_samples(document: &Document, contest: &Contest) -> Option<Vec<(String, String)>> {
+        lazy_static! {
+            static ref IN_JA: Regex = Regex::new(r"\A[\s\n]*入力例\s*(\d{1,3})+[.\n]*\z").unwrap();
+            static ref OUT_JA: Regex = Regex::new(r"\A[\s\n]*出力例\s*(\d{1,3})+[.\n]*\z").unwrap();
+            static ref IN_EN: Regex = Regex::new(r"\ASample Input\s?(\d{1,3}).*\z").unwrap();
+            static ref OUT_EN: Regex = Regex::new(r"\ASample Output\s?(\d{1,3}).*\z").unwrap();
+        }
+        // Current style (Japanese)
         let predicate1 = Attr("id", "task-statement")
-            .child(Name("section"))
-            .child(Name("h3").or(Name("pre")));
-        let predicate2 = Attr("id", "task-statement")
+            .child(And(Name("span"), Class("lang")))
+            .child(And(Name("span"), Class("lang-ja")))
             .child(And(Name("div"), Class("part")))
             .child(Name("section"))
             .child(Name("h3").or(Name("pre")));
+        // Current style (English)
+        let predicate2 = Attr("id", "task-statement")
+            .child(And(Name("span"), Class("lang")))
+            .child(And(Name("span"), Class("lang-en")))
+            .child(And(Name("div"), Class("part")))
+            .child(Name("section"))
+            .child(Name("h3").or(Name("pre")));
+        // ARC019 to ARC057, ABC007 to ABC040
         let predicate3 = Attr("id", "task-statement")
             .child(And(Name("div"), Class("part")))
-            .child(Name("h3"))
+            .child(Name("section"))
+            .child(Name("h3").or(Name("pre")));
+        // ARC002 to ARC018, ABC001 to ABC006
+        let predicate4 = Attr("id", "task-statement")
+            .child(And(Name("div"), Class("part")))
+            .child(Name("h3").or(Name("pre")))
             .or(Attr("id", "task-statement")
                 .child(And(Name("div"), Class("part")))
                 .child(Name("section"))
                 .child(Name("pre")));
-        let predicate4 = Attr("id", "task-statement").child(Name("h3").or(Name("section")));
-        static INFO1: &str = "#task-statement>section>h3{{...}}+pre{{...}}";
-        static INFO2: &str = "#task-statement>div.part>section>h3{{...}}+pre{{...}}";
-        static INFO3: &str = "#task-statement>div.part>h3{{...}}+section>pre{{...}}";
-        static INFO4: &str = "#task-statement>h3{{...}}+section{{...}}";
-        let samples = extract_samples(document, predicate1, &IN_JA, &OUT_JA, INFO1)
-            .or_else(|| extract_samples(document, predicate2, &IN_JA, &OUT_JA, INFO2))
-            .or_else(|| extract_samples(document, predicate3, &IN_JA, &OUT_JA, INFO3))
-            .or_else(|| extract_samples(document, predicate4, &IN_JA, &OUT_JA, INFO4))?;
-        Some(TestSuite::from_samples(timelimit, samples))
+        // ARC001
+        let predicate5 = Attr("id", "task-statement")
+            .child(Name("h3").or(Name("pre")))
+            .or(Attr("id", "task-statement")
+                .child(Name("section"))
+                .child(Name("pre")));
+        // ABC041
+        let predicate6 = Attr("id", "task-statement")
+            .child(Name("section"))
+            .child(Name("h3").or(Name("pre")));
+        static INFO1: &str =
+            "#task-statement>span.lang>span.lang-ja.div.part>section>h3{{...}}+pre{{...}}";
+        static INFO2: &str =
+            "#task-statement>span.lang>span.lang-en.div.part>section>h3{{...}}+pre{{...}}";
+        static INFO3: &str = "#task-statement>div.part>section>h3{{...}}+pre{{...}}";
+        static INFO4: &str = "#task-statement>div.part>h3{{...}}+section>pre{{...}}";
+        static INFO5: &str = "#task-statement>h3{{...}}+section>pre{{...}}";
+        static INFO6: &str = "#task-statement>section>h3{{...}}+pre{{...}}";
+        let on_current = || {
+            try_extract_samples(document, predicate1, &IN_JA, &OUT_JA, INFO1)
+                .or_else(|| try_extract_samples(document, predicate2, &IN_EN, &OUT_EN, INFO2))
+        };
+        let on_arc019_to_arc057 = || {
+            try_extract_samples(document, predicate3, &IN_JA, &OUT_JA, INFO3)
+                .or_else(|| try_extract_samples(document, predicate4, &IN_JA, &OUT_JA, INFO4))
+                .or_else(|| try_extract_samples(document, predicate5, &IN_JA, &OUT_JA, INFO5))
+                .or_else(|| try_extract_samples(document, predicate6, &IN_JA, &OUT_JA, INFO6))
+        };
+        let on_arc002_to_arc018 = || {
+            try_extract_samples(document, predicate4, &IN_JA, &OUT_JA, INFO4)
+                .or_else(|| try_extract_samples(document, predicate3, &IN_JA, &OUT_JA, INFO3))
+                .or_else(|| try_extract_samples(document, predicate5, &IN_JA, &OUT_JA, INFO5))
+                .or_else(|| try_extract_samples(document, predicate6, &IN_JA, &OUT_JA, INFO6))
+        };
+        let on_arc001 = || try_extract_samples(document, predicate5, &IN_JA, &OUT_JA, INFO5);
+        let on_abc041 = || try_extract_samples(document, predicate6, &IN_JA, &OUT_JA, INFO6);
+        let samples = match *contest {
+            Contest::Arc(n) if 19 <= n && n <= 57 => on_arc019_to_arc057(),
+            Contest::Abc(n) if 7 <= n && n <= 40 => on_arc019_to_arc057(),
+            Contest::Arc(n) if 2 <= n && n <= 18 => on_arc002_to_arc018(),
+            Contest::Abc(n) if 1 <= n && n <= 6 => on_arc002_to_arc018(),
+            Contest::Arc(1) => on_arc001(),
+            Contest::Abc(41) => on_abc041(),
+            _ => on_current(),
+        }?;
+        Some(samples)
     }
 
-    fn extract_samples<P: Predicate>(
+    fn try_extract_samples<P: Predicate>(
         document: &Document,
         predicate_for_h3_or_pre_or_section: P,
         re_input: &Regex,
@@ -585,10 +589,9 @@ pub(self) fn extract_as_suite<R: Read>(
     }
 
     let document = Document::from_read(html)?;
-    Ok(match style {
-        SampleCaseStyle::Current => extract_from_current_style(&document),
-        SampleCaseStyle::Old => extract_from_old_style(&document),
-    }.unwrap_or_default())
+    let timelimit = extract_timelimit_as_millis(&document);
+    let samples = extract_samples(&document, contest).unwrap_or_default();
+    Ok(TestSuite::from_samples(timelimit, samples))
 }
 
 fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuration> {
@@ -659,6 +662,7 @@ mod tests {
     use httpsession::{HttpSession, RedirectPolicy};
     use httpsession::header::UserAgent;
 
+    use std::borrow::Borrow;
     use std::time::Duration;
 
     #[test]
@@ -686,67 +690,308 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn it_extracts_timelimits_and_sample_cases_from_arc058() {
-        let mut atcoder = start();
-        let contest = Contest::new("arc058");
-        let page = atcoder.fetch_tasks_page(&contest).unwrap();
-        let urls_and_names = super::extract_task_urls_with_names(&page).unwrap();
-        let c = TestSuite::from_samples(
-            Some(2000),
-            vec![
-                ("1000 8\n1 3 4 5 6 7 8 9\n".to_owned(), "2000\n".to_owned()),
-                ("9999 1\n0\n".to_owned(), "9999\n".to_owned()),
-            ],
-        );
-        let d = TestSuite::from_samples(
-            Some(2000),
-            vec![
-                ("2 3 1 1\n".to_owned(), "2\n".to_owned()),
-                ("10 7 3 4\n".to_owned(), "3570\n".to_owned()),
-                ("100000 100000 99999 99999\n".to_owned(), "1\n".to_owned()),
-                (
-                    "100000 100000 44444 55555\n".to_owned(),
-                    "738162020\n".to_owned(),
-                ),
-            ],
-        );
-        let e = TestSuite::from_samples(
-            Some(4000),
-            vec![
-                ("3 5 7 5\n".to_owned(), "1\n".to_owned()),
-                ("4 5 7 5\n".to_owned(), "34\n".to_owned()),
-                ("37 4 2 3\n".to_owned(), "863912418\n".to_owned()),
-                ("40 5 7 5\n".to_owned(), "562805100\n".to_owned()),
-            ],
-        );
-        let f = TestSuite::from_samples(
-            Some(5000),
-            vec![
-                ("3 7\nat\ncoder\ncodar\n".to_owned(), "atcodar\n".to_owned()),
-                ("3 7\ncoder\ncodar\nat\n".to_owned(), "codarat\n".to_owned()),
-                (
-                    "4 13\nkyuri\nnamida\nzzzzzzz\naaaaaa\n".to_owned(),
-                    "namidazzzzzzz\n".to_owned(),
-                ),
-            ],
-        );
-        let expected = &[
-            ("C", "/contests/arc058/tasks/arc058_a", c),
-            ("D", "/contests/arc058/tasks/arc058_b", d),
-            ("E", "/contests/arc058/tasks/arc058_c", e),
-            ("F", "/contests/arc058/tasks/arc058_d", f),
+    fn it_extracts_timelimits_and_sample_cases_from_arc001() {
+        static A: &[(&str, &str)] = &[
+            ("9\n131142143\n", "4 1\n"),
+            ("20\n12341234123412341234\n", "5 5\n"),
+            ("4\n1111\n", "4 0\n"),
         ];
-        for (
-            &(ref actual_name, ref actual_url),
-            &(ref expected_name, ref expected_url, ref expected_suite),
-        ) in urls_and_names.iter().zip(expected)
-        {
-            assert_eq!(expected_name, actual_name);
-            assert_eq!(expected_url, actual_url);
-            let problem_page = atcoder.get(&actual_url).unwrap();
-            let actual_suite = super::extract_as_suite(problem_page, contest.style()).unwrap();
-            assert_eq!(expected_suite, &actual_suite);
-        }
+        static B: &[(&str, &str)] = &[("7 34\n", "5\n"), ("19 28\n", "2\n"), ("10 10\n", "0\n")];
+        static C: &[(&str, &str)] = &[
+            (
+                "........\n........\n.......Q\n........\n..Q.....\n........\n.Q......\n........\n",
+                "Q.......\n....Q...\n.......Q\n.....Q..\n..Q.....\n......Q.\n.Q......\n...Q....\n",
+            ),
+            (
+                ".....Q..\n.Q......\n........\n........\n........\nQ.......\n........\n........\n",
+                "No Answer\n",
+            ),
+        ];
+        static D: &[(&str, &str)] = &[
+            (
+                "7\n3 3\n2 5\n4 6\n2 3\n3 6\n3 4\n4 6\n2 5\n1 5\n",
+                "8.22677276241436\n",
+            ),
+            ("5\n3 3\n0 5\n0 5\n0 5\n0 5\n0 5\n0 5\n", "5\n"),
+        ];
+        let expected = [
+            ("A", "/contests/arc001/tasks/arc001_1", 2000, A),
+            ("B", "/contests/arc001/tasks/arc001_2", 2000, B),
+            ("C", "/contests/arc001/tasks/arc001_3", 2000, C),
+            ("D", "/contests/arc001/tasks/arc001_4", 2000, D),
+        ];
+        test_sample_extraction("arc001", &expected);
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_timelimits_and_sample_cases_from_arc002() {
+        static A: &[(&str, &str)] = &[
+            ("1001\n", "NO\n"),
+            ("2012\n", "YES\n"),
+            ("2100\n", "NO\n"),
+            ("2000\n", "YES\n"),
+        ];
+        static B: &[(&str, &str)] = &[
+            ("2012/05/02\n", "2013/01/01\n"),
+            ("2020/05/02\n", "2020/05/02\n"),
+            ("2088/02/28\n", "2088/02/29\n"),
+        ];
+        static C: &[(&str, &str)] = &[
+            ("4\nABXY\n", "2\n"),
+            ("13\nABABABABXBXBX\n", "7\n"),
+            ("8\nAABBAABB\n", "4\n"),
+        ];
+        static D: &[(&str, &str)] = &[
+            ("3 10\n..o.o.xxx.\n...o.xo.x.\no.xxo..x..\n", "o\n"),
+            ("3 5\n..x..\n.o...\n...x.\n", "x\n"),
+        ];
+        let expected = [
+            ("A", "/contests/arc002/tasks/arc002_1", 2000, A),
+            ("B", "/contests/arc002/tasks/arc002_2", 2000, B),
+            ("C", "/contests/arc002/tasks/arc002_3", 2000, C),
+            ("D", "/contests/arc002/tasks/arc002_4", 2000, D),
+        ];
+        test_sample_extraction("arc002", &expected);
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_timelimits_and_sample_cases_from_arc019() {
+        static A: &[(&str, &str)] = &[
+            ("1Z0\n", "120\n"),
+            ("4ZD6O\n", "42060\n"),
+            ("BI9Z\n", "8192\n"),
+        ];
+        static B: &[(&str, &str)] = &[
+            ("ARC\n", "73\n"),
+            ("S\n", "0\n"),
+            ("NOLEMONNOMELON\n", "350\n"),
+        ];
+        static C: &[(&str, &str)] = &[
+            (
+                "5 7 3\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n",
+                "19\n",
+            ),
+            (
+                "5 7 2\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n",
+                "21\n",
+            ),
+            (
+                "5 7 1\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n",
+                "-1\n",
+            ),
+            (
+                "6 35 4\nT...TT.....TT...TTT...TTT..TTG.....\n..T..T.TTT.T..T..E..T..E...TTT.TTT.\n\
+                 .TTT.T.....E.TTTTT.TTT.TTT.TTT.....\n.....T.TT.TT.TTTTT.TTT.TTT.TTTTTTT.\n\
+                 .TTT.T.TT..T..T..S..T..TTT.TTTTTTT.\n.CTT.E.TTT.TT...TTT...TT.....E.....\n",
+                "94\n",
+            ),
+        ];
+        static D: &[(&str, &str)] = &[];
+        let expected = [
+            ("A", "/contests/arc019/tasks/arc019_1", 2000, A),
+            ("B", "/contests/arc019/tasks/arc019_2", 2000, B),
+            ("C", "/contests/arc019/tasks/arc019_3", 2000, C),
+            ("D", "/contests/arc019/tasks/arc019_4", 2000, D),
+        ];
+        test_sample_extraction("arc019", &expected);
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_timelimits_and_sample_cases_from_arc058() {
+        static C: &[(&str, &str)] = &[
+            ("1000 8\n1 3 4 5 6 7 8 9\n", "2000\n"),
+            ("9999 1\n0\n", "9999\n"),
+        ];
+        static D: &[(&str, &str)] = &[
+            ("2 3 1 1\n", "2\n"),
+            ("10 7 3 4\n", "3570\n"),
+            ("100000 100000 99999 99999\n", "1\n"),
+            ("100000 100000 44444 55555\n", "738162020\n"),
+        ];
+        static E: &[(&str, &str)] = &[
+            ("3 5 7 5\n", "1\n"),
+            ("4 5 7 5\n", "34\n"),
+            ("37 4 2 3\n", "863912418\n"),
+            ("40 5 7 5\n", "562805100\n"),
+        ];
+        static F: &[(&str, &str)] = &[
+            ("3 7\nat\ncoder\ncodar\n", "atcodar\n"),
+            ("3 7\ncoder\ncodar\nat\n", "codarat\n"),
+            ("4 13\nkyuri\nnamida\nzzzzzzz\naaaaaa\n", "namidazzzzzzz\n"),
+        ];
+        let expected = [
+            ("C", "/contests/arc058/tasks/arc058_a", 2000, C),
+            ("D", "/contests/arc058/tasks/arc058_b", 2000, D),
+            ("E", "/contests/arc058/tasks/arc058_c", 4000, E),
+            ("F", "/contests/arc058/tasks/arc058_d", 5000, F),
+        ];
+        test_sample_extraction("arc058", &expected);
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_timelimits_and_sample_cases_from_abc041() {
+        static A: &[(&str, &str)] = &[
+            ("atcoder\n3\n", "c\n"),
+            ("beginner\n1\n", "b\n"),
+            ("contest\n7\n", "t\n"),
+            ("z\n1\n", "z\n"),
+        ];
+        static B: &[(&str, &str)] = &[
+            ("2 3 4\n", "24\n"),
+            ("10000 1000 100\n", "1000000000\n"),
+            ("100000 1 100000\n", "999999937\n"),
+            ("1000000000 1000000000 1000000000\n", "999999664\n"),
+        ];
+        static C: &[(&str, &str)] = &[
+            ("3\n140 180 160\n", "2\n3\n1\n"),
+            ("2\n1000000000 1\n", "1\n2\n"),
+            ("8\n3 1 4 15 9 2 6 5\n", "4\n5\n7\n8\n3\n1\n6\n2\n"),
+        ];
+        static D: &[(&str, &str)] = &[
+            ("3 2\n2 1\n2 3\n", "2\n"),
+            ("5 5\n1 2\n2 3\n3 5\n1 4\n4 5\n", "3\n"),
+            ("16 1\n1 2\n", "10461394944000\n"),
+        ];
+        let expected = [
+            ("A", "/contests/abc041/tasks/abc041_a", 2000, A),
+            ("B", "/contests/abc041/tasks/abc041_b", 2000, B),
+            ("C", "/contests/abc041/tasks/abc041_c", 2000, C),
+            ("D", "/contests/abc041/tasks/abc041_d", 3000, D),
+        ];
+        test_sample_extraction("abc041", &expected);
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_timelimits_and_sample_cases_from_chokudai_s001() {
+        static A: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "5\n"),
+            ("6\n1 2 3 4 5 6\n", "6\n"),
+            ("7\n7 6 5 4 3 2 1\n", "7\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "20\n",
+            ),
+        ];
+        static B: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "15\n"),
+            ("6\n1 2 3 4 5 6\n", "21\n"),
+            ("7\n7 6 5 4 3 2 1\n", "28\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "210\n",
+            ),
+        ];
+        static C: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "3,1,5,4,2\n"),
+            ("6\n1 2 3 4 5 6\n", "1,2,3,4,5,6\n"),
+            ("7\n7 6 5 4 3 2 1\n", "7,6,5,4,3,2,1\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "19,11,10,7,8,9,17,18,20,4,3,15,16,1,5,14,6,2,13,12\n",
+            ),
+        ];
+        static D: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "1 2 3 4 5\n"),
+            ("6\n1 2 3 4 5 6\n", "1 2 3 4 5 6\n"),
+            ("7\n7 6 5 4 3 2 1\n", "1 2 3 4 5 6 7\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20\n",
+            ),
+        ];
+        static E: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "2\n"),
+            ("6\n1 2 3 4 5 6\n", "1\n"),
+            ("7\n7 6 5 4 3 2 1\n", "7\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "14\n",
+            ),
+        ];
+        static F: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "2\n"),
+            ("6\n1 2 3 4 5 6\n", "6\n"),
+            ("7\n7 6 5 4 3 2 1\n", "1\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "2\n",
+            ),
+        ];
+        static G: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "31542\n"),
+            ("6\n1 2 3 4 5 6\n", "123456\n"),
+            ("7\n7 6 5 4 3 2 1\n", "7654321\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "370453866\n",
+            ),
+        ];
+        static H: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "2\n"),
+            ("6\n1 2 3 4 5 6\n", "6\n"),
+            ("7\n7 6 5 4 3 2 1\n", "1\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "6\n",
+            ),
+        ];
+        static I: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "1\n"),
+            ("6\n1 2 3 4 5 6\n", "2\n"),
+            ("7\n7 6 5 4 3 2 1\n", "2\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "3\n",
+            ),
+        ];
+        static J: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "5\n"),
+            ("6\n1 2 3 4 5 6\n", "0\n"),
+            ("7\n7 6 5 4 3 2 1\n", "21\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "114\n",
+            ),
+        ];
+        static K: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "54\n"),
+            ("6\n1 2 3 4 5 6\n", "1\n"),
+            ("7\n7 6 5 4 3 2 1\n", "5040\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "542869439\n",
+            ),
+        ];
+        static L: &[(&str, &str)] = &[
+            ("5\n3 1 5 4 2\n", "YES\n"),
+            ("6\n1 2 3 4 5 6\n", "YES\n"),
+            ("7\n7 6 5 4 3 2 1\n", "YES\n"),
+            (
+                "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+                "YES\n",
+            ),
+        ];
+        #[cfg_attr(rustfmt, rustfmt_skip)]
+        let expected = [
+            ("A", "/contests/chokudai_s001/tasks/chokudai_S001_a", 2000, A),
+            ("B", "/contests/chokudai_s001/tasks/chokudai_S001_b", 2000, B),
+            ("C", "/contests/chokudai_s001/tasks/chokudai_S001_c", 2000, C),
+            ("D", "/contests/chokudai_s001/tasks/chokudai_S001_d", 2000, D),
+            ("E", "/contests/chokudai_s001/tasks/chokudai_S001_e", 2000, E),
+            ("F", "/contests/chokudai_s001/tasks/chokudai_S001_f", 2000, F),
+            ("G", "/contests/chokudai_s001/tasks/chokudai_S001_g", 2000, G),
+            ("H", "/contests/chokudai_s001/tasks/chokudai_S001_h", 2000, H),
+            ("I", "/contests/chokudai_s001/tasks/chokudai_S001_i", 2000, I),
+            ("J", "/contests/chokudai_s001/tasks/chokudai_S001_j", 2000, J),
+            ("K", "/contests/chokudai_s001/tasks/chokudai_S001_k", 2000, K),
+            ("L", "/contests/chokudai_s001/tasks/chokudai_S001_l", 2000, L),
+        ];
+        test_sample_extraction("chokudai_s001", &expected);
     }
 
     fn start() -> AtCoderBeta {
@@ -760,5 +1005,32 @@ mod tests {
             .with_robots_txt()
             .unwrap();
         AtCoderBeta(session)
+    }
+
+    fn test_sample_extraction(contest: &str, expected: &[(&str, &str, u64, &[(&str, &str)])]) {
+        let mut atcoder = start();
+        let contest = Contest::new(contest);
+        let page = atcoder.fetch_tasks_page(&contest).unwrap();
+        let urls_and_names = super::extract_task_urls_with_names(&page).unwrap();
+        for (
+            &(ref actual_name, ref actual_url),
+            &(expected_name, expected_url, expected_timelimit, expected_samples),
+        ) in urls_and_names.iter().zip(expected.iter())
+        {
+            assert_eq!(expected_name, actual_name);
+            assert_eq!(expected_url, actual_url);
+            let problem_page = atcoder.get(&actual_url).unwrap();
+            let expected_suite =
+                TestSuite::from_samples(Some(expected_timelimit), own_pairs(expected_samples));
+            let actual_suite = super::extract_as_suite(problem_page, &contest).unwrap();
+            assert_eq!(expected_suite, actual_suite);
+        }
+    }
+
+    fn own_pairs<O: Borrow<B>, B: ToOwned<Owned = O> + ?Sized>(pairs: &[(&B, &B)]) -> Vec<(O, O)> {
+        pairs
+            .iter()
+            .map(|&(ref l, ref r)| ((*l).to_owned(), (*r).to_owned()))
+            .collect()
     }
 }
