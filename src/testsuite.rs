@@ -36,6 +36,8 @@ impl Default for TestSuite {
 
 impl TestSuite {
     /// Constructs a `TestSuite::Simple` with `timelimit` and `samples`.
+    ///
+    /// Make sure the order is (<outout>, <inout>).
     pub fn simple<T: Into<Option<u64>>>(timelimit: T, samples: Vec<(String, String)>) -> Self {
         TestSuite::Simple(SimpleSuite::from_samples(timelimit.into(), samples))
     }
