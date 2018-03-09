@@ -155,7 +155,7 @@ fn extract_samples_from_zip<R: Read + Seek>(zip: ZipArchive<R>) -> ZipResult<Tes
             outputs.push(util::string_from_read(file)?);
         }
     }
-    Ok(TestSuite::from_samples(
+    Ok(TestSuite::simple(
         None,
         outputs.into_iter().zip(inputs).collect(),
     ))

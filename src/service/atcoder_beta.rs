@@ -1,4 +1,4 @@
-use errors::{ServiceErrorKind, ServiceResult};
+use errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use service::OpenInBrowser;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 
@@ -420,7 +420,12 @@ pub(self) fn extract_task_urls_with_names(
 }
 
 pub(self) fn extract_as_suite<R: Read>(html: R, contest: &Contest) -> ServiceResult<TestSuite> {
-    fn extract_samples(document: &Document, contest: &Contest) -> Option<Vec<(String, String)>> {
+    enum Samples {
+        Simple(Vec<(String, String)>),
+        Interactive,
+    }
+
+    fn extract_samples(document: &Document, contest: &Contest) -> Option<Samples> {
         lazy_static! {
             static ref IN_JA: Regex = Regex::new(r"\A[\s\n]*入力例\s*(\d{1,3})+[.\n]*\z").unwrap();
             static ref OUT_JA: Regex = Regex::new(r"\A[\s\n]*出力例\s*(\d{1,3})+[.\n]*\z").unwrap();
@@ -464,14 +469,28 @@ pub(self) fn extract_as_suite<R: Read>(html: R, contest: &Contest) -> ServiceRes
         let predicate6 = Attr("id", "task-statement")
             .child(Name("section"))
             .child(Name("h3").or(Name("pre")));
+        // practice contest (Japanese)
+        let predicate7 = Attr("id", "task-statement")
+            .child(And(Name("span"), Class("lang")))
+            .child(And(Name("span"), Class("lang-ja")))
+            .child(And(Name("div"), Class("part")))
+            .child(Name("h3"))
+            .or(Attr("id", "task-statement")
+                .child(And(Name("span"), Class("lang")))
+                .child(And(Name("span"), Class("lang-ja")))
+                .child(And(Name("div"), Class("part")))
+                .child(Name("section"))
+                .child(Name("pre")));
         static INFO1: &str =
-            "#task-statement>span.lang>span.lang-ja.div.part>section>h3{{...}}+pre{{...}}";
+            "#task-statement>span.lang>span.lang-ja>div.part>section>h3{{...}}+pre{{...}}";
         static INFO2: &str =
-            "#task-statement>span.lang>span.lang-en.div.part>section>h3{{...}}+pre{{...}}";
+            "#task-statement>span.lang>span.lang-en>div.part>section>h3{{...}}+pre{{...}}";
         static INFO3: &str = "#task-statement>div.part>section>h3{{...}}+pre{{...}}";
         static INFO4: &str = "#task-statement>div.part>h3{{...}}+section>pre{{...}}";
         static INFO5: &str = "#task-statement>h3{{...}}+section>pre{{...}}";
         static INFO6: &str = "#task-statement>section>h3{{...}}+pre{{...}}";
+        static INFO7: &str =
+            "#task-statement>span.lang>span.lang-ja.div.part>section>h3{{...}}+section>pre{{...}}";
         let on_current = || {
             try_extract_samples(document, predicate1, &IN_JA, &OUT_JA, INFO1)
                 .or_else(|| try_extract_samples(document, predicate2, &IN_EN, &OUT_EN, INFO2))
@@ -490,16 +509,17 @@ pub(self) fn extract_as_suite<R: Read>(html: R, contest: &Contest) -> ServiceRes
         };
         let on_arc001 = || try_extract_samples(document, predicate5, &IN_JA, &OUT_JA, INFO5);
         let on_abc041 = || try_extract_samples(document, predicate6, &IN_JA, &OUT_JA, INFO6);
-        let samples = match *contest {
+        let on_practice = || try_extract_samples(document, predicate7, &IN_JA, &OUT_JA, INFO7);
+        match *contest {
             Contest::Arc(n) if 19 <= n && n <= 57 => on_arc019_to_arc057(),
             Contest::Abc(n) if 7 <= n && n <= 40 => on_arc019_to_arc057(),
             Contest::Arc(n) if 2 <= n && n <= 18 => on_arc002_to_arc018(),
             Contest::Abc(n) if 1 <= n && n <= 6 => on_arc002_to_arc018(),
             Contest::Arc(1) => on_arc001(),
             Contest::Abc(41) => on_abc041(),
+            Contest::Practice => on_practice(),
             _ => on_current(),
-        }?;
-        Some(samples)
+        }
     }
 
     fn try_extract_samples<P: Predicate>(
@@ -508,7 +528,16 @@ pub(self) fn extract_as_suite<R: Read>(html: R, contest: &Contest) -> ServiceRes
         re_input: &Regex,
         re_output: &Regex,
         info: &'static str,
-    ) -> Option<Vec<(String, String)>> {
+    ) -> Option<Samples> {
+        for strong in document.find(Attr("id", "task-statement").descendant(Name("strong"))) {
+            let text = strong.text();
+            for word in &["インタラクティブ", "Interactive"] {
+                if text.find(word).is_some() {
+                    info!("Extracting sample cases: Found word {:?}", word);
+                    return Some(Samples::Interactive);
+                }
+            }
+        }
         info!("Extracting sample cases: Searching {}...", info);
         let mut inputs = BTreeMap::<u8, _>::new();
         let mut outputs = BTreeMap::<u8, _>::new();
@@ -561,7 +590,7 @@ pub(self) fn extract_as_suite<R: Read>(html: R, contest: &Contest) -> ServiceRes
         if samples.is_empty() {
             None
         } else {
-            Some(samples)
+            Some(Samples::Simple(samples))
         }
     }
 
@@ -589,9 +618,16 @@ pub(self) fn extract_as_suite<R: Read>(html: R, contest: &Contest) -> ServiceRes
     }
 
     let document = Document::from_read(html)?;
-    let timelimit = extract_timelimit_as_millis(&document);
-    let samples = extract_samples(&document, contest).unwrap_or_default();
-    Ok(TestSuite::from_samples(timelimit, samples))
+    let timelimit = extract_timelimit_as_millis(&document)
+        .ok_or_else::<ServiceError, _>(|| ServiceErrorKind::Scrape.into())?;
+    match extract_samples(&document, contest) {
+        Some(Samples::Simple(samples)) => Ok(TestSuite::simple(timelimit, samples)),
+        Some(Samples::Interactive) => Ok(TestSuite::interactive(timelimit)),
+        None => {
+            warn!("Extracting sample cases: Could not extract sample cases");
+            Ok(TestSuite::simple(timelimit, vec![]))
+        }
+    }
 }
 
 fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuration> {
@@ -1020,8 +1056,7 @@ mod tests {
             assert_eq!(expected_name, actual_name);
             assert_eq!(expected_url, actual_url);
             let problem_page = atcoder.get(&actual_url).unwrap();
-            let expected_suite =
-                TestSuite::from_samples(Some(expected_timelimit), own_pairs(expected_samples));
+            let expected_suite = TestSuite::simple(expected_timelimit, own_pairs(expected_samples));
             let actual_suite = super::extract_as_suite(problem_page, &contest).unwrap();
             assert_eq!(expected_suite, actual_suite);
         }

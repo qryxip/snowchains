@@ -1,9 +1,10 @@
 use errors::{SuiteFileErrorKind, SuiteFileResult};
+use terminal::Color;
 use util;
 
 use {serde_json, serde_yaml, toml};
 
-use std::{fmt, vec};
+use std::fmt;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -34,15 +35,14 @@ impl Default for TestSuite {
 }
 
 impl TestSuite {
-    /// Constructs a `TestSuite` with `timelimit` and `cases`.
-    ///
-    /// Returns `InteractiveSuite` if `cases` is empty, otherwise returns `SimpleSuite`.
-    pub fn from_samples(timelimit: Option<u64>, cases: Vec<(String, String)>) -> Self {
-        if cases.is_empty() {
-            TestSuite::Interactive(InteractiveSuite::without_cases(timelimit))
-        } else {
-            TestSuite::Simple(SimpleSuite::from_samples(timelimit, cases.into_iter()))
-        }
+    /// Constructs a `TestSuite::Simple` with `timelimit` and `samples`.
+    pub fn simple<T: Into<Option<u64>>>(timelimit: T, samples: Vec<(String, String)>) -> Self {
+        TestSuite::Simple(SimpleSuite::from_samples(timelimit.into(), samples))
+    }
+
+    /// Constructs a `TestSuite::Interactive` with `timelimit`.
+    pub fn interactive(timelimit: u64) -> Self {
+        TestSuite::Interactive(InteractiveSuite::without_cases(Some(timelimit)))
     }
 
     /// Loads from `path` and deserializes it into `TestSuite`.
@@ -90,10 +90,11 @@ impl TestSuite {
         file.write_all(serialized.as_bytes())?;
         print!("Saved to {}", path.display());
         if prints_num_cases {
-            match self.num_cases() {
-                0 => print!(" (no sample case extracted)"),
-                1 => print!(" (1 sample case extracted)"),
-                n => print!(" ({} sample cases extracted)", n),
+            match (self.is_simple(), self.num_cases()) {
+                (false, _) => print_bold!(Color::Success, " (interactive problem)"),
+                (true, 0) => print_bold!(Color::Warning, " (no sample case extracted)"),
+                (true, 1) => print_bold!(Color::Success, " (1 sample case extracted)"),
+                (true, n) => print_bold!(Color::Success, " ({} sample cases extracted)", n),
             }
         }
         println!();
@@ -108,7 +109,10 @@ impl TestSuite {
     }
 
     fn is_interactive(&self) -> bool {
-        !self.is_simple()
+        match *self {
+            TestSuite::Simple(_) => false,
+            TestSuite::Interactive(_) => true,
+        }
     }
 
     fn unwrap_to_simple(self) -> SimpleSuite {
@@ -147,12 +151,14 @@ pub struct SimpleSuite {
 }
 
 impl SimpleSuite {
-    /// Constructs a `Cases` with a timelimit value and pairs of input/output
-    /// samples.
-    fn from_samples(timelimit: Option<u64>, cases: vec::IntoIter<(String, String)>) -> Self {
+    fn from_samples<S: IntoIterator<Item = (String, String)>>(
+        timelimit: Option<u64>,
+        samples: S,
+    ) -> Self {
         Self {
             timelimit,
-            cases: cases
+            cases: samples
+                .into_iter()
                 .map(|(output, input)| ReducibleCase::from_strings(input, Some(output)))
                 .collect(),
             path: PathBuf::default(),
