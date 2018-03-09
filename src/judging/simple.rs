@@ -165,3 +165,37 @@ impl JudgingOutput for SimpleOutput {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use command::JudgingCommand;
+    use judging::simple::SimpleOutput;
+    use testsuite::SimpleCase;
+
+    use std::sync::Arc;
+
+    #[test]
+    #[ignore]
+    fn it_judges() {
+        static CODE: &str = r#"read a;read b c;read s;printf "%d %s\n" $(expr $a + $b + $c) $s"#;
+        let command = Arc::new(JudgingCommand::from_args("bash", &["-c", CODE]).unwrap());
+        let wa_command = Arc::new(JudgingCommand::from_args("bash", &["-c", "echo 0"]).unwrap());
+        let re_command = Arc::new(JudgingCommand::from_args("bash", &["-c", "exit 1"]).unwrap());
+        let case1 = SimpleCase::new("1\n2 3\ntest\n", "6 test\n", 100);
+        let case2 = SimpleCase::new("72\n128 256\nmyonmyon\n", "456 myonmyon\n", 100);
+        for case in vec![case1, case2] {
+            match super::judge(case.clone(), &command).unwrap() {
+                SimpleOutput::Ac(..) => (),
+                o => panic!("{}", o),
+            }
+            match super::judge(case.clone(), &wa_command).unwrap() {
+                SimpleOutput::Wa(..) => (),
+                o => panic!("{}", o),
+            }
+            match super::judge(case, &re_command).unwrap() {
+                SimpleOutput::Re(..) => (),
+                o => panic!("{}", o),
+            }
+        }
+    }
+}

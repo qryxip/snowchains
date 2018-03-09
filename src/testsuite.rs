@@ -233,6 +233,16 @@ pub struct SimpleCase {
 }
 
 impl SimpleCase {
+    #[cfg(test)]
+    pub fn new(input: &str, expected: &str, timelimit: u64) -> Self {
+        Self {
+            path: Arc::new(PathBuf::new()),
+            input: Arc::new(input.to_owned()),
+            expected: Arc::new(expected.to_owned()),
+            timelimit: Some(timelimit),
+        }
+    }
+
     /// # Example
     ///
     /// ```

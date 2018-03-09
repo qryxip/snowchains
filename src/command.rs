@@ -69,6 +69,17 @@ impl JudgingCommand {
         JudgingCommand(CommandProperty::new(command, working_dir))
     }
 
+    #[cfg(test)]
+    pub fn from_args(arg0: &str, rest_args: &[&str]) -> io::Result<Self> {
+        use std::env;
+        let working_dir = env::current_dir()?;
+        Ok(JudgingCommand(CommandProperty {
+            arg0: arg0.to_owned(),
+            rest_args: rest_args.iter().map(|arg| (*arg).to_owned()).collect(),
+            working_dir,
+        }))
+    }
+
     /// Creates a new `JudgingCommand` which `working_dir` equals
     /// `self.working_dir`.
     pub fn new_in_same_dir<S: Into<String>>(&self, command: S) -> Self {
