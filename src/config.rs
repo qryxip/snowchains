@@ -7,9 +7,9 @@ use regex::Regex;
 use rprompt;
 use serde_yaml;
 
-use std::{cmp, env, fmt, fs};
+use std::{self, cmp, env, fmt, fs};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Write};
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
@@ -240,8 +240,8 @@ pub fn switch(service: ServiceName, contest: &str) -> ConfigResult<()> {
 pub struct Config {
     service: Option<ServiceName>,
     contest: Option<String>,
-    #[serde(default = "Template::default_testsuites")]
-    testsuites: Template,
+    #[serde(default = "TemplateString::default_testsuites")]
+    testsuites: TemplateString,
     #[serde(default)]
     extension_on_downloading: SuiteFileExtension,
     #[serde(default = "default_extensions")]
@@ -284,6 +284,23 @@ impl Config {
     /// Gets the attribute `extension_on_downloading`.
     pub fn get_extension_on_downloading(&self) -> SuiteFileExtension {
         self.extension_on_downloading
+    }
+
+    pub fn src_paths_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, Template>> {
+        let mut templates = BTreeMap::new();
+        for lang in &self.languages {
+            if let Some(lang_id) = lang.language_ids.atcoder {
+                let mut vars = HashMap::new();
+                if let Some(ref atcoder) = self.atcoder {
+                    for (k, v) in &atcoder.variables {
+                        vars.insert(k.as_str(), v.as_str());
+                    }
+                }
+                let template = lang.src.embed_vars(&vars)?;
+                templates.insert(lang_id, template);
+            }
+        }
+        Ok(templates)
     }
 
     /// Gets the absolute path of the test suite files directory
@@ -430,7 +447,7 @@ struct Service {
 #[derive(Serialize, Deserialize)]
 struct Language {
     name: String,
-    src: Template,
+    src: TemplateString,
     #[serde(skip_serializing_if = "Option::is_none")]
     compile: Option<Compile>,
     run: Run,
@@ -516,21 +533,21 @@ impl Language {
 
 #[derive(Serialize, Deserialize)]
 struct Compile {
-    bin: Template,
-    command: Template,
+    bin: TemplateString,
+    command: TemplateString,
     working_directory: InputPath,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Run {
-    command: Template,
+    command: TemplateString,
     working_directory: InputPath,
 }
 
 impl Default for Run {
     fn default() -> Self {
         Self {
-            command: Template("$bin".to_owned()),
+            command: TemplateString("$bin".to_owned()),
             working_directory: InputPath::default(),
         }
     }
@@ -581,12 +598,37 @@ impl InputPath {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct Template(String);
+pub struct Template(Vec<TemplateToken>);
 
 impl Template {
+    pub fn format(&self, target: &str) -> String {
+        self.0.iter().fold("".to_owned(), |mut r, t| {
+            match *t {
+                TemplateToken::Plain(ref s) => r += s,
+                TemplateToken::Target => r += target,
+                TemplateToken::TargetCamelized => r += &target.camelize(),
+            }
+            r
+        })
+    }
+
+    pub fn format_as_path(&self, target: &str) -> PathBuf {
+        PathBuf::from(self.format(target))
+    }
+}
+
+enum TemplateToken {
+    Plain(String),
+    Target,
+    TargetCamelized,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TemplateString(String);
+
+impl TemplateString {
     fn default_testsuites() -> Self {
-        Template("snowchains/$service/$contest/".to_owned())
+        TemplateString("snowchains/$service/$contest/".to_owned())
     }
 
     fn resolve_as_path(
@@ -649,16 +691,7 @@ impl Template {
         Ok(JudgingCommand::new(command, working_dir))
     }
 
-    fn format(&self, target: &str, variables: &HashMap<&str, &str>) -> TemplateResult<String> {
-        for &k in variables.keys() {
-            if ['$', '/', '\\', '{', '}', ' ']
-                .iter()
-                .any(|c| k.contains(*c))
-            {
-                return Err(TemplateError::InvalidVariable(k.to_owned()));
-            }
-        }
-
+    fn embed_vars(&self, variables: &HashMap<&str, &str>) -> TemplateResult<Template> {
         enum Token {
             Text(String),
             Var(String),
@@ -666,47 +699,26 @@ impl Template {
         }
 
         impl Token {
-            fn format(
-                &self,
+            fn transform(
+                self,
                 whole: &str,
-                target: &str,
                 variables: &HashMap<&str, &str>,
-                f: &mut String,
-            ) -> TemplateResult<()> {
-                fn trim_lr(s: &str) -> String {
-                    lazy_static! {
-                        static ref CENTOR: Regex = Regex::new(r"^\s*(\S*)\s*$").unwrap();
-                    }
-                    match CENTOR.captures(s) {
-                        Some(cap) => cap[1].to_owned(),
-                        None => s.to_owned(),
-                    }
-                }
-
-                match *self {
-                    Token::Text(ref s) => {
-                        *f += s;
-                        Ok(())
-                    }
-                    Token::Var(ref s) => match variables.get(s.as_str()) {
-                        Some(v) => {
-                            *f += v;
-                            Ok(())
-                        }
+            ) -> TemplateResult<TemplateToken> {
+                match self {
+                    Token::Text(s) => Ok(TemplateToken::Plain(s)),
+                    Token::Var(s) => match variables.get(s.as_str()) {
+                        Some(v) => Ok(TemplateToken::Plain((*v).to_owned())),
                         None => {
-                            let (whole, s) = (whole.to_owned(), s.to_owned());
                             let vars = variables.keys().map(|v| (*v).to_owned()).collect();
-                            Err(TemplateError::NoSuchVariable(whole, s, vars))
+                            Err(TemplateError::NoSuchVariable(whole.to_owned(), s, vars))
                         }
                     },
                     Token::Target(ref s) => {
                         let s = trim_lr(s);
                         if s == "" {
-                            *f += target;
-                            Ok(())
+                            Ok(TemplateToken::Target)
                         } else if ["c", "C"].contains(&s.as_str()) {
-                            *f += &target.camelize();
-                            Ok(())
+                            Ok(TemplateToken::TargetCamelized)
                         } else {
                             let whole = whole.to_owned();
                             static EXPECTED_KWS: &'static [&'static str] = &["c", "C"];
@@ -714,6 +726,16 @@ impl Template {
                         }
                     }
                 }
+            }
+        }
+
+        fn trim_lr(s: &str) -> String {
+            lazy_static! {
+                static ref CENTOR: Regex = Regex::new(r"^\s*(\S*)\s*$").unwrap();
+            }
+            match CENTOR.captures(s) {
+                Some(cap) => cap[1].to_owned(),
+                None => s.to_owned(),
             }
         }
 
@@ -770,13 +792,12 @@ impl Template {
             }
         }
 
-        let syntax_error = || TemplateError::Syntax(self.0.clone());
-
         #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
-        let tokens = {
+        fn tokenize(template: &str) -> TemplateResult<Vec<Token>> {
+            let syntax_error = || TemplateError::Syntax(template.to_owned());
             let mut state = State::Plain("".to_owned());
             let mut tokens = vec![];
-            for c in self.0.chars() {
+            for c in template.chars() {
                 state = match (c, state) {
                     ('$', state @ State::Plain(_)) => state.var(&mut tokens),
                     ('{', state @ State::Plain(_)) => state.brace(&mut tokens),
@@ -794,57 +815,70 @@ impl Template {
                     (c, state @ State::Brace(_)) => state.push(c),
                 }
             }
-            state.end(&self.0, &mut tokens)?;
-            tokens
-        };
-
-        let mut formatted = "".to_owned();
-        for token in tokens {
-            token.format(&self.0, target, variables, &mut formatted)?;
+            state.end(template, &mut tokens)?;
+            Ok(tokens)
         }
-        Ok(formatted)
+
+        for &k in variables.keys() {
+            if ['$', '/', '\\', '{', '}', ' ']
+                .iter()
+                .any(|c| k.contains(*c))
+            {
+                return Err(TemplateError::InvalidVariable(k.to_owned()));
+            }
+        }
+        let transformed_tokens = tokenize(&self.0)?
+            .into_iter()
+            .map(|t| t.transform(&self.0, variables))
+            .collect::<std::result::Result<Vec<TemplateToken>, _>>()?;
+        Ok(Template(transformed_tokens))
+    }
+
+    fn format(&self, target: &str, variables: &HashMap<&str, &str>) -> TemplateResult<String> {
+        let transformed = self.embed_vars(variables)?;
+        Ok(transformed.format(target))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Template;
+    use super::TemplateString;
 
     use std::collections::HashMap;
     use std::iter::FromIterator;
 
     #[test]
     fn it_parses_a_path_correctly() {
-        let template = Template("cc/{}.cc".to_owned());
+        let template = TemplateString("cc/{}.cc".to_owned());
         let vars = HashMap::new();
         assert_eq!("cc/a.cc", template.format("a", &vars).unwrap());
-        let template = Template("cs/{C}/{C}.cs".to_owned());
+        let template = TemplateString("cs/{C}/{C}.cs".to_owned());
         let vars = HashMap::new();
         assert_eq!("cs/A/A.cs", template.format("a", &vars).unwrap());
-        let template = Template("gcc -o $bin $src".to_owned());
+        let template = TemplateString("gcc -o $bin $src".to_owned());
         let vars = HashMap::from_iter(vec![("src", "SRC"), ("bin", "BIN")]);
         assert_eq!("gcc -o BIN SRC", template.format("", &vars).unwrap());
-        let template = Template("{ c }/{c}/{C}".to_owned());
+        let template = TemplateString("{ c }/{c}/{C}".to_owned());
         let vars = HashMap::new();
         assert_eq!("Name/Name/Name", template.format("name", &vars).unwrap());
-        let template = Template("$foo/$bar/$baz".to_owned());
+        let template = TemplateString("$foo/$bar/$baz".to_owned());
         let vars = HashMap::from_iter(vec![("foo", "FOO"), ("bar", "BAR"), ("baz", "BAZ")]);
         assert_eq!("FOO/BAR/BAZ", template.format("", &vars).unwrap());
-        let template = Template("$$$".to_owned());
+        let template = TemplateString("$$$".to_owned());
         let vars = HashMap::from_iter(vec![("", "AAA")]);
         assert_eq!("AAAAAAAAA", template.format("", &vars).unwrap());
 
-        let template = Template("{}/{{}}".to_owned());
+        let template = TemplateString("{}/{{}}".to_owned());
         assert!(template.format("", &HashMap::new()).is_err());
-        let template = Template("{}/{".to_owned());
+        let template = TemplateString("{}/{".to_owned());
         assert!(template.format("", &HashMap::new()).is_err());
-        let template = Template("{}/}".to_owned());
+        let template = TemplateString("{}/}".to_owned());
         assert!(template.format("", &HashMap::new()).is_err());
-        let template = Template("}/{}".to_owned());
+        let template = TemplateString("}/{}".to_owned());
         assert!(template.format("", &HashMap::new()).is_err());
-        let template = Template("{}/{aaa C}/{}".to_owned());
+        let template = TemplateString("{}/{aaa C}/{}".to_owned());
         assert!(template.format("", &HashMap::new()).is_err());
-        let template = Template("$unexistingkeyword".to_owned());
+        let template = TemplateString("$unexistingkeyword".to_owned());
         assert!(template.format("", &HashMap::new()).is_err());
     }
 }

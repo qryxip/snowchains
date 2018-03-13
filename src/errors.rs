@@ -1,6 +1,6 @@
 use {bincode, cookie, httpsession, regex, serde_json, serde_urlencoded, serde_yaml, toml};
 use chrono::{self, DateTime, Local};
-use reqwest::{self, UrlError};
+use httpsession::UrlError;
 use zip::result::ZipError;
 
 use std::{self, fmt, io};
@@ -33,7 +33,6 @@ error_chain! {
         HttpSession(httpsession::Error);
         Io(io::Error);
         Recv(RecvError);
-        Reqwest(reqwest::Error);
         SerdeJson(serde_json::Error);
         SerdeUrlencodedSer(serde_urlencoded::ser::Error);
         Url(UrlError);

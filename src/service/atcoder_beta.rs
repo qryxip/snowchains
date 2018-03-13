@@ -1,6 +1,9 @@
+use config::Template;
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use service::OpenInBrowser;
+use terminal::Color;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
+use util;
 
 use chrono::{DateTime, Local, Utc};
 use httpsession::HttpSession;
@@ -8,9 +11,9 @@ use regex::Regex;
 use select::document::Document;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
 
-use std::collections::BTreeMap;
-use std::fmt;
-use std::io::Read;
+use std::{fmt, vec};
+use std::collections::{BTreeMap, HashMap};
+use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 
@@ -38,6 +41,11 @@ pub fn download(
         extension,
         open_browser,
     )
+}
+
+/// Downloads submitted source codes.
+pub fn restore(contest_name: &str, src_paths: &BTreeMap<u32, Template>) -> ServiceResult<()> {
+    AtCoderBeta::start()?.restore(&Contest::new(contest_name), src_paths)
 }
 
 /// Submits a source code.
@@ -188,9 +196,56 @@ impl AtCoderBeta {
             suite.save(path, true)?;
         }
         if open_browser {
-            self.open_in_browser(&contest.url_submissions_me())?;
+            self.open_in_browser(&contest.url_submissions_me(1))?;
             for &(ref url, _, _) in &outputs {
                 self.open_in_browser(url)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn restore(
+        &mut self,
+        contest: &Contest,
+        src_paths: &BTreeMap<u32, Template>,
+    ) -> ServiceResult<()> {
+        fn collect_urls(
+            detail_urls: &mut HashMap<(String, String), String>,
+            submissions: vec::IntoIter<Submission>,
+        ) {
+            for submission in submissions {
+                let key = (submission.task_name, submission.lang_name);
+                if detail_urls.get(&key).is_none() {
+                    detail_urls.insert(key, submission.detail_url);
+                }
+            }
+        }
+
+        let first_page = Document::from_read(self.get(&contest.url_submissions_me(1))?)?;
+        let (submissions, num_pages) = extract_submissions(&first_page)?;
+        let mut detail_urls = HashMap::new();
+        collect_urls(&mut detail_urls, submissions);
+        for i in 2..num_pages + 1 {
+            let page = Document::from_read(self.get(&contest.url_submissions_me(i))?)?;
+            let (submission, _) = extract_submissions(&page)?;
+            collect_urls(&mut detail_urls, submission);
+        }
+        for ((task_name, lang_name), detail_url) in detail_urls {
+            let code = extract_submitted_code(self.get(&detail_url)?)?;
+            let lang_id = find_lang_id(&first_page, &lang_name)?;
+            if let Some(path_template) = src_paths.get(&lang_id) {
+                let path = path_template.format_as_path(&task_name.to_lowercase());
+                let mut file = util::create_file_and_dirs(&path)?;
+                file.write_all(code.as_bytes())?;
+                println!(
+                    "{} - {:?} (id: {}): Saved to {}",
+                    task_name,
+                    lang_name,
+                    lang_id,
+                    path.display()
+                );
+            } else {
+                eprintln_bold!(Color::Warning, "Ignoring {:?} (id: {})", lang_name, lang_id);
             }
         }
         Ok(())
@@ -238,9 +293,23 @@ impl AtCoderBeta {
                     }
                 };
                 if checks_if_accepted {
-                    let page = self.get(&contest.url_submissions_me())?;
-                    if check_if_accepted(page, &task_screen_name)? {
+                    let (submissions, num_pages) = extract_submissions(&Document::from_read(
+                        self.get(&contest.url_submissions_me(1))?,
+                    )?)?;
+                    if submissions
+                        .into_iter()
+                        .any(|s| s.task_screen_name == task_screen_name && s.is_ac)
+                    {
                         bail!(ServiceErrorKind::AlreadyAccepted);
+                    }
+                    for i in 2..num_pages + 1 {
+                        if extract_submissions(&Document::from_read(
+                            self.get(&contest.url_submissions_me(i))?,
+                        )?)?.0
+                            .any(|s| s.task_screen_name == task_screen_name && s.is_ac)
+                        {
+                            bail!(ServiceErrorKind::AlreadyAccepted);
+                        }
                     }
                 }
                 let sourceCode = super::replace_class_name_if_necessary(src_path, "Main")?;
@@ -254,7 +323,7 @@ impl AtCoderBeta {
                 };
                 self.post_urlencoded(&url, &payload, &[302], None)?;
                 if open_browser {
-                    self.open_in_browser(&contest.url_submissions_me())?;
+                    self.open_in_browser(&contest.url_submissions_me(1))?;
                 }
                 return Ok(());
             }
@@ -333,8 +402,8 @@ impl Contest {
         format!("{}/submit", self.url_top())
     }
 
-    fn url_submissions_me(&self) -> String {
-        format!("{}/submissions/me", self.url_top())
+    fn url_submissions_me(&self, page: u32) -> String {
+        format!("{}/submissions/me?page={}", self.url_top(), page)
     }
 }
 
@@ -651,11 +720,20 @@ fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuratio
     }
 }
 
-fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<bool> {
-    fn check(document: &Document, task_screen_name: &str) -> Option<bool> {
-        lazy_static! {
-            static ref URL: Regex = Regex::new(r"\A/contests/\w+/tasks/(\w+)\z").unwrap();
-        }
+fn extract_submissions(document: &Document) -> ServiceResult<(vec::IntoIter<Submission>, u32)> {
+    fn extract(document: &Document) -> Option<(vec::IntoIter<Submission>, u32)> {
+        let num_pages = {
+            let predicate = Attr("id", "main-container")
+                .child(Name("div").and(Class("row")))
+                .child(Name("div").and(Class("text-center")))
+                .child(Name("ul").and(Class("pagination")))
+                .child(Name("li"));
+            let num_pages = document.find(predicate).count() as u32;
+            let suf = if num_pages > 1 { "s" } else { "" };
+            info!("Extracting submissions: Found {} page{}", num_pages, suf);
+            num_pages
+        };
+        let mut submissions = vec![];
         let predicate = Attr("id", "main-container")
             .child(And(Name("div"), Class("row")))
             .child(And(Name("div"), Class("col-sm-12")))
@@ -664,30 +742,93 @@ fn check_if_accepted<R: Read>(html: R, task_screen_name: &str) -> ServiceResult<
             .child(And(Name("table"), Class("table")))
             .child(Name("tbody"))
             .child(Name("tr"));
-        for node in document.find(predicate) {
+        for tr in document.find(predicate) {
             info!("Extracting submissions: Found #main-container>[[omitted]]>tr>");
-            let url = node.find(Name("td").child(Name("a"))).nth(0)?.attr("href")?;
-            info!("Extracting submissions: Found td>a[href={:?}]", url);
-            if let Some(caps) = URL.captures(url) {
-                if &caps[1] == task_screen_name {
-                    let predicate = Name("td").child(Name("span")).child(Text);
-                    if let Some(node) = node.find(predicate).nth(0) {
-                        info!("Extracting submissions: Found td>span{{{}}}", node.text());
-                        if node.text() == "AC" {
-                            return Some(true);
-                        }
-                    }
+            let (task_name, task_screen_name) = {
+                lazy_static! {
+                    static ref SCREEN_NAME: Regex = Regex::new(r"\A(\w+).*\z").unwrap();
+                    static ref TASK_SCREEN_NAME: Regex =
+                        Regex::new(r"\A/contests/\w+/tasks/(\w+)\z").unwrap();
                 }
-            }
+                let a = tr.find(Name("td").child(Name("a"))).nth(0)?;
+                let task_full_name = a.find(Text).next()?.text();
+                let task_name = SCREEN_NAME.captures(&task_full_name)?[1].to_owned();
+                let task_url = a.attr("href")?;
+                let task_screen_name = TASK_SCREEN_NAME.captures(task_url)?[1].to_owned();
+                info!(
+                    "Extracting submissions: Found {:?}, {:?} from tr>td>a[href={:?}]{{{:?}}}",
+                    task_name, task_screen_name, task_url, task_full_name,
+                );
+                (task_name, task_screen_name)
+            };
+            let lang_name = tr.find(Name("td")).nth(3)?.find(Text).next()?.text();
+            let is_ac = {
+                let pred = Name("td").child(Name("span")).child(Text);
+                let status = tr.find(pred).nth(0)?.text();
+                info!("Extracting submissions: Found tr>td>span>{:?}", status);
+                status == "AC"
+            };
+            let detail_url = tr.find(Name("td").and(Class("text-center")).child(Name("a")))
+                .flat_map(|a| -> Option<String> {
+                    let text = a.find(Text).next()?.text();
+                    if text != "詳細" && text != "Detail" {
+                        return None;
+                    }
+                    let href = a.attr("href")?.to_owned();
+                    info!("Extracting submissions: Found tr>td>a[href={:?}]", href);
+                    Some(href)
+                })
+                .next()?;
+            submissions.push(Submission {
+                task_name,
+                task_screen_name,
+                lang_name,
+                detail_url,
+                is_ac,
+            })
         }
-        info!("Extracting submissions: \"AC\" not found");
-        Some(false)
+        Some((submissions.into_iter(), num_pages))
     }
 
-    match check(&Document::from_read(html)?, task_screen_name) {
-        Some(p) => Ok(p),
-        None => bail!(ServiceErrorKind::Scrape),
+    extract(document).ok_or_else(|| ServiceErrorKind::Scrape.into())
+}
+
+struct Submission {
+    task_name: String,
+    task_screen_name: String,
+    lang_name: String,
+    detail_url: String,
+    is_ac: bool,
+}
+
+pub(self) fn extract_submitted_code<R: Read>(html: R) -> ServiceResult<String> {
+    fn extract(document: &Document) -> Option<String> {
+        let predicate = Attr("id", "submission-code").child(Text);
+        let code = document.find(predicate).next()?.text();
+        info!(
+            "Extracting submitted code: Found {} byte{} of code from #submission-code",
+            code.len(),
+            if code.len() > 1 { "s" } else { "" },
+        );
+        Some(code)
     }
+
+    extract(&Document::from_read(html)?).ok_or_else(|| ServiceErrorKind::Scrape.into())
+}
+
+fn find_lang_id(document: &Document, lang_name: &str) -> ServiceResult<u32> {
+    let predicate = Attr("id", "select-language").child(Name("option"));
+    for option in document.find(predicate) {
+        if let Some(text) = option.find(Text).next().map(|n| n.text()) {
+            if text == lang_name {
+                return option
+                    .attr("value")
+                    .and_then(|v| v.parse().ok())
+                    .ok_or_else(|| ServiceErrorKind::Scrape.into());
+            }
+        }
+    }
+    bail!(ServiceErrorKind::Scrape)
 }
 
 #[cfg(test)]
@@ -695,7 +836,8 @@ mod tests {
     use service::atcoder_beta::{AtCoderBeta, Contest};
     use testsuite::TestSuite;
 
-    use httpsession::{HttpSession, RedirectPolicy};
+    use env_logger;
+    use httpsession::{self, HttpSession, RedirectPolicy};
     use httpsession::header::UserAgent;
 
     use std::borrow::Borrow;
@@ -704,7 +846,8 @@ mod tests {
     #[test]
     #[ignore]
     fn it_extracts_task_urls() {
-        let mut atcoder = start();
+        let _ = env_logger::try_init();
+        let mut atcoder = start().unwrap();
         let page = atcoder.fetch_tasks_page(&Contest::new("agc001")).unwrap();
         let urls_and_names = super::extract_task_urls_with_names(&page).unwrap();
         static EXPECTED: &[(&str, &str)] = &[
@@ -750,6 +893,7 @@ mod tests {
             ("C", "/contests/arc001/tasks/arc001_3", 2000, C),
             ("D", "/contests/arc001/tasks/arc001_4", 2000, D),
         ];
+        let _ = env_logger::try_init();
         test_sample_extraction("arc001", &expected);
     }
 
@@ -782,6 +926,7 @@ mod tests {
             ("C", "/contests/arc002/tasks/arc002_3", 2000, C),
             ("D", "/contests/arc002/tasks/arc002_4", 2000, D),
         ];
+        let _ = env_logger::try_init();
         test_sample_extraction("arc002", &expected);
     }
 
@@ -815,6 +960,7 @@ mod tests {
             ("C", "/contests/arc019/tasks/arc019_3", 2000, C),
             ("D", "/contests/arc019/tasks/arc019_4", 2000, D),
         ];
+        let _ = env_logger::try_init();
         test_sample_extraction("arc019", &expected);
     }
 
@@ -848,6 +994,7 @@ mod tests {
             ("E", "/contests/arc058/tasks/arc058_c", 4000, E),
             ("F", "/contests/arc058/tasks/arc058_d", 5000, F),
         ];
+        let _ = env_logger::try_init();
         test_sample_extraction("arc058", &expected);
     }
 
@@ -882,6 +1029,7 @@ mod tests {
             ("C", "/contests/abc041/tasks/abc041_c", 2000, C),
             ("D", "/contests/abc041/tasks/abc041_d", 3000, D),
         ];
+        let _ = env_logger::try_init();
         test_sample_extraction("abc041", &expected);
     }
 
@@ -977,24 +1125,12 @@ mod tests {
             ("K", "/contests/chokudai_s001/tasks/chokudai_S001_k", 2000, K),
             ("L", "/contests/chokudai_s001/tasks/chokudai_S001_l", 2000, L),
         ];
+        let _ = env_logger::try_init();
         test_sample_extraction("chokudai_s001", &expected);
     }
 
-    fn start() -> AtCoderBeta {
-        let session = HttpSession::builder()
-            .base("beta.atcoder.jp", true, None)
-            .timeout(Duration::from_secs(3))
-            .redirect(RedirectPolicy::none())
-            .default_header(UserAgent::new(
-                "snowchains <https://github.com/wariuni/snowchains>",
-            ))
-            .with_robots_txt()
-            .unwrap();
-        AtCoderBeta(session)
-    }
-
     fn test_sample_extraction(contest: &str, expected: &[(&str, &str, u64, &[(&str, &str)])]) {
-        let mut atcoder = start();
+        let mut atcoder = start().unwrap();
         let contest = Contest::new(contest);
         let page = atcoder.fetch_tasks_page(&contest).unwrap();
         let urls_and_names = super::extract_task_urls_with_names(&page).unwrap();
@@ -1017,5 +1153,48 @@ mod tests {
             .iter()
             .map(|&(ref l, ref r)| ((*l).to_owned(), (*r).to_owned()))
             .collect()
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_a_submitted_source_code() {
+        static URL: &str = "/contests/utpc2011/submissions/2067";
+        static EXPECTED_CODE: &str =
+            "import java.util.*;\n\
+             import java.math.*;\n\
+             import static java.lang.Math.*;\n\
+             import static java.util.Arrays.*;\n\
+             import static java.util.Collections.*;\n\
+             public class Main{\n\
+             \tpublic static void main(String[] args) {\n\
+             \t\tnew Main().run();\n\
+             \t}\n\
+             \tScanner sc = new Scanner(System.in);\n\
+             \tvoid run() {\n\
+             \t\tint m=sc.nextInt(),n=sc.nextInt();\n\
+             \t\tint[] as=new int[m];\n\
+             \t\tfor(int i=0;i<m;i++)for(int j=0;j<n;j++)as[i]+=sc.nextInt();\n\
+             \t\t\tsort(as);\n\
+             \t\t\tSystem.out.println(as[m-1]);\n\
+             \t}\n\
+             }\n\
+             ";
+        let _ = env_logger::try_init();
+        let mut atcoder = start().unwrap();
+        let page = atcoder.get(URL).unwrap();
+        let code = super::extract_submitted_code(page).unwrap();
+        assert_eq!(EXPECTED_CODE, code);
+    }
+
+    fn start() -> httpsession::Result<AtCoderBeta> {
+        let session = HttpSession::builder()
+            .base("beta.atcoder.jp", true, None)
+            .timeout(Duration::from_secs(5))
+            .redirect(RedirectPolicy::none())
+            .default_header(UserAgent::new(
+                "snowchains <https://github.com/wariuni/snowchains>",
+            ))
+            .with_robots_txt()?;
+        Ok(AtCoderBeta(session))
     }
 }

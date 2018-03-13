@@ -23,7 +23,6 @@ extern crate env_logger;
 extern crate httpsession;
 extern crate pbr;
 extern crate regex;
-extern crate reqwest;
 extern crate robots_txt;
 extern crate rpassword;
 extern crate rprompt;
@@ -102,6 +101,19 @@ quick_main_colored!(|| -> ::Result<()> {
                 }
             }?;
         }
+        Opt::Restore => {
+            info!("Running \"restore\" command");
+            let config = Config::load_from_file()?;
+            let service = config.service_name()?;
+            let contest = config.contest_name()?;
+            match service {
+                ServiceName::AtCoderBeta => {
+                    let src_paths = config.src_paths_on_atcoder()?;
+                    atcoder_beta::restore(&contest, &src_paths)?;
+                }
+                _ => unimplemented!(),
+            }
+        }
         Opt::Append {
             target,
             extension,
@@ -169,6 +181,7 @@ quick_main_colored!(|| -> ::Result<()> {
                      snowchains login <service>\n    \
                      snowchains participate <service> <contest>\n    \
                      snowchains download [--open-browser]\n    \
+                     snowchains restore\n    \
                      snowchains append <target> <extension> <input> [output]\n    \
                      snowchains judge <target> [language]\n    \
                      snowchains submit <target> [language] [--open-browser] [--skip-judging] \
@@ -217,8 +230,12 @@ enum Opt {
         open_browser: bool,
     },
 
-    #[structopt(name = "append", about = "Appends a test case to a test suite file",
+    #[structopt(name = "restore", about = "Downloads the source codes you've submitted",
                 raw(display_order = "6"))]
+    Restore,
+
+    #[structopt(name = "append", about = "Appends a test case to a test suite file",
+                raw(display_order = "7"))]
     Append {
         #[structopt(name = "target", help = "Target name")]
         target: String,
@@ -231,7 +248,7 @@ enum Opt {
         output: Option<String>,
     },
 
-    #[structopt(name = "judge", about = "Tests a binary or script", raw(display_order = "7"))]
+    #[structopt(name = "judge", about = "Tests a binary or script", raw(display_order = "8"))]
     Judge {
         #[structopt(name = "target", help = "Target name")]
         target: String,
@@ -242,7 +259,7 @@ enum Opt {
     #[structopt(name = "submit", about = "Submits a source code",
                 usage = "snowchains submit <target> [language] [--open-browser] [--skip-judging] \
                          [--no-check]",
-                raw(display_order = "8"))]
+                raw(display_order = "9"))]
     Submit {
         #[structopt(name = "target", help = "Target name")]
         target: String,
