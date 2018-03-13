@@ -286,7 +286,7 @@ impl Config {
         self.extension_on_downloading
     }
 
-    pub fn src_paths_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, Template>> {
+    pub fn src_paths_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, PathTemplate>> {
         let mut templates = BTreeMap::new();
         for lang in &self.languages {
             if let Some(lang_id) = lang.language_ids.atcoder {
@@ -297,7 +297,7 @@ impl Config {
                     }
                 }
                 let template = lang.src.embed_vars(&vars)?;
-                templates.insert(lang_id, template);
+                templates.insert(lang_id, PathTemplate::new(template, &self.base_dir));
             }
         }
         Ok(templates)
@@ -598,7 +598,35 @@ impl InputPath {
     }
 }
 
-pub struct Template(Vec<TemplateToken>);
+pub struct PathTemplate<'a> {
+    tokens: Vec<TemplateToken>,
+    base_dir: &'a Path,
+}
+
+impl<'a> PathTemplate<'a> {
+    fn new(template: Template, base_dir: &'a Path) -> Self {
+        Self {
+            tokens: template.0,
+            base_dir,
+        }
+    }
+
+    pub fn format(&self, target: &str) -> PathBuf {
+        let embedded = self.tokens.iter().fold("".to_owned(), |mut r, token| {
+            match *token {
+                TemplateToken::Plain(ref s) => r += s,
+                TemplateToken::Target => r += target,
+                TemplateToken::TargetCamelized => r += &target.camelize(),
+            }
+            r
+        });
+        let mut path = PathBuf::from(self.base_dir);
+        path.push(embedded);
+        path
+    }
+}
+
+struct Template(Vec<TemplateToken>);
 
 impl Template {
     pub fn format(&self, target: &str) -> String {
@@ -610,10 +638,6 @@ impl Template {
             }
             r
         })
-    }
-
-    pub fn format_as_path(&self, target: &str) -> PathBuf {
-        PathBuf::from(self.format(target))
     }
 }
 

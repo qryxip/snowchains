@@ -1,4 +1,4 @@
-use config::Template;
+use config::PathTemplate;
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use service::OpenInBrowser;
 use terminal::Color;
@@ -44,7 +44,7 @@ pub fn download(
 }
 
 /// Downloads submitted source codes.
-pub fn restore(contest_name: &str, src_paths: &BTreeMap<u32, Template>) -> ServiceResult<()> {
+pub fn restore(contest_name: &str, src_paths: &BTreeMap<u32, PathTemplate>) -> ServiceResult<()> {
     AtCoderBeta::start()?.restore(&Contest::new(contest_name), src_paths)
 }
 
@@ -207,7 +207,7 @@ impl AtCoderBeta {
     fn restore(
         &mut self,
         contest: &Contest,
-        src_paths: &BTreeMap<u32, Template>,
+        src_paths: &BTreeMap<u32, PathTemplate>,
     ) -> ServiceResult<()> {
         fn collect_urls(
             detail_urls: &mut HashMap<(String, String), String>,
@@ -234,7 +234,7 @@ impl AtCoderBeta {
             let code = extract_submitted_code(self.get(&detail_url)?)?;
             let lang_id = find_lang_id(&first_page, &lang_name)?;
             if let Some(path_template) = src_paths.get(&lang_id) {
-                let path = path_template.format_as_path(&task_name.to_lowercase());
+                let path = path_template.format(&task_name.to_lowercase());
                 let mut file = util::create_file_and_dirs(&path)?;
                 file.write_all(code.as_bytes())?;
                 println!(
