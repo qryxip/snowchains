@@ -16,15 +16,15 @@ pub enum Color {
     TesterStderr,
 }
 
-impl Into<(u32, u32, u32)> for Color {
-    fn into(self) -> (u32, u32, u32) {
+impl Into<&'static [u32]> for Color {
+    fn into(self) -> &'static [u32] {
         match self {
-            Color::Success | Color::TesterStdout => (2, 10, 118),
-            Color::Warning => (3, 11, 190),
-            Color::Fatal => (1, 9, 196),
-            Color::Title | Color::TesterStderr => (5, 13, 99),
-            Color::CommandInfo | Color::SolverStdout => (6, 14, 50),
-            Color::SolverStderr => (8, 13, 198),
+            Color::Success | Color::TesterStdout => &[118, 10, 2],
+            Color::Warning => &[190, 11, 3],
+            Color::Fatal => &[196, 9, 1],
+            Color::Title | Color::TesterStderr => &[99, 13, 5],
+            Color::CommandInfo | Color::SolverStdout => &[50, 14, 6],
+            Color::SolverStderr => &[198, 13, 8],
         }
     }
 }
@@ -35,6 +35,7 @@ pub fn print_bold<C: Into<Option<Color>>>(color: C, args: fmt::Arguments) {
             return;
         }
     }
+    #[cfg_attr(feature = "cargo-clippy", allow(explicit_write))]
     io::stdout().write_fmt(args).unwrap();
 }
 
@@ -44,6 +45,7 @@ pub fn eprint_bold<C: Into<Option<Color>>>(color: C, args: fmt::Arguments) {
             return;
         }
     }
+    #[cfg_attr(feature = "cargo-clippy", allow(explicit_write))]
     io::stderr().write_fmt(args).unwrap();
 }
 
@@ -58,7 +60,7 @@ pub fn eprintln_bold<C: Into<Option<Color>>>(color: C, args: fmt::Arguments) {
 }
 
 fn write<O: Write>(
-    color: Option<(u32, u32, u32)>,
+    colors: Option<&[u32]>,
     attr: Option<Attr>,
     mut term: Box<Terminal<Output = O>>,
     args: fmt::Arguments,
@@ -80,14 +82,14 @@ fn write<O: Write>(
         term.reset().is_ok() || success
     };
 
-    for color in &[
-        color.map(|cs| cs.2),
-        color.map(|cs| cs.1),
-        color.map(|cs| cs.0),
-    ] {
-        if try_write(*color) {
-            return true;
+    if let Some(colors) = colors {
+        for &color in colors {
+            if try_write(Some(color)) {
+                return true;
+            }
         }
+        false
+    } else {
+        try_write(None)
     }
-    false
 }

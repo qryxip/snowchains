@@ -1,5 +1,4 @@
 #![recursion_limit = "1024"]
-#![cfg_attr(feature = "cargo-clippy", allow(explicit_write, match_ref_pats))]
 
 #[macro_use]
 extern crate custom_derive;

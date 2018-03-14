@@ -259,7 +259,7 @@ impl Config {
     /// Loads and deserializes from the nearest `snowchains.yaml`
     pub fn load_from_file() -> ConfigResult<Self> {
         let (base, path) = find_base()?;
-        let mut config = serde_yaml::from_str::<Self>(&util::string_from_file_path(&path)?)?;
+        let mut config = serde_yaml::from_reader::<_, Self>(util::open_file(&path)?)?;
         config.base_dir = base;
         println!("Loaded {}", path.display());
         Ok(config)
@@ -281,7 +281,7 @@ impl Config {
         }
     }
 
-    /// Gets the attribute `extension_on_downloading`.
+    /// Gets `extension_on_downloading`.
     pub fn get_extension_on_downloading(&self) -> SuiteFileExtension {
         self.extension_on_downloading
     }
@@ -296,8 +296,8 @@ impl Config {
                         vars.insert(k.as_str(), v.as_str());
                     }
                 }
-                let template = lang.src.embed_vars(&vars)?;
-                templates.insert(lang_id, PathTemplate::new(template, &self.base_dir));
+                let template = lang.src.embed_vars(&vars)?.with_base_dir(&self.base_dir);
+                templates.insert(lang_id, template);
             }
         }
         Ok(templates)
@@ -548,21 +548,15 @@ impl Default for Run {
     fn default() -> Self {
         Self {
             command: TemplateString("$bin".to_owned()),
-            working_directory: InputPath::default(),
+            working_directory: Default::default(),
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct LanguageIds {
     #[serde(skip_serializing_if = "Option::is_none")]
     atcoder: Option<u32>,
-}
-
-impl Default for LanguageIds {
-    fn default() -> Self {
-        Self { atcoder: None }
-    }
 }
 
 impl LanguageIds {
@@ -571,58 +565,24 @@ impl LanguageIds {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct InputPath(String);
-
-impl Default for InputPath {
-    fn default() -> Self {
-        InputPath("".to_owned())
-    }
-}
 
 impl InputPath {
     fn resolve(&self, base: &Path) -> io::Result<PathBuf> {
-        let mut chars = self.0.chars();
-        let (c1, c2) = (chars.next(), chars.next());
-        if c1 == Some('~') && [Some('/'), Some('\\'), None].contains(&c2) {
-            return util::path_under_home(&[&chars.collect::<String>()]);
-        }
-        let path = PathBuf::from(&self.0);
-        Ok(if path.is_absolute() {
-            path
-        } else {
-            let mut pathbuf = PathBuf::from(base);
-            pathbuf.push(path);
-            pathbuf
-        })
+        util::expand_path(&self.0, base)
     }
 }
 
 pub struct PathTemplate<'a> {
-    tokens: Vec<TemplateToken>,
+    template: Template,
     base_dir: &'a Path,
 }
 
 impl<'a> PathTemplate<'a> {
-    fn new(template: Template, base_dir: &'a Path) -> Self {
-        Self {
-            tokens: template.0,
-            base_dir,
-        }
-    }
-
-    pub fn format(&self, target: &str) -> PathBuf {
-        let embedded = self.tokens.iter().fold("".to_owned(), |mut r, token| {
-            match *token {
-                TemplateToken::Plain(ref s) => r += s,
-                TemplateToken::Target => r += target,
-                TemplateToken::TargetCamelized => r += &target.camelize(),
-            }
-            r
-        });
-        let mut path = PathBuf::from(self.base_dir);
-        path.push(embedded);
-        path
+    pub fn format(&self, target: &str) -> io::Result<PathBuf> {
+        let formatted = self.template.format(target);
+        util::expand_path(&formatted, self.base_dir)
     }
 }
 
@@ -638,6 +598,13 @@ impl Template {
             }
             r
         })
+    }
+
+    fn with_base_dir(self, base_dir: &Path) -> PathTemplate {
+        PathTemplate {
+            template: self,
+            base_dir,
+        }
     }
 }
 
@@ -657,12 +624,14 @@ impl TemplateString {
 
     fn resolve_as_path(
         &self,
-        base: &Path,
+        base_dir: &Path,
         target: &str,
         variables: &HashMap<&str, &str>,
     ) -> ConfigResult<PathBuf> {
-        let path = self.format(target, variables)?;
-        Ok(InputPath(path).resolve(base)?)
+        let resolved = self.embed_vars(variables)?
+            .with_base_dir(base_dir)
+            .format(target)?;
+        Ok(resolved)
     }
 
     fn to_compilation_command(
@@ -713,6 +682,11 @@ impl TemplateString {
         };
         let command = self.format(target, &vars)?;
         Ok(JudgingCommand::new(command, working_dir))
+    }
+
+    fn format(&self, target: &str, variables: &HashMap<&str, &str>) -> TemplateResult<String> {
+        let transformed = self.embed_vars(variables)?;
+        Ok(transformed.format(target))
     }
 
     fn embed_vars(&self, variables: &HashMap<&str, &str>) -> TemplateResult<Template> {
@@ -851,16 +825,11 @@ impl TemplateString {
                 return Err(TemplateError::InvalidVariable(k.to_owned()));
             }
         }
-        let transformed_tokens = tokenize(&self.0)?
+        let tokens = tokenize(&self.0)?
             .into_iter()
             .map(|t| t.transform(&self.0, variables))
             .collect::<std::result::Result<Vec<TemplateToken>, _>>()?;
-        Ok(Template(transformed_tokens))
-    }
-
-    fn format(&self, target: &str, variables: &HashMap<&str, &str>) -> TemplateResult<String> {
-        let transformed = self.embed_vars(variables)?;
-        Ok(transformed.format(target))
+        Ok(Template(tokens))
     }
 }
 

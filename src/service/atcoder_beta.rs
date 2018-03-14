@@ -234,7 +234,7 @@ impl AtCoderBeta {
             let code = extract_submitted_code(self.get(&detail_url)?)?;
             let lang_id = find_lang_id(&first_page, &lang_name)?;
             if let Some(path_template) = src_paths.get(&lang_id) {
-                let path = path_template.format(&task_name.to_lowercase());
+                let path = path_template.format(&task_name.to_lowercase())?;
                 let mut file = util::create_file_and_dirs(&path)?;
                 file.write_all(code.as_bytes())?;
                 println!(

@@ -29,6 +29,7 @@ macro_rules! eprint_and_flush {
     ($($arg: tt)*) => {
         {
             use std::io::{self, Write};
+            #[cfg_attr(feature = "cargo-clippy", allow(explicit_write))]
             io::stderr().write_fmt(format_args!($($arg)*)).unwrap();
             io::stderr().flush().unwrap();
         }

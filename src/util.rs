@@ -65,6 +65,29 @@ pub fn path_under_home(names: &[&str]) -> io::Result<PathBuf> {
     }))
 }
 
+pub fn expand_path<'a, B: Into<Option<&'a Path>>>(path: &str, base: B) -> io::Result<PathBuf> {
+    let mut chars = path.chars();
+    let (c1, c2) = (chars.next(), chars.next());
+    if c1 == Some('~') {
+        return if [Some('/'), Some('\\'), None].contains(&c2) {
+            path_under_home(&[&chars.collect::<String>()])
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Unsupported use of \"~\": {}", path),
+            ))
+        };
+    }
+    let path = PathBuf::from(path);
+    Ok(if path.is_absolute() {
+        path
+    } else {
+        let mut pathbuf = base.into().map(PathBuf::from).unwrap_or_default();
+        pathbuf.push(path);
+        pathbuf
+    })
+}
+
 pub trait OkAsRefOr {
     type Item;
     /// Get the value `Ok(&x)` if `Some(ref x) = self`.
@@ -111,10 +134,22 @@ impl Camelize for str {
 
 #[cfg(test)]
 mod tests {
-    use util::Camelize;
+    use util::{self, Camelize};
+
+    use std::path::Path;
 
     #[test]
-    fn it_camelizes_a_string_correctly() {
+    fn it_expands_a_path() {
+        util::expand_path("~/", None).unwrap();
+        util::expand_path("~root/", None).unwrap_err();
+        assert_eq!(
+            Path::new("/a/b/c/d"),
+            util::expand_path("c/d", Path::new("/a/b")).unwrap()
+        )
+    }
+
+    #[test]
+    fn it_camelizes_a_string() {
         assert_eq!("Foo", "foo".camelize());
         assert_eq!("FooBar", "foo-bar".camelize());
         assert_eq!("FooBarBaz", "foo-bar-baz".camelize());
