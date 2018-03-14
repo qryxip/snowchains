@@ -9,39 +9,36 @@ use std::process::{Child, Command, Stdio};
 /// Compilation command.
 pub struct CompilationCommand {
     command: CommandProperty,
-    src_and_bin: Option<(PathBuf, PathBuf)>,
+    src: PathBuf,
+    bin: PathBuf,
 }
 
 impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub fn new(
-        command: String,
-        working_dir: PathBuf,
-        src_and_bin: Option<(PathBuf, PathBuf)>,
-    ) -> Self {
+    pub fn new(command: String, working_dir: PathBuf, src: PathBuf, bin: PathBuf) -> Self {
         Self {
             command: CommandProperty::new(command, working_dir),
-            src_and_bin,
+            src,
+            bin,
         }
     }
 
     /// Executes the command.
     pub fn execute(&self) -> JudgeResult<()> {
-        if let Some((ref src, ref bin)) = self.src_and_bin {
-            if let (Ok(src_meta), Ok(bin_meta)) = (src.metadata(), bin.metadata()) {
-                if let (Ok(t1), Ok(t2)) = (src_meta.modified(), bin_meta.modified()) {
-                    if t1 < t2 {
-                        println!("{} is up to date.", bin.display());
-                        return Ok(());
-                    }
-                }
-            } else if let Some(dir) = bin.parent() {
-                if !dir.exists() {
-                    fs::create_dir_all(dir)?;
-                    println!("Created {}", dir.display());
-                }
+        if !self.src.exists() {
+            eprintln_bold!(Color::Warning, "Warning: {} not found", self.src.display());
+        }
+        if self.src.exists() && self.bin.exists() {
+            if self.src.metadata()?.modified()? < self.bin.metadata()?.modified()? {
+                println!("{} is up to date.", self.bin.display());
+                return Ok(());
+            }
+        } else if let Some(dir) = self.bin.parent() {
+            if !dir.exists() {
+                fs::create_dir_all(dir)?;
+                println!("Created {}", dir.display());
             }
         }
         self.command.print_args_and_working_dir();
@@ -51,6 +48,13 @@ impl CompilationCommand {
             .status()
             .wrap_not_found_error(&self.command.arg0)?;
         if status.success() {
+            if !self.bin.exists() {
+                eprintln_bold!(
+                    Color::Warning,
+                    "Warning: {} not created",
+                    self.bin.display()
+                );
+            }
             Ok(())
         } else {
             bail!(JudgeErrorKind::Compile(status));

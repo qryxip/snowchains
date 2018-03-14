@@ -483,13 +483,10 @@ impl Language {
                 let wd = compile.working_directory.resolve(base)?;
                 let src = self.src.resolve_as_path(base, target, &HashMap::new())?;
                 let bin = compile.bin.resolve_as_path(base, target, &HashMap::new())?;
-                let cmd = compile.command.to_compilation_command(
-                    target,
-                    wd,
-                    Some(src),
-                    Some(bin),
-                    extra_variables,
-                )?;
+                let cmd =
+                    compile
+                        .command
+                        .to_compilation_command(target, wd, src, bin, extra_variables)?;
                 Ok(Some(cmd))
             }
         }
@@ -638,16 +635,15 @@ impl TemplateString {
         &self,
         target: &str,
         working_dir: PathBuf,
-        src: Option<PathBuf>,
-        bin: Option<PathBuf>,
+        src: PathBuf,
+        bin: PathBuf,
         extra_vars: Option<&HashMap<String, String>>,
     ) -> ConfigResult<CompilationCommand> {
-        let src_s = src.as_ref().map(|p| p.display().to_string());
-        let bin_s = bin.as_ref().map(|p| p.display().to_string());
+        let (src_s, bin_s) = (src.display().to_string(), bin.display().to_string());
         let vars = {
             let mut vars = HashMap::new();
-            src_s.as_ref().and_then(|s| vars.insert("src", s.as_str()));
-            bin_s.as_ref().and_then(|s| vars.insert("bin", s.as_str()));
+            vars.insert("src", src_s.as_str());
+            vars.insert("bin", bin_s.as_str());
             if let Some(extra_vars) = extra_vars {
                 for (k, v) in extra_vars.iter() {
                     vars.insert(k, v);
@@ -655,12 +651,8 @@ impl TemplateString {
             }
             vars
         };
-        let src_and_bin = match (src, bin) {
-            (Some(src), Some(bin)) => Some((src, bin)),
-            _ => None,
-        };
         let command = self.format(target, &vars)?;
-        Ok(CompilationCommand::new(command, working_dir, src_and_bin))
+        Ok(CompilationCommand::new(command, working_dir, src, bin))
     }
 
     fn to_solver(
