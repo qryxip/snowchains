@@ -43,6 +43,7 @@ mod config;
 mod errors;
 mod judging;
 mod service;
+mod template;
 mod terminal;
 mod testsuite;
 mod util;

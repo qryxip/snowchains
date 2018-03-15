@@ -187,6 +187,7 @@ pub enum TemplateError {
     Syntax(String),
     NoSuchSpecifier(String, String, &'static [&'static str]),
     NoSuchVariable(String, String, Vec<String>),
+    Io(io::Error),
 }
 
 impl fmt::Display for TemplateError {
@@ -204,6 +205,7 @@ impl fmt::Display for TemplateError {
                 "No such variable {:?} (expected {:?}): {:?}",
                 keyword, expected, s
             ),
+            TemplateError::Io(ref e) => write!(f, "{}", e),
         }
     }
 }
@@ -211,5 +213,18 @@ impl fmt::Display for TemplateError {
 impl std::error::Error for TemplateError {
     fn description(&self) -> &str {
         "Error about format string in config file"
+    }
+
+    fn cause(&self) -> Option<&std::error::Error> {
+        match *self {
+            TemplateError::Io(ref e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<io::Error> for TemplateError {
+    fn from(from: io::Error) -> Self {
+        TemplateError::Io(from)
     }
 }

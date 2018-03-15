@@ -1,13 +1,14 @@
 use command::{CompilationCommand, JudgingCommand};
-use errors::{ConfigError, ConfigErrorKind, ConfigResult, TemplateError, TemplateResult};
+use errors::{ConfigError, ConfigErrorKind, ConfigResult};
+use template::{PathTemplate, TemplateString};
 use testsuite::{SuiteFileExtension, SuiteFilePaths};
-use util::{self, Camelize};
+use util;
 
 use regex::Regex;
 use rprompt;
 use serde_yaml;
 
-use std::{self, cmp, env, fmt, fs};
+use std::{cmp, env, fmt, fs};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Write};
@@ -26,7 +27,7 @@ pub fn init(directory: PathBuf) -> ConfigResult<()> {
         println!("{}) {}", i + 1, lang);
     }
 
-    let ask = |prompt: &'static str| -> io::Result<Cow<'static, str>> {
+    let ask = |prompt: &str| -> io::Result<Cow<'static, str>> {
         let input = rprompt::prompt_reply_stderr(prompt)?;
         if let Ok(i) = input.parse::<usize>() {
             if 0 < i && i <= 8 {
@@ -240,7 +241,7 @@ pub fn switch(service: ServiceName, contest: &str) -> ConfigResult<()> {
 pub struct Config {
     service: Option<ServiceName>,
     contest: Option<String>,
-    #[serde(default = "TemplateString::default_testsuites")]
+    #[serde(default = "default_testsuites")]
     testsuites: TemplateString,
     #[serde(default)]
     extension_on_downloading: SuiteFileExtension,
@@ -314,7 +315,8 @@ impl Config {
         let contest = self.contest.clone().unwrap_or_default();
         let vars = vec![("service", service.as_str()), ("contest", contest.as_str())];
         let vars = HashMap::from_iter(vars);
-        self.testsuites.resolve_as_path(&self.base_dir, "", &vars)
+        let dir = self.testsuites.resolve_as_path(&self.base_dir, "", &vars)?;
+        Ok(dir)
     }
 
     pub fn suite_paths(&self, target: &str) -> ConfigResult<SuiteFilePaths> {
@@ -443,6 +445,10 @@ fn default_extensions() -> Vec<SuiteFileExtension> {
     vec![Json, Toml, Yaml, Yml]
 }
 
+fn default_testsuites() -> TemplateString {
+    TemplateString::new("snowchains/$service/$contest/")
+}
+
 #[derive(Serialize, Deserialize)]
 struct Service {
     default_language: String,
@@ -473,7 +479,8 @@ impl Language {
                 vars.insert(k.as_str(), v.as_str());
             }
         }
-        self.src.resolve_as_path(base, target, &vars)
+        let src = self.src.resolve_as_path(base, target, &vars)?;
+        Ok(src)
     }
 
     fn construct_compilation_command(
@@ -488,11 +495,20 @@ impl Language {
                 let wd = compile.working_directory.resolve(base)?;
                 let src = self.src.resolve_as_path(base, target, &HashMap::new())?;
                 let bin = compile.bin.resolve_as_path(base, target, &HashMap::new())?;
-                let cmd =
-                    compile
-                        .command
-                        .to_compilation_command(target, wd, src, bin, extra_variables)?;
-                Ok(Some(cmd))
+                let (src_s, bin_s) = (src.display().to_string(), bin.display().to_string());
+                let vars = {
+                    let mut vars = HashMap::new();
+                    vars.insert("src", src_s.as_str());
+                    vars.insert("bin", bin_s.as_str());
+                    if let Some(extra_variables) = extra_variables {
+                        for (k, v) in extra_variables.iter() {
+                            vars.insert(k, v);
+                        }
+                    }
+                    vars
+                };
+                let cmd = compile.command.format(target, &vars)?;
+                Ok(Some(CompilationCommand::new(cmd, wd, src, bin)))
             }
         }
     }
@@ -507,9 +523,19 @@ impl Language {
         let (src, bin) = self.resolve_src_and_bin(base, target, extra_vars)?;
         let src = src.display().to_string();
         let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
-        self.run
-            .command
-            .to_solver(target, wd, &src, &bin, extra_vars)
+        let vars = {
+            let mut vars = HashMap::new();
+            vars.insert("src", src.as_str());
+            vars.insert("bin", bin.as_str());
+            if let Some(extra_vars) = extra_vars {
+                for (k, v) in extra_vars.iter() {
+                    vars.insert(k, v);
+                }
+            }
+            vars
+        };
+        let cmd = self.run.command.format(target, &vars)?;
+        Ok(JudgingCommand::new(cmd, wd))
     }
 
     fn resolve_src_and_bin(
@@ -549,7 +575,7 @@ struct Run {
 impl Default for Run {
     fn default() -> Self {
         Self {
-            command: TemplateString("$bin".to_owned()),
+            command: TemplateString::new("$bin"),
             working_directory: Default::default(),
         }
     }
@@ -573,302 +599,5 @@ struct InputPath(String);
 impl InputPath {
     fn resolve(&self, base: &Path) -> io::Result<PathBuf> {
         util::expand_path(&self.0, base)
-    }
-}
-
-pub struct PathTemplate<'a> {
-    template: Template,
-    base_dir: &'a Path,
-}
-
-impl<'a> PathTemplate<'a> {
-    pub fn format(&self, target: &str) -> io::Result<PathBuf> {
-        let formatted = self.template.format(target);
-        util::expand_path(&formatted, self.base_dir)
-    }
-}
-
-struct Template(Vec<TemplateToken>);
-
-impl Template {
-    pub fn format(&self, target: &str) -> String {
-        self.0.iter().fold("".to_owned(), |mut r, t| {
-            match *t {
-                TemplateToken::Plain(ref s) => r += s,
-                TemplateToken::Target => r += target,
-                TemplateToken::TargetCamelized => r += &target.camelize(),
-            }
-            r
-        })
-    }
-
-    fn with_base_dir(self, base_dir: &Path) -> PathTemplate {
-        PathTemplate {
-            template: self,
-            base_dir,
-        }
-    }
-}
-
-enum TemplateToken {
-    Plain(String),
-    Target,
-    TargetCamelized,
-}
-
-#[derive(Serialize, Deserialize)]
-struct TemplateString(String);
-
-impl TemplateString {
-    fn default_testsuites() -> Self {
-        TemplateString("snowchains/$service/$contest/".to_owned())
-    }
-
-    fn resolve_as_path(
-        &self,
-        base_dir: &Path,
-        target: &str,
-        variables: &HashMap<&str, &str>,
-    ) -> ConfigResult<PathBuf> {
-        let resolved = self.embed_vars(variables)?
-            .with_base_dir(base_dir)
-            .format(target)?;
-        Ok(resolved)
-    }
-
-    fn to_compilation_command(
-        &self,
-        target: &str,
-        working_dir: PathBuf,
-        src: PathBuf,
-        bin: PathBuf,
-        extra_vars: Option<&HashMap<String, String>>,
-    ) -> ConfigResult<CompilationCommand> {
-        let (src_s, bin_s) = (src.display().to_string(), bin.display().to_string());
-        let vars = {
-            let mut vars = HashMap::new();
-            vars.insert("src", src_s.as_str());
-            vars.insert("bin", bin_s.as_str());
-            if let Some(extra_vars) = extra_vars {
-                for (k, v) in extra_vars.iter() {
-                    vars.insert(k, v);
-                }
-            }
-            vars
-        };
-        let command = self.format(target, &vars)?;
-        Ok(CompilationCommand::new(command, working_dir, src, bin))
-    }
-
-    fn to_solver(
-        &self,
-        target: &str,
-        working_dir: PathBuf,
-        src: &str,
-        bin: &str,
-        extra_vars: Option<&HashMap<String, String>>,
-    ) -> ConfigResult<JudgingCommand> {
-        let vars = {
-            let mut vars = HashMap::from_iter(vec![("src", src), ("bin", bin)]);
-            if let Some(extra_vars) = extra_vars {
-                for (k, v) in extra_vars.iter() {
-                    vars.insert(k, v);
-                }
-            }
-            vars
-        };
-        let command = self.format(target, &vars)?;
-        Ok(JudgingCommand::new(command, working_dir))
-    }
-
-    fn format(&self, target: &str, variables: &HashMap<&str, &str>) -> TemplateResult<String> {
-        let transformed = self.embed_vars(variables)?;
-        Ok(transformed.format(target))
-    }
-
-    fn embed_vars(&self, variables: &HashMap<&str, &str>) -> TemplateResult<Template> {
-        enum Token {
-            Text(String),
-            Var(String),
-            Target(String),
-        }
-
-        impl Token {
-            fn transform(
-                self,
-                whole: &str,
-                variables: &HashMap<&str, &str>,
-            ) -> TemplateResult<TemplateToken> {
-                match self {
-                    Token::Text(s) => Ok(TemplateToken::Plain(s)),
-                    Token::Var(s) => match variables.get(s.as_str()) {
-                        Some(v) => Ok(TemplateToken::Plain((*v).to_owned())),
-                        None => {
-                            let vars = variables.keys().map(|v| (*v).to_owned()).collect();
-                            Err(TemplateError::NoSuchVariable(whole.to_owned(), s, vars))
-                        }
-                    },
-                    Token::Target(ref s) => {
-                        let s = trim_lr(s);
-                        if s == "" {
-                            Ok(TemplateToken::Target)
-                        } else if ["c", "C"].contains(&s.as_str()) {
-                            Ok(TemplateToken::TargetCamelized)
-                        } else {
-                            let whole = whole.to_owned();
-                            static EXPECTED_KWS: &'static [&'static str] = &["c", "C"];
-                            Err(TemplateError::NoSuchSpecifier(whole, s, EXPECTED_KWS))
-                        }
-                    }
-                }
-            }
-        }
-
-        fn trim_lr(s: &str) -> String {
-            lazy_static! {
-                static ref CENTOR: Regex = Regex::new(r"^\s*(\S*)\s*$").unwrap();
-            }
-            match CENTOR.captures(s) {
-                Some(cap) => cap[1].to_owned(),
-                None => s.to_owned(),
-            }
-        }
-
-        enum State {
-            Plain(String),
-            Dollar(String),
-            Brace(String),
-        }
-
-        impl State {
-            fn push(mut self, c: char) -> Self {
-                match self {
-                    State::Plain(ref mut s)
-                    | State::Dollar(ref mut s)
-                    | State::Brace(ref mut s) => s.push(c),
-                }
-                self
-            }
-
-            fn plain(self, chars: Vec<char>, tokens: &mut Vec<Token>) -> Self {
-                self.close(State::Plain(String::from_iter(chars)), tokens)
-            }
-
-            fn var(self, tokens: &mut Vec<Token>) -> Self {
-                self.close(State::Dollar("".to_owned()), tokens)
-            }
-
-            fn brace(self, tokens: &mut Vec<Token>) -> Self {
-                self.close(State::Brace("".to_owned()), tokens)
-            }
-
-            fn close(self, next: Self, tokens: &mut Vec<Token>) -> Self {
-                match self {
-                    State::Plain(ref s) if s.is_empty() => {}
-                    State::Plain(s) => tokens.push(Token::Text(s)),
-                    State::Dollar(s) => tokens.push(Token::Var(s)),
-                    State::Brace(s) => tokens.push(Token::Target(s)),
-                }
-                next
-            }
-
-            fn end(self, whole: &str, tokens: &mut Vec<Token>) -> TemplateResult<()> {
-                match self {
-                    State::Plain(s) => {
-                        tokens.push(Token::Text(s));
-                        Ok(())
-                    }
-                    State::Dollar(s) => {
-                        tokens.push(Token::Var(s));
-                        Ok(())
-                    }
-                    State::Brace(_) => Err(TemplateError::Syntax(whole.to_owned())),
-                }
-            }
-        }
-
-        #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
-        fn tokenize(template: &str) -> TemplateResult<Vec<Token>> {
-            let syntax_error = || TemplateError::Syntax(template.to_owned());
-            let mut state = State::Plain("".to_owned());
-            let mut tokens = vec![];
-            for c in template.chars() {
-                state = match (c, state) {
-                    ('$', state @ State::Plain(_)) => state.var(&mut tokens),
-                    ('{', state @ State::Plain(_)) => state.brace(&mut tokens),
-                    ('}', State::Plain(_)) => return Err(syntax_error()),
-                    (c, state @ State::Plain(_)) => state.push(c),
-                    ('$', state @ State::Dollar(_)) => state.var(&mut tokens),
-                    ('{', state @ State::Dollar(_)) => state.brace(&mut tokens),
-                    ('}', State::Dollar(_)) => return Err(syntax_error()),
-                    (' ', state @ State::Dollar(_)) => state.plain(vec![' '], &mut tokens),
-                    ('/', state @ State::Dollar(_)) => state.plain(vec!['/'], &mut tokens),
-                    ('\\', state @ State::Dollar(_)) => state.plain(vec!['\\'], &mut tokens),
-                    (c, state @ State::Dollar(_)) => state.push(c),
-                    ('{', State::Brace(_)) => return Err(syntax_error()),
-                    ('}', state @ State::Brace(_)) => state.plain(vec![], &mut tokens),
-                    (c, state @ State::Brace(_)) => state.push(c),
-                }
-            }
-            state.end(template, &mut tokens)?;
-            Ok(tokens)
-        }
-
-        for &k in variables.keys() {
-            if ['$', '/', '\\', '{', '}', ' ']
-                .iter()
-                .any(|c| k.contains(*c))
-            {
-                return Err(TemplateError::InvalidVariable(k.to_owned()));
-            }
-        }
-        let tokens = tokenize(&self.0)?
-            .into_iter()
-            .map(|t| t.transform(&self.0, variables))
-            .collect::<std::result::Result<Vec<TemplateToken>, _>>()?;
-        Ok(Template(tokens))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::TemplateString;
-
-    use std::collections::HashMap;
-    use std::iter::FromIterator;
-
-    #[test]
-    fn it_parses_a_path_correctly() {
-        let template = TemplateString("cc/{}.cc".to_owned());
-        let vars = HashMap::new();
-        assert_eq!("cc/a.cc", template.format("a", &vars).unwrap());
-        let template = TemplateString("cs/{C}/{C}.cs".to_owned());
-        let vars = HashMap::new();
-        assert_eq!("cs/A/A.cs", template.format("a", &vars).unwrap());
-        let template = TemplateString("gcc -o $bin $src".to_owned());
-        let vars = HashMap::from_iter(vec![("src", "SRC"), ("bin", "BIN")]);
-        assert_eq!("gcc -o BIN SRC", template.format("", &vars).unwrap());
-        let template = TemplateString("{ c }/{c}/{C}".to_owned());
-        let vars = HashMap::new();
-        assert_eq!("Name/Name/Name", template.format("name", &vars).unwrap());
-        let template = TemplateString("$foo/$bar/$baz".to_owned());
-        let vars = HashMap::from_iter(vec![("foo", "FOO"), ("bar", "BAR"), ("baz", "BAZ")]);
-        assert_eq!("FOO/BAR/BAZ", template.format("", &vars).unwrap());
-        let template = TemplateString("$$$".to_owned());
-        let vars = HashMap::from_iter(vec![("", "AAA")]);
-        assert_eq!("AAAAAAAAA", template.format("", &vars).unwrap());
-
-        let template = TemplateString("{}/{{}}".to_owned());
-        assert!(template.format("", &HashMap::new()).is_err());
-        let template = TemplateString("{}/{".to_owned());
-        assert!(template.format("", &HashMap::new()).is_err());
-        let template = TemplateString("{}/}".to_owned());
-        assert!(template.format("", &HashMap::new()).is_err());
-        let template = TemplateString("}/{}".to_owned());
-        assert!(template.format("", &HashMap::new()).is_err());
-        let template = TemplateString("{}/{aaa C}/{}".to_owned());
-        assert!(template.format("", &HashMap::new()).is_err());
-        let template = TemplateString("$unexistingkeyword".to_owned());
-        assert!(template.format("", &HashMap::new()).is_err());
     }
 }

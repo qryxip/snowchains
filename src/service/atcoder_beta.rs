@@ -1,6 +1,6 @@
-use config::PathTemplate;
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use service::OpenInBrowser;
+use template::PathTemplate;
 use terminal::Color;
 use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
 use util;
