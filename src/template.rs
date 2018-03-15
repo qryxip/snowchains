@@ -3,7 +3,7 @@ use util::{self, Camelize};
 
 use regex::Regex;
 
-use std::{self, io};
+use std::{self, env, io};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::iter::FromIterator;
@@ -91,10 +91,16 @@ impl TemplateString {
                     Token::Text(s) => Ok(TemplateToken::Plain(s)),
                     Token::Var(s) => match variables.get(s.as_str()) {
                         Some(v) => Ok(TemplateToken::Plain((*v).to_owned())),
-                        None => {
-                            let vars = variables.keys().map(|v| (*v).to_owned()).collect();
-                            Err(TemplateError::NoSuchVariable(whole.to_owned(), s, vars))
-                        }
+                        None => match env::var(s.as_str()) {
+                            Ok(v) => Ok(TemplateToken::Plain(v)),
+                            Err(env::VarError::NotPresent) => {
+                                let vars = variables.keys().map(|v| (*v).to_owned()).collect();
+                                Err(TemplateError::NoSuchVariable(whole.to_owned(), s, vars))
+                            }
+                            Err(env::VarError::NotUnicode(_)) => {
+                                Err(TemplateError::NonUtf8EnvVar(s.clone()))
+                            }
+                        },
                     },
                     Token::Target(ref s) => {
                         let s = trim_lr(s);
@@ -223,6 +229,7 @@ mod tests {
     use super::TemplateString;
 
     use std::collections::HashMap;
+    use std::env;
     use std::iter::FromIterator;
 
     #[test]
@@ -258,5 +265,31 @@ mod tests {
         assert!(template.format("", &HashMap::new()).is_err());
         let template = TemplateString::new("$unexistingkeyword");
         assert!(template.format("", &HashMap::new()).is_err());
+
+        #[cfg(unix)]
+        {
+            use errors::TemplateError;
+
+            use std::ffi::OsStr;
+            use std::os::unix::ffi::OsStrExt;
+
+            env::set_var("A", "あ");
+            env::set_var("B", OsStr::from_bytes(b"\xc3\x28"));
+            env::remove_var("C");
+            let template = TemplateString::new("$A/$A/{}");
+            assert_eq!("あ/あ/a", template.format("a", &HashMap::new()).unwrap());
+            match TemplateString::new("$B").format("", &HashMap::new()) {
+                Err(TemplateError::NonUtf8EnvVar(k)) => assert_eq!("B", k),
+                _ => panic!(),
+            }
+            match TemplateString::new("$C").format("", &HashMap::new()) {
+                Err(TemplateError::NoSuchVariable(w, k, expected)) => {
+                    assert_eq!("$C", w);
+                    assert_eq!("C", k);
+                    assert!(expected.is_empty());
+                }
+                _ => panic!(),
+            }
+        }
     }
 }

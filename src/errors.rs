@@ -187,6 +187,7 @@ pub enum TemplateError {
     Syntax(String),
     NoSuchSpecifier(String, String, &'static [&'static str]),
     NoSuchVariable(String, String, Vec<String>),
+    NonUtf8EnvVar(String),
     Io(io::Error),
 }
 
@@ -202,9 +203,12 @@ impl fmt::Display for TemplateError {
             ),
             TemplateError::NoSuchVariable(ref s, ref keyword, ref expected) => write!(
                 f,
-                "No such variable {:?} (expected {:?}): {:?}",
+                "No such variable {:?} (expected {:?} + environment variables): {:?}",
                 keyword, expected, s
             ),
+            TemplateError::NonUtf8EnvVar(ref k) => {
+                write!(f, "Non UTF-8 environment variable: {:?}", k)
+            }
             TemplateError::Io(ref e) => write!(f, "{}", e),
         }
     }
