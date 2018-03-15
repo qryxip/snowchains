@@ -83,9 +83,13 @@ quick_main_colored!(|| -> ::Result<()> {
                 ServiceName::HackerRank => unreachable!(),
             }?;
         }
-        Opt::Download { open_browser } => {
+        Opt::Download {
+            service,
+            contest,
+            open_browser,
+        } => {
             info!("Running \"download\" command");
-            let config = Config::load_from_file()?;
+            let config = Config::load_from_file(service, contest)?;
             let service = config.service_name()?;
             let contest = config.contest_name()?;
             let dir_to_save = config.suite_dir()?;
@@ -100,9 +104,9 @@ quick_main_colored!(|| -> ::Result<()> {
                 }
             }?;
         }
-        Opt::Restore => {
+        Opt::Restore { service, contest } => {
             info!("Running \"restore\" command");
-            let config = Config::load_from_file()?;
+            let config = Config::load_from_file(service, contest)?;
             let service = config.service_name()?;
             let contest = config.contest_name()?;
             match service {
@@ -118,17 +122,24 @@ quick_main_colored!(|| -> ::Result<()> {
             extension,
             input,
             output,
+            service,
+            contest,
         } => {
             info!("Running \"append\" command");
-            let config = Config::load_from_file()?;
+            let config = Config::load_from_file(service, contest)?;
             let dir = config.suite_dir()?;
             let path = SuiteFilePath::new(&dir, target, extension);
             testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
         }
-        Opt::Judge { target, language } => {
+        Opt::Judge {
+            target,
+            language,
+            service,
+            contest,
+        } => {
             info!("Running \"judge\" command");
             let language = language.as_ref().map(String::as_str);
-            let config = Config::load_from_file()?;
+            let config = Config::load_from_file(service, contest)?;
             let paths = config.suite_paths(&target)?;
             let solver = config.construct_solver(&target, language)?;
             let compilation = config.construct_compilation_command(&target, language)?;
@@ -137,13 +148,15 @@ quick_main_colored!(|| -> ::Result<()> {
         Opt::Submit {
             target,
             language,
+            service,
+            contest,
             open_browser,
             skip_judging,
             no_check,
         } => {
             info!("Running \"submit\" command");
             let language = language.as_ref().map(String::as_str);
-            let config = Config::load_from_file()?;
+            let config = Config::load_from_file(service, contest)?;
             let service = config.service_name()?;
             let contest = config.contest_name()?;
             let src_path = config.src_path(&target, language)?;
@@ -179,12 +192,14 @@ quick_main_colored!(|| -> ::Result<()> {
                      snowchains switch <service> <contest>\n    \
                      snowchains login <service>\n    \
                      snowchains participate <service> <contest>\n    \
-                     snowchains download [--open-browser]\n    \
-                     snowchains restore\n    \
-                     snowchains append <target> <extension> <input> [output]\n    \
-                     snowchains judge <target> [language]\n    \
-                     snowchains submit <target> [language] [--open-browser] [--skip-judging] \
-                     [--no-check]")]
+                     snowchains download [-s|--service=] [-c|--contest=] [--open-browser]\n    \
+                     snowchains restore [-s|--service=] [-c|--contest=]\n    \
+                     snowchains append <target> <extension> <input> [output] [-s|--service=] \
+                     [-c|--contest=]\n    \
+                     snowchains judge <target> [-l|--language=] [-s|--service=] [-c|--contest=]\
+                     \n    \
+                     snowchains submit <target> [-l|--language=] [-s|--service=] [-c|--contest=] \
+                     [--open-browser] [--skip-judging] [--no-check]")]
 enum Opt {
     #[structopt(name = "init", about = "Creates \"snowchains.yaml\"", raw(display_order = "1"))]
     Init {
@@ -222,18 +237,36 @@ enum Opt {
     },
 
     #[structopt(name = "download", about = "Downloads test cases",
-                usage = "snowchains download [--open-browser]", raw(display_order = "5"))]
+                usage = "snowchains download [-s|--service=] [-c|--contest=] [--open-browser]",
+                raw(display_order = "5"))]
     Download {
+        #[structopt(short = "s", long = "service", help = "Service name",
+                    raw(display_order = "1",
+                        possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
+        service: Option<ServiceName>,
+        #[structopt(short = "c", long = "contest", help = "Contest name",
+                    raw(display_order = "2"))]
+        contest: Option<String>,
         #[structopt(long = "open-browser", help = "Opens the pages with your default browser",
                     raw(display_order = "1"))]
         open_browser: bool,
     },
 
     #[structopt(name = "restore", about = "Downloads the source codes you've submitted",
+                usage = "snowchains restore [-s|--service=] [-c|--contest=]",
                 raw(display_order = "6"))]
-    Restore,
+    Restore {
+        #[structopt(short = "s", long = "service", help = "Service name",
+                    raw(display_order = "1", possible_values = "&[\"atcoderbeta\"]"))]
+        service: Option<ServiceName>,
+        #[structopt(short = "c", long = "contest", help = "Contest name",
+                    raw(display_order = "2"))]
+        contest: Option<String>,
+    },
 
     #[structopt(name = "append", about = "Appends a test case to a test suite file",
+                usage = "snowchains append <target> <extension> <input> [output] [-s|--service=] \
+                         [-c|--contest=]",
                 raw(display_order = "7"))]
     Append {
         #[structopt(name = "target", help = "Target name")]
@@ -245,25 +278,49 @@ enum Opt {
         input: String,
         #[structopt(name = "output", help = "\"expected\" value to append")]
         output: Option<String>,
+        #[structopt(short = "s", long = "service", help = "Service name",
+                    raw(display_order = "1",
+                        possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
+        service: Option<ServiceName>,
+        #[structopt(short = "c", long = "contest", help = "Contest name",
+                    raw(display_order = "2"))]
+        contest: Option<String>,
     },
 
-    #[structopt(name = "judge", about = "Tests a binary or script", raw(display_order = "8"))]
+    #[structopt(name = "judge", about = "Tests a binary or script",
+                usage = "snowchains judge <target> [-l|--language=] [-s|--service=] [-c|--contest=]",
+                raw(display_order = "8"))]
     Judge {
         #[structopt(name = "target", help = "Target name")]
         target: String,
-        #[structopt(name = "language", help = "Language name")]
+        #[structopt(short = "l", long = "language", help = "Language name",
+                    raw(display_order = "1"))]
         language: Option<String>,
+        #[structopt(short = "s", long = "service", help = "Service name",
+                    raw(display_order = "2",
+                        possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
+        service: Option<ServiceName>,
+        #[structopt(short = "c", long = "contest", help = "Contest name",
+                    raw(display_order = "3"))]
+        contest: Option<String>,
     },
 
     #[structopt(name = "submit", about = "Submits a source code",
-                usage = "snowchains submit <target> [language] [--open-browser] [--skip-judging] \
-                         [--no-check]",
+                usage = "snowchains submit <target> [-l|--language=] [-s|--service=] [-c|--contest=] \
+                         [--open-browser] [--skip-judging] [--no-check]",
                 raw(display_order = "9"))]
     Submit {
         #[structopt(name = "target", help = "Target name")]
         target: String,
-        #[structopt(name = "language", help = "Language name")]
+        #[structopt(short = "l", long = "language", help = "Language name",
+                    raw(display_order = "1"))]
         language: Option<String>,
+        #[structopt(short = "s", long = "service", help = "Service name",
+                    raw(display_order = "2", possible_values = "&[\"atcoderbeta\"]"))]
+        service: Option<ServiceName>,
+        #[structopt(short = "c", long = "contest", help = "Contest name",
+                    raw(display_order = "3"))]
+        contest: Option<String>,
         #[structopt(long = "open-browser", help = "Opens the pages with your default browser",
                     raw(display_order = "1"))]
         open_browser: bool,

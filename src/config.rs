@@ -256,11 +256,16 @@ pub struct Config {
 }
 
 impl Config {
-    /// Loads and deserializes from the nearest `snowchains.yaml`
-    pub fn load_from_file() -> ConfigResult<Self> {
+    /// Loads and deserializes from the nearest `snowchains.yaml`.
+    pub fn load_from_file(
+        service: Option<ServiceName>,
+        contest: Option<String>,
+    ) -> ConfigResult<Self> {
         let (base, path) = find_base()?;
         let mut config = serde_yaml::from_reader::<_, Self>(util::open_file(&path)?)?;
         config.base_dir = base;
+        config.service = service.or(config.service);
+        config.contest = contest.or(config.contest);
         println!("Loaded {}", path.display());
         Ok(config)
     }
