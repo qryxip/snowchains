@@ -14,7 +14,8 @@ use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Tests for given test case file paths, executaion command, and compilation command.
+/// Tests for given test case file paths, executaion command, and compilation
+/// command.
 ///
 /// # Errors
 ///

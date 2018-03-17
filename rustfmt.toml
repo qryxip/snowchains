@@ -1,6 +1,6 @@
 wrap_comments = true
 reorder_imports = true
 reorder_imports_in_group = true
-reorder_modules = false # #2482
-required_version = "0.4.0"
+reorder_modules = true
+required_version = "0.4.1"
 error_on_unformatted = true

@@ -42,8 +42,8 @@ fn start_session(filename: &'static str, domain: &'static str) -> httpsession::R
 
 /// Reads username and password from stdin, showing the prompts on stderr.
 ///
-/// If fails to read a password because of OS error 6 or 32, askes a password again without hiding
-/// the input.
+/// If fails to read a password because of OS error 6 or 32, askes a password
+/// again without hiding the input.
 fn ask_username_and_password(username_prompt: &'static str) -> io::Result<(String, String)> {
     let errno_brokenpipe = if cfg!(target_os = "windows") { 6 } else { 32 };
     let username = rprompt::prompt_reply_stderr(username_prompt)?;
@@ -72,8 +72,8 @@ fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> ServiceResu
     bail!(ServiceErrorKind::Scrape);
 }
 
-/// Reads a source code from `path`, replacing the main class name with `class_name` if the source
-/// code is Java or Scala.
+/// Reads a source code from `path`, replacing the main class name with
+/// `class_name` if the source code is Java or Scala.
 fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> ServiceResult<String> {
     let replace = move |file: File, regex: &Regex, stem: &OsStr| -> io::Result<Option<String>> {
         let code = BufReader::new(file);
@@ -124,7 +124,8 @@ fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> Ser
 }
 
 trait OpenInBrowser {
-    /// Opens `url`, which is relative or absolute, with default browser printing a message.
+    /// Opens `url`, which is relative or absolute, with default browser
+    /// printing a message.
     ///
     /// # Errors
     ///

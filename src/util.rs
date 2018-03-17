@@ -3,8 +3,8 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-/// Calls `File::open(path)` and if the result is `Err`, replace the error with new one which
-/// message contains `path`.
+/// Calls `File::open(path)` and if the result is `Err`, replace the error with
+/// new one which message contains `path`.
 pub fn open_file(path: &Path) -> io::Result<File> {
     File::open(path).map_err(|e| {
         let message = match e.kind() {
