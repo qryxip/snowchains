@@ -51,7 +51,7 @@ mod util;
 
 use config::{Config, ServiceName};
 use errors::Result;
-use service::{atcoder, atcoder_beta, hackerrank};
+use service::{atcoder, atcoder_beta, hackerrank, DownloadProp, RestoreProp, SubmitProp};
 use testsuite::{SuiteFileExtension, SuiteFilePath};
 
 use structopt::StructOpt;
@@ -96,14 +96,11 @@ quick_main_colored!(|| -> ::Result<()> {
             let contest = config.contest_name()?;
             let dir_to_save = config.suite_dir()?;
             let extension = config.get_extension_on_downloading();
+            let prop = DownloadProp::new(contest, dir_to_save, extension, open_browser);
             match service {
-                ServiceName::AtCoder => atcoder::download(&contest, &dir_to_save, extension),
-                ServiceName::AtCoderBeta => {
-                    atcoder_beta::download(&contest, &dir_to_save, extension, open_browser)
-                }
-                ServiceName::HackerRank => {
-                    hackerrank::download(&contest, &dir_to_save, extension, open_browser)
-                }
+                ServiceName::AtCoder => atcoder::download(&prop),
+                ServiceName::AtCoderBeta => atcoder_beta::download(prop),
+                ServiceName::HackerRank => hackerrank::download(&prop),
             }?;
         }
         Opt::Restore { service, contest } => {
@@ -112,13 +109,15 @@ quick_main_colored!(|| -> ::Result<()> {
             let service = config.service_name()?;
             let contest = config.contest_name()?;
             let replacers = config.code_replacers_on_atcoder()?;
-            match service {
-                ServiceName::AtCoderBeta => {
-                    let src_paths = config.src_paths_on_atcoder()?;
-                    atcoder_beta::restore(&contest, &src_paths, &replacers)?;
-                }
+            let src_paths = match service {
+                ServiceName::AtCoderBeta => config.src_paths_on_atcoder(),
                 _ => unimplemented!(),
-            }
+            }?;
+            let prop = RestoreProp::new(contest, &src_paths, &replacers);
+            match service {
+                ServiceName::AtCoderBeta => atcoder_beta::restore(prop),
+                _ => unimplemented!(),
+            }?;
         }
         Opt::Append {
             target,
@@ -171,21 +170,22 @@ quick_main_colored!(|| -> ::Result<()> {
                 judging::judge(&paths, solver, compilation)?;
                 println!();
             }
+            let lang_id = match service {
+                ServiceName::AtCoderBeta => config.atcoder_lang_id(language),
+                _ => unimplemented!(),
+            }?;
+            let prop = SubmitProp::new(
+                contest,
+                target,
+                lang_id,
+                src_path,
+                replacer.as_ref(),
+                open_browser,
+                no_check,
+            );
             match service {
-                ServiceName::AtCoder => unimplemented!(),
-                ServiceName::AtCoderBeta => {
-                    let lang_id = config.atcoder_lang_id(language)?;
-                    atcoder_beta::submit(
-                        &contest,
-                        &target,
-                        lang_id,
-                        &src_path,
-                        replacer.as_ref(),
-                        open_browser,
-                        no_check,
-                    )
-                }
-                ServiceName::HackerRank => unimplemented!(),
+                ServiceName::AtCoderBeta => atcoder_beta::submit(prop),
+                _ => unimplemented!(),
             }?;
         }
     }
@@ -293,7 +293,8 @@ enum Opt {
     },
 
     #[structopt(name = "judge", about = "Tests a binary or script",
-                usage = "snowchains judge <target> [-l|--language=] [-s|--service=] [-c|--contest=]",
+                usage = "snowchains judge <target> [-l|--language=] [-s|--service=] \
+                         [-c|--contest=]",
                 raw(display_order = "8"))]
     Judge {
         #[structopt(name = "target", help = "Target name")]
@@ -311,8 +312,8 @@ enum Opt {
     },
 
     #[structopt(name = "submit", about = "Submits a source code",
-                usage = "snowchains submit <target> [-l|--language=] [-s|--service=] [-c|--contest=] \
-                         [--open-browser] [--skip-judging] [--no-check]",
+                usage = "snowchains submit <target> [-l|--language=] [-s|--service=] \
+                         [-c|--contest=] [--open-browser] [--skip-judging] [--no-check]",
                 raw(display_order = "9"))]
     Submit {
         #[structopt(name = "target", help = "Target name")]

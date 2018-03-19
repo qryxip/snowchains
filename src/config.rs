@@ -1,13 +1,12 @@
 use command::{CompilationCommand, JudgingCommand};
-use errors::{ConfigError, ConfigErrorKind, ConfigResult};
-use replacer::{CodeReplacer, CodeReplacerProp};
+use errors::{CodeReplaceResult, ConfigError, ConfigErrorKind, ConfigResult};
+use replacer::CodeReplacer;
 use template::{PathTemplate, TemplateString};
 use testsuite::{SuiteFileExtension, SuiteFilePaths};
 use util;
 
+use {rprompt, serde_yaml};
 use regex::Regex;
-use rprompt;
-use serde_yaml;
 
 use std::{cmp, env, fmt, fs};
 use std::borrow::Cow;
@@ -97,7 +96,6 @@ languages:
       atcoder: 3014
   - name: "bash"
     src: "bash/{{}}.bash"
-    compile: ~
     run:
       command: "bash $src"
       working_directory: "bash/"
@@ -105,7 +103,6 @@ languages:
       atcoder: 3001
   - name: "python3"
     src: "py/{{}}.py"
-    compile: ~
     run:
       command: "./venv/bin/python3 $src"
       working_directory: "py/"
@@ -121,7 +118,7 @@ languages:
       command: "java -classpath ./build/classes/java/main/{{C}}"
       working_directory: "java/"
     replace:
-      regex: "^public(\\s+final)?\\s+class\\s+([A-Z][a-zA-Z0-9_]*).*$"
+      regex: "^\\s*public(\\s+final)?\\s+class\\s+([A-Z][a-zA-Z0-9_]*).*$"
       regex_group: 2
       local: "{{C}}"
       atcoder: "Main"
@@ -138,7 +135,7 @@ languages:
       command: "scala -classpath ./target/scala-2.12/classes/ {{C}}"
       working_directory: "scala/"
     replace:
-      regex: "^object\\s+([A-Z][a-zA-Z0-9_]*).*$"
+      regex: "^\\s*object\\s+([A-Z][a-zA-Z0-9_]*).*$"
       regex_group: 1
       local: "{{C}}"
       atcoder: "Main"
@@ -293,9 +290,9 @@ impl Config {
     }
 
     /// Gets `contest`.
-    pub fn contest_name(&self) -> ConfigResult<String> {
-        match self.contest.clone() {
-            Some(contest) => Ok(contest),
+    pub fn contest_name(&self) -> ConfigResult<&str> {
+        match self.contest {
+            Some(ref contest) => Ok(contest),
             None => bail!(ConfigErrorKind::PropertyNotSet("contest")),
         }
     }
@@ -616,6 +613,41 @@ impl Default for Run {
             working_directory: Default::default(),
         }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct CodeReplacerProp {
+    regex: String,
+    regex_group: usize,
+    local: TemplateString,
+    #[serde(default = "atcoder_class_name")]
+    atcoder: Cow<'static, str>,
+    #[serde(default = "always_true")]
+    once: bool,
+}
+
+impl CodeReplacerProp {
+    fn build(
+        &self,
+        variables: Option<&HashMap<String, String>>,
+    ) -> CodeReplaceResult<CodeReplacer> {
+        CodeReplacer::new(
+            &self.regex,
+            self.regex_group,
+            &self.local,
+            variables,
+            self.atcoder.clone(),
+            self.once,
+        )
+    }
+}
+
+fn atcoder_class_name() -> Cow<'static, str> {
+    "Main".into()
+}
+
+fn always_true() -> bool {
+    true
 }
 
 #[derive(Default, Serialize, Deserialize)]

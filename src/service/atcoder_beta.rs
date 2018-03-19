@@ -1,9 +1,7 @@
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
-use replacer::CodeReplacer;
-use service::OpenInBrowser;
-use template::PathTemplate;
+use service::{Contest, DownloadProp, OpenInBrowser, RestoreProp, SubmitProp};
 use terminal::Color;
-use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
+use testsuite::{SuiteFilePath, TestSuite};
 use util;
 
 use chrono::{DateTime, Local, Utc};
@@ -16,7 +14,6 @@ use std::{fmt, vec};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
-use std::path::Path;
 
 /// Logins to "beta.atcoder.jp".
 pub fn login() -> ServiceResult<()> {
@@ -25,53 +22,23 @@ pub fn login() -> ServiceResult<()> {
 
 /// Participates in a `contest_name`.
 pub fn participate(contest_name: &str) -> ServiceResult<()> {
-    AtCoderBeta::start()?.register_explicitly(&Contest::new(contest_name))
+    AtCoderBeta::start()?.register_explicitly(&AtcoderContest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
-pub fn download(
-    contest_name: &str,
-    dir_to_save: &Path,
-    extension: SuiteFileExtension,
-    open_browser: bool,
-) -> ServiceResult<()> {
-    AtCoderBeta::start()?.download(
-        &Contest::new(contest_name),
-        dir_to_save,
-        extension,
-        open_browser,
-    )
+pub fn download(prop: DownloadProp<&str>) -> ServiceResult<()> {
+    AtCoderBeta::start()?.download(&prop.transform())
 }
 
 /// Downloads submitted source codes.
-pub fn restore(
-    contest_name: &str,
-    src_paths: &BTreeMap<u32, PathTemplate>,
-    replacers: &BTreeMap<u32, CodeReplacer>,
-) -> ServiceResult<()> {
-    AtCoderBeta::start()?.restore(&Contest::new(contest_name), src_paths, replacers)
+pub fn restore(prop: RestoreProp<&str>) -> ServiceResult<()> {
+    AtCoderBeta::start()?.restore(&prop.transform())
 }
 
 /// Submits a source code.
-pub fn submit(
-    contest_name: &str,
-    task: &str,
-    lang_id: u32,
-    src_path: &Path,
-    replacer: Option<&CodeReplacer>,
-    open_browser: bool,
-    skip_checking_if_accepted: bool,
-) -> ServiceResult<()> {
-    AtCoderBeta::start()?.submit(
-        &Contest::new(contest_name),
-        task,
-        lang_id,
-        src_path,
-        replacer,
-        open_browser,
-        skip_checking_if_accepted,
-    )
+pub fn submit(prop: SubmitProp<&str>) -> ServiceResult<()> {
+    AtCoderBeta::start()?.submit(&prop.transform())
 }
 
 pub(self) struct AtCoderBeta(HttpSession);
@@ -137,11 +104,11 @@ impl AtCoderBeta {
         Ok(success)
     }
 
-    fn register_explicitly(&mut self, contest: &Contest) -> ServiceResult<()> {
+    fn register_explicitly(&mut self, contest: &AtcoderContest) -> ServiceResult<()> {
         self.register_if_active_or_explicit(contest, true)
     }
 
-    fn fetch_tasks_page(&mut self, contest: &Contest) -> ServiceResult<Document> {
+    fn fetch_tasks_page(&mut self, contest: &AtcoderContest) -> ServiceResult<Document> {
         let response = self.get_expecting(&contest.url_tasks(), &[200, 302, 404])?;
         if response.status().as_u16() == 200 {
             Ok(Document::from_read(response)?)
@@ -153,7 +120,7 @@ impl AtCoderBeta {
 
     fn register_if_active_or_explicit(
         &mut self,
-        contest: &Contest,
+        contest: &AtcoderContest,
         explicit: bool,
     ) -> ServiceResult<()> {
         #[derive(Serialize)]
@@ -171,7 +138,7 @@ impl AtCoderBeta {
         if !explicit {
             status.raise_if_not_begun()?;
         }
-        if explicit || *contest == Contest::Practice || status.is_active() {
+        if explicit || *contest == AtcoderContest::Practice || status.is_active() {
             self.login_if_not(false)?;
             let page = Document::from_read(self.get(&contest.url_top())?)?;
             let payload = Payload {
@@ -183,13 +150,8 @@ impl AtCoderBeta {
         Ok(())
     }
 
-    fn download(
-        &mut self,
-        contest: &Contest,
-        dir_to_save: &Path,
-        extension: SuiteFileExtension,
-        open_browser: bool,
-    ) -> ServiceResult<()> {
+    fn download(&mut self, prop: &DownloadProp<AtcoderContest>) -> ServiceResult<()> {
+        let (contest, dir_to_save, extension, open_browser) = prop.values();
         let tasks_page = self.fetch_tasks_page(contest)?;
         let outputs = extract_task_urls_with_names(&tasks_page)?
             .into_iter()
@@ -211,12 +173,7 @@ impl AtCoderBeta {
         Ok(())
     }
 
-    fn restore(
-        &mut self,
-        contest: &Contest,
-        src_paths: &BTreeMap<u32, PathTemplate>,
-        replacers: &BTreeMap<u32, CodeReplacer>,
-    ) -> ServiceResult<()> {
+    fn restore(&mut self, prop: &RestoreProp<AtcoderContest>) -> ServiceResult<()> {
         fn collect_urls(
             detail_urls: &mut HashMap<(String, String), String>,
             submissions: vec::IntoIter<Submission>,
@@ -229,6 +186,7 @@ impl AtCoderBeta {
             }
         }
 
+        let (contest, src_paths, replacers) = prop.values();
         let first_page = Document::from_read(self.get(&contest.url_submissions_me(1))?)?;
         let (submissions, num_pages) = extract_submissions(&first_page)?;
         let mut detail_urls = HashMap::new();
@@ -264,16 +222,7 @@ impl AtCoderBeta {
     }
 
     #[allow(non_snake_case)]
-    fn submit(
-        &mut self,
-        contest: &Contest,
-        task: &str,
-        lang_id: u32,
-        src_path: &Path,
-        replacer: Option<&CodeReplacer>,
-        open_browser: bool,
-        skip_checking_if_accepted: bool,
-    ) -> ServiceResult<()> {
+    fn submit(&mut self, prop: &SubmitProp<AtcoderContest>) -> ServiceResult<()> {
         #[derive(Serialize)]
         struct Payload {
             #[serde(rename = "data.TaskScreenName")]
@@ -284,13 +233,16 @@ impl AtCoderBeta {
             csrf_token: String,
         }
 
+        let (contest, task, lang_id, src_path, replacer, open_browser, skip_checking_if_accepted) =
+            prop.values();
         let tasks_page = self.fetch_tasks_page(contest)?;
-        let checks_if_accepted = !skip_checking_if_accepted && *contest != Contest::Practice && {
-            let duration = extract_contest_duration(&tasks_page)?;
-            let status = duration.check_current_status(contest.to_string());
-            status.raise_if_not_begun()?;
-            status.is_active()
-        };
+        let checks_if_accepted = !skip_checking_if_accepted && *contest != AtcoderContest::Practice
+            && {
+                let duration = extract_contest_duration(&tasks_page)?;
+                let status = duration.check_current_status(contest.to_string());
+                status.raise_if_not_begun()?;
+                status.is_active()
+            };
         for (name, url) in extract_task_urls_with_names(&tasks_page)? {
             if name.to_uppercase() == task.to_uppercase() {
                 #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -350,7 +302,7 @@ impl AtCoderBeta {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub(self) enum Contest {
+enum AtcoderContest {
     Practice,
     Arc(u32),
     Abc(u32),
@@ -359,21 +311,21 @@ pub(self) enum Contest {
     Other(String),
 }
 
-impl fmt::Display for Contest {
+impl fmt::Display for AtcoderContest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Contest::Practice => write!(f, "practice contest"),
-            Contest::Abc(n) => write!(f, "ABC{:>03}", n),
-            Contest::Arc(n) => write!(f, "ARC{:>03}", n),
-            Contest::Agc(n) => write!(f, "AGC{:>03}", n),
-            Contest::ChokudaiS(n) => write!(f, "Chokudai SpeedRun {:>03}", n),
-            Contest::Other(ref s) => write!(f, "{}", s),
+            AtcoderContest::Practice => write!(f, "practice contest"),
+            AtcoderContest::Abc(n) => write!(f, "ABC{:>03}", n),
+            AtcoderContest::Arc(n) => write!(f, "ARC{:>03}", n),
+            AtcoderContest::Agc(n) => write!(f, "AGC{:>03}", n),
+            AtcoderContest::ChokudaiS(n) => write!(f, "Chokudai SpeedRun {:>03}", n),
+            AtcoderContest::Other(ref s) => write!(f, "{}", s),
         }
     }
 }
 
-impl Contest {
-    pub(self) fn new(s: &str) -> Self {
+impl Contest for AtcoderContest {
+    fn new(s: &str) -> Self {
         lazy_static! {
             static ref NAME: Regex = Regex::new(r"\A\s*([a-zA-Z_]+)(\d{3})\s*\z").unwrap();
         }
@@ -381,29 +333,31 @@ impl Contest {
             let name = caps[1].to_lowercase();
             let number = caps[2].parse::<u32>().unwrap_or(0);
             if name == "abc" {
-                return Contest::Abc(number);
+                return AtcoderContest::Abc(number);
             } else if name == "arc" {
-                return Contest::Arc(number);
+                return AtcoderContest::Arc(number);
             } else if name == "agc" {
-                return Contest::Agc(number);
+                return AtcoderContest::Agc(number);
             } else if name == "chokudai_s" || name == "chokudais" {
-                return Contest::ChokudaiS(number);
+                return AtcoderContest::ChokudaiS(number);
             }
         } else if s == "practice" {
-            return Contest::Practice;
+            return AtcoderContest::Practice;
         }
-        Contest::Other(s.to_owned())
+        AtcoderContest::Other(s.to_owned())
     }
+}
 
+impl AtcoderContest {
     fn url_top(&self) -> String {
         static BASE: &'static str = "/contests/";
         match *self {
-            Contest::Practice => format!("{}practice", BASE),
-            Contest::Abc(n) => format!("{}abc{:>03}", BASE, n),
-            Contest::Arc(n) => format!("{}arc{:>03}", BASE, n),
-            Contest::Agc(n) => format!("{}agc{:>03}", BASE, n),
-            Contest::ChokudaiS(n) => format!("{}chokudai_s{:>03}", BASE, n),
-            Contest::Other(ref s) => format!("{}{}", BASE, s),
+            AtcoderContest::Practice => format!("{}practice", BASE),
+            AtcoderContest::Abc(n) => format!("{}abc{:>03}", BASE, n),
+            AtcoderContest::Arc(n) => format!("{}arc{:>03}", BASE, n),
+            AtcoderContest::Agc(n) => format!("{}agc{:>03}", BASE, n),
+            AtcoderContest::ChokudaiS(n) => format!("{}chokudai_s{:>03}", BASE, n),
+            AtcoderContest::Other(ref s) => format!("{}{}", BASE, s),
         }
     }
 
@@ -505,13 +459,16 @@ pub(self) fn extract_task_urls_with_names(
     super::quit_on_failure(extract(document), Vec::is_empty)
 }
 
-pub(self) fn extract_as_suite<R: Read>(html: R, contest: &Contest) -> ServiceResult<TestSuite> {
+pub(self) fn extract_as_suite<R: Read>(
+    html: R,
+    contest: &AtcoderContest,
+) -> ServiceResult<TestSuite> {
     enum Samples {
         Simple(Vec<(String, String)>),
         Interactive,
     }
 
-    fn extract_samples(document: &Document, contest: &Contest) -> Option<Samples> {
+    fn extract_samples(document: &Document, contest: &AtcoderContest) -> Option<Samples> {
         lazy_static! {
             static ref IN_JA: Regex = Regex::new(r"\A[\s\n]*入力例\s*(\d{1,3})+[.\n]*\z").unwrap();
             static ref OUT_JA: Regex = Regex::new(r"\A[\s\n]*出力例\s*(\d{1,3})+[.\n]*\z").unwrap();
@@ -597,13 +554,13 @@ pub(self) fn extract_as_suite<R: Read>(html: R, contest: &Contest) -> ServiceRes
         let on_abc041 = || try_extract_samples(document, predicate6, &IN_JA, &OUT_JA, INFO6);
         let on_practice = || try_extract_samples(document, predicate7, &IN_JA, &OUT_JA, INFO7);
         match *contest {
-            Contest::Arc(n) if 19 <= n && n <= 57 => on_arc019_to_arc057(),
-            Contest::Abc(n) if 7 <= n && n <= 40 => on_arc019_to_arc057(),
-            Contest::Arc(n) if 2 <= n && n <= 18 => on_arc002_to_arc018(),
-            Contest::Abc(n) if 1 <= n && n <= 6 => on_arc002_to_arc018(),
-            Contest::Arc(1) => on_arc001(),
-            Contest::Abc(41) => on_abc041(),
-            Contest::Practice => on_practice(),
+            AtcoderContest::Arc(n) if 19 <= n && n <= 57 => on_arc019_to_arc057(),
+            AtcoderContest::Abc(n) if 7 <= n && n <= 40 => on_arc019_to_arc057(),
+            AtcoderContest::Arc(n) if 2 <= n && n <= 18 => on_arc002_to_arc018(),
+            AtcoderContest::Abc(n) if 1 <= n && n <= 6 => on_arc002_to_arc018(),
+            AtcoderContest::Arc(1) => on_arc001(),
+            AtcoderContest::Abc(41) => on_abc041(),
+            AtcoderContest::Practice => on_practice(),
             _ => on_current(),
         }
     }
@@ -850,7 +807,8 @@ fn find_lang_id(document: &Document, lang_name: &str) -> ServiceResult<u32> {
 
 #[cfg(test)]
 mod tests {
-    use service::atcoder_beta::{AtCoderBeta, Contest};
+    use service::Contest;
+    use service::atcoder_beta::{AtCoderBeta, AtcoderContest};
     use testsuite::TestSuite;
 
     use env_logger;
@@ -865,7 +823,9 @@ mod tests {
     fn it_extracts_task_urls() {
         let _ = env_logger::try_init();
         let mut atcoder = start().unwrap();
-        let page = atcoder.fetch_tasks_page(&Contest::new("agc001")).unwrap();
+        let page = atcoder
+            .fetch_tasks_page(&AtcoderContest::new("agc001"))
+            .unwrap();
         let urls_and_names = super::extract_task_urls_with_names(&page).unwrap();
         static EXPECTED: &[(&str, &str)] = &[
             ("A", "/contests/agc001/tasks/agc001_a"),
@@ -1148,7 +1108,7 @@ mod tests {
 
     fn test_sample_extraction(contest: &str, expected: &[(&str, &str, u64, &[(&str, &str)])]) {
         let mut atcoder = start().unwrap();
-        let contest = Contest::new(contest);
+        let contest = AtcoderContest::new(contest);
         let page = atcoder.fetch_tasks_page(&contest).unwrap();
         let urls_and_names = super::extract_task_urls_with_names(&page).unwrap();
         for (

@@ -1,5 +1,6 @@
 use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
-use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
+use service::DownloadProp;
+use testsuite::{SuiteFilePath, TestSuite};
 
 use httpsession::HttpSession;
 use regex::Regex;
@@ -8,7 +9,6 @@ use select::node::Node;
 use select::predicate::{Attr as HtmlAttr, Class, Name, Predicate, Text};
 
 use std::io::Read;
-use std::path::Path;
 
 pub fn login() -> ServiceResult<()> {
     static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
@@ -25,13 +25,8 @@ pub fn participate(contest_name: &str) -> ServiceResult<()> {
     AtCoder::load_or_login()?.participate(contest_name)
 }
 
-pub fn download(
-    contest_name: &str,
-    dir_to_save: &Path,
-    extension: SuiteFileExtension,
-) -> ServiceResult<()> {
-    let mut atcoder = AtCoder::load_or_login()?;
-    atcoder.download_all_tasks(contest_name, dir_to_save, extension)
+pub fn download(prop: &DownloadProp<&str>) -> ServiceResult<()> {
+    AtCoder::load_or_login()?.download_all_tasks(prop)
 }
 
 custom_derive! {
@@ -58,18 +53,14 @@ impl AtCoder {
         Ok(())
     }
 
-    fn download_all_tasks(
-        &mut self,
-        contest_name: &str,
-        dir_to_save: &Path,
-        extension: SuiteFileExtension,
-    ) -> ServiceResult<()> {
+    fn download_all_tasks(&mut self, prop: &DownloadProp<&str>) -> ServiceResult<()> {
+        let (contest, dir_to_save, extension, _) = prop.values();
         let names_and_pathes = {
-            let url = format!("http://{}.contest.atcoder.jp/assignments", contest_name);
+            let url = format!("http://{}.contest.atcoder.jp/assignments", contest);
             extract_names_and_pathes(self.get(&url)?).chain_err(|| "Probably 404")?
         };
         for (alphabet, path) in names_and_pathes {
-            let url = format!("http://{}.contest.atcoder.jp{}", contest_name, path);
+            let url = format!("http://{}.contest.atcoder.jp{}", contest, path);
             match extract_cases(self.get(&url)?) {
                 Ok(suite) => {
                     let path = SuiteFilePath::new(dir_to_save, alphabet.to_lowercase(), extension);

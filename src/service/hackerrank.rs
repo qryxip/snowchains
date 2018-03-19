@@ -1,6 +1,6 @@
 use errors::ServiceResult;
-use service::{DownloadZips, OpenInBrowser};
-use testsuite::{SuiteFileExtension, SuiteFilePath, TestSuite};
+use service::{DownloadProp, DownloadZips, OpenInBrowser};
+use testsuite::{SuiteFilePath, TestSuite};
 use util;
 
 use httpsession::{HttpSession, Response};
@@ -13,19 +13,13 @@ use zip::ZipArchive;
 use zip::result::ZipResult;
 
 use std::io::{Read, Seek};
-use std::path::Path;
 
 pub fn login() -> ServiceResult<()> {
     HackerRank::start(true).map(|_| ())
 }
 
-pub fn download(
-    contest: &str,
-    dir_to_save: &Path,
-    extension: SuiteFileExtension,
-    open_browser: bool,
-) -> ServiceResult<()> {
-    HackerRank::start(false)?.download(contest, dir_to_save, extension, open_browser)
+pub fn download(prop: &DownloadProp<&str>) -> ServiceResult<()> {
+    HackerRank::start(false)?.download(prop)
 }
 
 custom_derive! {
@@ -80,13 +74,7 @@ impl HackerRank {
         Ok(serde_json::from_reader::<_, ResponseData>(response)?.status)
     }
 
-    fn download(
-        &mut self,
-        contest: &str,
-        dir_to_save: &Path,
-        extension: SuiteFileExtension,
-        open_browser: bool,
-    ) -> ServiceResult<()> {
+    fn download(&mut self, prop: &DownloadProp<&str>) -> ServiceResult<()> {
         #[derive(Deserialize)]
         struct Challenges {
             models: Vec<Model>,
@@ -97,6 +85,7 @@ impl HackerRank {
             slug: String,
         }
 
+        let (contest, dir_to_save, extension, open_browser) = prop.values();
         let url = format!("/rest/contests/{}/challenges", contest);
         let (mut zip_urls, mut paths, mut urls) = (vec![], vec![], vec![]);
         for slug in serde_json::from_reader::<_, Challenges>(self.get(&url)?)?
