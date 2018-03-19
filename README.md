@@ -35,9 +35,9 @@ $ snowchains submit <target> (<language>) (--open-browser) (--skip-judging) (--f
 ---
 service: "atcoderbeta"                                 # optional
 contest: "chokudai_s001"                               # optional
-testsuites: "snowchains/$service/$contest/"            # default: 〃
-extension_on_downloading: "yaml"                       # default: 〃
-extensions_on_judging: ["json", "toml", "yaml", "yml"] # default: 〃
+testsuites: "snowchains/$service/$contest/"            # default: ”
+extension_on_downloading: "yaml"                       # default: ”
+extensions_on_judging: ["json", "toml", "yaml", "yml"] # default: ”
 
 atcoder:
   default_language: "c++"
@@ -108,6 +108,12 @@ languages:
     run:
       command: "java -classpath ./build/classes/java/main/{C}"
       working_directory: "java/"
+    replace:
+      regex: "^public(\\s+final)?\\s+class\\s+([A-Z][a-zA-Z0-9_]*).*$"
+      regex_group: 2
+      local: "{C}"
+      atcoder: "Main" # default: ”
+      once: true      # default: ”
     language_ids:
       atcoder: 3016
   - # Windows

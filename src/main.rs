@@ -42,6 +42,7 @@ mod command;
 mod config;
 mod errors;
 mod judging;
+mod replacer;
 mod service;
 mod template;
 mod terminal;
@@ -110,10 +111,11 @@ quick_main_colored!(|| -> ::Result<()> {
             let config = Config::load_from_file(service, contest)?;
             let service = config.service_name()?;
             let contest = config.contest_name()?;
+            let replacers = config.code_replacers_on_atcoder()?;
             match service {
                 ServiceName::AtCoderBeta => {
                     let src_paths = config.src_paths_on_atcoder()?;
-                    atcoder_beta::restore(&contest, &src_paths)?;
+                    atcoder_beta::restore(&contest, &src_paths, &replacers)?;
                 }
                 _ => unimplemented!(),
             }
@@ -161,6 +163,7 @@ quick_main_colored!(|| -> ::Result<()> {
             let service = config.service_name()?;
             let contest = config.contest_name()?;
             let src_path = config.src_path(&target, language)?;
+            let replacer = config.code_replacer(language)?;
             if !skip_judging {
                 let paths = config.suite_paths(&target)?;
                 let solver = config.construct_solver(&target, language)?;
@@ -177,6 +180,7 @@ quick_main_colored!(|| -> ::Result<()> {
                         &target,
                         lang_id,
                         &src_path,
+                        replacer.as_ref(),
                         open_browser,
                         no_check,
                     )

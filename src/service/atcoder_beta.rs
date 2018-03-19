@@ -1,4 +1,5 @@
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
+use replacer::CodeReplacer;
 use service::OpenInBrowser;
 use template::PathTemplate;
 use terminal::Color;
@@ -44,8 +45,12 @@ pub fn download(
 }
 
 /// Downloads submitted source codes.
-pub fn restore(contest_name: &str, src_paths: &BTreeMap<u32, PathTemplate>) -> ServiceResult<()> {
-    AtCoderBeta::start()?.restore(&Contest::new(contest_name), src_paths)
+pub fn restore(
+    contest_name: &str,
+    src_paths: &BTreeMap<u32, PathTemplate>,
+    replacers: &BTreeMap<u32, CodeReplacer>,
+) -> ServiceResult<()> {
+    AtCoderBeta::start()?.restore(&Contest::new(contest_name), src_paths, replacers)
 }
 
 /// Submits a source code.
@@ -54,6 +59,7 @@ pub fn submit(
     task: &str,
     lang_id: u32,
     src_path: &Path,
+    replacer: Option<&CodeReplacer>,
     open_browser: bool,
     skip_checking_if_accepted: bool,
 ) -> ServiceResult<()> {
@@ -62,6 +68,7 @@ pub fn submit(
         task,
         lang_id,
         src_path,
+        replacer,
         open_browser,
         skip_checking_if_accepted,
     )
@@ -208,6 +215,7 @@ impl AtCoderBeta {
         &mut self,
         contest: &Contest,
         src_paths: &BTreeMap<u32, PathTemplate>,
+        replacers: &BTreeMap<u32, CodeReplacer>,
     ) -> ServiceResult<()> {
         fn collect_urls(
             detail_urls: &mut HashMap<(String, String), String>,
@@ -236,6 +244,10 @@ impl AtCoderBeta {
             if let Some(path_template) = src_paths.get(&lang_id) {
                 let path = path_template.format(&task_name.to_lowercase())?;
                 let mut file = util::create_file_and_dirs(&path)?;
+                let code = match replacers.get(&lang_id) {
+                    Some(replacer) => replacer.replace_from_atcoder_submission(&task_name, &code)?,
+                    None => code,
+                };
                 file.write_all(code.as_bytes())?;
                 println!(
                     "{} - {:?} (id: {}): Saved to {}",
@@ -258,6 +270,7 @@ impl AtCoderBeta {
         task: &str,
         lang_id: u32,
         src_path: &Path,
+        replacer: Option<&CodeReplacer>,
         open_browser: bool,
         skip_checking_if_accepted: bool,
     ) -> ServiceResult<()> {
@@ -312,13 +325,17 @@ impl AtCoderBeta {
                         }
                     }
                 }
-                let sourceCode = super::replace_class_name_if_necessary(src_path, "Main")?;
+                let source_code = util::string_from_file_path(src_path)?;
+                let source_code = match replacer {
+                    Some(replacer) => replacer.replace_as_atcoder_submission(task, &source_code)?,
+                    None => source_code,
+                };
                 let csrf_token = extract_csrf_token(&Document::from_read(self.get(&url)?)?)?;
                 let url = contest.url_submit();
                 let payload = Payload {
                     dataTaskScreenName: task_screen_name,
                     dataLanguageId: lang_id,
-                    sourceCode,
+                    sourceCode: source_code,
                     csrf_token,
                 };
                 self.post_urlencoded(&url, &payload, &[302], None)?;

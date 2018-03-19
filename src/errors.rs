@@ -4,8 +4,8 @@ use httpsession::UrlError;
 use zip::result::ZipError;
 
 use std::{self, fmt, io};
-use std::path::PathBuf;
 use std::process::ExitStatus;
+use std::string::FromUtf8Error;
 use std::sync::mpsc::RecvError;
 
 error_chain!{
@@ -23,6 +23,7 @@ error_chain! {
     }
 
     links {
+        CodeReplace(CodeReplaceError, CodeReplaceErrorKind);
         SuiteFile(SuiteFileError, SuiteFileErrorKind);
     }
 
@@ -58,11 +59,6 @@ error_chain! {
         NoSuchProblem(name: String) {
             description("No such problem")
             display("No such problem: {:?}", name)
-        }
-
-        ClassNameReplace(path: PathBuf) {
-            description("Replacing the class name fails")
-            display("Failed to replace the main class name in {}", path.display())
         }
 
         Scrape {
@@ -149,6 +145,10 @@ error_chain! {
         ConfigError, ConfigErrorKind, ConfigResultExt, ConfigResult;
     }
 
+    links {
+        CodeReplace(CodeReplaceError, CodeReplaceErrorKind);
+    }
+
     foreign_links {
         Io(io::Error);
         Regex(regex::Error);
@@ -175,6 +175,30 @@ error_chain! {
         PropertyNotSet(property: &'static str) {
             description("Property not set")
             display("Property not set: \"{}\"", property)
+        }
+    }
+}
+
+error_chain! {
+    types {
+        CodeReplaceError, CodeReplaceErrorKind, CodeReplaceResultExt, CodeReplaceResult;
+    }
+
+    foreign_links {
+        Regex(regex::Error);
+        Template(TemplateError);
+        FromUtf8(FromUtf8Error);
+    }
+
+    errors {
+        RegexGroupOutOfBounds(i: usize) {
+            description("Regex group out of bounds")
+            display("Regex group out of bounds: {}", i)
+        }
+
+        NoMatch(regex: String) {
+            description("No match")
+            display("No match: {:?}", regex)
         }
     }
 }

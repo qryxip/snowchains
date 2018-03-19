@@ -1,5 +1,6 @@
 use command::{CompilationCommand, JudgingCommand};
 use errors::{ConfigError, ConfigErrorKind, ConfigResult};
+use replacer::{CodeReplacer, CodeReplacerProp};
 use template::{PathTemplate, TemplateString};
 use testsuite::{SuiteFileExtension, SuiteFilePaths};
 use util;
@@ -119,6 +120,12 @@ languages:
     run:
       command: "java -classpath ./build/classes/java/main/{{C}}"
       working_directory: "java/"
+    replace:
+      regex: "^public(\\s+final)?\\s+class\\s+([A-Z][a-zA-Z0-9_]*).*$"
+      regex_group: 2
+      local: "{{C}}"
+      atcoder: "Main"
+      once: true
     language_ids:
       atcoder: 3016
   - name: "scala"
@@ -130,6 +137,12 @@ languages:
     run:
       command: "scala -classpath ./target/scala-2.12/classes/ {{C}}"
       working_directory: "scala/"
+    replace:
+      regex: "^object\\s+([A-Z][a-zA-Z0-9_]*).*$"
+      regex_group: 1
+      local: "{{C}}"
+      atcoder: "Main"
+      once: true
     language_ids:
       atcoder: 3025
 {csharp}
@@ -183,7 +196,7 @@ pub fn switch(service: ServiceName, contest: &str) -> ConfigResult<()> {
         }
     }
 
-    fn print_change(n: usize, prev: &Cow<'static, str>, new: &str) {
+    fn print_change(n: usize, prev: &str, new: &str) {
         print!("{}", prev);
         for _ in 0..n - prev.len() {
             print!(" ");
@@ -334,6 +347,29 @@ impl Config {
         Ok(lang.resolve_src(&self.base_dir, target, vars)?)
     }
 
+    pub fn code_replacer(&self, lang_name: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
+        let (lang, vars) = self.lang_property(lang_name)?;
+        let replacer = match lang.replace.as_ref() {
+            Some(replacer) => Some(replacer.build(vars)?),
+            None => None,
+        };
+        Ok(replacer)
+    }
+
+    pub fn code_replacers_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, CodeReplacer>> {
+        let mut replacers = BTreeMap::new();
+        for lang in &self.languages {
+            if let Some(lang_id) = lang.language_ids.atcoder {
+                if let Some(ref replacer_prop) = lang.replace {
+                    let replacer =
+                        replacer_prop.build(self.atcoder.as_ref().map(|a| &a.variables))?;
+                    replacers.insert(lang_id, replacer);
+                }
+            }
+        }
+        Ok(replacers)
+    }
+
     /// Returns the `lang_id` of `lang_name` or a default language
     pub fn atcoder_lang_id(&self, lang_name: Option<&str>) -> ConfigResult<u32> {
         let (lang, _) = self.lang_property(lang_name)?;
@@ -462,6 +498,7 @@ struct Language {
     #[serde(skip_serializing_if = "Option::is_none")]
     compile: Option<Compile>,
     run: Run,
+    replace: Option<CodeReplacerProp>,
     #[serde(default, skip_serializing_if = "LanguageIds::is_empty")]
     language_ids: LanguageIds,
 }

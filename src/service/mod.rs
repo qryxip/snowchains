@@ -2,7 +2,7 @@ pub mod atcoder;
 pub mod atcoder_beta;
 pub mod hackerrank;
 
-use errors::{ServiceError, ServiceErrorKind, ServiceResult};
+use errors::{ServiceErrorKind, ServiceResult};
 use terminal::Color;
 use util;
 
@@ -10,14 +10,10 @@ use {rpassword, rprompt, webbrowser};
 use httpsession::{self, ColorMode, CookieStoreOption, HttpSession, RedirectPolicy};
 use httpsession::header::{ContentLength, UserAgent};
 use pbr::{MultiBar, Units};
-use regex::Regex;
 use zip::ZipArchive;
 use zip::result::{ZipError, ZipResult};
 
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader, Cursor, Read, Write};
-use std::path::Path;
+use std::io::{self, Cursor, Read, Write};
 use std::thread;
 use std::time::Duration;
 
@@ -70,57 +66,6 @@ fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> ServiceResu
         }
     }
     bail!(ServiceErrorKind::Scrape);
-}
-
-/// Reads a source code from `path`, replacing the main class name with
-/// `class_name` if the source code is Java or Scala.
-fn replace_class_name_if_necessary(path: &Path, class_name: &'static str) -> ServiceResult<String> {
-    let replace = move |file: File, regex: &Regex, stem: &OsStr| -> io::Result<Option<String>> {
-        let code = BufReader::new(file);
-        let mut processed = vec![];
-        let mut replaced_p = false;
-        for line in code.lines() {
-            let line = line?;
-            if !replaced_p {
-                if let Some(caps) = regex.captures(&line) {
-                    if OsStr::new(&caps[2]) == stem {
-                        processed.push(format!("{}{}{}", &caps[1], class_name, &caps[3]));
-                        replaced_p = true;
-                        continue;
-                    }
-                }
-            }
-            processed.push(line);
-        }
-
-        Ok(if replaced_p {
-            info!(
-                "The main class name was successfully replaced with {:?}",
-                class_name
-            );
-            Some(processed.join("\n"))
-        } else {
-            None
-        })
-    };
-
-    lazy_static! {
-        static ref JAVA_CLASS: Regex =
-            Regex::new(r"^(\s*public\s+class\s+)([a-zA-Z_\$][a-zA-Z0-9_\$]*)(.*)$").unwrap();
-        static ref SCALA_CLASS: Regex =
-            Regex::new(r"^(\s*object\s+)([a-zA-Z_\$][a-zA-Z0-9_\$]*)(.*)$").unwrap();
-    }
-    let file = util::open_file(path)?;
-    let stem = path.file_stem().unwrap_or_default();
-    let extension = path.extension();
-    let e = || ServiceError::from(ServiceErrorKind::ClassNameReplace(path.to_owned()));
-    if extension == Some(OsStr::new("java")) {
-        replace(file, &JAVA_CLASS, stem)?.ok_or_else(e)
-    } else if extension == Some(OsStr::new("scala")) {
-        replace(file, &SCALA_CLASS, stem)?.ok_or_else(e)
-    } else {
-        Ok(util::string_from_read(file)?)
-    }
 }
 
 trait OpenInBrowser {

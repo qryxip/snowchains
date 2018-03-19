@@ -24,7 +24,7 @@ impl<'a> PathTemplate<'a> {
 pub struct Template(Vec<TemplateToken>);
 
 impl Template {
-    fn format(&self, target: &str) -> String {
+    pub fn format(&self, target: &str) -> String {
         self.0.iter().fold("".to_owned(), |mut r, t| {
             match *t {
                 TemplateToken::Plain(ref s) => r += s,
