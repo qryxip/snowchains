@@ -1,4 +1,4 @@
-use {bincode, cookie, httpsession, regex, serde_json, serde_urlencoded, serde_yaml, toml};
+use {bincode, cookie, futures, httpsession, regex, serde_json, serde_urlencoded, serde_yaml, toml};
 use chrono::{self, DateTime, Local};
 use httpsession::UrlError;
 use zip::result::ZipError;
@@ -75,9 +75,13 @@ error_chain! {
 
         Webbrowser(status: ExitStatus) {
             description("Failed to open a URL in the default browser")
-            display("The default browser terminated abnormally {}",
-                    if let Some(code) = status.code() { format!("with code {}", code) }
-                    else { "without code".to_owned() })
+            display("{}",
+                    if let Some(code) = status.code() {
+                        format!("The default browser terminated abnormally with code {}", code)
+                    } else {
+                        "The default browser terminated abnormally without code (possibly killed)"
+                            .to_owned()
+                    })
         }
     }
 }
@@ -94,6 +98,7 @@ error_chain! {
     foreign_links {
         Io(io::Error);
         Recv(RecvError);
+        FuturesCanceled(futures::Canceled);
     }
 
     errors {

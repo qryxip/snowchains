@@ -28,6 +28,15 @@ macro_rules! return_none_unless {
     };
 }
 
+macro_rules! println_plural {
+    ($format: tt, $n: expr, $singular: expr, $plural: expr) => {
+        println!(
+            $format,
+            format_args!("{} {}", $n, if $n > 1 { $plural } else { $singular })
+        )
+    };
+}
+
 macro_rules! eprint_and_flush {
     ($($arg: tt)*) => {
         {

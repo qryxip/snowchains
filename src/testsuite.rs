@@ -212,14 +212,9 @@ pub enum TestCases {
     Interactive(Vec<InteractiveCase>),
 }
 
-impl TestCases {
-    /// Returns the length of its content.
-    pub fn len(&self) -> usize {
-        match *self {
-            TestCases::Simple(ref cases) => cases.len(),
-            TestCases::Interactive(ref cases) => cases.len(),
-        }
-    }
+pub trait TestCase {
+    /// Gets `path`.
+    fn path(&self) -> Arc<PathBuf>;
 }
 
 /// Pair of `input` and `expected`.
@@ -231,6 +226,12 @@ pub struct SimpleCase {
     input: Arc<String>,
     expected: Arc<String>,
     timelimit: Option<u64>,
+}
+
+impl TestCase for SimpleCase {
+    fn path(&self) -> Arc<PathBuf> {
+        self.path.clone()
+    }
 }
 
 impl SimpleCase {
@@ -253,11 +254,6 @@ impl SimpleCase {
         let timelimit = self.timelimit.map(Duration::from_millis);
         (self.input.clone(), self.expected.clone(), timelimit)
     }
-
-    /// Gets `self::path`.
-    pub fn get_path(&self) -> Arc<PathBuf> {
-        self.path.clone()
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -269,6 +265,12 @@ pub struct InteractiveCase {
     path: PathBuf,
 }
 
+impl TestCase for InteractiveCase {
+    fn path(&self) -> Arc<PathBuf> {
+        Arc::new(self.path.clone())
+    }
+}
+
 impl InteractiveCase {
     /// Gets `self.tester` as `&str`.
     pub fn get_tester(&self) -> &str {
@@ -278,11 +280,6 @@ impl InteractiveCase {
     /// Gets the timelimit as `Option<Duration>`.
     pub fn get_timelimit(&self) -> Option<Duration> {
         self.timelimit.map(Duration::from_millis)
-    }
-
-    /// Gets `self::path` as `Arc`.
-    pub fn get_path(&self) -> Arc<PathBuf> {
-        Arc::new(self.path.clone())
     }
 
     fn appended<P: Into<PathBuf>>(mut self, path: P, timelimit: Option<u64>) -> Self {

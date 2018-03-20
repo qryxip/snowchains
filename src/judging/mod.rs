@@ -3,19 +3,14 @@ mod simple;
 
 use command::{CompilationCommand, JudgingCommand};
 use errors::{JudgeError, JudgeErrorKind, JudgeResult};
-use judging::interactive::InteractiveOutput;
-use judging::simple::SimpleOutput;
 use terminal::Color;
-use testsuite::{SuiteFilePaths, TestCases};
+use testsuite::{SuiteFilePaths, TestCase, TestCases};
 
-use std::fmt;
-use std::io;
-use std::iter::FromIterator;
+use std::{fmt, io};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Tests for given test case file paths, executaion command, and compilation
-/// command.
+/// Executes the tests.
 ///
 /// # Errors
 ///
@@ -25,85 +20,42 @@ pub fn judge(
     solver: JudgingCommand,
     compilation: Option<CompilationCommand>,
 ) -> JudgeResult<()> {
-    fn judge_all(cases: TestCases, solver: &Arc<JudgingCommand>) -> JudgeResult<()> {
+    fn judge_all<C: TestCase, O: JudgingOutput>(
+        cases: Vec<C>,
+        solver: &Arc<JudgingCommand>,
+        judge: fn(&Arc<C>, &Arc<JudgingCommand>) -> JudgeResult<O>,
+    ) -> JudgeResult<()> {
         let num_cases = cases.len();
         solver.print_args_and_working_dir();
-        let suf = if num_cases > 1 { "s" } else { "" };
-        println!("Running {} test{}...", num_cases, suf);
+        println_plural!("Running {}...", num_cases, "test", "tests");
 
         let mut last_path = None;
-
-        macro_rules! judge_all {
-            ($cases: expr, $method: path) => {
-                $cases
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, case)| {
-                        let path = case.get_path();
-                        if Some(&path) != last_path.as_ref() {
-                            println!("Running test cases in {}", path.display());
-                            last_path = Some(case.get_path());
-                        }
-                        let output = $method(case, solver)?;
-                        output.print_title(i, num_cases);
-                        Ok(output)
-                    })
-                    .collect::<JudgeResult<JudgingOutputs>>()?
-            };
-        }
-
-        match cases {
-            TestCases::Simple(cases) => judge_all!(cases, simple::judge),
-            TestCases::Interactive(cases) => judge_all!(cases, interactive::judge),
-        }.show_result(num_cases)
-    }
-
-    enum JudgingOutputs {
-        Simple(Vec<SimpleOutput>),
-        Interactive(Vec<InteractiveOutput>),
-    }
-
-    impl FromIterator<SimpleOutput> for JudgingOutputs {
-        fn from_iter<T: IntoIterator<Item = SimpleOutput>>(iter: T) -> Self {
-            JudgingOutputs::Simple(iter.into_iter().collect())
-        }
-    }
-
-    impl FromIterator<InteractiveOutput> for JudgingOutputs {
-        fn from_iter<T: IntoIterator<Item = InteractiveOutput>>(iter: T) -> Self {
-            JudgingOutputs::Interactive(iter.into_iter().collect())
-        }
-    }
-
-    impl JudgingOutputs {
-        fn show_result(self, num_cases: usize) -> JudgeResult<()> {
-            fn count_num_failures<O: JudgingOutput>(outputs: &[O]) -> usize {
-                outputs.iter().filter(|o| o.failure()).count()
-            }
-
-            fn eprint_failure_details<O: JudgingOutput>(outputs: &[O], num_cases: usize) {
-                outputs.iter().enumerate().for_each(|(i, o)| {
-                    eprintln!("");
-                    o.eprint_title(i, num_cases);
-                    o.eprint_details();
-                })
-            }
-
-            let suf = if num_cases > 1 { "s" } else { "" };
-            let num_failures = match self {
-                JudgingOutputs::Simple(ref xs) => count_num_failures(xs),
-                JudgingOutputs::Interactive(ref xs) => count_num_failures(xs),
-            };
-            if num_failures == 0 {
-                println!("All of the {} test{} passed.", num_cases, suf);
-                Ok(())
-            } else {
-                match self {
-                    JudgingOutputs::Simple(ref xs) => eprint_failure_details(xs, num_cases),
-                    JudgingOutputs::Interactive(ref xs) => eprint_failure_details(xs, num_cases),
+        let outputs = cases
+            .into_iter()
+            .enumerate()
+            .map(|(i, case)| {
+                let path = case.path();
+                if Some(&path) != last_path.as_ref() {
+                    println!("Running test cases in {}", path.display());
+                    last_path = Some(case.path());
                 }
-                bail!(JudgeErrorKind::TestFailure(num_failures, num_cases))
-            }
+                let output = judge(&Arc::new(case), solver)?;
+                output.print_title(i, num_cases);
+                Ok(output)
+            })
+            .collect::<JudgeResult<Vec<O>>>()?;
+
+        let num_failures = outputs.iter().filter(|o| o.failure()).count();
+        if num_failures == 0 {
+            println_plural!("All of the {} passed.", num_cases, "test", "tests");
+            Ok(())
+        } else {
+            outputs.iter().enumerate().for_each(|(i, o)| {
+                eprintln!("");
+                o.eprint_title(i, num_cases);
+                o.eprint_details();
+            });
+            bail!(JudgeErrorKind::TestFailure(num_failures, num_cases))
         }
     }
 
@@ -111,10 +63,13 @@ pub fn judge(
         compilation.execute()?;
         println!();
     }
-    judge_all(suite_paths.load_and_merge_all()?, &Arc::new(solver))
+    match suite_paths.load_and_merge_all()? {
+        TestCases::Simple(cases) => judge_all(cases, &Arc::new(solver), simple::judge),
+        TestCases::Interactive(cases) => judge_all(cases, &Arc::new(solver), interactive::judge),
+    }
 }
 
-trait JudgingOutput
+pub(self) trait JudgingOutput
 where
     Self: fmt::Display,
 {
@@ -138,7 +93,7 @@ where
     }
 }
 
-trait WrapNotFoundErrorMessage {
+pub(self) trait WrapNotFoundErrorMessage {
     type Item;
     /// Maps `io::Error` to `JudgingError`.
     fn wrap_not_found_error_message<F: FnOnce() -> String>(
@@ -160,7 +115,7 @@ impl<T> WrapNotFoundErrorMessage for io::Result<T> {
     }
 }
 
-trait MillisRoundedUp {
+pub(self) trait MillisRoundedUp {
     /// As milliseconds rounded up.
     fn millis_rounded_up(self) -> u64;
 }
