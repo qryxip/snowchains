@@ -52,13 +52,14 @@ mod util;
 use config::{Config, ServiceName};
 use errors::Result;
 use service::{atcoder, atcoder_beta, hackerrank, DownloadProp, RestoreProp, SubmitProp};
+use terminal::Color;
 use testsuite::{SuiteFileExtension, SuiteFilePath};
 
 use structopt::StructOpt;
 
 use std::path::PathBuf;
 
-quick_main_colored!(|| -> ::Result<()> {
+quick_main_colored!(|| -> ::Result<i32> {
     env_logger::init();
     match Opt::from_args() {
         Opt::Init { directory } => {
@@ -111,12 +112,12 @@ quick_main_colored!(|| -> ::Result<()> {
             let replacers = config.code_replacers_on_atcoder()?;
             let src_paths = match service {
                 ServiceName::AtCoderBeta => config.src_paths_on_atcoder(),
-                _ => unimplemented!(),
+                _ => return Ok(sorry_unimplemented()),
             }?;
             let prop = RestoreProp::new(contest, &src_paths, &replacers);
             match service {
                 ServiceName::AtCoderBeta => atcoder_beta::restore(prop),
-                _ => unimplemented!(),
+                _ => return Ok(sorry_unimplemented()),
             }?;
         }
         Opt::Append {
@@ -172,7 +173,7 @@ quick_main_colored!(|| -> ::Result<()> {
             }
             let lang_id = match service {
                 ServiceName::AtCoderBeta => config.atcoder_lang_id(language),
-                _ => unimplemented!(),
+                _ => return Ok(sorry_unimplemented()),
             }?;
             let prop = SubmitProp::new(
                 contest,
@@ -185,11 +186,11 @@ quick_main_colored!(|| -> ::Result<()> {
             );
             match service {
                 ServiceName::AtCoderBeta => atcoder_beta::submit(prop),
-                _ => unimplemented!(),
+                _ => return Ok(sorry_unimplemented()),
             }?;
         }
     }
-    Ok(())
+    Ok(0)
 });
 
 #[derive(StructOpt)]
@@ -206,9 +207,9 @@ quick_main_colored!(|| -> ::Result<()> {
                      snowchains submit <target> [-l|--language=] [-s|--service=] [-c|--contest=] \
                      [--open-browser] [--skip-judging] [--no-check]")]
 enum Opt {
-    #[structopt(name = "init", about = "Creates \"snowchains.yaml\"", raw(display_order = "1"))]
+    #[structopt(name = "init", about = "Creates a \"snowchains.yaml\"", raw(display_order = "1"))]
     Init {
-        #[structopt(name = "directory", help = "Directory to create \"snowchains.yaml\"",
+        #[structopt(name = "directory", help = "Directory to create a \"snowchains.yaml\"",
                     parse(from_os_str), default_value = ".")]
         directory: PathBuf,
     },
@@ -338,4 +339,9 @@ enum Opt {
                     raw(display_order = "3"))]
         no_check: bool,
     },
+}
+
+fn sorry_unimplemented() -> i32 {
+    eprintln_bold!(Color::Warning, "Not yet implemented, sorry.");
+    1
 }
