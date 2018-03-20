@@ -30,16 +30,17 @@ pub fn create_file_and_dirs(path: &Path) -> io::Result<File> {
 }
 
 /// Returns a `String` read from `read`.
-pub fn string_from_read<R: Read>(read: R) -> io::Result<String> {
-    let mut read = read;
-    let mut buf = String::new();
+pub fn string_from_read<R: Read>(mut read: R, capacity: usize) -> io::Result<String> {
+    let mut buf = String::with_capacity(capacity);
     read.read_to_string(&mut buf)?;
     Ok(buf)
 }
 
 /// Equals to `string_from_read(open_file(path)?)`.
 pub fn string_from_file_path(path: &Path) -> io::Result<String> {
-    string_from_read(open_file(path)?)
+    let file = open_file(path)?;
+    let len = file.metadata()?.len() as usize;
+    string_from_read(file, len)
 }
 
 /// Prints `s` ignoring a trailing newline if it exists.
@@ -66,11 +67,20 @@ pub fn path_under_home(names: &[&str]) -> io::Result<PathBuf> {
 }
 
 pub fn expand_path<'a, B: Into<Option<&'a Path>>>(path: &str, base: B) -> io::Result<PathBuf> {
+    fn canonicalize_if_unix<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
+        if cfg!(unix) {
+            Path::new(path.as_ref()).canonicalize()
+        } else {
+            Ok(PathBuf::from(path.as_ref())) // https://github.com/rust-lang/rust/issues/42869
+        }
+    }
+
     let mut chars = path.chars();
     let (c1, c2) = (chars.next(), chars.next());
     if c1 == Some('~') {
         return if [Some('/'), Some('\\'), None].contains(&c2) {
             path_under_home(&[&chars.collect::<String>()])
+                .and_then(|path| canonicalize_if_unix(&path))
         } else {
             Err(io::Error::new(
                 io::ErrorKind::Other,
@@ -78,7 +88,7 @@ pub fn expand_path<'a, B: Into<Option<&'a Path>>>(path: &str, base: B) -> io::Re
             ))
         };
     }
-    let path = PathBuf::from(path);
+    let path = canonicalize_if_unix(path)?;
     Ok(if path.is_absolute() {
         path
     } else {
@@ -136,11 +146,12 @@ impl Camelize for str {
 mod tests {
     use util::{self, Camelize};
 
+    use std::env;
     use std::path::Path;
 
     #[test]
     fn it_expands_a_path() {
-        util::expand_path("~/", None).unwrap();
+        assert_eq!(env::home_dir(), util::expand_path("~/", None).ok());
         util::expand_path("~root/", None).unwrap_err();
         assert_eq!(
             Path::new("/a/b/c/d"),

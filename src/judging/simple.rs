@@ -37,8 +37,8 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
 
     let status = solver.wait()?;
     let t = start.elapsed();
-    let stdout = Arc::new(util::string_from_read(solver.stdout.unwrap())?);
-    let stderr = Arc::new(util::string_from_read(solver.stderr.unwrap())?);
+    let stdout = Arc::new(util::string_from_read(solver.stdout.unwrap(), 1024)?);
+    let stderr = Arc::new(util::string_from_read(solver.stderr.unwrap(), 1024)?);
 
     // `expected` is empty IFF omitted.
     if timelimit.is_some() && t > timelimit.unwrap() {

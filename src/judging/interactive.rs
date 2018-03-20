@@ -91,8 +91,8 @@ fn run(
             Ok((
                 tester_status_code == Some(0),
                 elapsed,
-                util::string_from_read(solver.stderr.as_mut().unwrap())?,
-                util::string_from_read(tester.stderr.as_mut().unwrap())?,
+                util::string_from_read(solver.stderr.as_mut().unwrap(), 1024)?,
+                util::string_from_read(tester.stderr.as_mut().unwrap(), 1024)?,
             ))
         }
         Terminated::Tester => {
@@ -108,8 +108,8 @@ fn run(
             Ok((
                 tester_status_code == Some(0),
                 elapsed,
-                util::string_from_read(solver.stderr.as_mut().unwrap())?,
-                util::string_from_read(tester.stderr.as_mut().unwrap())?,
+                util::string_from_read(solver.stderr.as_mut().unwrap(), 1024)?,
+                util::string_from_read(tester.stderr.as_mut().unwrap(), 1024)?,
             ))
         }
     }

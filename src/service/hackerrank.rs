@@ -138,10 +138,11 @@ fn extract_samples_from_zip<R: Read + Seek>(zip: ZipArchive<R>) -> ZipResult<Tes
     let (mut inputs, mut outputs) = (vec![], vec![]);
     for i in 0..zip.len() {
         let file = zip.by_index(i)?;
+        let size = file.size() as usize;
         if IN_REGEX.is_match(file.name()) {
-            inputs.push(util::string_from_read(file)?);
+            inputs.push(util::string_from_read(file, size)?);
         } else if OUT_REGEX.is_match(file.name()) {
-            outputs.push(util::string_from_read(file)?);
+            outputs.push(util::string_from_read(file, size)?);
         }
     }
     Ok(TestSuite::simple(
