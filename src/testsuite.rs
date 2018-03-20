@@ -1,11 +1,10 @@
-use errors::{SuiteFileErrorKind, SuiteFileResult};
+use errors::{FileIoErrorKind, FileIoResultExt, SuiteFileErrorKind, SuiteFileResult};
 use terminal::Color;
 use util;
 
 use {serde_json, serde_yaml, toml};
 
 use std::fmt;
-use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -81,15 +80,15 @@ impl TestSuite {
 
     /// Serializes `self` and save it to given path.
     pub fn save(&self, path: &SuiteFilePath, prints_num_cases: bool) -> SuiteFileResult<()> {
-        fs::create_dir_all(&path.directory)?;
         let (path, extension) = (path.build(), path.extension);
-        let mut file = File::create(&path)?;
+        let mut file = util::create_file_and_dirs(&path)?;
         let serialized = match extension {
             SuiteFileExtension::Json => serde_json::to_string(self)?,
             SuiteFileExtension::Toml => toml::to_string(self)?,
             SuiteFileExtension::Yaml | SuiteFileExtension::Yml => serde_yaml::to_string(self)?,
         };
-        file.write_all(serialized.as_bytes())?;
+        file.write_all(serialized.as_bytes())
+            .chain_err(|| FileIoErrorKind::Write(path.clone()))?;
         print!("Saved to {}", path.display());
         if prints_num_cases {
             match (self.is_simple(), self.num_cases()) {

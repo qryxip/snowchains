@@ -1,32 +1,23 @@
+use errors::{FileIoError, FileIoErrorKind, FileIoResult, FileIoResultExt};
+
 use std::{env, str};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-/// Calls `File::open(path)` and if the result is `Err`, replace the error with
-/// new one which message contains `path`.
-pub fn open_file(path: &Path) -> io::Result<File> {
-    File::open(path).map_err(|e| {
-        let message = match e.kind() {
-            io::ErrorKind::NotFound => format!("No such file: {:?}", path),
-            _ => format!("An IO error occured while opening {:?}: {}", path, e),
-        };
-        io::Error::new(e.kind(), message)
-    })
+/// Opens a file in read only mode.
+pub fn open_file(path: &Path) -> FileIoResult<File> {
+    File::open(path).chain_err(|| FileIoErrorKind::OpenInReadOnly(path.to_owned()))
 }
 
-/// Calls `fs::create_dir_all` and `File::create`.
-pub fn create_file_and_dirs(path: &Path) -> io::Result<File> {
+/// Opens a file in write only mode creating its parent directory.
+pub fn create_file_and_dirs(path: &Path) -> FileIoResult<File> {
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+        if !dir.exists() {
+            fs::create_dir_all(dir)?;
+        }
     }
-    File::create(path).map_err(|e| {
-        let message = format!(
-            "An IO error occured while opening/creating {:?}: {}",
-            path, e
-        );
-        io::Error::new(e.kind(), message)
-    })
+    File::create(path).chain_err(|| FileIoErrorKind::OpenInWriteOnly(path.to_owned()))
 }
 
 /// Returns a `String` read from `read`.
@@ -36,11 +27,11 @@ pub fn string_from_read<R: Read>(mut read: R, capacity: usize) -> io::Result<Str
     Ok(buf)
 }
 
-/// Equals to `string_from_read(open_file(path)?)`.
-pub fn string_from_file_path(path: &Path) -> io::Result<String> {
+/// Reads a file content into a string.
+pub fn string_from_file_path(path: &Path) -> FileIoResult<String> {
     let file = open_file(path)?;
     let len = file.metadata()?.len() as usize;
-    string_from_read(file, len)
+    string_from_read(file, len).map_err(Into::into)
 }
 
 /// Prints `s` ignoring a trailing newline if it exists.
@@ -56,46 +47,46 @@ pub fn eprintln_trimming_trailing_newline(s: &str) {
 ///
 /// # Errors
 ///
-/// Returns `Err` if a home directory not found.
-pub fn path_under_home(names: &[&str]) -> io::Result<PathBuf> {
-    let home_dir = env::home_dir()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Home directory not found"))?;
+/// Returns `Err` IFF a home directory not found.
+pub fn path_under_home(names: &[&str]) -> FileIoResult<PathBuf> {
+    let home_dir =
+        env::home_dir().ok_or_else::<FileIoError, _>(|| FileIoErrorKind::HomeDirNotFound.into())?;
     Ok(names.iter().fold(home_dir, |mut path, name| {
         path.push(name);
         path
     }))
 }
 
-pub fn expand_path<'a, B: Into<Option<&'a Path>>>(path: &str, base: B) -> io::Result<PathBuf> {
-    fn canonicalize_if_unix<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
-        if cfg!(unix) {
-            Path::new(path.as_ref()).canonicalize()
-        } else {
-            Ok(PathBuf::from(path.as_ref())) // https://github.com/rust-lang/rust/issues/42869
+pub fn expand_path<'a, B: Into<Option<&'a Path>>>(path: &str, base: B) -> FileIoResult<PathBuf> {
+    fn expand(path: &str, base: Option<&Path>) -> FileIoResult<PathBuf> {
+        let mut chars = path.chars();
+        let (c1, c2) = (chars.next(), chars.next());
+        if c1 == Some('~') {
+            return if [Some('/'), Some('\\'), None].contains(&c2) {
+                path_under_home(&[&chars.collect::<String>()]).and_then(|path| {
+                    if path.is_absolute() {
+                        Ok(path)
+                    } else {
+                        let mut r = env::current_dir()?;
+                        r.push(&path);
+                        Ok(r)
+                    }
+                })
+            } else {
+                bail!(FileIoErrorKind::UnsupportedUseOfTilde);
+            };
         }
+        let path = PathBuf::from(path);
+        Ok(if path.is_absolute() {
+            path
+        } else {
+            let mut pathbuf = base.map(PathBuf::from).unwrap_or_default();
+            pathbuf.push(path);
+            pathbuf
+        })
     }
 
-    let mut chars = path.chars();
-    let (c1, c2) = (chars.next(), chars.next());
-    if c1 == Some('~') {
-        return if [Some('/'), Some('\\'), None].contains(&c2) {
-            path_under_home(&[&chars.collect::<String>()])
-                .and_then(|path| canonicalize_if_unix(&path))
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("Unsupported use of \"~\": {}", path),
-            ))
-        };
-    }
-    let path = canonicalize_if_unix(path)?;
-    Ok(if path.is_absolute() {
-        path
-    } else {
-        let mut pathbuf = base.into().map(PathBuf::from).unwrap_or_default();
-        pathbuf.push(path);
-        pathbuf
-    })
+    expand(path, base.into()).chain_err(|| FileIoErrorKind::Expand(path.to_owned()))
 }
 
 pub trait OkAsRefOr {

@@ -3,7 +3,8 @@ use chrono::{self, DateTime, Local};
 use httpsession::UrlError;
 use zip::result::ZipError;
 
-use std::{self, fmt, io};
+use std::io;
+use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::string::FromUtf8Error;
 use std::sync::mpsc::RecvError;
@@ -23,6 +24,7 @@ error_chain! {
     }
 
     links {
+        FileIo(FileIoError, FileIoErrorKind);
         CodeReplace(CodeReplaceError, CodeReplaceErrorKind);
         SuiteFile(SuiteFileError, SuiteFileErrorKind);
     }
@@ -119,8 +121,11 @@ error_chain! {
         SuiteFileError, SuiteFileErrorKind, SuiteFileResultExt, SuiteFileResult;
     }
 
+    links {
+        FileIo(FileIoError, FileIoErrorKind);
+    }
+
     foreign_links {
-        Io(io::Error);
         SerdeJson(serde_json::Error);
         SerdeYaml(serde_yaml::Error);
         TomlDe(toml::de::Error);
@@ -146,6 +151,7 @@ error_chain! {
     }
 
     links {
+        FileIo(FileIoError, FileIoErrorKind);
         CodeReplace(CodeReplaceError, CodeReplaceErrorKind);
     }
 
@@ -203,56 +209,83 @@ error_chain! {
     }
 }
 
-pub type TemplateResult<T> = std::result::Result<T, TemplateError>;
+error_chain! {
+    types {
+        TemplateError, TemplateErrorKind, TemplateResultExt, TemplateResult;
+    }
 
-#[derive(Debug)]
-pub enum TemplateError {
-    InvalidVariable(String),
-    Syntax(String),
-    NoSuchSpecifier(String, String, &'static [&'static str]),
-    NoSuchVariable(String, String, Vec<String>),
-    NonUtf8EnvVar(String),
-    Io(io::Error),
-}
+    links {
+        FileIo(FileIoError, FileIoErrorKind);
+    }
 
-impl fmt::Display for TemplateError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            TemplateError::InvalidVariable(ref s) => write!(f, "Invalid variable: {:?}", s),
-            TemplateError::Syntax(ref s) => write!(f, "Syntax error: {:?}", s),
-            TemplateError::NoSuchSpecifier(ref s, ref specifier, expected) => write!(
-                f,
-                "No such format specifier {:?} (expected {:?}): {:?}",
-                specifier, expected, s
-            ),
-            TemplateError::NoSuchVariable(ref s, ref keyword, ref expected) => write!(
-                f,
-                "No such variable {:?} (expected {:?} + environment variables): {:?}",
-                keyword, expected, s
-            ),
-            TemplateError::NonUtf8EnvVar(ref k) => {
-                write!(f, "Non UTF-8 environment variable: {:?}", k)
-            }
-            TemplateError::Io(ref e) => write!(f, "{}", e),
+    errors {
+        InvalidVariable(var: String) {
+            description("Invalid variable")
+            display("Invalid variable: {:?}", var)
+        }
+
+        Syntax(whole: String) {
+            description("Syntax error")
+            display("Syntax error: {:?}", whole)
+        }
+
+        NoSuchSpecifier(whole: String, specifier: String, expected: &'static [&'static str]) {
+            description("No such format specifier")
+            display("No such format specifier {:?} (expected {:?}): {:?}",
+                    specifier, expected, whole)
+        }
+
+        NoSuchVariable(whole: String, keyword: String, expected: Vec<String>) {
+            description("Variable not found")
+            display("No such variable {:?} (expected {:?} + environment variables): {:?}",
+                    keyword, expected, whole)
+        }
+
+        NonUtf8EnvVar(var: String) {
+            description("Non UTF-8 environment variable")
+            display("Non UTF-8 environment variable: {:?}", var)
         }
     }
 }
 
-impl std::error::Error for TemplateError {
-    fn description(&self) -> &str {
-        "Error about format string in config file"
+error_chain! {
+    types {
+        FileIoError, FileIoErrorKind, FileIoResultExt, FileIoResult;
     }
 
-    fn cause(&self) -> Option<&std::error::Error> {
-        match *self {
-            TemplateError::Io(ref e) => Some(e),
-            _ => None,
+    foreign_links {
+        Io(io::Error);
+    }
+
+    errors {
+        OpenInReadOnly(path: PathBuf) {
+            description("Failed to open a file in read-only mode")
+            display("An IO error occurred while opening {} in read-only mode", path.display())
         }
-    }
-}
 
-impl From<io::Error> for TemplateError {
-    fn from(from: io::Error) -> Self {
-        TemplateError::Io(from)
+        OpenInWriteOnly(path: PathBuf) {
+            description("Failed to open a file in write-only mode")
+            display("An IO error occurred while opening {} in write-only mode", path.display())
+        }
+
+        Write(path: PathBuf) {
+            description("Failed to write data to a file")
+            display("Failed to write to {}", path.display())
+        }
+
+        Expand(path: String) {
+            description("Failed to expand a path")
+            display("Failed to expand {:?}", path)
+        }
+
+        HomeDirNotFound {
+            description("Home directory not found")
+            display("Home directory not found")
+        }
+
+        UnsupportedUseOfTilde {
+            description("Unsupported use of \"~\"")
+            display("Unsupported use of \"~\"")
+        }
     }
 }

@@ -1,9 +1,9 @@
-use errors::{TemplateError, TemplateResult};
+use errors::{FileIoResult, TemplateError, TemplateErrorKind, TemplateResult};
 use util::{self, Camelize};
 
 use regex::Regex;
 
-use std::{self, env, io};
+use std::{self, env};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::iter::FromIterator;
@@ -15,7 +15,7 @@ pub struct PathTemplate<'a> {
 }
 
 impl<'a> PathTemplate<'a> {
-    pub fn format(&self, target: &str) -> io::Result<PathBuf> {
+    pub fn format(&self, target: &str) -> FileIoResult<PathBuf> {
         let formatted = self.template.format(target);
         util::expand_path(&formatted, self.base_dir)
     }
@@ -95,10 +95,10 @@ impl TemplateString {
                             Ok(v) => Ok(TemplateToken::Plain(v)),
                             Err(env::VarError::NotPresent) => {
                                 let vars = variables.keys().map(|v| (*v).to_owned()).collect();
-                                Err(TemplateError::NoSuchVariable(whole.to_owned(), s, vars))
+                                bail!(TemplateErrorKind::NoSuchVariable(whole.to_owned(), s, vars))
                             }
                             Err(env::VarError::NotUnicode(_)) => {
-                                Err(TemplateError::NonUtf8EnvVar(s.clone()))
+                                bail!(TemplateErrorKind::NonUtf8EnvVar(s.clone()))
                             }
                         },
                     },
@@ -111,7 +111,7 @@ impl TemplateString {
                         } else {
                             let whole = whole.to_owned();
                             static EXPECTED_KWS: &'static [&'static str] = &["c", "C"];
-                            Err(TemplateError::NoSuchSpecifier(whole, s, EXPECTED_KWS))
+                            bail!(TemplateErrorKind::NoSuchSpecifier(whole, s, EXPECTED_KWS))
                         }
                     }
                 }
@@ -176,14 +176,15 @@ impl TemplateString {
                         tokens.push(Token::Var(s));
                         Ok(())
                     }
-                    State::Brace(_) => Err(TemplateError::Syntax(whole.to_owned())),
+                    State::Brace(_) => bail!(TemplateErrorKind::Syntax(whole.to_owned())),
                 }
             }
         }
 
         #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
         fn tokenize(template: &str) -> TemplateResult<Vec<Token>> {
-            let syntax_error = || TemplateError::Syntax(template.to_owned());
+            let syntax_error =
+                || -> TemplateError { TemplateErrorKind::Syntax(template.to_owned()).into() };
             let mut state = State::Plain("".to_owned());
             let mut tokens = vec![];
             for c in template.chars() {
@@ -213,7 +214,7 @@ impl TemplateString {
                 .iter()
                 .any(|c| k.contains(*c))
             {
-                return Err(TemplateError::InvalidVariable(k.to_owned()));
+                bail!(TemplateErrorKind::InvalidVariable(k.to_owned()));
             }
         }
         let tokens = tokenize(&self.0)?
@@ -268,7 +269,7 @@ mod tests {
 
         #[cfg(unix)]
         {
-            use errors::TemplateError;
+            use errors::{TemplateError, TemplateErrorKind};
 
             use std::ffi::OsStr;
             use std::os::unix::ffi::OsStrExt;
@@ -278,17 +279,23 @@ mod tests {
             env::remove_var("C");
             let template = TemplateString::new("$A/$A/{}");
             assert_eq!("あ/あ/a", template.format("a", &HashMap::new()).unwrap());
-            match TemplateString::new("$B").format("", &HashMap::new()) {
-                Err(TemplateError::NonUtf8EnvVar(k)) => assert_eq!("B", k),
-                _ => panic!(),
+            match TemplateString::new("$B")
+                .format("", &HashMap::new())
+                .unwrap_err()
+            {
+                TemplateError(TemplateErrorKind::NonUtf8EnvVar(k), _) => assert_eq!("B", k),
+                e => panic!("{}", e),
             }
-            match TemplateString::new("$C").format("", &HashMap::new()) {
-                Err(TemplateError::NoSuchVariable(w, k, expected)) => {
+            match TemplateString::new("$C")
+                .format("", &HashMap::new())
+                .unwrap_err()
+            {
+                TemplateError(TemplateErrorKind::NoSuchVariable(w, k, expected), _) => {
                     assert_eq!("$C", w);
                     assert_eq!("C", k);
                     assert!(expected.is_empty());
                 }
-                _ => panic!(),
+                e => panic!("{}", e),
             }
         }
     }

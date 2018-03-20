@@ -1,5 +1,6 @@
 use command::{CompilationCommand, JudgingCommand};
-use errors::{CodeReplaceResult, ConfigError, ConfigErrorKind, ConfigResult};
+use errors::{CodeReplaceResult, ConfigError, ConfigErrorKind, ConfigResult, FileIoErrorKind,
+             FileIoResult, FileIoResultExt};
 use replacer::CodeReplacer;
 use template::{PathTemplate, TemplateString};
 use testsuite::{SuiteFileExtension, SuiteFilePaths};
@@ -180,7 +181,9 @@ languages:
 
     let mut path = directory;
     path.push("snowchains.yaml");
-    util::create_file_and_dirs(&path)?.write_all(config.as_bytes())?;
+    util::create_file_and_dirs(&path)?
+        .write_all(config.as_bytes())
+        .chain_err(|| FileIoErrorKind::Write(path.to_owned()))?;
     Ok(())
 }
 
@@ -666,7 +669,7 @@ impl LanguageIds {
 struct InputPath(String);
 
 impl InputPath {
-    fn resolve(&self, base: &Path) -> io::Result<PathBuf> {
+    fn resolve(&self, base: &Path) -> FileIoResult<PathBuf> {
         util::expand_path(&self.0, base)
     }
 }

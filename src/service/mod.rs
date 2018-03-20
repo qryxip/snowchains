@@ -10,7 +10,7 @@ use testsuite::SuiteFileExtension;
 use util;
 
 use {rpassword, rprompt, webbrowser};
-use httpsession::{self, ColorMode, CookieStoreOption, HttpSession, RedirectPolicy};
+use httpsession::{ColorMode, CookieStoreOption, HttpSession, RedirectPolicy};
 use httpsession::header::{ContentLength, UserAgent};
 use pbr::{MultiBar, Units};
 use zip::ZipArchive;
@@ -26,7 +26,7 @@ use std::time::Duration;
 pub(self) fn start_session(
     filename: &'static str,
     domain: &'static str,
-) -> httpsession::Result<HttpSession> {
+) -> ServiceResult<HttpSession> {
     HttpSession::builder()
         .base(domain, true, None)
         .cookie_store(CookieStoreOption::AutoSave(util::path_under_home(&[
@@ -42,6 +42,7 @@ pub(self) fn start_session(
             "snowchains <https://github.com/wariuni/snowchains>",
         ))
         .with_robots_txt()
+        .map_err(Into::into)
 }
 
 /// Reads username and password from stdin, showing the prompts on stderr.
