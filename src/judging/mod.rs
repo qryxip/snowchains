@@ -23,7 +23,7 @@ pub fn judge(
     fn judge_all<C: TestCase, O: JudgingOutput>(
         cases: Vec<C>,
         solver: &Arc<JudgingCommand>,
-        judge: fn(&Arc<C>, &Arc<JudgingCommand>) -> JudgeResult<O>,
+        judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<O>,
     ) -> JudgeResult<()> {
         let num_cases = cases.len();
         solver.print_args_and_working_dir();
@@ -39,7 +39,7 @@ pub fn judge(
                     println!("Running test cases in {}", path.display());
                     last_path = Some(case.path());
                 }
-                let output = judge(&Arc::new(case), solver)?;
+                let output = judge(&case, solver)?;
                 output.print_title(i, num_cases);
                 Ok(output)
             })
@@ -63,7 +63,7 @@ pub fn judge(
         compilation.execute()?;
         println!();
     }
-    match suite_paths.load_and_merge_all()? {
+    match suite_paths.load_merging()? {
         TestCases::Simple(cases) => judge_all(cases, &Arc::new(solver), simple::judge),
         TestCases::Interactive(cases) => judge_all(cases, &Arc::new(solver), interactive::judge),
     }

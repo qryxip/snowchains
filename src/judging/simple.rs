@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Tests for `case` and `solver` and returns one `SimpleOutput`.
-pub fn judge(case: &Arc<SimpleCase>, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {
+pub fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {
     let (tx, rx) = oneshot::channel();
     {
         let (case, solver) = (case.clone(), solver.clone());
@@ -106,7 +106,6 @@ pub enum SimpleOutput {
         stdout: Arc<String>,
         stderr: Arc<String>,
     },
-    // (<elapsed>, <input>, <expected>, <stdout>, <stderr>, <status>)
     RuntimeError {
         elapsed: Duration,
         input: Arc<String>,
@@ -259,15 +258,15 @@ mod tests {
         let case1 = SimpleCase::new("1\n2 3\ntest\n", "6 test\n", 100);
         let case2 = SimpleCase::new("72\n128 256\nmyonmyon\n", "456 myonmyon\n", 100);
         for case in vec![case1, case2] {
-            match super::judge(case.clone(), &command).unwrap() {
+            match super::judge(&case, &command).unwrap() {
                 SimpleOutput::Accepted { .. } => (),
                 o => panic!("{}", o),
             }
-            match super::judge(case.clone(), &wa_command).unwrap() {
+            match super::judge(&case, &wa_command).unwrap() {
                 SimpleOutput::WrongAnswer { .. } => (),
                 o => panic!("{}", o),
             }
-            match super::judge(case, &re_command).unwrap() {
+            match super::judge(&case, &re_command).unwrap() {
                 SimpleOutput::RuntimeError { .. } => (),
                 o => panic!("{}", o),
             }

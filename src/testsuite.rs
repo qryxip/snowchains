@@ -57,7 +57,7 @@ impl TestSuite {
         };
         match suite {
             TestSuite::Simple(ref mut suite) => suite.path = path,
-            TestSuite::Interactive(ref mut suite) => suite.path = path,
+            TestSuite::Interactive(ref mut suite) => suite.path = Arc::new(path),
         }
         Ok(suite)
     }
@@ -185,7 +185,7 @@ pub struct InteractiveSuite {
     timelimit: Option<u64>,
     cases: Vec<InteractiveCase>,
     #[serde(skip)]
-    path: PathBuf,
+    path: Arc<PathBuf>,
 }
 
 impl InteractiveSuite {
@@ -193,7 +193,7 @@ impl InteractiveSuite {
         Self {
             timelimit,
             cases: vec![],
-            path: PathBuf::new(),
+            path: Arc::new(PathBuf::new()),
         }
     }
 
@@ -262,12 +262,12 @@ pub struct InteractiveCase {
     tester: String,
     timelimit: Option<u64>,
     #[serde(skip)]
-    path: PathBuf,
+    path: Arc<PathBuf>,
 }
 
 impl TestCase for InteractiveCase {
     fn path(&self) -> Arc<PathBuf> {
-        Arc::new(self.path.clone())
+        self.path.clone()
     }
 }
 
@@ -282,8 +282,8 @@ impl InteractiveCase {
         self.timelimit.map(Duration::from_millis)
     }
 
-    fn appended<P: Into<PathBuf>>(mut self, path: P, timelimit: Option<u64>) -> Self {
-        self.path = path.into();
+    fn appended(mut self, path: Arc<PathBuf>, timelimit: Option<u64>) -> Self {
+        self.path = path;
         self.timelimit = self.timelimit.or(timelimit);
         self
     }
@@ -306,7 +306,7 @@ impl SuiteFilePaths {
 
     /// Merge test suites in `dir` which filename stem equals `stem` and
     /// extension is in `extensions`.
-    pub fn load_and_merge_all(&self) -> SuiteFileResult<TestCases> {
+    pub fn load_merging(&self) -> SuiteFileResult<TestCases> {
         let existing_suites = self.extensions
             .iter()
             .filter_map(|&ext| {

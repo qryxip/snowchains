@@ -13,9 +13,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 /// Tests for `case` and `solver` and returns one `InteractiveOutput`.
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 pub fn judge(
-    case: &Arc<InteractiveCase>,
+    case: &InteractiveCase,
     solver: &Arc<JudgingCommand>,
 ) -> JudgeResult<InteractiveOutput> {
     let (cout_tx, cout_rx) = mpsc::channel();
