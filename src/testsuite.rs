@@ -285,7 +285,7 @@ impl SuiteFilePaths {
 
     /// Merge test suites in `dir` which filename stem equals `stem` and
     /// extension is in `extensions`.
-    pub fn load_merging(&self) -> SuiteFileResult<TestCases> {
+    pub fn load_merging(&self, allow_missing: bool) -> SuiteFileResult<TestCases> {
         let existing_suites = self.extensions
             .iter()
             .filter_map(|&ext| {
@@ -298,7 +298,13 @@ impl SuiteFilePaths {
             })
             .collect::<SuiteFileResult<Vec<_>>>()?;
 
-        if existing_suites.iter().all(TestSuite::is_simple) {
+        if existing_suites.is_empty() {
+            if allow_missing {
+                Ok(TestCases::Simple(vec![]))
+            } else {
+                bail!(SuiteFileErrorKind::NoFile(self.directory.clone()));
+            }
+        } else if existing_suites.iter().all(TestSuite::is_simple) {
             Ok(TestCases::Simple(
                 existing_suites
                     .into_iter()
@@ -326,7 +332,7 @@ impl SuiteFilePaths {
                     .collect(),
             ))
         } else if existing_suites.iter().all(TestSuite::is_unsubmittable) {
-            bail!(SuiteFileErrorKind::Unsubmittable)
+            bail!(SuiteFileErrorKind::Unsubmittable(self.stem.clone()))
         } else {
             bail!(SuiteFileErrorKind::DifferentTypesOfSuites);
         }

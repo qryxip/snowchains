@@ -138,14 +138,19 @@ error_chain! {
     }
 
     errors {
+        NoFile(directory: PathBuf) {
+            description("No test suite file")
+            display("No test suite file in {:?}. Execute \"download\" command first", directory)
+        }
+
         DifferentTypesOfSuites {
             description("Different types of suites")
             display("Different types of suites")
         }
 
-        Unsubmittable{
-            description("This problem is unsubmittable")
-            display("This problem is unsubmittable")
+        Unsubmittable(problem: String) {
+            description("The problem is unsubmittable")
+            display("{:?} is unsubmittable", problem)
         }
 
         SuiteIsNotSimple {

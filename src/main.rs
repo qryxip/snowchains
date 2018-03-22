@@ -145,7 +145,7 @@ quick_main_colored!(|| -> ::Result<i32> {
             info!("Running \"judge\" command");
             let language = language.as_ref().map(String::as_str);
             let config = Config::load_from_file(service, contest)?;
-            let cases = config.suite_paths(&target)?.load_merging()?;
+            let cases = config.suite_paths(&target)?.load_merging(false)?;
             let solver = config.construct_solver(&target, language)?;
             let compilation = config.construct_compilation_command(&target, language)?;
             judging::judge(cases, solver, compilation)?;
@@ -166,7 +166,7 @@ quick_main_colored!(|| -> ::Result<i32> {
             let contest = config.contest_name()?;
             let src_path = config.src_path(&target, language)?;
             let replacer = config.code_replacer(language)?;
-            let cases = config.suite_paths(&target)?.load_merging()?;
+            let cases = config.suite_paths(&target)?.load_merging(skip_judging)?;
             if !skip_judging {
                 let solver = config.construct_solver(&target, language)?;
                 let compilation = config.construct_compilation_command(&target, language)?;
