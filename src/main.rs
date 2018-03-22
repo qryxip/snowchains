@@ -145,10 +145,10 @@ quick_main_colored!(|| -> ::Result<i32> {
             info!("Running \"judge\" command");
             let language = language.as_ref().map(String::as_str);
             let config = Config::load_from_file(service, contest)?;
-            let paths = config.suite_paths(&target)?;
+            let cases = config.suite_paths(&target)?.load_merging()?;
             let solver = config.construct_solver(&target, language)?;
             let compilation = config.construct_compilation_command(&target, language)?;
-            judging::judge(&paths, solver, compilation)?;
+            judging::judge(cases, solver, compilation)?;
         }
         Opt::Submit {
             target,
@@ -166,11 +166,11 @@ quick_main_colored!(|| -> ::Result<i32> {
             let contest = config.contest_name()?;
             let src_path = config.src_path(&target, language)?;
             let replacer = config.code_replacer(language)?;
+            let cases = config.suite_paths(&target)?.load_merging()?;
             if !skip_judging {
-                let paths = config.suite_paths(&target)?;
                 let solver = config.construct_solver(&target, language)?;
                 let compilation = config.construct_compilation_command(&target, language)?;
-                judging::judge(&paths, solver, compilation)?;
+                judging::judge(cases, solver, compilation)?;
                 println!();
             }
             let lang_id = match service {

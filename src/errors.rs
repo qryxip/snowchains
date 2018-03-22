@@ -143,9 +143,14 @@ error_chain! {
             display("Different types of suites")
         }
 
-        SuiteIsInteractive {
-            description("Target suite is interactive")
-            display("Target suite is interactive")
+        Unsubmittable{
+            description("This problem is unsubmittable")
+            display("This problem is unsubmittable")
+        }
+
+        SuiteIsNotSimple {
+            description("Target suite is not \"simple\" type")
+            display("Target suite is not \"simple\" type")
         }
     }
 }

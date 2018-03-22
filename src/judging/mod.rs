@@ -4,7 +4,7 @@ mod simple;
 use command::{CompilationCommand, JudgingCommand};
 use errors::{JudgeError, JudgeErrorKind, JudgeResult};
 use terminal::Color;
-use testsuite::{SuiteFilePaths, TestCase, TestCases};
+use testsuite::{TestCase, TestCases};
 
 use std::{fmt, io};
 use std::sync::Arc;
@@ -16,7 +16,7 @@ use std::time::Duration;
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
 pub fn judge(
-    suite_paths: &SuiteFilePaths,
+    cases: TestCases,
     solver: JudgingCommand,
     compilation: Option<CompilationCommand>,
 ) -> JudgeResult<()> {
@@ -63,7 +63,7 @@ pub fn judge(
         compilation.execute()?;
         println!();
     }
-    match suite_paths.load_merging()? {
+    match cases {
         TestCases::Simple(cases) => judge_all(cases, &Arc::new(solver), simple::judge),
         TestCases::Interactive(cases) => judge_all(cases, &Arc::new(solver), interactive::judge),
     }

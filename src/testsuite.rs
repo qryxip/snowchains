@@ -25,6 +25,7 @@ pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteF
 pub enum TestSuite {
     Simple(SimpleSuite),
     Interactive(InteractiveSuite),
+    Unsubmittable,
 }
 
 impl Default for TestSuite {
@@ -46,8 +47,7 @@ impl TestSuite {
         TestSuite::Interactive(InteractiveSuite::without_cases(Some(timelimit)))
     }
 
-    /// Loads from `path` and deserializes it into `TestSuite`.
-    pub fn load(path: &SuiteFilePath) -> SuiteFileResult<Self> {
+    fn load(path: &SuiteFilePath) -> SuiteFileResult<Self> {
         let (path, extension) = (path.build(), path.extension);
         let text = util::string_from_file_path(&path)?;
         let mut suite: Self = match extension {
@@ -58,24 +58,9 @@ impl TestSuite {
         match suite {
             TestSuite::Simple(ref mut suite) => suite.path = path,
             TestSuite::Interactive(ref mut suite) => suite.path = Arc::new(path),
+            TestSuite::Unsubmittable => {}
         }
         Ok(suite)
-    }
-
-    /// Whether `self` has no test case.
-    pub fn is_empty(&self) -> bool {
-        match *self {
-            TestSuite::Simple(ref suite) => suite.is_empty(),
-            TestSuite::Interactive(ref suite) => suite.is_empty(),
-        }
-    }
-
-    /// Returns the number of test cases of `self`.
-    pub fn num_cases(&self) -> usize {
-        match *self {
-            TestSuite::Simple(ref suite) => suite.num_cases(),
-            TestSuite::Interactive(ref suite) => suite.num_cases(),
-        }
     }
 
     /// Serializes `self` and save it to given path.
@@ -91,11 +76,14 @@ impl TestSuite {
             .chain_err(|| FileIoErrorKind::Write(path.clone()))?;
         print!("Saved to {}", path.display());
         if prints_num_cases {
-            match (self.is_simple(), self.num_cases()) {
-                (false, _) => print_bold!(Color::Success, " (interactive problem)"),
-                (true, 0) => print_bold!(Color::Warning, " (no sample case extracted)"),
-                (true, 1) => print_bold!(Color::Success, " (1 sample case extracted)"),
-                (true, n) => print_bold!(Color::Success, " ({} sample cases extracted)", n),
+            match *self {
+                TestSuite::Simple(ref s) => match s.cases.len() {
+                    0 => print_bold!(Color::Warning, " (no sample case extracted)"),
+                    1 => print_bold!(Color::Success, " (1 sample case extracted)"),
+                    n => print_bold!(Color::Success, " ({} sample cases extracted)", n),
+                },
+                TestSuite::Interactive(_) => print_bold!(Color::Success, " (interactive problem)"),
+                TestSuite::Unsubmittable => print_bold!(Color::Success, " (unsubmittable problem)"),
             }
         }
         println!();
@@ -105,28 +93,35 @@ impl TestSuite {
     fn is_simple(&self) -> bool {
         match *self {
             TestSuite::Simple(_) => true,
-            TestSuite::Interactive(_) => false,
+            _ => false,
         }
     }
 
     fn is_interactive(&self) -> bool {
         match *self {
-            TestSuite::Simple(_) => false,
             TestSuite::Interactive(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_unsubmittable(&self) -> bool {
+        match *self {
+            TestSuite::Unsubmittable => true,
+            _ => false,
         }
     }
 
     fn unwrap_to_simple(self) -> SimpleSuite {
         match self {
             TestSuite::Simple(suite) => suite,
-            TestSuite::Interactive(_) => unreachable!(),
+            _ => unreachable!(),
         }
     }
 
     fn unwrap_to_interactive(self) -> InteractiveSuite {
         match self {
-            TestSuite::Simple(_) => unreachable!(),
             TestSuite::Interactive(suite) => suite,
+            _ => unreachable!(),
         }
     }
 
@@ -136,7 +131,7 @@ impl TestSuite {
                 suite.append(input, output);
                 Ok(())
             }
-            TestSuite::Interactive(_) => bail!(SuiteFileErrorKind::SuiteIsInteractive),
+            _ => bail!(SuiteFileErrorKind::SuiteIsNotSimple),
         }
     }
 }
@@ -166,14 +161,6 @@ impl SimpleSuite {
         }
     }
 
-    fn is_empty(&self) -> bool {
-        self.cases.is_empty()
-    }
-
-    fn num_cases(&self) -> usize {
-        self.cases.len()
-    }
-
     fn append(&mut self, input: &str, output: Option<&str>) {
         self.cases.push(ReducibleCase::from_strings(input, output));
     }
@@ -195,14 +182,6 @@ impl InteractiveSuite {
             cases: vec![],
             path: Arc::new(PathBuf::new()),
         }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.cases.is_empty()
-    }
-
-    fn num_cases(&self) -> usize {
-        self.cases.len()
     }
 }
 
@@ -346,6 +325,8 @@ impl SuiteFilePaths {
                     })
                     .collect(),
             ))
+        } else if existing_suites.iter().all(TestSuite::is_unsubmittable) {
+            bail!(SuiteFileErrorKind::Unsubmittable)
         } else {
             bail!(SuiteFileErrorKind::DifferentTypesOfSuites);
         }

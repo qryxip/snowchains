@@ -304,6 +304,7 @@ impl AtCoderBeta {
 #[derive(Clone, PartialEq, Eq)]
 enum AtcoderContest {
     Practice,
+    Apg4b,
     Arc(u32),
     Abc(u32),
     Agc(u32),
@@ -315,6 +316,7 @@ impl fmt::Display for AtcoderContest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             AtcoderContest::Practice => write!(f, "practice contest"),
+            AtcoderContest::Apg4b => write!(f, "AtCoder Programming Guide for beginners"),
             AtcoderContest::Abc(n) => write!(f, "ABC{:>03}", n),
             AtcoderContest::Arc(n) => write!(f, "ARC{:>03}", n),
             AtcoderContest::Agc(n) => write!(f, "AGC{:>03}", n),
@@ -341,10 +343,14 @@ impl Contest for AtcoderContest {
             } else if name == "chokudai_s" || name == "chokudais" {
                 return AtcoderContest::ChokudaiS(number);
             }
-        } else if s == "practice" {
-            return AtcoderContest::Practice;
         }
-        AtcoderContest::Other(s.to_owned())
+        if s == "practice" {
+            AtcoderContest::Practice
+        } else if s == "apg4b" {
+            AtcoderContest::Apg4b
+        } else {
+            AtcoderContest::Other(s.to_owned())
+        }
     }
 }
 
@@ -353,6 +359,7 @@ impl AtcoderContest {
         static BASE: &'static str = "/contests/";
         match *self {
             AtcoderContest::Practice => format!("{}practice", BASE),
+            AtcoderContest::Apg4b => format!("{}apg4b", BASE),
             AtcoderContest::Abc(n) => format!("{}abc{:>03}", BASE, n),
             AtcoderContest::Arc(n) => format!("{}arc{:>03}", BASE, n),
             AtcoderContest::Agc(n) => format!("{}agc{:>03}", BASE, n),
@@ -639,7 +646,7 @@ pub(self) fn extract_as_suite<R: Read>(
 
     fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
         lazy_static! {
-            static ref TIMELIMIT: Regex = Regex::new(r"\A\D*(\d+)\s*sec.*\z").unwrap();
+            static ref TIMELIMIT: Regex = Regex::new(r"\A\D*(\d+)\s*(m)?sec.*\z").unwrap();
         }
         let predicate = Attr("id", "main-container")
             .child(And(Name("div"), Class("row")))
@@ -652,7 +659,7 @@ pub(self) fn extract_as_suite<R: Read>(
             text
         );
         let caps = TIMELIMIT.captures(&text)?;
-        let timelimit = 1000 * caps[1].parse::<u64>().ok()?;
+        let timelimit = if caps.get(2).is_some() { 1 } else { 1000 } * caps[1].parse::<u64>().ok()?;
         info!(
             "Extracting timelimit: Successfully extracted: {}ms",
             timelimit
@@ -663,6 +670,9 @@ pub(self) fn extract_as_suite<R: Read>(
     let document = Document::from_read(html)?;
     let timelimit = extract_timelimit_as_millis(&document)
         .ok_or_else::<ServiceError, _>(|| ServiceErrorKind::Scrape.into())?;
+    if timelimit == 0 {
+        return Ok(TestSuite::Unsubmittable);
+    }
     match extract_samples(&document, contest) {
         Some(Samples::Simple(samples)) => Ok(TestSuite::simple(timelimit, samples)),
         Some(Samples::Interactive) => Ok(TestSuite::interactive(timelimit)),
@@ -820,20 +830,29 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn it_extracts_task_urls() {
+    fn it_extracts_task_urls_from_apg4b() {
         let _ = env_logger::try_init();
         let mut atcoder = start().unwrap();
         let page = atcoder
-            .fetch_tasks_page(&AtcoderContest::new("agc001"))
+            .fetch_tasks_page(&AtcoderContest::new("apg4b"))
             .unwrap();
         let urls_and_names = super::extract_task_urls_with_names(&page).unwrap();
         static EXPECTED: &[(&str, &str)] = &[
-            ("A", "/contests/agc001/tasks/agc001_a"),
-            ("B", "/contests/agc001/tasks/agc001_b"),
-            ("C", "/contests/agc001/tasks/agc001_c"),
-            ("D", "/contests/agc001/tasks/agc001_d"),
-            ("E", "/contests/agc001/tasks/agc001_e"),
-            ("F", "/contests/agc001/tasks/agc001_f"),
+            ("A", "/contests/apg4b/tasks/APG4b_a"),
+            ("B", "/contests/apg4b/tasks/APG4b_b"),
+            ("C", "/contests/apg4b/tasks/APG4b_c"),
+            ("D", "/contests/apg4b/tasks/APG4b_d"),
+            ("E", "/contests/apg4b/tasks/APG4b_e"),
+            ("F", "/contests/apg4b/tasks/APG4b_f"),
+            ("G", "/contests/apg4b/tasks/APG4b_g"),
+            ("H", "/contests/apg4b/tasks/APG4b_h"),
+            ("EX1", "/contests/apg4b/tasks/APG4b_cv"),
+            ("EX2", "/contests/apg4b/tasks/APG4b_cu"),
+            ("EX3", "/contests/apg4b/tasks/APG4b_ct"),
+            ("EX4", "/contests/apg4b/tasks/APG4b_cs"),
+            ("EX5", "/contests/apg4b/tasks/APG4b_cr"),
+            ("EX6", "/contests/apg4b/tasks/APG4b_cq"),
+            ("EX7", "/contests/apg4b/tasks/APG4b_cp"),
         ];
         assert_eq!(EXPECTED.len(), urls_and_names.len());
         for ((actual_name, actual_url), &(expected_name, expected_url)) in
@@ -841,6 +860,18 @@ mod tests {
         {
             assert_eq!(expected_name, actual_name);
             assert_eq!(expected_url, actual_url);
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_a_timelimit_from_apg4b_b() {
+        let _ = env_logger::try_init();
+        let mut atcoder = start().unwrap();
+        let page = atcoder.get("/contests/apg4b/tasks/APG4b_b").unwrap();
+        match super::extract_as_suite(page, &AtcoderContest::new("apg4b")).unwrap() {
+            TestSuite::Unsubmittable => {}
+            suite => panic!("Got {:?}", suite),
         }
     }
 
