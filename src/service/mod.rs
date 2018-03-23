@@ -2,7 +2,7 @@ pub mod atcoder;
 pub mod atcoder_beta;
 pub mod hackerrank;
 
-use errors::{ServiceErrorKind, ServiceResult};
+use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as _SericeResultExt};
 use replacer::CodeReplacer;
 use template::PathTemplate;
 use terminal::Color;
@@ -42,7 +42,7 @@ pub(self) fn start_session(
             "snowchains <https://github.com/wariuni/snowchains>",
         ))
         .with_robots_txt()
-        .map_err(Into::into)
+        .chain_err::<_, ServiceError>(|| ServiceErrorKind::HttpSessionStart.into())
 }
 
 /// Reads username and password from stdin, showing the prompts on stderr.

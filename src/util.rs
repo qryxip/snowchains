@@ -1,6 +1,7 @@
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, FileIoResultExt};
 
 use std::{env, str};
+use std::borrow::Cow;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -36,10 +37,18 @@ pub fn string_from_file_path(path: &Path) -> FileIoResult<String> {
 
 /// Prints `s` ignoring a trailing newline if it exists.
 pub fn eprintln_trimming_trailing_newline(s: &str) {
-    if s.ends_with('\n') {
-        eprint_and_flush!("{}", s);
+    eprintln!("{}", trim_trailing_newline(s));
+}
+
+pub(self) fn trim_trailing_newline(s: &str) -> Cow<str> {
+    if s.ends_with("\r\n") {
+        let n = s.len();
+        String::from_utf8_lossy(&s.as_bytes()[..n - 2])
+    } else if s.ends_with('\n') {
+        let n = s.len();
+        String::from_utf8_lossy(&s.as_bytes()[..n - 1])
     } else {
-        eprintln!("{}", s);
+        s.into()
     }
 }
 
@@ -139,6 +148,14 @@ mod tests {
 
     use std::env;
     use std::path::Path;
+
+    #[test]
+    fn it_trims_a_trailing_newline() {
+        assert_eq!("aaa", util::trim_trailing_newline("aaa\r\n"));
+        assert_eq!("bbb", util::trim_trailing_newline("bbb\n"));
+        assert_eq!("ccc", util::trim_trailing_newline("ccc"));
+        assert_eq!("ddd\r", util::trim_trailing_newline("ddd\r"));
+    }
 
     #[test]
     fn it_expands_a_path() {

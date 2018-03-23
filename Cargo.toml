@@ -1,13 +1,14 @@
 [package]
-authors = ["wariuni <wariuni@gmail.com>"]
+name = "snowchains"
+version = "0.19.1"
 description = "Tools for online programming contests"
 license = "MIT"
-name = "snowchains"
-version = "0.19.0"
+authors = ["wariuni <wariuni@gmail.com>"]
+readme = "README.md"
+repository = "https://github.com/wariuni/snowchains"
 
 [dependencies]
-httpsession = { git = "https://github.com/wariuni/httpsession", tag = "0.2.1" }
-webbrowser = { git = "https://github.com/wariuni/webbrowser-rs", tag = "fix-on-windows" }
+httpsession = { git = "https://github.com/wariuni/httpsession", tag = "0.2.2" }
 bincode = "1.0.0"
 chrono = "0.4.0"
 cookie = "0.10.1"
@@ -33,4 +34,5 @@ serde_yaml = "0.7.3"
 structopt = "0.2.5"
 term = "0.5.1"
 toml = "0.4.5"
+webbrowser = { git = "https://github.com/amodm/webbrowser-rs", rev = "a2620121c945f78874e9ab1c52677b2934f48121" }
 zip = { version = "0.3.1", default_features = false }

@@ -1,21 +1,7 @@
 macro_rules! quick_main_colored {
     ($main: expr) => {
         fn main() {
-            match $main() {
-                Ok(code) => ::std::process::exit(::error_chain::ExitCode::code(code)),
-                Err(ref e) => {
-                    eprint_bold!(::terminal::Color::Fatal, "\nError: ");
-                    eprintln!("{}", e);
-                    for e_kind in e.iter().skip(1) {
-                        eprint_bold!(None, "Caused by: ");
-                        eprintln!("{}", e_kind);
-                    }
-                    if let Some(backtrace) = e.backtrace() {
-                        eprintln!("{:?}", backtrace);
-                    }
-                    ::std::process::exit(1);
-                }
-            }
+            ::errors::quick_main_colored($main)
         }
     };
 }
@@ -35,17 +21,6 @@ macro_rules! println_plural {
             format_args!("{} {}", $n, if $n > 1 { $plural } else { $singular })
         )
     };
-}
-
-macro_rules! eprint_and_flush {
-    ($($arg: tt)*) => {
-        {
-            use std::io::{self, Write};
-            #[cfg_attr(feature = "cargo-clippy", allow(explicit_write))]
-            io::stderr().write_fmt(format_args!($($arg)*)).unwrap();
-            io::stderr().flush().unwrap();
-        }
-    }
 }
 
 macro_rules! print_bold {

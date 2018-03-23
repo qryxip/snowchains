@@ -1,20 +1,44 @@
+use terminal::Color;
+
 use {bincode, cookie, futures, httpsession, regex, serde_json, serde_urlencoded, serde_yaml, toml};
 use chrono::{self, DateTime, Local};
+use error_chain::{ChainedError, ExitCode};
 use httpsession::UrlError;
 use zip::result::ZipError;
 
-use std::io;
+use std::{self, io};
 use std::path::PathBuf;
-use std::process::ExitStatus;
+use std::process::{self, ExitStatus};
 use std::string::FromUtf8Error;
 use std::sync::mpsc::RecvError;
 
+pub fn quick_main_colored<C: ExitCode, E: ChainedError>(main: fn() -> std::result::Result<C, E>) {
+    match main() {
+        Ok(code) => process::exit(ExitCode::code(code)),
+        Err(e) => {
+            eprintln!();
+            if e.iter().count() > 1 {
+                eprint!("    ");
+            }
+            for (i, e) in e.iter().enumerate() {
+                let head = if i == 0 { "Error: " } else { "Caused by: " };
+                eprint_bold!(Color::Fatal, "{}", head);
+                eprintln_bold!(None, "{}", e);
+            }
+            if let Some(backtrace) = e.backtrace() {
+                eprintln!("{:?}", backtrace);
+            }
+            process::exit(1);
+        }
+    }
+}
+
 error_chain!{
-    links {
-        Service(ServiceError, ServiceErrorKind);
-        Judge(JudgeError, JudgeErrorKind);
-        SuiteFile(SuiteFileError, SuiteFileErrorKind);
-        Config(ConfigError, ConfigErrorKind);
+    foreign_links {
+        Service(ServiceError/*, ServiceErrorKind*/);
+        Judge(JudgeError/*, JudgeErrorKind*/);
+        SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
+        Config(ConfigError/*, ConfigErrorKind*/);
     }
 }
 
@@ -23,13 +47,10 @@ error_chain! {
         ServiceError, ServiceErrorKind, ServiceResultExt, ServiceResult;
     }
 
-    links {
-        FileIo(FileIoError, FileIoErrorKind);
-        CodeReplace(CodeReplaceError, CodeReplaceErrorKind);
-        SuiteFile(SuiteFileError, SuiteFileErrorKind);
-    }
-
     foreign_links {
+        FileIo(FileIoError/*, FileIoErrorKind*/);
+        CodeReplace(CodeReplaceError/*, CodeReplaceErrorKind*/);
+        SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
         Bincode(bincode::Error);
         ChronoParse(chrono::ParseError);
         CookieParse(cookie::ParseError);
@@ -56,6 +77,11 @@ error_chain! {
         ContestNotFound(contest_name: String) {
             description("Contest not found")
             display("{} not found", contest_name)
+        }
+
+        HttpSessionStart {
+            description("Failed to start a HTTP session")
+            display("Failed to start the HTTP session")
         }
 
         NoSuchProblem(name: String) {
@@ -91,11 +117,8 @@ error_chain! {
         JudgeError, JudgeErrorKind, JudgeResultExt, JudgeResult;
     }
 
-    links {
-        SuiteFile(SuiteFileError, SuiteFileErrorKind);
-    }
-
     foreign_links {
+        SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
         Io(io::Error);
         Recv(RecvError);
         FuturesCanceled(futures::Canceled);
@@ -126,11 +149,8 @@ error_chain! {
         SuiteFileError, SuiteFileErrorKind, SuiteFileResultExt, SuiteFileResult;
     }
 
-    links {
-        FileIo(FileIoError, FileIoErrorKind);
-    }
-
     foreign_links {
+        FileIo(FileIoError/*, FileIoErrorKind*/);
         SerdeJson(serde_json::Error);
         SerdeYaml(serde_yaml::Error);
         TomlDe(toml::de::Error);
@@ -165,16 +185,13 @@ error_chain! {
         ConfigError, ConfigErrorKind, ConfigResultExt, ConfigResult;
     }
 
-    links {
-        FileIo(FileIoError, FileIoErrorKind);
-        CodeReplace(CodeReplaceError, CodeReplaceErrorKind);
-    }
-
     foreign_links {
+        Template(TemplateError/*, TemplateErrorKind*/);
+        CodeReplace(CodeReplaceError/*, CodeReplaceErrorKind*/);
+        FileIo(FileIoError/*, FileIoErrorKind*/);
         Io(io::Error);
         Regex(regex::Error);
         SerdeYaml(serde_yaml::Error);
-        Template(TemplateError);
     }
 
     errors {
@@ -206,8 +223,8 @@ error_chain! {
     }
 
     foreign_links {
+        Template(TemplateError/*, TemplateErrorKind*/);
         Regex(regex::Error);
-        Template(TemplateError);
         FromUtf8(FromUtf8Error);
     }
 
@@ -229,8 +246,8 @@ error_chain! {
         TemplateError, TemplateErrorKind, TemplateResultExt, TemplateResult;
     }
 
-    links {
-        FileIo(FileIoError, FileIoErrorKind);
+    foreign_links {
+        FileIo(FileIoError/*, FileIoErrorKind*/);
     }
 
     errors {
