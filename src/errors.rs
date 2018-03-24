@@ -94,11 +94,6 @@ error_chain! {
             display("Scraping failed")
         }
 
-        Thread {
-            description("Thread error")
-            display("Thread error")
-        }
-
         Webbrowser(status: ExitStatus) {
             description("Failed to open a URL in the default browser")
             display("{}",

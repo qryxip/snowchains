@@ -10,16 +10,17 @@ use testsuite::SuiteFileExtension;
 use util;
 
 use {rpassword, rprompt, webbrowser};
-use httpsession::{ColorMode, CookieStoreOption, HttpSession, RedirectPolicy};
+use futures::{future, task, Async, Future};
+use httpsession::{ColorMode, CookieStoreOption, HttpSession, RedirectPolicy, Response};
 use httpsession::header::{ContentLength, UserAgent};
-use pbr::{MultiBar, Units};
+use pbr::{MultiBar, Pipe, ProgressBar, Units};
 use zip::ZipArchive;
 use zip::result::{ZipError, ZipResult};
 
+use std::{mem, thread};
 use std::collections::BTreeMap;
-use std::io::{self, Cursor, Read as _Read, Write as _Write};
+use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use std::thread;
 use std::time::Duration;
 
 /// Constructs a `HttpSession`.
@@ -127,57 +128,63 @@ impl DownloadZips for HttpSession {
         let responses = urls.iter()
             .map(|url| self.get(url.as_ref()))
             .collect::<Result<Vec<_>, _>>()?;
-
         println!("Downloading zip files...");
         let mut mb = MultiBar::new();
-        let handles = responses
+        let downloads = responses
             .into_iter()
-            .map(|mut response| {
-                let content_length = response.headers().get::<ContentLength>().map(|l| **l);
-                let mut pb = mb.create_bar(content_length.unwrap_or(0));
-                pb.set_units(Units::Bytes);
-                thread::spawn(move || -> ZipResult<_> {
-                    fn error() -> ZipError {
-                        io::Error::new(io::ErrorKind::Other, "Read failed").into()
-                    }
-
-                    let mut cursor = Cursor::new(Vec::with_capacity(match content_length {
-                        Some(content_length) => content_length as usize,
-                        None => each_capacity_on_content_length_missing,
-                    }));
-                    let mut buf = [0; 10 * 1024];
-                    loop {
-                        let num_read_bytes = response.read(&mut buf)?;
-                        if num_read_bytes == 0 {
-                            pb.finish();
-                            break ZipArchive::new(cursor);
-                        }
-                        if num_read_bytes > 10 * 1024 {
-                            return Err(error());
-                        }
-                        let num_written_bytes = cursor.write(&buf[0..num_read_bytes])?;
-                        if num_read_bytes != num_written_bytes {
-                            return Err(error());
-                        }
-                        let position = cursor.position();
-                        if content_length.is_none() {
-                            pb.total = position;
-                        }
-                        pb.set(position);
-                    }
-                })
-            })
+            .map(|resp| ZipDownloading::new(resp, each_capacity_on_content_length_missing, &mut mb))
             .collect::<Vec<_>>();
-        mb.listen();
+        thread::spawn(move || mb.listen());
+        future::join_all(downloads).wait().map_err(Into::into)
+    }
+}
 
-        let mut zips = vec![];
-        for handle in handles {
-            zips.push(match handle.join() {
-                Ok(zip) => zip,
-                Err(_) => bail!(ServiceErrorKind::Thread),
-            }?);
+struct ZipDownloading<R: Read> {
+    size_unknown: bool,
+    resource: R,
+    progress_bar: ProgressBar<Pipe>,
+    content: Cursor<Vec<u8>>,
+    buf: [u8; 10240],
+}
+
+impl ZipDownloading<Response> {
+    fn new<W: Write>(response: Response, alt_capacity: usize, mb: &mut MultiBar<W>) -> Self {
+        let content_length = response.headers().get::<ContentLength>().map(|l| **l);
+        let mut progress_bar = mb.create_bar(content_length.unwrap_or(0));
+        progress_bar.set_units(Units::Bytes);
+        let size = content_length.map(|n| n as usize).unwrap_or(alt_capacity);
+        Self {
+            size_unknown: content_length.is_none(),
+            resource: response,
+            progress_bar,
+            content: Cursor::new(Vec::with_capacity(size)),
+            buf: [0; 10240],
         }
-        Ok(zips)
+    }
+}
+
+impl<R: Read> Future for ZipDownloading<R> {
+    type Item = ZipArchive<Cursor<Vec<u8>>>;
+    type Error = ZipError;
+
+    fn poll(&mut self) -> ZipResult<Async<ZipArchive<Cursor<Vec<u8>>>>> {
+        match self.resource.read(&mut self.buf)? {
+            0 => {
+                self.progress_bar.finish();
+                let zip = ZipArchive::new(mem::replace(&mut self.content, Cursor::new(vec![])))?;
+                Ok(Async::Ready(zip))
+            }
+            n => {
+                let _ = self.content.write(&self.buf[0..n])?;
+                let pos = self.content.position();
+                if self.size_unknown {
+                    self.progress_bar.total = pos;
+                }
+                self.progress_bar.set(pos);
+                task::current().notify();
+                Ok(Async::NotReady)
+            }
+        }
     }
 }
 
@@ -334,6 +341,7 @@ impl<'a, C: Contest> SubmitProp<'a, C> {
 
 #[cfg(test)]
 mod tests {
+    use errors::{ServiceError, ServiceErrorKind, ServiceResult};
     use service::DownloadZips as _DownloadZips;
 
     use httpsession::HttpSession;
@@ -364,23 +372,35 @@ mod tests {
                 }
                 content
             }
+            get "/invalid" => |_request, mut response| {
+                response.headers_mut().set(ContentLength(5));
+                "aaaaa"
+            }
         });
         let server = server.listen("127.0.0.1:2000").unwrap();
-        let mut session = HttpSession::builder()
-            .base("127.0.0.1", false, Some(2000))
-            .build()
-            .unwrap();
-        session
-            .download_zips(
+        if let Err(e) = || -> ServiceResult<()> {
+            let mut session = HttpSession::builder()
+                .base("127.0.0.1", false, Some(2000))
+                .build()?;
+            session.download_zips(
                 &[
-                    "/",
-                    "/?filesize=10000",
-                    "/?filesize=20000000",
                     "/?filesize=20000000&addcontentlength=1",
+                    "/?filesize=20000000",
+                    "/?filesize=10000",
+                    "/",
                 ],
                 0,
-            )
-            .unwrap();
-        server.detach();
+            )?;
+            match session.download_zips(&["/invalid"], 0) {
+                Ok(_) => bail!("Should be an error"),
+                Err(ServiceError(ServiceErrorKind::Zip(_), _)) => Ok(()),
+                Err(e) => Err(e),
+            }
+        }() {
+            server.detach();
+            panic!("{}", e);
+        } else {
+            server.detach();
+        };
     }
 }
