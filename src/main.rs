@@ -37,6 +37,10 @@ extern crate toml;
 extern crate webbrowser;
 extern crate zip;
 
+#[cfg(test)]
+#[macro_use]
+extern crate nickel;
+
 #[macro_use]
 mod macros;
 

@@ -17,7 +17,7 @@ use zip::ZipArchive;
 use zip::result::{ZipError, ZipResult};
 
 use std::collections::BTreeMap;
-use std::io::{self, Cursor, Read, Write};
+use std::io::{self, Cursor, Read as _Read, Write as _Write};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
@@ -111,21 +111,21 @@ pub(self) trait DownloadZips {
     /// - Any of http access fails
     /// - Any of response code is not 200
     /// - Any of downloaded zip is invalid
-    fn download_zips(
+    fn download_zips<S: AsRef<str>>(
         &mut self,
-        urls: &[String],
+        urls: &[S],
         each_capacity_on_content_length_missing: usize,
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>>;
 }
 
 impl DownloadZips for HttpSession {
-    fn download_zips(
+    fn download_zips<S: AsRef<str>>(
         &mut self,
-        urls: &[String],
+        urls: &[S],
         each_capacity_on_content_length_missing: usize,
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
         let responses = urls.iter()
-            .map(|url| self.get(url))
+            .map(|url| self.get(url.as_ref()))
             .collect::<Result<Vec<_>, _>>()?;
 
         println!("Downloading zip files...");
@@ -329,5 +329,58 @@ impl<'a, C: Contest> SubmitProp<'a, C> {
             self.open_browser,
             self.skip_checking_if_accepted,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use service::DownloadZips as _DownloadZips;
+
+    use httpsession::HttpSession;
+    use nickel::{Nickel, QueryString as _QueryString};
+    use nickel::hyper::header::ContentLength;
+    use zip::ZipWriter;
+    use zip::write::FileOptions;
+
+    use std::io::{Cursor, Write as _Write};
+
+    #[test]
+    #[ignore]
+    fn it_downloads_zip_files() {
+        let mut server = Nickel::new();
+        server.utilize(router! {
+            get "/" => |request, mut response| {
+                let filesize = request.query().get("filesize").and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(0);
+                let add_content_length = request.query().get("addcontentlength") == Some("1");
+                let mut zip = ZipWriter::new(Cursor::new(Vec::<u8>::with_capacity(filesize)));
+                for &name in &["a", "b", "c"] {
+                    zip.start_file(name, FileOptions::default()).unwrap();
+                    zip.write(&vec![0u8; filesize]).unwrap();
+                }
+                let content = zip.finish().unwrap().into_inner();
+                if add_content_length {
+                    response.headers_mut().set(ContentLength(content.len() as u64));
+                }
+                content
+            }
+        });
+        let server = server.listen("127.0.0.1:2000").unwrap();
+        let mut session = HttpSession::builder()
+            .base("127.0.0.1", false, Some(2000))
+            .build()
+            .unwrap();
+        session
+            .download_zips(
+                &[
+                    "/",
+                    "/?filesize=10000",
+                    "/?filesize=20000000",
+                    "/?filesize=20000000&addcontentlength=1",
+                ],
+                0,
+            )
+            .unwrap();
+        server.detach();
     }
 }
