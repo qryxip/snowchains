@@ -10,18 +10,18 @@ use testsuite::SuiteFileExtension;
 use util;
 
 use {rpassword, rprompt, webbrowser};
-use futures::{future, task, Async, Future};
-use httpsession::{ColorMode, CookieStoreOption, HttpSession, RedirectPolicy, Response};
+use futures::{future, task, Async, Future, Poll};
+use httpsession::{self, ColorMode, CookieStoreOption, HttpSession, RedirectPolicy, Response};
 use httpsession::header::{ContentLength, UserAgent};
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
 use zip::ZipArchive;
-use zip::result::{ZipError, ZipResult};
+use zip::result::ZipResult;
 
-use std::{mem, thread};
+use std::{mem, panic, thread};
 use std::collections::BTreeMap;
 use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Constructs a `HttpSession`.
 pub(self) fn start_session(
@@ -95,9 +95,7 @@ impl OpenInBrowser for HttpSession {
         let url = self.resolve_url(url)?;
         println!("Opening {} in default browser...", url);
         let status = webbrowser::open(url.as_str())?.status;
-        if !status.success() {
-            bail!(ServiceErrorKind::Webbrowser(status));
-        }
+        ensure!(status.success(), ServiceErrorKind::Webbrowser(status));
         Ok(())
     }
 }
@@ -112,42 +110,56 @@ pub(self) trait DownloadZips {
     /// - Any of http access fails
     /// - Any of response code is not 200
     /// - Any of downloaded zip is invalid
-    fn download_zips<S: AsRef<str>>(
+    fn download_zips<S: AsRef<str>, W: Write + Send + 'static>(
         &mut self,
+        out: W,
+        alt_capacity: usize,
         urls: &[S],
-        each_capacity_on_content_length_missing: usize,
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>>;
 }
 
 impl DownloadZips for HttpSession {
-    fn download_zips<S: AsRef<str>>(
+    fn download_zips<S: AsRef<str>, W: Write + Send + 'static>(
         &mut self,
+        out: W,
+        alt_capacity: usize,
         urls: &[S],
-        each_capacity_on_content_length_missing: usize,
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
         let responses = urls.iter()
             .map(|url| self.get(url.as_ref()))
-            .collect::<Result<Vec<_>, _>>()?;
-        println!("Downloading zip files...");
-        let mut mb = MultiBar::new();
-        let downloads = responses
-            .into_iter()
-            .map(|resp| ZipDownloading::new(resp, each_capacity_on_content_length_missing, &mut mb))
-            .collect::<Vec<_>>();
-        thread::spawn(move || mb.listen());
-        future::join_all(downloads).wait().map_err(Into::into)
+            .collect::<httpsession::Result<Vec<_>>>()?;
+        download_zip_files(out, alt_capacity, responses).map_err(Into::into)
     }
 }
 
-struct ZipDownloading<R: Read> {
-    size_unknown: bool,
-    resource: R,
-    progress_bar: ProgressBar<Pipe>,
-    content: Cursor<Vec<u8>>,
-    buf: [u8; 10240],
+fn download_zip_files<W: Write + Send + 'static, I: IntoIterator<Item = Response>>(
+    mut out: W,
+    alt_capacity: usize,
+    responses: I,
+) -> ZipResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
+    let _ = out.write(b"Downloading zip files...\n")?;
+    out.flush()?;
+    let mut mb = MultiBar::on(out);
+    let downloads = responses
+        .into_iter()
+        .map(|response| Downloading::new(response, alt_capacity, &mut mb))
+        .collect::<Vec<_>>();
+    let thread = thread::spawn(move || mb.listen());
+    let zips = future::join_all(downloads).wait()?;
+    thread.join().unwrap_or_else(|p| panic::resume_unwind(p));
+    zips.into_iter().map(ZipArchive::new).collect()
 }
 
-impl ZipDownloading<Response> {
+struct Downloading {
+    size_unknown: bool,
+    response: Response,
+    progress_bar: ProgressBar<Pipe>,
+    content: Cursor<Vec<u8>>,
+    buf: Vec<u8>,
+    bar_updated: Instant,
+}
+
+impl Downloading {
     fn new<W: Write>(response: Response, alt_capacity: usize, mb: &mut MultiBar<W>) -> Self {
         let content_length = response.headers().get::<ContentLength>().map(|l| **l);
         let mut progress_bar = mb.create_bar(content_length.unwrap_or(0));
@@ -155,36 +167,56 @@ impl ZipDownloading<Response> {
         let size = content_length.map(|n| n as usize).unwrap_or(alt_capacity);
         Self {
             size_unknown: content_length.is_none(),
-            resource: response,
+            response,
             progress_bar,
             content: Cursor::new(Vec::with_capacity(size)),
-            buf: [0; 10240],
+            buf: vec![unsafe { mem::uninitialized() }; 1024 * 1024],
+            bar_updated: Instant::now(),
         }
     }
-}
 
-impl<R: Read> Future for ZipDownloading<R> {
-    type Item = ZipArchive<Cursor<Vec<u8>>>;
-    type Error = ZipError;
-
-    fn poll(&mut self) -> ZipResult<Async<ZipArchive<Cursor<Vec<u8>>>>> {
-        match self.resource.read(&mut self.buf)? {
+    fn read(&mut self) -> Poll<Cursor<Vec<u8>>, io::Error> {
+        match self.response.read(&mut self.buf)? {
             0 => {
-                self.progress_bar.finish();
-                let zip = ZipArchive::new(mem::replace(&mut self.content, Cursor::new(vec![])))?;
-                Ok(Async::Ready(zip))
+                self.update_progress_bar();
+                let content = mem::replace(&mut self.content, Cursor::new(vec![]));
+                Ok(Async::Ready(content))
             }
             n => {
                 let _ = self.content.write(&self.buf[0..n])?;
-                let pos = self.content.position();
-                if self.size_unknown {
-                    self.progress_bar.total = pos;
+                if n == self.buf.len() {
+                    self.buf
+                        .extend(vec![unsafe { mem::uninitialized::<u8>() }; n]);
+                } else if Instant::now() - self.bar_updated > Duration::from_millis(20) {
+                    self.update_progress_bar();
                 }
-                self.progress_bar.set(pos);
-                task::current().notify();
                 Ok(Async::NotReady)
             }
         }
+    }
+
+    fn update_progress_bar(&mut self) {
+        let pos = self.content.position();
+        if self.size_unknown {
+            self.progress_bar.total = pos;
+        }
+        self.progress_bar.set(pos);
+        self.bar_updated = Instant::now();
+    }
+}
+
+impl Future for Downloading {
+    type Item = Cursor<Vec<u8>>;
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Poll<Cursor<Vec<u8>>, io::Error> {
+        let result = self.read();
+        match result {
+            Ok(Async::Ready(_)) => self.progress_bar.finish(),
+            Ok(Async::NotReady) => task::current().notify(),
+            Err(_) => self.progress_bar.finish_print("Failed"),
+        }
+        result
     }
 }
 
@@ -344,63 +376,91 @@ mod tests {
     use errors::{ServiceError, ServiceErrorKind, ServiceResult};
     use service::DownloadZips as _DownloadZips;
 
+    use env_logger;
+    use futures::{future, Async, Future as _Future, Poll};
+    use futures_timer::FutureExt as _FutureExt;
     use httpsession::HttpSession;
-    use nickel::{Nickel, QueryString as _QueryString};
+    use nickel::{self, ListeningServer, Nickel, QueryString as _QueryString};
     use nickel::hyper::header::ContentLength;
     use zip::ZipWriter;
+    use zip::result::{ZipError, ZipResult};
     use zip::write::FileOptions;
 
-    use std::io::{Cursor, Write as _Write};
+    use std::io::{self, Cursor, Write as _Write};
+    use std::mem;
+    use std::time::Duration;
 
     #[test]
     #[ignore]
     fn it_downloads_zip_files() {
+        const PORT: u16 = 2000;
+        let _ = env_logger::try_init();
+        let server = start_server(PORT).unwrap();
+        let result = future::poll_fn(|| download_zip_files(PORT))
+            .timeout(Duration::from_secs(20))
+            .wait();
+        server.detach();
+        result.unwrap();
+    }
+
+    fn download_zip_files(port: u16) -> Poll<(), ServiceError> {
+        static URLS1: &[&[&str]] = &[&["/a?addcontentlength=1", "/b?addcontentlength=1", "/c"]];
+        static URLS2: &[&[&str]] = &[&["/empty", "/invalid"]];
+        let mut session = HttpSession::builder()
+            .base("127.0.0.1", false, Some(port))
+            .build()?;
+        for urls in URLS1 {
+            session.download_zips(io::stdout(), 10240, urls)?;
+        }
+        for urls in URLS2 {
+            match session.download_zips(io::stdout(), 10240, urls) {
+                Err(ServiceError(ServiceErrorKind::Zip(ZipError::InvalidArchive(_)), _)) => {}
+                Err(e) => bail!(e),
+                Ok(_) => bail!("Should fail"),
+            }
+        }
+        Ok(Async::Ready(()))
+    }
+
+    fn start_server(port: u16) -> ServiceResult<ListeningServer> {
+        fn create_zip_file(each_inner_filesize: usize) -> ZipResult<Vec<u8>> {
+            let buf = Vec::<u8>::with_capacity(each_inner_filesize);
+            let mut zip = ZipWriter::new(Cursor::new(buf));
+            for &name in &["a", "b", "c"] {
+                zip.start_file(name, FileOptions::default())?;
+                let _ = zip.write(&vec![unsafe { mem::uninitialized() }; each_inner_filesize])?;
+            }
+            Ok(zip.finish()?.into_inner())
+        }
+
+        fn respond<'a>(
+            file: &'a [u8],
+            request: &mut nickel::Request,
+            response: &mut nickel::Response,
+            path: &'static str,
+        ) -> &'a [u8] {
+            info!("Recieved: {}, {:?}", path, request.query());
+            if request.query().get("addcontentlength") == Some("1") {
+                response.headers_mut().set(ContentLength(file.len() as u64));
+            }
+            file
+        }
+
+        let a = create_zip_file(100)?;
+        let b = create_zip_file(1000)?;
+        let c = create_zip_file(10000)?;
+        let invalid = vec![unsafe { mem::uninitialized() }; 5 * 1024 * 1024];
+        let empty = vec![];
         let mut server = Nickel::new();
         server.utilize(router! {
-            get "/" => |request, mut response| {
-                let filesize = request.query().get("filesize").and_then(|s| s.parse::<usize>().ok())
-                    .unwrap_or(0);
-                let add_content_length = request.query().get("addcontentlength") == Some("1");
-                let mut zip = ZipWriter::new(Cursor::new(Vec::<u8>::with_capacity(filesize)));
-                for &name in &["a", "b", "c"] {
-                    zip.start_file(name, FileOptions::default()).unwrap();
-                    zip.write(&vec![0u8; filesize]).unwrap();
-                }
-                let content = zip.finish().unwrap().into_inner();
-                if add_content_length {
-                    response.headers_mut().set(ContentLength(content.len() as u64));
-                }
-                content
-            }
-            get "/invalid" => |_request, mut response| {
-                response.headers_mut().set(ContentLength(5));
-                "aaaaa"
-            }
+            get "/a"       => |req, mut resp| { respond(&a, req, &mut resp, "/a") }
+            get "/b"       => |req, mut resp| { respond(&b, req, &mut resp, "/b") }
+            get "/c"       => |req, mut resp| { respond(&c, req, &mut resp, "/c") }
+            get "/invalid" => |req, mut resp| { respond(&invalid, req, &mut resp, "/invalid") }
+            get "/empty"   => |req, mut resp| { respond(&empty, req, &mut resp, "/empty") }
         });
-        let server = server.listen("127.0.0.1:2000").unwrap();
-        if let Err(e) = || -> ServiceResult<()> {
-            let mut session = HttpSession::builder()
-                .base("127.0.0.1", false, Some(2000))
-                .build()?;
-            session.download_zips(
-                &[
-                    "/?filesize=20000000&addcontentlength=1",
-                    "/?filesize=20000000",
-                    "/?filesize=10000",
-                    "/",
-                ],
-                0,
-            )?;
-            match session.download_zips(&["/invalid"], 0) {
-                Ok(_) => bail!("Should be an error"),
-                Err(ServiceError(ServiceErrorKind::Zip(_), _)) => Ok(()),
-                Err(e) => Err(e),
-            }
-        }() {
-            server.detach();
-            panic!("{}", e);
-        } else {
-            server.detach();
-        };
+        server
+            .listen(format!("127.0.0.1:{}", port))
+            .map_err(|e| format!("Failed to start Nickel: {}", e).into())
     }
 }

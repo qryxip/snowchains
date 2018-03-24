@@ -12,7 +12,7 @@ use serde_json;
 use zip::ZipArchive;
 use zip::result::ZipResult;
 
-use std::io::{Read, Seek};
+use std::io::{self, Read, Seek};
 
 pub fn login() -> ServiceResult<()> {
     HackerRank::start(true).map(|_| ())
@@ -100,7 +100,7 @@ impl HackerRank {
                 contest, slug
             ));
         }
-        let zips = self.download_zips(&zip_urls, 50 * 1024 * 1024)?;
+        let zips = self.download_zips(io::stdout(), 50 * 1024 * 1024, &zip_urls)?;
         println!("Extracting zip files...");
         let extracted = zips.into_iter()
             .map(extract_samples_from_zip)
