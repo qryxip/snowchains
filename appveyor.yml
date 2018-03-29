@@ -1,0 +1,23 @@
+environment:
+  matrix:
+  - HOST: x86_64-pc-windows-msvc
+    TOOLCHAIN: stable
+  - HOST: x86_64-pc-windows-gnu
+    TOOLCHAIN: stable
+  - HOST: i686-pc-windows-msvc
+    TOOLCHAIN: stable
+  - HOST: i686-pc-windows-gnu
+    TOOLCHAIN: stable
+install:
+  - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:HOST}/rustup-init.exe"
+  - rustup-init.exe -y --default-toolchain %TOOLCHAIN% --default-host %HOST% --no-modify-path
+  - set PATH=%PATH%;C:\Users\appveyor\.cargo\bin
+  - rustc -vV
+  - cargo -vV
+test_script:
+  - cargo test -v
+build_script:
+  - cargo build --release
+artifacts:
+  - path: target\release\snowchains.exe
+    name: target

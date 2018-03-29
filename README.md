@@ -14,18 +14,25 @@ Install [Cargo](https://github.com/rust-lang/cargo) with
 add `~/.cargo/bin` to your `$PATH`, and
 
 ```console
-$ cargo install --git https://github.com/wariuni/snowchains
+$ cargo [+stable] install --git https://github.com/wariuni/snowchains
+```
+
+## Update
+
+```console
+$ cargo [+stable] install-update -ag
 ```
 
 ## Usage
 
 ```console
+$ snowchains --help
 $ snowchains init ./
 $ snowchains switch <service> <contest>                  # e.g. ("atcoderbeta", "agc001")
-$ snowchains download (--open-browser)                   # The username and password required when not yet logged-in
+$ snowchains download [--open-browser]                   # Does not ask username and password unless they are needed
 $ $EDITOR ./snowchains/<service>/<contest>/<target>.yaml # Add more test cases
-$ snowchains judge <target> (<language>)
-$ snowchains submit <target> (<language>) (--open-browser) (--skip-judging) (--force)
+$ snowchains judge <target> [<language>]
+$ snowchains submit <target> [<language>] [--open-browser] [--skip-judging] [--no-check]
 ```
 
 ## Config File (snowchains.yaml)
@@ -42,14 +49,14 @@ extensions_on_judging: ["json", "toml", "yaml", "yml"] # default: ”
 atcoder:
   default_language: "c++"
   variables:
-    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra"
-    "rust_version": "1.15.1"
+    cxx_flags: "-std=c++14 -O2 -Wall -Wextra"
+    rust_version: "1.15.1"
 
 hackerrank:
   default_language: "c++"
   variables:
-    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra -lm"
-    "rust_version": "1.21.0"
+    cxx_flags: "-std=c++14 -O2 -Wall -Wextra -lm"
+    rust_version: "1.21.0"
 
 # test files: <testsuite>/<target-name>.<extension> for <extension> in each <extensions_on_judging>
 # source:     <<src> % <target-name>>
