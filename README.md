@@ -1,5 +1,7 @@
 # Snowchains
 
+[![Build status](https://ci.appveyor.com/api/projects/status/hfc4x704uufkb2sh?svg=true)](https://ci.appveyor.com/project/wariuni/snowchains)
+
 Tools for online programming contests.
 
 Works on

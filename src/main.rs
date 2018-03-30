@@ -204,14 +204,16 @@ quick_main_colored!(|| -> ::Result<i32> {
                      snowchains switch <service> <contest>\n    \
                      snowchains login <service>\n    \
                      snowchains participate <service> <contest>\n    \
-                     snowchains download [-s|--service=] [-c|--contest=] [--open-browser]\n    \
-                     snowchains restore [-s|--service=] [-c|--contest=]\n    \
-                     snowchains append <target> <extension> <input> [output] [-s|--service=] \
-                     [-c|--contest=]\n    \
-                     snowchains judge <target> [-l|--language=] [-s|--service=] [-c|--contest=]\
-                     \n    \
-                     snowchains submit <target> [-l|--language=] [-s|--service=] [-c|--contest=] \
-                     [--open-browser] [--skip-judging] [--no-check]")]
+                     snowchains download [-s|--service <service>] [-c|--contest <contest>] \
+                     [--open-browser]\n    \
+                     snowchains restore [-s|--service <service>] [-c|--contest <contest>]\n    \
+                     snowchains append <target> <extension> <input> [output] \
+                     [-s|--service <service>] [-c|--contest <contest>]\n    \
+                     snowchains judge <target> [-l|--language <language>] [-s|--service <service>] \
+                     [-c|--contest <contest>]\n    \
+                     snowchains submit <target> [-l|--language <language>] \
+                     [-s|--service <service>] [-c|--contest <contest>] [--open-browser] \
+                     [--skip-judging] [--no-check]")]
 enum Opt {
     #[structopt(name = "init", about = "Creates a \"snowchains.yaml\"", raw(display_order = "1"))]
     Init {
@@ -249,7 +251,8 @@ enum Opt {
     },
 
     #[structopt(name = "download", about = "Downloads test cases",
-                usage = "snowchains download [-s|--service=] [-c|--contest=] [--open-browser]",
+                usage = "snowchains download [-s|--service <service>] [-c|--contest <contest>] \
+                         [--open-browser]",
                 raw(display_order = "5"))]
     Download {
         #[structopt(short = "s", long = "service", help = "Service name",
@@ -265,7 +268,7 @@ enum Opt {
     },
 
     #[structopt(name = "restore", about = "Downloads the source codes you've submitted",
-                usage = "snowchains restore [-s|--service=] [-c|--contest=]",
+                usage = "snowchains restore [-s|--service <service>] [-c|--contest <contest>]",
                 raw(display_order = "6"))]
     Restore {
         #[structopt(short = "s", long = "service", help = "Service name",
@@ -277,8 +280,8 @@ enum Opt {
     },
 
     #[structopt(name = "append", about = "Appends a test case to a test suite file",
-                usage = "snowchains append <target> <extension> <input> [output] [-s|--service=] \
-                         [-c|--contest=]",
+                usage = "snowchains append <target> <extension> <input> [output] \
+                         [-s|--service <service>] [-c|--contest <contest>]",
                 raw(display_order = "7"))]
     Append {
         #[structopt(name = "target", help = "Target name")]
@@ -300,8 +303,8 @@ enum Opt {
     },
 
     #[structopt(name = "judge", about = "Tests a binary or script",
-                usage = "snowchains judge <target> [-l|--language=] [-s|--service=] \
-                         [-c|--contest=]",
+                usage = "snowchains judge <target> [-l|--language <language>] \
+                         [-s|--service <service>] [-c|--contest <contest>]",
                 raw(display_order = "8"))]
     Judge {
         #[structopt(name = "target", help = "Target name")]
@@ -319,8 +322,9 @@ enum Opt {
     },
 
     #[structopt(name = "submit", about = "Submits a source code",
-                usage = "snowchains submit <target> [-l|--language=] [-s|--service=] \
-                         [-c|--contest=] [--open-browser] [--skip-judging] [--no-check]",
+                usage = "snowchains submit <target> [-l|--language <language>] \
+                         [-s|--service <service>] [-c|--contest <contest>] [--open-browser] \
+                         [--skip-judging] [--no-check]",
                 raw(display_order = "9"))]
     Submit {
         #[structopt(name = "target", help = "Target name")]

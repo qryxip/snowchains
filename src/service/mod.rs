@@ -164,12 +164,12 @@ impl Downloading {
         let content_length = response.headers().get::<ContentLength>().map(|l| **l);
         let mut progress_bar = mb.create_bar(content_length.unwrap_or(0));
         progress_bar.set_units(Units::Bytes);
-        let size = content_length.map(|n| n as usize).unwrap_or(alt_capacity);
+        let capacity = content_length.map(|n| n as usize).unwrap_or(alt_capacity);
         Self {
             size_unknown: content_length.is_none(),
             response,
             progress_bar,
-            content: Cursor::new(Vec::with_capacity(size)),
+            content: Cursor::new(Vec::with_capacity(capacity)),
             buf: vec![unsafe { mem::uninitialized() }; 1024 * 1024],
             bar_updated: Instant::now(),
         }
