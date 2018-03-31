@@ -830,29 +830,18 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn it_extracts_task_urls_from_apg4b() {
+    fn it_extracts_task_urls_from_arc001() {
         let _ = env_logger::try_init();
         let mut atcoder = start().unwrap();
         let page = atcoder
-            .fetch_tasks_page(&AtcoderContest::new("apg4b"))
+            .fetch_tasks_page(&AtcoderContest::new("arc001"))
             .unwrap();
         let urls_and_names = super::extract_task_urls_with_names(&page).unwrap();
         static EXPECTED: &[(&str, &str)] = &[
-            ("A", "/contests/apg4b/tasks/APG4b_a"),
-            ("B", "/contests/apg4b/tasks/APG4b_b"),
-            ("C", "/contests/apg4b/tasks/APG4b_c"),
-            ("D", "/contests/apg4b/tasks/APG4b_d"),
-            ("E", "/contests/apg4b/tasks/APG4b_e"),
-            ("F", "/contests/apg4b/tasks/APG4b_f"),
-            ("G", "/contests/apg4b/tasks/APG4b_g"),
-            ("H", "/contests/apg4b/tasks/APG4b_h"),
-            ("EX1", "/contests/apg4b/tasks/APG4b_cv"),
-            ("EX2", "/contests/apg4b/tasks/APG4b_cu"),
-            ("EX3", "/contests/apg4b/tasks/APG4b_ct"),
-            ("EX4", "/contests/apg4b/tasks/APG4b_cs"),
-            ("EX5", "/contests/apg4b/tasks/APG4b_cr"),
-            ("EX6", "/contests/apg4b/tasks/APG4b_cq"),
-            ("EX7", "/contests/apg4b/tasks/APG4b_cp"),
+            ("A", "/contests/arc001/tasks/arc001_1"),
+            ("B", "/contests/arc001/tasks/arc001_2"),
+            ("C", "/contests/arc001/tasks/arc001_3"),
+            ("D", "/contests/arc001/tasks/arc001_4"),
         ];
         assert_eq!(EXPECTED.len(), urls_and_names.len());
         for ((actual_name, actual_url), &(expected_name, expected_url)) in
