@@ -5,15 +5,8 @@ environment:
   matrix:
   - HOST: x86_64-pc-windows-msvc
   - HOST: x86_64-pc-windows-gnu
-  - HOST: i686-pc-windows-msvc
-  - HOST: i686-pc-windows-gnu
 install:
-  - ps: >-
-      If ($Env:HOST -eq 'x86_64-pc-windows-gnu') {
-        $Env:PATH += ';C:\msys64\mingw64\bin'
-      } ElseIf ($Env:HOST -eq 'i686-pc-windows-gnu') {
-        $Env:PATH += ';C:\msys64\mingw32\bin'
-      }
+  - ps: If ($Env:HOST -eq 'x86_64-pc-windows-gnu') { $Env:PATH += ';C:\msys64\mingw64\bin' }
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:HOST}/rustup-init.exe"
   - rustup-init.exe -y --default-toolchain %TOOLCHAIN% --default-host %HOST% --no-modify-path
   - set PATH=%PATH%;C:\Users\appveyor\.cargo\bin
@@ -27,12 +20,13 @@ build_script:
   - ps: >-
       $ZIP = "snowchains-${env:APPVEYOR_REPO_TAG_NAME}-${env:HOST}.zip";
       Copy-Item "target\$($Env:TARGET)\release\snowchains.exe" '.\';
-      7z a "$ZIP" *
+      7z a "$ZIP" snowchains.exe README.md LICENSE
 deploy:
   - provider: GitHub
     auth_token:
       secure: khL++opdJh5x79PMMTkOJXPXi8D+ijp0os5Bi02rA4DSApOmuF1VuZWpIzyDZ8pi
-    artifact: '*.zip'
+artifacts:
+  path: '*.zip'
 cache:
   - C:\Users\appveyor\.cargo\registry
   - target

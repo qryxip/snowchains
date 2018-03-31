@@ -240,7 +240,7 @@ impl JudgingOutput for SimpleOutput {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use command::JudgingCommand;
     use judging::simple::SimpleOutput;
@@ -248,7 +248,6 @@ mod tests {
 
     use std::sync::Arc;
 
-    #[cfg(unix)]
     #[test]
     #[ignore]
     fn it_judges() {

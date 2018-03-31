@@ -371,7 +371,7 @@ impl<'a, C: Contest> SubmitProp<'a, C> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use errors::{ServiceError, ServiceErrorKind, ServiceResult};
     use service::DownloadZips as _DownloadZips;
@@ -390,7 +390,6 @@ mod tests {
     use std::mem;
     use std::time::Duration;
 
-    #[cfg(unix)]
     #[test]
     #[ignore]
     fn it_downloads_zip_files() {
@@ -411,10 +410,10 @@ mod tests {
             .base("127.0.0.1", false, Some(port))
             .build()?;
         for urls in URLS1 {
-            session.download_zips(io::stdout(), 10240, urls)?;
+            session.download_zips(io::sink(), 10240, urls)?;
         }
         for urls in URLS2 {
-            match session.download_zips(io::stdout(), 10240, urls) {
+            match session.download_zips(io::sink(), 10240, urls) {
                 Err(ServiceError(ServiceErrorKind::Zip(ZipError::InvalidArchive(_)), _)) => {}
                 Err(e) => bail!(e),
                 Ok(_) => bail!("Should fail"),
