@@ -390,6 +390,7 @@ mod tests {
     use std::mem;
     use std::time::Duration;
 
+    #[cfg(unix)]
     #[test]
     #[ignore]
     fn it_downloads_zip_files() {

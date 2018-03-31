@@ -21,7 +21,7 @@ install:
   - cargo -vV
 test_script:
   - cargo +%TOOLCHAIN% test -v
-  - cargo +%TOOLCHAIN% test -v -- --ignored --skip service::tests::it_downloads_zip_files
+  - cargo +%TOOLCHAIN% test -v -- --ignored
 build_script:
   - cargo +%TOOLCHAIN% build --release
   - ps: >-
