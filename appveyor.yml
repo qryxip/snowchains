@@ -1,12 +1,42 @@
 clone_depth: 1
 environment:
-  global:
-    TOOLCHAIN: stable
   matrix:
   - HOST: x86_64-pc-windows-msvc
+    TOOLCHAIN: stable
   - HOST: x86_64-pc-windows-gnu
+    TOOLCHAIN: stable
+  - HOST: i686-pc-windows-msvc
+    TOOLCHAIN: stable
+  - HOST: i686-pc-windows-gnu
+    TOOLCHAIN: stable
+  - HOST: x86_64-pc-windows-msvc
+    TOOLCHAIN: beta
+  - HOST: x86_64-pc-windows-gnu
+    TOOLCHAIN: beta
+  - HOST: i686-pc-windows-msvc
+    TOOLCHAIN: beta
+  - HOST: i686-pc-windows-gnu
+    TOOLCHAIN: beta
+  - HOST: x86_64-pc-windows-msvc
+    TOOLCHAIN: nightly
+  - HOST: x86_64-pc-windows-gnu
+    TOOLCHAIN: nightly
+  - HOST: i686-pc-windows-msvc
+    TOOLCHAIN: nightly
+  - HOST: i686-pc-windows-gnu
+    TOOLCHAIN: nightly
+matrix:
+  allow_failures:
+    - HOST: i686-pc-windows-msvc # https://github.com/tokio-rs/tokio-timer/issues/43
+    - HOST: i686-pc-windows-gnu
+    - TOOLCHAIN: nightly
 install:
-  - ps: If ($Env:HOST -eq 'x86_64-pc-windows-gnu') { $Env:PATH += ';C:\msys64\mingw64\bin' }
+  - ps: >-
+      If ($Env:TARGET -eq 'x86_64-pc-windows-gnu') {
+        $Env:PATH += ';C:\msys64\mingw64\bin'
+      } ElseIf ($Env:TARGET -eq 'i686-pc-windows-gnu') {
+        $Env:PATH += ';C:\msys64\mingw32\bin'
+      }
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:HOST}/rustup-init.exe"
   - rustup-init.exe -y --default-toolchain %TOOLCHAIN% --default-host %HOST% --no-modify-path
   - set PATH=%PATH%;C:\Users\appveyor\.cargo\bin
@@ -17,14 +47,19 @@ test_script:
   - cargo +%TOOLCHAIN% test -v -- --ignored
 build_script:
   - cargo +%TOOLCHAIN% build --release
+  - ps: New-Item snowchains -itemType Directory
   - ps: >-
       $ZIP = "snowchains-${env:APPVEYOR_REPO_TAG_NAME}-${env:HOST}.zip";
-      Copy-Item "target\$($Env:TARGET)\release\snowchains.exe" '.\';
-      7z a "$ZIP" snowchains.exe README.md LICENSE
+      Copy-Item "target\${env:TARGET}\release\snowchains.exe" '.\snowchains\';
+      Copy-Item README.md '.\snowchains\';
+      Copy-Item LICENSE '.\snowchains\';
+      7z a "$ZIP" snowchains
 deploy:
   - provider: GitHub
     auth_token:
       secure: khL++opdJh5x79PMMTkOJXPXi8D+ijp0os5Bi02rA4DSApOmuF1VuZWpIzyDZ8pi
+    on:
+      appveyor_repo_tag: true
 artifacts:
   path: '*.zip'
 cache:
@@ -32,7 +67,7 @@ cache:
   - target
 branches:
   only:
-    - /^v\d+\.\d+\.\d+.*$/
+    - /^v?\d+\.\d+\.\d+.*$/
 notifications:
   - provider: Email
     on_build_success: false

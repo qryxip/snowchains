@@ -5,11 +5,7 @@ use terminal::Color;
 use testsuite::SimpleCase;
 use util;
 
-use futures::Future;
-use futures::sync::oneshot;
-use futures_timer::FutureExt;
-
-use std::{fmt, thread};
+use std::{self, fmt, thread};
 use std::io::{self, Write};
 use std::process::ExitStatus;
 use std::sync::Arc;
@@ -17,17 +13,13 @@ use std::time::{Duration, Instant};
 
 /// Tests for `case` and `solver` and returns one `SimpleOutput`.
 pub fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {
-    let (tx, rx) = oneshot::channel();
+    let (tx, rx) = std::sync::mpsc::channel();
     {
         let (case, solver) = (case.clone(), solver.clone());
-        thread::spawn(move || {
-            let _ = tx.send(run(&case, &solver));
-        });
+        thread::spawn(move || tx.send(run(&case, &solver)).unwrap());
     }
     if let (input, expected, Some(timelimit)) = case.values() {
-        rx.map_err(|_| io::Error::new(io::ErrorKind::Other, ""))
-            .timeout(timelimit + Duration::from_millis(50))
-            .wait()
+        rx.recv_timeout(timelimit + Duration::from_millis(50))
             .unwrap_or_else(|_| {
                 Ok(SimpleOutput::TimelimitExceeded {
                     timelimit,
@@ -36,7 +28,7 @@ pub fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<Sim
                 })
             })
     } else {
-        rx.wait()?
+        rx.recv().unwrap()
     }.map_err(Into::into)
 }
 

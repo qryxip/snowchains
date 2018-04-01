@@ -20,7 +20,6 @@ extern crate chrono;
 extern crate cookie;
 extern crate env_logger;
 extern crate futures;
-extern crate futures_timer;
 extern crate httpsession;
 extern crate pbr;
 extern crate regex;

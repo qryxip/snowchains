@@ -377,8 +377,6 @@ mod tests {
     use service::DownloadZips as _DownloadZips;
 
     use env_logger;
-    use futures::{future, Async, Future as _Future, Poll};
-    use futures_timer::FutureExt as _FutureExt;
     use httpsession::HttpSession;
     use nickel::{self, ListeningServer, Nickel, QueryString as _QueryString};
     use nickel::hyper::header::ContentLength;
@@ -386,24 +384,24 @@ mod tests {
     use zip::result::{ZipError, ZipResult};
     use zip::write::FileOptions;
 
+    use std::{self, mem, thread};
     use std::io::{self, Cursor, Write as _Write};
-    use std::mem;
     use std::time::Duration;
 
     #[test]
     #[ignore]
     fn it_downloads_zip_files() {
         const PORT: u16 = 2000;
+        const TIMEOUT: Duration = Duration::from_secs(20);
         let _ = env_logger::try_init();
         let server = start_server(PORT).unwrap();
-        let result = future::poll_fn(|| download_zip_files(PORT))
-            .timeout(Duration::from_secs(20))
-            .wait();
+        let (tx, rx) = std::sync::mpsc::channel();
+        thread::spawn(move || tx.send(download_zip_files(PORT)).unwrap());
         server.detach();
-        result.unwrap();
+        rx.recv_timeout(TIMEOUT).unwrap().unwrap();
     }
 
-    fn download_zip_files(port: u16) -> Poll<(), ServiceError> {
+    fn download_zip_files(port: u16) -> ServiceResult<()> {
         static URLS1: &[&[&str]] = &[&["/a?addcontentlength=1", "/b?addcontentlength=1", "/c"]];
         static URLS2: &[&[&str]] = &[&["/empty", "/invalid"]];
         let mut session = HttpSession::builder()
@@ -419,7 +417,7 @@ mod tests {
                 Ok(_) => bail!("Should fail"),
             }
         }
-        Ok(Async::Ready(()))
+        Ok(())
     }
 
     fn start_server(port: u16) -> ServiceResult<ListeningServer> {
