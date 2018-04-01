@@ -1,6 +1,6 @@
 [package]
 name = "snowchains"
-version = "0.19.8"
+version = "0.19.9"
 description = "Tools for online programming contests"
 license = "MIT"
 authors = ["wariuni <wariuni@gmail.com>"]
@@ -34,7 +34,7 @@ structopt = "0.2.6"
 term = "0.5.1"
 toml = "0.4.5"
 webbrowser = { git = "https://github.com/amodm/webbrowser-rs", rev = "a2620121c945f78874e9ab1c52677b2934f48121" }
-zip = { version = "0.3.1", default_features = false }
+zip = "0.3.1"
 
 [dev-dependencies]
 nickel = "0.10.1"

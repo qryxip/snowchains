@@ -232,7 +232,7 @@ impl JudgingOutput for SimpleOutput {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use command::JudgingCommand;
     use judging::simple::SimpleOutput;

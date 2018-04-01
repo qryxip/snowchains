@@ -60,6 +60,7 @@ deploy:
       secure: khL++opdJh5x79PMMTkOJXPXi8D+ijp0os5Bi02rA4DSApOmuF1VuZWpIzyDZ8pi
     on:
       appveyor_repo_tag: true
+      TOOLCHAIN: stable
 artifacts:
   path: '*.zip'
 cache:
@@ -67,7 +68,8 @@ cache:
   - target
 branches:
   only:
-    - /^v?\d+\.\d+\.\d+.*$/
+    - /^v\d+\.\d+\.\d+.*$/
+    - master
 notifications:
   - provider: Email
     on_build_success: false
