@@ -32,9 +32,9 @@ matrix:
     - TOOLCHAIN: nightly
 install:
   - ps: >-
-      If ($Env:TARGET -eq 'x86_64-pc-windows-gnu') {
+      If ($Env:HOST -eq 'x86_64-pc-windows-gnu') {
         $Env:PATH += ';C:\msys64\mingw64\bin'
-      } ElseIf ($Env:TARGET -eq 'i686-pc-windows-gnu') {
+      } ElseIf ($Env:HOST -eq 'i686-pc-windows-gnu') {
         $Env:PATH += ';C:\msys64\mingw32\bin'
       }
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:HOST}/rustup-init.exe"
@@ -43,6 +43,7 @@ install:
   - rustc -vV
   - cargo -vV
 test_script:
+  - ps: $Env:PATH == ';C:\Python36-x64'
   - cargo +%TOOLCHAIN% test -v
   - cargo +%TOOLCHAIN% test -v -- --ignored
 build_script:
@@ -65,7 +66,6 @@ artifacts:
   path: '*.zip'
 cache:
   - C:\Users\appveyor\.cargo\registry
-  - target
 branches:
   only:
     - /^v\d+\.\d+\.\d+.*$/

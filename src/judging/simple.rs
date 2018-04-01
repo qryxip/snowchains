@@ -243,25 +243,39 @@ mod tests {
     #[test]
     #[ignore]
     fn it_judges() {
-        static CODE: &str = r#"read a;read b c;read s;printf "%d %s\n" $(expr $a + $b + $c) $s"#;
-        let command = Arc::new(JudgingCommand::from_args("bash", &["-c", CODE]).unwrap());
-        let wa_command = Arc::new(JudgingCommand::from_args("bash", &["-c", "echo 0"]).unwrap());
-        let re_command = Arc::new(JudgingCommand::from_args("bash", &["-c", "exit 1"]).unwrap());
+        static CODE: &str = "(a,(b,c),s)=(int(input()),map(int,input().split()),input());\
+                             print(f'{a+b+c} {s}')";
+        let correct_command = python3_command(CODE);
+        let timeout_command = python3_command("import time;time.sleep(1)");
+        let wrong_command = python3_command("import sys;sys.exit(0)");
+        let error_command = python3_command("import sys;sys.exit(1)");
         let case1 = SimpleCase::new("1\n2 3\ntest\n", "6 test\n", 100);
         let case2 = SimpleCase::new("72\n128 256\nmyonmyon\n", "456 myonmyon\n", 100);
         for case in vec![case1, case2] {
-            match super::judge(&case, &command).unwrap() {
+            match super::judge(&case, &correct_command).unwrap() {
                 SimpleOutput::Accepted { .. } => (),
                 o => panic!("{}", o),
             }
-            match super::judge(&case, &wa_command).unwrap() {
+            match super::judge(&case, &timeout_command).unwrap() {
+                SimpleOutput::TimelimitExceeded { .. } => (),
+                o => panic!("{}", o),
+            }
+            match super::judge(&case, &wrong_command).unwrap() {
                 SimpleOutput::WrongAnswer { .. } => (),
                 o => panic!("{}", o),
             }
-            match super::judge(&case, &re_command).unwrap() {
+            match super::judge(&case, &error_command).unwrap() {
                 SimpleOutput::RuntimeError { .. } => (),
                 o => panic!("{}", o),
             }
         }
+    }
+
+    fn python3_command(code: &str) -> Arc<JudgingCommand> {
+        #[cfg(windows)]
+        static PYTHON3: &str = "python";
+        #[cfg(not(windows))]
+        static PYTHON3: &str = "python3";
+        Arc::new(JudgingCommand::from_args(PYTHON3, &["-c", code]).unwrap())
     }
 }
