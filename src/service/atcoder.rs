@@ -125,7 +125,7 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
     fn try_extracting_sample(section_node: Node, regex: &'static Regex) -> Option<String> {
         let title = section_node.find(Name("h3")).next()?.text();
         let sample = section_node.find(Name("pre")).next()?.text();
-        return_none_unless!(regex.is_match(&title));
+        ensure_opt!(regex.is_match(&title));
         Some(sample)
     }
 
@@ -161,7 +161,7 @@ fn extract_cases<R: Read>(html: R) -> ServiceResult<TestSuite> {
             }
             samples
         };
-        Some(TestSuite::simple(timelimit, samples))
+        Some(TestSuite::simple(timelimit, None, None, samples))
     }
 
     extract(&Document::from_read(html)?).ok_or_else(|| ServiceError::from(ServiceErrorKind::Scrape))

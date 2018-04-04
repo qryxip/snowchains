@@ -1,30 +1,32 @@
 clone_depth: 1
 environment:
+  global:
+    CRATE: snowchains
   matrix:
-  - HOST: x86_64-pc-windows-msvc
-    TOOLCHAIN: stable
-  - HOST: x86_64-pc-windows-gnu
-    TOOLCHAIN: stable
-  - HOST: i686-pc-windows-msvc
-    TOOLCHAIN: stable
-  - HOST: i686-pc-windows-gnu
-    TOOLCHAIN: stable
-  - HOST: x86_64-pc-windows-msvc
-    TOOLCHAIN: beta
-  - HOST: x86_64-pc-windows-gnu
-    TOOLCHAIN: beta
-  - HOST: i686-pc-windows-msvc
-    TOOLCHAIN: beta
-  - HOST: i686-pc-windows-gnu
-    TOOLCHAIN: beta
-  - HOST: x86_64-pc-windows-msvc
-    TOOLCHAIN: nightly
-  - HOST: x86_64-pc-windows-gnu
-    TOOLCHAIN: nightly
-  - HOST: i686-pc-windows-msvc
-    TOOLCHAIN: nightly
-  - HOST: i686-pc-windows-gnu
-    TOOLCHAIN: nightly
+    - HOST: x86_64-pc-windows-msvc
+      TOOLCHAIN: stable
+    - HOST: x86_64-pc-windows-gnu
+      TOOLCHAIN: stable
+    - HOST: i686-pc-windows-msvc
+      TOOLCHAIN: stable
+    - HOST: i686-pc-windows-gnu
+      TOOLCHAIN: stable
+    - HOST: x86_64-pc-windows-msvc
+      TOOLCHAIN: beta
+    - HOST: x86_64-pc-windows-gnu
+      TOOLCHAIN: beta
+    - HOST: i686-pc-windows-msvc
+      TOOLCHAIN: beta
+    - HOST: i686-pc-windows-gnu
+      TOOLCHAIN: beta
+    - HOST: x86_64-pc-windows-msvc
+      TOOLCHAIN: nightly
+    - HOST: x86_64-pc-windows-gnu
+      TOOLCHAIN: nightly
+    - HOST: i686-pc-windows-msvc
+      TOOLCHAIN: nightly
+    - HOST: i686-pc-windows-gnu
+      TOOLCHAIN: nightly
 matrix:
   allow_failures:
     - HOST: i686-pc-windows-msvc # https://github.com/tokio-rs/tokio-timer/issues/43
@@ -46,24 +48,25 @@ test_script:
   - ps: $Env:PATH == ';C:\Python36-x64'
   - cargo +%TOOLCHAIN% test -v
   - cargo +%TOOLCHAIN% test -v -- --ignored
-build_script:
+build: false
+before_deploy:
   - cargo +%TOOLCHAIN% build --release
-  - ps: New-Item snowchains -itemType Directory
   - ps: >-
-      $ZIP = "snowchains-${env:APPVEYOR_REPO_TAG_NAME}-${env:HOST}.zip";
-      Copy-Item "target\${env:TARGET}\release\snowchains.exe" '.\snowchains\';
-      Copy-Item README.md '.\snowchains\';
-      Copy-Item LICENSE '.\snowchains\';
-      7z a "$ZIP" snowchains
+      Copy-Item "target\${env:HOST}\release\${env:CRATE}.exe" .\;
+      $PROJECT = "C:\projects\${env:APPVEYOR_PROJECT_NAME}";
+      $ZIP = "$PROJECT\${env:CRATE}-${env:APPVEYOR_REPO_TAG_NAME}-${env:HOST}.zip";
+      Set-Location C:\projects;
+      7z a "$ZIP" "${env:APPVEYOR_PROJECT_NAME}\${env:CRATE}.exe" "${env:APPVEYOR_PROJECT_NAME}\README.md" "${env:APPVEYOR_PROJECT_NAME}\LICENSE";
+      Set-Location "$PROJECT";
+      Push-AppveyorArtifact "$ZIP"
 deploy:
   - provider: GitHub
+    artifact: /.*\.zip/
     auth_token:
       secure: khL++opdJh5x79PMMTkOJXPXi8D+ijp0os5Bi02rA4DSApOmuF1VuZWpIzyDZ8pi
     on:
       appveyor_repo_tag: true
       TOOLCHAIN: stable
-artifacts:
-  path: '*.zip'
 cache:
   - C:\Users\appveyor\.cargo\registry
 branches:

@@ -18,6 +18,7 @@ extern crate structopt;
 extern crate bincode;
 extern crate chrono;
 extern crate cookie;
+extern crate decimal;
 extern crate env_logger;
 extern crate futures;
 extern crate httpsession;

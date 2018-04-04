@@ -172,6 +172,11 @@ error_chain! {
             description("Target suite is not \"simple\" type")
             display("Target suite is not \"simple\" type")
         }
+
+        Nan {
+            description("NaN")
+            display("Do not input \"NaN\"")
+        }
     }
 }
 

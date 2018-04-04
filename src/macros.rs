@@ -6,7 +6,7 @@ macro_rules! quick_main_colored {
     };
 }
 
-macro_rules! return_none_unless {
+macro_rules! ensure_opt {
     ($x: expr) => {
         if !$x {
             return None;

@@ -1,6 +1,6 @@
 [package]
 name = "snowchains"
-version = "0.19.10"
+version = "0.20.0"
 description = "Tools for online programming contests"
 license = "MIT"
 authors = ["wariuni <wariuni@gmail.com>"]
@@ -13,6 +13,7 @@ bincode = "1.0.0"
 chrono = "0.4.1"
 cookie = "0.10.1"
 custom_derive = "0.1.7"
+decimal = "2.0.4"
 env_logger = "0.5.6"
 error-chain = "0.11.0"
 futures = "0.1.20"

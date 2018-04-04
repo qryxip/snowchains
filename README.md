@@ -19,7 +19,7 @@ add `~/.cargo/bin` to your `$PATH`, and
 $ cargo [+stable] install --git https://github.com/wariuni/snowchains
 ```
 
-## Update
+To update:
 
 ```console
 $ cargo [+stable] install-update -ag
@@ -201,9 +201,13 @@ $ snowchains download (--open-browser)
 
 ### Format
 
-Here are exmaples for [Task A of Welcome to AtCoder](https://beta.atcoder.jp/contests/practice/tasks/practice_1).
+- [x] YAML
+- [x] TOML
+- [x] JSON
 
-#### YAML
+#### Simple (one input, one output)
+
+<https://beta.atcoder.jp/contests/practice/tasks/practice_1>
 
 ```yaml
 ---
@@ -216,59 +220,39 @@ timelimit: 2000 # Optional
 # * String (a '\n' is appended automatically if missing)
 # * Array of [Integer|Float|String] (in TOML, arrays cannot contain different types of data)
 cases:
-  - expected: "6 test"
-    input: "1\n2 3\ntest"
-  - timelimit: 10 # Override "timelimit"
-    expected: ['456 myonmyon']
-    input: [72, '128 256', 'myonmyon']
-  - input: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"] # "expected" is optional
+  - in: "1\n2 3\ntest"
+    out: "6 test"
+  - in: [72, '128 256', 'myonmyon']
+    out: ['456 myonmyon']
+    timelimit: 10 # Can be overridden
+  - in: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"] # "expected" is optional
 ```
 
-#### TOML
+<https://beta.atcoder.jp/contests/tricky/tasks/tricky_2>
 
-```toml
-type = "simple"
-timelimit = 2000
-
-[[cases]]
-expected = "6 test"
-input = "1\n2 3\ntest"
-
-[[cases]]
-timelimit = 10
-expected = ['456 myonmyon']
-input = ['72', '128 256', 'myonmyon']
-
-[[cases]]
-input = ["1000", "1000 1000", "ooooooooooooooooooooooooooooo"]
-```
-
-#### JSON
-
-```json
-{
-  "type": "simple",
-  "timelimit": 2000,
-  "cases": [
-    {
-      "expected": "6 test",
-      "input": "1\n2 3\ntest"
-    },
-    {
-      "timelimit": 10,
-      "expected": ["456 myonmyon"],
-      "input": [72, "128 256", "myonmyon"]
-    },
-    {
-      "input": [1000, "1000 1000", "ooooooooooooooooooooooooooooo"]
-    }
-  ]
-}
+```yaml
+---
+type: simple
+timelimit: 2000
+# When `absolute_error` or `relative_error` is present,
+# each line is splited by whitespace and compared by token.
+absolute_error: 1E-9
+relative_error: 1E-9
+cases:
+  - in: |
+      3
+      1 -3 2
+      -10 30 -20
+      100 -300 200
+    out: |
+      2 1.000 2.000
+      2 1.000 2.000
+      2 1.000 2.000
 ```
 
 #### Interactive
 
-Here is a exmaple for [Task B of Welcome to AtCoder](https://beta.atcoder.jp/contests/practice/tasks/practice_2).
+<https://beta.atcoder.jp/contests/practice/tasks/practice_2>
 
 ```yaml
 ---

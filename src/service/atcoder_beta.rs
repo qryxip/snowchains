@@ -674,11 +674,11 @@ pub(self) fn extract_as_suite<R: Read>(
         return Ok(TestSuite::Unsubmittable);
     }
     match extract_samples(&document, contest) {
-        Some(Samples::Simple(samples)) => Ok(TestSuite::simple(timelimit, samples)),
+        Some(Samples::Simple(samples)) => Ok(TestSuite::simple(timelimit, None, None, samples)),
         Some(Samples::Interactive) => Ok(TestSuite::interactive(timelimit)),
         None => {
             warn!("Extracting sample cases: Could not extract sample cases");
-            Ok(TestSuite::simple(timelimit, vec![]))
+            Ok(TestSuite::simple(timelimit, None, None, vec![]))
         }
     }
 }
@@ -732,7 +732,7 @@ fn extract_submissions(document: &Document) -> ServiceResult<(vec::IntoIter<Subm
                 lazy_static! {
                     static ref SCREEN_NAME: Regex = Regex::new(r"\A(\w+).*\z").unwrap();
                     static ref TASK_SCREEN_NAME: Regex =
-                        Regex::new(r"\A/contests/\w+/tasks/(\w+)\z").unwrap();
+                        Regex::new(r"\A/contests/[\w-]+/tasks/([\w-]+)\z").unwrap();
                 }
                 let a = tr.find(Name("td").child(Name("a"))).nth(0)?;
                 let task_full_name = a.find(Text).next()?.text();
@@ -1139,7 +1139,8 @@ mod tests {
             assert_eq!(expected_name, actual_name);
             assert_eq!(expected_url, actual_url);
             let problem_page = atcoder.get(&actual_url).unwrap();
-            let expected_suite = TestSuite::simple(expected_timelimit, own_pairs(expected_samples));
+            let expected_suite =
+                TestSuite::simple(expected_timelimit, None, None, own_pairs(expected_samples));
             let actual_suite = super::extract_as_suite(problem_page, &contest).unwrap();
             assert_eq!(expected_suite, actual_suite);
         }

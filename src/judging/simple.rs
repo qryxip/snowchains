@@ -2,7 +2,7 @@ use command::JudgingCommand;
 use errors::JudgeResult;
 use judging::{JudgingOutput, MillisRoundedUp};
 use terminal::Color;
-use testsuite::SimpleCase;
+use testsuite::{ExpectedStdout, SimpleCase};
 use util;
 
 use std::{self, fmt, thread};
@@ -34,6 +34,7 @@ pub fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<Sim
 
 fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
     let (input, expected, timelimit) = case.values();
+
     let mut solver = solver.spawn_piped()?;
     let start = Instant::now();
     solver.stdin.as_mut().unwrap().write_all(input.as_bytes())?;
@@ -43,14 +44,13 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
     let stdout = Arc::new(util::string_from_read(solver.stdout.unwrap(), 1024)?);
     let stderr = Arc::new(util::string_from_read(solver.stderr.unwrap(), 1024)?);
 
-    // `expected` is empty IFF omitted.
     if timelimit.is_some() && elapsed > timelimit.unwrap() {
         Ok(SimpleOutput::TimelimitExceeded {
             timelimit: timelimit.unwrap(),
             input,
             expected,
         })
-    } else if status.success() && (expected.is_empty() || expected == stdout) {
+    } else if status.success() && expected.accepts(&stdout) {
         Ok(SimpleOutput::Accepted {
             elapsed,
             input,
@@ -89,19 +89,19 @@ pub enum SimpleOutput {
     TimelimitExceeded {
         timelimit: Duration,
         input: Arc<String>,
-        expected: Arc<String>,
+        expected: Arc<ExpectedStdout>,
     },
     WrongAnswer {
         elapsed: Duration,
         input: Arc<String>,
-        expected: Arc<String>,
+        expected: Arc<ExpectedStdout>,
         stdout: Arc<String>,
         stderr: Arc<String>,
     },
     RuntimeError {
         elapsed: Duration,
         input: Arc<String>,
-        expected: Arc<String>,
+        expected: Arc<ExpectedStdout>,
         stdout: Arc<String>,
         stderr: Arc<String>,
         status: ExitStatus,
@@ -176,12 +176,48 @@ impl JudgingOutput for SimpleOutput {
         }
 
         fn eprint_section_unless_empty(head: &'static str, content: &str) {
+            eprintln_bold!(Color::Title, "{}:", head);
             let num_bytes = content.as_bytes().len();
             if num_bytes > THRESHOLD_TO_OMIT {
                 eprint_size(num_bytes);
             } else if num_bytes > 0 {
-                eprintln_bold!(Color::Title, "{}:", head);
                 util::eprintln_trimming_trailing_newline(content);
+            }
+        }
+
+        fn eprint_expected_sectioon_unless_empty(content: &ExpectedStdout) {
+            match *content {
+                ExpectedStdout::AcceptAny => {}
+                ExpectedStdout::Text(ref content) => {
+                    eprint_section("expected", content);
+                }
+                ExpectedStdout::Float {
+                    ref text,
+                    absolute_error,
+                    relative_error,
+                } => {
+                    eprintln_bold!(
+                        Color::Title,
+                        "expected (absolute: {}, relative: {}):",
+                        absolute_error,
+                        relative_error
+                    );
+                    for l in text.lines() {
+                        if l.split_whitespace().any(|t| t.parse::<f64>().is_ok()) {
+                            for (i, t) in l.split_whitespace().enumerate() {
+                                match t.parse::<f64>() {
+                                    Ok(v) if i == 0 => eprint_bold!(Color::CommandInfo, "{}", v),
+                                    Ok(v) => eprint_bold!(Color::CommandInfo, " {}", v),
+                                    Err(_) if i == 0 => eprint!("{}", t),
+                                    Err(_) => eprint!(" {}", t),
+                                }
+                            }
+                            eprintln!();
+                        } else {
+                            eprintln!("{}", l);
+                        }
+                    }
+                }
             }
         }
 
@@ -202,7 +238,7 @@ impl JudgingOutput for SimpleOutput {
                 ..
             } => {
                 eprint_section("input", input);
-                eprint_section_unless_empty("expected", expected);
+                eprint_expected_sectioon_unless_empty(expected);
             }
             SimpleOutput::WrongAnswer {
                 ref input,
@@ -212,7 +248,7 @@ impl JudgingOutput for SimpleOutput {
                 ..
             } => {
                 eprint_section("input", input);
-                eprint_section("expected", expected);
+                eprint_expected_sectioon_unless_empty(expected);
                 eprint_section("stdout", stdout);
                 eprint_section_unless_empty("stderr", stderr);
             }
@@ -224,7 +260,7 @@ impl JudgingOutput for SimpleOutput {
                 ..
             } => {
                 eprint_section("input", input);
-                eprint_section_unless_empty("expected", expected);
+                eprint_expected_sectioon_unless_empty(expected);
                 eprint_section_unless_empty("stdout", stdout);
                 eprint_section("stderr", stderr);
             }
@@ -238,19 +274,22 @@ mod tests {
     use judging::simple::SimpleOutput;
     use testsuite::SimpleCase;
 
+    use decimal::d128;
+
+    use std::str::FromStr as _FromStr;
     use std::sync::Arc;
 
     #[test]
     #[ignore]
-    fn it_judges() {
+    fn it_judges_for_atcoder_practice_a() {
         static CODE: &str = "(a,(b,c),s)=(int(input()),map(int,input().split()),input());\
                              print(f'{a+b+c} {s}')";
         let correct_command = python3_command(CODE);
         let timeout_command = python3_command("import time;time.sleep(1)");
         let wrong_command = python3_command("import sys;sys.exit(0)");
         let error_command = python3_command("import sys;sys.exit(1)");
-        let case1 = SimpleCase::new("1\n2 3\ntest\n", "6 test\n", 100);
-        let case2 = SimpleCase::new("72\n128 256\nmyonmyon\n", "456 myonmyon\n", 100);
+        let case1 = SimpleCase::new("1\n2 3\ntest\n", "6 test\n", 100, None, None);
+        let case2 = SimpleCase::new("72\n128 256\nmyonmyon\n", "456 myonmyon\n", 100, None, None);
         for case in vec![case1, case2] {
             match super::judge(&case, &correct_command).unwrap() {
                 SimpleOutput::Accepted { .. } => (),
@@ -268,6 +307,55 @@ mod tests {
                 SimpleOutput::RuntimeError { .. } => (),
                 o => panic!("{}", o),
             }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn it_judges_for_atcoder_tricky_b() {
+        static CODE: &str = r#"import math
+
+
+def main():
+    r = ''
+    n = int(input())
+    for _ in range(0, n):
+        a, b, c = map(int, input().split())
+        if a == 0 and b == 0 and c == 0:
+            r += '3\n'
+        elif a == 0 and b == 0:
+            r += '0\n'
+        elif a == 0:
+            r += '1 {}\n'.format(-c / b)
+        else:
+            d = b ** 2.0 - 4.0 * c * a
+            if d < 0.0:
+                r += '0\n'
+            elif d == 0.0:
+                r += '1 {}\n'.format(-b / (2.0 * a))
+            else:
+                d_sqrt = math.sqrt(d)
+                x1 = (-b - d_sqrt) / (2.0 * a) if b > 0 else \
+                     (-b + d_sqrt) / (2.0 * a)
+                x2 = c / (a * x1)
+                if x1 < x2:
+                    r += '2 {} {}\n'.format(x1, x2)
+                else:
+                    r += '2 {} {}\n'.format(x2, x1)
+    print(r, end='', flush=True)
+
+
+if __name__ == '__main__':
+    main()
+"#;
+        let command = python3_command(CODE);
+        static IN: &str = "3\n1 -3 2\n-10 30 -20\n100 -300 200\n";
+        static OUT: &str = "2 1.000 2.000\n2 1.000 2.000\n2 1.000 2.000\n";
+        let error = d128::from_str("1E-9").unwrap();
+        let case = SimpleCase::new(IN, OUT, 100, error, error);
+        match super::judge(&case, &command).unwrap() {
+            SimpleOutput::Accepted { .. } => (),
+            o => panic!("{}", o),
         }
     }
 
