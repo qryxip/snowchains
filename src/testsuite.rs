@@ -366,10 +366,10 @@ impl TestCase for SimpleCase {
 
 impl SimpleCase {
     #[cfg(test)]
-    pub fn new<E: Into<Option<d128>>>(
+    pub fn new<T: Into<Option<u64>>, E: Into<Option<d128>>>(
         input: &str,
         expected: &str,
-        timelimit: u64,
+        timelimit: T,
         absolute_error: E,
         relative_error: E,
     ) -> Self {
@@ -384,7 +384,7 @@ impl SimpleCase {
             path: Arc::new(PathBuf::new()),
             input: Arc::new(input.to_owned()),
             expected,
-            timelimit: Some(timelimit),
+            timelimit: timelimit.into(),
         }
     }
 

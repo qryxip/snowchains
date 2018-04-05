@@ -288,26 +288,22 @@ mod tests {
     #[test]
     #[ignore]
     fn it_judges_for_atcoder_practice_a() {
-        static CODE: &str = "(a,(b,c),s)=(int(input()),map(int,input().split()),input());\
-                             print(f'{a+b+c} {s}')";
+        // `end` is "\r\n" on Windows.
+        static CODE: &str = r"(a,(b,c),s)=(int(input()),map(int,input().split()),input());\
+                              print(f'{a+b+c} {s}',end='\n')";
         static IN1: &str = "1\n2 3\ntest\n";
         static OUT1: &str = "6 test\n";
         static IN2: &str = "72\n128 256\nmyonmyon\n";
         static OUT2: &str = "456 myonmyon\n";
         let _ = env_logger::try_init();
         let correct_command = python3_command(CODE);
-        let timeout_command = python3_command("import time;time.sleep(2)");
         let wrong_command = python3_command("import sys;sys.exit(0)");
         let error_command = python3_command("import sys;sys.exit(1)");
-        let case1 = SimpleCase::new(IN1, OUT1, 1000, None, None);
-        let case2 = SimpleCase::new(IN2, OUT2, 1000, None, None);
+        let case1 = SimpleCase::new(IN1, OUT1, None, None, None);
+        let case2 = SimpleCase::new(IN2, OUT2, None, None, None);
         for case in vec![case1, case2] {
             match super::judge(&case, &correct_command).unwrap() {
                 SimpleOutput::Accepted { .. } => (),
-                o => panic!("{:?}", o),
-            }
-            match super::judge(&case, &timeout_command).unwrap() {
-                SimpleOutput::TimelimitExceeded { .. } => (),
                 o => panic!("{:?}", o),
             }
             match super::judge(&case, &wrong_command).unwrap() {
@@ -363,9 +359,22 @@ if __name__ == '__main__':
         let _ = env_logger::try_init();
         let command = python3_command(CODE);
         let error = d128::from_str("1E-9").unwrap();
-        let case = SimpleCase::new(IN, OUT, 1000, error, error);
+        let case = SimpleCase::new(IN, OUT, None, error, error);
         match super::judge(&case, &command).unwrap() {
             SimpleOutput::Accepted { .. } => {}
+            o => panic!("{:?}", o),
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn it_detects_timeout() {
+        static CODE: &str = r"import sys,time;time.sleep(1);sys.exit(1)";
+        let _ = env_logger::try_init();
+        let command = python3_command(CODE);
+        let case = SimpleCase::new("", "", 200, None, None);
+        match super::judge(&case, &command).unwrap() {
+            SimpleOutput::TimelimitExceeded { .. } => {}
             o => panic!("{:?}", o),
         }
     }
@@ -376,7 +385,7 @@ if __name__ == '__main__':
         static CODE: &str = r"import sys;sys.stdout.buffer.write(b'\xc3\x28')";
         let _ = env_logger::try_init();
         let command = python3_command(CODE);
-        let case = SimpleCase::new("", "", 1000, None, None);
+        let case = SimpleCase::new("", "", None, None, None);
         let e = super::judge(&case, &command).unwrap_err();
         if let &JudgeErrorKind::Io(ref e) = e.kind() {
             if let io::ErrorKind::InvalidData = e.kind() {
@@ -391,7 +400,7 @@ if __name__ == '__main__':
     fn it_denies_nonexisting_commands() {
         let _ = env_logger::try_init();
         let command = Arc::new(JudgingCommand::from_args("nonexisting", &[]).unwrap());
-        let case = SimpleCase::new("", "", 1000, None, None);
+        let case = SimpleCase::new("", "", None, None, None);
         let e = super::judge(&case, &command).unwrap_err();
         if let &JudgeErrorKind::Io(ref e) = e.kind() {
             if let io::ErrorKind::NotFound = e.kind() {

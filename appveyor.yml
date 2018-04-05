@@ -37,10 +37,10 @@ install:
   - ps: >-
       If ($Env:HOST -eq 'x86_64-pc-windows-gnu') {
         Set-Item Env:Path "C:\msys64\mingw64\bin;$Env:Path";
-        gcc -v
+        gcc --version
       } ElseIf ($Env:HOST -eq 'i686-pc-windows-gnu') {
         Set-Item Env:Path "C:\msys64\mingw32\bin;$Env:Path";
-        gcc -v
+        gcc --version
       }
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:HOST}/rustup-init.exe"
   - rustup-init.exe -y --default-toolchain %TOOLCHAIN% --default-host %HOST% --no-modify-path
