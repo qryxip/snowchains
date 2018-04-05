@@ -1,6 +1,6 @@
 [package]
 name = "snowchains"
-version = "0.20.1"
+version = "0.20.2"
 description = "Tools for online programming contests"
 license = "MIT"
 authors = ["wariuni <wariuni@gmail.com>"]

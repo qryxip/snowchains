@@ -1187,7 +1187,7 @@ mod tests {
     fn start() -> httpsession::Result<AtCoderBeta> {
         let session = HttpSession::builder()
             .base("beta.atcoder.jp", true, None)
-            .timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
             .redirect(RedirectPolicy::none())
             .default_header(UserAgent::new(
                 "snowchains <https://github.com/wariuni/snowchains>",

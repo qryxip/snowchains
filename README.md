@@ -214,7 +214,7 @@ $ snowchains download (--open-browser)
 type: "simple"  # "simple" or "interactive"
 timelimit: 2000 # Optional
 
-# Possible types of "expected" and "input":
+# Possible types of "in" and "out":
 # * Integer
 # * Float
 # * String (a '\n' is appended automatically if missing)
@@ -225,7 +225,7 @@ cases:
   - in: [72, '128 256', 'myonmyon']
     out: ['456 myonmyon']
     timelimit: 10 # Can be overridden
-  - in: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"] # "expected" is optional
+  - in: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"] # "out" is optional
 ```
 
 <https://beta.atcoder.jp/contests/tricky/tasks/tricky_2>
