@@ -45,7 +45,7 @@ install:
   - rustc -vV
   - cargo -vV
 test_script:
-  - ps: $Env:PATH == ';C:\Python36-x64'
+  - ps: $Env:PATH += ';C:\Python36-x64'
   - cargo +%TOOLCHAIN% test -v
   - cargo +%TOOLCHAIN% test -v -- --ignored
 build: false

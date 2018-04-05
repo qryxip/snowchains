@@ -16,7 +16,9 @@ pub fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<Sim
     let (tx, rx) = std::sync::mpsc::channel();
     {
         let (case, solver) = (case.clone(), solver.clone());
-        thread::spawn(move || tx.send(run(&case, &solver)).unwrap());
+        thread::spawn(move || {
+            let _ = tx.send(run(&case, &solver));
+        });
     }
     if let (input, expected, Some(timelimit)) = case.values() {
         rx.recv_timeout(timelimit + Duration::from_millis(50))
@@ -78,6 +80,7 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
 }
 
 /// Test result.
+#[cfg_attr(test, derive(Debug))]
 pub enum SimpleOutput {
     // Each string may be empty.
     Accepted {
@@ -271,11 +274,13 @@ impl JudgingOutput for SimpleOutput {
 #[cfg(test)]
 mod tests {
     use command::JudgingCommand;
+    use errors::JudgeErrorKind;
     use judging::simple::SimpleOutput;
     use testsuite::SimpleCase;
 
     use decimal::d128;
 
+    use std::io;
     use std::str::FromStr as _FromStr;
     use std::sync::Arc;
 
@@ -318,8 +323,7 @@ mod tests {
 
 def main():
     r = ''
-    n = int(input())
-    for _ in range(0, n):
+    for _ in range(0, int(input())):
         a, b, c = map(int, input().split())
         if a == 0 and b == 0 and c == 0:
             r += '3\n'
@@ -354,9 +358,24 @@ if __name__ == '__main__':
         let error = d128::from_str("1E-9").unwrap();
         let case = SimpleCase::new(IN, OUT, 100, error, error);
         match super::judge(&case, &command).unwrap() {
-            SimpleOutput::Accepted { .. } => (),
+            SimpleOutput::Accepted { .. } => {}
             o => panic!("{}", o),
         }
+    }
+
+    #[test]
+    #[ignore]
+    fn it_denies_non_utf8_answers() {
+        static CODE: &str = r"import sys;sys.stdout.buffer.write(b'\xc3\x28')";
+        let command = python3_command(CODE);
+        let case = SimpleCase::new("", "", 100, None, None);
+        let e = super::judge(&case, &command).unwrap_err();
+        if let &JudgeErrorKind::Io(ref e) = e.kind() {
+            if let io::ErrorKind::InvalidData = e.kind() {
+                return;
+            }
+        }
+        panic!("{}", e);
     }
 
     fn python3_command(code: &str) -> Arc<JudgingCommand> {
