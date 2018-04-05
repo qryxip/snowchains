@@ -66,7 +66,7 @@ error_chain! {
     errors {
         AlreadyAccepted {
             description("Found an accepted submission")
-            display("Found an accepted submission. Add \"--force\" to submit")
+            display("Found an accepted submission. Add \"--skip-checking-duplication\" (\"-d\")")
         }
 
         ContestNotBegun(contest_name: String, begins_at: DateTime<Local>) {

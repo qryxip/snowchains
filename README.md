@@ -29,12 +29,12 @@ $ cargo [+stable] install-update -ag
 
 ```console
 $ snowchains --help
-$ snowchains init ./
-$ snowchains switch <service> <contest>                  # e.g. ("atcoderbeta", "agc001")
-$ snowchains download [--open-browser]                   # Does not ask username and password unless they are needed
-$ $EDITOR ./snowchains/<service>/<contest>/<target>.yaml # Add more test cases
-$ snowchains judge <target> [<language>]
-$ snowchains submit <target> [<language>] [--open-browser] [--skip-judging] [--no-check]
+$ snowchains <i|init> ./
+$ snowchains <w|switch> <service> <contest>                                 # e.g. ("atcoderbeta", "agc001")
+$ snowchains <d|download> [-s <service>] [-c <contest>] [-b|--open-browser] # Does not ask username and password unless they are needed
+$ $EDITOR ./snowchains/<service>/<contest>/<target>.yaml                    # Add more test cases
+$ snowchains <j|judge> <target> [language]
+$ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judging] [-d|--skip-checking-duplication]
 ```
 
 ## Config File (snowchains.yaml)
@@ -60,9 +60,9 @@ hackerrank:
     cxx_flags: "-std=c++14 -O2 -Wall -Wextra -lm"
     rust_version: "1.21.0"
 
-# test files: <testsuite>/<target-name>.<extension> for <extension> in each <extensions_on_judging>
-# source:     <<src> % <target-name>>
-# binary:     <<bin> % <target-name>>
+# test files: <testsuite>/<problem>.<extension> for <extension> in each <extensions_on_judging>
+# source:     <<src> % <problem>>
+# binary:     <<bin> % <problem>>
 # e.g.
 # "cc/{}.cc" % "problem-a"          ⊦ <the directory which has snowchains.yaml>/cc/problem-a.cc
 # "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yaml>/csharp/ProblemA/ProblemA.cs

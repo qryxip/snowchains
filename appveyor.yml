@@ -31,21 +31,25 @@ matrix:
   allow_failures:
     - HOST: i686-pc-windows-msvc # https://github.com/tokio-rs/tokio-timer/issues/43
     - HOST: i686-pc-windows-gnu
+    - TOOLCHAIN: beta
     - TOOLCHAIN: nightly
 install:
   - ps: >-
       If ($Env:HOST -eq 'x86_64-pc-windows-gnu') {
-        $Env:PATH += ';C:\msys64\mingw64\bin'
+        Set-Item Env:Path "C:\msys64\mingw64\bin;$Env:Path";
+        gcc -v
       } ElseIf ($Env:HOST -eq 'i686-pc-windows-gnu') {
-        $Env:PATH += ';C:\msys64\mingw32\bin'
+        Set-Item Env:Path "C:\msys64\mingw32\bin;$Env:Path";
+        gcc -v
       }
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:HOST}/rustup-init.exe"
   - rustup-init.exe -y --default-toolchain %TOOLCHAIN% --default-host %HOST% --no-modify-path
-  - set PATH=%PATH%;C:\Users\appveyor\.cargo\bin
+  - set PATH=C:\Users\appveyor\.cargo\bin;%PATH%
   - rustc -vV
   - cargo -vV
 test_script:
-  - ps: $Env:PATH += ';C:\Python36-x64'
+  - set PATH=C:\Python36-x64;%PATH%
+  - python -V
   - cargo +%TOOLCHAIN% test -v
   - cargo +%TOOLCHAIN% test -v -- --ignored
 build: false

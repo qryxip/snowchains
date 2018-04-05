@@ -304,19 +304,19 @@ mod tests {
         for case in vec![case1, case2] {
             match super::judge(&case, &correct_command).unwrap() {
                 SimpleOutput::Accepted { .. } => (),
-                o => panic!("{}", o),
+                o => panic!("{:?}", o),
             }
             match super::judge(&case, &timeout_command).unwrap() {
                 SimpleOutput::TimelimitExceeded { .. } => (),
-                o => panic!("{}", o),
+                o => panic!("{:?}", o),
             }
             match super::judge(&case, &wrong_command).unwrap() {
                 SimpleOutput::WrongAnswer { .. } => (),
-                o => panic!("{}", o),
+                o => panic!("{:?}", o),
             }
             match super::judge(&case, &error_command).unwrap() {
                 SimpleOutput::RuntimeError { .. } => (),
-                o => panic!("{}", o),
+                o => panic!("{:?}", o),
             }
         }
     }

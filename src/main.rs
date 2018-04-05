@@ -161,7 +161,7 @@ quick_main_colored!(|| -> ::Result<i32> {
             contest,
             open_browser,
             skip_judging,
-            no_check,
+            skip_checking_duplication,
         } => {
             info!("Running \"submit\" command");
             let language = language.as_ref().map(String::as_str);
@@ -188,7 +188,7 @@ quick_main_colored!(|| -> ::Result<i32> {
                 src_path,
                 replacer.as_ref(),
                 open_browser,
-                no_check,
+                skip_checking_duplication,
             );
             match service {
                 ServiceName::AtCoderBeta => atcoder_beta::submit(prop),
@@ -200,22 +200,33 @@ quick_main_colored!(|| -> ::Result<i32> {
 });
 
 #[derive(StructOpt)]
-#[structopt(usage = "snowchains init [directory]\n    \
-                     snowchains switch <service> <contest>\n    \
-                     snowchains login <service>\n    \
-                     snowchains participate <service> <contest>\n    \
-                     snowchains download [-s|--service <service>] [-c|--contest <contest>] \
-                     [--open-browser]\n    \
-                     snowchains restore [-s|--service <service>] [-c|--contest <contest>]\n    \
-                     snowchains append <target> <extension> <input> [output] \
-                     [-s|--service <service>] [-c|--contest <contest>]\n    \
-                     snowchains judge <target> [-l|--language <language>] [-s|--service <service>] \
+#[structopt(usage = "snowchains <i|init> [directory]\n    \
+                     snowchains <w|switch> <service> <contest>\n    \
+                     snowchains <l|login> <service>\n    \
+                     snowchains <p|participate> <service> <contest>\n    \
+                     snowchains <d|download> [-s|--service <service>]\
+                     \n                            [-c|--contest <contest>]\
+                     \n                            [-b|--open-browser]\n    \
+                     snowchains <r|restore> [-s|--service <service>]\
+                     \n                           [-c|--contest <contest>]\n    \
+                     snowchains <a|append> <target> <extension> <input> [output]\
+                     \n                                                       \
+                     [-s|--service <service>]\
+                     \n                                                       \
                      [-c|--contest <contest>]\n    \
-                     snowchains submit <target> [-l|--language <language>] \
-                     [-s|--service <service>] [-c|--contest <contest>] [--open-browser] \
-                     [--skip-judging] [--no-check]")]
+                     snowchains {j|judge} <target> [-l|--language <language>]\
+                     \n                                  [-s|--service <service>]\
+                     \n                                  [-c|--contest <contest>]\n    \
+                     snowchains {s|submit} <target> [-l|--language <language>]\
+                     \n                                   [-s|--service <service>]\
+                     \n                                   [-c|--contest <contest>]\
+                     \n                                   [-b|--open-browser]\
+                     \n                                   [-j|--skip-judging]\
+                     \n                                   [-d|--skip-checking-duplication]")]
 enum Opt {
-    #[structopt(name = "init", about = "Creates a \"snowchains.yaml\"", raw(display_order = "1"))]
+    #[structopt(name = "init", about = "Creates a \"snowchains.yaml\"",
+                usage = "snowchains <i|init> [directory]",
+                raw(display_order = "1", aliases = r#"&["i"]"#))]
     Init {
         #[structopt(name = "directory", help = "Directory to create a \"snowchains.yaml\"",
                     parse(from_os_str), default_value = ".")]
@@ -223,8 +234,9 @@ enum Opt {
     },
 
     #[structopt(name = "switch",
-                about = "Changes <service> and <contest> of \"snowchains.yaml\"",
-                raw(display_order = "2"))]
+                about = "Changes <service> and <contest> of the \"snowchains.yaml\"",
+                usage = "snowchains <w|switch> <service> <contest>",
+                raw(display_order = "2", aliases = r#"&["w"]"#))]
     Switch {
         #[structopt(name = "service", help = "Service name",
                     raw(possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
@@ -233,7 +245,9 @@ enum Opt {
         contest: String,
     },
 
-    #[structopt(name = "login", about = "Logges in to a service", raw(display_order = "3"))]
+    #[structopt(name = "login", about = "Logges in to a service",
+                usage = "snowchains <l|login> <service>",
+                raw(display_order = "3", aliases = r#"&["l"]"#))]
     Login {
         #[structopt(name = "service", help = "Service name",
                     raw(possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
@@ -241,7 +255,8 @@ enum Opt {
     },
 
     #[structopt(name = "participate", about = "Participates in a contest",
-                raw(display_order = "4"))]
+                usage = "snowchains <p|participate> <service> <contest>",
+                raw(display_order = "4", aliases = r#"&["p"]"#))]
     Participate {
         #[structopt(name = "service", help = "Service name",
                     raw(possible_values = r#"&["atcoder", "atcoderbeta"]"#))]
@@ -251,9 +266,10 @@ enum Opt {
     },
 
     #[structopt(name = "download", about = "Downloads test cases",
-                usage = "snowchains download [-s|--service <service>] [-c|--contest <contest>] \
-                         [--open-browser]",
-                raw(display_order = "5"))]
+                usage = "snowchains <d|download> [-s|--service <service>]\
+                         \n                            [-c|--contest <contest>]\
+                         \n                            [-b|--open-browser]",
+                raw(display_order = "5", aliases = r#"&["d"]"#))]
     Download {
         #[structopt(short = "s", long = "service", help = "Service name",
                     raw(display_order = "1",
@@ -262,14 +278,15 @@ enum Opt {
         #[structopt(short = "c", long = "contest", help = "Contest name",
                     raw(display_order = "2"))]
         contest: Option<String>,
-        #[structopt(long = "open-browser", help = "Opens the pages with your default browser",
-                    raw(display_order = "1"))]
+        #[structopt(short = "b", long = "open-browser",
+                    help = "Opens the pages with your default browser", raw(display_order = "1"))]
         open_browser: bool,
     },
 
     #[structopt(name = "restore", about = "Downloads the source codes you've submitted",
-                usage = "snowchains restore [-s|--service <service>] [-c|--contest <contest>]",
-                raw(display_order = "6"))]
+                usage = "snowchains <r|restore> [-s|--service <service>]\
+                         \n                           [-c|--contest <contest>]",
+                raw(display_order = "6", aliases = r#"&["r"]"#))]
     Restore {
         #[structopt(short = "s", long = "service", help = "Service name",
                     raw(display_order = "1", possible_values = "&[\"atcoderbeta\"]"))]
@@ -280,9 +297,12 @@ enum Opt {
     },
 
     #[structopt(name = "append", about = "Appends a test case to a test suite file",
-                usage = "snowchains append <target> <extension> <input> [output] \
-                         [-s|--service <service>] [-c|--contest <contest>]",
-                raw(display_order = "7"))]
+                usage = "snowchains <a|append> <target> <extension> <input> [output]\
+                         \n                                                       \
+                         [-s|--service <service>]\
+                         \n                                                       \
+                         [-c|--contest <contest>]",
+                raw(display_order = "7", aliases = r#"&["a"]"#))]
     Append {
         #[structopt(name = "target", help = "Target name")]
         target: String,
@@ -303,9 +323,10 @@ enum Opt {
     },
 
     #[structopt(name = "judge", about = "Tests a binary or script",
-                usage = "snowchains judge <target> [-l|--language <language>] \
-                         [-s|--service <service>] [-c|--contest <contest>]",
-                raw(display_order = "8"))]
+                usage = "snowchains <j|judge> <target> [-l|--language <language>]\
+                         \n                                  [-s|--service <service>]\
+                         \n                                  [-c|--contest <contest>]",
+                raw(display_order = "8", aliases = r#"&["j"]"#))]
     Judge {
         #[structopt(name = "target", help = "Target name")]
         target: String,
@@ -322,10 +343,13 @@ enum Opt {
     },
 
     #[structopt(name = "submit", about = "Submits a source code",
-                usage = "snowchains submit <target> [-l|--language <language>] \
-                         [-s|--service <service>] [-c|--contest <contest>] [--open-browser] \
-                         [--skip-judging] [--no-check]",
-                raw(display_order = "9"))]
+                usage = "snowchains <s|submit> <target> [-l|--language <language>]\
+                         \n                                   [-s|--service <service>]\
+                         \n                                   [-c|--contest <contest>]\
+                         \n                                   [-b|--open-browser]\
+                         \n                                   [-j|--skip-judging]\
+                         \n                                   [-d|--skip-checking-duplication]",
+                raw(display_order = "9", aliases = r#"&["s"]"#))]
     Submit {
         #[structopt(name = "target", help = "Target name")]
         target: String,
@@ -338,16 +362,17 @@ enum Opt {
         #[structopt(short = "c", long = "contest", help = "Contest name",
                     raw(display_order = "3"))]
         contest: Option<String>,
-        #[structopt(long = "open-browser", help = "Opens the pages with your default browser",
-                    raw(display_order = "1"))]
+        #[structopt(short = "b", long = "open-browser",
+                    help = "Opens the pages with your default browser", raw(display_order = "1"))]
         open_browser: bool,
-        #[structopt(long = "skip-judging", help = "Skips judging", raw(display_order = "2"))]
+        #[structopt(short = "j", long = "skip-judging", help = "Skips judging",
+                    raw(display_order = "2"))]
         skip_judging: bool,
-        #[structopt(long = "no-check",
+        #[structopt(short = "d", long = "skip-checking-duplication",
                     help = "Submits even if the contest is active and your code is already \
                             accepted",
                     raw(display_order = "3"))]
-        no_check: bool,
+        skip_checking_duplication: bool,
     },
 }
 
