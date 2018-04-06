@@ -98,6 +98,14 @@ pub fn expand_path<'a, B: Into<Option<&'a Path>>>(path: &str, base: B) -> FileIo
     expand(path, base.into()).chain_err(|| FileIoErrorKind::Expand(path.to_owned()))
 }
 
+pub fn cfg_windows() -> bool {
+    cfg!(windows)
+}
+
+pub fn is_default<T: Default + PartialEq>(x: &T) -> bool {
+    x == &T::default()
+}
+
 pub trait OkAsRefOr {
     type Item;
     /// Get the value `Ok(&x)` if `Some(ref x) = self`.

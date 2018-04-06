@@ -60,13 +60,16 @@ impl SuiteFilePaths {
                 .into_iter()
                 .map(TestSuite::unwrap_to_simple)
                 .flat_map(|suite| {
-                    let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
+                    let (timelimit, trim_crlf, cases, path) =
+                        (suite.timelimit, suite.trim_crlf, suite.cases, suite.path);
                     let absolute = suite.absolute_error;
                     let relative = suite.relative_error;
                     let path = Arc::new(path);
                     cases
                         .into_iter()
-                        .map(|case| case.reduce(path.clone(), timelimit, absolute, relative))
+                        .map(|case| {
+                            case.reduce(path.clone(), trim_crlf, timelimit, absolute, relative)
+                        })
                         .collect::<Vec<_>>()
                 })
                 .collect::<SuiteFileResult<Vec<_>>>()?;
@@ -283,6 +286,9 @@ impl TestSuite {
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct SimpleSuite {
+    #[serde(default = "util::cfg_windows", skip_serializing_if = "util::is_default")]
+    trim_crlf: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     timelimit: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     absolute_error: Option<f64>,
@@ -301,6 +307,7 @@ impl SimpleSuite {
         samples: S,
     ) -> Self {
         Self {
+            trim_crlf: cfg!(windows),
             timelimit,
             absolute_error,
             relative_error,
@@ -375,11 +382,7 @@ impl SimpleCase {
     ) -> Self {
         let abs = absolute_error.into();
         let rel = relative_error.into();
-        let expected = Arc::new(if abs.is_none() && rel.is_none() {
-            ExpectedStdout::Text(expected.to_owned())
-        } else {
-            ExpectedStdout::new(Some(expected), abs, rel)
-        });
+        let expected = Arc::new(ExpectedStdout::new(Some(expected), cfg!(windows), abs, rel));
         Self {
             path: Arc::new(PathBuf::new()),
             input: Arc::new(input.to_owned()),
@@ -403,26 +406,34 @@ impl SimpleCase {
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum ExpectedStdout {
     AcceptAny,
-    Text(String),
+    Exact(String),
+    Lines(Vec<String>),
     Float {
-        text: String,
+        lines: Vec<String>,
         absolute_error: d128,
         relative_error: d128,
     },
 }
 
 impl ExpectedStdout {
-    fn new(text: Option<&str>, absolute: Option<d128>, relative: Option<d128>) -> Self {
+    fn new(
+        text: Option<&str>,
+        trim_crlf: bool,
+        absolute: Option<d128>,
+        relative: Option<d128>,
+    ) -> Self {
         if let Some(text) = text {
-            let mut text = text.to_owned();
-            if !text.ends_with('\n') {
-                text += "\n";
-            }
-            if absolute.is_none() && relative.is_none() {
-                ExpectedStdout::Text(text)
+            if absolute.is_none() && relative.is_none() && trim_crlf {
+                ExpectedStdout::Lines(text.lines().map(str::to_owned).collect())
+            } else if absolute.is_none() && relative.is_none() {
+                let mut text = text.to_owned();
+                if !text.ends_with('\n') {
+                    text += "\n";
+                }
+                ExpectedStdout::Exact(text)
             } else {
                 ExpectedStdout::Float {
-                    text,
+                    lines: text.lines().map(str::to_owned).collect(),
                     absolute_error: absolute.unwrap_or_default(),
                     relative_error: relative.unwrap_or_default(),
                 }
@@ -457,30 +468,27 @@ impl ExpectedStdout {
 
         match *self {
             ExpectedStdout::AcceptAny => true,
-            ExpectedStdout::Text(ref s) => s == stdout,
+            ExpectedStdout::Exact(ref s) => s == stdout,
+            ExpectedStdout::Lines(ref ls) => {
+                let stdout = stdout.lines().collect::<Vec<_>>();
+                ls.len() == stdout.len() && ls.iter().zip(stdout.iter()).all(|(l, r)| l == r)
+            }
             ExpectedStdout::Float {
+                ref lines,
                 absolute_error,
                 relative_error,
-                ref text,
             } => {
-                let expected = text.lines().collect::<Vec<_>>();
-                let actual = stdout.lines().collect::<Vec<_>>();
-                expected.is_empty()
-                    || expected.len() == actual.len()
-                        && expected.iter().zip(actual.iter()).all(|(e, a)| {
-                            let (d, r) = (absolute_error, relative_error);
-                            let p1 = check(e, a, |e, a| in_range(e, a - d, a + d));
-                            let p2 = check(e, a, |e, a| in_range((e - a) / e, -r, r));
-                            p1 || p2
-                        })
+                let stdout = stdout.lines().collect::<Vec<_>>();
+                lines.len() == stdout.len() && lines.iter().zip(stdout.iter()).all(|(e, a)| {
+                    let (d, r) = (absolute_error, relative_error);
+                    #[cfg_attr(rustfmt, rustfmt_skip)]
+                    (
+                        check(e, a, |e, a| in_range(e, a - d, a + d)) ||
+                            check(e, a, |e, a| in_range((e - a) / e, -r, r))
+                    )
+                })
             }
         }
-    }
-}
-
-impl Default for ExpectedStdout {
-    fn default() -> Self {
-        ExpectedStdout::Text("".to_owned())
     }
 }
 
@@ -491,6 +499,8 @@ struct ReducibleCase {
     input: NonNestedValue,
     #[serde(rename = "out", skip_serializing_if = "Option::is_none")]
     output: Option<NonNestedValue>,
+    #[serde(default = "util::cfg_windows", skip_serializing_if = "util::is_default")]
+    trim_crlf: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     timelimit: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -504,6 +514,7 @@ impl ReducibleCase {
         Self {
             input: NonNestedValue::single_string(input.into()),
             output: output.map(Into::into).map(NonNestedValue::single_string),
+            trim_crlf: false,
             timelimit: None,
             absolute_error: None,
             relative_error: None,
@@ -513,6 +524,7 @@ impl ReducibleCase {
     fn reduce(
         &self,
         path: Arc<PathBuf>,
+        trim_crlf: bool,
         timelimit: Option<u64>,
         absolute_error: Option<f64>,
         relative_error: Option<f64>,
@@ -533,6 +545,7 @@ impl ReducibleCase {
             input: Arc::new(self.input.to_string()),
             expected: Arc::new(ExpectedStdout::new(
                 output.as_ref().map(String::as_str),
+                self.trim_crlf || trim_crlf,
                 absolute_error,
                 relative_error,
             )),

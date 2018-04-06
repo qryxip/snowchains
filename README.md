@@ -4,10 +4,20 @@
 
 Tools for online programming contests.
 
-Works on
 - [x] Linux
 - [x] Windows
 - [ ] OS X (Probably works.)
+
+## Features
+
+- Scrape sample cases as YAML, TOML, or JSON
+- Tests a source code with downloaded sample cases
+- Submits a source code
+
+|                | Target Contest                        | Scrape samples | Download system tests | Submit        |
+| :------------- | :------------------------------------ | :------------: | :-------------------: | :-----------: |
+| AtCoder        | `http://{}.contest.atcoder.jp`        | ✓             | ✗                    | Unimplemented |
+| AtCoder (Beta) | `https://beta.atcoder.jp/contests/{}` | ✓             | ✗                    | ✓            |
 
 ## Instrallation
 
@@ -164,12 +174,12 @@ extensions_on_judging: ["json", "toml", "yaml", "yml"]
 atcoder:
   default_language: "c++"
   variables:
-    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra"
+    cxx_flags: "-std=c++14 -O2 -Wall -Wextra"
 
 hackerrank:
   default_language: "c++"
   variables:
-    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra -lm"
+    cxx_flags: "-std=c++14 -O2 -Wall -Wextra -lm"
 
 languages:
   - name: "c++"
@@ -185,34 +195,21 @@ languages:
       atcoder: 3003
 ```
 
-## Test Suite
-
-### Download
-
-- [x] atcoder (http://{}.contest.atcoder.jp)
-- [x] atcoderbeta (https://beta.atcoder.jp/contests/{})
-- [x] hackerrank (https://www.hackerrank.com/contests/{})
-
-```console
-$ #snowchains login <service>
-$ #snowchains participate <service> <contest>
-$ snowchains download (--open-browser)
-```
-
-### Format
+## Test file
 
 - [x] YAML
 - [x] TOML
 - [x] JSON
 
-#### Simple (one input, one output)
+### Simple (one input, one output)
 
 <https://beta.atcoder.jp/contests/practice/tasks/practice_1>
 
 ```yaml
 ---
-type: "simple"  # "simple" or "interactive"
-timelimit: 2000 # Optional
+type: "simple"   # "simple" or "interactive"
+trim_crlf: false # Default: <platform> == Windows
+timelimit: 2000  # Optional
 
 # Possible types of "in" and "out":
 # * Integer
@@ -220,12 +217,15 @@ timelimit: 2000 # Optional
 # * String (a '\n' is appended automatically if missing)
 # * Array of [Integer|Float|String] (in TOML, arrays cannot contain different types of data)
 cases:
-  - in: "1\n2 3\ntest"
-    out: "6 test"
-  - in: [72, '128 256', 'myonmyon']
-    out: ['456 myonmyon']
-    timelimit: 10 # Can be overridden
-  - in: [1000, "1000 1000", "ooooooooooooooooooooooooooooo"] # "out" is optional
+  - in: |
+      1
+      2 3
+      test
+    out: 6 test
+  - in: [72, 128 256, myonmyon]
+    out: [456 myonmyon]
+    timelimit: 100 # Can be overridden
+  - in: [1000, 1000 1000, oooooooooooooo] # "out" is optional
 ```
 
 <https://beta.atcoder.jp/contests/tricky/tasks/tricky_2>
@@ -250,7 +250,7 @@ cases:
       2 1.000 2.000
 ```
 
-#### Interactive
+### Interactive
 
 <https://beta.atcoder.jp/contests/practice/tasks/practice_2>
 

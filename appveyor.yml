@@ -25,11 +25,8 @@ install:
 test_script:
   - set PATH=C:\Python36-x64;%PATH%
   - python -V
-  - cargo +%TOOLCHAIN% test -v --no-run
-  - set RUST_LOG=info
   - cargo +%TOOLCHAIN% test
   - cargo +%TOOLCHAIN% test -- --ignored
-  - set RUST_LOG=
 build: false
 before_deploy:
   - cargo +%TOOLCHAIN% build --release

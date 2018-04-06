@@ -191,11 +191,17 @@ impl JudgingOutput for SimpleOutput {
         fn eprint_expected_sectioon_unless_empty(content: &ExpectedStdout) {
             match *content {
                 ExpectedStdout::AcceptAny => {}
-                ExpectedStdout::Text(ref content) => {
+                ExpectedStdout::Exact(ref content) => {
                     eprint_section("expected", content);
                 }
+                ExpectedStdout::Lines(ref lines) => {
+                    eprintln_bold!(Color::Title, r"expected:");
+                    for l in lines {
+                        eprintln!("{}", l);
+                    }
+                }
                 ExpectedStdout::Float {
-                    ref text,
+                    ref lines,
                     absolute_error,
                     relative_error,
                 } => {
@@ -205,7 +211,7 @@ impl JudgingOutput for SimpleOutput {
                         absolute_error,
                         relative_error
                     );
-                    for l in text.lines() {
+                    for l in lines {
                         if l.split_whitespace().any(|t| t.parse::<f64>().is_ok()) {
                             for (i, t) in l.split_whitespace().enumerate() {
                                 match t.parse::<f64>() {
@@ -288,11 +294,9 @@ mod tests {
     #[test]
     #[ignore]
     fn it_judges_for_atcoder_practice_a() {
-        // On Windows `__builtins__.input` somehow returns a string which ends with '\r'
-        // regardless of the input.
         static CODE: &str =
-            r"(a, (b, c), s) = (int(input()), map(int,input().split()), input().strip('\r')); \
-              print(f'{a + b + c}{s}')";
+            r"(a, (b, c), s) = (int(input()), map(int, input().split()), input()); \
+              print(f'{a + b + c} {s}')";
         static IN1: &str = "1\n2 3\ntest\n";
         static OUT1: &str = "6 test\n";
         static IN2: &str = "72\n128 256\nmyonmyon\n";
