@@ -288,17 +288,19 @@ mod tests {
     #[test]
     #[ignore]
     fn it_judges_for_atcoder_practice_a() {
-        // `end` is "\r\n" on Windows.
-        static CODE: &str = r"(a,(b,c),s)=(int(input()),map(int,input().split()),input());\
-                              print(f'{a+b+c} {s}',end='\n')";
+        // On Windows `__builtins__.input` somehow returns a string which ends with '\r'
+        // regardless of the input.
+        static CODE: &str =
+            r"(a, (b, c), s) = (int(input()), map(int,input().split()), input().strip('\r')); \
+              print(f'{a + b + c}{s}')";
         static IN1: &str = "1\n2 3\ntest\n";
         static OUT1: &str = "6 test\n";
         static IN2: &str = "72\n128 256\nmyonmyon\n";
         static OUT2: &str = "456 myonmyon\n";
         let _ = env_logger::try_init();
-        let correct_command = python3_command(CODE);
-        let wrong_command = python3_command("import sys;sys.exit(0)");
-        let error_command = python3_command("import sys;sys.exit(1)");
+        let correct_command = python3_command(CODE).unwrap();
+        let wrong_command = python3_command("").unwrap();
+        let error_command = python3_command("import sys; sys.exit(1)").unwrap();
         let case1 = SimpleCase::new(IN1, OUT1, None, None, None);
         let case2 = SimpleCase::new(IN2, OUT2, None, None, None);
         for case in vec![case1, case2] {
@@ -357,8 +359,9 @@ if __name__ == '__main__':
         static IN: &str = "3\n1 -3 2\n-10 30 -20\n100 -300 200\n";
         static OUT: &str = "2 1.000 2.000\n2 1.000 2.000\n2 1.000 2.000\n";
         let _ = env_logger::try_init();
-        let command = python3_command(CODE);
+        let command = python3_command(CODE).unwrap();
         let error = d128::from_str("1E-9").unwrap();
+        // It may take more than 1 second on Windows
         let case = SimpleCase::new(IN, OUT, None, error, error);
         match super::judge(&case, &command).unwrap() {
             SimpleOutput::Accepted { .. } => {}
@@ -368,10 +371,10 @@ if __name__ == '__main__':
 
     #[test]
     #[ignore]
-    fn it_detects_timeout() {
-        static CODE: &str = r"import sys,time;time.sleep(1);sys.exit(1)";
+    fn it_timeouts() {
+        static CODE: &str = r"import time; time.sleep(1)";
         let _ = env_logger::try_init();
-        let command = python3_command(CODE);
+        let command = python3_command(CODE).unwrap();
         let case = SimpleCase::new("", "", 200, None, None);
         match super::judge(&case, &command).unwrap() {
             SimpleOutput::TimelimitExceeded { .. } => {}
@@ -382,9 +385,9 @@ if __name__ == '__main__':
     #[test]
     #[ignore]
     fn it_denies_non_utf8_answers() {
-        static CODE: &str = r"import sys;sys.stdout.buffer.write(b'\xc3\x28')";
+        static CODE: &str = r"import sys; sys.stdout.buffer.write(b'\xc3\x28')";
         let _ = env_logger::try_init();
-        let command = python3_command(CODE);
+        let command = python3_command(CODE).unwrap();
         let case = SimpleCase::new("", "", None, None, None);
         let e = super::judge(&case, &command).unwrap_err();
         if let &JudgeErrorKind::Io(ref e) = e.kind() {
@@ -410,11 +413,12 @@ if __name__ == '__main__':
         panic!("{:?}", e);
     }
 
-    fn python3_command(code: &str) -> Arc<JudgingCommand> {
+    fn python3_command(code: &str) -> io::Result<Arc<JudgingCommand>> {
         #[cfg(windows)]
         static PYTHON3: &str = "python";
         #[cfg(not(windows))]
         static PYTHON3: &str = "python3";
-        Arc::new(JudgingCommand::from_args(PYTHON3, &["-c", code]).unwrap())
+        let command = JudgingCommand::from_args(PYTHON3, &["-c", code])?;
+        Ok(Arc::new(command))
     }
 }
