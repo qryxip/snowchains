@@ -52,23 +52,23 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 ```yaml
 # Example
 ---
-service: "atcoderbeta"                                 # optional
-contest: "chokudai_s001"                               # optional
-testsuites: "snowchains/$service/$contest/"            # default: ”
-extension_on_downloading: "yaml"                       # default: ”
-extensions_on_judging: ["json", "toml", "yaml", "yml"] # default: ”
+service: atcoderbeta                           # optional
+contest: chokudai_s001                         # optional
+testsuites: snowchains/$service/$contest/      # default: ”
+extension_on_downloading: yaml                 # default: ”
+extensions_on_judging: [json, toml, yaml, yml] # default: ”
 
 atcoder:
-  default_language: "c++"
+  default_language: c++
   variables:
-    cxx_flags: "-std=c++14 -O2 -Wall -Wextra"
-    rust_version: "1.15.1"
+    cxx_flags: -std=c++14 -O2 -Wall -Wextra
+    rust_version: 1.15.1
 
 hackerrank:
-  default_language: "c++"
+  default_language: c++
   variables:
-    cxx_flags: "-std=c++14 -O2 -Wall -Wextra -lm"
-    rust_version: "1.21.0"
+    cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
+    rust_version: 1.21.0
 
 # test files: <testsuite>/<problem>.<extension> for <extension> in each <extensions_on_judging>
 # source:     <<src> % <problem>>
@@ -77,86 +77,85 @@ hackerrank:
 # "cc/{}.cc" % "problem-a"          ⊦ <the directory which has snowchains.yaml>/cc/problem-a.cc
 # "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yaml>/csharp/ProblemA/ProblemA.cs
 languages:
-  - name: "c++"
-    src: "cc/{}.cc"
-    compile:                                 # optional
-      bin: "cc/build/{}"
-      command: "g++ $cxx_flags -o $bin $src"
-      working_directory: "cc/"               # default: ""
+  - name: c++
+    src: cc/{{}}.cc
+    compile:                               # optional
+      bin: cc/build/{{}}{exe}
+      command: g++ $cxx_flags -o $bin $src
+      working_directory: cc/               # default: ""
     run:
-      command: "$bin"                        # default: "$bin"
-      working_directory: "cc/"               # default: ""
-    language_ids:                            # optional
+      command: $bin                        # default: "$bin"
+      working_directory: cc/               # default: ""
+    language_ids:                          # optional
       atcoder: 3003
-  - name: "rust"
-    src: "rs/src/bin/{}.rs"
+  - name: rust
+    src: rs/src/bin/{}.rs
     compile:
-      bin: "rs/target/release/{}"
-      command: "rustc +$rust_version -o $bin $src"
-      working_directory: "rs/"
+      bin: rs/target/release/{}
+      command: rustc +$rust_version -o $bin $src
+      working_directory: rs/
     run:
-      command: "$bin"
-      working_directory: "rs/"
+      command: $bin
+      working_directory: rs/
     language_ids:
       atcoder: 3504
-  - name: "haskell"
-    src: "hs/src/{C}.hs"
+  - name: haskell
+    src: hs/src/{C}.hs
     compile:
-      bin: "hs/target/{C}"
-      command: "stack ghc -- -O2 -o $bin $src"
-      working_directory: "hs/"
+      bin: hs/target/{C}
+      command: stack ghc -- -O2 -o $bin $src
+      working_directory: hs/
     run:
-      command: "$bin"
-      working_directory: "hs/"
+      command: $bin
+      working_directory: hs/
     language_ids:
       atcoder: 3014
-  - name: "python3"
-    src: "py/{}.py"
-    compile: ~
+  - name: python3
+    src: py/{}.py
     run:
-      command: "./venv/bin/python3 $src"
-      working_directory: "py/"
+      command: ./venv/bin/python3 $src
+      working_directory: py/
     language_ids:
       atcoder: 3023
-  - name: "java"
-    src: "java/src/main/java/{C}.java"
+  - name: java
+    src: java/src/main/java/{C}.java
     compile:
-      bin: "java/build/classes/java/main/{C}.class"
-      command: "javac -d ./build/classes/java/main/ $src"
-      working_directory: "java/"
+      bin: java/build/classes/java/main/{C}.class
+      command: javac -d ./build/classes/java/main/ $src
+      working_directory: java/
     run:
-      command: "java -classpath ./build/classes/java/main/{C}"
-      working_directory: "java/"
+      command: java -classpath ./build/classes/java/main/ {C}
+      working_directory: java/
     replace:
-      regex: "^public(\\s+final)?\\s+class\\s+([A-Z][a-zA-Z0-9_]*).*$"
+      regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 2
       local: "{C}"
-      atcoder: "Main" # default: ”
-      once: true      # default: ”
+      atcoder: Main
+      once: true
     language_ids:
       atcoder: 3016
   - # Windows
-    name: "c#"
-    src: "cs/{C}/{C}.cs"
+    name: c#
+    src: cs/{C}/{C}.cs
     compile:
-      bin: "cs/{C}/bin/Release/{C}.exe"
-      command: "csc /o+ /r:System.Numerics /out:$bin $src"
-      working_directory: "cs/"
+      bin: cs/{C}/bin/Release/{C}.exe
+      command: csc /o+ /r:System.Numerics /out:$bin $src
+      working_directory: cs/
     run:
-      command: "$bin"
-      working_directory: "cs/"
+      command: $bin
+      working_directory: cs/
     language_ids:
       atcoder: 3006
   - # Unix
-    name: "c#"
-    src: "cs/{C}/{C}.cs"
+    name: c#
+    src: cs/{C}/{C}.cs
     compile:
-      bin: "cs/{C}/bin/Release/{C}.exe"
-      command: "mcs -o+ -r:System.Numerics -out:$bin $src"
-      working_directory: "cs/"
+      bin: cs/{C}/bin/Release/{C}.exe
+      command: mcs -o+ -r:System.Numerics -out:$bin $src
+      working_directory: cs/
     run:
-      command: "mono $bin"
-      working_directory: "cs/"
+      command: mono $bin
+      working_directory: cs/
     language_ids:
       atcoder: 3006
 ```
@@ -165,32 +164,32 @@ Or simply:
 
 ```yaml
 ---
-service: "atcoderbeta"
-contest: "chokudai_s001"
-testsuites: "snowchains/$service/$contest/"
-extension_on_downloading: "yaml"
-extensions_on_judging: ["json", "toml", "yaml", "yml"]
+service: atcoderbeta
+contest: chokudai_s001
+testsuites: snowchains/$service/$contest/
+extension_on_downloading: yaml
+extensions_on_judging: [json, toml, yaml, yml]
 
 atcoder:
-  default_language: "c++"
+  default_language: c++
   variables:
-    cxx_flags: "-std=c++14 -O2 -Wall -Wextra"
+    cxx_flags: -std=c++14 -O2 -Wall -Wextra
 
 hackerrank:
-  default_language: "c++"
+  default_language: c++
   variables:
-    cxx_flags: "-std=c++14 -O2 -Wall -Wextra -lm"
+    cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
 
 languages:
-  - name: "c++"
+  - name: c++
     src: "{}.cc"
     compile:
-      bin: "build/{}"
-      command: "g++ $cxx_flags -o $bin $src"
-      working_directory: ""
+      bin: build/{}
+      command: g++ $cxx_flags -o $bin $src
+      working_directory: .
     run:
-      command: "$bin"
-      working_directory: ""
+      command: $bin
+      working_directory: .
     language_ids:
       atcoder: 3003
 ```

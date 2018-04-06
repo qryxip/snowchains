@@ -1,6 +1,6 @@
 environment:
   global:
-    CRATE: snowchains
+    TARGET: snowchains
     TOOLCHAIN: stable
     RUST_BACKTRACE: full
   matrix:
@@ -31,11 +31,11 @@ build: false
 before_deploy:
   - cargo +%TOOLCHAIN% build --release
   - ps: >-
-      Copy-Item "target\${env:HOST}\release\${env:CRATE}.exe" .\;
+      Copy-Item "target\release\${env:TARGET}.exe" .\;
       $PROJECT = "C:\projects\${env:APPVEYOR_PROJECT_NAME}";
-      $ZIP = "$PROJECT\${env:CRATE}-${env:APPVEYOR_REPO_TAG_NAME}-${env:HOST}.zip";
+      $ZIP = "$PROJECT\${env:TARGET}-${env:APPVEYOR_REPO_TAG_NAME}-${env:HOST}.zip";
       Set-Location C:\projects;
-      7z a "$ZIP" "${env:APPVEYOR_PROJECT_NAME}\${env:CRATE}.exe" "${env:APPVEYOR_PROJECT_NAME}\README.md" "${env:APPVEYOR_PROJECT_NAME}\LICENSE";
+      7z a "$ZIP" "${env:APPVEYOR_PROJECT_NAME}\${env:TARGET}.exe" "${env:APPVEYOR_PROJECT_NAME}\README.md" "${env:APPVEYOR_PROJECT_NAME}\LICENSE";
       Set-Location "$PROJECT";
       Push-AppveyorArtifact "$ZIP"
 deploy:
@@ -45,8 +45,6 @@ deploy:
       secure: khL++opdJh5x79PMMTkOJXPXi8D+ijp0os5Bi02rA4DSApOmuF1VuZWpIzyDZ8pi
     on:
       appveyor_repo_tag: true
-cache:
-  - C:\Users\appveyor\.cargo\registry
 branches:
   only:
     - /^v\d+\.\d+\.\d+.*$/

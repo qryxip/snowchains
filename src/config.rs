@@ -35,7 +35,7 @@ pub fn init(directory: PathBuf) -> ConfigResult<()> {
                 return Ok(LANGS[i - 1].into());
             }
         }
-        Ok(input.into())
+        Ok(format!("{:?}", input).into())
     };
 
     let atcoder_default_lang = ask("Atcoder/Atcoder(Beta): ")?;
@@ -43,103 +43,103 @@ pub fn init(directory: PathBuf) -> ConfigResult<()> {
 
     let config = format!(
         r#"---
-service: "atcoderbeta"
-contest: "chokudai_s001"
-testsuites: "snowchains/$service/$contest/"
-extension_on_downloading: "yaml"
-extensions_on_judging: ["json", "toml", "yaml", "yml"]
+service: atcoderbeta
+contest: chokudai_s001
+testsuites: snowchains/$service/$contest/
+extension_on_downloading: yaml
+extensions_on_judging: [json, toml, yaml, yml]
 
 atcoder:
-  default_language: {atcoder_default_lang:?}
+  default_language: {atcoder_default_lang}
   variables:
-    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra"
-    "rust_version": "1.15.1"
+    cxx_flags: -std=c++14 -O2 -Wall -Wextra
+    rust_version: 1.15.1
 
 hackerrank:
-  default_language: {hackerrank_default_lang:?}
+  default_language: {hackerrank_default_lang}
   variables:
-    "cxx_flags": "-std=c++14 -O2 -Wall -Wextra -lm"
-    "rust_version": "1.21.0"
+    cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
+    rust_version: 1.21.0
 
 languages:
-  - name: "c++"
-    src: "cc/{{}}.cc"
+  - name: c++
+    src: cc/{{}}.cc
     compile:
-      bin: "cc/build/{{}}{exe}"
-      command: "g++ $cxx_flags -o $bin $src"
-      working_directory: "cc/"
+      bin: cc/build/{{}}{exe}
+      command: g++ $cxx_flags -o $bin $src
+      working_directory: cc/
     run:
-      command: "$bin"
-      working_directory: "cc/"
+      command: $bin
+      working_directory: cc/
     language_ids:
       atcoder: 3003
-  - name: "rust"
-    src: "rs/src/bin/{{}}.rs"
+  - name: rust
+    src: rs/src/bin/{{}}.rs
     compile:
-      bin: "rs/target/release/{{}}{exe}"
-      command: "rustc +$rust_version -o $bin $src"
-      working_directory: "rs/"
+      bin: rs/target/release/{{}}{exe}
+      command: rustc +$rust_version -o $bin $src
+      working_directory: rs/
     run:
-      command: "$bin"
-      working_directory: "rs/"
+      command: $bin
+      working_directory: rs/
     language_ids:
       atcoder: 3504
-  - name: "haskell"
-    src: "hs/src/{{C}}.hs"
+  - name: haskell
+    src: hs/src/{{C}}.hs
     compile:
-      bin: "hs/target/{{C}}{exe}"
-      command: "stack ghc -- -O2 -o $bin $src"
-      working_directory: "hs/"
+      bin: hs/target/{{C}}{exe}
+      command: stack ghc -- -O2 -o $bin $src
+      working_directory: hs/
     run:
-      command: "$bin"
-      working_directory: "hs/"
+      command: $bin
+      working_directory: hs/
     language_ids:
       atcoder: 3014
-  - name: "bash"
-    src: "bash/{{}}.bash"
+  - name: bash
+    src: bash/{{}}.bash
     run:
-      command: "bash $src"
-      working_directory: "bash/"
+      command: bash $src
+      working_directory: bash/
     language_ids:
       atcoder: 3001
-  - name: "python3"
-    src: "py/{{}}.py"
+  - name: python3
+    src: py/{{}}.py
     run:
-      command: "./venv/bin/python3 $src"
-      working_directory: "py/"
+      command: ./venv/bin/python3 $src
+      working_directory: py/
     language_ids:
       atcoder: 3023
-  - name: "java"
-    src: "java/src/main/java/{{C}}.java"
+  - name: java
+    src: java/src/main/java/{{C}}.java
     compile:
-      bin: "java/build/classes/java/main/{{C}}.class"
-      command: "javac -d ./build/classes/java/main/ $src"
-      working_directory: "java/"
+      bin: java/build/classes/java/main/{{C}}.class
+      command: javac -d ./build/classes/java/main/ $src
+      working_directory: java/
     run:
-      command: "java -classpath ./build/classes/java/main/{{C}}"
-      working_directory: "java/"
+      command: java -classpath ./build/classes/java/main/ {{C}}
+      working_directory: java/
     replace:
-      regex: "^\\s*public(\\s+final)?\\s+class\\s+([A-Z][a-zA-Z0-9_]*).*$"
+      regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 2
       local: "{{C}}"
-      atcoder: "Main"
+      atcoder: Main
       once: true
     language_ids:
       atcoder: 3016
-  - name: "scala"
-    src: "scala/src/main/scala/{{C}}.scala"
+  - name: scala
+    src: scala/src/main/scala/{{C}}.scala
     compile:
-      bin: "scala/target/scala-2.12/classes/{{C}}.class"
-      command: "scalac -optimise -d ./target/scala-2.12/classes/ $src"
-      working_directory: "scala/"
+      bin: scala/target/scala-2.12/classes/{{C}}.class
+      command: scalac -optimise -d ./target/scala-2.12/classes/ $src
+      working_directory: scala/
     run:
-      command: "scala -classpath ./target/scala-2.12/classes/ {{C}}"
-      working_directory: "scala/"
+      command: scala -classpath ./target/scala-2.12/classes/ {{C}}
+      working_directory: scala/
     replace:
-      regex: "^\\s*object\\s+([A-Z][a-zA-Z0-9_]*).*$"
+      regex: /^\s*object\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 1
       local: "{{C}}"
-      atcoder: "Main"
+      atcoder: Main
       once: true
     language_ids:
       atcoder: 3025
@@ -153,27 +153,27 @@ languages:
             ""
         },
         csharp = if cfg!(target_os = "windows") {
-            r#"  - name: "c#"
-    src: "cs/{C}/{C}.cs"
+            r#"  - name: c#
+    src: cs/{C}/{C}.cs
     compile:
-      bin: "cs/{C}/bin/Release/{C}.exe"
-      command: "csc /o+ /r:System.Numerics /out:$bin $src"
-      working_directory: "cs/"
+      bin: cs/{C}/bin/Release/{C}.exe
+      command: csc /o+ /r:System.Numerics /out:$bin $src
+      working_directory: cs/
     run:
-      command: "$bin"
-      working_directory: "cs/"
+      command: $bin
+      working_directory: cs/
     language_ids:
       atcoder: 3006"#
         } else {
-            r#"  - name: "c#"
-    src: "cs/{C}/{C}.cs"
+            r#"  - name: c#
+    src: cs/{C}/{C}.cs
     compile:
-      bin: "cs/{C}/bin/Release/{C}.exe"
-      command: "mcs -o+ -r:System.Numerics -out:$bin $src"
-      working_directory: "cs/"
+      bin: cs/{C}/bin/Release/{C}.exe
+      command: mcs -o+ -r:System.Numerics -out:$bin $src
+      working_directory: cs/
     run:
-      command: "mono $bin"
-      working_directory: "cs/"
+      command: mono $bin
+      working_directory: cs/
     language_ids:
       atcoder: 3006"#
         }
@@ -634,8 +634,14 @@ impl CodeReplacerProp {
         &self,
         variables: Option<&HashMap<String, String>>,
     ) -> CodeReplaceResult<CodeReplacer> {
+        let regex = if self.regex.starts_with('/') && self.regex.ends_with('/') {
+            let n = self.regex.len();
+            String::from_utf8_lossy(&self.regex.as_bytes()[1..n - 1])
+        } else {
+            self.regex.as_str().into()
+        };
         CodeReplacer::new(
-            &self.regex,
+            &regex,
             self.regex_group,
             &self.local,
             variables,
