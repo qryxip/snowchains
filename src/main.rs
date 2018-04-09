@@ -1,69 +1,40 @@
-#![recursion_limit = "1024"]
-
 #[macro_use]
-extern crate custom_derive;
+extern crate snowchains;
+
 #[macro_use]
 extern crate error_chain;
 #[macro_use]
-extern crate lazy_static;
-#[macro_use]
 extern crate log;
-#[macro_use]
-extern crate newtype_derive;
-#[macro_use]
-extern crate serde_derive;
 #[macro_use]
 extern crate structopt;
 
-extern crate bincode;
-extern crate chrono;
-extern crate cookie;
-extern crate decimal;
 extern crate env_logger;
-extern crate futures;
 extern crate httpsession;
-extern crate pbr;
-extern crate regex;
-extern crate robots_txt;
-extern crate rpassword;
-extern crate rprompt;
-extern crate select;
-extern crate serde;
-extern crate serde_json;
-extern crate serde_urlencoded;
-extern crate serde_yaml;
-extern crate term;
-extern crate toml;
-extern crate webbrowser;
-extern crate zip;
 
-#[cfg(test)]
-#[macro_use]
-extern crate nickel;
+use snowchains::{judging, util};
+use snowchains::config::{self, Config, ServiceName};
+use snowchains::errors::{ConfigError, FileIoError, FileIoResult, JudgeError, ServiceError,
+                         SuiteFileError};
+use snowchains::service::{atcoder, atcoder_beta, hackerrank, DownloadProp, InitProp, RestoreProp,
+                          SubmitProp};
+use snowchains::terminal::Color;
+use snowchains::testsuite::{self, SuiteFileExtension, SuiteFilePath};
 
-#[macro_use]
-mod macros;
-
-mod command;
-mod config;
-mod errors;
-mod judging;
-mod replacer;
-mod service;
-mod template;
-mod terminal;
-mod testsuite;
-mod util;
-
-use config::{Config, ServiceName};
-use errors::Result;
-use service::{atcoder, atcoder_beta, hackerrank, DownloadProp, RestoreProp, SubmitProp};
-use terminal::Color;
-use testsuite::{SuiteFileExtension, SuiteFilePath};
-
-use structopt::StructOpt;
+use error_chain::{ChainedError, ExitCode};
+use httpsession::ColorMode;
+use structopt::StructOpt as _StructOpt;
 
 use std::path::PathBuf;
+use std::process;
+use std::time::Duration;
+
+macro_rules! quick_main_colored {
+    ($main: expr) => {
+        fn main() {
+            quick_main_colored($main)
+        }
+    };
+}
 
 quick_main_colored!(|| -> ::Result<i32> {
     env_logger::init();
@@ -78,17 +49,19 @@ quick_main_colored!(|| -> ::Result<i32> {
         }
         Opt::Login { service } => {
             info!("Running \"login\" command");
+            let init_prop = init_prop(service)?;
             match service {
                 ServiceName::AtCoder => atcoder::login(),
-                ServiceName::AtCoderBeta => atcoder_beta::login(),
+                ServiceName::AtCoderBeta => atcoder_beta::login(&init_prop),
                 ServiceName::HackerRank => hackerrank::login(),
             }?;
         }
         Opt::Participate { service, contest } => {
             info!("Running \"participate\" command");
+            let init_prop = init_prop(service)?;
             match service {
                 ServiceName::AtCoder => atcoder::participate(&contest),
-                ServiceName::AtCoderBeta => atcoder_beta::participate(&contest),
+                ServiceName::AtCoderBeta => atcoder_beta::participate(&contest, &init_prop),
                 ServiceName::HackerRank => unreachable!(),
             }?;
         }
@@ -103,11 +76,12 @@ quick_main_colored!(|| -> ::Result<i32> {
             let contest = config.contest_name()?;
             let dir_to_save = config.suite_dir()?;
             let extension = config.get_extension_on_downloading();
-            let prop = DownloadProp::new(contest, dir_to_save, extension, open_browser);
+            let init_prop = init_prop(service)?;
+            let download_prop = DownloadProp::new(contest, dir_to_save, extension, open_browser);
             match service {
-                ServiceName::AtCoder => atcoder::download(&prop),
-                ServiceName::AtCoderBeta => atcoder_beta::download(prop),
-                ServiceName::HackerRank => hackerrank::download(&prop),
+                ServiceName::AtCoder => atcoder::download(&download_prop),
+                ServiceName::AtCoderBeta => atcoder_beta::download(&init_prop, download_prop),
+                ServiceName::HackerRank => hackerrank::download(&download_prop),
             }?;
         }
         Opt::Restore { service, contest } => {
@@ -120,9 +94,10 @@ quick_main_colored!(|| -> ::Result<i32> {
                 ServiceName::AtCoderBeta => config.src_paths_on_atcoder(),
                 _ => return Ok(sorry_unimplemented()),
             }?;
-            let prop = RestoreProp::new(contest, &src_paths, &replacers);
+            let init_prop = init_prop(service)?;
+            let restore_prop = RestoreProp::new(contest, &src_paths, &replacers);
             match service {
-                ServiceName::AtCoderBeta => atcoder_beta::restore(prop),
+                ServiceName::AtCoderBeta => atcoder_beta::restore(&init_prop, restore_prop),
                 _ => return Ok(sorry_unimplemented()),
             }?;
         }
@@ -181,7 +156,8 @@ quick_main_colored!(|| -> ::Result<i32> {
                 ServiceName::AtCoderBeta => config.atcoder_lang_id(language),
                 _ => return Ok(sorry_unimplemented()),
             }?;
-            let prop = SubmitProp::new(
+            let init_prop = init_prop(service)?;
+            let submit_prop = SubmitProp::new(
                 contest,
                 target,
                 lang_id,
@@ -191,7 +167,7 @@ quick_main_colored!(|| -> ::Result<i32> {
                 skip_checking_duplication,
             );
             match service {
-                ServiceName::AtCoderBeta => atcoder_beta::submit(prop),
+                ServiceName::AtCoderBeta => atcoder_beta::submit(&init_prop, submit_prop),
                 _ => return Ok(sorry_unimplemented()),
             }?;
         }
@@ -376,7 +352,48 @@ enum Opt {
     },
 }
 
+fn init_prop(service: ServiceName) -> FileIoResult<InitProp> {
+    let cookie_path = util::path_under_home(&[".local", "share", "snowchains", service.as_str()])?;
+    Ok(InitProp::new(
+        cookie_path,
+        ColorMode::Prefer256,
+        Duration::from_secs(20),
+        None,
+    ))
+}
+
 fn sorry_unimplemented() -> i32 {
     eprintln_bold!(Color::Warning, "Not yet implemented, sorry.");
     1
+}
+
+pub fn quick_main_colored<C: ExitCode, E: ChainedError>(main: fn() -> std::result::Result<C, E>) {
+    match main() {
+        Ok(code) => process::exit(ExitCode::code(code)),
+        Err(e) => {
+            eprintln!();
+            if e.iter().count() > 1 {
+                eprint!("    ");
+            }
+            for (i, e) in e.iter().enumerate() {
+                let head = if i == 0 { "Error: " } else { "Caused by: " };
+                eprint_bold!(Color::Fatal, "{}", head);
+                eprintln_bold!(None, "{}", e);
+            }
+            if let Some(backtrace) = e.backtrace() {
+                eprintln!("{:?}", backtrace);
+            }
+            process::exit(1);
+        }
+    }
+}
+
+error_chain!{
+    foreign_links {
+        Service(ServiceError/*, ServiceErrorKind*/);
+        Judge(JudgeError/*, JudgeErrorKind*/);
+        SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
+        Config(ConfigError/*, ConfigErrorKind*/);
+        FileIo(FileIoError/*, FileIoErrorKind*/);
+    }
 }

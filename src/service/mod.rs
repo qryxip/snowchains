@@ -7,7 +7,6 @@ use replacer::CodeReplacer;
 use template::PathTemplate;
 use terminal::Color;
 use testsuite::SuiteFileExtension;
-use util;
 
 use {rpassword, rprompt, webbrowser};
 use futures::{future, task, Async, Future, Poll};
@@ -25,17 +24,12 @@ use std::time::{Duration, Instant};
 
 /// Constructs a `HttpSession`.
 pub(self) fn start_session(
-    filename: &'static str,
     domain: &'static str,
+    cookie_path: PathBuf,
 ) -> ServiceResult<HttpSession> {
     HttpSession::builder()
         .base(domain, true, None)
-        .cookie_store(CookieStoreOption::AutoSave(util::path_under_home(&[
-            ".local",
-            "share",
-            "snowchains",
-            filename,
-        ])?))
+        .cookie_store(CookieStoreOption::AutoSave(cookie_path))
         .echo_actions(ColorMode::Prefer256.disable_on("NO_COLOR"))
         .timeout(Duration::from_secs(20))
         .redirect(RedirectPolicy::none())
@@ -43,7 +37,7 @@ pub(self) fn start_session(
             "snowchains <https://github.com/wariuni/snowchains>",
         ))
         .with_robots_txt()
-        .chain_err::<_, ServiceError>(|| ServiceErrorKind::HttpSessionStart.into())
+        .chain_err(|| ServiceError::from(ServiceErrorKind::HttpSessionStart))
 }
 
 /// Reads username and password from stdin, showing the prompts on stderr.
@@ -217,6 +211,46 @@ impl Future for Downloading {
             Err(_) => self.progress_bar.finish_print("Failed"),
         }
         result
+    }
+}
+
+pub struct InitProp {
+    cookie_path: PathBuf,
+    color_mode: ColorMode,
+    timeout: Option<Duration>,
+    credentials: Option<(String, String)>,
+}
+
+impl InitProp {
+    pub fn new<T: Into<Option<Duration>>, C: Into<Option<(String, String)>>>(
+        cookie_path: PathBuf,
+        color_mode: ColorMode,
+        timeout: T,
+        credentials: C,
+    ) -> Self {
+        Self {
+            cookie_path,
+            color_mode,
+            timeout: timeout.into(),
+            credentials: credentials.into(),
+        }
+    }
+
+    pub(self) fn credentials(&self) -> Option<(String, String)> {
+        self.credentials.clone()
+    }
+
+    pub(self) fn start_session(&self, domain: &'static str) -> ServiceResult<HttpSession> {
+        static UA: &str = "snowchains <https://github.com/wariuni/snowchains>";
+        HttpSession::builder()
+            .base(domain, true, None)
+            .cookie_store(CookieStoreOption::AutoSave(self.cookie_path.clone()))
+            .echo_actions(self.color_mode)
+            .timeout(self.timeout)
+            .redirect(RedirectPolicy::none())
+            .default_header(UserAgent::new(UA))
+            .with_robots_txt()
+            .chain_err(|| ServiceError::from(ServiceErrorKind::HttpSessionStart))
     }
 }
 

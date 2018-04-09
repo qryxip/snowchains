@@ -1,5 +1,5 @@
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
-use service::{Contest, DownloadProp, OpenInBrowser, RestoreProp, SubmitProp};
+use service::{Contest, DownloadProp, InitProp, OpenInBrowser, RestoreProp, SubmitProp};
 use terminal::Color;
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
@@ -16,51 +16,58 @@ use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 
 /// Logins to "beta.atcoder.jp".
-pub fn login() -> ServiceResult<()> {
-    AtCoderBeta::start()?.login_if_not(true)
+pub fn login(init_prop: &InitProp) -> ServiceResult<()> {
+    AtCoderBeta::start(init_prop)?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
-pub fn participate(contest_name: &str) -> ServiceResult<()> {
-    AtCoderBeta::start()?.register_explicitly(&AtcoderContest::new(contest_name))
+pub fn participate(contest_name: &str, init_prop: &InitProp) -> ServiceResult<()> {
+    AtCoderBeta::start(init_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
-pub fn download(prop: DownloadProp<&str>) -> ServiceResult<()> {
-    AtCoderBeta::start()?.download(&prop.transform())
+pub fn download(init_prop: &InitProp, download_prop: DownloadProp<&str>) -> ServiceResult<()> {
+    AtCoderBeta::start(init_prop)?.download(&download_prop.transform())
 }
 
 /// Downloads submitted source codes.
-pub fn restore(prop: RestoreProp<&str>) -> ServiceResult<()> {
-    AtCoderBeta::start()?.restore(&prop.transform())
+pub fn restore(init_prop: &InitProp, restore_prop: RestoreProp<&str>) -> ServiceResult<()> {
+    AtCoderBeta::start(init_prop)?.restore(&restore_prop.transform())
 }
 
 /// Submits a source code.
-pub fn submit(prop: SubmitProp<&str>) -> ServiceResult<()> {
-    AtCoderBeta::start()?.submit(&prop.transform())
+pub fn submit(init_prop: &InitProp, submit_prop: SubmitProp<&str>) -> ServiceResult<()> {
+    AtCoderBeta::start(init_prop)?.submit(&submit_prop.transform())
 }
 
-pub(self) struct AtCoderBeta(HttpSession);
+pub(self) struct AtCoderBeta {
+    session: HttpSession,
+    /// For tests
+    credentials: Option<(String, String)>,
+}
 
 impl Deref for AtCoderBeta {
     type Target = HttpSession;
 
     fn deref(&self) -> &HttpSession {
-        &self.0
+        &self.session
     }
 }
 
 impl DerefMut for AtCoderBeta {
     fn deref_mut(&mut self) -> &mut HttpSession {
-        &mut self.0
+        &mut self.session
     }
 }
 
 impl AtCoderBeta {
-    fn start() -> ServiceResult<Self> {
-        let session = super::start_session("atcoderbeta", "beta.atcoder.jp")?;
-        Ok(AtCoderBeta(session))
+    fn start(init_prop: &InitProp) -> ServiceResult<Self> {
+        let session = init_prop.start_session("beta.atcoder.jp")?;
+        Ok(AtCoderBeta {
+            session,
+            credentials: init_prop.credentials(),
+        })
     }
 
     fn login_if_not(&mut self, eprints_message_if_already_logged_in: bool) -> ServiceResult<()> {
@@ -73,6 +80,7 @@ impl AtCoderBeta {
                 return Ok(());
             }
         }
+
         while !self.try_logging_in()? {
             eprintln!("Failed to login. Try again.");
             self.clear_cookies()?;
@@ -89,7 +97,10 @@ impl AtCoderBeta {
         }
 
         let csrf_token = extract_csrf_token(&Document::from_read(self.get("/login")?)?)?;
-        let (username, password) = super::ask_username_and_password("Username: ")?;
+        let (username, password) = match self.credentials {
+            Some(ref credentials) => credentials.clone(),
+            None => super::ask_username_and_password("Username: ")?,
+        };
         let payload = Payload {
             username,
             password,
@@ -100,6 +111,8 @@ impl AtCoderBeta {
         let success = response.status().as_u16() == 200;
         if success {
             println!("Successfully logged in.");
+        } else if self.credentials.is_some() {
+            bail!(ServiceErrorKind::WrongCredentialsOnTest);
         }
         Ok(success)
     }
@@ -1193,6 +1206,9 @@ mod tests {
                 "snowchains <https://github.com/wariuni/snowchains>",
             ))
             .with_robots_txt()?;
-        Ok(AtCoderBeta(session))
+        Ok(AtCoderBeta {
+            session,
+            credentials: None,
+        })
     }
 }

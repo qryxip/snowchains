@@ -1,46 +1,13 @@
-use terminal::Color;
-
 use {bincode, cookie, futures, httpsession, regex, serde_json, serde_urlencoded, serde_yaml, toml};
 use chrono::{self, DateTime, Local};
-use error_chain::{ChainedError, ExitCode};
 use httpsession::UrlError;
 use zip::result::ZipError;
 
-use std::{self, io};
+use std::io;
 use std::path::PathBuf;
-use std::process::{self, ExitStatus};
+use std::process::ExitStatus;
 use std::string::FromUtf8Error;
 use std::sync::mpsc::RecvError;
-
-pub fn quick_main_colored<C: ExitCode, E: ChainedError>(main: fn() -> std::result::Result<C, E>) {
-    match main() {
-        Ok(code) => process::exit(ExitCode::code(code)),
-        Err(e) => {
-            eprintln!();
-            if e.iter().count() > 1 {
-                eprint!("    ");
-            }
-            for (i, e) in e.iter().enumerate() {
-                let head = if i == 0 { "Error: " } else { "Caused by: " };
-                eprint_bold!(Color::Fatal, "{}", head);
-                eprintln_bold!(None, "{}", e);
-            }
-            if let Some(backtrace) = e.backtrace() {
-                eprintln!("{:?}", backtrace);
-            }
-            process::exit(1);
-        }
-    }
-}
-
-error_chain!{
-    foreign_links {
-        Service(ServiceError/*, ServiceErrorKind*/);
-        Judge(JudgeError/*, JudgeErrorKind*/);
-        SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
-        Config(ConfigError/*, ConfigErrorKind*/);
-    }
-}
 
 error_chain! {
     types {
@@ -103,6 +70,11 @@ error_chain! {
                         "The default browser terminated abnormally without code (possibly killed)"
                             .to_owned()
                     })
+        }
+
+        WrongCredentialsOnTest {
+            description("Wrong username or password")
+            display("Wrong username or password")
         }
     }
 }

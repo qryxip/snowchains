@@ -29,7 +29,8 @@ custom_derive! {
 
 impl HackerRank {
     fn start(prints_message_when_already_logged_in: bool) -> ServiceResult<Self> {
-        let mut hackerrank = HackerRank(super::start_session("hackerrank", "www.hackerrank.com")?);
+        let cookie_path = util::path_under_home(&[".local", "share", "snowchains", "atcoder"])?;
+        let mut hackerrank = HackerRank(super::start_session("www.hackerrank.com", cookie_path)?);
         let mut response = hackerrank.get_expecting("/login", &[200, 302])?;
         if response.status().as_u16() == 302 && prints_message_when_already_logged_in {
             eprintln!("Already signed in.");

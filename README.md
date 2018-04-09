@@ -78,9 +78,9 @@ hackerrank:
 # "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yaml>/csharp/ProblemA/ProblemA.cs
 languages:
   - name: c++
-    src: cc/{{}}.cc
+    src: cc/{}.cc
     compile:                               # optional
-      bin: cc/build/{{}}{exe}
+      bin: cc/build/{}
       command: g++ $cxx_flags -o $bin $src
       working_directory: cc/               # default: ""
     run:

@@ -1,6 +1,7 @@
 use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt};
 use service::DownloadProp;
 use testsuite::{SuiteFilePath, TestSuite};
+use util;
 
 use httpsession::HttpSession;
 use regex::Regex;
@@ -12,7 +13,8 @@ use std::io::Read;
 
 pub fn login() -> ServiceResult<()> {
     static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-    let mut atcoder = AtCoder(super::start_session("atcoder", "atcoder.jp")?);
+    let cookie_path = util::path_under_home(&[".local", "share", "snowchains", "atcoder"])?;
+    let mut atcoder = AtCoder(super::start_session("atcoder.jp", cookie_path)?);
     if atcoder.get(URL).is_err() {
         atcoder.login()?;
     } else {
@@ -37,7 +39,8 @@ custom_derive! {
 impl AtCoder {
     fn load_or_login() -> ServiceResult<Self> {
         static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-        let mut atcoder = AtCoder(super::start_session("atcoder", "atcoder.jp")?);
+        let cookie_path = util::path_under_home(&[".local", "share", "snowchains", "atcoder"])?;
+        let mut atcoder = AtCoder(super::start_session("atcoder.jp", cookie_path)?);
         if atcoder.get(URL).is_err() {
             atcoder.login()?;
         }

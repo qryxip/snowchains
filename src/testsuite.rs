@@ -393,7 +393,7 @@ impl SimpleCase {
 
     /// # Example
     ///
-    /// ```
+    /// ```no-run
     /// let (input, expected, timelimit) = self.values()
     /// ```
     pub fn values(&self) -> (Arc<String>, Arc<ExpectedStdout>, Option<Duration>) {

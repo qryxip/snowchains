@@ -35,7 +35,11 @@ pub fn init(directory: PathBuf) -> ConfigResult<()> {
                 return Ok(LANGS[i - 1].into());
             }
         }
-        Ok(format!("{:?}", input).into())
+        if input.is_empty() || ":->|{[ ".chars().any(|c| input.starts_with(c)) {
+            Ok(format!("{:?}", input).into())
+        } else {
+            Ok(input.into())
+        }
     };
 
     let atcoder_default_lang = ask("Atcoder/Atcoder(Beta): ")?;
@@ -432,11 +436,7 @@ pub enum ServiceName {
 
 impl fmt::Display for ServiceName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ServiceName::AtCoder => write!(f, "atcoder"),
-            ServiceName::AtCoderBeta => write!(f, "atcoderbeta"),
-            ServiceName::HackerRank => write!(f, "hackerrank"),
-        }
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -449,6 +449,16 @@ impl FromStr for ServiceName {
             "atcoderbeta" => Ok(ServiceName::AtCoderBeta),
             "hackerrank" => Ok(ServiceName::HackerRank),
             _ => Err(format!("Unsupported service name: {:?}", s)),
+        }
+    }
+}
+
+impl ServiceName {
+    pub fn as_str(&self) -> &'static str {
+        match *self {
+            ServiceName::AtCoder => "atcoder",
+            ServiceName::AtCoderBeta => "atcoderbeta",
+            ServiceName::HackerRank => "hackerrank",
         }
     }
 }

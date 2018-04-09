@@ -39,3 +39,4 @@ zip = "0.3.1"
 
 [dev-dependencies]
 nickel = "0.10.1"
+tempdir = "0.3.7"
