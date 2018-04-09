@@ -13,12 +13,12 @@ environment:
     - RUSTUP_HOST: i686-pc-windows-msvc
     - RUSTUP_HOST: i686-pc-windows-gnu
 install:
-  - ps: >-
+  - ps: |
       If ($Env:RUSTUP_HOST -eq 'x86_64-pc-windows-gnu') {
-        Set-Item Env:Path "C:\msys64\mingw64\bin;$Env:Path";
+        Set-Item Env:Path "C:\msys64\mingw64\bin;$Env:Path"
         gcc --version
       } ElseIf ($Env:RUSTUP_HOST -eq 'i686-pc-windows-gnu') {
-        Set-Item Env:Path "C:\msys64\mingw32\bin;$Env:Path";
+        Set-Item Env:Path "C:\msys64\mingw32\bin;$Env:Path"
         gcc --version
       }
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:RUSTUP_HOST}/rustup-init.exe"
@@ -30,23 +30,22 @@ build_script:
   - cargo +%RUSTUP_TOOLCHAIN% build --release
   - ps: Move-Item "target\release\${env:TARGET}" .\
   - cd C:\projects
-  - >-
-      7z a %APPVEYOR_BUILD_FOLDER%\%APPVEYOR_PROJECT_NAME%-%APPVEYOR_REPO_TAG_NAME%-%RUSTUP_HOST%.zip"
-        %APPVEYOR_PROJECT_NAME% -x!%APPVEYOR_PROJECT_NAME%\Cargo.lock -x!%APPVEYOR_PROJECT_NAME%\target -x!%APPVEYOR_PROJECT_NAME%\.git
+  - 7z a %APPVEYOR_BUILD_FOLDER%\%APPVEYOR_PROJECT_NAME%-%APPVEYOR_REPO_TAG_NAME%-%RUSTUP_HOST%.zip
+    %APPVEYOR_PROJECT_NAME% -x!%APPVEYOR_PROJECT_NAME%\Cargo.lock -x!%APPVEYOR_PROJECT_NAME%\target -x!%APPVEYOR_PROJECT_NAME%\.git
   - cd %APPVEYOR_BUILD_FOLDER%
 test_script:
   - set PATH=C:\Python36-x64;%PATH%
   - python -V
-  - ps: >-
+  - ps: |
       If (Test-Path env:ATCODER_USERNAME) {
-        cargo "${env:RUSTUP_TOOLCHAIN}" test --all;
-        cargo "${env:RUSTUP_TOOLCHAIN}" test --all -- --ignored;
-        cargo "${env:RUSTUP_TOOLCHAIN}" test --all --release;
+        cargo "${env:RUSTUP_TOOLCHAIN}" test --all
+        cargo "${env:RUSTUP_TOOLCHAIN}" test --all -- --ignored
+        cargo "${env:RUSTUP_TOOLCHAIN}" test --all --release
         cargo "${env:RUSTUP_TOOLCHAIN}" test --all --release -- --ignored
       } else {
-        cargo "${env:RUSTUP_TOOLCHAIN}" test --lib;
-        cargo "${env:RUSTUP_TOOLCHAIN}" test --lib -- --ignored;
-        cargo "${env:RUSTUP_TOOLCHAIN}" test --lib --release;
+        cargo "${env:RUSTUP_TOOLCHAIN}" test --lib
+        cargo "${env:RUSTUP_TOOLCHAIN}" test --lib -- --ignored
+        cargo "${env:RUSTUP_TOOLCHAIN}" test --lib --release
         cargo "${env:RUSTUP_TOOLCHAIN}" test --lib --release -- --ignored
       }
 artifacts:

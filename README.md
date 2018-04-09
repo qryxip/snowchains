@@ -1,6 +1,6 @@
 # Snowchains
 
-[![Build status](https://ci.appveyor.com/api/projects/status/hfc4x704uufkb2sh?svg=true)](https://ci.appveyor.com/project/wariuni/snowchains)
+[![Build status](https://ci.appveyor.com/api/projects/status/hfc4x704uufkb2sh/branch/master?svg=true)](https://ci.appveyor.com/project/wariuni/snowchains/branch/master)
 
 Tools for online programming contests.
 
@@ -10,14 +10,15 @@ Tools for online programming contests.
 
 ## Features
 
-- Scrape sample cases as YAML, TOML, or JSON
+- Scrapes sample cases as YAML, TOML, or JSON
 - Tests a source code with downloaded sample cases
 - Submits a source code
+- Downloads source codes you have submitted
 
 |                | Target Contest                        | Scrape samples | Download system tests | Submit        |
 | :------------- | :------------------------------------ | :------------: | :-------------------: | :-----------: |
-| AtCoder        | `http://{}.contest.atcoder.jp`        | ✓             | ✗                    | Unimplemented |
-| AtCoder (Beta) | `https://beta.atcoder.jp/contests/{}` | ✓             | ✗                    | ✓            |
+| AtCoder        | `http://{}.contest.atcoder.jp`        | ✓             | Unimplemented         | Unimplemented |
+| AtCoder (Beta) | `https://beta.atcoder.jp/contests/{}` | ✓             | Unimplemented         | ✓            |
 
 ## Instrallation
 
