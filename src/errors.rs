@@ -88,7 +88,7 @@ error_chain! {
         SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
         Io(io::Error);
         Recv(RecvError);
-        FuturesCanceled(futures::Canceled);
+        OneShotCanceled(futures::channel::oneshot::Canceled);
     }
 
     errors {

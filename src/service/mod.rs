@@ -10,6 +10,7 @@ use testsuite::SuiteFileExtension;
 
 use {rpassword, rprompt, webbrowser};
 use futures::{future, task, Async, Future, Poll};
+use futures::executor::ThreadPool;
 use httpsession::{self, ColorMode, CookieStoreOption, HttpSession, RedirectPolicy, Response};
 use httpsession::header::{ContentLength, UserAgent};
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
@@ -139,7 +140,8 @@ fn download_zip_files<W: Write + Send + 'static, I: IntoIterator<Item = Response
         .map(|response| Downloading::new(response, alt_capacity, &mut mb))
         .collect::<Vec<_>>();
     let thread = thread::spawn(move || mb.listen());
-    let zips = future::join_all(downloads).wait()?;
+    let mut pool = ThreadPool::new()?;
+    let zips = pool.run(future::join_all(downloads))?;
     thread.join().unwrap_or_else(|p| panic::resume_unwind(p));
     zips.into_iter().map(ZipArchive::new).collect()
 }
@@ -184,7 +186,7 @@ impl Downloading {
                 } else if Instant::now() - self.bar_updated > Duration::from_millis(20) {
                     self.update_progress_bar();
                 }
-                Ok(Async::NotReady)
+                Ok(Async::Pending)
             }
         }
     }
@@ -203,11 +205,11 @@ impl Future for Downloading {
     type Item = Cursor<Vec<u8>>;
     type Error = io::Error;
 
-    fn poll(&mut self) -> Poll<Cursor<Vec<u8>>, io::Error> {
+    fn poll(&mut self, cx: &mut task::Context) -> Poll<Cursor<Vec<u8>>, io::Error> {
         let result = self.read();
         match result {
             Ok(Async::Ready(_)) => self.progress_bar.finish(),
-            Ok(Async::NotReady) => task::current().notify(),
+            Ok(Async::Pending) => cx.waker().wake(),
             Err(_) => self.progress_bar.finish_print("Failed"),
         }
         result
