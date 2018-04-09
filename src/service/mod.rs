@@ -9,8 +9,7 @@ use terminal::Color;
 use testsuite::SuiteFileExtension;
 
 use {rpassword, rprompt, webbrowser};
-use futures::{future, task, Async, Future, Poll};
-use futures::executor::ThreadPool;
+use futures::{executor, future, task, Async, Future, Poll};
 use httpsession::{self, ColorMode, CookieStoreOption, HttpSession, RedirectPolicy, Response};
 use httpsession::header::{ContentLength, UserAgent};
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
@@ -140,8 +139,7 @@ fn download_zip_files<W: Write + Send + 'static, I: IntoIterator<Item = Response
         .map(|response| Downloading::new(response, alt_capacity, &mut mb))
         .collect::<Vec<_>>();
     let thread = thread::spawn(move || mb.listen());
-    let mut pool = ThreadPool::new()?;
-    let zips = pool.run(future::join_all(downloads))?;
+    let zips = executor::block_on(future::join_all(downloads))?;
     thread.join().unwrap_or_else(|p| panic::resume_unwind(p));
     zips.into_iter().map(ZipArchive::new).collect()
 }

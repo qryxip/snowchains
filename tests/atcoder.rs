@@ -125,9 +125,17 @@ fn check_samples(name: &str, download_dir: &Path, expected: &[(u64, &str, &str)]
                 let (i2, o2, t2) = c.values();
                 assert_eq!(Some(Duration::from_secs(t1)), t2);
                 assert_eq!(i1, i2.as_str());
-                match *o2 {
-                    ExpectedStdout::Exact(ref o2) => assert_eq!(o1, o2),
-                    _ => panic!(),
+                if cfg!(windows) {
+                    match *o2 {
+                        ExpectedStdout::Lines(_) => {}
+                        _ => panic!(),
+                    }
+                    assert!(o2.accepts(&o1));
+                } else {
+                    match *o2 {
+                        ExpectedStdout::Exact(ref o2) => assert_eq!(o1, o2),
+                        _ => panic!(),
+                    }
                 }
             }
         }

@@ -38,15 +38,15 @@ test_script:
   - python -V
   - ps: |
       If (Test-Path env:ATCODER_USERNAME) {
-        cargo +"${env:RUSTUP_TOOLCHAIN}" test --all
-        cargo +"${env:RUSTUP_TOOLCHAIN}" test --all -- --ignored
-        cargo +"${env:RUSTUP_TOOLCHAIN}" test --all --release
-        cargo +"${env:RUSTUP_TOOLCHAIN}" test --all --release -- --ignored
+        cargo test --all
+        cargo test --all -- --ignored
+        cargo test --all --release
+        cargo test --all --release -- --ignored
       } else {
-        cargo +"${env:RUSTUP_TOOLCHAIN}" test --lib
-        cargo +"${env:RUSTUP_TOOLCHAIN}" test --lib -- --ignored
-        cargo +"${env:RUSTUP_TOOLCHAIN}" test --lib --release
-        cargo +"${env:RUSTUP_TOOLCHAIN}" test --lib --release -- --ignored
+        cargo test --lib
+        cargo test --lib -- --ignored
+        cargo test --lib --release
+        cargo test --lib --release -- --ignored
       }
 artifacts:
   - path: '*.zip'
