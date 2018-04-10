@@ -120,7 +120,7 @@ impl SuiteFilePath {
 }
 
 /// Extension of a test suite file.
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SuiteFileExtension {
     Json,

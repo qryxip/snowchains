@@ -49,9 +49,11 @@ pub fn init(directory: PathBuf) -> ConfigResult<()> {
         r#"---
 service: atcoderbeta
 contest: chokudai_s001
-testsuites: snowchains/$service/$contest/
-extension_on_downloading: yaml
-extensions_on_judging: [json, toml, yaml, yml]
+
+testfiles:
+  directory: snowchains/$service/$contest/
+  download: yaml
+  exclude: []
 
 atcoder:
   default_language: {atcoder_default_lang}
@@ -258,12 +260,7 @@ pub fn switch(service: ServiceName, contest: &str) -> ConfigResult<()> {
 pub struct Config {
     service: Option<ServiceName>,
     contest: Option<String>,
-    #[serde(default = "default_testsuites")]
-    testsuites: TemplateString,
-    #[serde(default)]
-    extension_on_downloading: SuiteFileExtension,
-    #[serde(default = "default_extensions")]
-    extensions_on_judging: Vec<SuiteFileExtension>,
+    testfiles: TestFiles,
     #[serde(skip_serializing_if = "Option::is_none")]
     atcoder: Option<Service>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -305,8 +302,8 @@ impl Config {
     }
 
     /// Gets `extension_on_downloading`.
-    pub fn get_extension_on_downloading(&self) -> SuiteFileExtension {
-        self.extension_on_downloading
+    pub fn extension_on_downloading(&self) -> SuiteFileExtension {
+        self.testfiles.download
     }
 
     pub fn src_paths_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, PathTemplate>> {
@@ -332,17 +329,21 @@ impl Config {
         let contest = self.contest.clone().unwrap_or_default();
         let vars = vec![("service", service.as_str()), ("contest", contest.as_str())];
         let vars = HashMap::from_iter(vars);
-        let dir = self.testsuites.resolve_as_path(&self.base_dir, "", &vars)?;
+        let dir = self.testfiles
+            .directory
+            .resolve_as_path(&self.base_dir, "", &vars)?;
         Ok(dir)
     }
 
     pub fn suite_paths(&self, target: &str) -> ConfigResult<SuiteFilePaths> {
+        use testsuite::SuiteFileExtension::{Json, Toml, Yaml, Yml};
         let dir = self.suite_dir()?;
-        Ok(SuiteFilePaths::new(
-            &dir,
-            target,
-            &self.extensions_on_judging,
-        ))
+        let exts_on_judge = [Json, Toml, Yaml, Yml]
+            .iter()
+            .cloned()
+            .filter(|e| !self.testfiles.exclude.contains(e))
+            .collect::<Vec<_>>();
+        Ok(SuiteFilePaths::new(&dir, target, &exts_on_judge))
     }
 
     /// Returns the path of the source file.
@@ -486,19 +487,23 @@ fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
     }
 }
 
-fn default_extensions() -> Vec<SuiteFileExtension> {
-    use testsuite::SuiteFileExtension::{Json, Toml, Yaml, Yml};
-    vec![Json, Toml, Yaml, Yml]
-}
-
-fn default_testsuites() -> TemplateString {
-    TemplateString::new("snowchains/$service/$contest/")
-}
-
 #[derive(Serialize, Deserialize)]
 struct Service {
     default_language: String,
     variables: HashMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TestFiles {
+    #[serde(default = "default_testsuites")]
+    directory: TemplateString,
+    download: SuiteFileExtension,
+    #[serde(default)]
+    exclude: Vec<SuiteFileExtension>,
+}
+
+fn default_testsuites() -> TemplateString {
+    TemplateString::new("snowchains/$service/$contest/")
 }
 
 #[derive(Serialize, Deserialize)]

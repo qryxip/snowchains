@@ -75,7 +75,7 @@ quick_main_colored!(|| -> ::Result<i32> {
             let service = config.service_name()?;
             let contest = config.contest_name()?;
             let dir_to_save = config.suite_dir()?;
-            let extension = config.get_extension_on_downloading();
+            let extension = config.extension_on_downloading();
             let init_prop = init_prop(service)?;
             let download_prop = DownloadProp::new(contest, dir_to_save, extension, open_browser);
             match service {

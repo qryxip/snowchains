@@ -16,10 +16,10 @@ install:
   - ps: |
       If ($Env:RUSTUP_HOST -eq 'x86_64-pc-windows-gnu') {
         Set-Item Env:Path "C:\msys64\mingw64\bin;$Env:Path"
-        gcc --version
+        gcc -v 2>&1
       } ElseIf ($Env:RUSTUP_HOST -eq 'i686-pc-windows-gnu') {
         Set-Item Env:Path "C:\msys64\mingw32\bin;$Env:Path"
-        gcc --version
+        gcc -v 2>&1
       }
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:RUSTUP_HOST}/rustup-init.exe"
   - rustup-init.exe -y --default-toolchain %RUSTUP_TOOLCHAIN% --default-host %RUSTUP_HOST% --no-modify-path
@@ -38,15 +38,15 @@ test_script:
   - python -V
   - ps: |
       If (Test-Path env:ATCODER_USERNAME) {
-        cargo test --all
-        cargo test --all -- --ignored
-        cargo test --all --release
-        cargo test --all --release -- --ignored
+        cargo test --all 2>&1
+        cargo test --all -- --ignored 2>&1
+        cargo test --all --release 2>&1
+        cargo test --all --release -- --ignored 2>&1
       } else {
-        cargo test --lib
-        cargo test --lib -- --ignored
-        cargo test --lib --release
-        cargo test --lib --release -- --ignored
+        cargo test --lib 2>&1
+        cargo test --lib -- --ignored 2>&1
+        cargo test --lib --release 2>&1
+        cargo test --lib --release -- --ignored 2>&1
       }
 artifacts:
   - path: '*.zip'
