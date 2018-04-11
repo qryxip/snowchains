@@ -2,6 +2,7 @@ pub mod atcoder;
 pub mod atcoder_beta;
 pub mod hackerrank;
 
+use config::{Config, ServiceName};
 use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as _SericeResultExt};
 use replacer::CodeReplacer;
 use template::PathTemplate;
@@ -236,6 +237,15 @@ impl InitProp {
         }
     }
 
+    pub fn with_invalid_credentials(&self) -> Self {
+        Self {
+            cookie_path: self.cookie_path.clone(),
+            color_mode: self.color_mode,
+            timeout: self.timeout,
+            credentials: Some(("invalid username".to_owned(), "invalid password".to_owned())),
+        }
+    }
+
     pub(self) fn credentials(&self) -> Option<(String, String)> {
         self.credentials.clone()
     }
@@ -272,18 +282,16 @@ pub struct DownloadProp<C: Contest> {
 }
 
 impl<'a> DownloadProp<&'a str> {
-    pub fn new(
-        contest: &'a str,
-        dir_to_save: PathBuf,
-        extension: SuiteFileExtension,
-        open_browser: bool,
-    ) -> Self {
-        Self {
+    pub fn new(config: &'a Config, open_browser: bool) -> ::Result<Self> {
+        let contest = config.contest_name()?;
+        let dir_to_save = config.suite_dir()?;
+        let extension = config.extension_on_downloading();
+        Ok(Self {
             contest,
             dir_to_save,
             extension,
             open_browser,
-        }
+        })
     }
 
     pub(self) fn transform<C: Contest>(self) -> DownloadProp<C> {
@@ -309,21 +317,24 @@ impl<C: Contest> DownloadProp<C> {
 
 pub struct RestoreProp<'a, C: Contest> {
     contest: C,
-    src_paths: &'a BTreeMap<u32, PathTemplate<'a>>,
-    replacers: &'a BTreeMap<u32, CodeReplacer>,
+    src_paths: BTreeMap<u32, PathTemplate<'a>>,
+    replacers: BTreeMap<u32, CodeReplacer>,
 }
 
 impl<'a> RestoreProp<'a, &'a str> {
-    pub fn new(
-        contest: &'a str,
-        src_paths: &'a BTreeMap<u32, PathTemplate<'a>>,
-        replacers: &'a BTreeMap<u32, CodeReplacer>,
-    ) -> Self {
-        Self {
+    pub fn new(config: &'a Config) -> ::Result<Self> {
+        let service = config.service_name()?;
+        let contest = config.contest_name()?;
+        let replacers = config.code_replacers_on_atcoder()?;
+        let src_paths = match service {
+            ServiceName::AtCoderBeta => config.src_paths_on_atcoder()?,
+            _ => bail!(::ErrorKind::Unimplemented),
+        };
+        Ok(Self {
             contest,
             src_paths,
             replacers,
-        }
+        })
     }
 
     pub(self) fn transform<C: Contest>(self) -> RestoreProp<'a, C> {
@@ -343,31 +354,37 @@ impl<'a, C: Contest> RestoreProp<'a, C> {
         &BTreeMap<u32, PathTemplate>,
         &BTreeMap<u32, CodeReplacer>,
     ) {
-        (&self.contest, self.src_paths, self.replacers)
+        (&self.contest, &self.src_paths, &self.replacers)
     }
 }
 
-pub struct SubmitProp<'a, C: Contest> {
+pub struct SubmitProp<C: Contest> {
     contest: C,
     target: String,
     lang_id: u32,
     src_path: PathBuf,
-    replacer: Option<&'a CodeReplacer>,
+    replacer: Option<CodeReplacer>,
     open_browser: bool,
     skip_checking_if_accepted: bool,
 }
 
-impl<'a> SubmitProp<'a, &'a str> {
+impl<'a> SubmitProp<&'a str> {
     pub fn new(
-        contest: &'a str,
+        config: &'a Config,
         target: String,
-        lang_id: u32,
-        src_path: PathBuf,
-        replacer: Option<&'a CodeReplacer>,
+        language: Option<&str>,
         open_browser: bool,
         skip_checking_if_accepted: bool,
-    ) -> Self {
-        Self {
+    ) -> ::Result<Self> {
+        let service = config.service_name()?;
+        let contest = config.contest_name()?;
+        let src_path = config.src_path(&target, language)?;
+        let replacer = config.code_replacer(language)?;
+        let lang_id = match service {
+            ServiceName::AtCoderBeta => config.atcoder_lang_id(language)?,
+            _ => bail!(::ErrorKind::Unimplemented),
+        };
+        Ok(Self {
             contest,
             target,
             lang_id,
@@ -375,10 +392,10 @@ impl<'a> SubmitProp<'a, &'a str> {
             replacer,
             open_browser,
             skip_checking_if_accepted,
-        }
+        })
     }
 
-    pub(self) fn transform<C: Contest>(self) -> SubmitProp<'a, C> {
+    pub(self) fn transform<C: Contest>(self) -> SubmitProp<C> {
         SubmitProp {
             contest: C::new(self.contest),
             target: self.target,
@@ -391,14 +408,14 @@ impl<'a> SubmitProp<'a, &'a str> {
     }
 }
 
-impl<'a, C: Contest> SubmitProp<'a, C> {
+impl<C: Contest> SubmitProp<C> {
     pub(self) fn values(&self) -> (&C, &str, u32, &Path, Option<&CodeReplacer>, bool, bool) {
         (
             &self.contest,
             &self.target,
             self.lang_id,
             &self.src_path,
-            self.replacer,
+            self.replacer.as_ref(),
             self.open_browser,
             self.skip_checking_if_accepted,
         )

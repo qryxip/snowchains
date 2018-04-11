@@ -9,6 +9,24 @@ use std::process::ExitStatus;
 use std::string::FromUtf8Error;
 use std::sync::mpsc::RecvError;
 
+error_chain!{
+    foreign_links {
+        Service(ServiceError/*, ServiceErrorKind*/);
+        Judge(JudgeError/*, JudgeErrorKind*/);
+        SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
+        Config(ConfigError/*, ConfigErrorKind*/);
+        FileIo(FileIoError/*, FileIoErrorKind*/);
+        Io(io::Error);
+    }
+
+    errors {
+        Unimplemented {
+            description("Unimplemented")
+            display("Sorry, not yet implemented")
+        }
+    }
+}
+
 error_chain! {
     types {
         ServiceError, ServiceErrorKind, ServiceResultExt, ServiceResult;

@@ -55,3 +55,5 @@ pub mod util;
 mod command;
 mod replacer;
 mod template;
+
+pub use errors::{ErrorKind, Result};

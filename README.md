@@ -53,11 +53,13 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 ```yaml
 # Example
 ---
-service: atcoderbeta                           # optional
-contest: chokudai_s001                         # optional
-testsuites: snowchains/$service/$contest/      # default: ”
-extension_on_downloading: yaml                 # default: ”
-extensions_on_judging: [json, toml, yaml, yml] # default: ”
+service: atcoderbeta   # optional
+contest: chokudai_s001 # optional
+
+testfiles:
+  directory: snowchains/$service/$contest/ # default: ”
+  download: yaml                           # default: ”
+  exclude: []                              # default: ”
 
 atcoder:
   default_language: c++
@@ -167,9 +169,11 @@ Or simply:
 ---
 service: atcoderbeta
 contest: chokudai_s001
-testsuites: snowchains/$service/$contest/
-extension_on_downloading: yaml
-extensions_on_judging: [json, toml, yaml, yml]
+
+testfiles:
+  directory: snowchains/$service/$contest/
+  download: yaml
+  exclude: []
 
 atcoder:
   default_language: c++

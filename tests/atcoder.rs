@@ -4,7 +4,7 @@ extern crate env_logger;
 extern crate httpsession;
 extern crate tempdir;
 
-use snowchains::config::ServiceName;
+use snowchains::config::{self, Config, ServiceName};
 use snowchains::service::{DownloadProp, InitProp, SubmitProp};
 use snowchains::service::atcoder_beta;
 use snowchains::terminal;
@@ -15,7 +15,7 @@ use tempdir::TempDir;
 
 use std::env;
 use std::ffi::OsStr;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write as _Write;
 use std::path::Path;
 use std::time::Duration;
@@ -25,10 +25,11 @@ use std::time::Duration;
 fn it_logins() {
     let _ = env_logger::try_init();
     terminal::disable_color();
-    let tempdir = TempDir::new("atcoder_it_logins").unwrap();
-    atcoder_beta::login(&init_prop(&tempdir, false)).unwrap_err();
-    atcoder_beta::login(&init_prop(&tempdir, true)).unwrap();
-    atcoder_beta::login(&init_prop(&tempdir, false)).unwrap();
+    let (tempdir, _, init_prop1) = setup("it_logins", "practice", true);
+    let init_prop2 = init_prop1.with_invalid_credentials();
+    atcoder_beta::login(&init_prop2).unwrap_err();
+    atcoder_beta::login(&init_prop1).unwrap();
+    atcoder_beta::login(&init_prop2).unwrap();
     tempdir.close().unwrap();
 }
 
@@ -37,20 +38,14 @@ fn it_logins() {
 fn it_scrapes_samples_from_practice() {
     let _ = env_logger::try_init();
     terminal::disable_color();
-    let tempdir = TempDir::new("atcoder_it_scrapes_samples_from_practice").unwrap();
-    let init_prop = init_prop(&tempdir, true);
-    let download_dir = tempdir.path().join("practice");
-    let download_prop = DownloadProp::new(
-        "practice",
-        download_dir.clone(),
-        SuiteFileExtension::Yaml,
-        false,
-    );
+    let (tempdir, config, init_prop) = setup("it_scrapes_samples_from_practice", "practice", true);
+    let download_prop = DownloadProp::new(&config, false).unwrap();
     atcoder_beta::download(&init_prop, download_prop).unwrap();
     static SAMPLES_A: &[(u64, &str, &str)] = &[
         (2, "1\n2 3\ntest\n", "6 test\n"),
         (2, "72\n128 256\nmyonmyon\n", "456 myonmyon\n"),
     ];
+    let download_dir = config.suite_dir().unwrap();
     check_samples("a", &download_dir, SAMPLES_A);
     let cases = SuiteFilePaths::new(&download_dir, "b", &[SuiteFileExtension::Yaml])
         .load_merging(false)
@@ -67,15 +62,8 @@ fn it_scrapes_samples_from_practice() {
 fn it_scrapes_samples_from_arc058() {
     let _ = env_logger::try_init();
     terminal::disable_color();
-    let tempdir = TempDir::new("atcoder_it_scrapes_samples_from_arc058").unwrap();
-    let init_prop = init_prop(&tempdir, false);
-    let download_dir = tempdir.path().join("arc058");
-    let download_prop = DownloadProp::new(
-        "arc058",
-        download_dir.clone(),
-        SuiteFileExtension::Yaml,
-        false,
-    );
+    let (tempdir, config, init_prop) = setup("it_scrapes_samples_from_arc058", "arc058", false);
+    let download_prop = DownloadProp::new(&config, false).unwrap();
     atcoder_beta::download(&init_prop, download_prop).unwrap();
     static SAMPLES_C: &[(u64, &str, &str)] = &[
         (2, "1000 8\n1 3 4 5 6 7 8 9\n", "2000\n"),
@@ -102,6 +90,7 @@ fn it_scrapes_samples_from_arc058() {
             "namidazzzzzzz\n",
         ),
     ];
+    let download_dir = config.suite_dir().unwrap();
     for &(name, expected) in &[
         ("c", SAMPLES_C),
         ("d", SAMPLES_D),
@@ -167,30 +156,42 @@ if __name__ == '__main__':
         )
     }
 
-    let tempdir = TempDir::new("it_submits_to_practice_a").unwrap();
-    let src = tempdir.path().join("a.py");
-    File::create(&src)
+    let (tempdir, config, init_prop) = setup("it_submits_to_practice_a", "practice", true);
+    fs::create_dir(tempdir.path().join("py")).unwrap();
+    File::create(tempdir.path().join("py").join("a.py"))
         .unwrap()
         .write_all(code().as_bytes())
         .unwrap();
-    let init_prop = init_prop(&tempdir, true);
-    let submit_prop = SubmitProp::new("practice", "a".to_owned(), 3023, src, None, false, true);
+    let submit_prop = SubmitProp::new(&config, "a".to_owned(), None, false, true).unwrap();
     atcoder_beta::submit(&init_prop, submit_prop).unwrap();
 }
 
-fn init_prop(tempdir: &TempDir, credentials: bool) -> InitProp {
-    let credentials = if credentials {
-        let username = env::var("ATCODER_USERNAME").unwrap();
-        let password = env::var("ATCODER_PASSWORD").unwrap();
-        Some((username, password))
-    } else {
-        Some(("invalid-username".to_owned(), "invalid-password".to_owned()))
+fn setup(
+    tempdir_prefix: &str,
+    contest: &str,
+    use_credentials: bool,
+) -> (TempDir, Config, InitProp) {
+    let tempdir = TempDir::new(tempdir_prefix).unwrap();
+    let config = {
+        config::init(tempdir.path().to_owned(), Some("python3"), Some("\"\"")).unwrap();
+        config::switch(ServiceName::AtCoderBeta, contest, tempdir.path().to_owned()).unwrap();
+        Config::load_from_file(None, None, tempdir.path().to_owned()).unwrap()
     };
-    let cookie_path = tempdir.path().join(ServiceName::AtCoderBeta.as_str());
-    InitProp::new(
-        cookie_path,
-        ColorMode::NoColor,
-        Duration::from_secs(10),
-        credentials,
-    )
+    let init_prop = {
+        let credentials = if use_credentials {
+            let username = env::var("ATCODER_USERNAME").unwrap();
+            let password = env::var("ATCODER_PASSWORD").unwrap();
+            Some((username, password))
+        } else {
+            Some(("invalid username".to_owned(), "invalid password".to_owned()))
+        };
+        let cookie_path = tempdir.path().join(ServiceName::AtCoderBeta.as_str());
+        InitProp::new(
+            cookie_path,
+            ColorMode::NoColor,
+            Duration::from_secs(10),
+            credentials,
+        )
+    };
+    (tempdir, config, init_prop)
 }

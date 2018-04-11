@@ -2,6 +2,7 @@ mod interactive;
 mod simple;
 
 use command::{CompilationCommand, JudgingCommand};
+use config::Config;
 use errors::{JudgeError, JudgeErrorKind, JudgeResult};
 use terminal::Color;
 use testsuite::{TestCase, TestCases};
@@ -15,11 +16,7 @@ use std::time::Duration;
 /// # Errors
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
-pub fn judge(
-    cases: TestCases,
-    solver: JudgingCommand,
-    compilation: Option<CompilationCommand>,
-) -> JudgeResult<()> {
+pub fn judge(prop: JudgeProp) -> JudgeResult<()> {
     fn judge_all<C: TestCase, O: JudgingOutput>(
         cases: Vec<C>,
         solver: &Arc<JudgingCommand>,
@@ -59,6 +56,7 @@ pub fn judge(
         }
     }
 
+    let (cases, solver, compilation) = (prop.cases, prop.solver, prop.compilation);
     if let Some(compilation) = compilation {
         compilation.execute()?;
         println!();
@@ -66,6 +64,25 @@ pub fn judge(
     match cases {
         TestCases::Simple(cases) => judge_all(cases, &Arc::new(solver), simple::judge),
         TestCases::Interactive(cases) => judge_all(cases, &Arc::new(solver), interactive::judge),
+    }
+}
+
+pub struct JudgeProp {
+    cases: TestCases,
+    solver: JudgingCommand,
+    compilation: Option<CompilationCommand>,
+}
+
+impl JudgeProp {
+    pub fn from_config(config: &Config, target: &str, language: Option<&str>) -> ::Result<Self> {
+        let cases = config.suite_paths(&target)?.load_merging(false)?;
+        let solver = config.construct_solver(&target, language)?;
+        let compilation = config.construct_compilation_command(&target, language)?;
+        Ok(Self {
+            cases,
+            solver,
+            compilation,
+        })
     }
 }
 

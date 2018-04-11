@@ -9,7 +9,7 @@ use util;
 use {rprompt, serde_yaml};
 use regex::Regex;
 
-use std::{cmp, env, fmt, fs};
+use std::{cmp, fmt, fs};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Write};
@@ -18,14 +18,20 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 /// Creates `snowchains.yaml` in `directory`.
-pub fn init(directory: PathBuf) -> ConfigResult<()> {
+pub fn init(
+    directory: PathBuf,
+    atcoder_default_lang: Option<&'static str>,
+    hackerrank_default_lang: Option<&'static str>,
+) -> ConfigResult<()> {
     const LANGS: [&str; 8] = [
         "c++", "rust", "haskell", "bash", "python3", "java", "scala", "c#"
     ];
 
-    println!("Choose or input:");
-    for (i, lang) in LANGS.iter().enumerate() {
-        println!("{}) {}", i + 1, lang);
+    if atcoder_default_lang.is_none() && hackerrank_default_lang.is_none() {
+        println!("Choose or input:");
+        for (i, lang) in LANGS.iter().enumerate() {
+            println!("{}) {}", i + 1, lang);
+        }
     }
 
     let ask = |prompt: &str| -> io::Result<Cow<'static, str>> {
@@ -42,8 +48,14 @@ pub fn init(directory: PathBuf) -> ConfigResult<()> {
         }
     };
 
-    let atcoder_default_lang = ask("Atcoder/Atcoder(Beta): ")?;
-    let hackerrank_default_lang = ask("HackerRank: ")?;
+    let atcoder_default_lang = match atcoder_default_lang {
+        Some(atcoder_default_lang) => atcoder_default_lang.into(),
+        None => ask("Atcoder/Atcoder(Beta): ")?,
+    };
+    let hackerrank_default_lang = match hackerrank_default_lang {
+        Some(hackerrank_default_lang) => hackerrank_default_lang.into(),
+        None => ask("HackerRank: ")?,
+    };
 
     let config = format!(
         r#"---
@@ -194,7 +206,7 @@ languages:
 }
 
 /// Changes <service> and <contest>.
-pub fn switch(service: ServiceName, contest: &str) -> ConfigResult<()> {
+pub fn switch(service: ServiceName, contest: &str, dir: PathBuf) -> ConfigResult<()> {
     fn str_from_opt<T: fmt::Display>(x: &Option<T>) -> Cow<'static, str> {
         match *x {
             Some(ref x) => Cow::Owned(format!("{:?}", x.to_string())),
@@ -210,7 +222,7 @@ pub fn switch(service: ServiceName, contest: &str) -> ConfigResult<()> {
         println!(" -> {:?}", new);
     }
 
-    let (_, path) = find_base()?;
+    let (_, path) = find_base(dir)?;
     let text = util::string_from_file_path(&path)?;
     println!("Loaded {}", path.display());
     let (replaced, prev_service, prev_contest) = {
@@ -275,8 +287,9 @@ impl Config {
     pub fn load_from_file(
         service: Option<ServiceName>,
         contest: Option<String>,
+        dir: PathBuf,
     ) -> ConfigResult<Self> {
-        let (base, path) = find_base()?;
+        let (base, path) = find_base(dir)?;
         let mut config = serde_yaml::from_reader::<_, Self>(util::open_file(&path)?)?;
         config.base_dir = base;
         config.service = service.or(config.service);
@@ -464,7 +477,7 @@ impl ServiceName {
     }
 }
 
-fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
+fn find_base(start: PathBuf) -> ConfigResult<(PathBuf, PathBuf)> {
     fn snowchain_yaml_exists(dir: &Path) -> io::Result<bool> {
         for entry in fs::read_dir(dir)? {
             let path = entry?.path();
@@ -475,7 +488,7 @@ fn find_base() -> ConfigResult<(PathBuf, PathBuf)> {
         Ok(false)
     }
 
-    let mut dir = env::current_dir()?;
+    let mut dir = start;
     loop {
         if let Ok(true) = snowchain_yaml_exists(&dir) {
             let mut path = dir.clone();
