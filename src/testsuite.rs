@@ -1,11 +1,13 @@
 use errors::{FileIoErrorKind, FileIoResultExt, SuiteFileErrorKind, SuiteFileResult};
+use template::PathTemplate;
 use terminal::Color;
 use util;
 
 use {serde_json, serde_yaml, toml};
 use decimal::d128;
 
-use std::{self, fmt};
+use std::{self, fmt, iter, slice};
+use std::borrow::Cow;
 use std::io::Write as _Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -19,28 +21,33 @@ pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteF
     suite.save(path, false)
 }
 
-pub struct SuiteFilePaths {
-    directory: PathBuf,
-    stem: String,
+pub struct SuiteFilePaths<'a> {
+    directory: PathTemplate<'a>,
+    stem: &'a str,
     extensions: Vec<SuiteFileExtension>,
 }
 
-impl SuiteFilePaths {
-    pub fn new(directory: &Path, stem: &str, extensions: &[SuiteFileExtension]) -> Self {
+impl<'a> SuiteFilePaths<'a> {
+    pub fn new(
+        directory: PathTemplate<'a>,
+        stem: &'a str,
+        extensions: Vec<SuiteFileExtension>,
+    ) -> Self {
         Self {
-            directory: directory.to_owned(),
-            stem: stem.to_owned(),
-            extensions: extensions.to_vec(),
+            directory,
+            stem,
+            extensions,
         }
     }
 
     /// Merge test suites in `dir` which filename stem equals `stem` and
     /// extension is in `extensions`.
     pub fn load_merging(&self, allow_missing: bool) -> SuiteFileResult<TestCases> {
+        let dir = self.directory.expand(self.stem)?;
         let existing_suites = self.extensions
             .iter()
             .filter_map(|&ext| {
-                let path = SuiteFilePath::new(&self.directory, self.stem.clone(), ext);
+                let path = SuiteFilePath::new(&dir, self.stem, ext);
                 if path.build().exists() {
                     Some(TestSuite::load(&path))
                 } else {
@@ -53,7 +60,7 @@ impl SuiteFilePaths {
             if allow_missing {
                 Ok(TestCases::Simple(vec![]))
             } else {
-                bail!(SuiteFileErrorKind::NoFile(self.directory.clone()));
+                bail!(SuiteFileErrorKind::NoFile(dir.clone()));
             }
         } else if existing_suites.iter().all(TestSuite::is_simple) {
             let cases = existing_suites
@@ -88,7 +95,7 @@ impl SuiteFilePaths {
                     .collect(),
             ))
         } else if existing_suites.iter().all(TestSuite::is_unsubmittable) {
-            bail!(SuiteFileErrorKind::Unsubmittable(self.stem.clone()))
+            bail!(SuiteFileErrorKind::Unsubmittable(self.stem.to_owned()))
         } else {
             bail!(SuiteFileErrorKind::DifferentTypesOfSuites);
         }
@@ -96,26 +103,29 @@ impl SuiteFilePaths {
 }
 
 /// File path which extension is 'json', 'toml', 'yaml', or 'yml'.
-pub struct SuiteFilePath {
-    directory: PathBuf,
-    stem: String,
+pub struct SuiteFilePath<'a> {
+    directory: &'a Path,
+    stem: Cow<'a, str>,
     extension: SuiteFileExtension,
 }
 
-impl SuiteFilePath {
-    pub fn new<S: Into<String>>(directory: &Path, stem: S, extension: SuiteFileExtension) -> Self {
+impl<'a> SuiteFilePath<'a> {
+    pub fn new<S: Into<Cow<'a, str>>>(
+        directory: &'a Path,
+        stem: S,
+        extension: SuiteFileExtension,
+    ) -> Self {
         Self {
-            directory: PathBuf::from(directory),
+            directory,
             stem: stem.into(),
             extension,
         }
     }
 
     pub fn build(&self) -> PathBuf {
-        let mut path = PathBuf::from(&self.directory);
-        path.push(&self.stem);
-        path.set_extension(&self.extension.to_string());
-        path
+        self.directory
+            .with_file_name(self.stem.as_ref())
+            .with_extension(&self.extension.to_string())
     }
 }
 
@@ -157,6 +167,13 @@ impl FromStr for SuiteFileExtension {
             ref s if s == "yml" => Ok(SuiteFileExtension::Yml),
             ref s => Err(format!("Unsupported extension: {:?}", s)),
         }
+    }
+}
+
+impl SuiteFileExtension {
+    pub(crate) fn all() -> iter::Cloned<slice::Iter<'static, Self>> {
+        use testsuite::SuiteFileExtension::{Json, Toml, Yaml, Yml};
+        [Json, Toml, Yaml, Yml].iter().cloned()
     }
 }
 
@@ -586,7 +603,7 @@ impl fmt::Display for NonNestedValue {
             },
             NonNestedValue::Multiple(ref xs) => {
                 if xs.is_empty() {
-                    writeln!(f, "")
+                    writeln!(f)
                 } else {
                     for x in xs {
                         match *x {

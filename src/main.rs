@@ -11,14 +11,14 @@ extern crate structopt;
 extern crate env_logger;
 extern crate httpsession;
 
-use snowchains::config::{self, Config, ServiceName};
+use snowchains::{util, ServiceName};
+use snowchains::config::{self, Config};
 use snowchains::errors::FileIoResult;
 use snowchains::judging::{self, JudgeProp};
 use snowchains::service::{atcoder, atcoder_beta, hackerrank, DownloadProp, InitProp, RestoreProp,
                           SubmitProp};
 use snowchains::terminal::Color;
 use snowchains::testsuite::{self, SuiteFileExtension, SuiteFilePath};
-use snowchains::util;
 
 use error_chain::{ChainedError, ExitCode};
 use httpsession::ColorMode;
@@ -45,7 +45,7 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
         }
         Opt::Switch { service, contest } => {
             info!("Running \"switch\" command");
-            config::switch(service, &contest, env::current_dir()?)?;
+            config::switch(service, &contest, &env::current_dir()?)?;
         }
         Opt::Login { service } => {
             info!("Running \"login\" command");
@@ -71,10 +71,10 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
             open_browser,
         } => {
             info!("Running \"download\" command");
-            let config = Config::load_from_file(service, contest, env::current_dir()?)?;
+            let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
             let init_prop = init_prop_from_config(&config)?;
             let download_prop = DownloadProp::new(&config, open_browser)?;
-            match config.service_name()? {
+            match config.service()? {
                 ServiceName::AtCoder => atcoder::download(&download_prop),
                 ServiceName::AtCoderBeta => atcoder_beta::download(&init_prop, download_prop),
                 ServiceName::HackerRank => hackerrank::download(&download_prop),
@@ -82,10 +82,10 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
         }
         Opt::Restore { service, contest } => {
             info!("Running \"restore\" command");
-            let config = Config::load_from_file(service, contest, env::current_dir()?)?;
+            let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
             let init_prop = init_prop_from_config(&config)?;
             let restore_prop = RestoreProp::new(&config)?;
-            match config.service_name()? {
+            match config.service()? {
                 ServiceName::AtCoderBeta => atcoder_beta::restore(&init_prop, restore_prop)?,
                 _ => bail!(snowchains::ErrorKind::Unimplemented),
             };
@@ -99,8 +99,8 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
             contest,
         } => {
             info!("Running \"append\" command");
-            let config = Config::load_from_file(service, contest, env::current_dir()?)?;
-            let dir = config.suite_dir()?;
+            let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
+            let dir = config.testfiles_dir()?.expand("")?;
             let path = SuiteFilePath::new(&dir, target, extension);
             testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
         }
@@ -112,7 +112,7 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
         } => {
             let language = language.as_ref().map(String::as_str);
             info!("Running \"judge\" command");
-            let config = Config::load_from_file(service, contest, env::current_dir()?)?;
+            let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
             let prop = JudgeProp::from_config(&config, &target, language)?;
             judging::judge(prop)?;
         }
@@ -127,7 +127,7 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
         } => {
             let language = language.as_ref().map(String::as_str);
             info!("Running \"submit\" command");
-            let config = Config::load_from_file(service, contest, env::current_dir()?)?;
+            let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
             let init_prop = init_prop_from_config(&config)?;
             let judge_prop = JudgeProp::from_config(&config, &target, language)?;
             let submit_prop = SubmitProp::new(
@@ -141,7 +141,7 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
                 judging::judge(judge_prop)?;
                 println!();
             }
-            match config.service_name()? {
+            match config.service()? {
                 ServiceName::AtCoderBeta => atcoder_beta::submit(&init_prop, submit_prop)?,
                 _ => bail!(snowchains::ErrorKind::Unimplemented),
             };
@@ -328,7 +328,7 @@ enum Opt {
 }
 
 fn init_prop_from_config(config: &Config) -> snowchains::Result<InitProp> {
-    let service = config.service_name()?;
+    let service = config.service()?;
     init_prop(service).map_err(Into::into)
 }
 

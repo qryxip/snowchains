@@ -15,16 +15,16 @@ pub struct PathTemplate<'a> {
 }
 
 impl<'a> PathTemplate<'a> {
-    pub fn format(&self, target: &str) -> FileIoResult<PathBuf> {
+    pub fn expand(&self, target: &str) -> FileIoResult<PathBuf> {
         let formatted = self.template.format(target);
         util::expand_path(&formatted, self.base_dir)
     }
 }
 
-pub struct Template(Vec<TemplateToken>);
+pub(crate) struct Template(Vec<TemplateToken>);
 
 impl Template {
-    pub fn format(&self, target: &str) -> String {
+    pub(crate) fn format(&self, target: &str) -> String {
         self.0.iter().fold("".to_owned(), |mut r, t| {
             match *t {
                 TemplateToken::Plain(ref s) => r += s,
@@ -35,7 +35,7 @@ impl Template {
         })
     }
 
-    pub fn with_base_dir(self, base_dir: &Path) -> PathTemplate {
+    pub(crate) fn with_base_dir(self, base_dir: &Path) -> PathTemplate {
         PathTemplate {
             template: self,
             base_dir,
@@ -50,14 +50,14 @@ enum TemplateToken {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct TemplateString(Cow<'static, str>);
+pub(crate) struct TemplateString(Cow<'static, str>);
 
 impl TemplateString {
-    pub fn new<S: Into<Cow<'static, str>>>(s: S) -> Self {
+    pub(crate) fn new<S: Into<Cow<'static, str>>>(s: S) -> Self {
         TemplateString(s.into())
     }
 
-    pub fn resolve_as_path(
+    pub(crate) fn resolve_as_path(
         &self,
         base_dir: &Path,
         target: &str,
@@ -65,16 +65,29 @@ impl TemplateString {
     ) -> TemplateResult<PathBuf> {
         let resolved = self.embed_vars(variables)?
             .with_base_dir(base_dir)
-            .format(target)?;
+            .expand(target)?;
         Ok(resolved)
     }
 
-    pub fn format(&self, target: &str, variables: &HashMap<&str, &str>) -> TemplateResult<String> {
+    pub(crate) fn format(
+        &self,
+        target: &str,
+        variables: &HashMap<&str, &str>,
+    ) -> TemplateResult<String> {
         let transformed = self.embed_vars(variables)?;
         Ok(transformed.format(target))
     }
 
-    pub fn embed_vars(&self, variables: &HashMap<&str, &str>) -> TemplateResult<Template> {
+    pub(crate) fn as_path_template<'a>(
+        &self,
+        base_dir: &'a Path,
+        variables: &HashMap<&str, &str>,
+    ) -> TemplateResult<PathTemplate<'a>> {
+        let template = self.embed_vars(variables)?;
+        Ok(PathTemplate { template, base_dir })
+    }
+
+    pub(crate) fn embed_vars(&self, variables: &HashMap<&str, &str>) -> TemplateResult<Template> {
         enum Token {
             Text(String),
             Var(String),
@@ -184,7 +197,7 @@ impl TemplateString {
         #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
         fn tokenize(template: &str) -> TemplateResult<Vec<Token>> {
             let syntax_error =
-                || -> TemplateError { TemplateErrorKind::Syntax(template.to_owned()).into() };
+                || TemplateError::from(TemplateErrorKind::Syntax(template.to_owned()));
             let mut state = State::Plain("".to_owned());
             let mut tokens = vec![];
             for c in template.chars() {
@@ -227,11 +240,9 @@ impl TemplateString {
 
 #[cfg(test)]
 mod tests {
-    use super::TemplateString;
+    use template::TemplateString;
 
     use std::collections::HashMap;
-    use std::env;
-    use std::iter::FromIterator;
 
     #[test]
     fn it_parses_a_template() {
@@ -242,16 +253,16 @@ mod tests {
         let vars = HashMap::new();
         assert_eq!("cs/A/A.cs", template.format("a", &vars).unwrap());
         let template = TemplateString::new("gcc -o $bin $src");
-        let vars = HashMap::from_iter(vec![("src", "SRC"), ("bin", "BIN")]);
+        let vars = hashmap!("src" => "SRC", "bin" => "BIN");
         assert_eq!("gcc -o BIN SRC", template.format("", &vars).unwrap());
         let template = TemplateString::new("{ c }/{c}/{C}");
         let vars = HashMap::new();
         assert_eq!("Name/Name/Name", template.format("name", &vars).unwrap());
         let template = TemplateString::new("$foo/$bar/$baz");
-        let vars = HashMap::from_iter(vec![("foo", "FOO"), ("bar", "BAR"), ("baz", "BAZ")]);
+        let vars = hashmap!("foo" => "FOO", "bar" => "BAR", "baz" => "BAZ");
         assert_eq!("FOO/BAR/BAZ", template.format("", &vars).unwrap());
         let template = TemplateString::new("$$$");
-        let vars = HashMap::from_iter(vec![("", "AAA")]);
+        let vars = hashmap!("" => "AAA");
         assert_eq!("AAAAAAAAA", template.format("", &vars).unwrap());
 
         let template = TemplateString::new("{}/{{}}");
@@ -271,6 +282,7 @@ mod tests {
         {
             use errors::{TemplateError, TemplateErrorKind};
 
+            use std::env;
             use std::ffi::OsStr;
             use std::os::unix::ffi::OsStrExt;
 

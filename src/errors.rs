@@ -15,6 +15,7 @@ error_chain!{
         Judge(JudgeError/*, JudgeErrorKind*/);
         SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
         Config(ConfigError/*, ConfigErrorKind*/);
+        Template(TemplateError/*, TemplateErrorKind*/);
         FileIo(FileIoError/*, FileIoErrorKind*/);
         Io(io::Error);
     }
@@ -280,6 +281,11 @@ error_chain! {
     }
 
     errors {
+        Search(name: &'static str, start: PathBuf) {
+            description("Failed to search")
+            display("Could not find {:?} in {} or any parent directory", name, start.display())
+        }
+
         OpenInReadOnly(path: PathBuf) {
             description("Failed to open a file in read-only mode")
             display("An IO error occurred while opening {} in read-only mode", path.display())

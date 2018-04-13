@@ -1,11 +1,9 @@
 use errors::{CodeReplaceErrorKind, CodeReplaceResult};
-use template::{Template, TemplateString};
+use template::Template;
 
 use regex::Regex;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::hash::Hash;
 
 pub struct CodeReplacer {
     regex: Regex,
@@ -16,29 +14,20 @@ pub struct CodeReplacer {
 }
 
 impl CodeReplacer {
-    pub fn new<S1: AsRef<str> + Eq + Hash, S2: AsRef<str> + Eq + Hash>(
-        regex: &str,
+    pub(crate) fn new(
+        regex: Regex,
         regex_group: usize,
-        local: &TemplateString,
-        vars_for_local: Option<&HashMap<S1, S2>>,
+        local: Template,
         atcoder: Cow<'static, str>,
         once: bool,
-    ) -> CodeReplaceResult<Self> {
-        let mut vars = HashMap::new();
-        if let Some(vars_for_local) = vars_for_local {
-            for (k, v) in vars_for_local.iter() {
-                vars.insert(k.as_ref(), v.as_ref());
-            }
-        }
-        let local = local.embed_vars(&vars)?;
-        let regex = Regex::new(regex)?;
-        Ok(Self {
+    ) -> Self {
+        Self {
             regex,
             regex_group,
             local,
             atcoder,
             once,
-        })
+        }
     }
 
     pub fn replace_as_atcoder_submission(
@@ -96,9 +85,13 @@ impl CodeReplacer {
 
 #[cfg(test)]
 mod tests {
-    use errors::{CodeReplaceError, CodeReplaceErrorKind, CodeReplaceResult};
+    use errors::{CodeReplaceError, CodeReplaceErrorKind};
     use replacer::CodeReplacer;
     use template::TemplateString;
+
+    use regex::Regex;
+
+    use std::collections::HashMap;
 
     #[test]
     fn it_replaces_a_scala_code() {
@@ -127,23 +120,21 @@ object Main {
 object Foo {}
 "#;
 
-        fn code_replacer(regex_group: usize) -> CodeReplaceResult<CodeReplacer> {
-            CodeReplacer::new::<String, String>(
-                r"^object\s+([A-Z][a-zA-Z0-9_]*).*$",
+        fn code_replacer(regex_group: usize) -> CodeReplacer {
+            CodeReplacer::new(
+                Regex::new(r"^object\s+([A-Z][a-zA-Z0-9_]*).*$").unwrap(),
                 regex_group,
-                &TemplateString::new("{C}"),
-                None,
+                TemplateString::new("{C}")
+                    .embed_vars(&HashMap::new())
+                    .unwrap(),
                 "Main".into(),
                 true,
             )
         }
 
-        let replaced = code_replacer(1)
-            .unwrap()
-            .replace(CODE, "A", "Main")
-            .unwrap();
+        let replaced = code_replacer(1).replace(CODE, "A", "Main").unwrap();
         assert_eq!(EXPECTED, replaced);
-        match code_replacer(2).unwrap().replace(CODE, "", "").unwrap_err() {
+        match code_replacer(2).replace(CODE, "", "").unwrap_err() {
             CodeReplaceError(CodeReplaceErrorKind::RegexGroupOutOfBounds(2), _) => {}
             e => panic!("{}", e),
         }

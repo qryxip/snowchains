@@ -1,6 +1,7 @@
+use ServiceName;
 use command::{CompilationCommand, JudgingCommand};
-use errors::{CodeReplaceResult, ConfigError, ConfigErrorKind, ConfigResult, FileIoErrorKind,
-             FileIoResult, FileIoResultExt};
+use errors::{ConfigError, ConfigErrorKind, ConfigResult, FileIoErrorKind, FileIoResult,
+             FileIoResultExt};
 use replacer::CodeReplacer;
 use template::{PathTemplate, TemplateString};
 use testsuite::{SuiteFileExtension, SuiteFilePaths};
@@ -9,13 +10,13 @@ use util;
 use {rprompt, serde_yaml};
 use regex::Regex;
 
-use std::{cmp, fmt, fs};
+use std::{cmp, fmt, fs, str};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
-use std::io::{self, Write};
-use std::iter::FromIterator;
+use std::io::{self, Write as _Write};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
+
+static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
 pub fn init(
@@ -198,7 +199,7 @@ languages:
     );
 
     let mut path = directory;
-    path.push("snowchains.yaml");
+    path.push(CONFIG_FILE_NAME);
     util::create_file_and_dirs(&path)?
         .write_all(config.as_bytes())
         .chain_err(|| FileIoErrorKind::Write(path.to_owned()))?;
@@ -206,7 +207,7 @@ languages:
 }
 
 /// Changes <service> and <contest>.
-pub fn switch(service: ServiceName, contest: &str, dir: PathBuf) -> ConfigResult<()> {
+pub fn switch(service: ServiceName, contest: &str, dir: &Path) -> ConfigResult<()> {
     fn str_from_opt<T: fmt::Display>(x: &Option<T>) -> Cow<'static, str> {
         match *x {
             Some(ref x) => Cow::Owned(format!("{:?}", x.to_string())),
@@ -222,7 +223,7 @@ pub fn switch(service: ServiceName, contest: &str, dir: PathBuf) -> ConfigResult
         println!(" -> {:?}", new);
     }
 
-    let (_, path) = find_base(dir)?;
+    let path = find_base(dir)?.join(CONFIG_FILE_NAME);
     let text = util::string_from_file_path(&path)?;
     println!("Loaded {}", path.display());
     let (replaced, prev_service, prev_contest) = {
@@ -287,9 +288,10 @@ impl Config {
     pub fn load_from_file(
         service: Option<ServiceName>,
         contest: Option<String>,
-        dir: PathBuf,
+        dir: &Path,
     ) -> ConfigResult<Self> {
-        let (base, path) = find_base(dir)?;
+        let base = find_base(dir)?;
+        let path = base.join(CONFIG_FILE_NAME);
         let mut config = serde_yaml::from_reader::<_, Self>(util::open_file(&path)?)?;
         config.base_dir = base;
         config.service = service.or(config.service);
@@ -299,7 +301,7 @@ impl Config {
     }
 
     /// Gets `service`.
-    pub fn service_name(&self) -> ConfigResult<ServiceName> {
+    pub fn service(&self) -> ConfigResult<ServiceName> {
         match self.service {
             Some(service) => Ok(service),
             None => bail!(ConfigErrorKind::PropertyNotSet("service")),
@@ -307,14 +309,37 @@ impl Config {
     }
 
     /// Gets `contest`.
-    pub fn contest_name(&self) -> ConfigResult<&str> {
+    pub fn contest(&self) -> ConfigResult<&str> {
         match self.contest {
             Some(ref contest) => Ok(contest),
             None => bail!(ConfigErrorKind::PropertyNotSet("contest")),
         }
     }
 
-    /// Gets `extension_on_downloading`.
+    /// Gets `testfiles/directory` as path.
+    pub fn testfiles_dir(&self) -> ConfigResult<PathTemplate> {
+        let mut vars = hashmap!();
+        if let Some(service) = self.service {
+            vars.insert("service", service.as_str());
+        }
+        if let Some(ref contest) = self.contest {
+            vars.insert("contest", &contest);
+        }
+        self.testfiles
+            .directory
+            .as_path_template(&self.base_dir, &vars)
+            .map_err(Into::into)
+    }
+
+    pub fn suite_paths<'a>(&'a self, target: &'a str) -> ConfigResult<SuiteFilePaths<'a>> {
+        let dir = self.testfiles_dir()?;
+        let exts_on_judge = SuiteFileExtension::all()
+            .filter(|e| !self.testfiles.exclude.contains(e))
+            .collect::<Vec<_>>();
+        Ok(SuiteFilePaths::new(dir, target, exts_on_judge))
+    }
+
+    /// Gets `testfiles/download`.
     pub fn extension_on_downloading(&self) -> SuiteFileExtension {
         self.testfiles.download
     }
@@ -336,39 +361,19 @@ impl Config {
         Ok(templates)
     }
 
-    /// Gets the absolute path of the test suite files directory
-    pub fn suite_dir(&self) -> ConfigResult<PathBuf> {
-        let service = self.service.map(|s| s.to_string()).unwrap_or_default();
-        let contest = self.contest.clone().unwrap_or_default();
-        let vars = vec![("service", service.as_str()), ("contest", contest.as_str())];
-        let vars = HashMap::from_iter(vars);
-        let dir = self.testfiles
-            .directory
-            .resolve_as_path(&self.base_dir, "", &vars)?;
-        Ok(dir)
-    }
-
-    pub fn suite_paths(&self, target: &str) -> ConfigResult<SuiteFilePaths> {
-        use testsuite::SuiteFileExtension::{Json, Toml, Yaml, Yml};
-        let dir = self.suite_dir()?;
-        let exts_on_judge = [Json, Toml, Yaml, Yml]
-            .iter()
-            .cloned()
-            .filter(|e| !self.testfiles.exclude.contains(e))
-            .collect::<Vec<_>>();
-        Ok(SuiteFilePaths::new(&dir, target, &exts_on_judge))
-    }
-
-    /// Returns the path of the source file.
-    pub fn src_path(&self, target: &str, lang_name: Option<&str>) -> ConfigResult<PathBuf> {
-        let (lang, vars) = self.lang_property(lang_name)?;
-        Ok(lang.resolve_src(&self.base_dir, target, vars)?)
+    pub(crate) fn src_to_submit(&self, language: Option<&str>) -> ConfigResult<PathTemplate> {
+        let lang = self.language(language)?;
+        let vars = self.vars_on_service(None);
+        lang.src
+            .as_path_template(&self.base_dir, &vars)
+            .map_err(Into::into)
     }
 
     pub fn code_replacer(&self, lang_name: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
-        let (lang, vars) = self.lang_property(lang_name)?;
+        let lang = self.language(lang_name)?;
+        let vars = self.vars_on_service(None);
         let replacer = match lang.replace.as_ref() {
-            Some(replacer) => Some(replacer.build(vars)?),
+            Some(replacer) => Some(replacer.build(&vars)?),
             None => None,
         };
         Ok(replacer)
@@ -380,7 +385,7 @@ impl Config {
             if let Some(lang_id) = lang.language_ids.atcoder {
                 if let Some(ref replacer_prop) = lang.replace {
                     let replacer =
-                        replacer_prop.build(self.atcoder.as_ref().map(|a| &a.variables))?;
+                        replacer_prop.build(&self.vars_on_service(Some(ServiceName::AtCoder)))?;
                     replacers.insert(lang_id, replacer);
                 }
             }
@@ -390,7 +395,7 @@ impl Config {
 
     /// Returns the `lang_id` of `lang_name` or a default language
     pub fn atcoder_lang_id(&self, lang_name: Option<&str>) -> ConfigResult<u32> {
-        let (lang, _) = self.lang_property(lang_name)?;
+        let lang = self.language(lang_name)?;
         lang.language_ids.atcoder.ok_or_else(|| {
             ConfigError::from(ConfigErrorKind::PropertyNotSet("language_ids.atcoder"))
         })
@@ -403,8 +408,29 @@ impl Config {
         target: &str,
         lang_name: Option<&str>,
     ) -> ConfigResult<Option<CompilationCommand>> {
-        let (lang, vars) = self.lang_property(lang_name)?;
-        Ok(lang.construct_compilation_command(&self.base_dir, target, vars)?)
+        let lang = self.language(lang_name)?;
+        let vars_on_service = self.vars_on_service(None);
+        match lang.compile {
+            None => Ok(None),
+            Some(ref compile) => {
+                let wd = compile.working_directory.resolve(&self.base_dir)?;
+                let src = lang.src
+                    .resolve_as_path(&self.base_dir, target, &HashMap::new())?;
+                let bin = compile
+                    .bin
+                    .resolve_as_path(&self.base_dir, target, &HashMap::new())?;
+                let (src_s, bin_s) = (src.display().to_string(), bin.display().to_string());
+                let vars = {
+                    let mut vars = hashmap!("src" => src_s.as_str(), "bin" => bin_s.as_str());
+                    for (k, v) in &vars_on_service {
+                        vars.insert(k, v);
+                    }
+                    vars
+                };
+                let cmd = compile.command.format(target, &vars)?;
+                Ok(Some(CompilationCommand::new(cmd, wd, src, bin)))
+            }
+        }
     }
 
     /// Constructs arguments of execution command for given or default language.
@@ -413,89 +439,81 @@ impl Config {
         target: &str,
         lang_name: Option<&str>,
     ) -> ConfigResult<JudgingCommand> {
-        let (lang, vars) = self.lang_property(lang_name)?;
-        Ok(lang.construct_solver(&self.base_dir, target, vars)?)
+        let lang = self.language(lang_name)?;
+        let vars_on_service = self.vars_on_service(None);
+        let base = &self.base_dir;
+        let wd = lang.run.working_directory.resolve(base)?;
+        let (src, bin) = {
+            let mut vars = HashMap::new();
+            for (&k, &v) in &vars_on_service {
+                vars.insert(k, v);
+            }
+            let src = lang.src.resolve_as_path(base, target, &vars)?;
+            let bin = match lang.compile {
+                Some(ref compile) => Some(compile.bin.resolve_as_path(base, target, &vars)?),
+                None => None,
+            };
+            (src, bin)
+        };
+        let src = src.display().to_string();
+        let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
+        let vars = {
+            let mut vars = hashmap!("src" => src.as_str(), "bin" => bin.as_str());
+            for (&k, &v) in &vars_on_service {
+                vars.insert(k, v);
+            }
+            vars
+        };
+        let cmd = lang.run.command.format(target, &vars)?;
+        Ok(JudgingCommand::new(cmd, wd))
     }
 
-    fn lang_property(
-        &self,
-        lang_name: Option<&str>,
-    ) -> ConfigResult<(&Language, Option<&HashMap<String, String>>)> {
-        let service_prop = self.service.and_then(|service| match service {
+    fn language(&self, name: Option<&str>) -> ConfigResult<&Language> {
+        let service = self.service.and_then(|service| match service {
             ServiceName::AtCoder | ServiceName::AtCoderBeta => self.atcoder.as_ref(),
             ServiceName::HackerRank => self.hackerrank.as_ref(),
         });
-        let lang_name = lang_name
-            .or_else(|| service_prop.map(|p| p.default_language.as_ref()))
-            .ok_or_else::<ConfigError, _>(|| ConfigErrorKind::LanguageNotSpecified.into())?;
-        let lang = self.languages
+        let name = name.or_else(|| service.map(|s| s.default_language.as_ref()))
+            .ok_or_else(|| ConfigError::from(ConfigErrorKind::LanguageNotSpecified))?;
+        self.languages
             .iter()
-            .find(|lang| lang.name == lang_name)
-            .ok_or_else(|| {
-                ConfigError::from(ConfigErrorKind::NoSuchLanguage(lang_name.to_owned()))
-            })?;
-        let vars = service_prop.map(|s| &s.variables);
-        Ok((lang, vars))
+            .find(|lang| lang.name == name)
+            .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(name.to_owned())))
     }
-}
 
-/// Names of programming contest services.
-#[derive(Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ServiceName {
-    AtCoder,
-    AtCoderBeta,
-    HackerRank,
-}
-
-impl fmt::Display for ServiceName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl FromStr for ServiceName {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        match s.to_lowercase().as_str() {
-            "atcoder" => Ok(ServiceName::AtCoder),
-            "atcoderbeta" => Ok(ServiceName::AtCoderBeta),
-            "hackerrank" => Ok(ServiceName::HackerRank),
-            _ => Err(format!("Unsupported service name: {:?}", s)),
+    fn vars_on_service(&self, service: Option<ServiceName>) -> HashMap<&str, &str> {
+        let service = service.or(self.service).and_then(|service| match service {
+            ServiceName::AtCoder | ServiceName::AtCoderBeta => self.atcoder.as_ref(),
+            ServiceName::HackerRank => self.hackerrank.as_ref(),
+        });
+        let mut vars = HashMap::<&str, &str>::new();
+        let vs = service.map(|s| &s.variables);
+        if let Some(vs) = vs {
+            for (k, v) in vs.iter() {
+                vars.insert(k, v);
+            }
         }
+        vars
     }
 }
 
-impl ServiceName {
-    pub fn as_str(&self) -> &'static str {
-        match *self {
-            ServiceName::AtCoder => "atcoder",
-            ServiceName::AtCoderBeta => "atcoderbeta",
-            ServiceName::HackerRank => "hackerrank",
-        }
-    }
-}
-
-fn find_base(start: PathBuf) -> ConfigResult<(PathBuf, PathBuf)> {
-    fn snowchain_yaml_exists(dir: &Path) -> io::Result<bool> {
+fn find_base(start: &Path) -> FileIoResult<PathBuf> {
+    fn target_exists(dir: &Path) -> io::Result<bool> {
         for entry in fs::read_dir(dir)? {
             let path = entry?.path();
-            if path.is_file() && path.file_name().unwrap() == "snowchains.yaml" {
+            if path.is_file() && path.file_name().unwrap() == CONFIG_FILE_NAME {
                 return Ok(true);
             }
         }
         Ok(false)
     }
 
-    let mut dir = start;
+    let mut dir = PathBuf::from(start);
     loop {
-        if let Ok(true) = snowchain_yaml_exists(&dir) {
-            let mut path = dir.clone();
-            path.push("snowchains.yaml");
-            return Ok((dir, path));
+        if let Ok(true) = target_exists(&dir) {
+            return Ok(dir);
         } else if !dir.pop() {
-            bail!(ConfigErrorKind::ConfigFileNotFound);
+            bail!(FileIoErrorKind::Search(CONFIG_FILE_NAME, start.to_owned()));
         }
     }
 }
@@ -525,103 +543,11 @@ struct Language {
     src: TemplateString,
     #[serde(skip_serializing_if = "Option::is_none")]
     compile: Option<Compile>,
+    #[serde(default)]
     run: Run,
     replace: Option<CodeReplacerProp>,
     #[serde(default, skip_serializing_if = "LanguageIds::is_empty")]
     language_ids: LanguageIds,
-}
-
-impl Language {
-    fn resolve_src(
-        &self,
-        base: &Path,
-        target: &str,
-        extra_vars: Option<&HashMap<String, String>>,
-    ) -> ConfigResult<PathBuf> {
-        let mut vars = HashMap::new();
-        if let Some(extra_vars) = extra_vars {
-            for (k, v) in extra_vars.iter() {
-                vars.insert(k.as_str(), v.as_str());
-            }
-        }
-        let src = self.src.resolve_as_path(base, target, &vars)?;
-        Ok(src)
-    }
-
-    fn construct_compilation_command(
-        &self,
-        base: &Path,
-        target: &str,
-        extra_variables: Option<&HashMap<String, String>>,
-    ) -> ConfigResult<Option<CompilationCommand>> {
-        match self.compile {
-            None => Ok(None),
-            Some(ref compile) => {
-                let wd = compile.working_directory.resolve(base)?;
-                let src = self.src.resolve_as_path(base, target, &HashMap::new())?;
-                let bin = compile.bin.resolve_as_path(base, target, &HashMap::new())?;
-                let (src_s, bin_s) = (src.display().to_string(), bin.display().to_string());
-                let vars = {
-                    let mut vars = HashMap::new();
-                    vars.insert("src", src_s.as_str());
-                    vars.insert("bin", bin_s.as_str());
-                    if let Some(extra_variables) = extra_variables {
-                        for (k, v) in extra_variables.iter() {
-                            vars.insert(k, v);
-                        }
-                    }
-                    vars
-                };
-                let cmd = compile.command.format(target, &vars)?;
-                Ok(Some(CompilationCommand::new(cmd, wd, src, bin)))
-            }
-        }
-    }
-
-    fn construct_solver(
-        &self,
-        base: &Path,
-        target: &str,
-        extra_vars: Option<&HashMap<String, String>>,
-    ) -> ConfigResult<JudgingCommand> {
-        let wd = self.run.working_directory.resolve(base)?;
-        let (src, bin) = self.resolve_src_and_bin(base, target, extra_vars)?;
-        let src = src.display().to_string();
-        let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
-        let vars = {
-            let mut vars = HashMap::new();
-            vars.insert("src", src.as_str());
-            vars.insert("bin", bin.as_str());
-            if let Some(extra_vars) = extra_vars {
-                for (k, v) in extra_vars.iter() {
-                    vars.insert(k, v);
-                }
-            }
-            vars
-        };
-        let cmd = self.run.command.format(target, &vars)?;
-        Ok(JudgingCommand::new(cmd, wd))
-    }
-
-    fn resolve_src_and_bin(
-        &self,
-        base: &Path,
-        target: &str,
-        extra_vars: Option<&HashMap<String, String>>,
-    ) -> ConfigResult<(PathBuf, Option<PathBuf>)> {
-        let mut vars = HashMap::new();
-        if let Some(extra_vars) = extra_vars {
-            for (k, v) in extra_vars.iter() {
-                vars.insert(k.as_str(), v.as_str());
-            }
-        }
-        let src = self.src.resolve_as_path(base, target, &vars)?;
-        let bin = match self.compile {
-            Some(ref compile) => Some(compile.bin.resolve_as_path(base, target, &vars)?),
-            None => None,
-        };
-        Ok((src, bin))
-    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -651,40 +577,38 @@ struct CodeReplacerProp {
     regex: String,
     regex_group: usize,
     local: TemplateString,
-    #[serde(default = "atcoder_class_name")]
+    #[serde(default = "default_class_name_on_atcoder")]
     atcoder: Cow<'static, str>,
     #[serde(default = "always_true")]
     once: bool,
 }
 
+fn default_class_name_on_atcoder() -> Cow<'static, str> {
+    "Main".into()
+}
+
+fn always_true() -> bool {
+    true
+}
+
 impl CodeReplacerProp {
-    fn build(
-        &self,
-        variables: Option<&HashMap<String, String>>,
-    ) -> CodeReplaceResult<CodeReplacer> {
+    fn build(&self, variables: &HashMap<&str, &str>) -> ConfigResult<CodeReplacer> {
         let regex = if self.regex.starts_with('/') && self.regex.ends_with('/') {
             let n = self.regex.len();
             String::from_utf8_lossy(&self.regex.as_bytes()[1..n - 1])
         } else {
             self.regex.as_str().into()
         };
-        CodeReplacer::new(
-            &regex,
+        let regex = Regex::new(&regex)?;
+        let local = self.local.embed_vars(variables)?;
+        Ok(CodeReplacer::new(
+            regex,
             self.regex_group,
-            &self.local,
-            variables,
+            local,
             self.atcoder.clone(),
             self.once,
-        )
+        ))
     }
-}
-
-fn atcoder_class_name() -> Cow<'static, str> {
-    "Main".into()
-}
-
-fn always_true() -> bool {
-    true
 }
 
 #[derive(Default, Serialize, Deserialize)]

@@ -213,7 +213,7 @@ impl AtCoderBeta {
             let code = extract_submitted_code(self.get(&detail_url)?)?;
             let lang_id = find_lang_id(&first_page, &lang_name)?;
             if let Some(path_template) = src_paths.get(&lang_id) {
-                let path = path_template.format(&task_name.to_lowercase())?;
+                let path = path_template.expand(&task_name.to_lowercase())?;
                 let mut file = util::create_file_and_dirs(&path)?;
                 let code = match replacers.get(&lang_id) {
                     Some(replacer) => replacer.replace_from_atcoder_submission(&task_name, &code)?,

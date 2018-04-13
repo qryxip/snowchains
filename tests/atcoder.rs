@@ -4,9 +4,11 @@ extern crate env_logger;
 extern crate httpsession;
 extern crate tempdir;
 
-use snowchains::config::{self, Config, ServiceName};
+use snowchains::ServiceName;
+use snowchains::config::{self, Config};
 use snowchains::service::{DownloadProp, InitProp, SubmitProp};
 use snowchains::service::atcoder_beta;
+use snowchains::template::PathTemplate;
 use snowchains::terminal;
 use snowchains::testsuite::{ExpectedStdout, SuiteFileExtension, SuiteFilePaths, TestCases};
 
@@ -17,7 +19,6 @@ use std::env;
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::Write as _Write;
-use std::path::Path;
 use std::time::Duration;
 
 #[test]
@@ -45,9 +46,9 @@ fn it_scrapes_samples_from_practice() {
         (2, "1\n2 3\ntest\n", "6 test\n"),
         (2, "72\n128 256\nmyonmyon\n", "456 myonmyon\n"),
     ];
-    let download_dir = config.suite_dir().unwrap();
-    check_samples("a", &download_dir, SAMPLES_A);
-    let cases = SuiteFilePaths::new(&download_dir, "b", &[SuiteFileExtension::Yaml])
+    let download_dir = || config.testfiles_dir().unwrap();
+    check_samples("a", download_dir(), SAMPLES_A);
+    let cases = SuiteFilePaths::new(download_dir(), "b", vec![SuiteFileExtension::Yaml])
         .load_merging(false)
         .unwrap();
     match cases {
@@ -90,20 +91,20 @@ fn it_scrapes_samples_from_arc058() {
             "namidazzzzzzz\n",
         ),
     ];
-    let download_dir = config.suite_dir().unwrap();
+    let download_dir = || config.testfiles_dir().unwrap();
     for &(name, expected) in &[
         ("c", SAMPLES_C),
         ("d", SAMPLES_D),
         ("e", SAMPLES_E),
         ("f", SAMPLES_F),
     ] {
-        check_samples(name, &download_dir, expected);
+        check_samples(name, download_dir(), expected);
     }
     tempdir.close().unwrap();
 }
 
-fn check_samples(name: &str, download_dir: &Path, expected: &[(u64, &str, &str)]) {
-    let cases = SuiteFilePaths::new(download_dir, name, &[SuiteFileExtension::Yaml])
+fn check_samples(name: &str, download_dir: PathTemplate, expected: &[(u64, &str, &str)]) {
+    let cases = SuiteFilePaths::new(download_dir, name, vec![SuiteFileExtension::Yaml])
         .load_merging(false)
         .unwrap();
     match cases {
@@ -174,8 +175,8 @@ fn setup(
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
     let config = {
         config::init(tempdir.path().to_owned(), Some("python3"), Some("\"\"")).unwrap();
-        config::switch(ServiceName::AtCoderBeta, contest, tempdir.path().to_owned()).unwrap();
-        Config::load_from_file(None, None, tempdir.path().to_owned()).unwrap()
+        config::switch(ServiceName::AtCoderBeta, contest, tempdir.path()).unwrap();
+        Config::load_from_file(None, None, tempdir.path()).unwrap()
     };
     let init_prop = {
         let credentials = if use_credentials {

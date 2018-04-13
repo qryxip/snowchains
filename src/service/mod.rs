@@ -2,7 +2,8 @@ pub mod atcoder;
 pub mod atcoder_beta;
 pub mod hackerrank;
 
-use config::{Config, ServiceName};
+use ServiceName;
+use config::Config;
 use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as _SericeResultExt};
 use replacer::CodeReplacer;
 use template::PathTemplate;
@@ -276,19 +277,19 @@ impl<'a> Contest for &'a str {
 
 pub struct DownloadProp<C: Contest> {
     contest: C,
-    dir_to_save: PathBuf,
+    download_dir: PathBuf,
     extension: SuiteFileExtension,
     open_browser: bool,
 }
 
 impl<'a> DownloadProp<&'a str> {
     pub fn new(config: &'a Config, open_browser: bool) -> ::Result<Self> {
-        let contest = config.contest_name()?;
-        let dir_to_save = config.suite_dir()?;
+        let contest = config.contest()?;
+        let download_dir = config.testfiles_dir()?.expand("")?;
         let extension = config.extension_on_downloading();
         Ok(Self {
             contest,
-            dir_to_save,
+            download_dir,
             extension,
             open_browser,
         })
@@ -297,7 +298,7 @@ impl<'a> DownloadProp<&'a str> {
     pub(self) fn transform<C: Contest>(self) -> DownloadProp<C> {
         DownloadProp {
             contest: C::new(self.contest),
-            dir_to_save: self.dir_to_save,
+            download_dir: self.download_dir,
             extension: self.extension,
             open_browser: self.open_browser,
         }
@@ -308,7 +309,7 @@ impl<C: Contest> DownloadProp<C> {
     pub(self) fn values(&self) -> (&C, &Path, SuiteFileExtension, bool) {
         (
             &self.contest,
-            &self.dir_to_save,
+            &self.download_dir,
             self.extension,
             self.open_browser,
         )
@@ -323,8 +324,8 @@ pub struct RestoreProp<'a, C: Contest> {
 
 impl<'a> RestoreProp<'a, &'a str> {
     pub fn new(config: &'a Config) -> ::Result<Self> {
-        let service = config.service_name()?;
-        let contest = config.contest_name()?;
+        let service = config.service()?;
+        let contest = config.contest()?;
         let replacers = config.code_replacers_on_atcoder()?;
         let src_paths = match service {
             ServiceName::AtCoderBeta => config.src_paths_on_atcoder()?,
@@ -376,9 +377,9 @@ impl<'a> SubmitProp<&'a str> {
         open_browser: bool,
         skip_checking_if_accepted: bool,
     ) -> ::Result<Self> {
-        let service = config.service_name()?;
-        let contest = config.contest_name()?;
-        let src_path = config.src_path(&target, language)?;
+        let service = config.service()?;
+        let contest = config.contest()?;
+        let src_path = config.src_to_submit(language)?.expand(&target)?;
         let replacer = config.code_replacer(language)?;
         let lang_id = match service {
             ServiceName::AtCoderBeta => config.atcoder_lang_id(language)?,

@@ -51,6 +51,8 @@ test_script:
       }
 artifacts:
   - path: '*.zip'
+notifications:
+  - provider: Email
 for:
   - branches:
       only:
@@ -62,5 +64,3 @@ for:
           secure: khL++opdJh5x79PMMTkOJXPXi8D+ijp0os5Bi02rA4DSApOmuF1VuZWpIzyDZ8pi
         on:
           appveyor_repo_tag: true
-    notifications:
-      - provider: Email
