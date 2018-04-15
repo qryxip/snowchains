@@ -48,7 +48,10 @@ impl CompilationCommand {
                 println!("Created {}", dir.display());
             }
         }
-        self.command.print_args_and_working_dir();
+        print_bold!(Color::CommandInfo, "Compilation Command: ");
+        print!("{}\n", self.command.display_args());
+        print_bold!(Color::CommandInfo, "Working directory:   ");
+        println!("{}", self.command.working_dir.display());
         let status = self.command
             .build_checking_wd()?
             .stdin(Stdio::null())
@@ -123,9 +126,15 @@ impl JudgingCommand {
     /// """
     /// Command:           "arg0" "arg1" "arg2" ...
     /// Working directory: /path/to/working/dir/
+    /// Test files:        /path/to/testfiles/{a.json, a.yaml}
     /// """
-    pub fn print_args_and_working_dir(&self) {
-        self.command.print_args_and_working_dir();
+    pub fn print_info(&self, testfiles_matched: &str) {
+        print_bold!(Color::CommandInfo, "Command:           ");
+        print!("{}\n", self.command.display_args());
+        print_bold!(Color::CommandInfo, "Working directory: ");
+        print!("{}\n", self.command.working_dir.display());
+        print_bold!(Color::CommandInfo, "Test files:        ");
+        println!("{}", testfiles_matched);
     }
 
     /// Gets the first argument name.
@@ -192,13 +201,6 @@ impl CommandProperty {
             rest_args,
             working_dir,
         }
-    }
-
-    fn print_args_and_working_dir(&self) {
-        print_bold!(Color::CommandInfo, "Command:           ");
-        println!("{}", self.display_args());
-        print_bold!(Color::CommandInfo, "Working directory: ");
-        println!("{}", self.working_dir.display());
     }
 
     fn display_args(&self) -> String {

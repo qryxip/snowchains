@@ -33,6 +33,7 @@ extern crate serde_urlencoded;
 extern crate serde_yaml;
 extern crate term;
 extern crate toml;
+extern crate unicode_width;
 extern crate webbrowser;
 extern crate zip;
 

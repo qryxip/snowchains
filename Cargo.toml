@@ -35,6 +35,7 @@ serde_yaml = "0.7.3"
 structopt = "0.2.6"
 term = "0.5.1"
 toml = "0.4.6"
+unicode-width = "0.1.4"
 webbrowser = { git = "https://github.com/amodm/webbrowser-rs", rev = "a2620121c945f78874e9ab1c52677b2934f48121" }
 zip = "0.3.1"
 

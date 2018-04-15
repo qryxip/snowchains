@@ -6,9 +6,10 @@ use util;
 use {serde_json, serde_yaml, toml};
 use decimal::d128;
 
-use std::{self, fmt, iter, slice};
+use std::{self, iter, slice};
 use std::borrow::Cow;
-use std::io::Write as _Write;
+use std::fmt::{self, Write as _FmtWrite};
+use std::io::Write as _IoWrite;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -38,6 +39,31 @@ impl<'a> SuiteFilePaths<'a> {
             stem,
             extensions,
         }
+    }
+
+    pub fn existing_paths_as_text(&self) -> SuiteFileResult<String> {
+        let dir = self.directory.expand(self.stem)?;
+        let delim = if cfg!(windows) && !dir.display().to_string().ends_with('\\') {
+            "\\"
+        } else if !dir.display().to_string().ends_with('/') {
+            "/"
+        } else {
+            ""
+        };
+        let mut r = format!("{}{}{{", dir.display(), delim);
+        let mut p = false;
+        for &ext in &self.extensions {
+            if SuiteFilePath::new(&dir, self.stem, ext).build().exists() {
+                if p {
+                    r += ", ";
+                } else {
+                    p = true;
+                }
+                write!(r, "{}.{}", self.stem, ext).unwrap();
+            }
+        }
+        r += "}";
+        Ok(r)
     }
 
     /// Merge test suites in `dir` which filename stem equals `stem` and
@@ -124,7 +150,7 @@ impl<'a> SuiteFilePath<'a> {
 
     pub fn build(&self) -> PathBuf {
         self.directory
-            .with_file_name(self.stem.as_ref())
+            .join(self.stem.as_ref())
             .with_extension(&self.extension.to_string())
     }
 }
