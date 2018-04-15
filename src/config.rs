@@ -170,7 +170,7 @@ languages:
         hackerrank_default_lang = hackerrank_default_lang,
         shell = if cfg!(windows) {
             r#"shell:
-  args: [C:\Windows\cmd.exe, /C]
+  args: ['C:\Windows\cmd.exe', /C]
   on: '%@#$^&*;|?<>()[]{}''"'"#
         } else {
             r#"shell:

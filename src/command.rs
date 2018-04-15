@@ -243,11 +243,7 @@ mod tests {
         }
 
         fn wrap(command: &'static str) -> String {
-            if cfg!(target_os = "windows") {
-                format!("\"cmd\" \"/C\" {:?}", command)
-            } else {
-                format!("\"sh\" \"-c\" {:?}", command)
-            }
+            format!("\"sh\" \"-c\" {:?}", command)
         }
 
         let command = "cargo build --release";

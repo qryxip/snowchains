@@ -117,10 +117,12 @@ fn check_samples(name: &str, download_dir: PathTemplate, expected: &[(u64, &str,
                 assert_eq!(i1, i2.as_str());
                 if cfg!(windows) {
                     match *o2 {
-                        ExpectedStdout::Lines(_) => {}
+                        ExpectedStdout::Lines(ref o2) => for (l2, l1) in o2.lines().zip(o1.lines())
+                        {
+                            assert_eq!(l2, l1);
+                        },
                         _ => panic!(),
                     }
-                    assert!(o2.accepts(&o1));
                 } else {
                     match *o2 {
                         ExpectedStdout::Exact(ref o2) => assert_eq!(o1, o2),
