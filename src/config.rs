@@ -10,7 +10,7 @@ use util;
 use {rprompt, serde_yaml};
 use regex::Regex;
 
-use std::{cmp, fmt, fs, str};
+use std::{cmp, fmt, fs, iter, slice, str};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Write as _Write};
@@ -67,6 +67,8 @@ testfiles:
   directory: snowchains/$service/$contest/
   download: yaml
   exclude: []
+
+{shell}
 
 atcoder:
   default_language: {atcoder_default_lang}
@@ -166,6 +168,15 @@ languages:
 "#,
         atcoder_default_lang = atcoder_default_lang,
         hackerrank_default_lang = hackerrank_default_lang,
+        shell = if cfg!(windows) {
+            r#"shell:
+  args: [C:\Windows\cmd.exe, /C]
+  on: '%@#$^&*;|?\<>()[]{}''"'"#
+        } else {
+            r#"shell:
+  args: [/bin/sh, -c]
+  on: '@#$^&*;|?\<>()[]{}''"'"#
+        },
         exe = if cfg!(target_os = "windows") {
             ".exe"
         } else {
@@ -274,6 +285,7 @@ pub struct Config {
     service: Option<ServiceName>,
     contest: Option<String>,
     testfiles: TestFiles,
+    shell: Shell,
     #[serde(skip_serializing_if = "Option::is_none")]
     atcoder: Option<Service>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -428,7 +440,8 @@ impl Config {
                     vars
                 };
                 let cmd = compile.command.format(target, &vars)?;
-                Ok(Some(CompilationCommand::new(cmd, wd, src, bin)))
+                let shell = &self.shell;
+                Ok(Some(CompilationCommand::new(cmd, wd, shell, src, bin)))
             }
         }
     }
@@ -465,7 +478,7 @@ impl Config {
             vars
         };
         let cmd = lang.run.command.format(target, &vars)?;
-        Ok(JudgingCommand::new(cmd, wd))
+        Ok(JudgingCommand::new(cmd, wd, &self.shell))
     }
 
     fn language(&self, name: Option<&str>) -> ConfigResult<&Language> {
@@ -535,6 +548,33 @@ struct TestFiles {
 
 fn default_testsuites() -> TemplateString {
     TemplateString::new("snowchains/$service/$contest/")
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct Shell {
+    args: Vec<String>,
+    on: String,
+}
+
+impl Shell {
+    #[cfg(test)]
+    pub(crate) fn new(args: &[&str], on: &str) -> Self {
+        Self {
+            args: args.iter().cloned().map(str::to_owned).collect(),
+            on: on.to_owned(),
+        }
+    }
+
+    pub(crate) fn values(
+        &self,
+    ) -> (
+        &str,
+        iter::Map<slice::Iter<String>, for<'r> fn(&'r String) -> &'r str>,
+        &str,
+    ) {
+        let arg0 = self.args.get(0).map(String::as_str).unwrap_or("");
+        (arg0, self.args[1..].iter().map(String::as_str), &self.on)
+    }
 }
 
 #[derive(Serialize, Deserialize)]

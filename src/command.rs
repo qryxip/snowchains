@@ -1,3 +1,4 @@
+use config::Shell;
 use errors::{JudgeErrorKind, JudgeResult};
 use terminal::Color;
 
@@ -17,9 +18,15 @@ impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub fn new(command: String, working_dir: PathBuf, src: PathBuf, bin: PathBuf) -> Self {
+    pub(crate) fn new(
+        command: String,
+        working_dir: PathBuf,
+        shell: &Shell,
+        src: PathBuf,
+        bin: PathBuf,
+    ) -> Self {
         Self {
-            command: CommandProperty::new(command, working_dir),
+            command: CommandProperty::new(command, working_dir, shell),
             src,
             bin,
         }
@@ -63,34 +70,51 @@ impl CompilationCommand {
 }
 
 /// Command for simple/interactive testing.
-pub struct JudgingCommand(CommandProperty);
+pub struct JudgingCommand {
+    command: CommandProperty,
+    shell: Shell,
+}
 
 impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub fn new(command: String, working_dir: PathBuf) -> Self {
-        JudgingCommand(CommandProperty::new(command, working_dir))
+    pub(crate) fn new(command: String, working_dir: PathBuf, shell: &Shell) -> Self {
+        Self {
+            command: CommandProperty::new(command, working_dir, shell),
+            shell: shell.clone(),
+        }
     }
 
     #[cfg(test)]
     pub fn from_args(arg0: &str, rest_args: &[&str]) -> io::Result<Self> {
         use std::env;
         let working_dir = env::current_dir()?;
-        Ok(JudgingCommand(CommandProperty {
-            arg0: arg0.to_owned(),
-            rest_args: rest_args.iter().map(|arg| (*arg).to_owned()).collect(),
-            working_dir,
-        }))
+        Ok(Self {
+            command: CommandProperty {
+                arg0: arg0.to_owned(),
+                rest_args: rest_args.iter().map(|arg| (*arg).to_owned()).collect(),
+                working_dir,
+            },
+            shell: if cfg!(windows) {
+                Shell::new(&[r"C:\Windows\cmd.exe", "/C"], r#"%@#$^&*;|?\<>()[]{}'""#)
+            } else {
+                Shell::new(&[r"/bin/sh", "-c"], r#"@#$^&*;|?\<>()[]{}'""#)
+            },
+        })
     }
 
     /// Creates a new `JudgingCommand` which `working_dir` equals
     /// `self.working_dir`.
     pub fn new_in_same_dir<S: Into<String>>(&self, command: S) -> Self {
-        JudgingCommand(CommandProperty::new(
-            command.into(),
-            self.0.working_dir.clone(),
-        ))
+        Self {
+            command: CommandProperty::new(
+                command.into(),
+                self.command.working_dir.clone(),
+                &self.shell,
+            ),
+            shell: self.shell.clone(),
+        }
     }
 
     /// Prints the arguments and working directory.
@@ -101,23 +125,23 @@ impl JudgingCommand {
     /// Working directory: /path/to/working/dir/
     /// """
     pub fn print_args_and_working_dir(&self) {
-        self.0.print_args_and_working_dir();
+        self.command.print_args_and_working_dir();
     }
 
     /// Gets the first argument name.
     pub fn arg0_name(&self) -> String {
-        self.0.arg0.clone()
+        self.command.arg0.clone()
     }
 
     /// Returns a `Child` which stdin & stdout & stderr are piped.
     pub fn spawn_piped(&self) -> io::Result<Child> {
-        self.0
+        self.command
             .build_checking_wd()?
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .wrap_not_found_error(&self.0.arg0)
+            .wrap_not_found_error(&self.command.arg0)
     }
 }
 
@@ -147,18 +171,13 @@ struct CommandProperty {
 }
 
 impl CommandProperty {
-    fn new(command: String, working_dir: PathBuf) -> Self {
-        fn wrap_if_necessary(command: String) -> (String, Vec<String>) {
-            if command
-                .find(|c| "@#$^&*;|?\\<>()[]{}'\"".contains(c))
-                .is_some()
-            {
-                let (arg0, c) = if cfg!(target_os = "windows") {
-                    ("cmd".to_owned(), "/C".to_owned())
-                } else {
-                    ("sh".to_owned(), "-c".to_owned())
-                };
-                (arg0, vec![c, command])
+    fn new(command: String, working_dir: PathBuf, shell: &Shell) -> Self {
+        let (arg0, rest_args) = {
+            let (shell, shell_args, special) = shell.values();
+            if command.find(|c| special.contains(c)).is_some() {
+                let mut rest_args = shell_args.map(str::to_owned).collect::<Vec<_>>();
+                rest_args.push(command);
+                (shell.to_owned(), rest_args)
             } else if command.find(char::is_whitespace).is_some() {
                 let mut it = command.split_whitespace();
                 let arg0 = it.next().unwrap_or_default().to_owned();
@@ -167,9 +186,7 @@ impl CommandProperty {
             } else {
                 (command, vec![])
             }
-        }
-
-        let (arg0, rest_args) = wrap_if_necessary(command);
+        };
         Self {
             arg0,
             rest_args,
@@ -211,14 +228,16 @@ impl CommandProperty {
 
 #[cfg(test)]
 mod tests {
-    use super::CommandProperty;
+    use command::CommandProperty;
+    use config::Shell;
 
     use std::path::PathBuf;
 
     #[test]
     fn it_wraps_commands_in_sh_or_cmd() {
         fn display(command: &'static str) -> String {
-            CommandProperty::new(command.to_owned(), PathBuf::new()).display_args()
+            let shell = Shell::new(&["sh", "-c"], r#"&"'"#);
+            CommandProperty::new(command.to_owned(), PathBuf::new(), &shell).display_args()
         }
 
         fn wrap(command: &'static str) -> String {
