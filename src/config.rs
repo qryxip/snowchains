@@ -171,11 +171,11 @@ languages:
         shell = if cfg!(windows) {
             r#"shell:
   args: [C:\Windows\cmd.exe, /C]
-  on: '%@#$^&*;|?\<>()[]{}''"'"#
+  on: '%@#$^&*;|?<>()[]{}''"'"#
         } else {
             r#"shell:
   args: [/bin/sh, -c]
-  on: '@#$^&*;|?\<>()[]{}''"'"#
+  on: '\@#$^&*;|?<>()[]{}''"'"#
         },
         exe = if cfg!(target_os = "windows") {
             ".exe"

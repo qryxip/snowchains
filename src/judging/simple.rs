@@ -5,6 +5,8 @@ use terminal::Color;
 use testsuite::{ExpectedStdout, SimpleCase};
 use util;
 
+use decimal::d128;
+
 use std::{self, fmt, thread};
 use std::io::{self, Write};
 use std::process::ExitStatus;
@@ -52,7 +54,7 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
             input,
             expected,
         })
-    } else if status.success() && expected.accepts(&stdout) {
+    } else if status.success() && is_match(&expected, &stdout) {
         Ok(SimpleOutput::Accepted {
             elapsed,
             input,
@@ -76,6 +78,50 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
             stderr,
             status,
         })
+    }
+}
+
+fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
+    fn check<F: FnMut(d128, d128) -> bool>(expected: &str, actual: &str, mut on_float: F) -> bool {
+        expected.split_whitespace().count() == actual.split_whitespace().count()
+            && expected
+                .split_whitespace()
+                .zip(actual.split_whitespace())
+                .all(|(e, a)| {
+                    if let (Ok(e), Ok(a)) = (e.parse::<d128>(), a.parse::<d128>()) {
+                        on_float(e, a)
+                    } else {
+                        e == a
+                    }
+                })
+    }
+
+    fn in_range(x: d128, a: d128, b: d128) -> bool {
+        a <= x && x <= b
+    }
+
+    match *expected {
+        ExpectedStdout::AcceptAny => true,
+        ExpectedStdout::Exact(ref s) => s == stdout,
+        ExpectedStdout::Lines(ref ls) => {
+            let stdout = stdout.lines().collect::<Vec<_>>();
+            ls.lines().count() == stdout.len()
+                && ls.lines().zip(stdout.iter()).all(|(l, &r)| l == r)
+        }
+        ExpectedStdout::Float {
+            ref lines,
+            absolute_error,
+            relative_error,
+        } => {
+            let stdout = stdout.lines().collect::<Vec<_>>();
+            lines.lines().count() == stdout.len()
+                && lines.lines().zip(stdout.iter()).all(|(e, a)| {
+                    let (d, r) = (absolute_error, relative_error);
+                    (check(e, a, |e, a| in_range(e, a - d, a + d)) || check(e, a, |e, a| {
+                        in_range((e - a) / e, -r, r)
+                    }))
+                })
+        }
     }
 }
 
@@ -196,7 +242,7 @@ impl JudgingOutput for SimpleOutput {
                 }
                 ExpectedStdout::Lines(ref lines) => {
                     eprintln_bold!(Color::Title, r"expected:");
-                    for l in lines {
+                    for l in lines.lines() {
                         eprintln!("{}", l);
                     }
                 }
@@ -211,7 +257,7 @@ impl JudgingOutput for SimpleOutput {
                         absolute_error,
                         relative_error
                     );
-                    for l in lines {
+                    for l in lines.lines() {
                         if l.split_whitespace().any(|t| t.parse::<f64>().is_ok()) {
                             for (i, t) in l.split_whitespace().enumerate() {
                                 match t.parse::<f64>() {

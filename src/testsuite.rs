@@ -424,9 +424,9 @@ impl SimpleCase {
 pub enum ExpectedStdout {
     AcceptAny,
     Exact(String),
-    Lines(Vec<String>),
+    Lines(String),
     Float {
-        lines: Vec<String>,
+        lines: String,
         absolute_error: d128,
         relative_error: d128,
     },
@@ -440,71 +440,23 @@ impl ExpectedStdout {
         relative: Option<d128>,
     ) -> Self {
         if let Some(text) = text {
+            let mut text = text.to_owned();
             if absolute.is_none() && relative.is_none() && trim_crlf {
-                ExpectedStdout::Lines(text.lines().map(str::to_owned).collect())
+                ExpectedStdout::Lines(text)
             } else if absolute.is_none() && relative.is_none() {
-                let mut text = text.to_owned();
                 if !text.ends_with('\n') {
                     text += "\n";
                 }
                 ExpectedStdout::Exact(text)
             } else {
                 ExpectedStdout::Float {
-                    lines: text.lines().map(str::to_owned).collect(),
+                    lines: text,
                     absolute_error: absolute.unwrap_or_default(),
                     relative_error: relative.unwrap_or_default(),
                 }
             }
         } else {
             ExpectedStdout::AcceptAny
-        }
-    }
-
-    pub fn accepts(&self, stdout: &str) -> bool {
-        fn check<F: FnMut(d128, d128) -> bool>(
-            expected: &str,
-            actual: &str,
-            mut on_float: F,
-        ) -> bool {
-            expected.split_whitespace().count() == actual.split_whitespace().count()
-                && expected
-                    .split_whitespace()
-                    .zip(actual.split_whitespace())
-                    .all(|(e, a)| {
-                        if let (Ok(e), Ok(a)) = (e.parse::<d128>(), a.parse::<d128>()) {
-                            on_float(e, a)
-                        } else {
-                            e == a
-                        }
-                    })
-        }
-
-        fn in_range(x: d128, a: d128, b: d128) -> bool {
-            a <= x && x <= b
-        }
-
-        match *self {
-            ExpectedStdout::AcceptAny => true,
-            ExpectedStdout::Exact(ref s) => s == stdout,
-            ExpectedStdout::Lines(ref ls) => {
-                let stdout = stdout.lines().collect::<Vec<_>>();
-                ls.len() == stdout.len() && ls.iter().zip(stdout.iter()).all(|(l, r)| l == r)
-            }
-            ExpectedStdout::Float {
-                ref lines,
-                absolute_error,
-                relative_error,
-            } => {
-                let stdout = stdout.lines().collect::<Vec<_>>();
-                lines.len() == stdout.len() && lines.iter().zip(stdout.iter()).all(|(e, a)| {
-                    let (d, r) = (absolute_error, relative_error);
-                    #[cfg_attr(rustfmt, rustfmt_skip)]
-                    (
-                        check(e, a, |e, a| in_range(e, a - d, a + d)) ||
-                            check(e, a, |e, a| in_range((e - a) / e, -r, r))
-                    )
-                })
-            }
         }
     }
 }

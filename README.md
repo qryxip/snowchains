@@ -61,6 +61,10 @@ testfiles:
   download: yaml                           # default: ”
   exclude: []                              # default: ”
 
+shell:
+  args: [/bin/sh, -c]         # /bin/sh or C:\Windows\cmd.exe
+  on: '@#$^&*;|?\<>()[]{}''"' # Special characters
+
 atcoder:
   default_language: c++
   variables:
@@ -368,7 +372,7 @@ main = do
                (with-current-buffer buffer
                  (erase-buffer))))
            (let ((problem-name (match-string 1 file-path)))
-             (term-run "snowchains" "*snowchains*" "submit" problem-name)))
+             (term-run "snowchains" "*snowchains*" "submit" problem-name "-l" "rust")))
           ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
            (cargo-process-run-bin (match-string 1 file-path)))
           (t
@@ -383,7 +387,7 @@ main = do
                (with-current-buffer buffer
                  (erase-buffer))))
            (let ((problem-name (match-string 1 file-path)))
-             (term-run "snowchains" "*snowchains*" "judge" problem-name)))
+             (term-run "snowchains" "*snowchains*" "judge" problem-name "-l" "rust")))
           ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
            (cargo-process--start "Test Bin" (concat "cargo test --bin " (match-string 1 file-path))))
           (t

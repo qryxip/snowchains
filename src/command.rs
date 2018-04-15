@@ -97,9 +97,9 @@ impl JudgingCommand {
                 working_dir,
             },
             shell: if cfg!(windows) {
-                Shell::new(&[r"C:\Windows\cmd.exe", "/C"], r#"%@#$^&*;|?\<>()[]{}'""#)
+                Shell::new(&[r"C:\Windows\cmd.exe", "/C"], r#"%@#$^&*;|?<>()[]{}'""#)
             } else {
-                Shell::new(&[r"/bin/sh", "-c"], r#"@#$^&*;|?\<>()[]{}'""#)
+                Shell::new(&[r"/bin/sh", "-c"], r#"\@#$^&*;|?<>()[]{}'""#)
             },
         })
     }
