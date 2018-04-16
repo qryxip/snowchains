@@ -84,9 +84,9 @@ hackerrank:
 
 languages:
   - name: c++
-    src: cc/{{}}.cc
+    src: cc/{{L}}.cc
     compile:
-      bin: cc/build/{{}}{exe}
+      bin: cc/build/{{L}}{exe}
       command: g++ $cxx_flags -o $bin $src
       working_directory: cc/
     run:
@@ -95,9 +95,9 @@ languages:
     language_ids:
       atcoder: 3003
   - name: rust
-    src: rs/src/bin/{{}}.rs
+    src: rs/src/bin/{{L}}.rs
     compile:
-      bin: rs/target/release/{{}}{exe}
+      bin: rs/target/release/{{L}}{exe}
       command: rustc +$rust_version -o $bin $src
       working_directory: rs/
     run:
@@ -117,14 +117,14 @@ languages:
     language_ids:
       atcoder: 3014
   - name: bash
-    src: bash/{{}}.bash
+    src: bash/{{L}}.bash
     run:
       command: bash $src
       working_directory: bash/
     language_ids:
       atcoder: 3001
   - name: python3
-    src: py/{{}}.py
+    src: py/{{L}}.py
     run:
       command: ./venv/bin/python3 $src
       working_directory: py/

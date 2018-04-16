@@ -57,9 +57,9 @@ service: atcoderbeta # "atcoder", "atcoderbeta", "hackerrank", "other"
 contest: chokudai_s001
 
 testfiles:
-  directory: snowchains/$service/$contest/ # default: ”
-  download: yaml                           # default: ”
-  exclude: []                              # default: ”
+  directory: snowchains/$service/$contest/ # Searched case insensitively. Default: ”
+  download: yaml                           # Default: ”
+  exclude: []                              # Default: ”
 
 shell:
   args: [/bin/sh, -c]         # /bin/sh or C:\Windows\cmd.exe
@@ -85,7 +85,7 @@ hackerrank:
 # "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yaml>/csharp/ProblemA/ProblemA.cs
 languages:
   - name: c++
-    src: cc/{}.cc
+    src: cc/{L}.cc
     compile:                               # optional
       bin: cc/build/{}
       command: g++ $cxx_flags -o $bin $src
@@ -96,9 +96,9 @@ languages:
     language_ids:                          # optional
       atcoder: 3003
   - name: rust
-    src: rs/src/bin/{}.rs
+    src: rs/src/bin/{L}.rs
     compile:
-      bin: rs/target/release/{}
+      bin: rs/target/release/{L}
       command: rustc +$rust_version -o $bin $src
       working_directory: rs/
     run:
@@ -195,9 +195,9 @@ hackerrank:
 
 languages:
   - name: c++
-    src: "{}.cc"
+    src: "{L}.cc"
     compile:
-      bin: build/{}
+      bin: build/{L}
       command: g++ $cxx_flags -o $bin $src
       working_directory: .
     run:

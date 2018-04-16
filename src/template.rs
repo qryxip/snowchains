@@ -29,6 +29,7 @@ impl Template {
             match *t {
                 TemplateToken::Plain(ref s) => r += s,
                 TemplateToken::Target => r += target,
+                TemplateToken::TargetLower => r += &target.to_lowercase(),
                 TemplateToken::TargetCamelized => r += &target.camelize(),
             }
             r
@@ -46,6 +47,7 @@ impl Template {
 enum TemplateToken {
     Plain(String),
     Target,
+    TargetLower,
     TargetCamelized,
 }
 
@@ -119,11 +121,13 @@ impl TemplateString {
                         let s = trim_lr(s);
                         if s == "" {
                             Ok(TemplateToken::Target)
+                        } else if ["l", "L"].contains(&s.as_str()) {
+                            Ok(TemplateToken::TargetLower)
                         } else if ["c", "C"].contains(&s.as_str()) {
                             Ok(TemplateToken::TargetCamelized)
                         } else {
                             let whole = whole.to_owned();
-                            static EXPECTED_KWS: &'static [&'static str] = &["c", "C"];
+                            static EXPECTED_KWS: &'static [&'static str] = &["c", "C", "l", "L"];
                             bail!(TemplateErrorKind::NoSuchSpecifier(whole, s, EXPECTED_KWS))
                         }
                     }
@@ -255,9 +259,9 @@ mod tests {
         let template = TemplateString::new("gcc -o $bin $src");
         let vars = hashmap!("src" => "SRC", "bin" => "BIN");
         assert_eq!("gcc -o BIN SRC", template.format("", &vars).unwrap());
-        let template = TemplateString::new("{ c }/{c}/{C}");
+        let template = TemplateString::new("{ c }/{c}/{C}/{l}");
         let vars = HashMap::new();
-        assert_eq!("Name/Name/Name", template.format("name", &vars).unwrap());
+        assert_eq!("A/A/A/a", template.format("a", &vars).unwrap());
         let template = TemplateString::new("$foo/$bar/$baz");
         let vars = hashmap!("foo" => "FOO", "bar" => "BAR", "baz" => "BAZ");
         assert_eq!("FOO/BAR/BAZ", template.format("", &vars).unwrap());
