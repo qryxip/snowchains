@@ -284,7 +284,7 @@ pub struct DownloadProp<C: Contest> {
 
 impl<'a> DownloadProp<&'a str> {
     pub fn new(config: &'a Config, open_browser: bool) -> ::Result<Self> {
-        let contest = config.contest()?;
+        let contest = config.contest();
         let download_dir = config.testfiles_dir()?.expand("")?;
         let extension = config.extension_on_downloading();
         Ok(Self {
@@ -324,8 +324,8 @@ pub struct RestoreProp<'a, C: Contest> {
 
 impl<'a> RestoreProp<'a, &'a str> {
     pub fn new(config: &'a Config) -> ::Result<Self> {
-        let service = config.service()?;
-        let contest = config.contest()?;
+        let service = config.service();
+        let contest = config.contest();
         let replacers = config.code_replacers_on_atcoder()?;
         let src_paths = match service {
             ServiceName::AtCoderBeta => config.src_paths_on_atcoder()?,
@@ -377,8 +377,8 @@ impl<'a> SubmitProp<&'a str> {
         open_browser: bool,
         skip_checking_if_accepted: bool,
     ) -> ::Result<Self> {
-        let service = config.service()?;
-        let contest = config.contest()?;
+        let service = config.service();
+        let contest = config.contest();
         let src_path = config.src_to_submit(language)?.expand(&target)?;
         let replacer = config.code_replacer(language)?;
         let lang_id = match service {

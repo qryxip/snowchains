@@ -70,6 +70,13 @@ pub enum ServiceName {
     AtCoder,
     AtCoderBeta,
     HackerRank,
+    Other,
+}
+
+impl Default for ServiceName {
+    fn default() -> Self {
+        ServiceName::Other
+    }
 }
 
 impl fmt::Display for ServiceName {
@@ -79,14 +86,15 @@ impl fmt::Display for ServiceName {
 }
 
 impl FromStr for ServiceName {
-    type Err = String;
+    type Err = Never;
 
-    fn from_str(s: &str) -> std::result::Result<Self, String> {
+    fn from_str(s: &str) -> std::result::Result<Self, Never> {
         match s.to_lowercase().as_str() {
             "atcoder" => Ok(ServiceName::AtCoder),
             "atcoderbeta" => Ok(ServiceName::AtCoderBeta),
             "hackerrank" => Ok(ServiceName::HackerRank),
-            _ => Err(format!("Unsupported service name: {:?}", s)),
+            "other" => Ok(ServiceName::Other),
+            _ => Err(Never),
         }
     }
 }
@@ -97,6 +105,16 @@ impl ServiceName {
             ServiceName::AtCoder => "atcoder",
             ServiceName::AtCoderBeta => "atcoderbeta",
             ServiceName::HackerRank => "hackerrank",
+            ServiceName::Other => "other",
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct Never;
+
+impl fmt::Display for Never {
+    fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result {
+        unreachable!("should be filtered by `clap::Arg::possible_values`")
     }
 }

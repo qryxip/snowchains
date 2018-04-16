@@ -53,8 +53,8 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 ```yaml
 # Example
 ---
-service: atcoderbeta   # optional
-contest: chokudai_s001 # optional
+service: atcoderbeta # "atcoder", "atcoderbeta", "hackerrank", "other"
+contest: chokudai_s001
 
 testfiles:
   directory: snowchains/$service/$contest/ # default: ”
@@ -178,6 +178,10 @@ testfiles:
   directory: snowchains/$service/$contest/
   download: yaml
   exclude: []
+
+shell:
+  args: [/bin/sh, -c]         # /bin/sh or C:\Windows\cmd.exe
+  on: '@#$^&*;|?\<>()[]{}''"' # Special characters
 
 atcoder:
   default_language: c++

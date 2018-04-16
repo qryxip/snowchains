@@ -10,7 +10,7 @@ use util;
 use {rprompt, serde_yaml};
 use regex::Regex;
 
-use std::{cmp, fmt, fs, iter, slice, str};
+use std::{cmp, fs, iter, slice, str};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Write as _Write};
@@ -219,13 +219,6 @@ languages:
 
 /// Changes <service> and <contest>.
 pub fn switch(service: ServiceName, contest: &str, dir: &Path) -> ConfigResult<()> {
-    fn str_from_opt<T: fmt::Display>(x: &Option<T>) -> Cow<'static, str> {
-        match *x {
-            Some(ref x) => Cow::Owned(format!("{:?}", x.to_string())),
-            None => Cow::Borrowed("None"),
-        }
-    }
-
     fn print_change(n: usize, prev: &str, new: &str) {
         print!("{}", prev);
         for _ in 0..n - prev.len() {
@@ -260,13 +253,13 @@ pub fn switch(service: ServiceName, contest: &str, dir: &Path) -> ConfigResult<(
             && serde_yaml::from_str::<Config>(&replaced).is_ok()
         {
             let (prev_service, prev_contest) = (prev_service.unwrap(), prev_contest.unwrap());
-            (replaced, Cow::Owned(prev_service), Cow::Owned(prev_contest))
+            (replaced, prev_service, prev_contest)
         } else {
             let mut config = serde_yaml::from_str::<Config>(&text)?;
-            let prev_service = str_from_opt(&config.service);
-            let prev_contest = str_from_opt(&config.contest);
-            config.service = Some(service);
-            config.contest = Some(contest.to_owned());
+            let prev_service = config.service.to_string();
+            let prev_contest = config.contest;
+            config.service = service;
+            config.contest = contest.to_owned();
             (serde_yaml::to_string(&config)?, prev_service, prev_contest)
         }
     };
@@ -282,8 +275,9 @@ pub fn switch(service: ServiceName, contest: &str, dir: &Path) -> ConfigResult<(
 /// Config.
 #[derive(Serialize, Deserialize)]
 pub struct Config {
-    service: Option<ServiceName>,
-    contest: Option<String>,
+    #[serde(default)]
+    service: ServiceName,
+    contest: String,
     testfiles: TestFiles,
     shell: Shell,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -306,37 +300,25 @@ impl Config {
         let path = base.join(CONFIG_FILE_NAME);
         let mut config = serde_yaml::from_reader::<_, Self>(util::open_file(&path)?)?;
         config.base_dir = base;
-        config.service = service.or(config.service);
-        config.contest = contest.or(config.contest);
+        config.service = service.unwrap_or(config.service);
+        config.contest = contest.unwrap_or(config.contest);
         println!("Loaded {}", path.display());
         Ok(config)
     }
 
     /// Gets `service`.
-    pub fn service(&self) -> ConfigResult<ServiceName> {
-        match self.service {
-            Some(service) => Ok(service),
-            None => bail!(ConfigErrorKind::PropertyNotSet("service")),
-        }
+    pub fn service(&self) -> ServiceName {
+        self.service
     }
 
     /// Gets `contest`.
-    pub fn contest(&self) -> ConfigResult<&str> {
-        match self.contest {
-            Some(ref contest) => Ok(contest),
-            None => bail!(ConfigErrorKind::PropertyNotSet("contest")),
-        }
+    pub fn contest(&self) -> &str {
+        &self.contest
     }
 
     /// Gets `testfiles/directory` as path.
     pub fn testfiles_dir(&self) -> ConfigResult<PathTemplate> {
-        let mut vars = hashmap!();
-        if let Some(service) = self.service {
-            vars.insert("service", service.as_str());
-        }
-        if let Some(ref contest) = self.contest {
-            vars.insert("contest", &contest);
-        }
+        let vars = hashmap!("service" => self.service.as_str(), "contest" => &self.contest);
         self.testfiles
             .directory
             .as_path_template(&self.base_dir, &vars)
@@ -482,10 +464,11 @@ impl Config {
     }
 
     fn language(&self, name: Option<&str>) -> ConfigResult<&Language> {
-        let service = self.service.and_then(|service| match service {
+        let service = match self.service {
             ServiceName::AtCoder | ServiceName::AtCoderBeta => self.atcoder.as_ref(),
             ServiceName::HackerRank => self.hackerrank.as_ref(),
-        });
+            ServiceName::Other => None,
+        };
         let name = name.or_else(|| service.map(|s| s.default_language.as_ref()))
             .ok_or_else(|| ConfigError::from(ConfigErrorKind::LanguageNotSpecified))?;
         self.languages
@@ -495,10 +478,11 @@ impl Config {
     }
 
     fn vars_on_service(&self, service: Option<ServiceName>) -> HashMap<&str, &str> {
-        let service = service.or(self.service).and_then(|service| match service {
+        let service = match service.unwrap_or(self.service) {
             ServiceName::AtCoder | ServiceName::AtCoderBeta => self.atcoder.as_ref(),
             ServiceName::HackerRank => self.hackerrank.as_ref(),
-        });
+            ServiceName::Other => None,
+        };
         let mut vars = HashMap::<&str, &str>::new();
         let vs = service.map(|s| &s.variables);
         if let Some(vs) = vs {

@@ -54,6 +54,7 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
                 ServiceName::AtCoder => atcoder::login(),
                 ServiceName::AtCoderBeta => atcoder_beta::login(&init_prop),
                 ServiceName::HackerRank => hackerrank::login(),
+                ServiceName::Other => unreachable!(),
             }?;
         }
         Opt::Participate { service, contest } => {
@@ -62,7 +63,7 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
             match service {
                 ServiceName::AtCoder => atcoder::participate(&contest),
                 ServiceName::AtCoderBeta => atcoder_beta::participate(&contest, &init_prop),
-                ServiceName::HackerRank => unreachable!(),
+                _ => unreachable!(),
             }?;
         }
         Opt::Download {
@@ -72,20 +73,21 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
         } => {
             info!("Running \"download\" command");
             let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
-            let init_prop = init_prop_from_config(&config)?;
+            let init_prop = init_prop(config.service())?;
             let download_prop = DownloadProp::new(&config, open_browser)?;
-            match config.service()? {
+            match config.service() {
                 ServiceName::AtCoder => atcoder::download(&download_prop),
                 ServiceName::AtCoderBeta => atcoder_beta::download(&init_prop, download_prop),
                 ServiceName::HackerRank => hackerrank::download(&download_prop),
+                ServiceName::Other => bail!(snowchains::ErrorKind::Unimplemented),
             }?;
         }
         Opt::Restore { service, contest } => {
             info!("Running \"restore\" command");
             let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
-            let init_prop = init_prop_from_config(&config)?;
+            let init_prop = init_prop(config.service())?;
             let restore_prop = RestoreProp::new(&config)?;
-            match config.service()? {
+            match config.service() {
                 ServiceName::AtCoderBeta => atcoder_beta::restore(&init_prop, restore_prop)?,
                 _ => bail!(snowchains::ErrorKind::Unimplemented),
             };
@@ -128,7 +130,7 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
             let language = language.as_ref().map(String::as_str);
             info!("Running \"submit\" command");
             let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
-            let init_prop = init_prop_from_config(&config)?;
+            let init_prop = init_prop(config.service())?;
             let judge_prop = JudgeProp::from_config(&config, &target, language)?;
             let submit_prop = SubmitProp::new(
                 &config,
@@ -141,7 +143,7 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
                 judging::judge(judge_prop)?;
                 println!();
             }
-            match config.service()? {
+            match config.service() {
                 ServiceName::AtCoderBeta => atcoder_beta::submit(&init_prop, submit_prop)?,
                 _ => bail!(snowchains::ErrorKind::Unimplemented),
             };
@@ -190,7 +192,7 @@ enum Opt {
                 raw(display_order = "2", aliases = r#"&["w"]"#))]
     Switch {
         #[structopt(name = "service", help = "Service name",
-                    raw(possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
+                    raw(possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank", "other"]"#))]
         service: ServiceName,
         #[structopt(name = "contest", help = "Contest name")]
         contest: String,
@@ -266,7 +268,7 @@ enum Opt {
         output: Option<String>,
         #[structopt(short = "s", long = "service", help = "Service name",
                     raw(display_order = "1",
-                        possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
+                        possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank", "other"]"#))]
         service: Option<ServiceName>,
         #[structopt(short = "c", long = "contest", help = "Contest name",
                     raw(display_order = "2"))]
@@ -286,7 +288,7 @@ enum Opt {
         language: Option<String>,
         #[structopt(short = "s", long = "service", help = "Service name",
                     raw(display_order = "2",
-                        possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
+                        possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank", "other"]"#))]
         service: Option<ServiceName>,
         #[structopt(short = "c", long = "contest", help = "Contest name",
                     raw(display_order = "3"))]
@@ -325,11 +327,6 @@ enum Opt {
                     raw(display_order = "3"))]
         skip_checking_duplication: bool,
     },
-}
-
-fn init_prop_from_config(config: &Config) -> snowchains::Result<InitProp> {
-    let service = config.service()?;
-    init_prop(service).map_err(Into::into)
 }
 
 fn init_prop(service: ServiceName) -> FileIoResult<InitProp> {

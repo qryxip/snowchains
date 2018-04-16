@@ -28,7 +28,7 @@ install:
   - rustc -vV
   - cargo -vV
 build_script:
-  - cargo +%RUSTUP_TOOLCHAIN% build --release
+  - cargo build --release
   - ps: Move-Item "target\release\${env:TARGET}" .\
   - cd C:\projects
   - 7z a %APPVEYOR_BUILD_FOLDER%\%APPVEYOR_PROJECT_NAME%-%APPVEYOR_REPO_TAG_NAME%-%RUSTUP_HOST%.zip
