@@ -48,7 +48,7 @@ fn it_scrapes_samples_from_practice() {
     ];
     let download_dir = || config.testfiles_dir().unwrap();
     check_samples("a", download_dir(), SAMPLES_A);
-    let cases = SuiteFilePaths::new(download_dir(), "b", vec![SuiteFileExtension::Yaml])
+    let (cases, _) = SuiteFilePaths::new(download_dir(), "b", vec![SuiteFileExtension::Yaml])
         .load_merging(false)
         .unwrap();
     match cases {
@@ -104,7 +104,7 @@ fn it_scrapes_samples_from_arc058() {
 }
 
 fn check_samples(name: &str, download_dir: PathTemplate, expected: &[(u64, &str, &str)]) {
-    let cases = SuiteFilePaths::new(download_dir, name, vec![SuiteFileExtension::Yaml])
+    let (cases, _) = SuiteFilePaths::new(download_dir, name, vec![SuiteFileExtension::Yaml])
         .load_merging(false)
         .unwrap();
     match cases {

@@ -88,14 +88,12 @@ pub struct JudgeProp {
 
 impl JudgeProp {
     pub fn from_config(config: &Config, target: &str, language: Option<&str>) -> ::Result<Self> {
-        let paths = config.suite_paths(&target)?;
-        let cases = paths.load_merging(false)?;
-        let text = paths.existing_paths_as_text()?;
+        let (cases, paths) = config.suite_paths(&target)?.load_merging(false)?;
         let solver = config.construct_solver(&target, language)?;
         let compilation = config.construct_compilation_command(&target, language)?;
         Ok(Self {
             cases,
-            case_paths: text,
+            case_paths: paths,
             solver,
             compilation,
         })

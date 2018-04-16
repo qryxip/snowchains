@@ -21,6 +21,7 @@ extern crate cookie;
 extern crate decimal;
 extern crate futures;
 extern crate httpsession;
+extern crate itertools;
 extern crate pbr;
 extern crate regex;
 extern crate robots_txt;

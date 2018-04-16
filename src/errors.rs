@@ -137,6 +137,7 @@ error_chain! {
 
     foreign_links {
         FileIo(FileIoError/*, FileIoErrorKind*/);
+        Io(io::Error);
         SerdeJson(serde_json::Error);
         SerdeYaml(serde_yaml::Error);
         TomlDe(toml::de::Error);
@@ -154,14 +155,14 @@ error_chain! {
             display("Different types of suites")
         }
 
-        Unsubmittable(problem: String) {
-            description("The problem is unsubmittable")
-            display("{:?} is unsubmittable", problem)
-        }
-
         SuiteIsNotSimple {
             description("Target suite is not \"simple\" type")
             display("Target suite is not \"simple\" type")
+        }
+
+        Unsubmittable(problem: String) {
+            description("The problem is unsubmittable")
+                display("{:?} is unsubmittable", problem)
         }
 
         Nan {

@@ -5,11 +5,11 @@ use util;
 
 use {serde_json, serde_yaml, toml};
 use decimal::d128;
+use itertools::Itertools as _Itertools;
 
-use std::{self, iter, slice};
+use std::{self, fmt, fs, io, iter, slice};
 use std::borrow::Cow;
-use std::fmt::{self, Write as _FmtWrite};
-use std::io::Write as _IoWrite;
+use std::io::Write as _Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -41,50 +41,54 @@ impl<'a> SuiteFilePaths<'a> {
         }
     }
 
-    pub fn existing_paths_as_text(&self) -> SuiteFileResult<String> {
-        let dir = self.directory.expand(self.stem)?;
-        let delim = if cfg!(windows) && !dir.display().to_string().ends_with('\\') {
-            "\\"
-        } else if !dir.display().to_string().ends_with('/') {
-            "/"
-        } else {
-            ""
-        };
-        let mut r = format!("{}{}{{", dir.display(), delim);
-        let mut p = false;
-        for &ext in &self.extensions {
-            if SuiteFilePath::new(&dir, self.stem, ext).build().exists() {
-                if p {
-                    r += ", ";
-                } else {
-                    p = true;
-                }
-                write!(r, "{}.{}", self.stem, ext).unwrap();
-            }
-        }
-        r += "}";
-        Ok(r)
-    }
-
     /// Merge test suites in `dir` which filename stem equals `stem` and
     /// extension is in `extensions`.
-    pub fn load_merging(&self, allow_missing: bool) -> SuiteFileResult<TestCases> {
+    pub fn load_merging(&self, allow_missing: bool) -> SuiteFileResult<(TestCases, String)> {
         let dir = self.directory.expand(self.stem)?;
-        let existing_suites = self.extensions
-            .iter()
-            .filter_map(|&ext| {
-                let path = SuiteFilePath::new(&dir, self.stem, ext);
-                if path.build().exists() {
-                    Some(TestSuite::load(&path))
+        let (existing_suites, paths_as_text) = {
+            let dir_s = {
+                let delim = if cfg!(windows) && !dir.display().to_string().ends_with('\\') {
+                    "\\"
+                } else if !dir.display().to_string().ends_with('/') {
+                    "/"
                 } else {
-                    None
-                }
-            })
-            .collect::<SuiteFileResult<Vec<_>>>()?;
+                    ""
+                };
+                format!("{}{}", dir.display(), delim)
+            };
+            let existing_filenames = {
+                let stem_lowercase = self.stem.to_lowercase();
+                let mut filenames = fs::read_dir(&dir)?
+                    .filter_map(|entry| match entry {
+                        Ok(entry) => {
+                            let path = entry.path();
+                            let stem = path.file_stem()?.to_str()?.to_owned();
+                            let ext = path.extension()?.to_str()?;
+                            let ext = SuiteFileExtension::from_str(ext).ok()?;
+                            ensure_opt!(stem.to_lowercase() == stem_lowercase);
+                            ensure_opt!(self.extensions.contains(&ext));
+                            Some(Ok((stem, ext)))
+                        }
+                        Err(e) => Some(Err::<_, io::Error>(e)),
+                    })
+                    .collect::<io::Result<Vec<_>>>()?;
+                filenames.sort_by_key(|&(ref s, _)| s.clone());
+                filenames.sort_by_key(|&(_, x)| x);
+                filenames
+            };
+            let (mut suites, mut names) = (vec![], vec![]);
+            for &(ref stem, ext) in &existing_filenames {
+                let suite = TestSuite::load(&SuiteFilePath::new(&dir, stem.as_str(), ext))?;
+                suites.push(suite);
+                names.push(format!("{}.{}", stem, ext));
+            }
+            let paths_as_text = format!("{}{{{}}}", dir_s, names.iter().join(", "));
+            (suites, paths_as_text)
+        };
 
         if existing_suites.is_empty() {
             if allow_missing {
-                Ok(TestCases::Simple(vec![]))
+                Ok((TestCases::Simple(vec![]), paths_as_text))
             } else {
                 bail!(SuiteFileErrorKind::NoFile(dir.clone()));
             }
@@ -106,20 +110,19 @@ impl<'a> SuiteFilePaths<'a> {
                         .collect::<Vec<_>>()
                 })
                 .collect::<SuiteFileResult<Vec<_>>>()?;
-            Ok(TestCases::Simple(cases))
+            Ok((TestCases::Simple(cases), paths_as_text))
         } else if existing_suites.iter().all(TestSuite::is_interactive) {
-            Ok(TestCases::Interactive(
-                existing_suites
-                    .into_iter()
-                    .map(TestSuite::unwrap_to_interactive)
-                    .flat_map(|suite| {
-                        let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
-                        cases
-                            .into_iter()
-                            .map(move |case| case.appended(path.clone(), timelimit))
-                    })
-                    .collect(),
-            ))
+            let cases = existing_suites
+                .into_iter()
+                .map(TestSuite::unwrap_to_interactive)
+                .flat_map(|suite| {
+                    let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
+                    cases
+                        .into_iter()
+                        .map(move |case| case.appended(path.clone(), timelimit))
+                })
+                .collect();
+            Ok((TestCases::Interactive(cases), paths_as_text))
         } else if existing_suites.iter().all(TestSuite::is_unsubmittable) {
             bail!(SuiteFileErrorKind::Unsubmittable(self.stem.to_owned()))
         } else {
@@ -156,7 +159,7 @@ impl<'a> SuiteFilePath<'a> {
 }
 
 /// Extension of a test suite file.
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SuiteFileExtension {
     Json,
