@@ -83,7 +83,7 @@ hackerrank:
     rust_version: 1.21.0
 
 languages:
-  - name: c++
+  c++:
     src: cc/{{L}}.cc
     compile:
       bin: cc/build/{{L}}{exe}
@@ -94,7 +94,7 @@ languages:
       working_directory: cc/
     language_ids:
       atcoder: 3003
-  - name: rust
+  rust:
     src: rs/src/bin/{{L}}.rs
     compile:
       bin: rs/target/release/{{L}}{exe}
@@ -105,7 +105,7 @@ languages:
       working_directory: rs/
     language_ids:
       atcoder: 3504
-  - name: haskell
+  haskell:
     src: hs/src/{{C}}.hs
     compile:
       bin: hs/target/{{C}}{exe}
@@ -116,21 +116,21 @@ languages:
       working_directory: hs/
     language_ids:
       atcoder: 3014
-  - name: bash
+  bash:
     src: bash/{{L}}.bash
     run:
       command: bash $src
       working_directory: bash/
     language_ids:
       atcoder: 3001
-  - name: python3
+  python3:
     src: py/{{L}}.py
     run:
       command: ./venv/bin/python3 $src
       working_directory: py/
     language_ids:
       atcoder: 3023
-  - name: java
+  java:
     src: java/src/main/java/{{C}}.java
     compile:
       bin: java/build/classes/java/main/{{C}}.class
@@ -142,12 +142,12 @@ languages:
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 2
-      local: "{{C}}"
+      local: '{{C}}'
       atcoder: Main
       once: true
     language_ids:
       atcoder: 3016
-  - name: scala
+  scala:
     src: scala/src/main/scala/{{C}}.scala
     compile:
       bin: scala/target/scala-2.12/classes/{{C}}.class
@@ -159,7 +159,7 @@ languages:
     replace:
       regex: /^\s*object\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 1
-      local: "{{C}}"
+      local: '{{C}}'
       atcoder: Main
       once: true
     language_ids:
@@ -183,7 +183,7 @@ languages:
             ""
         },
         csharp = if cfg!(target_os = "windows") {
-            r#"  - name: c#
+            r#"  c#:
     src: cs/{C}/{C}.cs
     compile:
       bin: cs/{C}/bin/Release/{C}.exe
@@ -195,7 +195,7 @@ languages:
     language_ids:
       atcoder: 3006"#
         } else {
-            r#"  - name: c#
+            r#"  c#:
     src: cs/{C}/{C}.cs
     compile:
       bin: cs/{C}/bin/Release/{C}.exe
@@ -284,7 +284,7 @@ pub struct Config {
     atcoder: Option<Service>,
     #[serde(skip_serializing_if = "Option::is_none")]
     hackerrank: Option<Service>,
-    languages: Vec<Language>,
+    languages: HashMap<String, Language>,
     #[serde(skip)]
     base_dir: PathBuf,
 }
@@ -340,7 +340,7 @@ impl Config {
 
     pub fn src_paths_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, PathTemplate>> {
         let mut templates = BTreeMap::new();
-        for lang in &self.languages {
+        for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.atcoder {
                 let mut vars = HashMap::new();
                 if let Some(ref atcoder) = self.atcoder {
@@ -375,7 +375,7 @@ impl Config {
 
     pub fn code_replacers_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, CodeReplacer>> {
         let mut replacers = BTreeMap::new();
-        for lang in &self.languages {
+        for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.atcoder {
                 if let Some(ref replacer_prop) = lang.replace {
                     let replacer =
@@ -472,8 +472,7 @@ impl Config {
         let name = name.or_else(|| service.map(|s| s.default_language.as_ref()))
             .ok_or_else(|| ConfigError::from(ConfigErrorKind::LanguageNotSpecified))?;
         self.languages
-            .iter()
-            .find(|lang| lang.name == name)
+            .get(name)
             .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(name.to_owned())))
     }
 
@@ -563,7 +562,6 @@ impl Shell {
 
 #[derive(Serialize, Deserialize)]
 struct Language {
-    name: String,
     src: TemplateString,
     #[serde(skip_serializing_if = "Option::is_none")]
     compile: Option<Compile>,

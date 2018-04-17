@@ -84,10 +84,10 @@ hackerrank:
 # "cc/{}.cc" % "problem-a"          ⊦ <the directory which has snowchains.yaml>/cc/problem-a.cc
 # "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yaml>/csharp/ProblemA/ProblemA.cs
 languages:
-  - name: c++
+  c++:
     src: cc/{L}.cc
     compile:                               # optional
-      bin: cc/build/{}
+      bin: cc/build/{L}
       command: g++ $cxx_flags -o $bin $src
       working_directory: cc/               # default: ""
     run:
@@ -95,7 +95,7 @@ languages:
       working_directory: cc/               # default: ""
     language_ids:                          # optional
       atcoder: 3003
-  - name: rust
+  rust:
     src: rs/src/bin/{L}.rs
     compile:
       bin: rs/target/release/{L}
@@ -106,7 +106,7 @@ languages:
       working_directory: rs/
     language_ids:
       atcoder: 3504
-  - name: haskell
+  haskell:
     src: hs/src/{C}.hs
     compile:
       bin: hs/target/{C}
@@ -117,14 +117,14 @@ languages:
       working_directory: hs/
     language_ids:
       atcoder: 3014
-  - name: python3
+  python3:
     src: py/{}.py
     run:
       command: ./venv/bin/python3 $src
       working_directory: py/
     language_ids:
       atcoder: 3023
-  - name: java
+  java:
     src: java/src/main/java/{C}.java
     compile:
       bin: java/build/classes/java/main/{C}.class
@@ -141,20 +141,18 @@ languages:
       once: true
     language_ids:
       atcoder: 3016
-  - # Windows
-    name: c#
-    src: cs/{C}/{C}.cs
-    compile:
-      bin: cs/{C}/bin/Release/{C}.exe
-      command: csc /o+ /r:System.Numerics /out:$bin $src
-      working_directory: cs/
-    run:
-      command: $bin
-      working_directory: cs/
-    language_ids:
-      atcoder: 3006
-  - # Unix
-    name: c#
+  # c#:
+  #   src: cs/{C}/{C}.cs
+  #   compile:
+  #     bin: cs/{C}/bin/Release/{C}.exe
+  #     command: csc /o+ /r:System.Numerics /out:$bin $src
+  #     working_directory: cs/
+  #   run:
+  #     command: $bin
+  #     working_directory: cs/
+  #   language_ids:
+  #     atcoder: 3006
+  c#:
     src: cs/{C}/{C}.cs
     compile:
       bin: cs/{C}/bin/Release/{C}.exe
@@ -180,8 +178,8 @@ testfiles:
   exclude: []
 
 shell:
-  args: [/bin/sh, -c]         # /bin/sh or C:\Windows\cmd.exe
-  on: '@#$^&*;|?\<>()[]{}''"' # Special characters
+  args: [/bin/sh, -c]
+  on: '@#$^&*;|?\<>()[]{}''"'
 
 atcoder:
   default_language: c++
@@ -194,7 +192,7 @@ hackerrank:
     cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
 
 languages:
-  - name: c++
+  c++:
     src: "{L}.cc"
     compile:
       bin: build/{L}
