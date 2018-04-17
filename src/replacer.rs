@@ -121,12 +121,11 @@ object Foo {}
 "#;
 
         fn code_replacer(regex_group: usize) -> CodeReplacer {
+            let empty = None::<&HashMap<&'static str, &'static str>>;
             CodeReplacer::new(
                 Regex::new(r"^object\s+([A-Z][a-zA-Z0-9_]*).*$").unwrap(),
                 regex_group,
-                TemplateString::new("{C}")
-                    .embed_vars(&HashMap::new())
-                    .unwrap(),
+                TemplateString::new("{C}").embed_vars(empty).unwrap(),
                 "Main".into(),
                 true,
             )

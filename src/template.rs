@@ -4,8 +4,10 @@ use util::{self, Camelize};
 use regex::Regex;
 
 use std::{self, env};
+use std::borrow::Borrow;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 
@@ -59,11 +61,16 @@ impl TemplateString {
         TemplateString(s.into())
     }
 
-    pub(crate) fn resolve_as_path(
+    pub(crate) fn resolve_as_path<
+        'a,
+        K: 'a + Borrow<str> + Eq + Hash,
+        V: 'a + Borrow<str> + Eq + Hash,
+        M: Into<Option<&'a HashMap<K, V>>>,
+    >(
         &self,
         base_dir: &Path,
         target: &str,
-        variables: &HashMap<&str, &str>,
+        variables: M,
     ) -> TemplateResult<PathBuf> {
         let resolved = self.embed_vars(variables)?
             .with_base_dir(base_dir)
@@ -71,25 +78,44 @@ impl TemplateString {
         Ok(resolved)
     }
 
-    pub(crate) fn format(
+    pub(crate) fn format<
+        'a,
+        K: 'a + Borrow<str> + Eq + Hash,
+        V: 'a + Borrow<str> + Eq + Hash,
+        M: Into<Option<&'a HashMap<K, V>>>,
+    >(
         &self,
         target: &str,
-        variables: &HashMap<&str, &str>,
+        variables: M,
     ) -> TemplateResult<String> {
         let transformed = self.embed_vars(variables)?;
         Ok(transformed.format(target))
     }
 
-    pub(crate) fn as_path_template<'a>(
+    pub(crate) fn as_path_template<
+        'a,
+        'b,
+        K: 'b + Borrow<str> + Eq + Hash,
+        V: 'b + Borrow<str> + Eq + Hash,
+        M: Into<Option<&'b HashMap<K, V>>>,
+    >(
         &self,
         base_dir: &'a Path,
-        variables: &HashMap<&str, &str>,
+        variables: M,
     ) -> TemplateResult<PathTemplate<'a>> {
         let template = self.embed_vars(variables)?;
         Ok(PathTemplate { template, base_dir })
     }
 
-    pub(crate) fn embed_vars(&self, variables: &HashMap<&str, &str>) -> TemplateResult<Template> {
+    pub(crate) fn embed_vars<
+        'a,
+        K: 'a + Borrow<str> + Eq + Hash,
+        V: 'a + Borrow<str> + Eq + Hash,
+        M: Into<Option<&'a HashMap<K, V>>>,
+    >(
+        &self,
+        variables: M,
+    ) -> TemplateResult<Template> {
         enum Token {
             Text(String),
             Var(String),
@@ -97,26 +123,44 @@ impl TemplateString {
         }
 
         impl Token {
-            fn transform(
+            fn transform<K_: Borrow<str> + Eq + Hash, V_: Borrow<str> + Eq + Hash>(
                 self,
                 whole: &str,
-                variables: &HashMap<&str, &str>,
+                variables: Option<&HashMap<K_, V_>>,
             ) -> TemplateResult<TemplateToken> {
                 match self {
                     Token::Text(s) => Ok(TemplateToken::Plain(s)),
-                    Token::Var(s) => match variables.get(s.as_str()) {
-                        Some(v) => Ok(TemplateToken::Plain((*v).to_owned())),
-                        None => match env::var(s.as_str()) {
-                            Ok(v) => Ok(TemplateToken::Plain(v)),
-                            Err(env::VarError::NotPresent) => {
-                                let vars = variables.keys().map(|v| (*v).to_owned()).collect();
-                                bail!(TemplateErrorKind::NoSuchVariable(whole.to_owned(), s, vars))
+                    Token::Var(s) => {
+                        let env_var = |s: String| -> TemplateResult<TemplateToken> {
+                            match env::var(s.as_str()) {
+                                Ok(v) => Ok(TemplateToken::Plain(v)),
+                                Err(env::VarError::NotPresent) => {
+                                    let vars = variables
+                                        .map(|m| {
+                                            m.keys()
+                                                .map(|v| v.borrow().to_owned())
+                                                .collect::<Vec<_>>()
+                                        })
+                                        .unwrap_or_default();
+                                    bail!(TemplateErrorKind::NoSuchVariable(
+                                        whole.to_owned(),
+                                        s,
+                                        vars
+                                    ))
+                                }
+                                Err(env::VarError::NotUnicode(_)) => {
+                                    bail!(TemplateErrorKind::NonUtf8EnvVar(s.clone()))
+                                }
                             }
-                            Err(env::VarError::NotUnicode(_)) => {
-                                bail!(TemplateErrorKind::NonUtf8EnvVar(s.clone()))
-                            }
-                        },
-                    },
+                        };
+                        match variables {
+                            None => env_var(s),
+                            Some(variables) => match variables.get(s.as_str()) {
+                                None => env_var(s),
+                                Some(v) => Ok(TemplateToken::Plain(v.borrow().to_owned())),
+                            },
+                        }
+                    }
                     Token::Target(ref s) => {
                         let s = trim_lr(s);
                         if s == "" {
@@ -226,12 +270,15 @@ impl TemplateString {
             Ok(tokens)
         }
 
-        for &k in variables.keys() {
-            if ['$', '/', '\\', '{', '}', ' ']
-                .iter()
-                .any(|c| k.contains(*c))
-            {
-                bail!(TemplateErrorKind::InvalidVariable(k.to_owned()));
+        let variables = variables.into();
+        if let Some(ref variables) = variables {
+            for k in variables.keys().map(Borrow::borrow) {
+                if ['$', '/', '\\', '{', '}', ' ']
+                    .iter()
+                    .any(|c| k.contains(*c))
+                {
+                    bail!(TemplateErrorKind::InvalidVariable(k.to_owned()));
+                }
             }
         }
         let tokens = tokenize(&self.0)?
@@ -251,17 +298,17 @@ mod tests {
     #[test]
     fn it_parses_a_template() {
         let template = TemplateString::new("cc/{}.cc");
-        let vars = HashMap::new();
-        assert_eq!("cc/a.cc", template.format("a", &vars).unwrap());
+        let vars = None::<&HashMap<&'static str, &'static str>>;
+        assert_eq!("cc/a.cc", template.format("a", vars).unwrap());
         let template = TemplateString::new("cs/{C}/{C}.cs");
-        let vars = HashMap::new();
-        assert_eq!("cs/A/A.cs", template.format("a", &vars).unwrap());
+        let vars = None::<&HashMap<&'static str, &'static str>>;
+        assert_eq!("cs/A/A.cs", template.format("a", vars).unwrap());
         let template = TemplateString::new("gcc -o $bin $src");
         let vars = hashmap!("src" => "SRC", "bin" => "BIN");
         assert_eq!("gcc -o BIN SRC", template.format("", &vars).unwrap());
         let template = TemplateString::new("{ c }/{c}/{C}/{l}");
-        let vars = HashMap::new();
-        assert_eq!("A/A/A/a", template.format("a", &vars).unwrap());
+        let vars = None::<&HashMap<&'static str, &'static str>>;
+        assert_eq!("A/A/A/a", template.format("a", vars).unwrap());
         let template = TemplateString::new("$foo/$bar/$baz");
         let vars = hashmap!("foo" => "FOO", "bar" => "BAR", "baz" => "BAZ");
         assert_eq!("FOO/BAR/BAZ", template.format("", &vars).unwrap());
@@ -269,18 +316,19 @@ mod tests {
         let vars = hashmap!("" => "AAA");
         assert_eq!("AAAAAAAAA", template.format("", &vars).unwrap());
 
+        let empty = None::<&HashMap<&'static str, &'static str>>;
         let template = TemplateString::new("{}/{{}}");
-        assert!(template.format("", &HashMap::new()).is_err());
+        assert!(template.format("", empty).is_err());
         let template = TemplateString::new("{}/{");
-        assert!(template.format("", &HashMap::new()).is_err());
+        assert!(template.format("", empty).is_err());
         let template = TemplateString::new("{}/}");
-        assert!(template.format("", &HashMap::new()).is_err());
+        assert!(template.format("", empty).is_err());
         let template = TemplateString::new("}/{}");
-        assert!(template.format("", &HashMap::new()).is_err());
+        assert!(template.format("", empty).is_err());
         let template = TemplateString::new("{}/{aaa C}/{}");
-        assert!(template.format("", &HashMap::new()).is_err());
+        assert!(template.format("", empty).is_err());
         let template = TemplateString::new("$unexistingkeyword");
-        assert!(template.format("", &HashMap::new()).is_err());
+        assert!(template.format("", empty).is_err());
 
         #[cfg(unix)]
         {
@@ -293,19 +341,14 @@ mod tests {
             env::set_var("A", "あ");
             env::set_var("B", OsStr::from_bytes(b"\xc3\x28"));
             env::remove_var("C");
+            let empty = None::<&HashMap<&'static str, &'static str>>;
             let template = TemplateString::new("$A/$A/{}");
-            assert_eq!("あ/あ/a", template.format("a", &HashMap::new()).unwrap());
-            match TemplateString::new("$B")
-                .format("", &HashMap::new())
-                .unwrap_err()
-            {
+            assert_eq!("あ/あ/a", template.format("a", empty).unwrap());
+            match TemplateString::new("$B").format("", empty).unwrap_err() {
                 TemplateError(TemplateErrorKind::NonUtf8EnvVar(k), _) => assert_eq!("B", k),
                 e => panic!("{}", e),
             }
-            match TemplateString::new("$C")
-                .format("", &HashMap::new())
-                .unwrap_err()
-            {
+            match TemplateString::new("$C").format("", empty).unwrap_err() {
                 TemplateError(TemplateErrorKind::NoSuchVariable(w, k, expected), _) => {
                     assert_eq!("$C", w);
                     assert_eq!("C", k);

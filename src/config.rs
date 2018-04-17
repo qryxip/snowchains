@@ -11,8 +11,10 @@ use {rprompt, serde_yaml};
 use regex::Regex;
 
 use std::{cmp, fs, iter, slice, str};
+use std::borrow::Borrow;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
+use std::hash::Hash;
 use std::io::{self, Write as _Write};
 use std::path::{Path, PathBuf};
 
@@ -342,13 +344,8 @@ impl Config {
         let mut templates = BTreeMap::new();
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.atcoder {
-                let mut vars = HashMap::new();
-                if let Some(ref atcoder) = self.atcoder {
-                    for (k, v) in &atcoder.variables {
-                        vars.insert(k.as_str(), v.as_str());
-                    }
-                }
-                let template = lang.src.embed_vars(&vars)?.with_base_dir(&self.base_dir);
+                let vars = self.atcoder.as_ref().map(|s| &s.variables);
+                let template = lang.src.embed_vars(vars)?.with_base_dir(&self.base_dir);
                 templates.insert(lang_id, template);
             }
         }
@@ -359,7 +356,7 @@ impl Config {
         let lang = self.language(language)?;
         let vars = self.vars_on_service(None);
         lang.src
-            .as_path_template(&self.base_dir, &vars)
+            .as_path_template(&self.base_dir, vars)
             .map_err(Into::into)
     }
 
@@ -367,7 +364,7 @@ impl Config {
         let lang = self.language(lang_name)?;
         let vars = self.vars_on_service(None);
         let replacer = match lang.replace.as_ref() {
-            Some(replacer) => Some(replacer.build(&vars)?),
+            Some(replacer) => Some(replacer.build(vars)?),
             None => None,
         };
         Ok(replacer)
@@ -379,7 +376,7 @@ impl Config {
             if let Some(lang_id) = lang.language_ids.atcoder {
                 if let Some(ref replacer_prop) = lang.replace {
                     let replacer =
-                        replacer_prop.build(&self.vars_on_service(Some(ServiceName::AtCoder)))?;
+                        replacer_prop.build(self.vars_on_service(Some(ServiceName::AtCoder)))?;
                     replacers.insert(lang_id, replacer);
                 }
             }
@@ -408,16 +405,25 @@ impl Config {
             None => Ok(None),
             Some(ref compile) => {
                 let wd = compile.working_directory.resolve(&self.base_dir)?;
-                let src = lang.src
-                    .resolve_as_path(&self.base_dir, target, &HashMap::new())?;
+                let src = lang.src.resolve_as_path::<&'static str, &'static str, _>(
+                    &self.base_dir,
+                    target,
+                    None,
+                )?;
                 let bin = compile
                     .bin
-                    .resolve_as_path(&self.base_dir, target, &HashMap::new())?;
+                    .resolve_as_path::<&'static str, &'static str, _>(
+                        &self.base_dir,
+                        target,
+                        None,
+                    )?;
                 let (src_s, bin_s) = (src.display().to_string(), bin.display().to_string());
                 let vars = {
                     let mut vars = hashmap!("src" => src_s.as_str(), "bin" => bin_s.as_str());
-                    for (k, v) in &vars_on_service {
-                        vars.insert(k, v);
+                    if let Some(vars_on_service) = vars_on_service {
+                        for (k, v) in vars_on_service {
+                            vars.insert(k, v);
+                        }
                     }
                     vars
                 };
@@ -439,13 +445,11 @@ impl Config {
         let base = &self.base_dir;
         let wd = lang.run.working_directory.resolve(base)?;
         let (src, bin) = {
-            let mut vars = HashMap::new();
-            for (&k, &v) in &vars_on_service {
-                vars.insert(k, v);
-            }
-            let src = lang.src.resolve_as_path(base, target, &vars)?;
+            let src = lang.src.resolve_as_path(base, target, vars_on_service)?;
             let bin = match lang.compile {
-                Some(ref compile) => Some(compile.bin.resolve_as_path(base, target, &vars)?),
+                Some(ref compile) => {
+                    Some(compile.bin.resolve_as_path(base, target, vars_on_service)?)
+                }
                 None => None,
             };
             (src, bin)
@@ -454,8 +458,10 @@ impl Config {
         let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
         let vars = {
             let mut vars = hashmap!("src" => src.as_str(), "bin" => bin.as_str());
-            for (&k, &v) in &vars_on_service {
-                vars.insert(k, v);
+            if let Some(vars_on_service) = vars_on_service {
+                for (k, v) in vars_on_service {
+                    vars.insert(k.as_str(), v.as_str());
+                }
             }
             vars
         };
@@ -476,20 +482,12 @@ impl Config {
             .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(name.to_owned())))
     }
 
-    fn vars_on_service(&self, service: Option<ServiceName>) -> HashMap<&str, &str> {
-        let service = match service.unwrap_or(self.service) {
+    fn vars_on_service(&self, service: Option<ServiceName>) -> Option<&HashMap<String, String>> {
+        match service.unwrap_or(self.service) {
             ServiceName::AtCoder | ServiceName::AtCoderBeta => self.atcoder.as_ref(),
             ServiceName::HackerRank => self.hackerrank.as_ref(),
             ServiceName::Other => None,
-        };
-        let mut vars = HashMap::<&str, &str>::new();
-        let vs = service.map(|s| &s.variables);
-        if let Some(vs) = vs {
-            for (k, v) in vs.iter() {
-                vars.insert(k, v);
-            }
-        }
-        vars
+        }.map(|s| &s.variables)
     }
 }
 
@@ -614,7 +612,15 @@ fn always_true() -> bool {
 }
 
 impl CodeReplacerProp {
-    fn build(&self, variables: &HashMap<&str, &str>) -> ConfigResult<CodeReplacer> {
+    fn build<
+        'a,
+        K: 'a + Borrow<str> + Eq + Hash,
+        V: 'a + Borrow<str> + Eq + Hash,
+        M: Into<Option<&'a HashMap<K, V>>>,
+    >(
+        &self,
+        variables: M,
+    ) -> ConfigResult<CodeReplacer> {
         let regex = if self.regex.starts_with('/') && self.regex.ends_with('/') {
             let n = self.regex.len();
             String::from_utf8_lossy(&self.regex.as_bytes()[1..n - 1])
