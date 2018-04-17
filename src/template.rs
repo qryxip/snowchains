@@ -1,8 +1,8 @@
 use errors::{FileIoResult, TemplateError, TemplateErrorKind, TemplateResult};
 use util;
 
-use heck::CamelCase as _CameCase;
-use regex::Regex;
+use heck::{CamelCase as _CameCase, KebabCase as _KebabCase, MixedCase as _MixedCase,
+           ShoutySnakeCase as _ShoutySnakeCase, SnakeCase as _SnakeCase, TitleCase as _TitleCase};
 
 use std::{self, env};
 use std::borrow::Borrow;
@@ -33,7 +33,13 @@ impl Template {
                 TemplateToken::Plain(ref s) => r += s,
                 TemplateToken::Target => r += target,
                 TemplateToken::TargetLower => r += &target.to_lowercase(),
-                TemplateToken::TargetCamelized => r += &target.to_camel_case(),
+                TemplateToken::TargetUpper => r += &target.to_uppercase(),
+                TemplateToken::TargetKebab => r += &target.to_kebab_case(),
+                TemplateToken::TargetLowerSnake => r += &target.to_snake_case(),
+                TemplateToken::TargetUpperSnake => r += &target.to_shouty_snake_case(),
+                TemplateToken::TargetLowerCamel => r += &target.to_mixed_case(),
+                TemplateToken::TargetUpperCamel => r += &target.to_camel_case(),
+                TemplateToken::TargetTitle => r += &target.to_title_case(),
             }
             r
         })
@@ -51,7 +57,13 @@ enum TemplateToken {
     Plain(String),
     Target,
     TargetLower,
-    TargetCamelized,
+    TargetUpper,
+    TargetKebab,
+    TargetLowerSnake,
+    TargetUpperSnake,
+    TargetLowerCamel,
+    TargetUpperCamel,
+    TargetTitle,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -162,31 +174,32 @@ impl TemplateString {
                             },
                         }
                     }
-                    Token::Target(ref s) => {
-                        let s = trim_lr(s);
-                        if s == "" {
-                            Ok(TemplateToken::Target)
-                        } else if ["l", "L"].contains(&s.as_str()) {
-                            Ok(TemplateToken::TargetLower)
-                        } else if ["c", "C"].contains(&s.as_str()) {
-                            Ok(TemplateToken::TargetCamelized)
-                        } else {
+                    Token::Target(ref s) => match s.trim().to_lowercase() {
+                        ref s if s.is_empty() => Ok(TemplateToken::Target),
+                        ref s if s == "lower" => Ok(TemplateToken::TargetLower),
+                        ref s if s == "upper" => Ok(TemplateToken::TargetUpper),
+                        ref s if s == "kebab" => Ok(TemplateToken::TargetKebab),
+                        ref s if s == "snake" => Ok(TemplateToken::TargetLowerSnake),
+                        ref s if s == "screaming" => Ok(TemplateToken::TargetUpperSnake),
+                        ref s if s == "mixed" => Ok(TemplateToken::TargetLowerCamel),
+                        ref s if s == "pascal" => Ok(TemplateToken::TargetUpperCamel),
+                        ref s if s == "title" => Ok(TemplateToken::TargetTitle),
+                        s => {
+                            static EXPECTED_KWS: &[&str] = &[
+                                "lower",
+                                "upper",
+                                "kebab",
+                                "snake",
+                                "screaming",
+                                "mixed",
+                                "pascal",
+                                "title",
+                            ];
                             let whole = whole.to_owned();
-                            static EXPECTED_KWS: &'static [&'static str] = &["c", "C", "l", "L"];
                             bail!(TemplateErrorKind::NoSuchSpecifier(whole, s, EXPECTED_KWS))
                         }
-                    }
+                    },
                 }
-            }
-        }
-
-        fn trim_lr(s: &str) -> String {
-            lazy_static! {
-                static ref CENTOR: Regex = Regex::new(r"^\s*(\S*)\s*$").unwrap();
-            }
-            match CENTOR.captures(s) {
-                Some(cap) => cap[1].to_owned(),
-                None => s.to_owned(),
             }
         }
 
@@ -298,18 +311,19 @@ mod tests {
 
     #[test]
     fn it_parses_a_template() {
+        let empty = None::<&HashMap<&'static str, &'static str>>;
+
         let template = TemplateString::new("cc/{}.cc");
-        let vars = None::<&HashMap<&'static str, &'static str>>;
-        assert_eq!("cc/a.cc", template.format("a", vars).unwrap());
-        let template = TemplateString::new("cs/{C}/{C}.cs");
-        let vars = None::<&HashMap<&'static str, &'static str>>;
-        assert_eq!("cs/A/A.cs", template.format("a", vars).unwrap());
+        assert_eq!("cc/a.cc", template.format("a", empty).unwrap());
+        let template = TemplateString::new("cs/{Pascal}/{Pascal}.cs");
+        assert_eq!("cs/A/A.cs", template.format("a", empty).unwrap());
         let template = TemplateString::new("gcc -o $bin $src");
         let vars = hashmap!("src" => "SRC", "bin" => "BIN");
         assert_eq!("gcc -o BIN SRC", template.format("", &vars).unwrap());
-        let template = TemplateString::new("{ c }/{c}/{C}/{l}");
-        let vars = None::<&HashMap<&'static str, &'static str>>;
-        assert_eq!("A/A/A/a", template.format("a", vars).unwrap());
+        let template = TemplateString::new("{ PaScAl }/{pascal}/{lower}");
+        assert_eq!("A/A/a", template.format("a", empty).unwrap());
+        let template = TemplateString::new("{snake}/{kebab}");
+        assert_eq!("foo_bar/foo-bar", template.format("FooBar", empty).unwrap());
         let template = TemplateString::new("$foo/$bar/$baz");
         let vars = hashmap!("foo" => "FOO", "bar" => "BAR", "baz" => "BAZ");
         assert_eq!("FOO/BAR/BAZ", template.format("", &vars).unwrap());
@@ -317,19 +331,18 @@ mod tests {
         let vars = hashmap!("" => "AAA");
         assert_eq!("AAAAAAAAA", template.format("", &vars).unwrap());
 
-        let empty = None::<&HashMap<&'static str, &'static str>>;
         let template = TemplateString::new("{}/{{}}");
-        assert!(template.format("", empty).is_err());
+        template.format("", empty).unwrap_err();
         let template = TemplateString::new("{}/{");
-        assert!(template.format("", empty).is_err());
+        template.format("", empty).is_err();
         let template = TemplateString::new("{}/}");
-        assert!(template.format("", empty).is_err());
+        template.format("", empty).is_err();
         let template = TemplateString::new("}/{}");
-        assert!(template.format("", empty).is_err());
-        let template = TemplateString::new("{}/{aaa C}/{}");
-        assert!(template.format("", empty).is_err());
-        let template = TemplateString::new("$unexistingkeyword");
-        assert!(template.format("", empty).is_err());
+        template.format("", empty).is_err();
+        let template = TemplateString::new("{}/{invalid}/{}");
+        template.format("", empty).is_err();
+        let template = TemplateString::new("$nonexisting");
+        template.format("", empty).is_err();
 
         #[cfg(unix)]
         {

@@ -81,13 +81,24 @@ hackerrank:
 # source:     <<src> % <problem>>
 # binary:     <<bin> % <problem>>
 # e.g.
-# "cc/{}.cc" % "problem-a"          ⊦ <the directory which has snowchains.yaml>/cc/problem-a.cc
-# "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yaml>/csharp/ProblemA/ProblemA.cs
+# "cc/{}.cc" % "problem-a"                      <the directory which has snowchains.yaml>/cc/problem-a.cc
+# "csharp/{Pascal}/{Pascal}.cs" % "problem-a" ⊦ <the directory which has snowchains.yaml>/csharp/ProblemA/ProblemA.cs
+#
+# Specifiers of {} (case-insensitive):
+# - "" (empty)
+# - "lower"
+# - "upper"
+# - "kebab"
+# - "snake"
+# - "screaming"
+# - "mixed"
+# - "pascal"
+# - "title"
 languages:
   c++:
-    src: cc/{L}.cc
+    src: cc/{kebab}.cc
     compile:                               # optional
-      bin: cc/build/{L}
+      bin: cc/build/{kebab}
       command: g++ $cxx_flags -o $bin $src
       working_directory: cc/               # default: ""
     run:
@@ -96,9 +107,9 @@ languages:
     language_ids:                          # optional
       atcoder: 3003
   rust:
-    src: rs/src/bin/{L}.rs
+    src: rs/src/bin/{kebab}.rs
     compile:
-      bin: rs/target/release/{L}
+      bin: rs/target/release/{kebab}
       command: rustc +$rust_version -o $bin $src
       working_directory: rs/
     run:
@@ -107,9 +118,9 @@ languages:
     language_ids:
       atcoder: 3504
   haskell:
-    src: hs/src/{C}.hs
+    src: hs/src/{Pascal}.hs
     compile:
-      bin: hs/target/{C}
+      bin: hs/target/{Pascal}
       command: stack ghc -- -O2 -o $bin $src
       working_directory: hs/
     run:
@@ -118,33 +129,33 @@ languages:
     language_ids:
       atcoder: 3014
   python3:
-    src: py/{}.py
+    src: py/{kebab}.py
     run:
       command: ./venv/bin/python3 $src
       working_directory: py/
     language_ids:
       atcoder: 3023
   java:
-    src: java/src/main/java/{C}.java
+    src: java/src/main/java/{Pascal}.java
     compile:
-      bin: java/build/classes/java/main/{C}.class
+      bin: java/build/classes/java/main/{Pascal}.class
       command: javac -d ./build/classes/java/main/ $src
       working_directory: java/
     run:
-      command: java -classpath ./build/classes/java/main/ {C}
+      command: java -classpath ./build/classes/java/main/ {Pascal}
       working_directory: java/
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 2
-      local: "{C}"
+      local: "{Pascal}"
       atcoder: Main
       once: true
     language_ids:
       atcoder: 3016
   # c#:
-  #   src: cs/{C}/{C}.cs
+  #   src: cs/{Pascal}/{Pascal}.cs
   #   compile:
-  #     bin: cs/{C}/bin/Release/{C}.exe
+  #     bin: cs/{Pascal}/bin/Release/{Pascal}.exe
   #     command: csc /o+ /r:System.Numerics /out:$bin $src
   #     working_directory: cs/
   #   run:
@@ -153,9 +164,9 @@ languages:
   #   language_ids:
   #     atcoder: 3006
   c#:
-    src: cs/{C}/{C}.cs
+    src: cs/{Pascal}/{Pascal}.cs
     compile:
-      bin: cs/{C}/bin/Release/{C}.exe
+      bin: cs/{Pascal}/bin/Release/{Pascal}.exe
       command: mcs -o+ -r:System.Numerics -out:$bin $src
       working_directory: cs/
     run:
@@ -193,9 +204,9 @@ hackerrank:
 
 languages:
   c++:
-    src: "{L}.cc"
+    src: "{kebab}.cc"
     compile:
-      bin: build/{L}
+      bin: build/{kebab}
       command: g++ $cxx_flags -o $bin $src
       working_directory: .
     run:

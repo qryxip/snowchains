@@ -255,7 +255,7 @@ error_chain! {
 
         NoSuchSpecifier(whole: String, specifier: String, expected: &'static [&'static str]) {
             description("No such format specifier")
-            display("No such format specifier {:?} (expected {:?}): {:?}",
+            display("No such format specifier {:?} (expected {:?} (case-insensitive)): {:?}",
                     specifier, expected, whole)
         }
 

@@ -86,9 +86,9 @@ hackerrank:
 
 languages:
   c++:
-    src: cc/{{L}}.cc
+    src: cc/{{kebab}}.cc
     compile:
-      bin: cc/build/{{L}}{exe}
+      bin: cc/build/{{kebab}}{exe}
       command: g++ $cxx_flags -o $bin $src
       working_directory: cc/
     run:
@@ -97,9 +97,9 @@ languages:
     language_ids:
       atcoder: 3003
   rust:
-    src: rs/src/bin/{{L}}.rs
+    src: rs/src/bin/{{kebab}}.rs
     compile:
-      bin: rs/target/release/{{L}}{exe}
+      bin: rs/target/release/{{kebab}}{exe}
       command: rustc +$rust_version -o $bin $src
       working_directory: rs/
     run:
@@ -108,9 +108,9 @@ languages:
     language_ids:
       atcoder: 3504
   haskell:
-    src: hs/src/{{C}}.hs
+    src: hs/src/{{Pascal}}.hs
     compile:
-      bin: hs/target/{{C}}{exe}
+      bin: hs/target/{{Pascal}}{exe}
       command: stack ghc -- -O2 -o $bin $src
       working_directory: hs/
     run:
@@ -119,49 +119,49 @@ languages:
     language_ids:
       atcoder: 3014
   bash:
-    src: bash/{{L}}.bash
+    src: bash/{{kebab}}.bash
     run:
       command: bash $src
       working_directory: bash/
     language_ids:
       atcoder: 3001
   python3:
-    src: py/{{L}}.py
+    src: py/{{kebab}}.py
     run:
       command: ./venv/bin/python3 $src
       working_directory: py/
     language_ids:
       atcoder: 3023
   java:
-    src: java/src/main/java/{{C}}.java
+    src: java/src/main/java/{{Pascal}}.java
     compile:
-      bin: java/build/classes/java/main/{{C}}.class
+      bin: java/build/classes/java/main/{{Pascal}}.class
       command: javac -d ./build/classes/java/main/ $src
       working_directory: java/
     run:
-      command: java -classpath ./build/classes/java/main/ {{C}}
+      command: java -classpath ./build/classes/java/main/ {{Pascal}}
       working_directory: java/
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 2
-      local: '{{C}}'
+      local: '{{Pascal}}'
       atcoder: Main
       once: true
     language_ids:
       atcoder: 3016
   scala:
-    src: scala/src/main/scala/{{C}}.scala
+    src: scala/src/main/scala/{{Pascal}}.scala
     compile:
-      bin: scala/target/scala-2.12/classes/{{C}}.class
+      bin: scala/target/scala-2.12/classes/{{Pascal}}.class
       command: scalac -optimise -d ./target/scala-2.12/classes/ $src
       working_directory: scala/
     run:
-      command: scala -classpath ./target/scala-2.12/classes/ {{C}}
+      command: scala -classpath ./target/scala-2.12/classes/ {{Pascal}}
       working_directory: scala/
     replace:
       regex: /^\s*object\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 1
-      local: '{{C}}'
+      local: '{{Pascal}}'
       atcoder: Main
       once: true
     language_ids:
@@ -186,9 +186,9 @@ languages:
         },
         csharp = if cfg!(target_os = "windows") {
             r#"  c#:
-    src: cs/{C}/{C}.cs
+    src: cs/{Pascal}/{Pascal}.cs
     compile:
-      bin: cs/{C}/bin/Release/{C}.exe
+      bin: cs/{Pascal}/bin/Release/{Pascal}.exe
       command: csc /o+ /r:System.Numerics /out:$bin $src
       working_directory: cs/
     run:
@@ -198,9 +198,9 @@ languages:
       atcoder: 3006"#
         } else {
             r#"  c#:
-    src: cs/{C}/{C}.cs
+    src: cs/{Pascal}/{Pascal}.cs
     compile:
-      bin: cs/{C}/bin/Release/{C}.exe
+      bin: cs/{Pascal}/bin/Release/{Pascal}.exe
       command: mcs -o+ -r:System.Numerics -out:$bin $src
       working_directory: cs/
     run:
@@ -546,15 +546,23 @@ impl Shell {
         }
     }
 
-    pub(crate) fn values(
+    /// Gets the first arg.
+    ///
+    /// If "args" is empty, returns `""`.
+    pub(crate) fn arg0(&self) -> &str {
+        self.args.get(0).map(String::as_str).unwrap_or("")
+    }
+
+    /// Gets args from 1 as `impl Iterator<Item = &str>`.
+    pub(crate) fn rest_args(
         &self,
-    ) -> (
-        &str,
-        iter::Map<slice::Iter<String>, for<'r> fn(&'r String) -> &'r str>,
-        &str,
-    ) {
-        let arg0 = self.args.get(0).map(String::as_str).unwrap_or("");
-        (arg0, self.args[1..].iter().map(String::as_str), &self.on)
+    ) -> iter::Map<slice::Iter<String>, for<'r> fn(&'r String) -> &'r str> {
+        self.args[1..].iter().map(String::as_str)
+    }
+
+    /// Gets "on".
+    pub(crate) fn special_chars(&self) -> &str {
+        &self.on
     }
 }
 

@@ -182,11 +182,12 @@ struct CommandProperty {
 impl CommandProperty {
     fn new(command: String, working_dir: PathBuf, shell: &Shell) -> Self {
         let (arg0, rest_args) = {
-            let (shell, shell_args, special) = shell.values();
+            let special = shell.special_chars();
             if command.find(|c| special.contains(c)).is_some() {
-                let mut rest_args = shell_args.map(str::to_owned).collect::<Vec<_>>();
+                let arg0 = shell.arg0().to_owned();
+                let mut rest_args = shell.rest_args().map(str::to_owned).collect::<Vec<_>>();
                 rest_args.push(command);
-                (shell.to_owned(), rest_args)
+                (arg0, rest_args)
             } else if command.find(char::is_whitespace).is_some() {
                 let mut it = command.split_whitespace();
                 let arg0 = it.next().unwrap_or_default().to_owned();
