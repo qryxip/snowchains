@@ -127,59 +127,26 @@ impl<T> OkAsRefOr for Option<T> {
     }
 }
 
-pub trait Camelize {
-    /// Converts `self` to CamlCase.
-    fn camelize(&self) -> String;
-}
-
-impl Camelize for str {
-    fn camelize(&self) -> String {
-        let mut s = String::with_capacity(self.len());
-        let mut p = true;
-        self.chars().for_each(|c| match c.to_uppercase().next() {
-            Some('-') | Some('_') => {
-                p = true;
-            }
-            Some(c) if p => {
-                p = false;
-                s.push(c)
-            }
-            _ => s.push(c),
-        });
-        s
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use util::{self, Camelize};
-
     use std::env;
     use std::path::Path;
 
     #[test]
     fn it_trims_a_trailing_newline() {
-        assert_eq!("aaa", util::trim_trailing_newline("aaa\r\n"));
-        assert_eq!("bbb", util::trim_trailing_newline("bbb\n"));
-        assert_eq!("ccc", util::trim_trailing_newline("ccc"));
-        assert_eq!("ddd\r", util::trim_trailing_newline("ddd\r"));
+        assert_eq!("aaa", super::trim_trailing_newline("aaa\r\n"));
+        assert_eq!("bbb", super::trim_trailing_newline("bbb\n"));
+        assert_eq!("ccc", super::trim_trailing_newline("ccc"));
+        assert_eq!("ddd\r", super::trim_trailing_newline("ddd\r"));
     }
 
     #[test]
     fn it_expands_a_path() {
-        assert_eq!(env::home_dir(), util::expand_path("~/", None).ok());
-        util::expand_path("~root/", None).unwrap_err();
+        assert_eq!(env::home_dir(), super::expand_path("~/", None).ok());
+        super::expand_path("~root/", None).unwrap_err();
         assert_eq!(
             Path::new("/a/b/c/d"),
-            util::expand_path("c/d", Path::new("/a/b")).unwrap()
+            super::expand_path("c/d", Path::new("/a/b")).unwrap()
         )
-    }
-
-    #[test]
-    fn it_camelizes_a_string() {
-        assert_eq!("Foo", "foo".camelize());
-        assert_eq!("FooBar", "foo-bar".camelize());
-        assert_eq!("FooBarBaz", "foo-bar-baz".camelize());
-        assert_eq!("Foo bar", "foo bar".camelize());
     }
 }

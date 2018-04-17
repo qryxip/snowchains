@@ -20,6 +20,7 @@ extern crate chrono;
 extern crate cookie;
 extern crate decimal;
 extern crate futures;
+extern crate heck;
 extern crate httpsession;
 extern crate itertools;
 extern crate pbr;

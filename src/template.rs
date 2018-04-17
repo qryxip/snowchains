@@ -1,6 +1,7 @@
 use errors::{FileIoResult, TemplateError, TemplateErrorKind, TemplateResult};
-use util::{self, Camelize};
+use util;
 
+use heck::CamelCase as _CameCase;
 use regex::Regex;
 
 use std::{self, env};
@@ -32,7 +33,7 @@ impl Template {
                 TemplateToken::Plain(ref s) => r += s,
                 TemplateToken::Target => r += target,
                 TemplateToken::TargetLower => r += &target.to_lowercase(),
-                TemplateToken::TargetCamelized => r += &target.camelize(),
+                TemplateToken::TargetCamelized => r += &target.to_camel_case(),
             }
             r
         })
