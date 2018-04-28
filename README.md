@@ -57,14 +57,12 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 service: atcoderbeta # "atcoder", "atcoderbeta", "hackerrank", "other"
 contest: chokudai_s001
 
+shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
+
 testfiles:
   directory: snowchains/$service/$contest/ # Searched case insensitively. Default: ”
   download: yaml                           # Default: ”
   exclude: []                              # Default: ”
-
-shell:
-  args: [/bin/sh, -c]         # /bin/sh or C:\Windows\cmd.exe
-  on: '@#$^&*;|?\<>()[]{}''"' # Special characters
 
 atcoder:
   default_language: c++
@@ -78,43 +76,52 @@ hackerrank:
     cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
     rust_version: 1.21.0
 
-# test files: <testsuite>/<problem>.<extension> for <extension> in each <extensions_on_judging>
+# test files: <testsuite>/<problem>.[json|toml,yaml,yml]
 # source:     <<src> % <problem>>
 # binary:     <<bin> % <problem>>
-# e.g.
-# "cc/{}.cc" % "problem-a"                      <the directory which has snowchains.yaml>/cc/problem-a.cc
-# "csharp/{Pascal}/{Pascal}.cs" % "problem-a" ⊦ <the directory which has snowchains.yaml>/csharp/ProblemA/ProblemA.cs
 #
-# Specifiers of {} (case-insensitive):
-# - "" (empty)
-# - "lower"
-# - "upper"
-# - "kebab"
-# - "snake"
-# - "screaming"
-# - "mixed"
-# - "pascal"
-# - "title"
+# Common:
+#   "plain"                        => "plain";
+#   "{}"          % "problem name" => "problem name"
+#   "{lower}"     % "problem name" => "problem name"
+#   "{UPPER}"     % "problem name" => "PROBLEM NAME"
+#   "{kebab}"     % "problem name" => "problem-name"
+#   "{snake}"     % "problem name" => "problem_name"
+#   "{SCREAMING}" % "problem name" => "PROBLEM_NAME"
+#   "{mixed}"     % "problem name" => "problemName"
+#   "{Pascal}"    % "problem name" => "ProblemName"
+#   "{Title}"     % "problem name" => "Problem Name"
+#   "$ENVVAR"                      => "<value of ENVVAR>"
+#   "$${{}}"                       => "${}"
+# Path:
+#   "", "."                                    => "./"
+#   "relative", "./relative"                   => "./relative"
+#   "/absolute"                                => "/absolute"
+#   "cpp/{snake}.cpp"         % "problem name" => "./cpp/problem_name.cpp"
+#   "cs/{Pascal}/{Pascal}.cs" % "problem name" => "./cs/ProblemName/ProblemName.cs"
+# Command:
+#   "$src" => "<path to the source file>"
+#   "$bin" => "<path to the binary file>"
 languages:
   c++:
     src: cc/{kebab}.cc
     compile:                               # optional
       bin: cc/build/{kebab}
       command: g++ $cxx_flags -o $bin $src
-      working_directory: cc/               # default: ""
+      working_directory: cc/               # default: "."
     run:
-      command: $bin                        # default: "$bin"
-      working_directory: cc/               # default: ""
+      command: [$bin]
+      working_directory: cc/               # default: "."
     language_ids:                          # optional
       atcoder: 3003
   rust:
     src: rs/src/bin/{kebab}.rs
     compile:
       bin: rs/target/release/{kebab}
-      command: rustc +$rust_version -o $bin $src
+      command: [rustc, +$rust_version, -o, $bin, $src]
       working_directory: rs/
     run:
-      command: $bin
+      command: [$bin]
       working_directory: rs/
     language_ids:
       atcoder: 3504
@@ -122,17 +129,17 @@ languages:
     src: hs/src/{Pascal}.hs
     compile:
       bin: hs/target/{Pascal}
-      command: stack ghc -- -O2 -o $bin $src
+      command: [stack, ghc, --, -O2, -o, $bin, $src]
       working_directory: hs/
     run:
-      command: $bin
+      command: [$bin]
       working_directory: hs/
     language_ids:
       atcoder: 3014
   python3:
     src: py/{kebab}.py
     run:
-      command: ./venv/bin/python3 $src
+      command: [./venv/bin/python3, $src]
       working_directory: py/
     language_ids:
       atcoder: 3023
@@ -140,16 +147,16 @@ languages:
     src: java/src/main/java/{Pascal}.java
     compile:
       bin: java/build/classes/java/main/{Pascal}.class
-      command: javac -d ./build/classes/java/main/ $src
+      command: [javac, -d, ./build/classes/java/main/, $src]
       working_directory: java/
     run:
-      command: java -classpath ./build/classes/java/main/ {Pascal}
+      command: [java, -classpath, ./build/classes/java/main/, '{Pascal}']
       working_directory: java/
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 2
-      local: "{Pascal}"
-      atcoder: Main
+      local: '{Pascal}'
+      submit: $java_class
       once: true
     language_ids:
       atcoder: 3016
@@ -157,10 +164,10 @@ languages:
   #   src: cs/{Pascal}/{Pascal}.cs
   #   compile:
   #     bin: cs/{Pascal}/bin/Release/{Pascal}.exe
-  #     command: csc /o+ /r:System.Numerics /out:$bin $src
+  #     command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
   #     working_directory: cs/
   #   run:
-  #     command: $bin
+  #     command: [$bin]
   #     working_directory: cs/
   #   language_ids:
   #     atcoder: 3006
@@ -168,10 +175,10 @@ languages:
     src: cs/{Pascal}/{Pascal}.cs
     compile:
       bin: cs/{Pascal}/bin/Release/{Pascal}.exe
-      command: mcs -o+ -r:System.Numerics -out:$bin $src
+      command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
       working_directory: cs/
     run:
-      command: mono $bin
+      command: [mono, $bin]
       working_directory: cs/
     language_ids:
       atcoder: 3006
@@ -184,14 +191,12 @@ Or simply:
 service: atcoderbeta
 contest: chokudai_s001
 
+shell: [$SHELL, -c]
+
 testfiles:
   directory: snowchains/$service/$contest/
   download: yaml
   exclude: []
-
-shell:
-  args: [/bin/sh, -c]
-  on: '@#$^&*;|?\<>()[]{}''"'
 
 atcoder:
   default_language: c++
@@ -205,13 +210,13 @@ hackerrank:
 
 languages:
   c++:
-    src: "{kebab}.cc"
+    src: '{kebab}.cc'
     compile:
       bin: build/{kebab}
       command: g++ $cxx_flags -o $bin $src
       working_directory: .
     run:
-      command: $bin
+      command: [$bin]
       working_directory: .
     language_ids:
       atcoder: 3003
@@ -403,7 +408,7 @@ main = do
            (let ((problem-name (match-string 1 file-path)))
              (term-run "snowchains" "*snowchains*" "judge" problem-name "-l" "rust")))
           ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
-           (cargo-process--start "Test Bin" (concat "cargo test --bin " (match-string 1 file-path))))
+           (cargo-process--start "Test Bin" (concat "test --bin " (match-string 1 file-path))))
           (t
            (cargo-process-test)))))
 

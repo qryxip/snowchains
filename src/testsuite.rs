@@ -1,5 +1,5 @@
 use errors::{FileIoErrorKind, FileIoResultExt, SuiteFileErrorKind, SuiteFileResult};
-use template::PathTemplate;
+use template::{BaseDirSome, PathTemplate};
 use terminal::Color;
 use util;
 
@@ -23,14 +23,14 @@ pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteF
 }
 
 pub struct SuiteFilePaths<'a> {
-    directory: PathTemplate<'a>,
+    directory: PathTemplate<BaseDirSome<'a>>,
     stem: &'a str,
     extensions: Vec<SuiteFileExtension>,
 }
 
 impl<'a> SuiteFilePaths<'a> {
     pub fn new(
-        directory: PathTemplate<'a>,
+        directory: PathTemplate<BaseDirSome<'a>>,
         stem: &'a str,
         extensions: Vec<SuiteFileExtension>,
     ) -> Self {

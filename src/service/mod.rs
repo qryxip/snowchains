@@ -6,7 +6,7 @@ use ServiceName;
 use config::Config;
 use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as _SericeResultExt};
 use replacer::CodeReplacer;
-use template::PathTemplate;
+use template::{BaseDirSome, PathTemplate};
 use terminal::Color;
 use testsuite::SuiteFileExtension;
 
@@ -285,7 +285,7 @@ pub struct DownloadProp<C: Contest> {
 impl<'a> DownloadProp<&'a str> {
     pub fn new(config: &'a Config, open_browser: bool) -> ::Result<Self> {
         let contest = config.contest();
-        let download_dir = config.testfiles_dir()?.expand("")?;
+        let download_dir = config.testfiles_dir().expand("")?;
         let extension = config.extension_on_downloading();
         Ok(Self {
             contest,
@@ -318,7 +318,7 @@ impl<C: Contest> DownloadProp<C> {
 
 pub struct RestoreProp<'a, C: Contest> {
     contest: C,
-    src_paths: BTreeMap<u32, PathTemplate<'a>>,
+    src_paths: BTreeMap<u32, PathTemplate<BaseDirSome<'a>>>,
     replacers: BTreeMap<u32, CodeReplacer>,
 }
 
@@ -328,7 +328,7 @@ impl<'a> RestoreProp<'a, &'a str> {
         let contest = config.contest();
         let replacers = config.code_replacers_on_atcoder()?;
         let src_paths = match service {
-            ServiceName::AtCoderBeta => config.src_paths_on_atcoder()?,
+            ServiceName::AtCoderBeta => config.src_paths_on_atcoder(),
             _ => bail!(::ErrorKind::Unimplemented),
         };
         Ok(Self {
@@ -352,7 +352,7 @@ impl<'a, C: Contest> RestoreProp<'a, C> {
         &self,
     ) -> (
         &C,
-        &BTreeMap<u32, PathTemplate>,
+        &BTreeMap<u32, PathTemplate<BaseDirSome<'a>>>,
         &BTreeMap<u32, CodeReplacer>,
     ) {
         (&self.contest, &self.src_paths, &self.replacers)

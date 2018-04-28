@@ -1,52 +1,55 @@
 use errors::{CodeReplaceErrorKind, CodeReplaceResult};
-use template::Template;
+use template::StringTemplate;
 
 use regex::Regex;
+use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
 
-use std::borrow::Cow;
+use std;
+use std::borrow::Borrow;
+use std::collections::HashMap;
+use std::hash::Hash;
 
 pub struct CodeReplacer {
     regex: Regex,
     regex_group: usize,
-    local: Template,
-    atcoder: Cow<'static, str>,
+    local: StringTemplate,
+    submit: StringTemplate,
     once: bool,
 }
 
 impl CodeReplacer {
-    pub(crate) fn new(
-        regex: Regex,
-        regex_group: usize,
-        local: Template,
-        atcoder: Cow<'static, str>,
-        once: bool,
+    pub fn embed_strings<
+        'a,
+        M: Into<Option<&'a HashMap<K, V>>>,
+        K: 'a + Borrow<str> + Eq + Hash,
+        V: 'a + Borrow<str> + Eq + Hash,
+    >(
+        &self,
+        strings: M,
     ) -> Self {
+        let strings = strings.into();
+        let local = self.local.embed_strings(strings);
+        let submit = self.submit.embed_strings(strings);
         Self {
-            regex,
-            regex_group,
+            regex: self.regex.clone(),
+            regex_group: self.regex_group,
             local,
-            atcoder,
-            once,
+            submit,
+            once: self.once,
         }
     }
 
-    pub fn replace_as_atcoder_submission(
-        &self,
-        target: &str,
-        code: &str,
-    ) -> CodeReplaceResult<String> {
-        self.replace(code, &self.local.format(target), &self.atcoder)
+    pub fn replace_as_submission(&self, target: &str, code: &str) -> CodeReplaceResult<String> {
+        let (from, to) = (self.local.expand(target)?, self.submit.expand(target)?);
+        self.replace(code, &from, &to)
     }
 
-    pub fn replace_from_atcoder_submission(
-        &self,
-        target: &str,
-        code: &str,
-    ) -> CodeReplaceResult<String> {
-        self.replace(code, &self.atcoder, &self.local.format(target))
+    pub fn replace_from_submission(&self, target: &str, code: &str) -> CodeReplaceResult<String> {
+        let (from, to) = (self.submit.expand(target)?, self.local.expand(target)?);
+        self.replace(code, &from, &to)
     }
 
-    pub(self) fn replace(&self, code: &str, from: &str, to: &str) -> CodeReplaceResult<String> {
+    fn replace(&self, code: &str, from: &str, to: &str) -> CodeReplaceResult<String> {
         let mut replaced_p = false;
         let mut replaced_lines = vec![];
         for line in code.lines() {
@@ -83,15 +86,62 @@ impl CodeReplacer {
     }
 }
 
+impl Serialize for CodeReplacer {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Prop<'a> {
+            regex: String,
+            regex_group: usize,
+            local: &'a StringTemplate,
+            submit: &'a StringTemplate,
+            once: bool,
+        }
+
+        Prop {
+            regex: format!("/{}/", self.regex),
+            regex_group: self.regex_group,
+            local: &self.local,
+            submit: &self.submit,
+            once: self.once,
+        }.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CodeReplacer {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Prop {
+            regex: String,
+            regex_group: usize,
+            local: StringTemplate,
+            submit: StringTemplate,
+            once: bool,
+        }
+        let prop = Prop::deserialize(deserializer)?;
+        let regex = if prop.regex.starts_with('/') && prop.regex.ends_with('/') {
+            let n = prop.regex.len();
+            String::from_utf8_lossy(&prop.regex.as_bytes()[1..n - 1])
+        } else {
+            prop.regex.as_str().into()
+        };
+        let regex = Regex::new(&regex).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            regex,
+            regex_group: prop.regex_group,
+            local: prop.local,
+            submit: prop.submit,
+            once: prop.once,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use errors::{CodeReplaceError, CodeReplaceErrorKind};
     use replacer::CodeReplacer;
-    use template::TemplateString;
+    use template::StringTemplate;
 
     use regex::Regex;
-
-    use std::collections::HashMap;
 
     #[test]
     fn it_replaces_a_scala_code() {
@@ -121,14 +171,13 @@ object Foo {}
 "#;
 
         fn code_replacer(regex_group: usize) -> CodeReplacer {
-            let empty = None::<&HashMap<&'static str, &'static str>>;
-            CodeReplacer::new(
-                Regex::new(r"^object\s+([A-Z][a-zA-Z0-9_]*).*$").unwrap(),
+            CodeReplacer {
+                regex: Regex::new(r"^object\s+([A-Z][a-zA-Z0-9_]*).*$").unwrap(),
                 regex_group,
-                TemplateString::new("{C}").embed_vars(empty).unwrap(),
-                "Main".into(),
-                true,
-            )
+                local: StringTemplate::from_static_str("{Camel}"),
+                submit: StringTemplate::from_static_str("Main"),
+                once: true,
+            }
         }
 
         let replaced = code_replacer(1).replace(CODE, "A", "Main").unwrap();

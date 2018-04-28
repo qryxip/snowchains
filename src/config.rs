@@ -3,18 +3,17 @@ use command::{CompilationCommand, JudgingCommand};
 use errors::{ConfigError, ConfigErrorKind, ConfigResult, FileIoErrorKind, FileIoResult,
              FileIoResultExt};
 use replacer::CodeReplacer;
-use template::{PathTemplate, TemplateString};
+use template::{BaseDirNone, BaseDirSome, CommandTemplate, CompilationTemplate, JudgeTemplate,
+               PathTemplate, StringTemplate};
 use testsuite::{SuiteFileExtension, SuiteFilePaths};
 use util;
 
 use {rprompt, serde_yaml};
 use regex::Regex;
 
-use std::{cmp, fs, iter, slice, str};
-use std::borrow::Borrow;
+use std::{cmp, fs, str};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
-use std::hash::Hash;
 use std::io::{self, Write as _Write};
 use std::path::{Path, PathBuf};
 
@@ -65,24 +64,26 @@ pub fn init(
 service: atcoderbeta
 contest: chokudai_s001
 
+shell: {shell}
+
 testfiles:
   directory: snowchains/$service/$contest/
   download: yaml
   exclude: []
-
-{shell}
 
 atcoder:
   default_language: {atcoder_default_lang}
   variables:
     cxx_flags: -std=c++14 -O2 -Wall -Wextra
     rust_version: 1.15.1
+    java_class: Main
 
 hackerrank:
   default_language: {hackerrank_default_lang}
   variables:
     cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
     rust_version: 1.21.0
+    java_class: Main
 
 languages:
   c++:
@@ -92,7 +93,7 @@ languages:
       command: g++ $cxx_flags -o $bin $src
       working_directory: cc/
     run:
-      command: $bin
+      command: [$bin]
       working_directory: cc/
     language_ids:
       atcoder: 3003
@@ -100,10 +101,10 @@ languages:
     src: rs/src/bin/{{kebab}}.rs
     compile:
       bin: rs/target/release/{{kebab}}{exe}
-      command: rustc +$rust_version -o $bin $src
+      command: [rustc, +$rust_version, -o, $bin, $src]
       working_directory: rs/
     run:
-      command: $bin
+      command: [$bin]
       working_directory: rs/
     language_ids:
       atcoder: 3504
@@ -111,24 +112,24 @@ languages:
     src: hs/src/{{Pascal}}.hs
     compile:
       bin: hs/target/{{Pascal}}{exe}
-      command: stack ghc -- -O2 -o $bin $src
+      command: [stack, ghc, --, -O2, -o, $bin, $src]
       working_directory: hs/
     run:
-      command: $bin
+      command: [$bin]
       working_directory: hs/
     language_ids:
       atcoder: 3014
   bash:
     src: bash/{{kebab}}.bash
     run:
-      command: bash $src
+      command: [bash, $src]
       working_directory: bash/
     language_ids:
       atcoder: 3001
   python3:
     src: py/{{kebab}}.py
     run:
-      command: ./venv/bin/python3 $src
+      command: [./venv/bin/python3, $src]
       working_directory: py/
     language_ids:
       atcoder: 3023
@@ -136,16 +137,16 @@ languages:
     src: java/src/main/java/{{Pascal}}.java
     compile:
       bin: java/build/classes/java/main/{{Pascal}}.class
-      command: javac -d ./build/classes/java/main/ $src
+      command: [javac, -d, ./build/classes/java/main/, $src]
       working_directory: java/
     run:
-      command: java -classpath ./build/classes/java/main/ {{Pascal}}
+      command: [java, -classpath, ./build/classes/java/main/, '{{Pascal}}']
       working_directory: java/
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 2
       local: '{{Pascal}}'
-      atcoder: Main
+      submit: $java_class
       once: true
     language_ids:
       atcoder: 3016
@@ -153,16 +154,16 @@ languages:
     src: scala/src/main/scala/{{Pascal}}.scala
     compile:
       bin: scala/target/scala-2.12/classes/{{Pascal}}.class
-      command: scalac -optimise -d ./target/scala-2.12/classes/ $src
+      command: [scalac, -optimise, -d, ./target/scala-2.12/classes/, $src]
       working_directory: scala/
     run:
-      command: scala -classpath ./target/scala-2.12/classes/ {{Pascal}}
+      command: [scala, -classpath, ./target/scala-2.12/classes/, '{{Pascal}}']
       working_directory: scala/
     replace:
       regex: /^\s*object\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 1
       local: '{{Pascal}}'
-      atcoder: Main
+      submit: $java_class
       once: true
     language_ids:
       atcoder: 3025
@@ -171,13 +172,9 @@ languages:
         atcoder_default_lang = atcoder_default_lang,
         hackerrank_default_lang = hackerrank_default_lang,
         shell = if cfg!(windows) {
-            r#"shell:
-  args: ['C:\Windows\cmd.exe', /C]
-  on: '%@#$^&*;|?<>()[]{}''"'"#
+            r"['C:\Windows\cmd.exe', /C]"
         } else {
-            r#"shell:
-  args: [/bin/sh, -c]
-  on: '\@#$^&*;|?<>()[]{}''"'"#
+            "[/bin/sh, -c]"
         },
         exe = if cfg!(target_os = "windows") {
             ".exe"
@@ -189,10 +186,10 @@ languages:
     src: cs/{Pascal}/{Pascal}.cs
     compile:
       bin: cs/{Pascal}/bin/Release/{Pascal}.exe
-      command: csc /o+ /r:System.Numerics /out:$bin $src
+      command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
       working_directory: cs/
     run:
-      command: $bin
+      command: [$bin]
       working_directory: cs/
     language_ids:
       atcoder: 3006"#
@@ -201,10 +198,10 @@ languages:
     src: cs/{Pascal}/{Pascal}.cs
     compile:
       bin: cs/{Pascal}/bin/Release/{Pascal}.exe
-      command: mcs -o+ -r:System.Numerics -out:$bin $src
+      command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
       working_directory: cs/
     run:
-      command: mono $bin
+      command: [mono, $bin]
       working_directory: cs/
     language_ids:
       atcoder: 3006"#
@@ -280,8 +277,8 @@ pub struct Config {
     #[serde(default)]
     service: ServiceName,
     contest: String,
+    shell: Vec<StringTemplate>,
     testfiles: TestFiles,
-    shell: Shell,
     #[serde(skip_serializing_if = "Option::is_none")]
     atcoder: Option<Service>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -318,21 +315,22 @@ impl Config {
         &self.contest
     }
 
-    /// Gets `testfiles/directory` as path.
-    pub fn testfiles_dir(&self) -> ConfigResult<PathTemplate> {
-        let vars = hashmap!("service" => self.service.as_str(), "contest" => &self.contest);
+    /// Gets `testfiles/directory` as a `PathTemplate<BaseDirSome>`.
+    pub fn testfiles_dir(&self) -> PathTemplate<BaseDirSome> {
         self.testfiles
             .directory
-            .as_path_template(&self.base_dir, &vars)
-            .map_err(Into::into)
+            .base_dir(&self.base_dir)
+            .embed_strings(
+                &hashmap!("service" => self.service.as_str(), "contest" => &self.contest),
+            )
     }
 
-    pub fn suite_paths<'a>(&'a self, target: &'a str) -> ConfigResult<SuiteFilePaths<'a>> {
-        let dir = self.testfiles_dir()?;
+    pub fn suite_paths<'a>(&'a self, target: &'a str) -> SuiteFilePaths<'a> {
+        let dir = self.testfiles_dir();
         let exts_on_judge = SuiteFileExtension::all()
             .filter(|e| !self.testfiles.exclude.contains(e))
             .collect::<Vec<_>>();
-        Ok(SuiteFilePaths::new(dir, target, exts_on_judge))
+        SuiteFilePaths::new(dir, target, exts_on_judge)
     }
 
     /// Gets `testfiles/download`.
@@ -340,43 +338,42 @@ impl Config {
         self.testfiles.download
     }
 
-    pub fn src_paths_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, PathTemplate>> {
+    pub fn src_paths_on_atcoder(&self) -> BTreeMap<u32, PathTemplate<BaseDirSome>> {
         let mut templates = BTreeMap::new();
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.atcoder {
-                let vars = self.atcoder.as_ref().map(|s| &s.variables);
-                let template = lang.src.embed_vars(vars)?.with_base_dir(&self.base_dir);
+                let template = lang.src
+                    .base_dir(&self.base_dir)
+                    .embed_strings(self.atcoder.as_ref().map(|s| &s.variables));
                 templates.insert(lang_id, template);
             }
         }
-        Ok(templates)
+        templates
     }
 
-    pub(crate) fn src_to_submit(&self, language: Option<&str>) -> ConfigResult<PathTemplate> {
+    pub(crate) fn src_to_submit(
+        &self,
+        language: Option<&str>,
+    ) -> ConfigResult<PathTemplate<BaseDirSome>> {
         let lang = self.language(language)?;
-        let vars = self.vars_on_service(None);
-        lang.src
-            .as_path_template(&self.base_dir, vars)
-            .map_err(Into::into)
+        Ok(lang.src
+            .base_dir(&self.base_dir)
+            .embed_strings(self.vars_on_service(None)))
     }
 
     pub fn code_replacer(&self, lang_name: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
         let lang = self.language(lang_name)?;
         let vars = self.vars_on_service(None);
-        let replacer = match lang.replace.as_ref() {
-            Some(replacer) => Some(replacer.build(vars)?),
-            None => None,
-        };
-        Ok(replacer)
+        Ok(lang.replace.as_ref().map(|r| r.embed_strings(vars)))
     }
 
     pub fn code_replacers_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, CodeReplacer>> {
         let mut replacers = BTreeMap::new();
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.atcoder {
-                if let Some(ref replacer_prop) = lang.replace {
+                if let Some(ref replacer) = lang.replace {
                     let replacer =
-                        replacer_prop.build(self.vars_on_service(Some(ServiceName::AtCoder)))?;
+                        replacer.embed_strings(self.vars_on_service(Some(ServiceName::AtCoder)));
                     replacers.insert(lang_id, replacer);
                 }
             }
@@ -392,81 +389,34 @@ impl Config {
         })
     }
 
-    /// Constructs arguments of compilation command for given or default
-    /// language.
-    pub fn construct_compilation_command(
+    pub(crate) fn compilation(
         &self,
-        target: &str,
         lang_name: Option<&str>,
-    ) -> ConfigResult<Option<CompilationCommand>> {
+    ) -> ConfigResult<Option<(CompilationTemplate)>> {
         let lang = self.language(lang_name)?;
-        let vars_on_service = self.vars_on_service(None);
         match lang.compile {
             None => Ok(None),
             Some(ref compile) => {
-                let wd = compile.working_directory.resolve(&self.base_dir)?;
-                let src = lang.src.resolve_as_path::<&'static str, &'static str, _>(
-                    &self.base_dir,
-                    target,
-                    None,
-                )?;
-                let bin = compile
-                    .bin
-                    .resolve_as_path::<&'static str, &'static str, _>(
-                        &self.base_dir,
-                        target,
-                        None,
-                    )?;
-                let (src_s, bin_s) = (src.display().to_string(), bin.display().to_string());
-                let vars = {
-                    let mut vars = hashmap!("src" => src_s.as_str(), "bin" => bin_s.as_str());
-                    if let Some(vars_on_service) = vars_on_service {
-                        for (k, v) in vars_on_service {
-                            vars.insert(k, v);
-                        }
-                    }
-                    vars
-                };
-                let cmd = compile.command.format(target, &vars)?;
-                let shell = &self.shell;
-                Ok(Some(CompilationCommand::new(cmd, wd, shell, src, bin)))
+                let wd = compile.working_directory.base_dir(&self.base_dir);
+                let vars = self.vars_on_service(None);
+                let cmd = compile.command.embed_strings(vars);
+                let src = lang.src.base_dir(&self.base_dir).embed_strings(vars);
+                let bin = compile.bin.base_dir(&self.base_dir).embed_strings(vars);
+                Ok(Some(cmd.as_compilation(&self.shell, wd, src, bin)))
             }
         }
     }
 
-    /// Constructs arguments of execution command for given or default language.
-    pub fn construct_solver(
-        &self,
-        target: &str,
-        lang_name: Option<&str>,
-    ) -> ConfigResult<JudgingCommand> {
+    pub(crate) fn solver(&self, lang_name: Option<&str>) -> ConfigResult<JudgeTemplate> {
         let lang = self.language(lang_name)?;
-        let vars_on_service = self.vars_on_service(None);
-        let base = &self.base_dir;
-        let wd = lang.run.working_directory.resolve(base)?;
-        let (src, bin) = {
-            let src = lang.src.resolve_as_path(base, target, vars_on_service)?;
-            let bin = match lang.compile {
-                Some(ref compile) => {
-                    Some(compile.bin.resolve_as_path(base, target, vars_on_service)?)
-                }
-                None => None,
-            };
-            (src, bin)
-        };
-        let src = src.display().to_string();
-        let bin = bin.map(|p| p.display().to_string()).unwrap_or_default();
-        let vars = {
-            let mut vars = hashmap!("src" => src.as_str(), "bin" => bin.as_str());
-            if let Some(vars_on_service) = vars_on_service {
-                for (k, v) in vars_on_service {
-                    vars.insert(k.as_str(), v.as_str());
-                }
-            }
-            vars
-        };
-        let cmd = lang.run.command.format(target, &vars)?;
-        Ok(JudgingCommand::new(cmd, wd, &self.shell))
+        let wd = lang.run.working_directory.base_dir(&self.base_dir);
+        let vars = self.vars_on_service(None);
+        let cmd = lang.run.command.embed_strings(vars);
+        let src = lang.src.base_dir(&self.base_dir).embed_strings(vars);
+        let bin = lang.compile
+            .as_ref()
+            .map(|c| c.bin.base_dir(&self.base_dir));
+        Ok(cmd.as_judge(&self.shell, wd, &src, bin.as_ref()))
     }
 
     fn language(&self, name: Option<&str>) -> ConfigResult<&Language> {
@@ -521,130 +471,40 @@ struct Service {
 #[derive(Serialize, Deserialize)]
 struct TestFiles {
     #[serde(default = "default_testsuites")]
-    directory: TemplateString,
+    directory: PathTemplate<BaseDirNone>,
     download: SuiteFileExtension,
     #[serde(default)]
     exclude: Vec<SuiteFileExtension>,
 }
 
-fn default_testsuites() -> TemplateString {
-    TemplateString::new("snowchains/$service/$contest/")
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct Shell {
-    args: Vec<String>,
-    on: String,
-}
-
-impl Shell {
-    #[cfg(test)]
-    pub(crate) fn new(args: &[&str], on: &str) -> Self {
-        Self {
-            args: args.iter().cloned().map(str::to_owned).collect(),
-            on: on.to_owned(),
-        }
-    }
-
-    /// Gets the first arg.
-    ///
-    /// If "args" is empty, returns `""`.
-    pub(crate) fn arg0(&self) -> &str {
-        self.args.get(0).map(String::as_str).unwrap_or("")
-    }
-
-    /// Gets args from 1 as `impl Iterator<Item = &str>`.
-    pub(crate) fn rest_args(
-        &self,
-    ) -> iter::Map<slice::Iter<String>, for<'r> fn(&'r String) -> &'r str> {
-        self.args[1..].iter().map(String::as_str)
-    }
-
-    /// Gets "on".
-    pub(crate) fn special_chars(&self) -> &str {
-        &self.on
-    }
+fn default_testsuites() -> PathTemplate<BaseDirNone> {
+    PathTemplate::from_static_str("snowchains/$service/$contest/")
 }
 
 #[derive(Serialize, Deserialize)]
 struct Language {
-    src: TemplateString,
+    src: PathTemplate<BaseDirNone>,
     #[serde(skip_serializing_if = "Option::is_none")]
     compile: Option<Compile>,
-    #[serde(default)]
     run: Run,
-    replace: Option<CodeReplacerProp>,
+    replace: Option<CodeReplacer>,
     #[serde(default, skip_serializing_if = "LanguageIds::is_empty")]
     language_ids: LanguageIds,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Compile {
-    bin: TemplateString,
-    command: TemplateString,
-    working_directory: InputPath,
+    bin: PathTemplate<BaseDirNone>,
+    command: CommandTemplate<CompilationCommand>,
+    #[serde(default)]
+    working_directory: PathTemplate<BaseDirNone>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Run {
-    command: TemplateString,
-    working_directory: InputPath,
-}
-
-impl Default for Run {
-    fn default() -> Self {
-        Self {
-            command: TemplateString::new("$bin"),
-            working_directory: Default::default(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct CodeReplacerProp {
-    regex: String,
-    regex_group: usize,
-    local: TemplateString,
-    #[serde(default = "default_class_name_on_atcoder")]
-    atcoder: Cow<'static, str>,
-    #[serde(default = "always_true")]
-    once: bool,
-}
-
-fn default_class_name_on_atcoder() -> Cow<'static, str> {
-    "Main".into()
-}
-
-fn always_true() -> bool {
-    true
-}
-
-impl CodeReplacerProp {
-    fn build<
-        'a,
-        K: 'a + Borrow<str> + Eq + Hash,
-        V: 'a + Borrow<str> + Eq + Hash,
-        M: Into<Option<&'a HashMap<K, V>>>,
-    >(
-        &self,
-        variables: M,
-    ) -> ConfigResult<CodeReplacer> {
-        let regex = if self.regex.starts_with('/') && self.regex.ends_with('/') {
-            let n = self.regex.len();
-            String::from_utf8_lossy(&self.regex.as_bytes()[1..n - 1])
-        } else {
-            self.regex.as_str().into()
-        };
-        let regex = Regex::new(&regex)?;
-        let local = self.local.embed_vars(variables)?;
-        Ok(CodeReplacer::new(
-            regex,
-            self.regex_group,
-            local,
-            self.atcoder.clone(),
-            self.once,
-        ))
-    }
+    command: CommandTemplate<JudgingCommand>,
+    #[serde(default)]
+    working_directory: PathTemplate<BaseDirNone>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -656,14 +516,5 @@ struct LanguageIds {
 impl LanguageIds {
     fn is_empty(&self) -> bool {
         self.atcoder.is_none()
-    }
-}
-
-#[derive(Default, Serialize, Deserialize)]
-struct InputPath(String);
-
-impl InputPath {
-    fn resolve(&self, base: &Path) -> FileIoResult<PathBuf> {
-        util::expand_path(&self.0, base)
     }
 }

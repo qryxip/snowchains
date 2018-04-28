@@ -102,7 +102,7 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
         } => {
             info!("Running \"append\" command");
             let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
-            let dir = config.testfiles_dir()?.expand("")?;
+            let dir = config.testfiles_dir().expand("")?;
             let path = SuiteFilePath::new(&dir, target, extension);
             testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
         }

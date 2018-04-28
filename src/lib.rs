@@ -17,6 +17,7 @@ extern crate serde_derive;
 
 extern crate bincode;
 extern crate chrono;
+extern crate combine;
 extern crate cookie;
 extern crate decimal;
 extern crate futures;

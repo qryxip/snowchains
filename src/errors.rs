@@ -3,6 +3,7 @@ use chrono::{self, DateTime, Local};
 use httpsession::UrlError;
 use zip::result::ZipError;
 
+use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
@@ -15,7 +16,7 @@ error_chain!{
         Judge(JudgeError/*, JudgeErrorKind*/);
         SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
         Config(ConfigError/*, ConfigErrorKind*/);
-        Template(TemplateError/*, TemplateErrorKind*/);
+        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
         FileIo(FileIoError/*, FileIoErrorKind*/);
         Io(io::Error);
     }
@@ -37,6 +38,7 @@ error_chain! {
         FileIo(FileIoError/*, FileIoErrorKind*/);
         CodeReplace(CodeReplaceError/*, CodeReplaceErrorKind*/);
         SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
+        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
         Bincode(bincode::Error);
         ChronoParse(chrono::ParseError);
         CookieParse(cookie::ParseError);
@@ -137,6 +139,7 @@ error_chain! {
 
     foreign_links {
         FileIo(FileIoError/*, FileIoErrorKind*/);
+        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
         Io(io::Error);
         SerdeJson(serde_json::Error);
         SerdeYaml(serde_yaml::Error);
@@ -178,7 +181,7 @@ error_chain! {
     }
 
     foreign_links {
-        Template(TemplateError/*, TemplateErrorKind*/);
+        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
         CodeReplace(CodeReplaceError/*, CodeReplaceErrorKind*/);
         FileIo(FileIoError/*, FileIoErrorKind*/);
         Io(io::Error);
@@ -215,7 +218,7 @@ error_chain! {
     }
 
     foreign_links {
-        Template(TemplateError/*, TemplateErrorKind*/);
+        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
         Regex(regex::Error);
         FromUtf8(FromUtf8Error);
     }
@@ -235,39 +238,43 @@ error_chain! {
 
 error_chain! {
     types {
-        TemplateError, TemplateErrorKind, TemplateResultExt, TemplateResult;
+        TemplateExpandError, TemplateExpandErrorKind, TemplateExpandResultExt, TemplateExpandResult;
     }
 
     foreign_links {
-        FileIo(FileIoError/*, FileIoErrorKind*/);
+        Io(io::Error);
     }
 
     errors {
-        InvalidVariable(var: String) {
-            description("Invalid variable")
-            display("Invalid variable: {:?}", var)
+        TemplateExpand(debug: String, target: String, ty: &'static str) {
+            description("Failed to expand a template")
+            display("Failed to expand {} % {:?} as {}", debug, target, ty)
         }
 
-        Syntax(whole: String) {
-            description("Syntax error")
-            display("Syntax error: {:?}", whole)
+        EnvVarNotPresent(name: String) {
+            description("An environment variable is not present")
+            display("Environment variable {:?} is not present", name)
         }
 
-        NoSuchSpecifier(whole: String, specifier: String, expected: &'static [&'static str]) {
-            description("No such format specifier")
-            display("No such format specifier {:?} (expected {:?} (case-insensitive)): {:?}",
-                    specifier, expected, whole)
+        EnvVarNotUnicode(name: String, value: OsString) {
+            description("An environment variable is not valid unicode")
+            display("Environment variable {:?} is not valid unicode: {:?}", name, value)
         }
 
-        NoSuchVariable(whole: String, keyword: String, expected: Vec<String>) {
-            description("Variable not found")
-            display("No such variable {:?} (expected {:?} + environment variables): {:?}",
-                    keyword, expected, whole)
+        HomeDirNotFound {
+            description("Home directory not found")
+            display("Home directory not found")
         }
 
-        NonUtf8EnvVar(var: String) {
-            description("Non UTF-8 environment variable")
-            display("Non UTF-8 environment variable: {:?}", var)
+        UnsupportedUseOfTilde {
+            description("Unsupported use of \"~\"")
+            display("Unsupported use of \"~\"")
+        }
+
+        UnknownSpecifier(specifier: String) {
+            description("Unknown specifier")
+            display("Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
+                     \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"", specifier)
         }
     }
 }

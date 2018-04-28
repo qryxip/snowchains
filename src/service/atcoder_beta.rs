@@ -216,7 +216,7 @@ impl AtCoderBeta {
                 let path = path_template.expand(&task_name.to_lowercase())?;
                 let mut file = util::create_file_and_dirs(&path)?;
                 let code = match replacers.get(&lang_id) {
-                    Some(replacer) => replacer.replace_from_atcoder_submission(&task_name, &code)?,
+                    Some(replacer) => replacer.replace_from_submission(&task_name, &code)?,
                     None => code,
                 };
                 file.write_all(code.as_bytes())?;
@@ -292,7 +292,7 @@ impl AtCoderBeta {
                 }
                 let source_code = util::string_from_file_path(src_path)?;
                 let source_code = match replacer {
-                    Some(replacer) => replacer.replace_as_atcoder_submission(task, &source_code)?,
+                    Some(replacer) => replacer.replace_as_submission(task, &source_code)?,
                     None => source_code,
                 };
                 let csrf_token = extract_csrf_token(&Document::from_read(self.get(&url)?)?)?;

@@ -8,7 +8,7 @@ use snowchains::ServiceName;
 use snowchains::config::{self, Config};
 use snowchains::service::{DownloadProp, InitProp, SubmitProp};
 use snowchains::service::atcoder_beta;
-use snowchains::template::PathTemplate;
+use snowchains::template::{BaseDirSome, PathTemplate};
 use snowchains::terminal;
 use snowchains::testsuite::{ExpectedStdout, SuiteFileExtension, SuiteFilePaths, TestCases};
 
@@ -46,7 +46,7 @@ fn it_scrapes_samples_from_practice() {
         (2, "1\n2 3\ntest\n", "6 test\n"),
         (2, "72\n128 256\nmyonmyon\n", "456 myonmyon\n"),
     ];
-    let download_dir = || config.testfiles_dir().unwrap();
+    let download_dir = || config.testfiles_dir();
     check_samples("a", download_dir(), SAMPLES_A);
     let (cases, _) = SuiteFilePaths::new(download_dir(), "b", vec![SuiteFileExtension::Yaml])
         .load_merging(false)
@@ -91,7 +91,7 @@ fn it_scrapes_samples_from_arc058() {
             "namidazzzzzzz\n",
         ),
     ];
-    let download_dir = || config.testfiles_dir().unwrap();
+    let download_dir = || config.testfiles_dir();
     for &(name, expected) in &[
         ("c", SAMPLES_C),
         ("d", SAMPLES_D),
@@ -103,7 +103,11 @@ fn it_scrapes_samples_from_arc058() {
     tempdir.close().unwrap();
 }
 
-fn check_samples(name: &str, download_dir: PathTemplate, expected: &[(u64, &str, &str)]) {
+fn check_samples(
+    name: &str,
+    download_dir: PathTemplate<BaseDirSome>,
+    expected: &[(u64, &str, &str)],
+) {
     let (cases, _) = SuiteFilePaths::new(download_dir, name, vec![SuiteFileExtension::Yaml])
         .load_merging(false)
         .unwrap();
