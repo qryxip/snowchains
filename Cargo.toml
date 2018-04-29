@@ -9,10 +9,8 @@ repository = "https://github.com/wariuni/snowchains"
 
 [dependencies]
 httpsession = { git = "https://github.com/wariuni/httpsession", tag = "0.2.2" }
-bincode = "1.0.0"
 chrono = "0.4.2"
 combine = "3.2.0"
-cookie = "0.10.1"
 custom_derive = "0.1.7"
 decimal = "2.0.4"
 env_logger = "0.5.6"

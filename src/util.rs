@@ -66,38 +66,6 @@ pub fn path_under_home(names: &[&str]) -> FileIoResult<PathBuf> {
     }))
 }
 
-pub fn expand_path<'a, B: Into<Option<&'a Path>>>(path: &str, base: B) -> FileIoResult<PathBuf> {
-    fn expand(path: &str, base: Option<&Path>) -> FileIoResult<PathBuf> {
-        let mut chars = path.chars();
-        let (c1, c2) = (chars.next(), chars.next());
-        if c1 == Some('~') {
-            return if [Some('/'), Some('\\'), None].contains(&c2) {
-                path_under_home(&[&chars.collect::<String>()]).and_then(|path| {
-                    if path.is_absolute() {
-                        Ok(path)
-                    } else {
-                        let mut r = env::current_dir()?;
-                        r.push(&path);
-                        Ok(r)
-                    }
-                })
-            } else {
-                bail!(FileIoErrorKind::UnsupportedUseOfTilde);
-            };
-        }
-        let path = PathBuf::from(path);
-        Ok(if path.is_absolute() {
-            path
-        } else {
-            let mut pathbuf = base.map(PathBuf::from).unwrap_or_default();
-            pathbuf.push(path);
-            pathbuf
-        })
-    }
-
-    expand(path, base.into()).chain_err(|| FileIoErrorKind::Expand(path.to_owned()))
-}
-
 pub fn cfg_windows() -> bool {
     cfg!(windows)
 }
@@ -129,24 +97,11 @@ impl<T> OkAsRefOr for Option<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-    use std::path::Path;
-
     #[test]
     fn it_trims_a_trailing_newline() {
         assert_eq!("aaa", super::trim_trailing_newline("aaa\r\n"));
         assert_eq!("bbb", super::trim_trailing_newline("bbb\n"));
         assert_eq!("ccc", super::trim_trailing_newline("ccc"));
         assert_eq!("ddd\r", super::trim_trailing_newline("ddd\r"));
-    }
-
-    #[test]
-    fn it_expands_a_path() {
-        assert_eq!(env::home_dir(), super::expand_path("~/", None).ok());
-        super::expand_path("~root/", None).unwrap_err();
-        assert_eq!(
-            Path::new("/a/b/c/d"),
-            super::expand_path("c/d", Path::new("/a/b")).unwrap()
-        )
     }
 }

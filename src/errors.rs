@@ -1,4 +1,4 @@
-use {bincode, cookie, futures, httpsession, regex, serde_json, serde_urlencoded, serde_yaml, toml};
+use {httpsession, serde_json, serde_urlencoded, serde_yaml, toml};
 use chrono::{self, DateTime, Local};
 use httpsession::UrlError;
 use zip::result::ZipError;
@@ -39,9 +39,7 @@ error_chain! {
         CodeReplace(CodeReplaceError/*, CodeReplaceErrorKind*/);
         SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
         TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
-        Bincode(bincode::Error);
         ChronoParse(chrono::ParseError);
-        CookieParse(cookie::ParseError);
         HttpSession(httpsession::Error);
         Io(io::Error);
         Recv(RecvError);
@@ -109,7 +107,6 @@ error_chain! {
         SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
         Io(io::Error);
         Recv(RecvError);
-        OneShotCanceled(futures::channel::oneshot::Canceled);
     }
 
     errors {
@@ -180,21 +177,7 @@ error_chain! {
         ConfigError, ConfigErrorKind, ConfigResultExt, ConfigResult;
     }
 
-    foreign_links {
-        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
-        CodeReplace(CodeReplaceError/*, CodeReplaceErrorKind*/);
-        FileIo(FileIoError/*, FileIoErrorKind*/);
-        Io(io::Error);
-        Regex(regex::Error);
-        SerdeYaml(serde_yaml::Error);
-    }
-
     errors {
-        ConfigFileNotFound {
-            description("\"snowchains.yaml\" not found")
-            display("\"snowchains.yaml\" not found")
-        }
-
         LanguageNotSpecified {
             description("Language not specified")
             display("Language not specified")
@@ -219,7 +202,6 @@ error_chain! {
 
     foreign_links {
         TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
-        Regex(regex::Error);
         FromUtf8(FromUtf8Error);
     }
 
@@ -251,6 +233,12 @@ error_chain! {
             display("Failed to expand {} % {:?} as {}", debug, target, ty)
         }
 
+        UnknownSpecifier(specifier: String) {
+            description("Unknown specifier")
+            display("Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
+                     \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"", specifier)
+        }
+
         EnvVarNotPresent(name: String) {
             description("An environment variable is not present")
             display("Environment variable {:?} is not present", name)
@@ -270,12 +258,6 @@ error_chain! {
             description("Unsupported use of \"~\"")
             display("Unsupported use of \"~\"")
         }
-
-        UnknownSpecifier(specifier: String) {
-            description("Unknown specifier")
-            display("Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
-                     \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"", specifier)
-        }
     }
 }
 
@@ -286,6 +268,7 @@ error_chain! {
 
     foreign_links {
         Io(io::Error);
+        SerdeYaml(serde_yaml::Error);
     }
 
     errors {
@@ -309,19 +292,9 @@ error_chain! {
             display("Failed to write to {}", path.display())
         }
 
-        Expand(path: String) {
-            description("Failed to expand a path")
-            display("Failed to expand {:?}", path)
-        }
-
         HomeDirNotFound {
             description("Home directory not found")
             display("Home directory not found")
-        }
-
-        UnsupportedUseOfTilde {
-            description("Unsupported use of \"~\"")
-            display("Unsupported use of \"~\"")
         }
     }
 }

@@ -24,7 +24,7 @@ pub fn init(
     directory: PathBuf,
     atcoder_default_lang: Option<&'static str>,
     hackerrank_default_lang: Option<&'static str>,
-) -> ConfigResult<()> {
+) -> FileIoResult<()> {
     const LANGS: [&str; 8] = [
         "c++", "rust", "haskell", "bash", "python3", "java", "scala", "c#"
     ];
@@ -217,7 +217,7 @@ languages:
 }
 
 /// Changes <service> and <contest>.
-pub fn switch(service: ServiceName, contest: &str, dir: &Path) -> ConfigResult<()> {
+pub fn switch(service: ServiceName, contest: &str, dir: &Path) -> FileIoResult<()> {
     fn print_change(n: usize, prev: &str, new: &str) {
         print!("{}", prev);
         for _ in 0..n - prev.len() {
@@ -294,7 +294,7 @@ impl Config {
         service: Option<ServiceName>,
         contest: Option<String>,
         dir: &Path,
-    ) -> ConfigResult<Self> {
+    ) -> FileIoResult<Self> {
         let base = find_base(dir)?;
         let path = base.join(CONFIG_FILE_NAME);
         let mut config = serde_yaml::from_reader::<_, Self>(util::open_file(&path)?)?;

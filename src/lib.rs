@@ -15,10 +15,8 @@ extern crate newtype_derive;
 #[macro_use]
 extern crate serde_derive;
 
-extern crate bincode;
 extern crate chrono;
 extern crate combine;
-extern crate cookie;
 extern crate decimal;
 extern crate futures;
 extern crate heck;
