@@ -13,7 +13,7 @@ use std::io::Read;
 
 pub fn login() -> ServiceResult<()> {
     static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-    let cookie_path = util::path_under_home(&[".local", "share", "snowchains", "atcoder"])?;
+    let cookie_path = util::fs::join_from_home(&[".local", "share", "snowchains", "atcoder"])?;
     let mut atcoder = AtCoder(super::start_session("atcoder.jp", cookie_path)?);
     if atcoder.get(URL).is_err() {
         atcoder.login()?;
@@ -39,7 +39,7 @@ custom_derive! {
 impl AtCoder {
     fn load_or_login() -> ServiceResult<Self> {
         static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
-        let cookie_path = util::path_under_home(&[".local", "share", "snowchains", "atcoder"])?;
+        let cookie_path = util::fs::join_from_home(&[".local", "share", "snowchains", "atcoder"])?;
         let mut atcoder = AtCoder(super::start_session("atcoder.jp", cookie_path)?);
         if atcoder.get(URL).is_err() {
             atcoder.login()?;

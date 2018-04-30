@@ -12,7 +12,7 @@ use select::predicate::{And, Attr, Class, Name, Predicate, Text};
 
 use std::{fmt, vec};
 use std::collections::{BTreeMap, HashMap};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::ops::{Deref, DerefMut};
 
 /// Logins to "beta.atcoder.jp".
@@ -214,12 +214,11 @@ impl AtCoderBeta {
             let lang_id = find_lang_id(&first_page, &lang_name)?;
             if let Some(path_template) = src_paths.get(&lang_id) {
                 let path = path_template.expand(&task_name.to_lowercase())?;
-                let mut file = util::create_file_and_dirs(&path)?;
                 let code = match replacers.get(&lang_id) {
                     Some(replacer) => replacer.replace_from_submission(&task_name, &code)?,
                     None => code,
                 };
-                file.write_all(code.as_bytes())?;
+                util::fs::write(&path, code.as_bytes())?;
                 println!(
                     "{} - {:?} (id: {}): Saved to {}",
                     task_name,
@@ -290,7 +289,7 @@ impl AtCoderBeta {
                         }
                     }
                 }
-                let source_code = util::string_from_file_path(src_path)?;
+                let source_code = util::fs::string_from_path(src_path)?;
                 let source_code = match replacer {
                     Some(replacer) => replacer.replace_as_submission(task, &source_code)?,
                     None => source_code,

@@ -2,7 +2,7 @@ use term::{self, Attr, Terminal};
 
 use std::fmt;
 use std::io::Write;
-use std::sync::RwLock;
+use std::sync::Mutex;
 
 #[derive(Clone, Copy)]
 pub enum Color {
@@ -19,7 +19,7 @@ pub enum Color {
 
 impl Into<&'static [u32]> for Color {
     fn into(self) -> &'static [u32] {
-        if *COLOR_ENABLED.read().unwrap() {
+        if *COLOR_ENABLED.lock().unwrap() {
             match self {
                 Color::Success | Color::TesterStdout => &[118, 10, 2],
                 Color::Warning => &[190, 11, 3],
@@ -35,11 +35,11 @@ impl Into<&'static [u32]> for Color {
 }
 
 pub fn disable_color() {
-    *COLOR_ENABLED.write().unwrap() = false;
+    *COLOR_ENABLED.lock().unwrap() = false;
 }
 
 lazy_static! {
-    static ref COLOR_ENABLED: RwLock<bool> = RwLock::new(true);
+    static ref COLOR_ENABLED: Mutex<bool> = Mutex::new(true);
 }
 
 pub fn print_bold<C: Into<Option<Color>>>(color: C, args: fmt::Arguments) {

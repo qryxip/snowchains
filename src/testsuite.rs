@@ -1,4 +1,4 @@
-use errors::{FileIoErrorKind, FileIoResultExt, SuiteFileErrorKind, SuiteFileResult};
+use errors::{SuiteFileErrorKind, SuiteFileResult};
 use template::{BaseDirSome, PathTemplate};
 use terminal::Color;
 use util;
@@ -6,10 +6,10 @@ use util;
 use {serde_json, serde_yaml, toml};
 use decimal::d128;
 use itertools::Itertools as _Itertools;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use std::{self, fmt, fs, io, iter, slice};
 use std::borrow::Cow;
-use std::io::Write as _Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -46,16 +46,6 @@ impl<'a> SuiteFilePaths<'a> {
     pub fn load_merging(&self, allow_missing: bool) -> SuiteFileResult<(TestCases, String)> {
         let dir = self.directory.expand(self.stem)?;
         let (existing_suites, paths_as_text) = {
-            let dir_s = {
-                let delim = if cfg!(windows) && !dir.display().to_string().ends_with('\\') {
-                    "\\"
-                } else if !dir.display().to_string().ends_with('/') {
-                    "/"
-                } else {
-                    ""
-                };
-                format!("{}{}", dir.display(), delim)
-            };
             let existing_filenames = {
                 let stem_lowercase = self.stem.to_lowercase();
                 let mut filenames = fs::read_dir(&dir)?
@@ -82,16 +72,23 @@ impl<'a> SuiteFilePaths<'a> {
                 suites.push(suite);
                 names.push(format!("{}.{}", stem, ext));
             }
-            let paths_as_text = format!("{}{{{}}}", dir_s, names.iter().join(", "));
+            let paths_as_text = {
+                let delim = if cfg!(windows) && !dir.display().to_string().ends_with('\\') {
+                    "\\"
+                } else if !dir.display().to_string().ends_with('/') {
+                    "/"
+                } else {
+                    ""
+                };
+                format!("{}{}{{{}}}", dir.display(), delim, names.iter().join(", "))
+            };
             (suites, paths_as_text)
         };
 
-        if existing_suites.is_empty() {
-            if allow_missing {
-                Ok((TestCases::Simple(vec![]), paths_as_text))
-            } else {
-                bail!(SuiteFileErrorKind::NoFile(dir.clone()));
-            }
+        if existing_suites.is_empty() && allow_missing {
+            Ok((TestCases::Simple(vec![]), paths_as_text))
+        } else if existing_suites.is_empty() {
+            bail!(SuiteFileErrorKind::NoFile(dir.clone()));
         } else if existing_suites.iter().all(TestSuite::is_simple) {
             let cases = existing_suites
                 .into_iter()
@@ -241,7 +238,7 @@ impl TestSuite {
 
     fn load(path: &SuiteFilePath) -> SuiteFileResult<Self> {
         let (path, extension) = (path.build(), path.extension);
-        let text = util::string_from_file_path(&path)?;
+        let text = util::fs::string_from_path(&path)?;
         let mut suite: Self = match extension {
             SuiteFileExtension::Json => serde_json::from_str(&text)?,
             SuiteFileExtension::Toml => toml::from_str(&text)?,
@@ -258,14 +255,12 @@ impl TestSuite {
     /// Serializes `self` and save it to given path.
     pub fn save(&self, path: &SuiteFilePath, prints_num_cases: bool) -> SuiteFileResult<()> {
         let (path, extension) = (path.build(), path.extension);
-        let mut file = util::create_file_and_dirs(&path)?;
         let serialized = match extension {
             SuiteFileExtension::Json => serde_json::to_string(self)?,
             SuiteFileExtension::Toml => toml::to_string(self)?,
             SuiteFileExtension::Yaml | SuiteFileExtension::Yml => serde_yaml::to_string(self)?,
         };
-        file.write_all(serialized.as_bytes())
-            .chain_err(|| FileIoErrorKind::Write(path.clone()))?;
+        util::fs::write(&path, serialized.as_bytes())?;
         print!("Saved to {}", path.display());
         if prints_num_cases {
             match *self {

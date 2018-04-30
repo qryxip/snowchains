@@ -3,13 +3,13 @@ mod simple;
 
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
-use errors::{JudgeError, JudgeErrorKind, JudgeResult};
+use errors::{JudgeErrorKind, JudgeResult};
 use terminal::Color;
 use testsuite::{TestCase, TestCases};
 
 use unicode_width::UnicodeWidthStr as _UnicodeWidthStr;
 
-use std::{fmt, io};
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -126,28 +126,6 @@ where
         eprint_bold!(None, "{}/{} ({})", i + 1, n, name);
         (0..name_width - name.width_cjk() + 1).for_each(|_| eprint!(" "));
         eprintln_bold!(self.color(), "{}", self);
-    }
-}
-
-pub(self) trait WrapNotFoundErrorMessage {
-    type Item;
-    /// Maps `io::Error` to `JudgingError`.
-    fn wrap_not_found_error_message<F: FnOnce() -> String>(
-        self,
-        arg0: F,
-    ) -> JudgeResult<Self::Item>;
-}
-
-impl<T> WrapNotFoundErrorMessage for io::Result<T> {
-    type Item = T;
-
-    fn wrap_not_found_error_message<F: FnOnce() -> String>(self, arg0: F) -> JudgeResult<T> {
-        self.map_err(|e| -> JudgeError {
-            match e.kind() {
-                io::ErrorKind::NotFound => JudgeErrorKind::CommandNotFound(arg0()).into(),
-                _ => e.into(),
-            }
-        })
     }
 }
 

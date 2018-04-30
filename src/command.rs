@@ -1,10 +1,10 @@
-use errors::{JudgeErrorKind, JudgeResult};
+use errors::{JudgeErrorKind, JudgeResult, JudgeResultExt};
 use terminal::Color;
+use util;
 
-use std::{fs, io};
-use std::borrow::Borrow;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write;
+use std::io;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
@@ -20,7 +20,7 @@ impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub(crate) fn new<S: Borrow<OsStr>>(
+    pub(crate) fn new<S: AsRef<OsStr>>(
         args: &[S],
         working_dir: PathBuf,
         src: PathBuf,
@@ -45,7 +45,7 @@ impl CompilationCommand {
             }
         } else if let Some(dir) = self.bin.parent() {
             if !dir.exists() {
-                fs::create_dir_all(dir)?;
+                util::fs::create_dir_all(dir)?;
                 println!("Created {}", dir.display());
             }
         }
@@ -57,7 +57,7 @@ impl CompilationCommand {
             .build_checking_wd()?
             .stdin(Stdio::null())
             .status()
-            .wrap_not_found_error(&self.command.arg0)?;
+            .chain_err(|| JudgeErrorKind::Command(self.command.arg0.clone()))?;
         if status.success() {
             if !self.bin.exists() {
                 eprintln_bold!(
@@ -81,7 +81,7 @@ impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub(crate) fn new<S: Borrow<OsStr>>(args: &[S], working_dir: PathBuf) -> Self {
+    pub(crate) fn new<S: AsRef<OsStr>>(args: &[S], working_dir: PathBuf) -> Self {
         JudgingCommand(CommandProperty::new(args, working_dir))
     }
 
@@ -123,40 +123,20 @@ impl JudgingCommand {
     }
 
     /// Gets the first argument name.
-    ///
-    /// FIXME
     #[allow(unused)]
-    pub fn arg0_name(&self) -> String {
-        unimplemented!()
+    pub fn arg0(&self) -> &OsStr {
+        &self.0.arg0
     }
 
     /// Returns a `Child` which stdin & stdout & stderr are piped.
-    pub fn spawn_piped(&self) -> io::Result<Child> {
+    pub fn spawn_piped(&self) -> JudgeResult<Child> {
         self.0
             .build_checking_wd()?
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .wrap_not_found_error(&self.0.arg0)
-    }
-}
-
-trait WrapNotFoundError
-where
-    Self: Sized,
-{
-    fn wrap_not_found_error(self, arg0: &OsStr) -> Self;
-}
-
-impl<T> WrapNotFoundError for io::Result<T> {
-    fn wrap_not_found_error(self, arg0: &OsStr) -> Self {
-        self.map_err(|e| match e.kind() {
-            io::ErrorKind::NotFound => {
-                io::Error::new(io::ErrorKind::NotFound, format!("{:?} not found", arg0))
-            }
-            _ => e,
-        })
+            .chain_err(|| JudgeErrorKind::Command(self.0.arg0.clone()))
     }
 }
 
@@ -169,12 +149,12 @@ struct CommandProperty {
 }
 
 impl CommandProperty {
-    fn new<S: Borrow<OsStr>>(args: &[S], working_dir: PathBuf) -> Self {
+    fn new<S: AsRef<OsStr>>(args: &[S], working_dir: PathBuf) -> Self {
         let (arg0, rest_args) = if args.is_empty() {
             (OsString::new(), vec![])
         } else {
-            let rest_args = args.iter().skip(1).map(|s| s.borrow().to_owned()).collect();
-            (args[0].borrow().to_owned(), rest_args)
+            let rest_args = args.iter().skip(1).map(|s| s.as_ref().to_owned()).collect();
+            (args[0].as_ref().to_owned(), rest_args)
         };
         Self {
             arg0,

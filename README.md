@@ -69,12 +69,14 @@ atcoder:
   variables:
     cxx_flags: -std=c++14 -O2 -Wall -Wextra
     rust_version: 1.15.1
+    java_class: Main
 
 hackerrank:
   default_language: c++
   variables:
     cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
     rust_version: 1.21.0
+    java_class: Main
 
 # test files: <testsuite>/<problem>.[json|toml,yaml,yml]
 # source:     <<src> % <problem>>

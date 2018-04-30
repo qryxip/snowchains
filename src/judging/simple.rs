@@ -8,7 +8,7 @@ use util;
 use decimal::d128;
 
 use std::{self, fmt, thread};
-use std::io::{self, Write};
+use std::io::Write as _Write;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -33,10 +33,10 @@ pub fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<Sim
             })
     } else {
         rx.recv().unwrap()
-    }.map_err(Into::into)
+    }
 }
 
-fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
+fn run(case: &SimpleCase, solver: &JudgingCommand) -> JudgeResult<SimpleOutput> {
     let (input, expected, timelimit) = case.values();
 
     let mut solver = solver.spawn_piped()?;

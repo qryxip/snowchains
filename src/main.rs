@@ -36,7 +36,7 @@ macro_rules! quick_main_colored {
     };
 }
 
-quick_main_colored!(|| -> snowchains::Result<i32> {
+quick_main_colored!(|| -> snowchains::Result<()> {
     env_logger::init();
     match Opt::from_args() {
         Opt::Init { directory } => {
@@ -149,7 +149,7 @@ quick_main_colored!(|| -> snowchains::Result<i32> {
             };
         }
     }
-    Ok(0)
+    Ok(())
 });
 
 #[derive(StructOpt)]
@@ -330,7 +330,8 @@ enum Opt {
 }
 
 fn init_prop(service: ServiceName) -> FileIoResult<InitProp> {
-    let cookie_path = util::path_under_home(&[".local", "share", "snowchains", service.as_str()])?;
+    let cookie_path =
+        util::fs::join_from_home(&[".local", "share", "snowchains", service.as_str()])?;
     Ok(InitProp::new(
         cookie_path,
         ColorMode::Prefer256,
@@ -339,7 +340,9 @@ fn init_prop(service: ServiceName) -> FileIoResult<InitProp> {
     ))
 }
 
-pub fn quick_main_colored<C: ExitCode, E: ChainedError>(main: fn() -> std::result::Result<C, E>) {
+pub fn quick_main_colored<C: ExitCode, E: ChainedError>(
+    main: fn() -> std::result::Result<C, E>,
+) -> ! {
     match main() {
         Ok(code) => process::exit(ExitCode::code(code)),
         Err(e) => {
@@ -355,7 +358,7 @@ pub fn quick_main_colored<C: ExitCode, E: ChainedError>(main: fn() -> std::resul
             if let Some(backtrace) = e.backtrace() {
                 eprintln!("{:?}", backtrace);
             }
-            process::exit(1);
+            process::exit(1)
         }
     }
 }

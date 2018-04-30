@@ -1,7 +1,6 @@
 use ServiceName;
 use command::{CompilationCommand, JudgingCommand};
-use errors::{ConfigError, ConfigErrorKind, ConfigResult, FileIoErrorKind, FileIoResult,
-             FileIoResultExt};
+use errors::{ConfigError, ConfigErrorKind, ConfigResult, FileIoErrorKind, FileIoResult};
 use replacer::CodeReplacer;
 use template::{BaseDirNone, BaseDirSome, CommandTemplate, CompilationTemplate, JudgeTemplate,
                PathTemplate, StringTemplate};
@@ -14,7 +13,7 @@ use regex::Regex;
 use std::{cmp, fs, str};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
-use std::io::{self, Write as _Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
@@ -208,12 +207,7 @@ languages:
         }
     );
 
-    let mut path = directory;
-    path.push(CONFIG_FILE_NAME);
-    util::create_file_and_dirs(&path)?
-        .write_all(config.as_bytes())
-        .chain_err(|| FileIoErrorKind::Write(path.to_owned()))?;
-    Ok(())
+    util::fs::write(&directory.join(CONFIG_FILE_NAME), config.as_bytes())
 }
 
 /// Changes <service> and <contest>.
@@ -227,7 +221,7 @@ pub fn switch(service: ServiceName, contest: &str, dir: &Path) -> FileIoResult<(
     }
 
     let path = find_base(dir)?.join(CONFIG_FILE_NAME);
-    let text = util::string_from_file_path(&path)?;
+    let text = util::fs::string_from_path(&path)?;
     println!("Loaded {}", path.display());
     let (replaced, prev_service, prev_contest) = {
         let mut replaced = "".to_owned();
@@ -265,8 +259,7 @@ pub fn switch(service: ServiceName, contest: &str, dir: &Path) -> FileIoResult<(
     let n = cmp::max(prev_service.len(), prev_contest.len());
     print_change(n, &prev_service, &service.to_string());
     print_change(n, &prev_contest, contest);
-    let mut file = util::create_file_and_dirs(&path)?;
-    file.write_all(replaced.as_bytes())?;
+    util::fs::write(&path, replaced.as_bytes())?;
     println!("Saved.");
     Ok(())
 }
@@ -297,7 +290,7 @@ impl Config {
     ) -> FileIoResult<Self> {
         let base = find_base(dir)?;
         let path = base.join(CONFIG_FILE_NAME);
-        let mut config = serde_yaml::from_reader::<_, Self>(util::open_file(&path)?)?;
+        let mut config = serde_yaml::from_reader::<_, Self>(util::fs::open(&path)?)?;
         config.base_dir = base;
         config.service = service.unwrap_or(config.service);
         config.contest = contest.unwrap_or(config.contest);

@@ -105,14 +105,15 @@ error_chain! {
 
     foreign_links {
         SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
+        FileIo(FileIoError/*, FileIoErrorKind*/);
         Io(io::Error);
         Recv(RecvError);
     }
 
     errors {
-        CommandNotFound(command: String) {
-            description("Command not found")
-            display("No such command: {:?}", command)
+        Command(command: OsString) {
+            description("Failed to execute a command")
+            display("Failed to execute: {:?}", command)
         }
 
         Compile(status: ExitStatus) {
@@ -285,6 +286,11 @@ error_chain! {
         OpenInWriteOnly(path: PathBuf) {
             description("Failed to open a file in write-only mode")
             display("An IO error occurred while opening {} in write-only mode", path.display())
+        }
+
+        DirCreate(dir: PathBuf) {
+            description("Failed to create a directory")
+                display("Failed to create {}", dir.display())
         }
 
         Write(path: PathBuf) {

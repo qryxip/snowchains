@@ -1,5 +1,5 @@
-use errors::JudgeResult;
-use judging::{JudgingCommand, JudgingOutput, MillisRoundedUp, WrapNotFoundErrorMessage};
+use errors::{JudgeErrorKind, JudgeResult, JudgeResultExt};
+use judging::{JudgingCommand, JudgingOutput, MillisRoundedUp};
 use terminal::Color;
 use testsuite::InteractiveCase;
 use util;
@@ -31,7 +31,8 @@ pub fn judge(
         match result {
             Err(_) => Ok(InteractiveOutput::exceeded(timelimit, couts)),
             Ok(result) => {
-                let (s, t, e1, e2) = result.wrap_not_found_error_message(|| solver.arg0_name())?;
+                let (s, t, e1, e2) =
+                    result.chain_err(|| JudgeErrorKind::Command(solver.arg0().to_owned()))?;
                 Ok(InteractiveOutput::new(Some(timelimit), t, s, couts, e1, e2))
             }
         }
@@ -40,7 +41,7 @@ pub fn judge(
         let couts = cout_rx.try_iter().collect::<Vec<_>>();
         result
             .map(|(s, t, e1, e2)| InteractiveOutput::new(None, t, s, couts, e1, e2))
-            .wrap_not_found_error_message(|| solver.arg0_name())
+            .chain_err(|| JudgeErrorKind::Command(solver.arg0().to_owned()))
     }
 }
 
@@ -48,7 +49,7 @@ fn run(
     solver: &JudgingCommand,
     tester: &JudgingCommand,
     mut cout_tx: Sender<InteractiveConsoleOut>,
-) -> io::Result<(bool, Duration, String, String)> {
+) -> JudgeResult<(bool, Duration, String, String)> {
     // TODO: Capture stderrs.
     use self::InteractiveConsoleOut::{SolverTerminated, TesterTerminated};
 

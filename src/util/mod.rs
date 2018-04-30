@@ -1,38 +1,14 @@
-use errors::{FileIoError, FileIoErrorKind, FileIoResult, FileIoResultExt};
+pub mod fs;
 
-use std::{env, str};
+use std::str;
 use std::borrow::Cow;
-use std::fs::{self, File};
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
-
-/// Opens a file in read only mode.
-pub fn open_file(path: &Path) -> FileIoResult<File> {
-    File::open(path).chain_err(|| FileIoErrorKind::OpenInReadOnly(path.to_owned()))
-}
-
-/// Opens a file in write only mode creating its parent directory.
-pub fn create_file_and_dirs(path: &Path) -> FileIoResult<File> {
-    if let Some(dir) = path.parent() {
-        if !dir.exists() {
-            fs::create_dir_all(dir)?;
-        }
-    }
-    File::create(path).chain_err(|| FileIoErrorKind::OpenInWriteOnly(path.to_owned()))
-}
 
 /// Returns a `String` read from `read`.
 pub fn string_from_read<R: Read>(mut read: R, capacity: usize) -> io::Result<String> {
     let mut buf = String::with_capacity(capacity);
     read.read_to_string(&mut buf)?;
     Ok(buf)
-}
-
-/// Reads a file content into a string.
-pub fn string_from_file_path(path: &Path) -> FileIoResult<String> {
-    let file = open_file(path)?;
-    let len = file.metadata()?.len() as usize;
-    string_from_read(file, len).map_err(Into::into)
 }
 
 /// Prints `s` ignoring a trailing newline if it exists.
@@ -50,20 +26,6 @@ pub(self) fn trim_trailing_newline(s: &str) -> Cow<str> {
     } else {
         s.into()
     }
-}
-
-/// Returns `~/<names>` as `io::Result`.
-///
-/// # Errors
-///
-/// Returns `Err` IFF a home directory not found.
-pub fn path_under_home(names: &[&str]) -> FileIoResult<PathBuf> {
-    let home_dir =
-        env::home_dir().ok_or_else::<FileIoError, _>(|| FileIoErrorKind::HomeDirNotFound.into())?;
-    Ok(names.iter().fold(home_dir, |mut path, name| {
-        path.push(name);
-        path
-    }))
 }
 
 pub fn cfg_windows() -> bool {
