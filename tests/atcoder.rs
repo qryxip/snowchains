@@ -47,9 +47,9 @@ fn it_scrapes_samples_from_practice() {
         (2, "72\n128 256\nmyonmyon\n", "456 myonmyon\n"),
     ];
     let download_dir = || config.testfiles_dir();
-    check_samples("a", download_dir(), SAMPLES_A);
+    check_samples(&config, "a", download_dir(), SAMPLES_A);
     let (cases, _) = SuiteFilePaths::new(download_dir(), "b", vec![SuiteFileExtension::Yaml])
-        .load_merging(false)
+        .load_merging(&config, false)
         .unwrap();
     match cases {
         TestCases::Simple(_) => panic!(),
@@ -98,18 +98,19 @@ fn it_scrapes_samples_from_arc058() {
         ("e", SAMPLES_E),
         ("f", SAMPLES_F),
     ] {
-        check_samples(name, download_dir(), expected);
+        check_samples(&config, name, download_dir(), expected);
     }
     tempdir.close().unwrap();
 }
 
 fn check_samples(
+    config: &Config,
     name: &str,
     download_dir: PathTemplate<BaseDirSome>,
     expected: &[(u64, &str, &str)],
 ) {
     let (cases, _) = SuiteFilePaths::new(download_dir, name, vec![SuiteFileExtension::Yaml])
-        .load_merging(false)
+        .load_merging(config, false)
         .unwrap();
     match cases {
         TestCases::Interactive(_) => panic!(),
@@ -180,7 +181,7 @@ fn setup(
 ) -> (TempDir, Config, InitProp) {
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
     let config = {
-        config::init(tempdir.path().to_owned(), Some("python3"), Some("\"\"")).unwrap();
+        config::init(tempdir.path(), Some("python3"), Some("\"\"")).unwrap();
         config::switch(ServiceName::AtCoderBeta, contest, tempdir.path()).unwrap();
         Config::load_from_file(None, None, tempdir.path()).unwrap()
     };

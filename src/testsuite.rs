@@ -1,15 +1,19 @@
+use command::{CompilationCommand, JudgingCommand};
+use config::Config;
 use errors::{SuiteFileErrorKind, SuiteFileResult};
 use template::{BaseDirSome, PathTemplate};
 use terminal::Color;
-use util;
+use util::{self, ScalarOrArray};
 
 use {serde_json, serde_yaml, toml};
-use decimal::d128;
 use itertools::Itertools as _Itertools;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use std::{self, fmt, fs, io, iter, slice};
-use std::borrow::Cow;
+use std::{self, fs, io, iter, slice, vec, f64};
+use std::collections::HashSet;
+use std::ffi::OsStr;
+use std::fmt::{self, Write as _Write};
+use std::iter::FromIterator as _FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -43,7 +47,11 @@ impl<'a> SuiteFilePaths<'a> {
 
     /// Merge test suites in `dir` which filename stem equals `stem` and
     /// extension is in `extensions`.
-    pub fn load_merging(&self, allow_missing: bool) -> SuiteFileResult<(TestCases, String)> {
+    pub fn load_merging(
+        &self,
+        config: &Config,
+        allow_missing: bool,
+    ) -> SuiteFileResult<(TestCases, String)> {
         let dir = self.directory.expand(self.stem)?;
         let (existing_suites, paths_as_text) = {
             let existing_filenames = {
@@ -68,8 +76,9 @@ impl<'a> SuiteFilePaths<'a> {
             };
             let (mut suites, mut names) = (vec![], vec![]);
             for &(ref stem, ext) in &existing_filenames {
-                let suite = TestSuite::load(&SuiteFilePath::new(&dir, stem.as_str(), ext))?;
-                suites.push(suite);
+                let path = SuiteFilePath::new(&dir, stem.as_str(), ext);
+                let suite = TestSuite::load(&path)?;
+                suites.push((suite, path.joined));
                 names.push(format!("{}.{}", stem, ext));
             }
             let paths_as_text = {
@@ -89,38 +98,40 @@ impl<'a> SuiteFilePaths<'a> {
             Ok((TestCases::Simple(vec![]), paths_as_text))
         } else if existing_suites.is_empty() {
             bail!(SuiteFileErrorKind::NoFile(dir.clone()));
-        } else if existing_suites.iter().all(TestSuite::is_simple) {
+        } else if existing_suites.iter().all(|&(ref s, _)| s.is_simple()) {
             let cases = existing_suites
                 .into_iter()
-                .map(TestSuite::unwrap_to_simple)
-                .flat_map(|suite| {
-                    let (timelimit, trim_crlf, cases, path) =
-                        (suite.timelimit, suite.trim_crlf, suite.cases, suite.path);
-                    let absolute = suite.absolute_error;
-                    let relative = suite.relative_error;
-                    let path = Arc::new(path);
-                    cases
+                .flat_map(|(suite, path)| {
+                    let suite = suite.unwrap_to_simple();
+                    let timelimit = suite.timelimit;
+                    let output_match = suite.output_match;
+                    suite
+                        .cases
                         .into_iter()
-                        .map(|case| {
-                            case.reduce(path.clone(), trim_crlf, timelimit, absolute, relative)
+                        .map(move |(input, out)| {
+                            let out = out.as_ref().map(|s| s.as_str());
+                            let expected = Arc::new(ExpectedStdout::new(out, output_match));
+                            SimpleCase {
+                                path: path.clone(),
+                                input,
+                                expected,
+                                timelimit,
+                            }
                         })
                         .collect::<Vec<_>>()
                 })
-                .collect::<SuiteFileResult<Vec<_>>>()?;
+                .collect::<Vec<_>>();
             Ok((TestCases::Simple(cases), paths_as_text))
-        } else if existing_suites.iter().all(TestSuite::is_interactive) {
-            let cases = existing_suites
-                .into_iter()
-                .map(TestSuite::unwrap_to_interactive)
-                .flat_map(|suite| {
-                    let (timelimit, cases, path) = (suite.timelimit, suite.cases, suite.path);
-                    cases
-                        .into_iter()
-                        .map(move |case| case.appended(path.clone(), timelimit))
-                })
-                .collect();
+        } else if existing_suites.iter().all(|&(ref s, _)| s.is_interactive()) {
+            let mut cases = Vec::with_capacity(existing_suites.len());
+            for (suite, path) in existing_suites {
+                cases.extend(suite.unwrap_to_interactive().cases(&config, &path)?);
+            }
             Ok((TestCases::Interactive(cases), paths_as_text))
-        } else if existing_suites.iter().all(TestSuite::is_unsubmittable) {
+        } else if existing_suites
+            .iter()
+            .all(|&(ref s, _)| s.is_unsubmittable())
+        {
             bail!(SuiteFileErrorKind::Unsubmittable(self.stem.to_owned()))
         } else {
             bail!(SuiteFileErrorKind::DifferentTypesOfSuites);
@@ -129,29 +140,18 @@ impl<'a> SuiteFilePaths<'a> {
 }
 
 /// File path which extension is 'json', 'toml', 'yaml', or 'yml'.
-pub struct SuiteFilePath<'a> {
-    directory: &'a Path,
-    stem: Cow<'a, str>,
+pub struct SuiteFilePath {
     extension: SuiteFileExtension,
+    joined: Arc<PathBuf>,
 }
 
-impl<'a> SuiteFilePath<'a> {
-    pub fn new<S: Into<Cow<'a, str>>>(
-        directory: &'a Path,
-        stem: S,
-        extension: SuiteFileExtension,
-    ) -> Self {
+impl<'a> SuiteFilePath {
+    pub fn new(directory: &Path, stem: &str, extension: SuiteFileExtension) -> Self {
+        let joined = directory.join(stem).with_extension(&extension.to_string());
         Self {
-            directory,
-            stem: stem.into(),
             extension,
+            joined: Arc::new(joined),
         }
-    }
-
-    pub fn build(&self) -> PathBuf {
-        self.directory
-            .join(self.stem.as_ref())
-            .with_extension(&self.extension.to_string())
     }
 }
 
@@ -233,34 +233,29 @@ impl TestSuite {
 
     /// Constructs a `TestSuite::Interactive` with `timelimit`.
     pub fn interactive(timelimit: u64) -> Self {
-        TestSuite::Interactive(InteractiveSuite::without_cases(Some(timelimit)))
+        TestSuite::Interactive(InteractiveSuite::empty(Some(timelimit)))
     }
 
     fn load(path: &SuiteFilePath) -> SuiteFileResult<Self> {
-        let (path, extension) = (path.build(), path.extension);
-        let text = util::fs::string_from_path(&path)?;
-        let mut suite: Self = match extension {
+        let (path, extension) = (&path.joined, path.extension);
+        let text = util::fs::string_from_path(path)?;
+        let suite: Self = match extension {
             SuiteFileExtension::Json => serde_json::from_str(&text)?,
             SuiteFileExtension::Toml => toml::from_str(&text)?,
             SuiteFileExtension::Yaml | SuiteFileExtension::Yml => serde_yaml::from_str(&text)?,
         };
-        match suite {
-            TestSuite::Simple(ref mut suite) => suite.path = path,
-            TestSuite::Interactive(ref mut suite) => suite.path = Arc::new(path),
-            TestSuite::Unsubmittable => {}
-        }
         Ok(suite)
     }
 
     /// Serializes `self` and save it to given path.
     pub fn save(&self, path: &SuiteFilePath, prints_num_cases: bool) -> SuiteFileResult<()> {
-        let (path, extension) = (path.build(), path.extension);
+        let (path, extension) = (&path.joined, path.extension);
         let serialized = match extension {
             SuiteFileExtension::Json => serde_json::to_string(self)?,
             SuiteFileExtension::Toml => toml::to_string(self)?,
             SuiteFileExtension::Yaml | SuiteFileExtension::Yml => serde_yaml::to_string(self)?,
         };
-        util::fs::write(&path, serialized.as_bytes())?;
+        util::fs::write(path, serialized.as_bytes())?;
         print!("Saved to {}", path.display());
         if prints_num_cases {
             match *self {
@@ -324,20 +319,13 @@ impl TestSuite {
 }
 
 /// Set of the timelimit and test cases.
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct SimpleSuite {
-    #[serde(default = "util::cfg_windows", skip_serializing_if = "util::is_default")]
-    trim_crlf: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     timelimit: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    absolute_error: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    relative_error: Option<f64>,
-    cases: Vec<ReducibleCase>,
-    #[serde(skip)]
-    path: PathBuf,
+    output_match: Match,
+    cases: Vec<(Arc<String>, Option<Arc<String>>)>,
+    raw_cases: Option<Vec<SimpleCaseRaw>>,
 }
 
 impl SimpleSuite {
@@ -347,21 +335,119 @@ impl SimpleSuite {
         relative_error: Option<f64>,
         samples: S,
     ) -> Self {
+        let output_match = if absolute_error.is_none() && relative_error.is_none() {
+            Match::default()
+        } else {
+            Match::Float {
+                relative_error: relative_error.unwrap_or(f64::NAN),
+                absolute_error: absolute_error.unwrap_or(f64::NAN),
+            }
+        };
         Self {
-            trim_crlf: cfg!(windows),
             timelimit,
-            absolute_error,
-            relative_error,
+            output_match,
             cases: samples
                 .into_iter()
-                .map(|(output, input)| ReducibleCase::from_strings(input, Some(output)))
+                .map(|(o, i)| (Arc::new(i), Some(Arc::new(o))))
                 .collect(),
-            path: PathBuf::default(),
+            raw_cases: None,
         }
     }
 
     fn append(&mut self, input: &str, output: Option<&str>) {
-        self.cases.push(ReducibleCase::from_strings(input, output));
+        let input = Arc::new(input.to_owned());
+        let output = output.map(str::to_owned).map(Arc::new);
+        self.cases.push((input, output))
+    }
+}
+
+impl Serialize for SimpleSuite {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        fn single_string(s: String) -> ScalarOrArray<NonArrayValue> {
+            ScalarOrArray::Scalar(NonArrayValue::String(s))
+        }
+        let cases: Vec<SimpleCaseRaw> = if let Some(ref raw_cases) = self.raw_cases {
+            raw_cases.clone()
+        } else {
+            self.cases
+                .iter()
+                .map(|&(ref i, ref o)| SimpleCaseRaw {
+                    input: single_string(i.as_ref().clone()),
+                    output: o.as_ref().map(|o| single_string(o.as_ref().clone())),
+                })
+                .collect()
+        };
+        SimpleSuiteRaw {
+            timelimit: self.timelimit,
+            output_match: self.output_match,
+            cases,
+        }.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SimpleSuite {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        fn to_string(x: &ScalarOrArray<NonArrayValue>) -> Arc<String> {
+            Arc::new(match *x {
+                ScalarOrArray::Scalar(ref x) => x.to_string(),
+                ScalarOrArray::Array(ref xs) => xs.iter().fold("".to_owned(), |mut r, x| {
+                    write!(r, "{}", x).unwrap();
+                    r
+                }),
+            })
+        }
+        let raw = SimpleSuiteRaw::deserialize(deserializer)?;
+        Ok(Self {
+            timelimit: raw.timelimit,
+            output_match: raw.output_match,
+            cases: raw.cases
+                .iter()
+                .map(|case| {
+                    let input = to_string(&case.input);
+                    let output = case.output.as_ref().map(to_string);
+                    (input, output)
+                })
+                .collect(),
+            raw_cases: Some(raw.cases),
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct SimpleSuiteRaw {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timelimit: Option<u64>,
+    #[serde(rename = "match", default)]
+    output_match: Match,
+    cases: Vec<SimpleCaseRaw>,
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Clone, Serialize, Deserialize)]
+struct SimpleCaseRaw {
+    #[serde(rename = "in")]
+    input: ScalarOrArray<NonArrayValue>,
+    #[serde(rename = "out", skip_serializing_if = "Option::is_none")]
+    output: Option<ScalarOrArray<NonArrayValue>>,
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum NonArrayValue {
+    Integer(i64),
+    Float(f64),
+    String(String),
+}
+
+impl fmt::Display for NonArrayValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            NonArrayValue::Integer(n) => writeln!(f, "{}", n),
+            NonArrayValue::Float(v) => writeln!(f, "{}", v),
+            NonArrayValue::String(ref s) if s.ends_with('\n') => write!(f, "{}", s),
+            NonArrayValue::String(ref s) => writeln!(f, "{}", s),
+        }
     }
 }
 
@@ -369,18 +455,50 @@ impl SimpleSuite {
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct InteractiveSuite {
     timelimit: Option<u64>,
-    cases: Vec<InteractiveCase>,
-    #[serde(skip)]
-    path: Arc<PathBuf>,
+    tester: Option<String>,
+    each_args: Vec<Vec<String>>,
 }
 
 impl InteractiveSuite {
-    fn without_cases(timelimit: Option<u64>) -> Self {
+    fn empty(timelimit: Option<u64>) -> Self {
         Self {
             timelimit,
-            cases: vec![],
-            path: Arc::new(PathBuf::new()),
+            tester: None,
+            each_args: vec![],
         }
+    }
+
+    fn cases(
+        &self,
+        config: &Config,
+        path: &Arc<PathBuf>,
+    ) -> SuiteFileResult<vec::IntoIter<InteractiveCase>> {
+        let target = path.file_stem()
+            .map(OsStr::to_string_lossy)
+            .unwrap_or_default();
+        let mut cases = Vec::with_capacity(self.each_args.len());
+        for args in &self.each_args {
+            let lang = self.tester.as_ref().map(String::as_str);
+            let mut m = hashmap!("*".to_owned() => args.join(" "));
+            for (i, arg) in args.iter().enumerate() {
+                m.insert((i + 1).to_string(), arg.clone());
+            }
+            let tester = config
+                .interactive_tester(lang)?
+                .embed_strings(&m)
+                .expand(&target)?;
+            let tester_compilation = match config.interactive_tester_compilation(lang)? {
+                Some(compilation) => Some(Arc::new(compilation.expand(&target)?)),
+                None => None,
+            };
+            cases.push(InteractiveCase {
+                tester: Arc::new(tester),
+                tester_compilation,
+                timelimit: self.timelimit.map(Duration::from_millis),
+                path: path.clone(),
+            });
+        }
+        Ok(cases.into_iter())
     }
 }
 
@@ -388,6 +506,20 @@ impl InteractiveSuite {
 pub enum TestCases {
     Simple(Vec<SimpleCase>),
     Interactive(Vec<InteractiveCase>),
+}
+
+impl TestCases {
+    pub(crate) fn interactive_tester_compilations(&self) -> HashSet<Arc<CompilationCommand>> {
+        match *self {
+            TestCases::Simple(_) => hashset!(),
+            TestCases::Interactive(ref cases) => {
+                let compilations = cases
+                    .iter()
+                    .filter_map(|case| case.tester_compilation.clone());
+                HashSet::from_iter(compilations)
+            }
+        }
+    }
 }
 
 pub trait TestCase {
@@ -414,18 +546,35 @@ impl TestCase for SimpleCase {
 
 impl SimpleCase {
     #[cfg(test)]
-    pub fn new<T: Into<Option<u64>>, E: Into<Option<d128>>>(
+    pub(crate) fn default_matching<T: Into<Option<u64>>>(
         input: &str,
         expected: &str,
         timelimit: T,
-        absolute_error: E,
-        relative_error: E,
     ) -> Self {
-        let abs = absolute_error.into();
-        let rel = relative_error.into();
-        let expected = Arc::new(ExpectedStdout::new(Some(expected), cfg!(windows), abs, rel));
+        let expected = Arc::new(ExpectedStdout::new(Some(expected), Match::default()));
         Self {
-            path: Arc::new(PathBuf::new()),
+            path: Arc::default(),
+            input: Arc::new(input.to_owned()),
+            expected,
+            timelimit: timelimit.into(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn float_matching<T: Into<Option<u64>>>(
+        input: &str,
+        expected: &str,
+        timelimit: T,
+        absolute_error: f64,
+        relative_error: f64,
+    ) -> Self {
+        let output_match = Match::Float {
+            absolute_error: absolute_error,
+            relative_error: relative_error,
+        };
+        let expected = Arc::new(ExpectedStdout::new(Some(expected), output_match));
+        Self {
+            path: Arc::default(),
             input: Arc::new(input.to_owned()),
             expected,
             timelimit: timelimit.into(),
@@ -451,165 +600,72 @@ pub enum ExpectedStdout {
     Lines(String),
     Float {
         lines: String,
-        absolute_error: d128,
-        relative_error: d128,
+        absolute_error: f64,
+        relative_error: f64,
     },
 }
 
 impl ExpectedStdout {
-    fn new(
-        text: Option<&str>,
-        trim_crlf: bool,
-        absolute: Option<d128>,
-        relative: Option<d128>,
-    ) -> Self {
-        if let Some(text) = text {
-            let mut text = text.to_owned();
-            if absolute.is_none() && relative.is_none() && trim_crlf {
-                ExpectedStdout::Lines(text)
-            } else if absolute.is_none() && relative.is_none() {
-                if !text.ends_with('\n') {
-                    text += "\n";
-                }
-                ExpectedStdout::Exact(text)
-            } else {
-                ExpectedStdout::Float {
-                    lines: text,
-                    absolute_error: absolute.unwrap_or_default(),
-                    relative_error: relative.unwrap_or_default(),
-                }
-            }
-        } else {
-            ExpectedStdout::AcceptAny
-        }
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
-struct ReducibleCase {
-    #[serde(rename = "in")]
-    input: NonNestedValue,
-    #[serde(rename = "out", skip_serializing_if = "Option::is_none")]
-    output: Option<NonNestedValue>,
-    #[serde(default = "util::cfg_windows", skip_serializing_if = "util::is_default")]
-    trim_crlf: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    timelimit: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    absolute_error: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    relative_error: Option<f64>,
-}
-
-impl ReducibleCase {
-    fn from_strings<S1: Into<String>, S2: Into<String>>(input: S1, output: Option<S2>) -> Self {
-        Self {
-            input: NonNestedValue::single_string(input.into()),
-            output: output.map(Into::into).map(NonNestedValue::single_string),
-            trim_crlf: false,
-            timelimit: None,
-            absolute_error: None,
-            relative_error: None,
-        }
-    }
-
-    fn reduce(
-        &self,
-        path: Arc<PathBuf>,
-        trim_crlf: bool,
-        timelimit: Option<u64>,
-        absolute_error: Option<f64>,
-        relative_error: Option<f64>,
-    ) -> SuiteFileResult<SimpleCase> {
-        fn parse_floating_error(e1: Option<f64>, e2: Option<f64>) -> SuiteFileResult<Option<d128>> {
-            match e1.or(e2).map(|e| d128::from_str(&e.to_string()).unwrap()) {
-                Some(x) if x.is_nan() => bail!(SuiteFileErrorKind::Nan),
-                Some(x) => Ok(Some(x)),
-                None => Ok(None),
-            }
-        }
-
-        let output = self.output.as_ref().map(ToString::to_string);
-        let absolute_error = parse_floating_error(self.absolute_error, absolute_error)?;
-        let relative_error = parse_floating_error(self.relative_error, relative_error)?;
-        Ok(SimpleCase {
-            path,
-            input: Arc::new(self.input.to_string()),
-            expected: Arc::new(ExpectedStdout::new(
-                output.as_ref().map(String::as_str),
-                self.trim_crlf || trim_crlf,
+    fn new(text: Option<&str>, output_match: Match) -> Self {
+        match (text, output_match) {
+            (None, _) => ExpectedStdout::AcceptAny,
+            (Some(s), Match::Exact) => ExpectedStdout::Exact(s.to_owned()),
+            (Some(s), Match::Lines) => ExpectedStdout::Lines(s.to_owned()),
+            (
+                Some(s),
+                Match::Float {
+                    absolute_error,
+                    relative_error,
+                },
+            ) => ExpectedStdout::Float {
+                lines: s.to_owned(),
                 absolute_error,
                 relative_error,
-            )),
-            timelimit: self.timelimit.or(timelimit),
-        })
-    }
-}
-
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-enum NonNestedValue {
-    Single(NonArrayValue),
-    Multiple(Vec<NonArrayValue>),
-}
-
-impl NonNestedValue {
-    fn single_string(s: String) -> Self {
-        NonNestedValue::Single(NonArrayValue::String(s))
-    }
-}
-
-impl Default for NonNestedValue {
-    fn default() -> Self {
-        NonNestedValue::Single(NonArrayValue::String("".to_owned()))
-    }
-}
-
-impl fmt::Display for NonNestedValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            NonNestedValue::Single(NonArrayValue::Integer(n)) => writeln!(f, "{}", n),
-            NonNestedValue::Single(NonArrayValue::Float(v)) => writeln!(f, "{}", v),
-            NonNestedValue::Single(NonArrayValue::String(ref s)) => if s.ends_with('\n') {
-                write!(f, "{}", s)
-            } else {
-                writeln!(f, "{}", s)
             },
-            NonNestedValue::Multiple(ref xs) => {
-                if xs.is_empty() {
-                    writeln!(f)
-                } else {
-                    for x in xs {
-                        match *x {
-                            NonArrayValue::Integer(n) => writeln!(f, "{}", n),
-                            NonArrayValue::Float(v) => writeln!(f, "{}", v),
-                            NonArrayValue::String(ref s) => writeln!(f, "{}", s),
-                        }?;
-                    }
-                    Ok(())
-                }
-            }
         }
     }
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-enum NonArrayValue {
-    Integer(i64),
-    Float(f64),
-    String(String),
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Match {
+    Exact,
+    Lines,
+    Float {
+        #[serde(default = "nan", skip_serializing_if = "is_nan")]
+        relative_error: f64,
+        #[serde(default = "nan", skip_serializing_if = "is_nan")]
+        absolute_error: f64,
+    },
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+fn nan() -> f64 {
+    f64::NAN
+}
+
+fn is_nan(v: &f64) -> bool {
+    v.is_nan()
+}
+
+impl Default for Match {
+    #[cfg(windows)]
+    fn default() -> Self {
+        Match::Lines
+    }
+
+    #[cfg(not(windows))]
+    fn default() -> Self {
+        Match::Exact
+    }
+}
+
+#[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct InteractiveCase {
-    tester: String,
-    timelimit: Option<u64>,
-    #[serde(skip)]
+    tester: Arc<JudgingCommand>,
+    tester_compilation: Option<Arc<CompilationCommand>>,
+    timelimit: Option<Duration>,
     path: Arc<PathBuf>,
 }
 
@@ -620,19 +676,11 @@ impl TestCase for InteractiveCase {
 }
 
 impl InteractiveCase {
-    /// Gets `self.tester` as `&str`.
-    pub fn get_tester(&self) -> &str {
-        &self.tester
+    pub(crate) fn tester(&self) -> Arc<JudgingCommand> {
+        self.tester.clone()
     }
 
-    /// Gets the timelimit as `Option<Duration>`.
-    pub fn get_timelimit(&self) -> Option<Duration> {
-        self.timelimit.map(Duration::from_millis)
-    }
-
-    fn appended(mut self, path: Arc<PathBuf>, timelimit: Option<u64>) -> Self {
-        self.path = path;
-        self.timelimit = self.timelimit.or(timelimit);
-        self
+    pub(crate) fn timelimit(&self) -> Option<Duration> {
+        self.timelimit
     }
 }

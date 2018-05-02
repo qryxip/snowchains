@@ -2,7 +2,7 @@ use term::{self, Attr, Terminal};
 
 use std::fmt;
 use std::io::Write;
-use std::sync::Mutex;
+use std::sync::atomic::{self, AtomicBool};
 
 #[derive(Clone, Copy)]
 pub enum Color {
@@ -19,7 +19,7 @@ pub enum Color {
 
 impl Into<&'static [u32]> for Color {
     fn into(self) -> &'static [u32] {
-        if *COLOR_ENABLED.lock().unwrap() {
+        if COLOR_ENABLED.load(atomic::Ordering::Relaxed) {
             match self {
                 Color::Success | Color::TesterStdout => &[118, 10, 2],
                 Color::Warning => &[190, 11, 3],
@@ -35,11 +35,11 @@ impl Into<&'static [u32]> for Color {
 }
 
 pub fn disable_color() {
-    *COLOR_ENABLED.lock().unwrap() = false;
+    COLOR_ENABLED.swap(false, atomic::Ordering::Relaxed);
 }
 
 lazy_static! {
-    static ref COLOR_ENABLED: Mutex<bool> = Mutex::new(true);
+    static ref COLOR_ENABLED: AtomicBool = AtomicBool::new(true);
 }
 
 pub fn print_bold<C: Into<Option<Color>>>(color: C, args: fmt::Arguments) {

@@ -136,8 +136,9 @@ error_chain! {
     }
 
     foreign_links {
-        FileIo(FileIoError/*, FileIoErrorKind*/);
+        Config(ConfigError/*, ConfigErrorKind*/);
         TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
+        FileIo(FileIoError/*, FileIoErrorKind*/);
         Io(io::Error);
         SerdeJson(serde_json::Error);
         SerdeYaml(serde_yaml::Error);

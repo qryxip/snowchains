@@ -5,8 +5,6 @@ use terminal::Color;
 use testsuite::{ExpectedStdout, SimpleCase};
 use util;
 
-use decimal::d128;
-
 use std::{self, fmt, thread};
 use std::io::Write as _Write;
 use std::process::ExitStatus;
@@ -82,22 +80,18 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> JudgeResult<SimpleOutput> 
 }
 
 fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
-    fn check<F: FnMut(d128, d128) -> bool>(expected: &str, actual: &str, mut on_float: F) -> bool {
+    fn check<F: FnMut(f64, f64) -> bool>(expected: &str, actual: &str, mut on_float: F) -> bool {
         expected.split_whitespace().count() == actual.split_whitespace().count()
             && expected
                 .split_whitespace()
                 .zip(actual.split_whitespace())
                 .all(|(e, a)| {
-                    if let (Ok(e), Ok(a)) = (e.parse::<d128>(), a.parse::<d128>()) {
+                    if let (Ok(e), Ok(a)) = (e.parse::<f64>(), a.parse::<f64>()) {
                         on_float(e, a)
                     } else {
                         e == a
                     }
                 })
-    }
-
-    fn in_range(x: d128, a: d128, b: d128) -> bool {
-        a <= x && x <= b
     }
 
     match *expected {
@@ -116,10 +110,10 @@ fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
             let stdout = stdout.lines().collect::<Vec<_>>();
             lines.lines().count() == stdout.len()
                 && lines.lines().zip(stdout.iter()).all(|(e, a)| {
-                    let (d, r) = (absolute_error, relative_error);
-                    (check(e, a, |e, a| in_range(e, a - d, a + d)) || check(e, a, |e, a| {
-                        in_range((e - a) / e, -r, r)
-                    }))
+                    check(e, a, |e, a| {
+                        let (d, r) = (absolute_error, relative_error);
+                        (a - e).abs() <= d || ((a - e) / e).abs() <= r // Doesn't care NaN
+                    })
                 })
         }
     }
@@ -330,11 +324,9 @@ mod tests {
     use judging::simple::SimpleOutput;
     use testsuite::SimpleCase;
 
-    use decimal::d128;
     use env_logger;
 
     use std::io;
-    use std::str::FromStr as _FromStr;
     use std::sync::Arc;
 
     #[test]
@@ -351,8 +343,8 @@ mod tests {
         let correct_command = python3_command(CODE).unwrap();
         let wrong_command = python3_command("").unwrap();
         let error_command = python3_command("import sys; sys.exit(1)").unwrap();
-        let case1 = SimpleCase::new(IN1, OUT1, None, None, None);
-        let case2 = SimpleCase::new(IN2, OUT2, None, None, None);
+        let case1 = SimpleCase::default_matching(IN1, OUT1, None);
+        let case2 = SimpleCase::default_matching(IN2, OUT2, None);
         for case in vec![case1, case2] {
             match super::judge(&case, &correct_command).unwrap() {
                 SimpleOutput::Accepted { .. } => (),
@@ -410,9 +402,9 @@ if __name__ == '__main__':
         static OUT: &str = "2 1.000 2.000\n2 1.000 2.000\n2 1.000 2.000\n";
         let _ = env_logger::try_init();
         let command = python3_command(CODE).unwrap();
-        let error = d128::from_str("1E-9").unwrap();
+        let error = 1e-9f64;
         // It may take more than 1 second on Windows
-        let case = SimpleCase::new(IN, OUT, None, error, error);
+        let case = SimpleCase::float_matching(IN, OUT, None, error, error);
         match super::judge(&case, &command).unwrap() {
             SimpleOutput::Accepted { .. } => {}
             o => panic!("{:?}", o),
@@ -425,7 +417,7 @@ if __name__ == '__main__':
         static CODE: &str = r"import time; time.sleep(1)";
         let _ = env_logger::try_init();
         let command = python3_command(CODE).unwrap();
-        let case = SimpleCase::new("", "", 200, None, None);
+        let case = SimpleCase::default_matching("", "", 200);
         match super::judge(&case, &command).unwrap() {
             SimpleOutput::TimelimitExceeded { .. } => {}
             o => panic!("{:?}", o),
@@ -438,7 +430,7 @@ if __name__ == '__main__':
         static CODE: &str = r"import sys; sys.stdout.buffer.write(b'\xc3\x28')";
         let _ = env_logger::try_init();
         let command = python3_command(CODE).unwrap();
-        let case = SimpleCase::new("", "", None, None, None);
+        let case = SimpleCase::default_matching("", "", None);
         let e = super::judge(&case, &command).unwrap_err();
         if let &JudgeErrorKind::Io(ref e) = e.kind() {
             if let io::ErrorKind::InvalidData = e.kind() {
@@ -453,12 +445,10 @@ if __name__ == '__main__':
     fn it_denies_nonexisting_commands() {
         let _ = env_logger::try_init();
         let command = Arc::new(JudgingCommand::from_args("nonexisting", &[]).unwrap());
-        let case = SimpleCase::new("", "", None, None, None);
+        let case = SimpleCase::default_matching("", "", None);
         let e = super::judge(&case, &command).unwrap_err();
-        if let &JudgeErrorKind::Io(ref e) = e.kind() {
-            if let io::ErrorKind::NotFound = e.kind() {
-                return;
-            }
+        if let &JudgeErrorKind::Command(_) = e.kind() {
+            return;
         }
         panic!("{:?}", e);
     }

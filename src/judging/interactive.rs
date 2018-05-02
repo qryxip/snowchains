@@ -20,8 +20,8 @@ pub fn judge(
     let (cout_tx, cout_rx) = mpsc::channel();
     let (result_tx, result_rx) = mpsc::channel();
     let solver_cloned = solver.clone();
-    let tester = solver.new_in_same_dir(case.get_tester());
-    let timelimit = case.get_timelimit();
+    let tester = case.tester();
+    let timelimit = case.timelimit();
     thread::spawn(move || {
         let _ = result_tx.send(run(&solver_cloned, &tester, cout_tx));
     });

@@ -41,7 +41,7 @@ quick_main_colored!(|| -> snowchains::Result<()> {
     match Opt::from_args() {
         Opt::Init { directory } => {
             info!("Running \"init\" command");
-            config::init(directory, None, None)?;
+            config::init(&directory, None, None)?;
         }
         Opt::Switch { service, contest } => {
             info!("Running \"switch\" command");
@@ -103,7 +103,7 @@ quick_main_colored!(|| -> snowchains::Result<()> {
             info!("Running \"append\" command");
             let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
             let dir = config.testfiles_dir().expand("")?;
-            let path = SuiteFilePath::new(&dir, target, extension);
+            let path = SuiteFilePath::new(&dir, &target, extension);
             testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
         }
         Opt::Judge {
@@ -115,7 +115,7 @@ quick_main_colored!(|| -> snowchains::Result<()> {
             let language = language.as_ref().map(String::as_str);
             info!("Running \"judge\" command");
             let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
-            let prop = JudgeProp::from_config(&config, &target, language)?;
+            let prop = JudgeProp::new(&config, &target, language)?;
             judging::judge(prop)?;
         }
         Opt::Submit {
@@ -131,7 +131,7 @@ quick_main_colored!(|| -> snowchains::Result<()> {
             info!("Running \"submit\" command");
             let config = Config::load_from_file(service, contest, &env::current_dir()?)?;
             let init_prop = init_prop(config.service())?;
-            let judge_prop = JudgeProp::from_config(&config, &target, language)?;
+            let judge_prop = JudgeProp::new(&config, &target, language)?;
             let submit_prop = SubmitProp::new(
                 &config,
                 target,

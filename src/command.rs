@@ -9,7 +9,8 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
 /// Compilation command.
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(Debug))]
+#[derive(PartialEq, Eq, Hash)]
 pub struct CompilationCommand {
     command: CommandProperty,
     src: PathBuf,
@@ -140,8 +141,8 @@ impl JudgingCommand {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Clone)]
+#[cfg_attr(test, derive(Debug))]
+#[derive(Clone, PartialEq, Eq, Hash)]
 struct CommandProperty {
     arg0: OsString,
     rest_args: Vec<OsString>,

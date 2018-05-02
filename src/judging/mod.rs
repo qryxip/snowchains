@@ -9,6 +9,7 @@ use testsuite::{TestCase, TestCases};
 
 use unicode_width::UnicodeWidthStr as _UnicodeWidthStr;
 
+use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -66,10 +67,17 @@ pub fn judge(prop: JudgeProp) -> JudgeResult<()> {
         }
     }
 
-    let (cases, case_paths, solver, compilation) =
-        (prop.cases, prop.case_paths, prop.solver, prop.compilation);
-    if let Some(compilation) = compilation {
-        compilation.execute()?;
+    let cases = prop.cases;
+    let case_paths = prop.case_paths;
+    let solver = prop.solver;
+    let solver_compilation = prop.solver_compilation;
+    let tester_compilations = prop.tester_compilations;
+    if let Some(solver_compilation) = solver_compilation {
+        solver_compilation.execute()?;
+        println!();
+    }
+    for tester_compilation in tester_compilations {
+        tester_compilation.execute()?;
         println!();
     }
     solver.print_info(&case_paths);
@@ -83,22 +91,25 @@ pub struct JudgeProp {
     cases: TestCases,
     case_paths: String,
     solver: JudgingCommand,
-    compilation: Option<CompilationCommand>,
+    solver_compilation: Option<CompilationCommand>,
+    tester_compilations: HashSet<Arc<CompilationCommand>>,
 }
 
 impl JudgeProp {
-    pub fn from_config(config: &Config, target: &str, language: Option<&str>) -> ::Result<Self> {
-        let (cases, paths) = config.suite_paths(&target).load_merging(false)?;
+    pub fn new(config: &Config, target: &str, language: Option<&str>) -> ::Result<Self> {
+        let (cases, paths) = config.suite_paths(&target).load_merging(config, false)?;
         let solver = config.solver(language)?.expand(&target)?;
-        let compilation = match config.compilation(language)? {
+        let solver_compilation = match config.solver_compilation(language)? {
             Some(compilation) => Some(compilation.expand(&target)?),
             None => None,
         };
+
         Ok(Self {
+            tester_compilations: cases.interactive_tester_compilations(),
             cases,
             case_paths: paths,
             solver,
-            compilation,
+            solver_compilation,
         })
     }
 }

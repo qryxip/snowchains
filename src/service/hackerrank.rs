@@ -96,7 +96,7 @@ impl HackerRank {
             .map(|model| model.slug)
         {
             zip_urls.push(format!("{}/{}/download_testcases", url, slug));
-            paths.push(SuiteFilePath::new(dir_to_save, slug.clone(), extension));
+            paths.push(SuiteFilePath::new(dir_to_save, &slug, extension));
             urls.push(format!(
                 "https://www.hackerrank.com/{}/challenges/{}",
                 contest, slug

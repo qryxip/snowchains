@@ -5,10 +5,6 @@
 
 Tools for online programming contests.
 
-- [x] Linux
-- [x] Windows
-- [ ] OS X (Probably works.)
-
 ## Features
 
 - Scrapes sample cases as YAML, TOML, or JSON
@@ -77,6 +73,22 @@ hackerrank:
     cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
     rust_version: 1.21.0
     java_class: Main
+
+interactive:
+  python3:
+    src: py/{kebab}-tester.py
+    run:
+      command: python3, --, $src, $*
+      working_directory: py/
+  haskell:
+    src: hs/src/{Pascal}Tester.hs
+    compile:
+      bin: hs/target/{Pascal}Tester
+      command: [stack, ghc, --, -O2, -o, $bin, $src]
+      working_directory: hs/
+    run:
+      command: $bin $*
+      working_directory: hs/
 
 # test files: <testsuite>/<problem>.[json|toml,yaml,yml]
 # source:     <<src> % <problem>>
@@ -210,6 +222,13 @@ hackerrank:
   variables:
     cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
 
+interactive:
+  python3:
+    src: py/{kebab}-tester.py
+    run:
+      command: [python3, --, $src, $arg]
+      working_directory: py/
+
 languages:
   c++:
     src: '{kebab}.cc'
@@ -236,9 +255,9 @@ languages:
 
 ```yaml
 ---
-type: "simple"   # "simple" or "interactive"
-trim_crlf: false # Default: <platform> == Windows
-timelimit: 2000  # Optional
+type: simple    # "simple" or "interactive"
+timelimit: 2000 # Optional
+match: exact    # "exact", "lines", or "float". Default: "lines" if the platform is Windows, otherwise "exact"
 
 # Possible types of "in" and "out":
 # * Integer
@@ -251,10 +270,16 @@ cases:
       2 3
       test
     out: 6 test
-  - in: [72, 128 256, myonmyon]
-    out: [456 myonmyon]
-    timelimit: 100 # Can be overridden
-  - in: [1000, 1000 1000, oooooooooooooo] # "out" is optional
+  - in: |
+      72
+      128 256
+      myonmyon
+    out: 456 myonmyon
+  # "out" is optional
+  - in: |
+      1000
+      1000 1000
+      oooooooooooooo
 ```
 
 <https://beta.atcoder.jp/contests/tricky/tasks/tricky_2>
@@ -263,10 +288,11 @@ cases:
 ---
 type: simple
 timelimit: 2000
-# When `absolute_error` or `relative_error` is present,
-# each line is splited by whitespace and compared by token.
-absolute_error: 1E-9
-relative_error: 1E-9
+match:
+  float:
+    absolute_error: 1E-9
+    relative_error: 1E-9
+
 cases:
   - in: |
       3
@@ -285,14 +311,15 @@ cases:
 
 ```yaml
 ---
-type: "interactive"
+type: interactive
 timelimit: 2000
+tester: python3
 
-cases:
-  - tester: "../checkers/py/atcoder_practice_b_checker.py ABCDE"
-  - tester: "../checkers/py/atcoder_practice_b_checker.py EDCBA"
-  - tester: "../checkers/hs/src/AtcoderPracticeBChecker.hs ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-  - tester: "../checkers/hs/src/AtcoderPracticeBChecker.hs ZYXWVUTSRQPONMLKJIHGFEDCBA"
+each_args:
+  - [ABCDE]
+  - [EDCBA]
+  - [ABCDEFGHIJKLMNOPQRSTUVWXYZ]
+  - [ZYXWVUTSRQPONMLKJIHGFEDCBA]
 ```
 
 ```python
@@ -306,37 +333,30 @@ def main() -> None:
     n = len(bs)
     q = 7 if n == 5 else 100
 
+    def reply(c1, c2):
+        print('<' if bs.index(c1) < bs.index(c2) else '>', flush=True)
+
     def judge(a):
         if a == bs:
             sys.exit(0)
         else:
-            print('Wrong answer', file=sys.stderr)
+            print('wrong', file=sys.stderr)
             sys.exit(1)
-
-    def reply(c1, c2):
-        print('<' if weight_by(c1) < weight_by(c2) else '>', flush=True)
-
-    def weight_by(c):
-        try:
-            return bs.index(c)
-        except ValueError:
-            raise RuntimeError(f'No such ball: {c}')
 
     print(f'{n} {q}', flush=True)
     for _ in range(q):
-        ts = re.split('[ \n]', sys.stdin.readline())
+        ts = re.split(r'[ \n]', sys.stdin.readline())
         if len(ts) == 4 and ts[0] == '?':
             reply(ts[1], ts[2])
         elif len(ts) == 3 and ts[0] == '!':
             judge(ts[1])
         else:
-            raise RuntimeError('Invalid input')
+            raise RuntimeError('invalid')
     else:
-        ts = re.split('[ \n]', sys.stdin.readline())
+        ts = re.split(r'[ \n]', sys.stdin.readline())
         if len(ts) == 3 and ts[0] == '!':
             judge(ts[1])
-        raise RuntimeError(
-            'Expected "! <answer>" (you have run out of queries)')
+        raise RuntimeError('answer me')
 
 
 if __name__ == '__main__':
@@ -344,8 +364,6 @@ if __name__ == '__main__':
 ```
 
 ```haskell
-#!/usr/bin/env runghc
-
 {-# LANGUAGE LambdaCase #-}
 
 module Main (main) where
@@ -355,6 +373,7 @@ import Data.List          (elemIndex)
 import Data.Maybe         (fromMaybe)
 import System.Environment (getArgs)
 import System.Exit        (die, exitSuccess)
+import System.IO          (hFlush, stdout)
 import Text.Printf        (printf)
 
 main :: IO ()
@@ -362,18 +381,18 @@ main = do
   bs <- (!! 0) <$> getArgs
   let n                   = length bs
       q                   = if n == 5 then 7 else 100 :: Int
-      reply c1 c2         = putStrLn $ if weightBy c1 < weightBy c2 then "<" else ">"
+      reply c1 c2         = putStrLn (if weightBy c1 < weightBy c2 then "<" else ">") >> hFlush stdout
       judge a | a == bs   = exitSuccess
-              | otherwise = die "Wrong answer"
-      weightBy c          = fromMaybe (error (printf "No such ball: %c" c)) (c `elemIndex` bs)
-  printf "%d %d\n" n q
+              | otherwise = die "wrong"
+      weightBy c          = fromMaybe (error "out of bounds") (c `elemIndex` bs)
+  printf "%d %d\n" n q >> hFlush stdout
   forM_ [1..q] $ \_ -> words <$> getLine >>= \case
     ["?", [c1], [c2]] -> reply c1 c2
     ["!", a]          -> judge a
-    _                 -> error "Invalid format"
+    _                 -> error "invalid"
   words <$> getLine >>= \case
     ["!", a] -> judge a
-    _        -> error "Expected \"! <answer>\" (You have run out of queries)"
+    _        -> error "answer me"
 ```
 
 ## Editor Integrations

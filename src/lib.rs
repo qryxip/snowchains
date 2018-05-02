@@ -17,7 +17,6 @@ extern crate serde_derive;
 
 extern crate chrono;
 extern crate combine;
-extern crate decimal;
 extern crate futures;
 extern crate heck;
 extern crate httpsession;

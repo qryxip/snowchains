@@ -20,7 +20,7 @@ static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
 pub fn init(
-    directory: PathBuf,
+    directory: &Path,
     atcoder_default_lang: Option<&'static str>,
     hackerrank_default_lang: Option<&'static str>,
 ) -> FileIoResult<()> {
@@ -83,6 +83,22 @@ hackerrank:
     cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
     rust_version: 1.21.0
     java_class: Main
+
+interactive:
+  python3:
+    src: py/{{kebab}}-tester.py
+    run:
+      command: python3 -- $src $*
+      working_directory: py/
+  haskell:
+    src: hs/src/{{Pascal}}Tester.hs
+    compile:
+      bin: hs/target/{{Pascal}}Tester
+      command: [stack, ghc, --, -O2, -o, $bin, $src]
+      working_directory: hs/
+    run:
+      command: $bin $*
+      working_directory: hs/
 
 languages:
   c++:
@@ -276,6 +292,7 @@ pub struct Config {
     atcoder: Option<Service>,
     #[serde(skip_serializing_if = "Option::is_none")]
     hackerrank: Option<Service>,
+    interactive: HashMap<String, Language>,
     languages: HashMap<String, Language>,
     #[serde(skip)]
     base_dir: PathBuf,
@@ -346,16 +363,16 @@ impl Config {
 
     pub(crate) fn src_to_submit(
         &self,
-        language: Option<&str>,
+        lang: Option<&str>,
     ) -> ConfigResult<PathTemplate<BaseDirSome>> {
-        let lang = self.language(language)?;
+        let lang = find_language(&self.languages, self.default_lang(), lang)?;
         Ok(lang.src
             .base_dir(&self.base_dir)
             .embed_strings(self.vars_on_service(None)))
     }
 
-    pub fn code_replacer(&self, lang_name: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
-        let lang = self.language(lang_name)?;
+    pub fn code_replacer(&self, lang: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
+        let lang = find_language(&self.languages, self.default_lang(), lang)?;
         let vars = self.vars_on_service(None);
         Ok(lang.replace.as_ref().map(|r| r.embed_strings(vars)))
     }
@@ -374,19 +391,37 @@ impl Config {
         Ok(replacers)
     }
 
-    /// Returns the `lang_id` of `lang_name` or a default language
-    pub fn atcoder_lang_id(&self, lang_name: Option<&str>) -> ConfigResult<u32> {
-        let lang = self.language(lang_name)?;
+    /// Returns the `lang_id` of `lang` or a default language
+    pub fn atcoder_lang_id(&self, lang: Option<&str>) -> ConfigResult<u32> {
+        let lang = find_language(&self.languages, self.default_lang(), lang)?;
         lang.language_ids.atcoder.ok_or_else(|| {
             ConfigError::from(ConfigErrorKind::PropertyNotSet("language_ids.atcoder"))
         })
     }
 
-    pub(crate) fn compilation(
+    pub(crate) fn solver_compilation(
         &self,
-        lang_name: Option<&str>,
-    ) -> ConfigResult<Option<(CompilationTemplate)>> {
-        let lang = self.language(lang_name)?;
+        lang: Option<&str>,
+    ) -> ConfigResult<Option<CompilationTemplate>> {
+        self.compilation_command(find_language(&self.languages, self.default_lang(), lang)?)
+    }
+
+    pub(crate) fn interactive_tester_compilation(
+        &self,
+        lang: Option<&str>,
+    ) -> ConfigResult<Option<CompilationTemplate>> {
+        self.compilation_command(find_language(&self.interactive, None, lang)?)
+    }
+
+    pub(crate) fn solver(&self, lang: Option<&str>) -> ConfigResult<JudgeTemplate> {
+        self.judge_command(find_language(&self.languages, self.default_lang(), lang)?)
+    }
+
+    pub(crate) fn interactive_tester(&self, lang: Option<&str>) -> ConfigResult<JudgeTemplate> {
+        self.judge_command(find_language(&self.interactive, None, lang)?)
+    }
+
+    fn compilation_command(&self, lang: &Language) -> ConfigResult<Option<CompilationTemplate>> {
         match lang.compile {
             None => Ok(None),
             Some(ref compile) => {
@@ -400,8 +435,7 @@ impl Config {
         }
     }
 
-    pub(crate) fn solver(&self, lang_name: Option<&str>) -> ConfigResult<JudgeTemplate> {
-        let lang = self.language(lang_name)?;
+    fn judge_command(&self, lang: &Language) -> ConfigResult<JudgeTemplate> {
         let wd = lang.run.working_directory.base_dir(&self.base_dir);
         let vars = self.vars_on_service(None);
         let cmd = lang.run.command.embed_strings(vars);
@@ -412,17 +446,12 @@ impl Config {
         Ok(cmd.as_judge(&self.shell, wd, &src, bin.as_ref()))
     }
 
-    fn language(&self, name: Option<&str>) -> ConfigResult<&Language> {
-        let service = match self.service {
+    fn default_lang(&self) -> Option<&str> {
+        match self.service {
             ServiceName::AtCoder | ServiceName::AtCoderBeta => self.atcoder.as_ref(),
             ServiceName::HackerRank => self.hackerrank.as_ref(),
             ServiceName::Other => None,
-        };
-        let name = name.or_else(|| service.map(|s| s.default_language.as_ref()))
-            .ok_or_else(|| ConfigError::from(ConfigErrorKind::LanguageNotSpecified))?;
-        self.languages
-            .get(name)
-            .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(name.to_owned())))
+        }.map(|s| s.default_language.as_ref())
     }
 
     fn vars_on_service(&self, service: Option<ServiceName>) -> Option<&HashMap<String, String>> {
@@ -432,6 +461,18 @@ impl Config {
             ServiceName::Other => None,
         }.map(|s| &s.variables)
     }
+}
+
+fn find_language<'a>(
+    langs: &'a HashMap<String, Language>,
+    default_lang: Option<&str>,
+    name: Option<&str>,
+) -> ConfigResult<&'a Language> {
+    let name = name.or_else(|| default_lang)
+        .ok_or_else(|| ConfigError::from(ConfigErrorKind::LanguageNotSpecified))?;
+    langs
+        .get(name)
+        .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(name.to_owned())))
 }
 
 fn find_base(start: &Path) -> FileIoResult<PathBuf> {

@@ -46,11 +46,13 @@ impl StringTemplate {
 pub trait BaseDirOption {}
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
+#[derive(Clone, Copy)]
 pub struct BaseDirSome<'a>(&'a Path);
 
 impl<'a> BaseDirOption for BaseDirSome<'a> {}
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
+#[derive(Clone, Copy)]
 pub struct BaseDirNone;
 
 impl BaseDirOption for BaseDirNone {}
@@ -99,6 +101,13 @@ impl<'a> PathTemplate<BaseDirSome<'a>> {
 
     pub fn expand(&self, target: &str) -> TemplateExpandResult<PathBuf> {
         self.inner.expand_as_path(&self.base_dir.0, target)
+    }
+
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            base_dir: self.base_dir,
+        }
     }
 }
 
@@ -250,6 +259,25 @@ pub(crate) struct JudgeTemplate<'a> {
 }
 
 impl<'a> JudgeTemplate<'a> {
+    pub(crate) fn embed_strings<
+        'b,
+        M: Into<Option<&'b HashMap<K, V>>>,
+        K: 'b + Borrow<str> + Eq + Hash,
+        V: 'b + Borrow<str> + Eq + Hash,
+    >(
+        &self,
+        strings: M,
+    ) -> Self {
+        let strings = strings.into();
+        Self {
+            inner: self.inner
+                .iter()
+                .map(|t| t.embed_strings(strings))
+                .collect(),
+            wd: self.wd.clone(),
+        }
+    }
+
     pub fn expand(&self, target: &str) -> TemplateExpandResult<JudgingCommand> {
         let args = self.inner
             .iter()
@@ -437,9 +465,9 @@ impl FromStr for Template {
             .map(Token::Target);
         let var = char('$')
             .with(choice((
-                // Denies "$", "$_"
-                letter().and(many(alpha_num().or(char('_')))),
+                alpha_num().and(many(alpha_num().or(char('_')))),
                 char('_').and(many1(alpha_num().or(char('_')))),
+                char('*').and(many(satisfy(|_| false))),
             )))
             .map(|(h, t): (_, String)| Token::Var(format!("{}{}", h, t)));
         many(choice((

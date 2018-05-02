@@ -1,8 +1,8 @@
 pub mod fs;
 
-use std::str;
 use std::borrow::Cow;
 use std::io::{self, Read};
+use std::str;
 
 /// Returns a `String` read from `read`.
 pub fn string_from_read<R: Read>(mut read: R, capacity: usize) -> io::Result<String> {
@@ -55,6 +55,14 @@ impl<T> OkAsRefOr for Option<T> {
             None => Err(e),
         }
     }
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum ScalarOrArray<T> {
+    Scalar(T),
+    Array(Vec<T>),
 }
 
 #[cfg(test)]

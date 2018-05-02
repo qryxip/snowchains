@@ -66,7 +66,7 @@ impl AtCoder {
             let url = format!("http://{}.contest.atcoder.jp{}", contest, path);
             match extract_cases(self.get(&url)?) {
                 Ok(suite) => {
-                    let path = SuiteFilePath::new(dir_to_save, alphabet.to_lowercase(), extension);
+                    let path = SuiteFilePath::new(dir_to_save, &alphabet.to_lowercase(), extension);
                     suite.save(&path, true)?;
                 }
                 Err(ServiceError(ServiceErrorKind::Scrape, _)) => {

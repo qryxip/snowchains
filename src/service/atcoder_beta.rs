@@ -170,7 +170,7 @@ impl AtCoderBeta {
             .into_iter()
             .map(|(name, url)| -> ServiceResult<_> {
                 let suite = extract_as_suite(self.get(&url)?, contest)?;
-                let path = SuiteFilePath::new(dir_to_save, name.to_lowercase(), extension);
+                let path = SuiteFilePath::new(dir_to_save, &name.to_lowercase(), extension);
                 Ok((url, suite, path))
             })
             .collect::<ServiceResult<Vec<_>>>()?;
