@@ -51,14 +51,14 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 # Example
 ---
 service: atcoderbeta # "atcoder", "atcoderbeta", "hackerrank", "other"
-contest: chokudai_s001
+contest: arc001
 
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
 
 testfiles:
   directory: snowchains/$service/$contest/ # Searched case insensitively. Default: ”
-  download: yaml                           # Default: ”
-  exclude: []                              # Default: ”
+  extensions_on_download: yaml             # Default: ”
+  excluded_extensions: []                  # Default: ”
 
 atcoder:
   default_language: c++
@@ -171,7 +171,7 @@ languages:
       regex_group: 2
       local: '{Pascal}'
       submit: $java_class
-      once: true
+      all_matched: false
     language_ids:
       atcoder: 3016
   # c#:
@@ -203,14 +203,14 @@ Or simply:
 ```yaml
 ---
 service: atcoderbeta
-contest: chokudai_s001
+contest: arc001
 
 shell: [$SHELL, -c]
 
 testfiles:
   directory: snowchains/$service/$contest/
-  download: yaml
-  exclude: []
+  extensions_on_download: yaml
+  excluded_extensions: []
 
 atcoder:
   default_language: c++

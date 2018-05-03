@@ -286,7 +286,7 @@ impl<'a> DownloadProp<&'a str> {
     pub fn new(config: &'a Config, open_browser: bool) -> ::Result<Self> {
         let contest = config.contest();
         let download_dir = config.testfiles_dir().expand("")?;
-        let extension = config.extension_on_downloading();
+        let extension = config.extension_on_download();
         Ok(Self {
             contest,
             download_dir,
