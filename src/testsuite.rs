@@ -20,13 +20,65 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Appends `input` and `output` to a test suite read from `path`.
-pub fn append(path: &SuiteFilePath, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
+pub(crate) fn append(
+    path: &SuiteFilePath,
+    input: &str,
+    output: Option<&str>,
+) -> SuiteFileResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.append(input, output)?;
     suite.save(path, false)
 }
 
-pub struct SuiteFilePaths<'a> {
+/// Extension of a test suite file.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SuiteFileExtension {
+    Json,
+    Toml,
+    Yaml,
+    Yml,
+}
+
+impl Default for SuiteFileExtension {
+    fn default() -> Self {
+        SuiteFileExtension::Yaml
+    }
+}
+
+impl fmt::Display for SuiteFileExtension {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SuiteFileExtension::Json => write!(f, "json"),
+            SuiteFileExtension::Toml => write!(f, "toml"),
+            SuiteFileExtension::Yaml => write!(f, "yaml"),
+            SuiteFileExtension::Yml => write!(f, "yml"),
+        }
+    }
+}
+
+impl FromStr for SuiteFileExtension {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
+        match s.to_lowercase() {
+            ref s if s == "json" => Ok(SuiteFileExtension::Json),
+            ref s if s == "toml" => Ok(SuiteFileExtension::Toml),
+            ref s if s == "yaml" => Ok(SuiteFileExtension::Yaml),
+            ref s if s == "yml" => Ok(SuiteFileExtension::Yml),
+            ref s => Err(format!("Unsupported extension: {:?}", s)),
+        }
+    }
+}
+
+impl SuiteFileExtension {
+    pub(crate) fn all() -> iter::Cloned<slice::Iter<'static, Self>> {
+        use testsuite::SuiteFileExtension::{Json, Toml, Yaml, Yml};
+        [Json, Toml, Yaml, Yml].iter().cloned()
+    }
+}
+
+pub(crate) struct SuiteFilePaths<'a> {
     directory: PathTemplate<BaseDirSome<'a>>,
     stem: &'a str,
     extensions: Vec<SuiteFileExtension>,
@@ -140,7 +192,7 @@ impl<'a> SuiteFilePaths<'a> {
 }
 
 /// File path which extension is 'json', 'toml', 'yaml', or 'yml'.
-pub struct SuiteFilePath {
+pub(crate) struct SuiteFilePath {
     extension: SuiteFileExtension,
     joined: Arc<PathBuf>,
 }
@@ -155,59 +207,11 @@ impl<'a> SuiteFilePath {
     }
 }
 
-/// Extension of a test suite file.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SuiteFileExtension {
-    Json,
-    Toml,
-    Yaml,
-    Yml,
-}
-
-impl Default for SuiteFileExtension {
-    fn default() -> Self {
-        SuiteFileExtension::Yaml
-    }
-}
-
-impl fmt::Display for SuiteFileExtension {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            SuiteFileExtension::Json => write!(f, "json"),
-            SuiteFileExtension::Toml => write!(f, "toml"),
-            SuiteFileExtension::Yaml => write!(f, "yaml"),
-            SuiteFileExtension::Yml => write!(f, "yml"),
-        }
-    }
-}
-
-impl FromStr for SuiteFileExtension {
-    type Err = String;
-
-    fn from_str(s: &str) -> std::result::Result<Self, String> {
-        match s.to_lowercase() {
-            ref s if s == "json" => Ok(SuiteFileExtension::Json),
-            ref s if s == "toml" => Ok(SuiteFileExtension::Toml),
-            ref s if s == "yaml" => Ok(SuiteFileExtension::Yaml),
-            ref s if s == "yml" => Ok(SuiteFileExtension::Yml),
-            ref s => Err(format!("Unsupported extension: {:?}", s)),
-        }
-    }
-}
-
-impl SuiteFileExtension {
-    pub(crate) fn all() -> iter::Cloned<slice::Iter<'static, Self>> {
-        use testsuite::SuiteFileExtension::{Json, Toml, Yaml, Yml};
-        [Json, Toml, Yaml, Yml].iter().cloned()
-    }
-}
-
 /// `SimpelSuite` or `InteractiveSuite`.
 #[derive(Clone, Serialize, Deserialize)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[serde(tag = "type", rename_all = "lowercase")]
-pub enum TestSuite {
+pub(crate) enum TestSuite {
     Simple(SimpleSuite),
     Interactive(InteractiveSuite),
     Unsubmittable,
@@ -321,7 +325,7 @@ impl TestSuite {
 /// Set of the timelimit and test cases.
 #[derive(Clone, Default)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct SimpleSuite {
+pub(crate) struct SimpleSuite {
     timelimit: Option<u64>,
     output_match: Match,
     cases: Vec<(Arc<String>, Option<Arc<String>>)>,
@@ -453,7 +457,7 @@ impl fmt::Display for NonArrayValue {
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct InteractiveSuite {
+pub(crate) struct InteractiveSuite {
     timelimit: Option<u64>,
     tester: Option<String>,
     each_args: Vec<Vec<String>>,
@@ -503,13 +507,13 @@ impl InteractiveSuite {
 }
 
 /// `Vec<SimpleCase>` or `Vec<ReducibleCase>`.
-pub enum TestCases {
+pub(crate) enum TestCases {
     Simple(Vec<SimpleCase>),
     Interactive(Vec<InteractiveCase>),
 }
 
 impl TestCases {
-    pub(crate) fn interactive_tester_compilations(&self) -> HashSet<Arc<CompilationCommand>> {
+    pub fn interactive_tester_compilations(&self) -> HashSet<Arc<CompilationCommand>> {
         match *self {
             TestCases::Simple(_) => hashset!(),
             TestCases::Interactive(ref cases) => {
@@ -522,7 +526,7 @@ impl TestCases {
     }
 }
 
-pub trait TestCase {
+pub(crate) trait TestCase {
     /// Gets `path`.
     fn path(&self) -> Arc<PathBuf>;
 }
@@ -531,7 +535,7 @@ pub trait TestCase {
 ///
 /// `expected` is empty IFF omitted.
 #[derive(Clone)]
-pub struct SimpleCase {
+pub(crate) struct SimpleCase {
     path: Arc<PathBuf>,
     input: Arc<String>,
     expected: Arc<ExpectedStdout>,
@@ -546,7 +550,7 @@ impl TestCase for SimpleCase {
 
 impl SimpleCase {
     #[cfg(test)]
-    pub(crate) fn default_matching<T: Into<Option<u64>>>(
+    pub fn default_matching<T: Into<Option<u64>>>(
         input: &str,
         expected: &str,
         timelimit: T,
@@ -561,7 +565,7 @@ impl SimpleCase {
     }
 
     #[cfg(test)]
-    pub(crate) fn float_matching<T: Into<Option<u64>>>(
+    pub fn float_matching<T: Into<Option<u64>>>(
         input: &str,
         expected: &str,
         timelimit: T,
@@ -594,7 +598,7 @@ impl SimpleCase {
 
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub enum ExpectedStdout {
+pub(crate) enum ExpectedStdout {
     AcceptAny,
     Exact(String),
     Lines(String),
@@ -662,7 +666,7 @@ impl Default for Match {
 
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct InteractiveCase {
+pub(crate) struct InteractiveCase {
     tester: Arc<JudgingCommand>,
     tester_compilation: Option<Arc<CompilationCommand>>,
     timelimit: Option<Duration>,
@@ -676,11 +680,11 @@ impl TestCase for InteractiveCase {
 }
 
 impl InteractiveCase {
-    pub(crate) fn tester(&self) -> Arc<JudgingCommand> {
+    pub fn tester(&self) -> Arc<JudgingCommand> {
         self.tester.clone()
     }
 
-    pub(crate) fn timelimit(&self) -> Option<Duration> {
+    pub fn timelimit(&self) -> Option<Duration> {
         self.timelimit
     }
 }

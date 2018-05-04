@@ -13,7 +13,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 /// Tests for `case` and `solver` and returns one `InteractiveOutput`.
-pub fn judge(
+pub(super) fn judge(
     case: &InteractiveCase,
     solver: &Arc<JudgingCommand>,
 ) -> JudgeResult<InteractiveOutput> {
@@ -170,7 +170,7 @@ impl<'a> InteractiveProcess<'a> {
     }
 }
 
-pub struct InteractiveOutput {
+pub(super) struct InteractiveOutput {
     kind: InteractiveOutputKind,
     elapsed: Duration,
     console_outs: Vec<InteractiveConsoleOut>,

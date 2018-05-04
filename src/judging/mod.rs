@@ -19,7 +19,7 @@ use std::time::Duration;
 /// # Errors
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
-pub fn judge(prop: JudgeProp) -> JudgeResult<()> {
+pub(crate) fn judge(prop: JudgeProp) -> JudgeResult<()> {
     fn judge_all<C: TestCase, O: JudgingOutput>(
         cases: Vec<C>,
         solver: &Arc<JudgingCommand>,
@@ -87,7 +87,7 @@ pub fn judge(prop: JudgeProp) -> JudgeResult<()> {
     }
 }
 
-pub struct JudgeProp {
+pub(crate) struct JudgeProp {
     cases: TestCases,
     case_paths: String,
     solver: JudgingCommand,

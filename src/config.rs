@@ -18,11 +18,7 @@ use std::path::{Path, PathBuf};
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
-pub fn init(
-    directory: &Path,
-    atcoder_default_lang: Option<&'static str>,
-    hackerrank_default_lang: Option<&'static str>,
-) -> FileIoResult<()> {
+pub(crate) fn init(directory: &Path, default_lang: Option<&'static str>) -> FileIoResult<()> {
     const LANGS: [&str; 8] = [
         "c++", "rust", "haskell", "bash", "python3", "java", "scala", "c#"
     ];
@@ -40,17 +36,10 @@ pub fn init(
         Ok(format!("{:?}", input).into())
     };
 
-    let asked_lang = match (atcoder_default_lang, hackerrank_default_lang) {
-        (None, None) => Some(ask_lang()?),
-        _ => None,
+    let default_lang = match default_lang {
+        Some(default_lang) => Cow::from(default_lang),
+        None => ask_lang()?,
     };
-
-    let atcoder_default_lang = atcoder_default_lang
-        .map(Cow::from)
-        .unwrap_or(asked_lang.clone().unwrap());
-    let hackerrank_default_lang = hackerrank_default_lang
-        .map(Cow::from)
-        .unwrap_or(asked_lang.unwrap());
 
     let config = format!(
         r#"---
@@ -65,14 +54,14 @@ testfiles:
   excluded_extensions: []
 
 atcoder:
-  default_language: {atcoder_default_lang}
+  default_language: {default_lang}
   variables:
     cxx_flags: -std=c++14 -O2 -Wall -Wextra
     rust_version: 1.15.1
     java_class: Main
 
 hackerrank:
-  default_language: {hackerrank_default_lang}
+  default_language: {default_lang}
   variables:
     cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
     rust_version: 1.21.0
@@ -178,8 +167,7 @@ languages:
       atcoder: 3025
 {csharp}
 "#,
-        atcoder_default_lang = atcoder_default_lang,
-        hackerrank_default_lang = hackerrank_default_lang,
+        default_lang = default_lang,
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
         } else {
@@ -221,7 +209,7 @@ languages:
 }
 
 /// Changes <service> and <contest>.
-pub fn switch(service: ServiceName, contest: &str, dir: &Path) -> FileIoResult<()> {
+pub(crate) fn switch(service: ServiceName, contest: &str, dir: &Path) -> FileIoResult<()> {
     fn print_change(n: usize, prev: &str, new: &str) {
         print!("{}", prev);
         for _ in 0..n - prev.len() {
@@ -276,7 +264,7 @@ pub fn switch(service: ServiceName, contest: &str, dir: &Path) -> FileIoResult<(
 
 /// Config.
 #[derive(Serialize, Deserialize)]
-pub struct Config {
+pub(crate) struct Config {
     #[serde(default)]
     service: ServiceName,
     contest: String,
@@ -355,22 +343,19 @@ impl Config {
         templates
     }
 
-    pub(crate) fn src_to_submit(
-        &self,
-        lang: Option<&str>,
-    ) -> ConfigResult<PathTemplate<BaseDirSome>> {
+    pub fn src_to_submit(&self, lang: Option<&str>) -> ConfigResult<PathTemplate<BaseDirSome>> {
         let lang = find_language(&self.languages, self.default_lang(), lang)?;
         let vars = self.vars_for_langs(None);
         Ok(lang.src.base_dir(&self.base_dir).embed_strings(&vars))
     }
 
-    pub(crate) fn code_replacer(&self, lang: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
+    pub fn code_replacer(&self, lang: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
         let lang = find_language(&self.languages, self.default_lang(), lang)?;
         let vars = self.vars_for_langs(None);
         Ok(lang.replace.as_ref().map(|r| r.embed_strings(&vars)))
     }
 
-    pub(crate) fn code_replacers_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, CodeReplacer>> {
+    pub fn code_replacers_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, CodeReplacer>> {
         let mut replacers = BTreeMap::new();
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.atcoder {
@@ -392,25 +377,25 @@ impl Config {
         })
     }
 
-    pub(crate) fn solver_compilation(
+    pub fn solver_compilation(
         &self,
         lang: Option<&str>,
     ) -> ConfigResult<Option<CompilationTemplate>> {
         self.compilation_command(find_language(&self.languages, self.default_lang(), lang)?)
     }
 
-    pub(crate) fn interactive_tester_compilation(
+    pub fn interactive_tester_compilation(
         &self,
         lang: Option<&str>,
     ) -> ConfigResult<Option<CompilationTemplate>> {
         self.compilation_command(find_language(&self.interactive, None, lang)?)
     }
 
-    pub(crate) fn solver(&self, lang: Option<&str>) -> ConfigResult<JudgeTemplate> {
+    pub fn solver(&self, lang: Option<&str>) -> ConfigResult<JudgeTemplate> {
         self.judge_command(find_language(&self.languages, self.default_lang(), lang)?)
     }
 
-    pub(crate) fn interactive_tester(&self, lang: Option<&str>) -> ConfigResult<JudgeTemplate> {
+    pub fn interactive_tester(&self, lang: Option<&str>) -> ConfigResult<JudgeTemplate> {
         self.judge_command(find_language(&self.interactive, None, lang)?)
     }
 

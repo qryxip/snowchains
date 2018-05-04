@@ -1,60 +1,62 @@
 extern crate snowchains;
 
+#[macro_use]
+extern crate serde_derive;
+
 extern crate env_logger;
 extern crate httpsession;
+extern crate serde_yaml;
 extern crate tempdir;
 
-use snowchains::ServiceName;
-use snowchains::config::{self, Config};
-use snowchains::service::{DownloadProp, InitProp, SubmitProp};
-use snowchains::service::atcoder_beta;
-use snowchains::template::{BaseDirSome, PathTemplate};
+use snowchains::{util, ServiceName};
+use snowchains::entrypoint::{Opt, Prop};
 use snowchains::terminal;
-use snowchains::testsuite::{ExpectedStdout, SuiteFileExtension, SuiteFilePaths, TestCases};
 
 use httpsession::ColorMode;
 use tempdir::TempDir;
 
 use std::env;
 use std::ffi::OsStr;
-use std::fs::{self, File};
-use std::io::Write as _Write;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 #[test]
 #[ignore]
 fn it_logins() {
+    fn login(prop: &Prop) -> snowchains::Result<()> {
+        Opt::Login {
+            service: ServiceName::AtCoderBeta,
+        }.run(prop)
+    }
     let _ = env_logger::try_init();
     terminal::disable_color();
-    let (tempdir, _, init_prop1) = setup("it_logins", "practice", true);
-    let init_prop2 = init_prop1.with_invalid_credentials();
-    atcoder_beta::login(&init_prop2).unwrap_err();
-    atcoder_beta::login(&init_prop1).unwrap();
-    atcoder_beta::login(&init_prop2).unwrap();
-    tempdir.close().unwrap();
+    let (tempdir1, prop1) = setup("it_logins_1", Credentials::Empty);
+    let (tempdir2, prop2) = setup("it_logins_2", Credentials::EnvVars);
+    login(&prop1).unwrap_err();
+    login(&prop2).unwrap();
+    tempdir1.close().unwrap();
+    tempdir2.close().unwrap();
 }
 
 #[test]
 #[ignore]
 fn it_scrapes_samples_from_practice() {
     let _ = env_logger::try_init();
-    terminal::disable_color();
-    let (tempdir, config, init_prop) = setup("it_scrapes_samples_from_practice", "practice", true);
-    let download_prop = DownloadProp::new(&config, false).unwrap();
-    atcoder_beta::download(&init_prop, download_prop).unwrap();
-    static SAMPLES_A: &[(u64, &str, &str)] = &[
-        (2, "1\n2 3\ntest\n", "6 test\n"),
-        (2, "72\n128 256\nmyonmyon\n", "456 myonmyon\n"),
-    ];
-    let download_dir = || config.testfiles_dir();
-    check_samples(&config, "a", download_dir(), SAMPLES_A);
-    let (cases, _) = SuiteFilePaths::new(download_dir(), "b", vec![SuiteFileExtension::Yaml])
-        .load_merging(&config, false)
+    let (tempdir, prop) = setup("it_scrapes_samples_from_practice", Credentials::EnvVars);
+    Opt::Download {
+        service: Some(ServiceName::AtCoderBeta),
+        contest: Some("practice".to_owned()),
+        open_browser: false,
+    }.run(&prop)
         .unwrap();
-    match cases {
-        TestCases::Simple(_) => panic!(),
-        TestCases::Interactive(ref cases) => assert!(cases.is_empty()),
-    }
+    let download_dir = tempdir
+        .path()
+        .join("snowchains")
+        .join("atcoderbeta")
+        .join("practice");
+    just_confirm_num_samples_and_timelimit(&download_dir, "a", 2, 2000);
+    just_confirm_num_samples_and_timelimit(&download_dir, "b", 0, 2000);
     tempdir.close().unwrap();
 }
 
@@ -62,79 +64,52 @@ fn it_scrapes_samples_from_practice() {
 #[ignore]
 fn it_scrapes_samples_from_arc058() {
     let _ = env_logger::try_init();
-    terminal::disable_color();
-    let (tempdir, config, init_prop) = setup("it_scrapes_samples_from_arc058", "arc058", false);
-    let download_prop = DownloadProp::new(&config, false).unwrap();
-    atcoder_beta::download(&init_prop, download_prop).unwrap();
-    static SAMPLES_C: &[(u64, &str, &str)] = &[
-        (2, "1000 8\n1 3 4 5 6 7 8 9\n", "2000\n"),
-        (2, "9999 1\n0\n", "9999\n"),
-    ];
-    static SAMPLES_D: &[(u64, &str, &str)] = &[
-        (2, "2 3 1 1\n", "2\n"),
-        (2, "10 7 3 4\n", "3570\n"),
-        (2, "100000 100000 99999 99999\n", "1\n"),
-        (2, "100000 100000 44444 55555\n", "738162020\n"),
-    ];
-    static SAMPLES_E: &[(u64, &str, &str)] = &[
-        (4, "3 5 7 5\n", "1\n"),
-        (4, "4 5 7 5\n", "34\n"),
-        (4, "37 4 2 3\n", "863912418\n"),
-        (4, "40 5 7 5\n", "562805100\n"),
-    ];
-    static SAMPLES_F: &[(u64, &str, &str)] = &[
-        (5, "3 7\nat\ncoder\ncodar\n", "atcodar\n"),
-        (5, "3 7\ncoder\ncodar\nat\n", "codarat\n"),
-        (
-            5,
-            "4 13\nkyuri\nnamida\nzzzzzzz\naaaaaa\n",
-            "namidazzzzzzz\n",
-        ),
-    ];
-    let download_dir = || config.testfiles_dir();
-    for &(name, expected) in &[
-        ("c", SAMPLES_C),
-        ("d", SAMPLES_D),
-        ("e", SAMPLES_E),
-        ("f", SAMPLES_F),
-    ] {
-        check_samples(&config, name, download_dir(), expected);
-    }
+    let (tempdir, prop) = setup("it_scrapes_samples_from_arc058", Credentials::None);
+    Opt::Download {
+        service: Some(ServiceName::AtCoderBeta),
+        contest: Some("arc058".to_owned()),
+        open_browser: false,
+    }.run(&prop)
+        .unwrap();
+    let download_dir = tempdir
+        .path()
+        .join("snowchains")
+        .join("atcoderbeta")
+        .join("arc058");
+    just_confirm_num_samples_and_timelimit(&download_dir, "c", 2, 2000);
+    just_confirm_num_samples_and_timelimit(&download_dir, "d", 4, 2000);
+    just_confirm_num_samples_and_timelimit(&download_dir, "e", 4, 4000);
+    just_confirm_num_samples_and_timelimit(&download_dir, "f", 3, 5000);
     tempdir.close().unwrap();
 }
 
-fn check_samples(
-    config: &Config,
-    name: &str,
-    download_dir: PathTemplate<BaseDirSome>,
-    expected: &[(u64, &str, &str)],
-) {
-    let (cases, _) = SuiteFilePaths::new(download_dir, name, vec![SuiteFileExtension::Yaml])
-        .load_merging(config, false)
-        .unwrap();
-    match cases {
-        TestCases::Interactive(_) => panic!(),
-        TestCases::Simple(ref cases) => {
-            assert_eq!(expected.len(), cases.len());
-            for (&(t1, i1, o1), c) in expected.iter().zip(cases.iter()) {
-                let (i2, o2, t2) = c.values();
-                assert_eq!(Some(Duration::from_secs(t1)), t2);
-                assert_eq!(i1, i2.as_str());
-                if cfg!(windows) {
-                    match *o2 {
-                        ExpectedStdout::Lines(ref o2) => for (l2, l1) in o2.lines().zip(o1.lines())
-                        {
-                            assert_eq!(l2, l1);
-                        },
-                        _ => panic!(),
-                    }
-                } else {
-                    match *o2 {
-                        ExpectedStdout::Exact(ref o2) => assert_eq!(o1, o2),
-                        _ => panic!(),
-                    }
-                }
-            }
+fn just_confirm_num_samples_and_timelimit(dir: &Path, name: &str, n: usize, t: u64) {
+    #[derive(Deserialize)]
+    #[serde(tag = "type", rename_all = "lowercase")]
+    enum TestSuite {
+        Simple {
+            timelimit: u64,
+            cases: Vec<serde_yaml::Mapping>,
+        },
+        Interactive {
+            timelimit: u64,
+            each_args: Vec<serde_yaml::Sequence>,
+        },
+    }
+    let path = dir.join(name).with_extension("yaml");
+    println!("Opening {}", path.display());
+    let file = File::open(&path).unwrap();
+    match serde_yaml::from_reader::<_, TestSuite>(file).unwrap() {
+        TestSuite::Simple { timelimit, cases } => {
+            assert_eq!(t, timelimit);
+            assert_eq!(n, cases.len())
+        }
+        TestSuite::Interactive {
+            timelimit,
+            each_args,
+        } => {
+            assert_eq!(t, timelimit);
+            assert_eq!(n, each_args.len())
         }
     }
 }
@@ -164,42 +139,62 @@ if __name__ == '__main__':
         )
     }
 
-    let (tempdir, config, init_prop) = setup("it_submits_to_practice_a", "practice", true);
-    fs::create_dir(tempdir.path().join("py")).unwrap();
-    File::create(tempdir.path().join("py").join("a.py"))
-        .unwrap()
-        .write_all(code().as_bytes())
+    let _ = env_logger::try_init();
+    terminal::disable_color();
+    let (tempdir, prop) = setup("it_submits_to_practice_a", Credentials::EnvVars);
+
+    util::fs::write(&tempdir.path().join("py").join("a.py"), code().as_bytes()).unwrap();
+    let path = tempdir
+        .path()
+        .join("snowchains")
+        .join("atcoderbeta")
+        .join("practice")
+        .join("a.yaml");
+    util::fs::write(&path, "---\ntype: simple\ncases: []".as_bytes()).unwrap();
+    println!("Wrote a YAML to {}", path.display());
+
+    Opt::Submit {
+        target: "a".to_owned(),
+        language: Some("python3".to_owned()),
+        service: Some(ServiceName::AtCoderBeta),
+        contest: Some("practice".to_owned()),
+        open_browser: false,
+        skip_judging: true,
+        skip_checking_duplication: false,
+    }.run(&prop)
         .unwrap();
-    let submit_prop = SubmitProp::new(&config, "a".to_owned(), None, false, true).unwrap();
-    atcoder_beta::submit(&init_prop, submit_prop).unwrap();
+    tempdir.close().unwrap();
 }
 
-fn setup(
-    tempdir_prefix: &str,
-    contest: &str,
-    use_credentials: bool,
-) -> (TempDir, Config, InitProp) {
+fn setup(tempdir_prefix: &str, credentials: Credentials) -> (TempDir, Prop) {
+    terminal::disable_color();
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
-    let config = {
-        config::init(tempdir.path(), Some("python3"), Some("\"\"")).unwrap();
-        config::switch(ServiceName::AtCoderBeta, contest, tempdir.path()).unwrap();
-        Config::load_from_file(None, None, tempdir.path()).unwrap()
-    };
-    let init_prop = {
-        let credentials = if use_credentials {
+    let credentials = match credentials {
+        Credentials::None => None,
+        Credentials::Empty => Some(("".to_owned(), "".to_owned())),
+        Credentials::EnvVars => {
             let username = env::var("ATCODER_USERNAME").unwrap();
             let password = env::var("ATCODER_PASSWORD").unwrap();
             Some((username, password))
-        } else {
-            Some(("invalid username".to_owned(), "invalid password".to_owned()))
-        };
-        let cookie_path = tempdir.path().join(ServiceName::AtCoderBeta.as_str());
-        InitProp::new(
-            cookie_path,
-            ColorMode::NoColor,
-            Duration::from_secs(10),
-            credentials,
-        )
+        }
     };
-    (tempdir, config, init_prop)
+    let prop = Prop {
+        working_dir: tempdir.path().to_owned(),
+        default_lang_on_init: Some("python3"),
+        cookie_dir: tempdir.path().to_owned(),
+        color_mode: ColorMode::NoColor,
+        timeout: Some(Duration::from_secs(10)),
+        credentials,
+    };
+    Opt::Init {
+        directory: PathBuf::from("."),
+    }.run(&prop)
+        .unwrap();
+    (tempdir, prop)
+}
+
+enum Credentials {
+    None,
+    Empty,
+    EnvVars,
 }

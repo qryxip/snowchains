@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Tests for `case` and `solver` and returns one `SimpleOutput`.
-pub fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {
+pub(super) fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {
     let (tx, rx) = std::sync::mpsc::channel();
     {
         let (case, solver) = (case.clone(), solver.clone());
@@ -121,7 +121,7 @@ fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
 
 /// Test result.
 #[cfg_attr(test, derive(Debug))]
-pub enum SimpleOutput {
+pub(super) enum SimpleOutput {
     // Each string may be empty.
     Accepted {
         elapsed: Duration,

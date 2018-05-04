@@ -11,7 +11,7 @@ use std::process::{Child, Command, Stdio};
 /// Compilation command.
 #[cfg_attr(test, derive(Debug))]
 #[derive(PartialEq, Eq, Hash)]
-pub struct CompilationCommand {
+pub(crate) struct CompilationCommand {
     command: CommandProperty,
     src: PathBuf,
     bin: PathBuf,
@@ -21,7 +21,7 @@ impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub(crate) fn new<S: AsRef<OsStr>>(
+    pub fn new<S: AsRef<OsStr>>(
         args: &[S],
         working_dir: PathBuf,
         src: PathBuf,
@@ -76,13 +76,13 @@ impl CompilationCommand {
 
 /// Command for simple/interactive testing.
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct JudgingCommand(CommandProperty);
+pub(crate) struct JudgingCommand(CommandProperty);
 
 impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub(crate) fn new<S: AsRef<OsStr>>(args: &[S], working_dir: PathBuf) -> Self {
+    pub fn new<S: AsRef<OsStr>>(args: &[S], working_dir: PathBuf) -> Self {
         JudgingCommand(CommandProperty::new(args, working_dir))
     }
 
@@ -95,15 +95,6 @@ impl JudgingCommand {
             rest_args: rest_args.iter().map(|arg| (*arg).into()).collect(),
             working_dir,
         }))
-    }
-
-    /// Creates a new `JudgingCommand` which `working_dir` equals
-    /// `self.working_dir`.
-    ///
-    /// FIXME
-    #[allow(unused)]
-    pub fn new_in_same_dir<S: Into<String>>(&self, _: S) -> Self {
-        unimplemented!()
     }
 
     /// Prints the arguments and working directory.
@@ -124,7 +115,6 @@ impl JudgingCommand {
     }
 
     /// Gets the first argument name.
-    #[allow(unused)]
     pub fn arg0(&self) -> &OsStr {
         &self.0.arg0
     }

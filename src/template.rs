@@ -43,28 +43,28 @@ impl StringTemplate {
     }
 }
 
-pub trait BaseDirOption {}
+pub(crate) trait BaseDirOption {}
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
 #[derive(Clone, Copy)]
-pub struct BaseDirSome<'a>(&'a Path);
+pub(crate) struct BaseDirSome<'a>(&'a Path);
 
 impl<'a> BaseDirOption for BaseDirSome<'a> {}
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
 #[derive(Clone, Copy)]
-pub struct BaseDirNone;
+pub(crate) struct BaseDirNone;
 
 impl BaseDirOption for BaseDirNone {}
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct PathTemplate<B: BaseDirOption> {
+pub(crate) struct PathTemplate<B: BaseDirOption> {
     inner: Template,
     base_dir: B,
 }
 
 impl PathTemplate<BaseDirNone> {
-    pub(crate) fn from_static_str(s: &'static str) -> Self {
+    pub fn from_static_str(s: &'static str) -> Self {
         Self::new(Template::from_str(s).unwrap())
     }
 
@@ -84,7 +84,7 @@ impl PathTemplate<BaseDirNone> {
 }
 
 impl<'a> PathTemplate<BaseDirSome<'a>> {
-    pub(crate) fn embed_strings<
+    pub fn embed_strings<
         'b,
         M: Into<Option<&'b HashMap<K, V>>>,
         K: 'b + Borrow<str> + Eq + Hash,
@@ -259,7 +259,7 @@ pub(crate) struct JudgeTemplate<'a> {
 }
 
 impl<'a> JudgeTemplate<'a> {
-    pub(crate) fn embed_strings<
+    pub fn embed_strings<
         'b,
         M: Into<Option<&'b HashMap<K, V>>>,
         K: 'b + Borrow<str> + Eq + Hash,

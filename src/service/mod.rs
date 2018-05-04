@@ -1,6 +1,6 @@
-pub mod atcoder;
-pub mod atcoder_beta;
-pub mod hackerrank;
+pub(crate) mod atcoder;
+pub(crate) mod atcoder_beta;
+pub(crate) mod hackerrank;
 
 use ServiceName;
 use config::Config;
@@ -216,7 +216,7 @@ impl Future for Downloading {
     }
 }
 
-pub struct InitProp {
+pub(crate) struct InitProp {
     cookie_path: PathBuf,
     color_mode: ColorMode,
     timeout: Option<Duration>,
@@ -238,15 +238,6 @@ impl InitProp {
         }
     }
 
-    pub fn with_invalid_credentials(&self) -> Self {
-        Self {
-            cookie_path: self.cookie_path.clone(),
-            color_mode: self.color_mode,
-            timeout: self.timeout,
-            credentials: Some(("invalid username".to_owned(), "invalid password".to_owned())),
-        }
-    }
-
     pub(self) fn credentials(&self) -> Option<(String, String)> {
         self.credentials.clone()
     }
@@ -265,7 +256,7 @@ impl InitProp {
     }
 }
 
-pub trait Contest {
+pub(crate) trait Contest {
     fn new(s: &str) -> Self;
 }
 
@@ -275,7 +266,7 @@ impl<'a> Contest for &'a str {
     }
 }
 
-pub struct DownloadProp<C: Contest> {
+pub(crate) struct DownloadProp<C: Contest> {
     contest: C,
     download_dir: PathBuf,
     extension: SuiteFileExtension,
@@ -316,7 +307,7 @@ impl<C: Contest> DownloadProp<C> {
     }
 }
 
-pub struct RestoreProp<'a, C: Contest> {
+pub(crate) struct RestoreProp<'a, C: Contest> {
     contest: C,
     src_paths: BTreeMap<u32, PathTemplate<BaseDirSome<'a>>>,
     replacers: BTreeMap<u32, CodeReplacer>,
@@ -359,7 +350,7 @@ impl<'a, C: Contest> RestoreProp<'a, C> {
     }
 }
 
-pub struct SubmitProp<C: Contest> {
+pub(crate) struct SubmitProp<C: Contest> {
     contest: C,
     target: String,
     lang_id: u32,

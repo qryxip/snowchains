@@ -5,18 +5,18 @@ use std::io::{self, Read};
 use std::str;
 
 /// Returns a `String` read from `read`.
-pub fn string_from_read<R: Read>(mut read: R, capacity: usize) -> io::Result<String> {
+pub(crate) fn string_from_read<R: Read>(mut read: R, capacity: usize) -> io::Result<String> {
     let mut buf = String::with_capacity(capacity);
     read.read_to_string(&mut buf)?;
     Ok(buf)
 }
 
 /// Prints `s` ignoring a trailing newline if it exists.
-pub fn eprintln_trimming_trailing_newline(s: &str) {
+pub(crate) fn eprintln_trimming_trailing_newline(s: &str) {
     eprintln!("{}", trim_trailing_newline(s));
 }
 
-pub(self) fn trim_trailing_newline(s: &str) -> Cow<str> {
+fn trim_trailing_newline(s: &str) -> Cow<str> {
     if s.ends_with("\r\n") {
         let n = s.len();
         String::from_utf8_lossy(&s.as_bytes()[..n - 2])
@@ -28,15 +28,7 @@ pub(self) fn trim_trailing_newline(s: &str) -> Cow<str> {
     }
 }
 
-pub fn cfg_windows() -> bool {
-    cfg!(windows)
-}
-
-pub fn is_default<T: Default + PartialEq>(x: &T) -> bool {
-    x == &T::default()
-}
-
-pub trait OkAsRefOr {
+pub(crate) trait OkAsRefOr {
     type Item;
     /// Get the value `Ok(&x)` if `Some(ref x) = self`.
     ///

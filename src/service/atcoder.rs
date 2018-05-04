@@ -11,7 +11,7 @@ use select::predicate::{Attr as HtmlAttr, Class, Name, Predicate, Text};
 
 use std::io::Read;
 
-pub fn login() -> ServiceResult<()> {
+pub(crate) fn login() -> ServiceResult<()> {
     static URL: &'static str = "https://practice.contest.atcoder.jp/settings";
     let cookie_path = util::fs::join_from_home(&[".local", "share", "snowchains", "atcoder"])?;
     let mut atcoder = AtCoder(super::start_session("atcoder.jp", cookie_path)?);
@@ -23,11 +23,11 @@ pub fn login() -> ServiceResult<()> {
     Ok(())
 }
 
-pub fn participate(contest_name: &str) -> ServiceResult<()> {
+pub(crate) fn participate(contest_name: &str) -> ServiceResult<()> {
     AtCoder::load_or_login()?.participate(contest_name)
 }
 
-pub fn download(prop: &DownloadProp<&str>) -> ServiceResult<()> {
+pub(crate) fn download(prop: &DownloadProp<&str>) -> ServiceResult<()> {
     AtCoder::load_or_login()?.download_all_tasks(prop)
 }
 

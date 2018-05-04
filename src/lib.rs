@@ -14,6 +14,8 @@ extern crate maplit;
 extern crate newtype_derive;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate structopt;
 
 extern crate chrono;
 extern crate combine;
@@ -47,17 +49,18 @@ extern crate env_logger;
 #[macro_use]
 pub mod macros;
 
-pub mod config;
-pub mod errors;
-pub mod judging;
-pub mod service;
-pub mod template;
+pub mod entrypoint;
 pub mod terminal;
-pub mod testsuite;
 pub mod util;
 
 mod command;
+mod config;
+mod errors;
+mod judging;
 mod replacer;
+mod service;
+mod template;
+mod testsuite;
 
 pub use errors::{ErrorKind, Result};
 

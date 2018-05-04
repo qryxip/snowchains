@@ -16,28 +16,31 @@ use std::io::Read;
 use std::ops::{Deref, DerefMut};
 
 /// Logins to "beta.atcoder.jp".
-pub fn login(init_prop: &InitProp) -> ServiceResult<()> {
+pub(crate) fn login(init_prop: &InitProp) -> ServiceResult<()> {
     AtCoderBeta::start(init_prop)?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
-pub fn participate(contest_name: &str, init_prop: &InitProp) -> ServiceResult<()> {
+pub(crate) fn participate(contest_name: &str, init_prop: &InitProp) -> ServiceResult<()> {
     AtCoderBeta::start(init_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
-pub fn download(init_prop: &InitProp, download_prop: DownloadProp<&str>) -> ServiceResult<()> {
+pub(crate) fn download(
+    init_prop: &InitProp,
+    download_prop: DownloadProp<&str>,
+) -> ServiceResult<()> {
     AtCoderBeta::start(init_prop)?.download(&download_prop.transform())
 }
 
 /// Downloads submitted source codes.
-pub fn restore(init_prop: &InitProp, restore_prop: RestoreProp<&str>) -> ServiceResult<()> {
+pub(crate) fn restore(init_prop: &InitProp, restore_prop: RestoreProp<&str>) -> ServiceResult<()> {
     AtCoderBeta::start(init_prop)?.restore(&restore_prop.transform())
 }
 
 /// Submits a source code.
-pub fn submit(init_prop: &InitProp, submit_prop: SubmitProp<&str>) -> ServiceResult<()> {
+pub(crate) fn submit(init_prop: &InitProp, submit_prop: SubmitProp<&str>) -> ServiceResult<()> {
     AtCoderBeta::start(init_prop)?.submit(&submit_prop.transform())
 }
 

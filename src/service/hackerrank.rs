@@ -14,11 +14,11 @@ use zip::result::ZipResult;
 
 use std::io::{self, Read, Seek};
 
-pub fn login() -> ServiceResult<()> {
+pub(crate) fn login() -> ServiceResult<()> {
     HackerRank::start(true).map(|_| ())
 }
 
-pub fn download(prop: &DownloadProp<&str>) -> ServiceResult<()> {
+pub(crate) fn download(prop: &DownloadProp<&str>) -> ServiceResult<()> {
     HackerRank::start(false)?.download(prop)
 }
 
