@@ -26,7 +26,7 @@ use std::time::Duration;
 fn it_logins() {
     fn login(prop: &Prop) -> snowchains::Result<()> {
         Opt::Login {
-            service: ServiceName::AtCoderBeta,
+            service: ServiceName::AtCoder,
         }.run(prop)
     }
     let _ = env_logger::try_init();
@@ -45,7 +45,7 @@ fn it_scrapes_samples_from_practice() {
     let _ = env_logger::try_init();
     let (tempdir, prop) = setup("it_scrapes_samples_from_practice", Credentials::EnvVars);
     Opt::Download {
-        service: Some(ServiceName::AtCoderBeta),
+        service: Some(ServiceName::AtCoder),
         contest: Some("practice".to_owned()),
         open_browser: false,
     }.run(&prop)
@@ -53,7 +53,7 @@ fn it_scrapes_samples_from_practice() {
     let download_dir = tempdir
         .path()
         .join("snowchains")
-        .join("atcoderbeta")
+        .join("atcoder")
         .join("practice");
     just_confirm_num_samples_and_timelimit(&download_dir, "a", 2, 2000);
     just_confirm_num_samples_and_timelimit(&download_dir, "b", 0, 2000);
@@ -66,7 +66,7 @@ fn it_scrapes_samples_from_arc058() {
     let _ = env_logger::try_init();
     let (tempdir, prop) = setup("it_scrapes_samples_from_arc058", Credentials::None);
     Opt::Download {
-        service: Some(ServiceName::AtCoderBeta),
+        service: Some(ServiceName::AtCoder),
         contest: Some("arc058".to_owned()),
         open_browser: false,
     }.run(&prop)
@@ -74,7 +74,7 @@ fn it_scrapes_samples_from_arc058() {
     let download_dir = tempdir
         .path()
         .join("snowchains")
-        .join("atcoderbeta")
+        .join("atcoder")
         .join("arc058");
     just_confirm_num_samples_and_timelimit(&download_dir, "c", 2, 2000);
     just_confirm_num_samples_and_timelimit(&download_dir, "d", 4, 2000);
@@ -147,7 +147,7 @@ if __name__ == '__main__':
     let path = tempdir
         .path()
         .join("snowchains")
-        .join("atcoderbeta")
+        .join("atcoder")
         .join("practice")
         .join("a.yaml");
     util::fs::write(&path, "---\ntype: simple\ncases: []".as_bytes()).unwrap();
@@ -156,7 +156,7 @@ if __name__ == '__main__':
     Opt::Submit {
         target: "a".to_owned(),
         language: Some("python3".to_owned()),
-        service: Some(ServiceName::AtCoderBeta),
+        service: Some(ServiceName::AtCoder),
         contest: Some("practice".to_owned()),
         open_browser: false,
         skip_judging: true,

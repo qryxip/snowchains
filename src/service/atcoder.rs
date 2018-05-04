@@ -17,12 +17,12 @@ use std::ops::{Deref, DerefMut};
 
 /// Logins to "beta.atcoder.jp".
 pub(crate) fn login(init_prop: &InitProp) -> ServiceResult<()> {
-    AtCoderBeta::start(init_prop)?.login_if_not(true)
+    AtCoder::start(init_prop)?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
 pub(crate) fn participate(contest_name: &str, init_prop: &InitProp) -> ServiceResult<()> {
-    AtCoderBeta::start(init_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
+    AtCoder::start(init_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
@@ -31,26 +31,26 @@ pub(crate) fn download(
     init_prop: &InitProp,
     download_prop: DownloadProp<&str>,
 ) -> ServiceResult<()> {
-    AtCoderBeta::start(init_prop)?.download(&download_prop.transform())
+    AtCoder::start(init_prop)?.download(&download_prop.transform())
 }
 
 /// Downloads submitted source codes.
 pub(crate) fn restore(init_prop: &InitProp, restore_prop: RestoreProp<&str>) -> ServiceResult<()> {
-    AtCoderBeta::start(init_prop)?.restore(&restore_prop.transform())
+    AtCoder::start(init_prop)?.restore(&restore_prop.transform())
 }
 
 /// Submits a source code.
 pub(crate) fn submit(init_prop: &InitProp, submit_prop: SubmitProp<&str>) -> ServiceResult<()> {
-    AtCoderBeta::start(init_prop)?.submit(&submit_prop.transform())
+    AtCoder::start(init_prop)?.submit(&submit_prop.transform())
 }
 
-pub(self) struct AtCoderBeta {
+pub(self) struct AtCoder {
     session: HttpSession,
     /// For tests
     credentials: Option<(String, String)>,
 }
 
-impl Deref for AtCoderBeta {
+impl Deref for AtCoder {
     type Target = HttpSession;
 
     fn deref(&self) -> &HttpSession {
@@ -58,16 +58,16 @@ impl Deref for AtCoderBeta {
     }
 }
 
-impl DerefMut for AtCoderBeta {
+impl DerefMut for AtCoder {
     fn deref_mut(&mut self) -> &mut HttpSession {
         &mut self.session
     }
 }
 
-impl AtCoderBeta {
+impl AtCoder {
     fn start(init_prop: &InitProp) -> ServiceResult<Self> {
         let session = init_prop.start_session("beta.atcoder.jp")?;
-        Ok(AtCoderBeta {
+        Ok(Self {
             session,
             credentials: init_prop.credentials(),
         })
@@ -833,7 +833,7 @@ fn find_lang_id(document: &Document, lang_name: &str) -> ServiceResult<u32> {
 #[cfg(test)]
 mod tests {
     use service::Contest;
-    use service::atcoder_beta::{AtCoderBeta, AtcoderContest};
+    use service::atcoder::{AtCoder, AtcoderContest};
     use testsuite::TestSuite;
 
     use env_logger;
@@ -1199,7 +1199,7 @@ mod tests {
         assert_eq!(EXPECTED_CODE, code);
     }
 
-    fn start() -> httpsession::Result<AtCoderBeta> {
+    fn start() -> httpsession::Result<AtCoder> {
         let session = HttpSession::builder()
             .base("beta.atcoder.jp", true, None)
             .timeout(Duration::from_secs(10))
@@ -1208,7 +1208,7 @@ mod tests {
                 "snowchains <https://github.com/wariuni/snowchains>",
             ))
             .with_robots_txt()?;
-        Ok(AtCoderBeta {
+        Ok(AtCoder {
             session,
             credentials: None,
         })

@@ -1,4 +1,4 @@
-pub(crate) mod atcoder_beta;
+pub(crate) mod atcoder;
 pub(crate) mod hackerrank;
 
 use ServiceName;
@@ -314,13 +314,9 @@ pub(crate) struct RestoreProp<'a, C: Contest> {
 
 impl<'a> RestoreProp<'a, &'a str> {
     pub fn new(config: &'a Config) -> ::Result<Self> {
-        let service = config.service();
         let contest = config.contest();
         let replacers = config.code_replacers_on_atcoder()?;
-        let src_paths = match service {
-            ServiceName::AtCoderBeta => config.src_paths_on_atcoder(),
-            _ => bail!(::ErrorKind::Unimplemented),
-        };
+        let src_paths = config.src_paths();
         Ok(Self {
             contest,
             src_paths,
@@ -372,7 +368,7 @@ impl<'a> SubmitProp<&'a str> {
         let src_path = config.src_to_submit(language)?.expand(&target)?;
         let replacer = config.code_replacer(language)?;
         let lang_id = match service {
-            ServiceName::AtCoderBeta => config.atcoder_lang_id(language)?,
+            ServiceName::AtCoder => config.atcoder_lang_id(language)?,
             _ => bail!(::ErrorKind::Unimplemented),
         };
         Ok(Self {

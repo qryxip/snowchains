@@ -43,7 +43,7 @@ pub(crate) fn init(directory: &Path, default_lang: Option<&'static str>) -> File
 
     let config = format!(
         r#"---
-service: atcoderbeta
+service: atcoder
 contest: arc001
 
 shell: {shell}
@@ -53,19 +53,24 @@ testfiles:
   extension_on_download: yaml
   excluded_extensions: []
 
-atcoder:
-  default_language: {default_lang}
-  variables:
-    cxx_flags: -std=c++14 -O2 -Wall -Wextra
-    rust_version: 1.15.1
-    java_class: Main
-
-hackerrank:
-  default_language: {default_lang}
-  variables:
-    cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
-    rust_version: 1.21.0
-    java_class: Main
+services:
+  atcoder:
+    default_language: {default_lang}
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra
+      rust_version: 1.15.1
+      java_class: Main
+  hackerrank:
+    default_language: {default_lang}
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
+      rust_version: 1.21.0
+      java_class: Main
+  other:
+    default_language: {default_lang}
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra
+      rust_version: stable
 
 interactive:
   python3:
@@ -270,10 +275,9 @@ pub(crate) struct Config {
     contest: String,
     shell: Vec<StringTemplate>,
     testfiles: TestFiles,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    atcoder: Option<Service>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    hackerrank: Option<Service>,
+    #[serde(default)]
+    services: BTreeMap<ServiceName, ServiceProp>,
+    #[serde(default)]
     interactive: HashMap<String, Language>,
     languages: HashMap<String, Language>,
     #[serde(skip)]
@@ -330,13 +334,12 @@ impl Config {
         self.testfiles.extension_on_download
     }
 
-    pub fn src_paths_on_atcoder(&self) -> BTreeMap<u32, PathTemplate<BaseDirSome>> {
+    pub fn src_paths(&self) -> BTreeMap<u32, PathTemplate<BaseDirSome>> {
+        let vars = self.vars_for_langs(None);
         let mut templates = BTreeMap::new();
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.atcoder {
-                let template = lang.src
-                    .base_dir(&self.base_dir)
-                    .embed_strings(self.atcoder.as_ref().map(|s| &s.variables));
+                let template = lang.src.base_dir(&self.base_dir).embed_strings(&vars);
                 templates.insert(lang_id, template);
             }
         }
@@ -360,7 +363,7 @@ impl Config {
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.atcoder {
                 if let Some(ref replacer) = lang.replace {
-                    let vars = self.vars_for_langs(ServiceName::AtCoderBeta);
+                    let vars = self.vars_for_langs(ServiceName::AtCoder);
                     let replacer = replacer.embed_strings(&vars);
                     replacers.insert(lang_id, replacer);
                 }
@@ -425,19 +428,15 @@ impl Config {
     }
 
     fn default_lang(&self) -> Option<&str> {
-        match self.service {
-            ServiceName::AtCoderBeta => self.atcoder.as_ref(),
-            ServiceName::HackerRank => self.hackerrank.as_ref(),
-            ServiceName::Other => None,
-        }.map(|s| s.default_language.as_ref())
+        self.services
+            .get(&self.service)
+            .map(|s| s.default_language.as_ref())
     }
 
     fn vars_for_langs<S: Into<Option<ServiceName>>>(&self, service: S) -> HashMap<&str, &str> {
-        let vars_in_service = match service.into().unwrap_or(self.service) {
-            ServiceName::AtCoderBeta => self.atcoder.as_ref(),
-            ServiceName::HackerRank => self.hackerrank.as_ref(),
-            ServiceName::Other => None,
-        }.map(|s| &s.variables);
+        let vars_in_service = self.services
+            .get(&service.into().unwrap_or(self.service))
+            .map(|s| &s.variables);
         let mut vars = hashmap!("service" => self.service.as_str(), "contest" => &self.contest);
         if let Some(vars_in_service) = vars_in_service {
             for (k, v) in vars_in_service {
@@ -495,7 +494,7 @@ fn default_testsuites() -> PathTemplate<BaseDirNone> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Service {
+struct ServiceProp {
     default_language: String,
     variables: HashMap<String, String>,
 }

@@ -14,7 +14,6 @@ Tools for online programming contests.
 
 |                | Target Contest                        | Scrape samples | Download system tests | Submit        |
 | :------------- | :------------------------------------ | :------------: | :-------------------: | :-----------: |
-| AtCoder        | `http://{}.contest.atcoder.jp`        | ✓             | Unimplemented         | Unimplemented |
 | AtCoder (Beta) | `https://beta.atcoder.jp/contests/{}` | ✓             | Unimplemented         | ✓            |
 
 ## Instrallation
@@ -38,7 +37,7 @@ $ cargo [+stable] install-update -ag
 ```console
 $ snowchains --help
 $ snowchains <i|init> ./
-$ snowchains <w|switch> <service> <contest>                                 # e.g. ("atcoderbeta", "agc001")
+$ snowchains <w|switch> <service> <contest>                                 # e.g. ("atcoder", "agc001")
 $ snowchains <d|download> [-s <service>] [-c <contest>] [-b|--open-browser] # Does not ask username and password unless they are needed
 $ $EDITOR ./snowchains/<service>/<contest>/<target>.yaml                    # Add more test cases
 $ snowchains <j|judge> <target> [language]
@@ -50,7 +49,7 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 ```yaml
 # Example
 ---
-service: atcoderbeta # "atcoder", "atcoderbeta", "hackerrank", "other"
+service: atcoder# "atcoder", "hackerrank", "other"
 contest: arc001
 
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
@@ -60,19 +59,24 @@ testfiles:
   extensions_on_download: yaml             # Default: ”
   excluded_extensions: []                  # Default: ”
 
-atcoder:
-  default_language: c++
-  variables:
-    cxx_flags: -std=c++14 -O2 -Wall -Wextra
-    rust_version: 1.15.1
-    java_class: Main
-
-hackerrank:
-  default_language: c++
-  variables:
-    cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
-    rust_version: 1.21.0
-    java_class: Main
+services:
+  atcoder:
+    default_language: c++
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra
+      rust_version: 1.15.1
+      java_class: Main
+  hackerrank:
+    default_language: c++
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
+      rust_version: 1.21.0
+      java_class: Main
+  other:
+    default_language: c++
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra
+      rust_version: stable
 
 interactive:
   python3:
@@ -202,7 +206,7 @@ Or simply:
 
 ```yaml
 ---
-service: atcoderbeta
+service: atcoder
 contest: arc001
 
 shell: [$SHELL, -c]
@@ -212,15 +216,19 @@ testfiles:
   extensions_on_download: yaml
   excluded_extensions: []
 
-atcoder:
-  default_language: c++
-  variables:
-    cxx_flags: -std=c++14 -O2 -Wall -Wextra
-
-hackerrank:
-  default_language: c++
-  variables:
-    cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
+services:
+  atcoder:
+    default_language: c++
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra
+  hackerrank:
+    default_language: c++
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
+  other:
+    default_language: c++
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra
 
 interactive:
   python3:

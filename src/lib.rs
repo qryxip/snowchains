@@ -67,10 +67,10 @@ pub use errors::{ErrorKind, Result};
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceName {
-    AtCoderBeta,
+    AtCoder,
     HackerRank,
     Other,
 }
@@ -91,10 +91,10 @@ impl FromStr for ServiceName {
     type Err = Never;
 
     fn from_str(s: &str) -> std::result::Result<Self, Never> {
-        match s.to_lowercase().as_str() {
-            "atcoderbeta" => Ok(ServiceName::AtCoderBeta),
-            "hackerrank" => Ok(ServiceName::HackerRank),
-            "other" => Ok(ServiceName::Other),
+        match s {
+            s if s.eq_ignore_ascii_case("atcoder") => Ok(ServiceName::AtCoder),
+            s if s.eq_ignore_ascii_case("hackerrank") => Ok(ServiceName::HackerRank),
+            s if s.eq_ignore_ascii_case("other") => Ok(ServiceName::Other),
             _ => Err(Never),
         }
     }
@@ -103,7 +103,7 @@ impl FromStr for ServiceName {
 impl ServiceName {
     pub fn as_str(self) -> &'static str {
         match self {
-            ServiceName::AtCoderBeta => "atcoderbeta",
+            ServiceName::AtCoder => "atcoder",
             ServiceName::HackerRank => "hackerrank",
             ServiceName::Other => "other",
         }
