@@ -1,7 +1,7 @@
 use {util, ServiceName};
 use config::{self, Config};
 use judging::{self, JudgeProp};
-use service::{atcoder, atcoder_beta, hackerrank, DownloadProp, InitProp, RestoreProp, SubmitProp};
+use service::{atcoder_beta, hackerrank, DownloadProp, InitProp, RestoreProp, SubmitProp};
 use testsuite::{self, SuiteFileExtension, SuiteFilePath};
 
 use httpsession::ColorMode;
@@ -50,7 +50,7 @@ pub enum Opt {
                 raw(display_order = "2", aliases = r#"&["w"]"#))]
     Switch {
         #[structopt(name = "service", help = "Service name",
-                    raw(possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank", "other"]"#))]
+                    raw(possible_values = r#"&["atcoderbeta", "hackerrank", "other"]"#))]
         service: ServiceName,
         #[structopt(name = "contest", help = "Contest name")]
         contest: String,
@@ -61,7 +61,7 @@ pub enum Opt {
                 raw(display_order = "3", aliases = r#"&["l"]"#))]
     Login {
         #[structopt(name = "service", help = "Service name",
-                    raw(possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
+                    raw(possible_values = r#"&["atcoderbeta", "hackerrank"]"#))]
         service: ServiceName,
     },
 
@@ -70,7 +70,7 @@ pub enum Opt {
                 raw(display_order = "4", aliases = r#"&["p"]"#))]
     Participate {
         #[structopt(name = "service", help = "Service name",
-                    raw(possible_values = r#"&["atcoder", "atcoderbeta"]"#))]
+                    raw(possible_values = r#"&["atcoderbeta"]"#))]
         service: ServiceName,
         #[structopt(name = "contest", help = "Contest name")]
         contest: String,
@@ -84,7 +84,7 @@ pub enum Opt {
     Download {
         #[structopt(short = "s", long = "service", help = "Service name",
                     raw(display_order = "1",
-                        possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank"]"#))]
+                        possible_values = r#"&["atcoderbeta", "hackerrank"]"#))]
         service: Option<ServiceName>,
         #[structopt(short = "c", long = "contest", help = "Contest name",
                     raw(display_order = "2"))]
@@ -126,7 +126,7 @@ pub enum Opt {
         output: Option<String>,
         #[structopt(short = "s", long = "service", help = "Service name",
                     raw(display_order = "1",
-                        possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank", "other"]"#))]
+                        possible_values = r#"&["atcoderbeta", "hackerrank", "other"]"#))]
         service: Option<ServiceName>,
         #[structopt(short = "c", long = "contest", help = "Contest name",
                     raw(display_order = "2"))]
@@ -146,7 +146,7 @@ pub enum Opt {
         language: Option<String>,
         #[structopt(short = "s", long = "service", help = "Service name",
                     raw(display_order = "2",
-                        possible_values = r#"&["atcoder", "atcoderbeta", "hackerrank", "other"]"#))]
+                        possible_values = r#"&["atcoderbeta", "hackerrank", "other"]"#))]
         service: Option<ServiceName>,
         #[structopt(short = "c", long = "contest", help = "Contest name",
                     raw(display_order = "3"))]
@@ -203,7 +203,6 @@ impl Opt {
                 info!("Running \"login\" command");
                 let init_prop = prop.init_prop(service);
                 match service {
-                    ServiceName::AtCoder => atcoder::login(),
                     ServiceName::AtCoderBeta => atcoder_beta::login(&init_prop),
                     ServiceName::HackerRank => hackerrank::login(),
                     ServiceName::Other => unreachable!(),
@@ -213,7 +212,6 @@ impl Opt {
                 info!("Running \"participate\" command");
                 let init_prop = prop.init_prop(service);
                 match service {
-                    ServiceName::AtCoder => atcoder::participate(&contest),
                     ServiceName::AtCoderBeta => atcoder_beta::participate(&contest, &init_prop),
                     _ => unreachable!(),
                 }?;
@@ -228,7 +226,6 @@ impl Opt {
                 let init_prop = prop.init_prop(config.service());
                 let download_prop = DownloadProp::new(&config, open_browser)?;
                 match config.service() {
-                    ServiceName::AtCoder => atcoder::download(&download_prop),
                     ServiceName::AtCoderBeta => atcoder_beta::download(&init_prop, download_prop),
                     ServiceName::HackerRank => hackerrank::download(&download_prop),
                     ServiceName::Other => bail!(::ErrorKind::Unimplemented),

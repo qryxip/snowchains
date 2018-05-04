@@ -70,7 +70,6 @@ use std::str::FromStr;
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceName {
-    AtCoder,
     AtCoderBeta,
     HackerRank,
     Other,
@@ -93,7 +92,6 @@ impl FromStr for ServiceName {
 
     fn from_str(s: &str) -> std::result::Result<Self, Never> {
         match s.to_lowercase().as_str() {
-            "atcoder" => Ok(ServiceName::AtCoder),
             "atcoderbeta" => Ok(ServiceName::AtCoderBeta),
             "hackerrank" => Ok(ServiceName::HackerRank),
             "other" => Ok(ServiceName::Other),
@@ -105,7 +103,6 @@ impl FromStr for ServiceName {
 impl ServiceName {
     pub fn as_str(self) -> &'static str {
         match self {
-            ServiceName::AtCoder => "atcoder",
             ServiceName::AtCoderBeta => "atcoderbeta",
             ServiceName::HackerRank => "hackerrank",
             ServiceName::Other => "other",

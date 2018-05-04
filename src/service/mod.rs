@@ -1,4 +1,3 @@
-pub(crate) mod atcoder;
 pub(crate) mod atcoder_beta;
 pub(crate) mod hackerrank;
 

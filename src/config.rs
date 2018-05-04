@@ -360,7 +360,7 @@ impl Config {
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.atcoder {
                 if let Some(ref replacer) = lang.replace {
-                    let vars = self.vars_for_langs(ServiceName::AtCoder);
+                    let vars = self.vars_for_langs(ServiceName::AtCoderBeta);
                     let replacer = replacer.embed_strings(&vars);
                     replacers.insert(lang_id, replacer);
                 }
@@ -426,7 +426,7 @@ impl Config {
 
     fn default_lang(&self) -> Option<&str> {
         match self.service {
-            ServiceName::AtCoder | ServiceName::AtCoderBeta => self.atcoder.as_ref(),
+            ServiceName::AtCoderBeta => self.atcoder.as_ref(),
             ServiceName::HackerRank => self.hackerrank.as_ref(),
             ServiceName::Other => None,
         }.map(|s| s.default_language.as_ref())
@@ -434,7 +434,7 @@ impl Config {
 
     fn vars_for_langs<S: Into<Option<ServiceName>>>(&self, service: S) -> HashMap<&str, &str> {
         let vars_in_service = match service.into().unwrap_or(self.service) {
-            ServiceName::AtCoder | ServiceName::AtCoderBeta => self.atcoder.as_ref(),
+            ServiceName::AtCoderBeta => self.atcoder.as_ref(),
             ServiceName::HackerRank => self.hackerrank.as_ref(),
             ServiceName::Other => None,
         }.map(|s| &s.variables);
