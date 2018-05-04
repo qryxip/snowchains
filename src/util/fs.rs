@@ -1,9 +1,27 @@
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, FileIoResultExt};
 
 use std::{self, env};
-use std::fs::File;
+use std::fs::{File, ReadDir};
 use std::io::Write as _Write;
 use std::path::{Path, PathBuf};
+
+/// Calls `std::fs::create_dir_all` chaining a `FileIoError`.
+pub(crate) fn create_dir_all(dir: &Path) -> FileIoResult<()> {
+    std::fs::create_dir_all(dir).chain_err(|| FileIoErrorKind::CreateDirAll(dir.to_owned()))
+}
+
+/// Calls `std::fs::read_dir` chaining a `FileIoError`.
+pub(crate) fn read_dir(dir: &Path) -> FileIoResult<ReadDir> {
+    std::fs::read_dir(dir).chain_err(|| FileIoErrorKind::ReadDir(dir.to_owned()))
+}
+
+/// Calls `std::fs::create_dir_all` and `std::fs::write` chaining
+/// `FileIoError`s.
+pub(crate) fn write(path: &Path, contents: &[u8]) -> FileIoResult<()> {
+    create_file_and_dirs(path)?
+        .write_all(contents)
+        .chain_err(|| FileIoErrorKind::Write(path.to_owned()))
+}
 
 /// Opens a file in read only mode.
 pub fn open(path: &Path) -> FileIoResult<File> {
@@ -18,18 +36,6 @@ pub fn create_file_and_dirs(path: &Path) -> FileIoResult<File> {
         }
     }
     File::create(path).chain_err(|| FileIoErrorKind::OpenInWriteOnly(path.to_owned()))
-}
-
-/// Writes `contents` as the entire contents of a file.
-pub fn write(path: &Path, contents: &[u8]) -> FileIoResult<()> {
-    create_file_and_dirs(path)?
-        .write_all(contents)
-        .chain_err(|| FileIoErrorKind::Write(path.to_owned()))
-}
-
-/// Creates `dir` and all its parent directory.
-pub fn create_dir_all(dir: &Path) -> FileIoResult<()> {
-    std::fs::create_dir_all(dir).chain_err(|| FileIoErrorKind::DirCreate(dir.to_owned()))
 }
 
 /// Reads a file content into a string.

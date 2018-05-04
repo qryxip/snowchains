@@ -10,7 +10,7 @@ use util;
 use {rprompt, serde_yaml};
 use regex::Regex;
 
-use std::{cmp, fs, io, str};
+use std::{cmp, io, str};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -476,8 +476,8 @@ fn find_language<'a>(
 }
 
 fn find_base(start: &Path) -> FileIoResult<PathBuf> {
-    fn target_exists(dir: &Path) -> io::Result<bool> {
-        for entry in fs::read_dir(dir)? {
+    fn target_exists(dir: &Path) -> FileIoResult<bool> {
+        for entry in util::fs::read_dir(dir)? {
             let path = entry?.path();
             if path.is_file() && path.file_name().unwrap() == CONFIG_FILE_NAME {
                 return Ok(true);

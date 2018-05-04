@@ -147,6 +147,11 @@ error_chain! {
     }
 
     errors {
+        DirNotExist(directory: PathBuf) {
+            description("Directory does not exist")
+                display("{:?} does not exist. Execute \"download\" command first", directory)
+        }
+
         NoFile(directory: PathBuf) {
             description("No test suite file")
             display("No test suite file in {:?}. Execute \"download\" command first", directory)
@@ -289,9 +294,14 @@ error_chain! {
             display("An IO error occurred while opening {} in write-only mode", path.display())
         }
 
-        DirCreate(dir: PathBuf) {
+        CreateDirAll(dir: PathBuf) {
             description("Failed to create a directory")
-                display("Failed to create {}", dir.display())
+            display("Failed to create {}", dir.display())
+        }
+
+        ReadDir(dir: PathBuf) {
+            description("Failed to read a directory")
+            display("Failed to read {}", dir.display())
         }
 
         Write(path: PathBuf) {

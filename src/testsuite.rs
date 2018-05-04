@@ -9,7 +9,7 @@ use {serde_json, serde_yaml, toml};
 use itertools::Itertools as _Itertools;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use std::{self, fs, io, iter, slice, vec, f64};
+use std::{self, io, iter, slice, vec, f64};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fmt::{self, Write as _Write};
@@ -53,10 +53,17 @@ impl<'a> SuiteFilePaths<'a> {
         allow_missing: bool,
     ) -> SuiteFileResult<(TestCases, String)> {
         let dir = self.directory.expand(self.stem)?;
+        if !dir.exists() && allow_missing {
+            let paths_as_text = dir.join("{}").display().to_string();
+            return Ok((TestCases::Simple(vec![]), paths_as_text));
+        }
+        if !dir.exists() {
+            bail!(SuiteFileErrorKind::DirNotExist(dir.to_owned()));
+        }
         let (existing_suites, paths_as_text) = {
             let existing_filenames = {
                 let stem_lowercase = self.stem.to_lowercase();
-                let mut filenames = fs::read_dir(&dir)?
+                let mut filenames = util::fs::read_dir(&dir)?
                     .filter_map(|entry| match entry {
                         Ok(entry) => {
                             let path = entry.path();
@@ -81,16 +88,9 @@ impl<'a> SuiteFilePaths<'a> {
                 suites.push((suite, path.joined));
                 names.push(format!("{}.{}", stem, ext));
             }
-            let paths_as_text = {
-                let delim = if cfg!(windows) && !dir.display().to_string().ends_with('\\') {
-                    "\\"
-                } else if !dir.display().to_string().ends_with('/') {
-                    "/"
-                } else {
-                    ""
-                };
-                format!("{}{}{{{}}}", dir.display(), delim, names.iter().join(", "))
-            };
+            let paths_as_text = dir.join(format!("{{{}}}", names.iter().join(", ")))
+                .display()
+                .to_string();
             (suites, paths_as_text)
         };
 
