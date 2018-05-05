@@ -4,7 +4,7 @@ use errors::{ConfigError, ConfigErrorKind, ConfigResult, FileIoErrorKind, FileIo
 use replacer::CodeReplacer;
 use template::{BaseDirNone, BaseDirSome, CommandTemplate, CompilationTemplate, JudgeTemplate,
                PathTemplate, StringTemplate};
-use testsuite::{SuiteFileExtension, SuiteFilePaths};
+use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipProp};
 use util;
 
 use {rprompt, serde_yaml};
@@ -12,7 +12,7 @@ use regex::Regex;
 
 use std::{cmp, io, str};
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
@@ -50,8 +50,33 @@ shell: {shell}
 
 testfiles:
   directory: snowchains/$service/$contest/
-  extension_on_download: yaml
-  excluded_extensions: []
+  forall: [json, toml, yaml, yml, zip]
+  scrape: yaml
+  zip:
+    timelimit: 2000
+    match: {default_match}
+    entries:
+      - in:
+          entry: /\Ain/([a-z0-9_\-]+)\.txt\z/
+          match_group: 1
+        out:
+          entry: /\Aout/([a-z0-9_\-]+)\.txt\z/
+          match_group: 1
+        sort: [dictionary]
+      - in:
+          entry: /\Ainput/input([0-9]+)\.txt\z/
+          match_group: 1
+        out:
+          entry: /\Aoutput/output([0-9]+)\.txt\z/
+          match_group: 1
+        sort: [number]
+      - in:
+          entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
+          match_group: 1
+        out:
+          entry: /\Atest_out/([a-z0-9_]+)\.txt\z/
+          match_group: 1
+        sort: [dictionary, number]
 
 services:
   atcoder:
@@ -147,7 +172,7 @@ languages:
       working_directory: java/
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
-      regex_group: 2
+      match_group: 2
       local: '{{Pascal}}'
       submit: $java_class
       all_matched: false
@@ -164,7 +189,7 @@ languages:
       working_directory: scala/
     replace:
       regex: /^\s*object\s+([A-Z][a-zA-Z0-9_]*).*$/
-      regex_group: 1
+      match_group: 1
       local: '{{Pascal}}'
       submit: $java_class
       all_matched: false
@@ -178,6 +203,7 @@ languages:
         } else {
             "[/bin/sh, -c]"
         },
+        default_match = if cfg!(windows) { "lines" } else { "exact" },
         exe = if cfg!(target_os = "windows") {
             ".exe"
         } else {
@@ -321,17 +347,16 @@ impl Config {
             )
     }
 
-    pub fn suite_paths<'a>(&'a self, target: &'a str) -> SuiteFilePaths<'a> {
+    pub fn suite_paths(&self) -> SuiteFilePathsTemplate {
         let dir = self.testfiles_dir();
-        let exts_on_judge = SuiteFileExtension::all()
-            .filter(|e| !self.testfiles.excluded_extensions.contains(e))
-            .collect::<Vec<_>>();
-        SuiteFilePaths::new(dir, target, exts_on_judge)
+        let exts = &self.testfiles.forall;
+        let zip = &self.testfiles.zip;
+        SuiteFilePathsTemplate::new(dir, exts, zip)
     }
 
-    /// Gets `testfiles/extension_on_download`.
-    pub fn extension_on_download(&self) -> SuiteFileExtension {
-        self.testfiles.extension_on_download
+    /// Gets `testfiles.scrape`.
+    pub fn extension_on_scrape(&self) -> SerializableExtension {
+        self.testfiles.scrape
     }
 
     pub fn src_paths(&self) -> BTreeMap<u32, PathTemplate<BaseDirSome>> {
@@ -482,15 +507,10 @@ fn find_base(start: &Path) -> FileIoResult<PathBuf> {
 
 #[derive(Serialize, Deserialize)]
 struct TestFiles {
-    #[serde(default = "default_testsuites")]
     directory: PathTemplate<BaseDirNone>,
-    extension_on_download: SuiteFileExtension,
-    #[serde(default)]
-    excluded_extensions: Vec<SuiteFileExtension>,
-}
-
-fn default_testsuites() -> PathTemplate<BaseDirNone> {
-    PathTemplate::from_static_str("snowchains/$service/$contest/")
+    forall: BTreeSet<SuiteFileExtension>,
+    scrape: SerializableExtension,
+    zip: ZipProp,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -144,12 +144,13 @@ error_chain! {
         SerdeYaml(serde_yaml::Error);
         TomlDe(toml::de::Error);
         TomlSer(toml::ser::Error);
+        Zip(ZipError);
     }
 
     errors {
         DirNotExist(directory: PathBuf) {
             description("Directory does not exist")
-                display("{:?} does not exist. Execute \"download\" command first", directory)
+            display("{:?} does not exist. Execute \"download\" command first", directory)
         }
 
         NoFile(directory: PathBuf) {
@@ -169,12 +170,17 @@ error_chain! {
 
         Unsubmittable(problem: String) {
             description("The problem is unsubmittable")
-                display("{:?} is unsubmittable", problem)
+            display("{:?} is unsubmittable", problem)
         }
 
-        Nan {
-            description("NaN")
-            display("Do not input \"NaN\"")
+        RegexGroupOutOfBounds(group: usize) {
+            description("Regex group out of bounds")
+            display("Regex group out of bounds: {}", group)
+        }
+
+        UnsupportedExtension(extension: String) {
+            description("Unsupported extension")
+            display("Unsupported extension; {:?}", extension)
         }
     }
 }
@@ -213,9 +219,9 @@ error_chain! {
     }
 
     errors {
-        RegexGroupOutOfBounds(i: usize) {
+        RegexGroupOutOfBounds(group: usize) {
             description("Regex group out of bounds")
-            display("Regex group out of bounds: {}", i)
+            display("Regex group out of bounds: {}", group)
         }
 
         NoMatch(regex: String) {

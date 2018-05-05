@@ -12,9 +12,13 @@ Tools for online programming contests.
 - Submits a source code
 - Downloads source codes you have submitted
 
-|                | Target Contest                        | Scrape samples | Download system tests | Submit        |
-| :------------- | :------------------------------------ | :------------: | :-------------------: | :-----------: |
-| AtCoder (Beta) | `https://beta.atcoder.jp/contests/{}` | ✓             | Unimplemented         | ✓            |
+|                | Scrape samples | Download system tests | Submit        |
+| :------------- | :------------: | :-------------------: | :-----------: |
+| AtCoder (Beta) | ✓             | Unimplemented         | ✓            |
+
+|                | Target Contest                        |
+| :------------- | :------------------------------------ |
+| AtCoder (Beta) | `https://beta.atcoder.jp/contests/{}` |
 
 ## Instrallation
 
@@ -55,9 +59,37 @@ contest: arc001
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
 
 testfiles:
-  directory: snowchains/$service/$contest/ # Searched case insensitively. Default: ”
-  extensions_on_download: yaml             # Default: ”
-  excluded_extensions: []                  # Default: ”
+  directory: snowchains/$service/$contest/
+  forall: [json, toml, yaml, yml, zip]
+  scrape: yaml
+  zip:
+    timelimit: 2000
+    match: exact
+    entries:
+      # AtCoder
+      - in:
+          entry: /\Ain/([a-z0-9_\-]+)\.txt\z/
+          match_group: 1
+        out:
+          entry: /\Aout/([a-z0-9_\-]+)\.txt\z/
+          match_group: 1
+        sort: [dictionary]
+      # HackerRank
+      - in:
+          entry: /\Ainput/input([0-9]+)\.txt\z/
+          match_group: 1
+        out:
+          entry: /\Aoutput/output([0-9]+)\.txt\z/
+          match_group: 1
+        sort: [number]
+      # YukiCoder
+      - in:
+          entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
+          match_group: 1
+        out:
+          entry: /\Atest_out/([a-z0-9_]+)\.txt\z/
+          match_group: 1
+        sort: [dictionary, number]
 
 services:
   atcoder:
@@ -200,55 +232,6 @@ languages:
       working_directory: cs/
     language_ids:
       atcoder: 3006
-```
-
-Or simply:
-
-```yaml
----
-service: atcoder
-contest: arc001
-
-shell: [$SHELL, -c]
-
-testfiles:
-  directory: snowchains/$service/$contest/
-  extensions_on_download: yaml
-  excluded_extensions: []
-
-services:
-  atcoder:
-    default_language: c++
-    variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra
-  hackerrank:
-    default_language: c++
-    variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
-  other:
-    default_language: c++
-    variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra
-
-interactive:
-  python3:
-    src: py/{kebab}-tester.py
-    run:
-      command: [python3, --, $src, $arg]
-      working_directory: py/
-
-languages:
-  c++:
-    src: '{kebab}.cc'
-    compile:
-      bin: build/{kebab}
-      command: g++ $cxx_flags -o $bin $src
-      working_directory: .
-    run:
-      command: [$bin]
-      working_directory: .
-    language_ids:
-      atcoder: 3003
 ```
 
 ## Test file

@@ -28,15 +28,7 @@ pub(crate) fn judge(prop: JudgeProp) -> JudgeResult<()> {
         let num_cases = cases.len();
         println_plural!("Running {}...", num_cases, "test", "tests");
 
-        let filenames = cases
-            .iter()
-            .map(|case| {
-                case.path()
-                    .file_name()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            })
-            .collect::<Vec<_>>();
+        let filenames = cases.iter().map(|case| case.name()).collect::<Vec<_>>();
         let filename_max_width = filenames.iter().map(|s| s.width_cjk()).max().unwrap_or(0);
         let outputs = cases
             .into_iter()
@@ -97,7 +89,7 @@ pub(crate) struct JudgeProp {
 
 impl JudgeProp {
     pub fn new(config: &Config, target: &str, language: Option<&str>) -> ::Result<Self> {
-        let (cases, paths) = config.suite_paths(&target).load_merging(config, false)?;
+        let (cases, paths) = config.suite_paths().load_merging(config, target)?;
         let solver = config.solver(language)?.expand(&target)?;
         let solver_compilation = match config.solver_compilation(language)? {
             Some(compilation) => Some(compilation.expand(&target)?),

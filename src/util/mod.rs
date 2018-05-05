@@ -1,4 +1,5 @@
 pub mod fs;
+pub mod serde;
 
 use std::borrow::Cow;
 use std::io::{self, Read};

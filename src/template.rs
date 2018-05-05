@@ -64,10 +64,6 @@ pub(crate) struct PathTemplate<B: BaseDirOption> {
 }
 
 impl PathTemplate<BaseDirNone> {
-    pub fn from_static_str(s: &'static str) -> Self {
-        Self::new(Template::from_str(s).unwrap())
-    }
-
     fn new(inner: Template) -> Self {
         Self {
             inner,

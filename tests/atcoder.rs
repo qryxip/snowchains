@@ -144,14 +144,6 @@ if __name__ == '__main__':
     let (tempdir, prop) = setup("it_submits_to_practice_a", Credentials::EnvVars);
 
     util::fs::write(&tempdir.path().join("py").join("a.py"), code().as_bytes()).unwrap();
-    let path = tempdir
-        .path()
-        .join("snowchains")
-        .join("atcoder")
-        .join("practice")
-        .join("a.yaml");
-    util::fs::write(&path, "---\ntype: simple\ncases: []".as_bytes()).unwrap();
-    println!("Wrote a YAML to {}", path.display());
 
     Opt::Submit {
         target: "a".to_owned(),

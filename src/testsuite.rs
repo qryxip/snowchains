@@ -7,11 +7,13 @@ use util::{self, ScalarOrArray};
 
 use {serde_json, serde_yaml, toml};
 use itertools::Itertools as _Itertools;
+use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use zip::ZipArchive;
 
-use std::{self, io, iter, slice, vec, f64};
-use std::collections::HashSet;
-use std::ffi::OsStr;
+use std::{self, io, vec, f64};
+use std::cmp::Ordering;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt::{self, Write as _Write};
 use std::iter::FromIterator as _FromIterator;
 use std::path::{Path, PathBuf};
@@ -33,16 +35,78 @@ pub(crate) fn append(
 /// Extension of a test suite file.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum SuiteFileExtension {
+pub enum SerializableExtension {
     Json,
     Toml,
     Yaml,
     Yml,
 }
 
-impl Default for SuiteFileExtension {
+impl Default for SerializableExtension {
     fn default() -> Self {
-        SuiteFileExtension::Yaml
+        SerializableExtension::Yaml
+    }
+}
+
+impl fmt::Display for SerializableExtension {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SerializableExtension::Json => write!(f, "json"),
+            SerializableExtension::Toml => write!(f, "toml"),
+            SerializableExtension::Yaml => write!(f, "yaml"),
+            SerializableExtension::Yml => write!(f, "yml"),
+        }
+    }
+}
+
+impl FromStr for SerializableExtension {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
+        match s {
+            ref s if s.eq_ignore_ascii_case("json") => Ok(SerializableExtension::Json),
+            ref s if s.eq_ignore_ascii_case("toml") => Ok(SerializableExtension::Toml),
+            ref s if s.eq_ignore_ascii_case("yaml") => Ok(SerializableExtension::Yaml),
+            ref s if s.eq_ignore_ascii_case("yml") => Ok(SerializableExtension::Yml),
+            ref s => Err(format!("Unsupported extension: {:?}", s)),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SuiteFileExtension {
+    Json,
+    Toml,
+    Yaml,
+    Yml,
+    Zip,
+}
+
+impl SuiteFileExtension {
+    fn serializable(self) -> Option<SerializableExtension> {
+        match self {
+            SuiteFileExtension::Json => Some(SerializableExtension::Json),
+            SuiteFileExtension::Toml => Some(SerializableExtension::Toml),
+            SuiteFileExtension::Yaml => Some(SerializableExtension::Yaml),
+            SuiteFileExtension::Yml => Some(SerializableExtension::Yml),
+            SuiteFileExtension::Zip => None,
+        }
+    }
+}
+
+impl FromStr for SuiteFileExtension {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, ()> {
+        match s {
+            ref s if s.eq_ignore_ascii_case("json") => Ok(SuiteFileExtension::Json),
+            ref s if s.eq_ignore_ascii_case("toml") => Ok(SuiteFileExtension::Toml),
+            ref s if s.eq_ignore_ascii_case("yaml") => Ok(SuiteFileExtension::Yaml),
+            ref s if s.eq_ignore_ascii_case("yml") => Ok(SuiteFileExtension::Yml),
+            ref s if s.eq_ignore_ascii_case("zip") => Ok(SuiteFileExtension::Zip),
+            _ => Err(()),
+        }
     }
 }
 
@@ -53,47 +117,27 @@ impl fmt::Display for SuiteFileExtension {
             SuiteFileExtension::Toml => write!(f, "toml"),
             SuiteFileExtension::Yaml => write!(f, "yaml"),
             SuiteFileExtension::Yml => write!(f, "yml"),
+            SuiteFileExtension::Zip => write!(f, "zip"),
         }
     }
 }
 
-impl FromStr for SuiteFileExtension {
-    type Err = String;
-
-    fn from_str(s: &str) -> std::result::Result<Self, String> {
-        match s.to_lowercase() {
-            ref s if s == "json" => Ok(SuiteFileExtension::Json),
-            ref s if s == "toml" => Ok(SuiteFileExtension::Toml),
-            ref s if s == "yaml" => Ok(SuiteFileExtension::Yaml),
-            ref s if s == "yml" => Ok(SuiteFileExtension::Yml),
-            ref s => Err(format!("Unsupported extension: {:?}", s)),
-        }
-    }
-}
-
-impl SuiteFileExtension {
-    pub(crate) fn all() -> iter::Cloned<slice::Iter<'static, Self>> {
-        use testsuite::SuiteFileExtension::{Json, Toml, Yaml, Yml};
-        [Json, Toml, Yaml, Yml].iter().cloned()
-    }
-}
-
-pub(crate) struct SuiteFilePaths<'a> {
+pub(crate) struct SuiteFilePathsTemplate<'a> {
     directory: PathTemplate<BaseDirSome<'a>>,
-    stem: &'a str,
-    extensions: Vec<SuiteFileExtension>,
+    extensions: &'a BTreeSet<SuiteFileExtension>,
+    zip: &'a ZipProp,
 }
 
-impl<'a> SuiteFilePaths<'a> {
+impl<'a> SuiteFilePathsTemplate<'a> {
     pub fn new(
         directory: PathTemplate<BaseDirSome<'a>>,
-        stem: &'a str,
-        extensions: Vec<SuiteFileExtension>,
+        extensions: &'a BTreeSet<SuiteFileExtension>,
+        zip: &'a ZipProp,
     ) -> Self {
         Self {
             directory,
-            stem,
             extensions,
+            zip,
         }
     }
 
@@ -102,89 +146,65 @@ impl<'a> SuiteFilePaths<'a> {
     pub fn load_merging(
         &self,
         config: &Config,
-        allow_missing: bool,
+        target: &str,
     ) -> SuiteFileResult<(TestCases, String)> {
-        let dir = self.directory.expand(self.stem)?;
-        if !dir.exists() && allow_missing {
-            let paths_as_text = dir.join("{}").display().to_string();
-            return Ok((TestCases::Simple(vec![]), paths_as_text));
-        }
+        let dir = self.directory.expand(target)?;
         if !dir.exists() {
             bail!(SuiteFileErrorKind::DirNotExist(dir.to_owned()));
         }
-        let (existing_suites, paths_as_text) = {
-            let existing_filenames = {
-                let stem_lowercase = self.stem.to_lowercase();
-                let mut filenames = util::fs::read_dir(&dir)?
-                    .filter_map(|entry| match entry {
-                        Ok(entry) => {
-                            let path = entry.path();
-                            let stem = path.file_stem()?.to_str()?.to_owned();
-                            let ext = path.extension()?.to_str()?;
-                            let ext = SuiteFileExtension::from_str(ext).ok()?;
-                            ensure_opt!(stem.to_lowercase() == stem_lowercase);
-                            ensure_opt!(self.extensions.contains(&ext));
-                            Some(Ok((stem, ext)))
-                        }
-                        Err(e) => Some(Err::<_, io::Error>(e)),
-                    })
-                    .collect::<io::Result<Vec<_>>>()?;
-                filenames.sort_by_key(|&(ref s, _)| s.clone());
-                filenames.sort_by_key(|&(_, x)| x);
-                filenames
-            };
-            let (mut suites, mut names) = (vec![], vec![]);
-            for &(ref stem, ext) in &existing_filenames {
-                let path = SuiteFilePath::new(&dir, stem.as_str(), ext);
-                let suite = TestSuite::load(&path)?;
-                suites.push((suite, path.joined));
-                names.push(format!("{}.{}", stem, ext));
-            }
-            let paths_as_text = dir.join(format!("{{{}}}", names.iter().join(", ")))
-                .display()
-                .to_string();
-            (suites, paths_as_text)
-        };
-
-        if existing_suites.is_empty() && allow_missing {
-            Ok((TestCases::Simple(vec![]), paths_as_text))
-        } else if existing_suites.is_empty() {
-            bail!(SuiteFileErrorKind::NoFile(dir.clone()));
-        } else if existing_suites.iter().all(|&(ref s, _)| s.is_simple()) {
-            let cases = existing_suites
-                .into_iter()
-                .flat_map(|(suite, path)| {
-                    let suite = suite.unwrap_to_simple();
-                    let timelimit = suite.timelimit;
-                    let output_match = suite.output_match;
-                    suite
-                        .cases
-                        .into_iter()
-                        .map(move |(input, out)| {
-                            let out = out.as_ref().map(|s| s.as_str());
-                            let expected = Arc::new(ExpectedStdout::new(out, output_match));
-                            SimpleCase {
-                                path: path.clone(),
-                                input,
-                                expected,
-                                timelimit,
-                            }
-                        })
-                        .collect::<Vec<_>>()
+        let existing_filenames = {
+            let mut filenames = util::fs::read_dir(&dir)?
+                .filter_map(|entry| match entry {
+                    Ok(entry) => {
+                        let path = entry.path();
+                        let stem = path.file_stem()?.to_str()?.to_owned();
+                        let ext = path.extension()?.to_str()?;
+                        let ext = SuiteFileExtension::from_str(ext).ok()?;
+                        ensure_opt!(target.eq_ignore_ascii_case(&stem));
+                        ensure_opt!(self.extensions.contains(&ext));
+                        Some(Ok((stem, ext)))
+                    }
+                    Err(e) => Some(Err::<_, io::Error>(e)),
                 })
-                .collect::<Vec<_>>();
-            Ok((TestCases::Simple(cases), paths_as_text))
-        } else if existing_suites.iter().all(|&(ref s, _)| s.is_interactive()) {
-            let mut cases = Vec::with_capacity(existing_suites.len());
-            for (suite, path) in existing_suites {
-                cases.extend(suite.unwrap_to_interactive().cases(&config, &path)?);
+                .collect::<io::Result<Vec<_>>>()?;
+            filenames.sort_by_key(|&(ref s, _)| s.clone());
+            filenames.sort_by_key(|&(_, e)| e);
+            filenames
+        };
+        let mut simple_cases = vec![];
+        let mut interactive_cases = vec![];
+        let mut filenames = vec![];
+        for &(ref stem, ext) in &existing_filenames {
+            let filename = format!("{}.{}", stem, ext);
+            if let Some(ext) = ext.serializable() {
+                let path = SuiteFilePath::new(&dir, stem.as_str(), ext);
+                match TestSuite::load(&path)? {
+                    TestSuite::Simple(suite) => simple_cases.extend(suite.with_filename(&filename)),
+                    TestSuite::Interactive(suite) => {
+                        interactive_cases.extend(suite.cases(&config, &filename, target)?);
+                    }
+                    TestSuite::Unsubmittable => {
+                        bail!(SuiteFileErrorKind::Unsubmittable(target.to_owned()))
+                    }
+                }
+                filenames.push(filename);
+            } else {
+                let cases = self.zip.load(&filename, &dir)?;
+                if !cases.is_empty() {
+                    simple_cases.extend(cases);
+                    filenames.push(filename);
+                }
             }
-            Ok((TestCases::Interactive(cases), paths_as_text))
-        } else if existing_suites
-            .iter()
-            .all(|&(ref s, _)| s.is_unsubmittable())
-        {
-            bail!(SuiteFileErrorKind::Unsubmittable(self.stem.to_owned()))
+        }
+        let paths_as_text = dir.join(format!("{{{}}}", filenames.iter().join(", ")))
+            .display()
+            .to_string();
+        if simple_cases.is_empty() && interactive_cases.is_empty() {
+            bail!(SuiteFileErrorKind::NoFile(dir.clone()))
+        } else if interactive_cases.is_empty() {
+            Ok((TestCases::Simple(simple_cases), paths_as_text))
+        } else if simple_cases.is_empty() {
+            Ok((TestCases::Interactive(interactive_cases), paths_as_text))
         } else {
             bail!(SuiteFileErrorKind::DifferentTypesOfSuites);
         }
@@ -193,18 +213,146 @@ impl<'a> SuiteFilePaths<'a> {
 
 /// File path which extension is 'json', 'toml', 'yaml', or 'yml'.
 pub(crate) struct SuiteFilePath {
-    extension: SuiteFileExtension,
+    extension: SerializableExtension,
     joined: Arc<PathBuf>,
 }
 
 impl<'a> SuiteFilePath {
-    pub fn new(directory: &Path, stem: &str, extension: SuiteFileExtension) -> Self {
+    pub fn new(directory: &Path, stem: &str, extension: SerializableExtension) -> Self {
         let joined = directory.join(stem).with_extension(&extension.to_string());
         Self {
             extension,
             joined: Arc::new(joined),
         }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct ZipProp {
+    timelimit: Option<u64>,
+    #[serde(rename = "match")]
+    output_match: Match,
+    entries: Vec<ZipEntries>,
+}
+
+impl ZipProp {
+    fn load(&self, filename: &str, dir: &Path) -> SuiteFileResult<Vec<SimpleCase>> {
+        let (timelimit, output_match) = (self.timelimit, self.output_match);
+        let mut r = vec![];
+        for e in &self.entries {
+            r.extend(e.load(&dir.join(filename), filename, timelimit, output_match)?);
+        }
+        Ok(r)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct ZipEntries {
+    sort: Vec<ZipEntrySorting>,
+    #[serde(rename = "in")]
+    input: ZipEntry,
+    #[serde(rename = "out")]
+    output: ZipEntry,
+}
+
+impl ZipEntries {
+    fn load(
+        &self,
+        path: &Path,
+        filename: &str,
+        timelimit: Option<u64>,
+        output_match: Match,
+    ) -> SuiteFileResult<Vec<SimpleCase>> {
+        if !path.exists() {
+            return Ok(vec![]);
+        }
+        let mut zip = ZipArchive::new(util::fs::open(path)?)?;
+        let mut pairs = hashmap!();
+        for i in 0..zip.len() {
+            let (filename, content) = {
+                let file = zip.by_index(i)?;
+                (file.name().to_owned(), util::string_from_read(file, 0)?)
+            };
+            if let Some(caps) = self.input.entry.captures(&filename) {
+                let name = caps.get(self.input.match_group)
+                    .ok_or_else(|| {
+                        SuiteFileErrorKind::RegexGroupOutOfBounds(self.input.match_group)
+                    })?
+                    .as_str()
+                    .to_owned();
+                if let Some((_, output)) = pairs.remove(&name) {
+                    pairs.insert(name, (Some(content.clone()), output));
+                } else {
+                    pairs.insert(name, (Some(content.clone()), None));
+                }
+            }
+            if let Some(caps) = self.output.entry.captures(&filename) {
+                let name = caps.get(self.output.match_group)
+                    .ok_or_else(|| {
+                        SuiteFileErrorKind::RegexGroupOutOfBounds(self.output.match_group)
+                    })?
+                    .as_str()
+                    .to_owned();
+                if let Some((input, _)) = pairs.remove(&name) {
+                    pairs.insert(name, (input, Some(content)));
+                } else {
+                    pairs.insert(name, (None, Some(content)));
+                }
+            }
+        }
+        let mut cases = pairs
+            .into_iter()
+            .filter_map(|(name, (input, output))| {
+                if let (Some(input), Some(output)) = (input, output) {
+                    Some((name, input, output))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        for sorting in &self.sort {
+            match *sorting {
+                ZipEntrySorting::Dictionary => {
+                    cases.sort_by(|&(ref s1, _, _), &(ref s2, _, _)| s1.cmp(s2))
+                }
+                ZipEntrySorting::Number => {
+                    cases.sort_by(|&(ref s1, _, _), &(ref s2, _, _)| {
+                        match (s1.parse::<usize>(), s2.parse::<usize>()) {
+                            (Ok(n1), Ok(n2)) => n1.cmp(&n2),
+                            (Ok(_), Err(_)) => Ordering::Less,
+                            (Err(_), Ok(_)) => Ordering::Greater,
+                            (Err(_), Err(_)) => Ordering::Equal,
+                        }
+                    })
+                }
+            }
+        }
+        let cases = cases
+            .into_iter()
+            .map(|(name, input, output)| SimpleCase {
+                name: Arc::new(format!("{}:{}", filename, name)),
+                input: Arc::new(input),
+                expected: Arc::new(ExpectedStdout::new(Some(&output), output_match)),
+                timelimit,
+            })
+            .collect();
+        Ok(cases)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ZipEntrySorting {
+    Dictionary,
+    Number,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ZipEntry {
+    #[serde(serialize_with = "util::serde::serialize_regex",
+            deserialize_with = "util::serde::deserialize_regex")]
+    entry: Regex,
+    match_group: usize,
 }
 
 /// `SimpelSuite` or `InteractiveSuite`.
@@ -244,9 +392,11 @@ impl TestSuite {
         let (path, extension) = (&path.joined, path.extension);
         let text = util::fs::string_from_path(path)?;
         let suite: Self = match extension {
-            SuiteFileExtension::Json => serde_json::from_str(&text)?,
-            SuiteFileExtension::Toml => toml::from_str(&text)?,
-            SuiteFileExtension::Yaml | SuiteFileExtension::Yml => serde_yaml::from_str(&text)?,
+            SerializableExtension::Json => serde_json::from_str(&text)?,
+            SerializableExtension::Toml => toml::from_str(&text)?,
+            SerializableExtension::Yaml | SerializableExtension::Yml => {
+                serde_yaml::from_str(&text)?
+            }
         };
         Ok(suite)
     }
@@ -255,9 +405,11 @@ impl TestSuite {
     pub fn save(&self, path: &SuiteFilePath, prints_num_cases: bool) -> SuiteFileResult<()> {
         let (path, extension) = (&path.joined, path.extension);
         let serialized = match extension {
-            SuiteFileExtension::Json => serde_json::to_string(self)?,
-            SuiteFileExtension::Toml => toml::to_string(self)?,
-            SuiteFileExtension::Yaml | SuiteFileExtension::Yml => serde_yaml::to_string(self)?,
+            SerializableExtension::Json => serde_json::to_string(self)?,
+            SerializableExtension::Toml => toml::to_string(self)?,
+            SerializableExtension::Yaml | SerializableExtension::Yml => {
+                serde_yaml::to_string(self)?
+            }
         };
         util::fs::write(path, serialized.as_bytes())?;
         print!("Saved to {}", path.display());
@@ -274,41 +426,6 @@ impl TestSuite {
         }
         println!();
         Ok(())
-    }
-
-    fn is_simple(&self) -> bool {
-        match *self {
-            TestSuite::Simple(_) => true,
-            _ => false,
-        }
-    }
-
-    fn is_interactive(&self) -> bool {
-        match *self {
-            TestSuite::Interactive(_) => true,
-            _ => false,
-        }
-    }
-
-    fn is_unsubmittable(&self) -> bool {
-        match *self {
-            TestSuite::Unsubmittable => true,
-            _ => false,
-        }
-    }
-
-    fn unwrap_to_simple(self) -> SimpleSuite {
-        match self {
-            TestSuite::Simple(suite) => suite,
-            _ => unreachable!(),
-        }
-    }
-
-    fn unwrap_to_interactive(self) -> InteractiveSuite {
-        match self {
-            TestSuite::Interactive(suite) => suite,
-            _ => unreachable!(),
-        }
     }
 
     fn append(&mut self, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
@@ -356,6 +473,26 @@ impl SimpleSuite {
                 .collect(),
             raw_cases: None,
         }
+    }
+
+    fn with_filename(self, filename: &str) -> Vec<SimpleCase> {
+        let timelimit = self.timelimit;
+        let output_match = self.output_match;
+        self.cases
+            .into_iter()
+            .enumerate()
+            .map(move |(i, (input, out))| {
+                let out = out.as_ref().map(|s| s.as_str());
+                let expected = Arc::new(ExpectedStdout::new(out, output_match));
+                let name = Arc::new(format!("{}[{}]", filename, i));
+                SimpleCase {
+                    name,
+                    input,
+                    expected,
+                    timelimit,
+                }
+            })
+            .collect::<Vec<_>>()
     }
 
     fn append(&mut self, input: &str, output: Option<&str>) {
@@ -475,13 +612,11 @@ impl InteractiveSuite {
     fn cases(
         &self,
         config: &Config,
-        path: &Arc<PathBuf>,
+        filename: &str,
+        target: &str,
     ) -> SuiteFileResult<vec::IntoIter<InteractiveCase>> {
-        let target = path.file_stem()
-            .map(OsStr::to_string_lossy)
-            .unwrap_or_default();
         let mut cases = Vec::with_capacity(self.each_args.len());
-        for args in &self.each_args {
+        for (i, args) in self.each_args.iter().enumerate() {
             let lang = self.tester.as_ref().map(String::as_str);
             let mut m = hashmap!("*".to_owned() => args.join(" "));
             for (i, arg) in args.iter().enumerate() {
@@ -496,10 +631,10 @@ impl InteractiveSuite {
                 None => None,
             };
             cases.push(InteractiveCase {
+                name: Arc::new(format!("{}[{}]", filename, i)),
                 tester: Arc::new(tester),
                 tester_compilation,
                 timelimit: self.timelimit.map(Duration::from_millis),
-                path: path.clone(),
             });
         }
         Ok(cases.into_iter())
@@ -527,8 +662,8 @@ impl TestCases {
 }
 
 pub(crate) trait TestCase {
-    /// Gets `path`.
-    fn path(&self) -> Arc<PathBuf>;
+    /// Gets `name`.
+    fn name(&self) -> Arc<String>;
 }
 
 /// Pair of `input` and `expected`.
@@ -536,15 +671,15 @@ pub(crate) trait TestCase {
 /// `expected` is empty IFF omitted.
 #[derive(Clone)]
 pub(crate) struct SimpleCase {
-    path: Arc<PathBuf>,
+    name: Arc<String>,
     input: Arc<String>,
     expected: Arc<ExpectedStdout>,
     timelimit: Option<u64>,
 }
 
 impl TestCase for SimpleCase {
-    fn path(&self) -> Arc<PathBuf> {
-        self.path.clone()
+    fn name(&self) -> Arc<String> {
+        self.name.clone()
     }
 }
 
@@ -557,7 +692,7 @@ impl SimpleCase {
     ) -> Self {
         let expected = Arc::new(ExpectedStdout::new(Some(expected), Match::default()));
         Self {
-            path: Arc::default(),
+            name: Arc::default(),
             input: Arc::new(input.to_owned()),
             expected,
             timelimit: timelimit.into(),
@@ -578,18 +713,13 @@ impl SimpleCase {
         };
         let expected = Arc::new(ExpectedStdout::new(Some(expected), output_match));
         Self {
-            path: Arc::default(),
+            name: Arc::default(),
             input: Arc::new(input.to_owned()),
             expected,
             timelimit: timelimit.into(),
         }
     }
 
-    /// # Example
-    ///
-    /// ```no-run
-    /// let (input, expected, timelimit) = self.values()
-    /// ```
     pub fn values(&self) -> (Arc<String>, Arc<ExpectedStdout>, Option<Duration>) {
         let timelimit = self.timelimit.map(Duration::from_millis);
         (self.input.clone(), self.expected.clone(), timelimit)
@@ -667,15 +797,15 @@ impl Default for Match {
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct InteractiveCase {
+    name: Arc<String>,
+    timelimit: Option<Duration>,
     tester: Arc<JudgingCommand>,
     tester_compilation: Option<Arc<CompilationCommand>>,
-    timelimit: Option<Duration>,
-    path: Arc<PathBuf>,
 }
 
 impl TestCase for InteractiveCase {
-    fn path(&self) -> Arc<PathBuf> {
-        self.path.clone()
+    fn name(&self) -> Arc<String> {
+        self.name.clone()
     }
 }
 

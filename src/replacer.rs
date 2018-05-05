@@ -1,37 +1,23 @@
 use errors::{CodeReplaceErrorKind, CodeReplaceResult};
 use template::StringTemplate;
+use util;
 
 use regex::Regex;
-use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
 
-use std::{self, str};
+use std::str;
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::hash::Hash;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct CodeReplacer {
-    #[serde(serialize_with = "ser_regex", deserialize_with = "de_regex")]
+    #[serde(serialize_with = "util::serde::serialize_regex",
+            deserialize_with = "util::serde::deserialize_regex")]
     regex: Regex,
-    regex_group: usize,
+    match_group: usize,
     local: StringTemplate,
     submit: StringTemplate,
     all_matched: bool,
-}
-
-fn ser_regex<S: Serializer>(regex: &Regex, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-    format!("/{}/", regex).serialize(serializer)
-}
-
-fn de_regex<'de, D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Regex, D::Error> {
-    let regex = String::deserialize(deserializer)?;
-    let regex = if regex.starts_with('/') && regex.ends_with('/') {
-        let n = regex.len();
-        unsafe { str::from_utf8_unchecked(&regex.as_bytes()[1..n - 1]) }
-    } else {
-        &regex
-    };
-    Regex::new(&regex).map_err(serde::de::Error::custom)
 }
 
 impl CodeReplacer {
@@ -49,7 +35,7 @@ impl CodeReplacer {
         let submit = self.submit.embed_strings(strings);
         Self {
             regex: self.regex.clone(),
-            regex_group: self.regex_group,
+            match_group: self.match_group,
             local,
             submit,
             all_matched: self.all_matched,
@@ -72,7 +58,7 @@ impl CodeReplacer {
         for line in code.lines() {
             if self.all_matched || !replaced_p {
                 if let Some(caps) = self.regex.captures(line) {
-                    if let Some(m) = caps.get(self.regex_group) {
+                    if let Some(m) = caps.get(self.match_group) {
                         if m.as_str() == from {
                             let mut r = line.as_bytes()[..m.start()].to_owned();
                             r.extend(to.as_bytes());
@@ -83,7 +69,7 @@ impl CodeReplacer {
                         }
                     } else {
                         bail!(CodeReplaceErrorKind::RegexGroupOutOfBounds(
-                            self.regex_group
+                            self.match_group
                         ));
                     }
                 }
@@ -138,10 +124,10 @@ object Main {
 object Foo {}
 "#;
 
-        fn code_replacer(regex_group: usize) -> CodeReplacer {
+        fn code_replacer(match_group: usize) -> CodeReplacer {
             CodeReplacer {
                 regex: Regex::new(r"^object\s+([A-Z][a-zA-Z0-9_]*).*$").unwrap(),
-                regex_group,
+                match_group,
                 local: StringTemplate::from_static_str("{Camel}"),
                 submit: StringTemplate::from_static_str("Main"),
                 all_matched: false,

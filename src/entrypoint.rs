@@ -2,7 +2,7 @@ use {util, ServiceName};
 use config::{self, Config};
 use judging::{self, JudgeProp};
 use service::{atcoder, hackerrank, DownloadProp, InitProp, RestoreProp, SubmitProp};
-use testsuite::{self, SuiteFileExtension, SuiteFilePath};
+use testsuite::{self, SerializableExtension, SuiteFilePath};
 
 use httpsession::ColorMode;
 
@@ -118,7 +118,7 @@ pub enum Opt {
         target: String,
         #[structopt(name = "extension", help = "Extension",
                     raw(possible_values = r#"&["json", "toml", "yaml", "yml"]"#))]
-        extension: SuiteFileExtension,
+        extension: SerializableExtension,
         #[structopt(name = "input", help = "\"input\" value to append")]
         input: String,
         #[structopt(name = "output", help = "\"expected\" value to append")]
@@ -279,16 +279,15 @@ impl Opt {
                 info!("Running \"submit\" command");
                 let config = Config::load_from_file(service, contest, &prop.working_dir)?;
                 let init_prop = prop.init_prop(config.service());
-                let judge_prop = JudgeProp::new(&config, &target, language)?;
                 let submit_prop = SubmitProp::new(
                     &config,
-                    target,
+                    target.clone(),
                     language,
                     open_browser,
                     skip_checking_duplication,
                 )?;
                 if !skip_judging {
-                    judging::judge(judge_prop)?;
+                    judging::judge(JudgeProp::new(&config, &target, language)?)?;
                     println!();
                 }
                 match config.service() {

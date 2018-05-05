@@ -7,7 +7,7 @@ use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as 
 use replacer::CodeReplacer;
 use template::{BaseDirSome, PathTemplate};
 use terminal::Color;
-use testsuite::SuiteFileExtension;
+use testsuite::SerializableExtension;
 
 use {rpassword, rprompt, webbrowser};
 use futures::{executor, future, task, Async, Future, Poll};
@@ -268,7 +268,7 @@ impl<'a> Contest for &'a str {
 pub(crate) struct DownloadProp<C: Contest> {
     contest: C,
     download_dir: PathBuf,
-    extension: SuiteFileExtension,
+    extension: SerializableExtension,
     open_browser: bool,
 }
 
@@ -276,7 +276,7 @@ impl<'a> DownloadProp<&'a str> {
     pub fn new(config: &'a Config, open_browser: bool) -> ::Result<Self> {
         let contest = config.contest();
         let download_dir = config.testfiles_dir().expand("")?;
-        let extension = config.extension_on_download();
+        let extension = config.extension_on_scrape();
         Ok(Self {
             contest,
             download_dir,
@@ -296,7 +296,7 @@ impl<'a> DownloadProp<&'a str> {
 }
 
 impl<C: Contest> DownloadProp<C> {
-    pub(self) fn values(&self) -> (&C, &Path, SuiteFileExtension, bool) {
+    pub(self) fn values(&self) -> (&C, &Path, SerializableExtension, bool) {
         (
             &self.contest,
             &self.download_dir,
