@@ -1,9 +1,9 @@
-use errors::{FileIoError, FileIoErrorKind, FileIoResult, FileIoResultExt};
+use errors::{FileIoErrorKind, FileIoResult, FileIoResultExt};
 
-use std::{self, env};
+use std;
 use std::fs::{File, ReadDir};
 use std::io::Write as _Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Calls `std::fs::create_dir_all` chaining a `FileIoError`.
 pub(crate) fn create_dir_all(dir: &Path) -> FileIoResult<()> {
@@ -43,18 +43,4 @@ pub(crate) fn string_from_path(path: &Path) -> FileIoResult<String> {
     let file = open(path)?;
     let len = file.metadata().map(|m| m.len() as usize).unwrap_or(0);
     super::string_from_read(file, len).map_err(Into::into)
-}
-
-/// Returns `~/<names>` as `io::Result`.
-///
-/// # Errors
-///
-/// Returns `Err` IFF a home directory not found.
-pub(crate) fn join_from_home(names: &[&str]) -> FileIoResult<PathBuf> {
-    let home_dir =
-        env::home_dir().ok_or_else::<FileIoError, _>(|| FileIoErrorKind::HomeDirNotFound.into())?;
-    Ok(names.iter().fold(home_dir, |mut path, name| {
-        path.push(name);
-        path
-    }))
 }

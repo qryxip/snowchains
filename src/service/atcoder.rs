@@ -1,5 +1,5 @@
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
-use service::{Contest, DownloadProp, InitProp, OpenInBrowser, RestoreProp, SubmitProp};
+use service::{Contest, DownloadProp, OpenInBrowser, RestoreProp, SessionProp, SubmitProp};
 use terminal::Color;
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
@@ -14,34 +14,38 @@ use std::{fmt, vec};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use std::ops::{Deref, DerefMut};
+use std::time::Duration;
 
 /// Logins to "beta.atcoder.jp".
-pub(crate) fn login(init_prop: &InitProp) -> ServiceResult<()> {
-    AtCoder::start(init_prop)?.login_if_not(true)
+pub(crate) fn login(sess_prop: &SessionProp) -> ServiceResult<()> {
+    AtCoder::start(sess_prop)?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
-pub(crate) fn participate(contest_name: &str, init_prop: &InitProp) -> ServiceResult<()> {
-    AtCoder::start(init_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
+pub(crate) fn participate(contest_name: &str, sess_prop: &SessionProp) -> ServiceResult<()> {
+    AtCoder::start(sess_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
 pub(crate) fn download(
-    init_prop: &InitProp,
+    sess_prop: &SessionProp,
     download_prop: DownloadProp<&str>,
 ) -> ServiceResult<()> {
-    AtCoder::start(init_prop)?.download(&download_prop.transform())
+    AtCoder::start(sess_prop)?.download(&download_prop.transform())
 }
 
 /// Downloads submitted source codes.
-pub(crate) fn restore(init_prop: &InitProp, restore_prop: RestoreProp<&str>) -> ServiceResult<()> {
-    AtCoder::start(init_prop)?.restore(&restore_prop.transform())
+pub(crate) fn restore(
+    sess_prop: &SessionProp,
+    restore_prop: RestoreProp<&str>,
+) -> ServiceResult<()> {
+    AtCoder::start(sess_prop)?.restore(&restore_prop.transform())
 }
 
 /// Submits a source code.
-pub(crate) fn submit(init_prop: &InitProp, submit_prop: SubmitProp<&str>) -> ServiceResult<()> {
-    AtCoder::start(init_prop)?.submit(&submit_prop.transform())
+pub(crate) fn submit(sess_prop: &SessionProp, submit_prop: SubmitProp<&str>) -> ServiceResult<()> {
+    AtCoder::start(sess_prop)?.submit(&submit_prop.transform())
 }
 
 pub(self) struct AtCoder {
@@ -65,11 +69,11 @@ impl DerefMut for AtCoder {
 }
 
 impl AtCoder {
-    fn start(init_prop: &InitProp) -> ServiceResult<Self> {
-        let session = init_prop.start_session("beta.atcoder.jp")?;
+    fn start(sess_prop: &SessionProp) -> ServiceResult<Self> {
+        let session = sess_prop.start_session()?;
         Ok(Self {
             session,
-            credentials: init_prop.credentials(),
+            credentials: sess_prop.credentials(),
         })
     }
 
@@ -659,7 +663,7 @@ pub(self) fn extract_as_suite<R: Read>(
         }
     }
 
-    fn extract_timelimit_as_millis(document: &Document) -> Option<u64> {
+    fn extract_timelimit(document: &Document) -> Option<Duration> {
         lazy_static! {
             static ref TIMELIMIT: Regex = Regex::new(r"\A\D*(\d+)\s*(m)?sec.*\z").unwrap();
         }
@@ -679,13 +683,13 @@ pub(self) fn extract_as_suite<R: Read>(
             "Extracting timelimit: Successfully extracted: {}ms",
             timelimit
         );
-        Some(timelimit)
+        Some(Duration::from_millis(timelimit))
     }
 
     let document = Document::from_read(html)?;
-    let timelimit = extract_timelimit_as_millis(&document)
+    let timelimit = extract_timelimit(&document)
         .ok_or_else::<ServiceError, _>(|| ServiceErrorKind::Scrape.into())?;
-    if timelimit == 0 {
+    if timelimit == Duration::from_millis(0) {
         return Ok(TestSuite::Unsubmittable);
     }
     match extract_samples(&document, contest) {
@@ -1154,6 +1158,7 @@ mod tests {
             assert_eq!(expected_name, actual_name);
             assert_eq!(expected_url, actual_url);
             let problem_page = atcoder.get(&actual_url).unwrap();
+            let expected_timelimit = Duration::from_millis(expected_timelimit);
             let expected_suite =
                 TestSuite::simple(expected_timelimit, None, None, own_pairs(expected_samples));
             let actual_suite = super::extract_as_suite(problem_page, &contest).unwrap();

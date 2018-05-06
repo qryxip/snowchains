@@ -1,5 +1,5 @@
 use errors::ServiceResult;
-use service::{DownloadProp, DownloadZips, OpenInBrowser};
+use service::{DownloadProp, DownloadZips, OpenInBrowser, SessionProp};
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
 
@@ -14,12 +14,12 @@ use zip::result::ZipResult;
 
 use std::io::{self, Read, Seek};
 
-pub(crate) fn login() -> ServiceResult<()> {
-    HackerRank::start(true).map(|_| ())
+pub(crate) fn login(sess_prop: &SessionProp) -> ServiceResult<()> {
+    HackerRank::start(sess_prop, true).map(|_| ())
 }
 
-pub(crate) fn download(prop: &DownloadProp<&str>) -> ServiceResult<()> {
-    HackerRank::start(false)?.download(prop)
+pub(crate) fn download(sess_prop: &SessionProp, prop: &DownloadProp<&str>) -> ServiceResult<()> {
+    HackerRank::start(sess_prop, false)?.download(prop)
 }
 
 custom_derive! {
@@ -28,10 +28,11 @@ custom_derive! {
 }
 
 impl HackerRank {
-    fn start(prints_message_when_already_logged_in: bool) -> ServiceResult<Self> {
-        let cookie_path =
-            util::fs::join_from_home(&[".local", "share", "snowchains", "hackerrank"])?;
-        let mut hackerrank = HackerRank(super::start_session("www.hackerrank.com", cookie_path)?);
+    fn start(
+        sess_prop: &SessionProp,
+        prints_message_when_already_logged_in: bool,
+    ) -> ServiceResult<Self> {
+        let mut hackerrank = HackerRank(sess_prop.start_session()?);
         let mut response = hackerrank.get_expecting("/login", &[200, 302])?;
         if response.status().as_u16() == 302 && prints_message_when_already_logged_in {
             eprintln!("Already signed in.");

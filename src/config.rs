@@ -2,9 +2,10 @@ use ServiceName;
 use command::{CompilationCommand, JudgingCommand};
 use errors::{ConfigError, ConfigErrorKind, ConfigResult, FileIoErrorKind, FileIoResult};
 use replacer::CodeReplacer;
+use service::SessionConfig;
 use template::{BaseDirNone, BaseDirSome, CommandTemplate, CompilationTemplate, JudgeTemplate,
                PathTemplate, StringTemplate};
-use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipProp};
+use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipConfig};
 use util;
 
 use {rprompt, serde_yaml};
@@ -45,6 +46,9 @@ pub(crate) fn init(directory: &Path, default_lang: Option<&'static str>) -> File
         r#"---
 service: atcoder
 contest: arc001
+
+session:
+  timeout: 10
 
 shell: {shell}
 
@@ -299,6 +303,7 @@ pub(crate) struct Config {
     #[serde(default)]
     service: ServiceName,
     contest: String,
+    session: SessionConfig,
     shell: Vec<StringTemplate>,
     testfiles: TestFiles,
     #[serde(default)]
@@ -335,6 +340,11 @@ impl Config {
     /// Gets `contest`.
     pub fn contest(&self) -> &str {
         &self.contest
+    }
+
+    /// Gets `session`.
+    pub fn session(&self) -> &SessionConfig {
+        &self.session
     }
 
     /// Gets `testfiles/directory` as a `PathTemplate<BaseDirSome>`.
@@ -510,7 +520,7 @@ struct TestFiles {
     directory: PathTemplate<BaseDirNone>,
     forall: BTreeSet<SuiteFileExtension>,
     scrape: SerializableExtension,
-    zip: ZipProp,
+    zip: ZipConfig,
 }
 
 #[derive(Serialize, Deserialize)]

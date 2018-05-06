@@ -1,14 +1,13 @@
-use {util, ServiceName};
+use ServiceName;
 use config::{self, Config};
 use judging::{self, JudgeProp};
-use service::{atcoder, hackerrank, DownloadProp, InitProp, RestoreProp, SubmitProp};
+use service::{atcoder, hackerrank, DownloadProp, RestoreProp, SessionProp, SubmitProp};
 use testsuite::{self, SerializableExtension, SuiteFilePath};
 
 use httpsession::ColorMode;
 
 use std::env;
 use std::path::PathBuf;
-use std::time::Duration;
 
 #[derive(StructOpt)]
 #[structopt(usage = "snowchains <i|init> [directory]\n    \
@@ -200,18 +199,20 @@ impl Opt {
             }
             Opt::Login { service } => {
                 info!("Running \"login\" command");
-                let init_prop = prop.init_prop(service);
+                let config = Config::load_from_file(None, None, &prop.working_dir).ok();
+                let sess_prop = prop.sess_prop(service, config.as_ref());
                 match service {
-                    ServiceName::AtCoder => atcoder::login(&init_prop),
-                    ServiceName::HackerRank => hackerrank::login(),
+                    ServiceName::AtCoder => atcoder::login(&sess_prop),
+                    ServiceName::HackerRank => hackerrank::login(&sess_prop),
                     ServiceName::Other => unreachable!(),
                 }?;
             }
             Opt::Participate { service, contest } => {
                 info!("Running \"participate\" command");
-                let init_prop = prop.init_prop(service);
+                let config = Config::load_from_file(None, None, &prop.working_dir).ok();
+                let sess_prop = prop.sess_prop(service, config.as_ref());
                 match service {
-                    ServiceName::AtCoder => atcoder::participate(&contest, &init_prop),
+                    ServiceName::AtCoder => atcoder::participate(&contest, &sess_prop),
                     _ => unreachable!(),
                 }?;
             }
@@ -222,21 +223,21 @@ impl Opt {
             } => {
                 info!("Running \"download\" command");
                 let config = Config::load_from_file(service, contest, &prop.working_dir)?;
-                let init_prop = prop.init_prop(config.service());
+                let sess_prop = prop.sess_prop(config.service(), &config);
                 let download_prop = DownloadProp::new(&config, open_browser)?;
                 match config.service() {
-                    ServiceName::AtCoder => atcoder::download(&init_prop, download_prop),
-                    ServiceName::HackerRank => hackerrank::download(&download_prop),
+                    ServiceName::AtCoder => atcoder::download(&sess_prop, download_prop),
+                    ServiceName::HackerRank => hackerrank::download(&sess_prop, &download_prop),
                     ServiceName::Other => bail!(::ErrorKind::Unimplemented),
                 }?;
             }
             Opt::Restore { service, contest } => {
                 info!("Running \"restore\" command");
                 let config = Config::load_from_file(service, contest, &prop.working_dir)?;
-                let init_prop = prop.init_prop(config.service());
+                let sess_prop = prop.sess_prop(config.service(), &config);
                 let restore_prop = RestoreProp::new(&config)?;
                 match config.service() {
-                    ServiceName::AtCoder => atcoder::restore(&init_prop, restore_prop)?,
+                    ServiceName::AtCoder => atcoder::restore(&sess_prop, restore_prop)?,
                     _ => bail!(::ErrorKind::Unimplemented),
                 };
             }
@@ -278,7 +279,7 @@ impl Opt {
                 let language = language.as_ref().map(String::as_str);
                 info!("Running \"submit\" command");
                 let config = Config::load_from_file(service, contest, &prop.working_dir)?;
-                let init_prop = prop.init_prop(config.service());
+                let sess_prop = prop.sess_prop(config.service(), &config);
                 let submit_prop = SubmitProp::new(
                     &config,
                     target.clone(),
@@ -291,7 +292,7 @@ impl Opt {
                     println!();
                 }
                 match config.service() {
-                    ServiceName::AtCoder => atcoder::submit(&init_prop, submit_prop)?,
+                    ServiceName::AtCoder => atcoder::submit(&sess_prop, submit_prop)?,
                     _ => bail!(::ErrorKind::Unimplemented),
                 };
             }
@@ -305,30 +306,37 @@ pub struct Prop {
     pub default_lang_on_init: Option<&'static str>,
     pub cookie_dir: PathBuf,
     pub color_mode: ColorMode,
-    pub timeout: Option<Duration>,
     pub credentials: Option<(String, String)>,
 }
 
 impl Prop {
     pub fn new() -> ::Result<Self> {
         let working_dir = env::current_dir()?;
-        let cookie_dir = util::fs::join_from_home(&[".local", "share", "snowchains"])?;
+        let cookie_dir = env::home_dir()
+            .ok_or_else(|| ::Error::from(::ErrorKind::HomeDirNotFound))?
+            .join(".local")
+            .join("share")
+            .join("snowchains");
         Ok(Self {
             working_dir,
             default_lang_on_init: None,
             cookie_dir,
             color_mode: ColorMode::Prefer256,
-            timeout: Some(Duration::from_secs(20)),
             credentials: None,
         })
     }
 
-    fn init_prop(&self, service: ServiceName) -> InitProp {
-        InitProp::new(
+    fn sess_prop<'a, C: Into<Option<&'a Config>>>(
+        &self,
+        service: ServiceName,
+        config: C,
+    ) -> SessionProp {
+        SessionProp::new(
+            service.domain(),
             self.cookie_dir.join(service.as_str()),
             self.color_mode,
-            self.timeout,
             self.credentials.clone(),
+            config.into().map(Config::session),
         )
     }
 }

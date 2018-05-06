@@ -1,9 +1,9 @@
 pub(crate) mod atcoder;
 pub(crate) mod hackerrank;
 
-use ServiceName;
+use {util, ServiceName};
 use config::Config;
-use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as _SericeResultExt};
+use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as _ServiceResultExt};
 use replacer::CodeReplacer;
 use template::{BaseDirSome, PathTemplate};
 use terminal::Color;
@@ -22,24 +22,6 @@ use std::collections::BTreeMap;
 use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-
-/// Constructs a `HttpSession`.
-pub(self) fn start_session(
-    domain: &'static str,
-    cookie_path: PathBuf,
-) -> ServiceResult<HttpSession> {
-    HttpSession::builder()
-        .base(domain, true, None)
-        .cookie_store(CookieStoreOption::AutoSave(cookie_path))
-        .echo_actions(ColorMode::Prefer256.disable_on("NO_COLOR"))
-        .timeout(Duration::from_secs(20))
-        .redirect(RedirectPolicy::none())
-        .default_header(UserAgent::new(
-            "snowchains <https://github.com/wariuni/snowchains>",
-        ))
-        .with_robots_txt()
-        .chain_err(|| ServiceError::from(ServiceErrorKind::HttpSessionStart))
-}
 
 /// Reads username and password from stdin, showing the prompts on stderr.
 ///
@@ -215,24 +197,33 @@ impl Future for Downloading {
     }
 }
 
-pub(crate) struct InitProp {
+#[derive(Default, Serialize, Deserialize)]
+pub(crate) struct SessionConfig {
+    #[serde(serialize_with = "util::ser::secs", deserialize_with = "util::de::non_zero_secs")]
+    timeout: Option<Duration>,
+}
+
+pub(crate) struct SessionProp {
+    domain: Option<&'static str>,
     cookie_path: PathBuf,
     color_mode: ColorMode,
     timeout: Option<Duration>,
     credentials: Option<(String, String)>,
 }
 
-impl InitProp {
-    pub fn new<T: Into<Option<Duration>>, C: Into<Option<(String, String)>>>(
+impl SessionProp {
+    pub fn new<C: Into<Option<(String, String)>>>(
+        domain: Option<&'static str>,
         cookie_path: PathBuf,
         color_mode: ColorMode,
-        timeout: T,
         credentials: C,
+        sess_conf: Option<&SessionConfig>,
     ) -> Self {
         Self {
+            domain,
             cookie_path,
             color_mode,
-            timeout: timeout.into(),
+            timeout: sess_conf.and_then(|c| c.timeout),
             credentials: credentials.into(),
         }
     }
@@ -241,17 +232,19 @@ impl InitProp {
         self.credentials.clone()
     }
 
-    pub(self) fn start_session(&self, domain: &'static str) -> ServiceResult<HttpSession> {
-        static UA: &str = "snowchains <https://github.com/wariuni/snowchains>";
-        HttpSession::builder()
-            .base(domain, true, None)
+    pub(self) fn start_session(&self) -> ServiceResult<HttpSession> {
+        static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
+        let builder = HttpSession::builder()
             .cookie_store(CookieStoreOption::AutoSave(self.cookie_path.clone()))
             .echo_actions(self.color_mode)
             .timeout(self.timeout)
             .redirect(RedirectPolicy::none())
-            .default_header(UserAgent::new(UA))
-            .with_robots_txt()
-            .chain_err(|| ServiceError::from(ServiceErrorKind::HttpSessionStart))
+            .default_header(UserAgent::new(USER_AGENT));
+        if let Some(domain) = self.domain {
+            builder.base(domain, true, None).with_robots_txt()
+        } else {
+            builder.build()
+        }.chain_err(|| ServiceError::from(ServiceErrorKind::HttpSessionStart))
     }
 }
 

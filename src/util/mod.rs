@@ -1,5 +1,8 @@
 pub mod fs;
-pub mod serde;
+
+pub(crate) mod de;
+pub(crate) mod ser;
+pub(crate) mod yaml;
 
 use std::borrow::Cow;
 use std::io::{self, Read};

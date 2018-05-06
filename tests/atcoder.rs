@@ -8,9 +8,8 @@ extern crate httpsession;
 extern crate serde_yaml;
 extern crate tempdir;
 
-use snowchains::{util, ServiceName};
+use snowchains::{terminal, util, ServiceName};
 use snowchains::entrypoint::{Opt, Prop};
-use snowchains::terminal;
 
 use httpsession::ColorMode;
 use tempdir::TempDir;
@@ -19,7 +18,6 @@ use std::env;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 #[test]
 #[ignore]
@@ -175,7 +173,6 @@ fn setup(tempdir_prefix: &str, credentials: Credentials) -> (TempDir, Prop) {
         default_lang_on_init: Some("python3"),
         cookie_dir: tempdir.path().to_owned(),
         color_mode: ColorMode::NoColor,
-        timeout: Some(Duration::from_secs(10)),
         credentials,
     };
     Opt::Init {

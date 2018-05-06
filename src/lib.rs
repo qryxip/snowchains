@@ -62,7 +62,7 @@ mod service;
 mod template;
 mod testsuite;
 
-pub use errors::{ErrorKind, Result};
+pub use errors::{Error, ErrorKind, Result};
 
 use std::fmt;
 use std::str::FromStr;
@@ -101,11 +101,19 @@ impl FromStr for ServiceName {
 }
 
 impl ServiceName {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             ServiceName::AtCoder => "atcoder",
             ServiceName::HackerRank => "hackerrank",
             ServiceName::Other => "other",
+        }
+    }
+
+    pub(crate) fn domain(self) -> Option<&'static str> {
+        match self {
+            ServiceName::AtCoder => Some("beta.atcoder.jp"),
+            ServiceName::HackerRank => Some("www.hackerrank.com"),
+            ServiceName::Other => None,
         }
     }
 }

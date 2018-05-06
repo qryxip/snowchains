@@ -125,14 +125,14 @@ impl fmt::Display for SuiteFileExtension {
 pub(crate) struct SuiteFilePathsTemplate<'a> {
     directory: PathTemplate<BaseDirSome<'a>>,
     extensions: &'a BTreeSet<SuiteFileExtension>,
-    zip: &'a ZipProp,
+    zip: &'a ZipConfig,
 }
 
 impl<'a> SuiteFilePathsTemplate<'a> {
     pub fn new(
         directory: PathTemplate<BaseDirSome<'a>>,
         extensions: &'a BTreeSet<SuiteFileExtension>,
-        zip: &'a ZipProp,
+        zip: &'a ZipConfig,
     ) -> Self {
         Self {
             directory,
@@ -228,14 +228,16 @@ impl<'a> SuiteFilePath {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(crate) struct ZipProp {
-    timelimit: Option<u64>,
+pub(crate) struct ZipConfig {
+    #[serde(serialize_with = "util::ser::millis", deserialize_with = "util::de::millis",
+            skip_serializing_if = "Option::is_none")]
+    timelimit: Option<Duration>,
     #[serde(rename = "match")]
     output_match: Match,
     entries: Vec<ZipEntries>,
 }
 
-impl ZipProp {
+impl ZipConfig {
     fn load(&self, filename: &str, dir: &Path) -> SuiteFileResult<Vec<SimpleCase>> {
         let (timelimit, output_match) = (self.timelimit, self.output_match);
         let mut r = vec![];
@@ -260,7 +262,7 @@ impl ZipEntries {
         &self,
         path: &Path,
         filename: &str,
-        timelimit: Option<u64>,
+        timelimit: Option<Duration>,
         output_match: Match,
     ) -> SuiteFileResult<Vec<SimpleCase>> {
         if !path.exists() {
@@ -349,8 +351,8 @@ enum ZipEntrySorting {
 
 #[derive(Serialize, Deserialize)]
 struct ZipEntry {
-    #[serde(serialize_with = "util::serde::serialize_regex",
-            deserialize_with = "util::serde::deserialize_regex")]
+    #[serde(serialize_with = "util::yaml::serialize_regex",
+            deserialize_with = "util::yaml::deserialize_regex")]
     entry: Regex,
     match_group: usize,
 }
@@ -369,7 +371,7 @@ impl TestSuite {
     /// Constructs a `TestSuite::Simple` with `timelimit` and `samples`.
     ///
     /// Make sure the order is (<outout>, <inout>).
-    pub fn simple<T: Into<Option<u64>>>(
+    pub fn simple<T: Into<Option<Duration>>>(
         timelimit: T,
         absolute_error: Option<f64>,
         relative_error: Option<f64>,
@@ -384,7 +386,7 @@ impl TestSuite {
     }
 
     /// Constructs a `TestSuite::Interactive` with `timelimit`.
-    pub fn interactive(timelimit: u64) -> Self {
+    pub fn interactive(timelimit: Duration) -> Self {
         TestSuite::Interactive(InteractiveSuite::empty(Some(timelimit)))
     }
 
@@ -443,7 +445,7 @@ impl TestSuite {
 #[derive(Clone, Default)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct SimpleSuite {
-    timelimit: Option<u64>,
+    timelimit: Option<Duration>,
     output_match: Match,
     cases: Vec<(Arc<String>, Option<Arc<String>>)>,
     raw_cases: Option<Vec<SimpleCaseRaw>>,
@@ -451,7 +453,7 @@ pub(crate) struct SimpleSuite {
 
 impl SimpleSuite {
     fn from_samples<S: IntoIterator<Item = (String, String)>>(
-        timelimit: Option<u64>,
+        timelimit: Option<Duration>,
         absolute_error: Option<f64>,
         relative_error: Option<f64>,
         samples: S,
@@ -556,8 +558,9 @@ impl<'de> Deserialize<'de> for SimpleSuite {
 
 #[derive(Serialize, Deserialize)]
 struct SimpleSuiteRaw {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    timelimit: Option<u64>,
+    #[serde(serialize_with = "util::ser::millis", deserialize_with = "util::de::millis",
+            skip_serializing_if = "Option::is_none")]
+    timelimit: Option<Duration>,
     #[serde(rename = "match", default)]
     output_match: Match,
     cases: Vec<SimpleCaseRaw>,
@@ -595,13 +598,15 @@ impl fmt::Display for NonArrayValue {
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct InteractiveSuite {
-    timelimit: Option<u64>,
+    #[serde(serialize_with = "util::ser::millis", deserialize_with = "util::de::millis",
+            skip_serializing_if = "Option::is_none")]
+    timelimit: Option<Duration>,
     tester: Option<String>,
     each_args: Vec<Vec<String>>,
 }
 
 impl InteractiveSuite {
-    fn empty(timelimit: Option<u64>) -> Self {
+    fn empty(timelimit: Option<Duration>) -> Self {
         Self {
             timelimit,
             tester: None,
@@ -634,7 +639,7 @@ impl InteractiveSuite {
                 name: Arc::new(format!("{}[{}]", filename, i)),
                 tester: Arc::new(tester),
                 tester_compilation,
-                timelimit: self.timelimit.map(Duration::from_millis),
+                timelimit: self.timelimit,
             });
         }
         Ok(cases.into_iter())
@@ -674,7 +679,7 @@ pub(crate) struct SimpleCase {
     name: Arc<String>,
     input: Arc<String>,
     expected: Arc<ExpectedStdout>,
-    timelimit: Option<u64>,
+    timelimit: Option<Duration>,
 }
 
 impl TestCase for SimpleCase {
@@ -695,7 +700,7 @@ impl SimpleCase {
             name: Arc::default(),
             input: Arc::new(input.to_owned()),
             expected,
-            timelimit: timelimit.into(),
+            timelimit: timelimit.into().map(Duration::from_millis),
         }
     }
 
@@ -716,12 +721,12 @@ impl SimpleCase {
             name: Arc::default(),
             input: Arc::new(input.to_owned()),
             expected,
-            timelimit: timelimit.into(),
+            timelimit: timelimit.into().map(Duration::from_millis),
         }
     }
 
     pub fn values(&self) -> (Arc<String>, Arc<ExpectedStdout>, Option<Duration>) {
-        let timelimit = self.timelimit.map(Duration::from_millis);
+        let timelimit = self.timelimit;
         (self.input.clone(), self.expected.clone(), timelimit)
     }
 }

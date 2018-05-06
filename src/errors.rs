@@ -26,6 +26,11 @@ error_chain!{
             description("Unimplemented")
             display("Sorry, not yet implemented")
         }
+
+        HomeDirNotFound {
+            description("Home directory not found")
+            display("Home directory not found")
+        }
     }
 }
 
@@ -313,11 +318,6 @@ error_chain! {
         Write(path: PathBuf) {
             description("Failed to write data to a file")
             display("Failed to write to {}", path.display())
-        }
-
-        HomeDirNotFound {
-            description("Home directory not found")
-            display("Home directory not found")
         }
     }
 }

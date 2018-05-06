@@ -56,6 +56,9 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 service: atcoder# "atcoder", "hackerrank", "other"
 contest: arc001
 
+session:
+  timeout: 2
+
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
 
 testfiles:

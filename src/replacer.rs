@@ -4,15 +4,15 @@ use util;
 
 use regex::Regex;
 
-use std::str;
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::str;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct CodeReplacer {
-    #[serde(serialize_with = "util::serde::serialize_regex",
-            deserialize_with = "util::serde::deserialize_regex")]
+    #[serde(serialize_with = "util::yaml::serialize_regex",
+            deserialize_with = "util::yaml::deserialize_regex")]
     regex: Regex,
     match_group: usize,
     local: StringTemplate,
