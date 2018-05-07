@@ -40,10 +40,6 @@ extern crate webbrowser;
 extern crate zip;
 
 #[cfg(test)]
-#[macro_use]
-extern crate nickel;
-
-#[cfg(test)]
 extern crate env_logger;
 
 #[macro_use]

@@ -40,5 +40,4 @@ webbrowser = { git = "https://github.com/amodm/webbrowser-rs", rev = "a2620121c9
 zip = "0.3.2"
 
 [dev-dependencies]
-nickel = "0.10.1"
 tempdir = "0.3.7"
