@@ -11,8 +11,10 @@ use std::str;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct CodeReplacer {
-    #[serde(serialize_with = "util::yaml::serialize_regex",
-            deserialize_with = "util::yaml::deserialize_regex")]
+    #[serde(
+        serialize_with = "util::yaml::serialize_regex",
+        deserialize_with = "util::yaml::deserialize_regex"
+    )]
     regex: Regex,
     match_group: usize,
     local: StringTemplate,

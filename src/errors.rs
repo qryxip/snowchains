@@ -1,7 +1,7 @@
-use {httpsession, serde_json, serde_urlencoded, serde_yaml, toml};
 use chrono::{self, DateTime, Local};
 use httpsession::UrlError;
 use zip::result::ZipError;
+use {httpsession, serde_json, serde_urlencoded, serde_yaml, toml};
 
 use std::ffi::OsString;
 use std::io;

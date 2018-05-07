@@ -5,13 +5,12 @@ use template::{BaseDirSome, PathTemplate};
 use terminal::Color;
 use util::{self, ScalarOrArray};
 
-use {serde_json, serde_yaml, toml};
 use itertools::Itertools as _Itertools;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zip::ZipArchive;
+use {serde_json, serde_yaml, toml};
 
-use std::{self, io, vec, f64};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::{self, Write as _Write};
@@ -20,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use std::{self, f64, io, vec};
 
 /// Appends `input` and `output` to a test suite read from `path`.
 pub(crate) fn append(
@@ -229,8 +229,11 @@ impl<'a> SuiteFilePath {
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ZipConfig {
-    #[serde(serialize_with = "util::ser::millis", deserialize_with = "util::de::millis",
-            skip_serializing_if = "Option::is_none")]
+    #[serde(
+        serialize_with = "util::ser::millis",
+        deserialize_with = "util::de::millis",
+        skip_serializing_if = "Option::is_none"
+    )]
     timelimit: Option<Duration>,
     #[serde(rename = "match")]
     output_match: Match,
@@ -351,8 +354,10 @@ enum ZipEntrySorting {
 
 #[derive(Serialize, Deserialize)]
 struct ZipEntry {
-    #[serde(serialize_with = "util::yaml::serialize_regex",
-            deserialize_with = "util::yaml::deserialize_regex")]
+    #[serde(
+        serialize_with = "util::yaml::serialize_regex",
+        deserialize_with = "util::yaml::deserialize_regex"
+    )]
     entry: Regex,
     match_group: usize,
 }
@@ -558,8 +563,11 @@ impl<'de> Deserialize<'de> for SimpleSuite {
 
 #[derive(Serialize, Deserialize)]
 struct SimpleSuiteRaw {
-    #[serde(serialize_with = "util::ser::millis", deserialize_with = "util::de::millis",
-            skip_serializing_if = "Option::is_none")]
+    #[serde(
+        serialize_with = "util::ser::millis",
+        deserialize_with = "util::de::millis",
+        skip_serializing_if = "Option::is_none"
+    )]
     timelimit: Option<Duration>,
     #[serde(rename = "match", default)]
     output_match: Match,
@@ -598,8 +606,11 @@ impl fmt::Display for NonArrayValue {
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct InteractiveSuite {
-    #[serde(serialize_with = "util::ser::millis", deserialize_with = "util::de::millis",
-            skip_serializing_if = "Option::is_none")]
+    #[serde(
+        serialize_with = "util::ser::millis",
+        deserialize_with = "util::de::millis",
+        skip_serializing_if = "Option::is_none"
+    )]
     timelimit: Option<Duration>,
     tester: Option<String>,
     each_args: Vec<Vec<String>>,

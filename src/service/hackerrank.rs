@@ -3,14 +3,14 @@ use service::{Credentials, DownloadProp, DownloadZips, OpenInBrowser, SessionPro
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
 
-use httpsession::{HttpSession, Response};
 use httpsession::header::Headers;
+use httpsession::{HttpSession, Response};
 use regex::Regex;
 use select::document::Document;
 use select::predicate::Attr;
 use serde_json;
-use zip::ZipArchive;
 use zip::result::ZipResult;
+use zip::ZipArchive;
 
 use std::io::{self, Read, Seek};
 

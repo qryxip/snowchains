@@ -2,11 +2,12 @@ use command::{CompilationCommand, JudgingCommand};
 use errors::{TemplateExpandErrorKind, TemplateExpandResult, TemplateExpandResultExt};
 
 use combine::Parser;
-use heck::{CamelCase as _CamelCase, KebabCase as _KebabCase, MixedCase as _MixedCase,
-           ShoutySnakeCase as _ShoutySnakeCase, SnakeCase as _SnakeCase, TitleCase as _TitleCase};
+use heck::{
+    CamelCase as _CamelCase, KebabCase as _KebabCase, MixedCase as _MixedCase,
+    ShoutySnakeCase as _ShoutySnakeCase, SnakeCase as _SnakeCase, TitleCase as _TitleCase,
+};
 use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
 
-use std::{self, env, fmt};
 use std::borrow::Borrow;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -15,6 +16,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::{self, env, fmt};
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Serialize, Deserialize)]
@@ -449,8 +451,8 @@ impl FromStr for Template {
     type Err = TemplateParseError;
 
     fn from_str(input: &str) -> TemplateParseResult<Self> {
-        use combine::{choice, eof, many, satisfy, try, many1};
         use combine::char::{alpha_num, char, letter, spaces, string};
+        use combine::{choice, eof, many, many1, satisfy, try};
         let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Text);
         let escaped =
             |f: &'static str, t: &'static str| string(f).map(move |_| Token::Text(t.to_owned()));
@@ -579,20 +581,21 @@ impl fmt::Display for TemplateParseError {
 #[cfg(test)]
 mod tests {
     use command::CompilationCommand;
-    use template::{BaseDirNone, CommandTemplate, CommandTemplateInner, PathTemplate,
-                   StringTemplate, Template};
+    use template::{
+        BaseDirNone, CommandTemplate, CommandTemplateInner, PathTemplate, StringTemplate, Template,
+    };
 
     use serde_json;
 
-    use std::{env, panic};
     use std::ffi::OsStr;
     use std::path::{Path, PathBuf};
+    use std::{env, panic};
 
     macro_rules! test {
-        ($input: expr => !) => {
+        ($input:expr => !) => {
             panic::catch_unwind(move || process_input($input)).unwrap_err()
         };
-        ($input: expr => $expected: expr) => {
+        ($input:expr => $expected:expr) => {
             assert_eq!(process_expected($expected), process_input($input))
         };
     }

@@ -1,27 +1,29 @@
-use ServiceName;
 use command::{CompilationCommand, JudgingCommand};
 use errors::{ConfigError, ConfigErrorKind, ConfigResult, FileIoErrorKind, FileIoResult};
 use replacer::CodeReplacer;
 use service::SessionConfig;
-use template::{BaseDirNone, BaseDirSome, CommandTemplate, CompilationTemplate, JudgeTemplate,
-               PathTemplate, StringTemplate};
+use template::{
+    BaseDirNone, BaseDirSome, CommandTemplate, CompilationTemplate, JudgeTemplate, PathTemplate,
+    StringTemplate,
+};
 use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipConfig};
 use util;
+use ServiceName;
 
-use {rprompt, serde_yaml};
 use regex::Regex;
+use {rprompt, serde_yaml};
 
-use std::{cmp, io, str};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::{cmp, io, str};
 
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
 pub(crate) fn init(directory: &Path, default_lang: Option<&'static str>) -> FileIoResult<()> {
     const LANGS: [&str; 8] = [
-        "c++", "rust", "haskell", "bash", "python3", "java", "scala", "c#"
+        "c++", "rust", "haskell", "bash", "python3", "java", "scala", "c#",
     ];
 
     let ask_lang = || -> io::Result<Cow<'static, str>> {

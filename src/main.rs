@@ -5,8 +5,8 @@ extern crate env_logger;
 extern crate error_chain;
 extern crate structopt;
 
-use snowchains::{Opt, Prop};
 use snowchains::terminal::Color;
+use snowchains::{Opt, Prop};
 
 use structopt::StructOpt as _StructOpt;
 

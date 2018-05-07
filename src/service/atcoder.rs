@@ -1,6 +1,7 @@
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
-use service::{Contest, Credentials, DownloadProp, OpenInBrowser, RestoreProp, SessionProp,
-              SubmitProp};
+use service::{
+    Contest, Credentials, DownloadProp, OpenInBrowser, RestoreProp, SessionProp, SubmitProp,
+};
 use terminal::Color;
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
@@ -11,11 +12,11 @@ use regex::Regex;
 use select::document::Document;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
 
-use std::{fmt, vec};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
+use std::{fmt, vec};
 
 /// Logins to "beta.atcoder.jp".
 pub(crate) fn login(sess_prop: &SessionProp) -> ServiceResult<()> {
@@ -833,13 +834,13 @@ fn find_lang_id(document: &Document, lang_name: &str) -> ServiceResult<u32> {
 
 #[cfg(test)]
 mod tests {
-    use service::{Contest, Credentials};
     use service::atcoder::{AtCoder, AtcoderContest};
+    use service::{Contest, Credentials};
     use testsuite::TestSuite;
 
     use env_logger;
-    use httpsession::{self, HttpSession, RedirectPolicy};
     use httpsession::header::UserAgent;
+    use httpsession::{self, HttpSession, RedirectPolicy};
 
     use std::borrow::Borrow;
     use std::time::Duration;

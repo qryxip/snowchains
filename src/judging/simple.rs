@@ -5,11 +5,11 @@ use terminal::Color;
 use testsuite::{ExpectedStdout, SimpleCase};
 use util;
 
-use std::{self, fmt, thread};
 use std::io::Write as _Write;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{self, fmt, thread};
 
 /// Tests for `case` and `solver` and returns one `SimpleOutput`.
 pub(super) fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {

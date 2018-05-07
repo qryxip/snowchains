@@ -1,5 +1,5 @@
 macro_rules! ensure_opt {
-    ($x: expr) => {
+    ($x:expr) => {
         if !$x {
             return None;
         }
@@ -7,7 +7,7 @@ macro_rules! ensure_opt {
 }
 
 macro_rules! println_plural {
-    ($format: tt, $n: expr, $singular: expr, $plural: expr) => {
+    ($format:tt, $n:expr, $singular:expr, $plural:expr) => {
         println!(
             $format,
             format_args!("{} {}", $n, if $n > 1 { $plural } else { $singular })

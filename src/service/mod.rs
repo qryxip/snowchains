@@ -1,28 +1,30 @@
 pub(crate) mod atcoder;
 pub(crate) mod hackerrank;
 
-use {util, ServiceName};
 use config::Config;
-use errors::{ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as _ServiceResultExt};
+use errors::{
+    ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as _ServiceResultExt,
+};
 use replacer::CodeReplacer;
 use template::{BaseDirSome, PathTemplate};
 use terminal::Color;
 use testsuite::SerializableExtension;
+use {util, ServiceName};
 
-use {rpassword, rprompt, webbrowser};
 use futures::{executor, future, task, Async, Future, Poll};
-use httpsession::{self, ColorMode, CookieStoreOption, HttpSession, RedirectPolicy, Response};
 use httpsession::header::{ContentLength, UserAgent};
+use httpsession::{self, ColorMode, CookieStoreOption, HttpSession, RedirectPolicy, Response};
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
-use zip::ZipArchive;
 use zip::result::ZipResult;
+use zip::ZipArchive;
+use {rpassword, rprompt, webbrowser};
 
-use std::{self, env, mem, panic, thread};
 use std::collections::BTreeMap;
 use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
+use std::{self, env, mem, panic, thread};
 
 /// Gets the value `x` if `Some(x) = o` and `!f(x)`.
 ///
@@ -442,15 +444,15 @@ mod tests {
 
     use env_logger;
     use httpsession::HttpSession;
-    use nickel::{self, ListeningServer, Nickel, QueryString as _QueryString};
     use nickel::hyper::header::ContentLength;
-    use zip::ZipWriter;
+    use nickel::{self, ListeningServer, Nickel, QueryString as _QueryString};
     use zip::result::{ZipError, ZipResult};
     use zip::write::FileOptions;
+    use zip::ZipWriter;
 
-    use std::{self, mem, thread};
     use std::io::{self, Cursor, Write as _Write};
     use std::time::Duration;
+    use std::{self, mem, thread};
 
     #[test]
     #[ignore]
