@@ -8,8 +8,7 @@ extern crate httpsession;
 extern crate serde_yaml;
 extern crate tempdir;
 
-use snowchains::{terminal, util, ServiceName};
-use snowchains::entrypoint::{Opt, Prop};
+use snowchains::{terminal, util, Credentials, Opt, Prop, ServiceName};
 
 use httpsession::ColorMode;
 use tempdir::TempDir;
@@ -18,6 +17,7 @@ use std::env;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 #[test]
 #[ignore]
@@ -29,8 +29,8 @@ fn it_logins() {
     }
     let _ = env_logger::try_init();
     terminal::disable_color();
-    let (tempdir1, prop1) = setup("it_logins_1", Credentials::Empty);
-    let (tempdir2, prop2) = setup("it_logins_2", Credentials::EnvVars);
+    let (tempdir1, prop1) = setup("it_logins_1", empty_credentials());
+    let (tempdir2, prop2) = setup("it_logins_2", credentials_from_env_vars());
     login(&prop1).unwrap_err();
     login(&prop2).unwrap();
     tempdir1.close().unwrap();
@@ -41,7 +41,10 @@ fn it_logins() {
 #[ignore]
 fn it_scrapes_samples_from_practice() {
     let _ = env_logger::try_init();
-    let (tempdir, prop) = setup("it_scrapes_samples_from_practice", Credentials::EnvVars);
+    let (tempdir, prop) = setup(
+        "it_scrapes_samples_from_practice",
+        credentials_from_env_vars(),
+    );
     Opt::Download {
         service: Some(ServiceName::AtCoder),
         contest: Some("practice".to_owned()),
@@ -139,7 +142,7 @@ if __name__ == '__main__':
 
     let _ = env_logger::try_init();
     terminal::disable_color();
-    let (tempdir, prop) = setup("it_submits_to_practice_a", Credentials::EnvVars);
+    let (tempdir, prop) = setup("it_submits_to_practice_a", credentials_from_env_vars());
 
     util::fs::write(&tempdir.path().join("py").join("a.py"), code().as_bytes()).unwrap();
 
@@ -159,15 +162,6 @@ if __name__ == '__main__':
 fn setup(tempdir_prefix: &str, credentials: Credentials) -> (TempDir, Prop) {
     terminal::disable_color();
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
-    let credentials = match credentials {
-        Credentials::None => None,
-        Credentials::Empty => Some(("".to_owned(), "".to_owned())),
-        Credentials::EnvVars => {
-            let username = env::var("ATCODER_USERNAME").unwrap();
-            let password = env::var("ATCODER_PASSWORD").unwrap();
-            Some((username, password))
-        }
-    };
     let prop = Prop {
         working_dir: tempdir.path().to_owned(),
         default_lang_on_init: Some("python3"),
@@ -182,8 +176,13 @@ fn setup(tempdir_prefix: &str, credentials: Credentials) -> (TempDir, Prop) {
     (tempdir, prop)
 }
 
-enum Credentials {
-    None,
-    Empty,
-    EnvVars,
+fn credentials_from_env_vars() -> Credentials {
+    Credentials::from_env_vars("ATCODER_USERNAME", "ATCODER_PASSWORD").unwrap()
+}
+
+fn empty_credentials() -> Credentials {
+    Credentials::Some {
+        username: Rc::new("".to_owned()),
+        password: Rc::new("".to_owned()),
+    }
 }

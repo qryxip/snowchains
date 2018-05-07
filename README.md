@@ -53,7 +53,7 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 ```yaml
 # Example
 ---
-service: atcoder# "atcoder", "hackerrank", "other"
+service: atcoder # "atcoder", "hackerrank", "other"
 contest: arc001
 
 session:

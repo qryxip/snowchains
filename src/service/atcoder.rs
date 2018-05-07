@@ -1,5 +1,6 @@
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
-use service::{Contest, DownloadProp, OpenInBrowser, RestoreProp, SessionProp, SubmitProp};
+use service::{Contest, Credentials, DownloadProp, OpenInBrowser, RestoreProp, SessionProp,
+              SubmitProp};
 use terminal::Color;
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
@@ -50,8 +51,7 @@ pub(crate) fn submit(sess_prop: &SessionProp, submit_prop: SubmitProp<&str>) -> 
 
 pub(self) struct AtCoder {
     session: HttpSession,
-    /// For tests
-    credentials: Option<(String, String)>,
+    credentials: Credentials,
 }
 
 impl Deref for AtCoder {
@@ -97,20 +97,17 @@ impl AtCoder {
 
     fn try_logging_in(&mut self) -> ServiceResult<bool> {
         #[derive(Serialize)]
-        struct Payload {
-            username: String,
-            password: String,
+        struct Payload<'a> {
+            username: &'a str,
+            password: &'a str,
             csrf_token: String,
         }
 
         let csrf_token = extract_csrf_token(&Document::from_read(self.get("/login")?)?)?;
-        let (username, password) = match self.credentials {
-            Some(ref credentials) => credentials.clone(),
-            None => super::ask_username_and_password("Username: ")?,
-        };
+        let (username, password) = self.credentials.or_ask("Username: ")?;
         let payload = Payload {
-            username,
-            password,
+            username: &username,
+            password: &password,
             csrf_token,
         };
         self.post_urlencoded("/login", &payload, &[302], None)?;
@@ -836,7 +833,7 @@ fn find_lang_id(document: &Document, lang_name: &str) -> ServiceResult<u32> {
 
 #[cfg(test)]
 mod tests {
-    use service::Contest;
+    use service::{Contest, Credentials};
     use service::atcoder::{AtCoder, AtcoderContest};
     use testsuite::TestSuite;
 
@@ -1215,7 +1212,7 @@ mod tests {
             .with_robots_txt()?;
         Ok(AtCoder {
             session,
-            credentials: None,
+            credentials: Credentials::None,
         })
     }
 }

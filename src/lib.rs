@@ -49,12 +49,12 @@ extern crate env_logger;
 #[macro_use]
 pub mod macros;
 
-pub mod entrypoint;
 pub mod terminal;
 pub mod util;
 
 mod command;
 mod config;
+mod entrypoint;
 mod errors;
 mod judging;
 mod replacer;
@@ -62,7 +62,9 @@ mod service;
 mod template;
 mod testsuite;
 
+pub use entrypoint::{Opt, Prop};
 pub use errors::{Error, ErrorKind, Result};
+pub use service::Credentials;
 
 use std::fmt;
 use std::str::FromStr;

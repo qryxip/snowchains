@@ -1,7 +1,7 @@
 use ServiceName;
 use config::{self, Config};
 use judging::{self, JudgeProp};
-use service::{atcoder, hackerrank, DownloadProp, RestoreProp, SessionProp, SubmitProp};
+use service::{atcoder, hackerrank, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp};
 use testsuite::{self, SerializableExtension, SuiteFilePath};
 
 use httpsession::ColorMode;
@@ -306,7 +306,7 @@ pub struct Prop {
     pub default_lang_on_init: Option<&'static str>,
     pub cookie_dir: PathBuf,
     pub color_mode: ColorMode,
-    pub credentials: Option<(String, String)>,
+    pub credentials: Credentials,
 }
 
 impl Prop {
@@ -322,7 +322,7 @@ impl Prop {
             default_lang_on_init: None,
             cookie_dir,
             color_mode: ColorMode::Prefer256,
-            credentials: None,
+            credentials: Credentials::None,
         })
     }
 

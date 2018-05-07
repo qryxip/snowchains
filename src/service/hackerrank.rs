@@ -1,5 +1,5 @@
 use errors::ServiceResult;
-use service::{DownloadProp, DownloadZips, OpenInBrowser, SessionProp};
+use service::{Credentials, DownloadProp, DownloadZips, OpenInBrowser, SessionProp};
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
 
@@ -51,9 +51,9 @@ impl HackerRank {
 
     fn try_logging_in(&mut self, html: Response) -> ServiceResult<bool> {
         #[derive(Serialize)]
-        struct PostData {
-            login: String,
-            password: String,
+        struct PostData<'a> {
+            login: &'a str,
+            password: &'a str,
             remember_me: bool,
         }
 
@@ -62,11 +62,11 @@ impl HackerRank {
             status: bool,
         }
 
-        let (username, password) = super::ask_username_and_password("Username: ")?;
+        let (username, password) = Credentials::None.or_ask("Username: ")?;
         let csrf_token = extract_csrf_token(html)?;
         let data = PostData {
-            login: username,
-            password,
+            login: &username,
+            password: &password,
             remember_me: true,
         };
         let response = self.post_json("/auth/login", &data, &[200], {

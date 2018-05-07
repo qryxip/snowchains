@@ -17,31 +17,12 @@ use pbr::{MultiBar, Pipe, ProgressBar, Units};
 use zip::ZipArchive;
 use zip::result::ZipResult;
 
-use std::{mem, panic, thread};
+use std::{self, env, mem, panic, thread};
 use std::collections::BTreeMap;
 use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
-
-/// Reads username and password from stdin, showing the prompts on stderr.
-///
-/// If fails to read a password because of OS error 6 or 32, askes a password
-/// again without hiding the input.
-pub(self) fn ask_username_and_password(
-    username_prompt: &'static str,
-) -> io::Result<(String, String)> {
-    let errno_brokenpipe = if cfg!(target_os = "windows") { 6 } else { 32 };
-    let username = rprompt::prompt_reply_stderr(username_prompt)?;
-    let password =
-        rpassword::prompt_password_stderr("Password: ").or_else(|e| match e.raw_os_error() {
-            Some(n) if n == errno_brokenpipe => {
-                eprintln_bold!(Color::Warning, "os error {}", n);
-                rprompt::prompt_reply_stderr("Password (not hidden): ")
-            }
-            _ => Err(e),
-        })?;
-    Ok((username, password))
-}
 
 /// Gets the value `x` if `Some(x) = o` and `!f(x)`.
 ///
@@ -197,6 +178,58 @@ impl Future for Downloading {
     }
 }
 
+#[derive(Clone)]
+pub enum Credentials {
+    None,
+    Some {
+        username: Rc<String>,
+        password: Rc<String>,
+    },
+}
+
+impl Credentials {
+    pub fn from_env_vars(
+        username: &str,
+        password: &str,
+    ) -> std::result::Result<Self, env::VarError> {
+        let (username, password) = (Rc::new(env::var(username)?), Rc::new(env::var(password)?));
+        Ok(Credentials::Some { username, password })
+    }
+
+    pub(self) fn or_ask(&self, username_prompt: &str) -> io::Result<(Rc<String>, Rc<String>)> {
+        if let &Credentials::Some {
+            ref username,
+            ref password,
+        } = self
+        {
+            Ok((username.clone(), password.clone()))
+        } else {
+            #[cfg(windows)]
+            const ERRNO_BROKENPIPE: i32 = 6;
+            #[cfg(not(windows))]
+            const ERRNO_BROKENPIPE: i32 = 32;
+            let username = rprompt::prompt_reply_stderr(username_prompt)?;
+            let password = rpassword::prompt_password_stderr("Password: ").or_else(
+                |e| match e.raw_os_error() {
+                    Some(n) if n == ERRNO_BROKENPIPE => {
+                        eprintln_bold!(Color::Warning, "os error {}", n);
+                        rprompt::prompt_reply_stderr("Password (not hidden): ")
+                    }
+                    _ => Err(e),
+                },
+            )?;
+            Ok((Rc::new(username), Rc::new(password)))
+        }
+    }
+
+    pub(self) fn is_some(&self) -> bool {
+        match *self {
+            Credentials::None => false,
+            Credentials::Some { .. } => true,
+        }
+    }
+}
+
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct SessionConfig {
     #[serde(serialize_with = "util::ser::secs", deserialize_with = "util::de::non_zero_secs")]
@@ -208,15 +241,15 @@ pub(crate) struct SessionProp {
     cookie_path: PathBuf,
     color_mode: ColorMode,
     timeout: Option<Duration>,
-    credentials: Option<(String, String)>,
+    credentials: Credentials,
 }
 
 impl SessionProp {
-    pub fn new<C: Into<Option<(String, String)>>>(
+    pub fn new(
         domain: Option<&'static str>,
         cookie_path: PathBuf,
         color_mode: ColorMode,
-        credentials: C,
+        credentials: Credentials,
         sess_conf: Option<&SessionConfig>,
     ) -> Self {
         Self {
@@ -224,11 +257,11 @@ impl SessionProp {
             cookie_path,
             color_mode,
             timeout: sess_conf.and_then(|c| c.timeout),
-            credentials: credentials.into(),
+            credentials,
         }
     }
 
-    pub(self) fn credentials(&self) -> Option<(String, String)> {
+    pub(self) fn credentials(&self) -> Credentials {
         self.credentials.clone()
     }
 
