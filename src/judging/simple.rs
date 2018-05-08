@@ -361,6 +361,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
     #[ignore]
     fn it_judges_for_atcoder_tricky_b() {
@@ -462,7 +463,7 @@ impl InputScanOnce {
         let tempdir = TempDir::new("it_judges_for_atcoder_tricky_b").unwrap();
         let wd = tempdir.path().to_owned();
         let src = wd.join("a.rs");
-        let bin = wd.join(if cfg!(windows) { "a.exe" } else { "a" });
+        let bin = wd.join("a");
         util::fs::write(&src, CODE.as_bytes()).unwrap();
         let status = Command::new("rustc")
             .arg(&src)

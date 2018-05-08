@@ -25,8 +25,9 @@ build_script:
   - ps: Move-Item "target\release\${env:TARGET}" .\
 
 test_script:
-  - C:\msys64\usr\bin\sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET --release"
-  - C:\msys64\usr\bin\sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET --release -- --ignored"
+  - set PATH=C:\msys64\usr\bin;%PATH%
+  - sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET --release"
+  - sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET --release -- --ignored"
 
 before_deploy:
   - cd C:\projects
