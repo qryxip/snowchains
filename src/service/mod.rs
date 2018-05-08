@@ -199,10 +199,10 @@ impl Credentials {
     }
 
     pub(self) fn or_ask(&self, username_prompt: &str) -> io::Result<(Rc<String>, Rc<String>)> {
-        if let &Credentials::Some {
+        if let Credentials::Some {
             ref username,
             ref password,
-        } = self
+        } = *self
         {
             Ok((username.clone(), password.clone()))
         } else {

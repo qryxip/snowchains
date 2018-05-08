@@ -323,26 +323,26 @@ mod tests {
     use errors::JudgeErrorKind;
     use judging::simple::SimpleOutput;
     use testsuite::SimpleCase;
+    use util;
 
     use env_logger;
+    use tempdir::TempDir;
 
-    use std::io;
+    use std::process::{Command, Stdio};
     use std::sync::Arc;
+    use std::{env, io};
 
     #[test]
     #[ignore]
     fn it_judges_for_atcoder_practice_a() {
-        static CODE: &str =
-            r"(a, (b, c), s) = (int(input()), map(int, input().split()), input()); \
-              print(f'{a + b + c} {s}')";
         static IN1: &str = "1\n2 3\ntest\n";
         static OUT1: &str = "6 test\n";
         static IN2: &str = "72\n128 256\nmyonmyon\n";
         static OUT2: &str = "456 myonmyon\n";
         let _ = env_logger::try_init();
-        let correct_command = python3_command(CODE).unwrap();
-        let wrong_command = python3_command("").unwrap();
-        let error_command = python3_command("import sys; sys.exit(1)").unwrap();
+        let correct_command = bash("read a; read b c; read s; echo `expr $a + $b + $c` $s");
+        let wrong_command = bash("echo yee");
+        let error_command = bash("exit 1");
         let case1 = SimpleCase::default_matching(IN1, OUT1, None);
         let case2 = SimpleCase::default_matching(IN2, OUT2, None);
         for case in vec![case1, case2] {
@@ -364,49 +364,121 @@ mod tests {
     #[test]
     #[ignore]
     fn it_judges_for_atcoder_tricky_b() {
-        static CODE: &str = r#"import math
+        // Fastest code!
+        // https://beta.atcoder.jp/contests/tricky/submissions?f.Language=&f.Status=AC&f.Task=tricky_2&orderBy=time_consumption
+        // https://beta.atcoder.jp/contests/language-test-201603/submissions?f.Language=&f.Status=AC&f.Task=tricky_2&orderBy=time_consumption
+        static CODE: &str = r#"
+#![cfg_attr(feature = "cargo-clippy", allow(redundant_field_names, many_single_char_names))]
 
+use std::fmt;
+use std::io::{self, BufWriter, Read, Write as _Write};
+use std::str::{self, FromStr};
 
-def main():
-    r = ''
-    for _ in range(0, int(input())):
-        a, b, c = map(int, input().split())
-        if a == 0 and b == 0 and c == 0:
-            r += '3\n'
-        elif a == 0 and b == 0:
-            r += '0\n'
-        elif a == 0:
-            r += '1 {}\n'.format(-c / b)
-        else:
-            d = b ** 2.0 - 4.0 * c * a
-            if d < 0.0:
-                r += '0\n'
-            elif d == 0.0:
-                r += '1 {}\n'.format(-b / (2.0 * a))
-            else:
-                d_sqrt = math.sqrt(d)
-                x1 = (-b - d_sqrt) / (2.0 * a) if b > 0 else \
-                     (-b + d_sqrt) / (2.0 * a)
-                x2 = c / (a * x1)
-                if x1 < x2:
-                    r += '2 {} {}\n'.format(x1, x2)
-                else:
-                    r += '2 {} {}\n'.format(x2, x1)
-    print(r, end='', flush=True)
+fn main() {
+    let abcs = {
+        let mut sc = InputScanOnce::new(io::stdin(), 1024 * 1024);
+        let n = sc.next();
+        sc.trios::<i64, i64, i64>(n)
+    };
+    let mut out = BufWriter::new(io::stdout());
+    for (a, b, c) in abcs {
+        if a == 0 && b == 0 && c == 0 {
+            writeln!(out, "3").unwrap();
+        } else if a == 0 && b == 0 {
+            writeln!(out, "0").unwrap();
+        } else if a == 0 {
+            writeln!(out, "1 {}", (-c as f64) / (b as f64)).unwrap();
+        } else {
+            let (a, b, c) = (a as f64, b as f64, c as f64);
+            let d = b.powi(2) - 4.0 * c * a;
+            if d < 0.0 {
+                writeln!(out, "0").unwrap();
+            } else if d == 0.0 {
+                let x = -b / (2.0 * a);
+                writeln!(out, "1 {}", x).unwrap();
+            } else {
+                let d_sqrt = d.sqrt();
+                let x1 = if b >= 0.0 {
+                    (-b - d_sqrt) / (2.0 * a)
+                } else {
+                    (-b + d_sqrt) / (2.0 * a)
+                };
+                let x2 = c / (a * x1);
+                if x1 < x2 {
+                    writeln!(out, "2 {} {}", x1, x2).unwrap();
+                } else {
+                    writeln!(out, "2 {} {}", x2, x1).unwrap();
+                }
+            }
+        }
+    }
+    out.flush().unwrap();
+}
 
+struct InputScanOnce {
+    buf: Vec<u8>,
+    pos: usize,
+}
 
-if __name__ == '__main__':
-    main()
+impl InputScanOnce {
+    fn new<R: Read>(mut reader: R, estimated: usize) -> Self {
+        let mut buf = Vec::with_capacity(estimated);
+        let _ = io::copy(&mut reader, &mut buf).unwrap();
+        InputScanOnce { buf: buf, pos: 0 }
+    }
+
+    #[inline]
+    fn next<T: FromStr>(&mut self) -> T
+    where
+        T::Err: fmt::Debug,
+    {
+        let mut start = None;
+        loop {
+            match (self.buf[self.pos], start.is_some()) {
+                (b' ', true) | (b'\n', true) => break,
+                (_, true) | (b' ', false) | (b'\n', false) => self.pos += 1,
+                (_, false) => start = Some(self.pos),
+            }
+        }
+        let target = &self.buf[start.unwrap()..self.pos];
+        unsafe { str::from_utf8_unchecked(target) }.parse().unwrap()
+    }
+
+    fn trios<T1: FromStr, T2: FromStr, T3: FromStr>(&mut self, n: usize) -> Vec<(T1, T2, T3)>
+    where
+        T1::Err: fmt::Debug,
+        T2::Err: fmt::Debug,
+        T3::Err: fmt::Debug,
+    {
+        (0..n)
+            .map(|_| (self.next(), self.next(), self.next()))
+            .collect()
+    }
+}
 "#;
         static IN: &str = "3\n1 -3 2\n-10 30 -20\n100 -300 200\n";
         static OUT: &str = "2 1.000 2.000\n2 1.000 2.000\n2 1.000 2.000\n";
         let _ = env_logger::try_init();
-        let command = python3_command(CODE).unwrap();
-        let error = 1e-9f64;
-        // It may take more than 1 second on Windows
-        let case = SimpleCase::float_matching(IN, OUT, None, error, error);
+        let tempdir = TempDir::new("it_judges_for_atcoder_tricky_b").unwrap();
+        let wd = tempdir.path().to_owned();
+        let src = wd.join("a.rs");
+        let bin = wd.join(if cfg!(windows) { "a.exe" } else { "a" });
+        util::fs::write(&src, CODE.as_bytes()).unwrap();
+        let status = Command::new("rustc")
+            .arg(&src)
+            .arg("-o")
+            .arg(&bin)
+            .current_dir(&wd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let command = Arc::new(JudgingCommand::from_args(&bin, &[], wd));
+        let case = SimpleCase::float_matching(IN, OUT, None, 1e-9f64, 1e-9f64);
         match super::judge(&case, &command).unwrap() {
-            SimpleOutput::Accepted { .. } => {}
+            SimpleOutput::Accepted { .. } => tempdir.close().unwrap(),
             o => panic!("{:?}", o),
         }
     }
@@ -414,9 +486,8 @@ if __name__ == '__main__':
     #[test]
     #[ignore]
     fn it_timeouts() {
-        static CODE: &str = r"import time; time.sleep(1)";
         let _ = env_logger::try_init();
-        let command = python3_command(CODE).unwrap();
+        let command = bash("sleep 1");
         let case = SimpleCase::default_matching("", "", 200);
         match super::judge(&case, &command).unwrap() {
             SimpleOutput::TimelimitExceeded { .. } => {}
@@ -427,9 +498,8 @@ if __name__ == '__main__':
     #[test]
     #[ignore]
     fn it_denies_non_utf8_answers() {
-        static CODE: &str = r"import sys; sys.stdout.buffer.write(b'\xc3\x28')";
         let _ = env_logger::try_init();
-        let command = python3_command(CODE).unwrap();
+        let command = bash(r"echo $'\xc3\x28'");
         let case = SimpleCase::default_matching("", "", None);
         let e = super::judge(&case, &command).unwrap_err();
         if let &JudgeErrorKind::Io(ref e) = e.kind() {
@@ -444,7 +514,8 @@ if __name__ == '__main__':
     #[ignore]
     fn it_denies_nonexisting_commands() {
         let _ = env_logger::try_init();
-        let command = Arc::new(JudgingCommand::from_args("nonexisting", &[]).unwrap());
+        let wd = env::current_dir().unwrap();
+        let command = Arc::new(JudgingCommand::from_args("nonexisting", &[], wd));
         let case = SimpleCase::default_matching("", "", None);
         let e = super::judge(&case, &command).unwrap_err();
         if let &JudgeErrorKind::Command(_) = e.kind() {
@@ -453,12 +524,12 @@ if __name__ == '__main__':
         panic!("{:?}", e);
     }
 
-    fn python3_command(code: &str) -> io::Result<Arc<JudgingCommand>> {
+    fn bash(code: &str) -> Arc<JudgingCommand> {
         #[cfg(windows)]
-        static PYTHON3: &str = "python";
+        static BASH: &str = r"C:\msys64\usr\bin\bash.exe";
         #[cfg(not(windows))]
-        static PYTHON3: &str = "python3";
-        let command = JudgingCommand::from_args(PYTHON3, &["-c", code])?;
-        Ok(Arc::new(command))
+        static BASH: &str = "/bin/bash";
+        let wd = env::current_dir().unwrap();
+        Arc::new(JudgingCommand::from_args(BASH, &["-c", code], wd))
     }
 }

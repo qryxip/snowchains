@@ -87,14 +87,15 @@ impl JudgingCommand {
     }
 
     #[cfg(test)]
-    pub fn from_args(arg0: &str, rest_args: &[&str]) -> io::Result<Self> {
-        use std::env;
-        let working_dir = env::current_dir()?;
-        Ok(JudgingCommand(CommandProperty {
-            arg0: arg0.into(),
-            rest_args: rest_args.iter().map(|arg| (*arg).into()).collect(),
+    pub fn from_args<S: AsRef<OsStr>>(arg0: S, rest_args: &[S], working_dir: PathBuf) -> Self {
+        JudgingCommand(CommandProperty {
+            arg0: arg0.as_ref().to_owned(),
+            rest_args: rest_args
+                .iter()
+                .map(|arg| arg.as_ref().to_owned())
+                .collect(),
             working_dir,
-        }))
+        })
     }
 
     /// Prints the arguments and working directory.

@@ -41,6 +41,8 @@ extern crate zip;
 
 #[cfg(test)]
 extern crate env_logger;
+#[cfg(test)]
+extern crate tempdir;
 
 #[macro_use]
 pub mod macros;
