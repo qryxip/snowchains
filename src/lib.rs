@@ -42,6 +42,8 @@ extern crate zip;
 #[cfg(test)]
 extern crate env_logger;
 #[cfg(test)]
+extern crate futures_timer;
+#[cfg(test)]
 extern crate tempdir;
 
 #[macro_use]

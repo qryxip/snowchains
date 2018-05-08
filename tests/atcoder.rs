@@ -13,8 +13,6 @@ use snowchains::{terminal, util, Credentials, Opt, Prop, ServiceName};
 use httpsession::ColorMode;
 use tempdir::TempDir;
 
-use std::env;
-use std::ffi::OsStr;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -118,14 +116,7 @@ fn just_confirm_num_samples_and_timelimit(dir: &Path, name: &str, n: usize, t: u
 #[test]
 #[ignore]
 fn it_submits_to_practice_a() {
-    fn code() -> String {
-        let homedir = env::home_dir();
-        let username = homedir
-            .as_ref()
-            .and_then(|h| h.file_name().map(OsStr::to_string_lossy))
-            .unwrap_or_default();
-        format!(
-            r#""""Submitted by {}"""
+    static CODE: &[u8] = br#"#!/usr/bin/env python3
 
 
 def main():
@@ -135,17 +126,11 @@ def main():
 
 if __name__ == '__main__':
     main()
-"#,
-            username,
-        )
-    }
-
+"#;
     let _ = env_logger::try_init();
     terminal::disable_color();
     let (tempdir, prop) = setup("it_submits_to_practice_a", credentials_from_env_vars());
-
-    util::fs::write(&tempdir.path().join("py").join("a.py"), code().as_bytes()).unwrap();
-
+    util::fs::write(&tempdir.path().join("py").join("a.py"), CODE).unwrap();
     Opt::Submit {
         target: "a".to_owned(),
         language: Some("python3".to_owned()),

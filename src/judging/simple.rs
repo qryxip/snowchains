@@ -320,16 +320,20 @@ impl JudgingOutput for SimpleOutput {
 #[cfg(test)]
 mod tests {
     use command::JudgingCommand;
-    use errors::JudgeErrorKind;
+    use errors::{JudgeErrorKind, JudgeResult};
     use judging::simple::SimpleOutput;
     use testsuite::SimpleCase;
     use util;
 
     use env_logger;
+    use futures::executor;
+    use futures::future::{self, Loop};
+    use futures_timer::FutureExt as _FutureExt;
     use tempdir::TempDir;
 
     use std::process::{Command, Stdio};
     use std::sync::Arc;
+    use std::time::Duration;
     use std::{env, io};
 
     #[test]
@@ -342,20 +346,47 @@ mod tests {
         let _ = env_logger::try_init();
         let correct_command = bash("read a; read b c; read s; echo `expr $a + $b + $c` $s");
         let wrong_command = bash("echo yee");
-        let error_command = bash("exit 1");
-        let case1 = SimpleCase::default_matching(IN1, OUT1, None);
-        let case2 = SimpleCase::default_matching(IN2, OUT2, None);
-        for case in vec![case1, case2] {
-            match super::judge(&case, &correct_command).unwrap() {
-                SimpleOutput::Accepted { .. } => (),
+        let error_command = bash("echo error message 1>&2 && exit 1");
+        for (case_in, case_out) in vec![(IN1, OUT1), (IN2, OUT2)] {
+            match judge_default_matching(case_in, case_out, 500, &correct_command).unwrap() {
+                SimpleOutput::Accepted {
+                    input,
+                    stdout,
+                    stderr,
+                    ..
+                } => {
+                    assert_eq!(case_in, input.as_str());
+                    assert_eq!(case_out, stdout.as_str());
+                    assert_eq!("", stderr.as_str());
+                }
                 o => panic!("{:?}", o),
             }
-            match super::judge(&case, &wrong_command).unwrap() {
-                SimpleOutput::WrongAnswer { .. } => (),
+            match judge_default_matching(case_in, case_out, 500, &wrong_command).unwrap() {
+                SimpleOutput::WrongAnswer {
+                    input,
+                    stdout,
+                    stderr,
+                    ..
+                } => {
+                    assert_eq!(case_in, input.as_str());
+                    assert_eq!("yee\n", stdout.as_str());
+                    assert_eq!("", stderr.as_str());
+                }
                 o => panic!("{:?}", o),
             }
-            match super::judge(&case, &error_command).unwrap() {
-                SimpleOutput::RuntimeError { .. } => (),
+            match judge_default_matching(case_in, case_out, 500, &error_command).unwrap() {
+                SimpleOutput::RuntimeError {
+                    input,
+                    stdout,
+                    stderr,
+                    status,
+                    ..
+                } => {
+                    assert_eq!(case_in, input.as_str());
+                    assert_eq!("", stdout.as_str());
+                    assert_eq!("error message\n", stderr.as_str());
+                    assert_eq!(Some(1), status.code());
+                }
                 o => panic!("{:?}", o),
             }
         }
@@ -477,8 +508,7 @@ impl InputScanOnce {
             .unwrap();
         assert!(status.success());
         let command = Arc::new(JudgingCommand::from_args(&bin, &[], wd));
-        let case = SimpleCase::float_matching(IN, OUT, None, 1e-9f64, 1e-9f64);
-        match super::judge(&case, &command).unwrap() {
+        match judge_float_matching(IN, OUT, 500, 1e-9f64, &command).unwrap() {
             SimpleOutput::Accepted { .. } => tempdir.close().unwrap(),
             o => panic!("{:?}", o),
         }
@@ -489,9 +519,13 @@ impl InputScanOnce {
     fn it_timeouts() {
         let _ = env_logger::try_init();
         let command = bash("sleep 1");
-        let case = SimpleCase::default_matching("", "", 200);
-        match super::judge(&case, &command).unwrap() {
-            SimpleOutput::TimelimitExceeded { .. } => {}
+        match judge_default_matching("input\n", "", 200, &command).unwrap() {
+            SimpleOutput::TimelimitExceeded {
+                timelimit, input, ..
+            } => {
+                assert_eq!(Duration::from_millis(200), timelimit);
+                assert_eq!("input\n", input.as_str());
+            }
             o => panic!("{:?}", o),
         }
     }
@@ -501,8 +535,7 @@ impl InputScanOnce {
     fn it_denies_non_utf8_answers() {
         let _ = env_logger::try_init();
         let command = bash(r"echo $'\xc3\x28'");
-        let case = SimpleCase::default_matching("", "", None);
-        let e = super::judge(&case, &command).unwrap_err();
+        let e = judge_default_matching("", "", 500, &command).unwrap_err();
         if let &JudgeErrorKind::Io(ref e) = e.kind() {
             if let io::ErrorKind::InvalidData = e.kind() {
                 return;
@@ -517,12 +550,53 @@ impl InputScanOnce {
         let _ = env_logger::try_init();
         let wd = env::current_dir().unwrap();
         let command = Arc::new(JudgingCommand::from_args("nonexisting", &[], wd));
-        let case = SimpleCase::default_matching("", "", None);
-        let e = super::judge(&case, &command).unwrap_err();
+        let e = judge_default_matching("", "", 500, &command).unwrap_err();
         if let &JudgeErrorKind::Command(_) = e.kind() {
             return;
         }
         panic!("{:?}", e);
+    }
+
+    fn judge_default_matching(
+        input: &str,
+        output: &str,
+        timelimit: u64,
+        command: &Arc<JudgingCommand>,
+    ) -> JudgeResult<SimpleOutput> {
+        let timelimit = Duration::from_millis(timelimit);
+        let case = SimpleCase::default_matching(input, output, timelimit);
+        judge(&case, timelimit * 2, command)
+    }
+
+    fn judge_float_matching(
+        input: &str,
+        output: &str,
+        timelimit: u64,
+        error: f64,
+        command: &Arc<JudgingCommand>,
+    ) -> JudgeResult<SimpleOutput> {
+        let timelimit = Duration::from_millis(timelimit);
+        let case = SimpleCase::float_matching(input, output, timelimit, error, error);
+        judge(&case, timelimit * 2, command)
+    }
+
+    fn judge(
+        case: &SimpleCase,
+        timeout: Duration,
+        command: &Arc<JudgingCommand>,
+    ) -> JudgeResult<SimpleOutput> {
+        let f = future::loop_fn((), move |_| match super::judge(case, command) {
+            Ok(output) => Ok(Loop::Break(output)),
+            Err(e) => {
+                if let JudgeErrorKind::Io(ref io_e) = *e.kind() {
+                    if io_e.kind() == io::ErrorKind::BrokenPipe {
+                        return Ok(Loop::Continue(()));
+                    }
+                }
+                Err(e)
+            }
+        }).timeout(timeout);
+        executor::block_on(f)
     }
 
     fn bash(code: &str) -> Arc<JudgingCommand> {

@@ -27,8 +27,8 @@ robots_txt = "0.5.4"
 rpassword = "2.0.0"
 rprompt = "1.0.3"
 select = "0.4.2"
-serde = "1.0.47"
-serde_derive = "1.0.47"
+serde = "1.0.50"
+serde_derive = "1.0.50"
 serde_json = "1.0.17"
 serde_urlencoded = "0.5.1"
 serde_yaml = "0.7.4"
@@ -40,4 +40,5 @@ webbrowser = { git = "https://github.com/amodm/webbrowser-rs", rev = "a2620121c9
 zip = "0.3.2"
 
 [dev-dependencies]
+futures-timer = { git = "https://github.com/alexcrichton/futures-timer", rev = "1d438ec7b5dd41f8727dac1974c0f4cf1c397f5a" }
 tempdir = "0.3.7"

@@ -701,25 +701,21 @@ impl TestCase for SimpleCase {
 
 impl SimpleCase {
     #[cfg(test)]
-    pub fn default_matching<T: Into<Option<u64>>>(
-        input: &str,
-        expected: &str,
-        timelimit: T,
-    ) -> Self {
+    pub fn default_matching(input: &str, expected: &str, timelimit: Duration) -> Self {
         let expected = Arc::new(ExpectedStdout::new(Some(expected), Match::default()));
         Self {
             name: Arc::default(),
             input: Arc::new(input.to_owned()),
             expected,
-            timelimit: timelimit.into().map(Duration::from_millis),
+            timelimit: Some(timelimit),
         }
     }
 
     #[cfg(test)]
-    pub fn float_matching<T: Into<Option<u64>>>(
+    pub fn float_matching(
         input: &str,
         expected: &str,
-        timelimit: T,
+        timelimit: Duration,
         absolute_error: f64,
         relative_error: f64,
     ) -> Self {
@@ -732,7 +728,7 @@ impl SimpleCase {
             name: Arc::default(),
             input: Arc::new(input.to_owned()),
             expected,
-            timelimit: timelimit.into().map(Duration::from_millis),
+            timelimit: Some(timelimit),
         }
     }
 

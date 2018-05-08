@@ -28,7 +28,7 @@ install:
 script:
   - test "${TRAVIS_SECURE_ENV_VARS}" = true && TEST_TARGET=all || TEST_TARGET=lib
   - cargo test --$TEST_TARGET --release
-  - cargo test --$TEST_TARGET --release -- --ignored
+  - cargo test --$TEST_TARGET --release -- --ignored --skip it_submits
   - cargo build --release
   - mv ./target/release/$TARGET ./
 

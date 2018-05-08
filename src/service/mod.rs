@@ -206,20 +206,15 @@ impl Credentials {
         {
             Ok((username.clone(), password.clone()))
         } else {
-            #[cfg(windows)]
-            const ERRNO_BROKENPIPE: i32 = 6;
-            #[cfg(not(windows))]
-            const ERRNO_BROKENPIPE: i32 = 32;
             let username = rprompt::prompt_reply_stderr(username_prompt)?;
-            let password = rpassword::prompt_password_stderr("Password: ").or_else(
-                |e| match e.raw_os_error() {
-                    Some(n) if n == ERRNO_BROKENPIPE => {
-                        eprintln_bold!(Color::Warning, "os error {}", n);
+            let password =
+                rpassword::prompt_password_stderr("Password: ").or_else(|e| match e.kind() {
+                    io::ErrorKind::BrokenPipe => {
+                        eprintln_bold!(Color::Warning, "broken pipe");
                         rprompt::prompt_reply_stderr("Password (not hidden): ")
                     }
                     _ => Err(e),
-                },
-            )?;
+                })?;
             Ok((Rc::new(username), Rc::new(password)))
         }
     }

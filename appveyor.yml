@@ -27,7 +27,7 @@ build_script:
 test_script:
   - set PATH=C:\msys64\usr\bin;%PATH%
   - sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET --release"
-  - sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET --release -- --ignored"
+  - sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET --release -- --ignored --skip it_submits"
 
 before_deploy:
   - cd C:\projects
