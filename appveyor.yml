@@ -1,54 +1,65 @@
+image: Visual Studio 2015
+
+platform: x86_64
+
 environment:
   global:
-    TARGET: snowchains
-    TOOLCHAIN: stable
+    TARGET: snowchains.exe
+    RUSTUP_TOOLCHAIN: stable
+    RUSTUP_HOST: x86_64-pc-windows-msvc
     RUST_BACKTRACE: full
-  matrix:
-    - HOST: x86_64-pc-windows-msvc
-    - HOST: x86_64-pc-windows-gnu
-    - HOST: i686-pc-windows-msvc
-    - HOST: i686-pc-windows-gnu
+    ATCODER_USERNAME:
+      secure: koc3zc/wQPQvMQj1hJCjKQ==
+    ATCODER_PASSWORD:
+      secure: zndOc4jqvw5aigjpDnoUSEycIHdwddCYtI8gh/o2yBvDnL3GIT0ea0YavFmdMDMA
+
 install:
-  - ps: >-
-      If ($Env:HOST -eq 'x86_64-pc-windows-gnu') {
-        Set-Item Env:Path "C:\msys64\mingw64\bin;$Env:Path";
-        gcc --version
-      } ElseIf ($Env:HOST -eq 'i686-pc-windows-gnu') {
-        Set-Item Env:Path "C:\msys64\mingw32\bin;$Env:Path";
-        gcc --version
-      }
-  - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:HOST}/rustup-init.exe"
-  - rustup-init.exe -y --default-toolchain %TOOLCHAIN% --default-host %HOST% --no-modify-path
+  - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:RUSTUP_HOST}/rustup-init.exe"
+  - rustup-init.exe -y --default-toolchain %RUSTUP_TOOLCHAIN% --default-host %RUSTUP_HOST% --no-modify-path
   - set PATH=C:\Users\appveyor\.cargo\bin;%PATH%
   - rustc -vV
   - cargo -vV
+
+build_script:
+  - cargo build --release
+  - ps: Move-Item "target\release\${env:TARGET}" .\
+
 test_script:
-  - set PATH=C:\Python36-x64;%PATH%
-  - python -V
-  - cargo +%TOOLCHAIN% test
-  - cargo +%TOOLCHAIN% test -- --ignored
-build: false
+  - set PATH=C:\msys64\usr\bin;%PATH%
+  - sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET --release"
+  - sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET --release -- --ignored --skip it_submits"
+
 before_deploy:
-  - cargo +%TOOLCHAIN% build --release
-  - ps: >-
-      Copy-Item "target\release\${env:TARGET}.exe" .\;
-      $PROJECT = "C:\projects\${env:APPVEYOR_PROJECT_NAME}";
-      $ZIP = "$PROJECT\${env:TARGET}-${env:APPVEYOR_REPO_TAG_NAME}-${env:HOST}.zip";
-      Set-Location C:\projects;
-      7z a "$ZIP" "${env:APPVEYOR_PROJECT_NAME}\${env:TARGET}.exe" "${env:APPVEYOR_PROJECT_NAME}\README.md" "${env:APPVEYOR_PROJECT_NAME}\LICENSE";
-      Set-Location "$PROJECT";
+  - cd C:\projects
+  - ps: |
+      $ZIP = "${env:APPVEYOR_BUILD_FOLDER}/${env:APPVEYOR_PROJECT_NAME}-${env:APPVEYOR_REPO_TAG_NAME}-${env:RUSTUP_HOST}.zip"
+      7z a "$ZIP" "${env:APPVEYOR_PROJECT_NAME}/${env:TARGET}" "${env:APPVEYOR_PROJECT_NAME}/LICENSE" "${env:APPVEYOR_PROJECT_NAME}/README.md"
+      7z l "$ZIP"
       Push-AppveyorArtifact "$ZIP"
+  - cd %APPVEYOR_BUILD_FOLDER%
+
 deploy:
   - provider: GitHub
-    artifact: /.*\.zip/
+    artifact: /^.*\.zip$/
     auth_token:
       secure: khL++opdJh5x79PMMTkOJXPXi8D+ijp0os5Bi02rA4DSApOmuF1VuZWpIzyDZ8pi
     on:
       appveyor_repo_tag: true
-branches:
-  only:
-    - /^v\d+\.\d+\.\d+.*$/
-    - master
+
+artifacts:
+  - path: '*.exe'
+
+cache:
+  - '%HOME%\.cargo\git'
+  - '%HOME%\.cargo\registry\index'
+  - '%HOME%\.cargo\registry\src'
+
 notifications:
   - provider: Email
     on_build_success: true
+    on_build_failure: true
+
+branches:
+  only:
+    - master
+    - /^v\d+\.\d+\.\d+.*$/

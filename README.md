@@ -1,23 +1,24 @@
 # Snowchains
 
-[![Build status](https://ci.appveyor.com/api/projects/status/hfc4x704uufkb2sh?svg=true)](https://ci.appveyor.com/project/wariuni/snowchains)
+[![Build Status](https://travis-ci.org/wariuni/snowchains.svg?branch=master)](https://travis-ci.org/wariuni/snowchains)
+[![Build status](https://ci.appveyor.com/api/projects/status/hfc4x704uufkb2sh/branch/master?svg=true)](https://ci.appveyor.com/project/wariuni/snowchains/branch/master)
 
 Tools for online programming contests.
 
-- [x] Linux
-- [x] Windows
-- [ ] OS X (Probably works.)
-
 ## Features
 
-- Scrape sample cases as YAML, TOML, or JSON
+- Scrapes sample cases as YAML, TOML, or JSON
 - Tests a source code with downloaded sample cases
 - Submits a source code
+- Downloads source codes you have submitted
 
-|                | Target Contest                        | Scrape samples | Download system tests | Submit        |
-| :------------- | :------------------------------------ | :------------: | :-------------------: | :-----------: |
-| AtCoder        | `http://{}.contest.atcoder.jp`        | ✓             | ✗                    | Unimplemented |
-| AtCoder (Beta) | `https://beta.atcoder.jp/contests/{}` | ✓             | ✗                    | ✓            |
+|                | Scrape samples | Download system tests | Submit        |
+| :------------- | :------------: | :-------------------: | :-----------: |
+| AtCoder (Beta) | ✓             | Unimplemented         | ✓            |
+
+|                | Target Contest                        |
+| :------------- | :------------------------------------ |
+| AtCoder (Beta) | `https://beta.atcoder.jp/contests/{}` |
 
 ## Instrallation
 
@@ -40,7 +41,7 @@ $ cargo [+stable] install-update -ag
 ```console
 $ snowchains --help
 $ snowchains <i|init> ./
-$ snowchains <w|switch> <service> <contest>                                 # e.g. ("atcoderbeta", "agc001")
+$ snowchains <w|switch> <service> <contest>                                 # e.g. ("atcoder", "agc001")
 $ snowchains <d|download> [-s <service>] [-c <contest>] [-b|--open-browser] # Does not ask username and password unless they are needed
 $ $EDITOR ./snowchains/<service>/<contest>/<target>.yaml                    # Add more test cases
 $ snowchains <j|judge> <target> [language]
@@ -52,146 +53,188 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 ```yaml
 # Example
 ---
-service: atcoderbeta                           # optional
-contest: chokudai_s001                         # optional
-testsuites: snowchains/$service/$contest/      # default: ”
-extension_on_downloading: yaml                 # default: ”
-extensions_on_judging: [json, toml, yaml, yml] # default: ”
+service: atcoder # "atcoder", "hackerrank", "other"
+contest: arc001
 
-atcoder:
-  default_language: c++
-  variables:
-    cxx_flags: -std=c++14 -O2 -Wall -Wextra
-    rust_version: 1.15.1
+session:
+  timeout: 2
 
-hackerrank:
-  default_language: c++
-  variables:
-    cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
-    rust_version: 1.21.0
+shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
 
-# test files: <testsuite>/<problem>.<extension> for <extension> in each <extensions_on_judging>
+testfiles:
+  directory: snowchains/$service/$contest/
+  forall: [json, toml, yaml, yml, zip]
+  scrape: yaml
+  zip:
+    timelimit: 2000
+    match: exact
+    entries:
+      # AtCoder
+      - in:
+          entry: /\Ain/([a-z0-9_\-]+)\.txt\z/
+          match_group: 1
+        out:
+          entry: /\Aout/([a-z0-9_\-]+)\.txt\z/
+          match_group: 1
+        sort: [dictionary]
+      # HackerRank
+      - in:
+          entry: /\Ainput/input([0-9]+)\.txt\z/
+          match_group: 1
+        out:
+          entry: /\Aoutput/output([0-9]+)\.txt\z/
+          match_group: 1
+        sort: [number]
+      # YukiCoder
+      - in:
+          entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
+          match_group: 1
+        out:
+          entry: /\Atest_out/([a-z0-9_]+)\.txt\z/
+          match_group: 1
+        sort: [dictionary, number]
+
+services:
+  atcoder:
+    default_language: c++
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra
+      rust_version: 1.15.1
+      java_class: Main
+  hackerrank:
+    default_language: c++
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
+      rust_version: 1.21.0
+      java_class: Main
+  other:
+    default_language: c++
+    variables:
+      cxx_flags: -std=c++14 -O2 -Wall -Wextra
+      rust_version: stable
+
+interactive:
+  python3:
+    src: py/{kebab}-tester.py
+    run:
+      command: python3, --, $src, $*
+      working_directory: py/
+  haskell:
+    src: hs/src/{Pascal}Tester.hs
+    compile:
+      bin: hs/target/{Pascal}Tester
+      command: [stack, ghc, --, -O2, -o, $bin, $src]
+      working_directory: hs/
+    run:
+      command: $bin $*
+      working_directory: hs/
+
+# test files: <testsuite>/<problem>.[json|toml,yaml,yml]
 # source:     <<src> % <problem>>
 # binary:     <<bin> % <problem>>
-# e.g.
-# "cc/{}.cc" % "problem-a"          ⊦ <the directory which has snowchains.yaml>/cc/problem-a.cc
-# "csharp/{C}/{C}.cs" % "problem-a" ⊦ <the directory which has snowchains.yaml>/csharp/ProblemA/ProblemA.cs
+#
+# Common:
+#   "plain"                        => "plain";
+#   "{}"          % "problem name" => "problem name"
+#   "{lower}"     % "problem name" => "problem name"
+#   "{UPPER}"     % "problem name" => "PROBLEM NAME"
+#   "{kebab}"     % "problem name" => "problem-name"
+#   "{snake}"     % "problem name" => "problem_name"
+#   "{SCREAMING}" % "problem name" => "PROBLEM_NAME"
+#   "{mixed}"     % "problem name" => "problemName"
+#   "{Pascal}"    % "problem name" => "ProblemName"
+#   "{Title}"     % "problem name" => "Problem Name"
+#   "$ENVVAR"                      => "<value of ENVVAR>"
+#   "$${{}}"                       => "${}"
+# Path:
+#   "", "."                                    => "./"
+#   "relative", "./relative"                   => "./relative"
+#   "/absolute"                                => "/absolute"
+#   "cpp/{snake}.cpp"         % "problem name" => "./cpp/problem_name.cpp"
+#   "cs/{Pascal}/{Pascal}.cs" % "problem name" => "./cs/ProblemName/ProblemName.cs"
+# Command:
+#   "$src" => "<path to the source file>"
+#   "$bin" => "<path to the binary file>"
 languages:
-  - name: c++
-    src: cc/{{}}.cc
+  c++:
+    src: cc/{kebab}.cc
     compile:                               # optional
-      bin: cc/build/{{}}{exe}
+      bin: cc/build/{kebab}
       command: g++ $cxx_flags -o $bin $src
-      working_directory: cc/               # default: ""
+      working_directory: cc/               # default: "."
     run:
-      command: $bin                        # default: "$bin"
-      working_directory: cc/               # default: ""
+      command: [$bin]
+      working_directory: cc/               # default: "."
     language_ids:                          # optional
       atcoder: 3003
-  - name: rust
-    src: rs/src/bin/{}.rs
+  rust:
+    src: rs/src/bin/{kebab}.rs
     compile:
-      bin: rs/target/release/{}
-      command: rustc +$rust_version -o $bin $src
+      bin: rs/target/release/{kebab}
+      command: [rustc, +$rust_version, -o, $bin, $src]
       working_directory: rs/
     run:
-      command: $bin
+      command: [$bin]
       working_directory: rs/
     language_ids:
       atcoder: 3504
-  - name: haskell
-    src: hs/src/{C}.hs
+  haskell:
+    src: hs/src/{Pascal}.hs
     compile:
-      bin: hs/target/{C}
-      command: stack ghc -- -O2 -o $bin $src
+      bin: hs/target/{Pascal}
+      command: [stack, ghc, --, -O2, -o, $bin, $src]
       working_directory: hs/
     run:
-      command: $bin
+      command: [$bin]
       working_directory: hs/
     language_ids:
       atcoder: 3014
-  - name: python3
-    src: py/{}.py
+  python3:
+    src: py/{kebab}.py
     run:
-      command: ./venv/bin/python3 $src
+      command: [./venv/bin/python3, $src]
       working_directory: py/
     language_ids:
       atcoder: 3023
-  - name: java
-    src: java/src/main/java/{C}.java
+  java:
+    src: java/src/main/java/{Pascal}.java
     compile:
-      bin: java/build/classes/java/main/{C}.class
-      command: javac -d ./build/classes/java/main/ $src
+      bin: java/build/classes/java/main/{Pascal}.class
+      command: [javac, -d, ./build/classes/java/main/, $src]
       working_directory: java/
     run:
-      command: java -classpath ./build/classes/java/main/ {C}
+      command: [java, -classpath, ./build/classes/java/main/, '{Pascal}']
       working_directory: java/
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 2
-      local: "{C}"
-      atcoder: Main
-      once: true
+      local: '{Pascal}'
+      submit: $java_class
+      all_matched: false
     language_ids:
       atcoder: 3016
-  - # Windows
-    name: c#
-    src: cs/{C}/{C}.cs
+  # c#:
+  #   src: cs/{Pascal}/{Pascal}.cs
+  #   compile:
+  #     bin: cs/{Pascal}/bin/Release/{Pascal}.exe
+  #     command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
+  #     working_directory: cs/
+  #   run:
+  #     command: [$bin]
+  #     working_directory: cs/
+  #   language_ids:
+  #     atcoder: 3006
+  c#:
+    src: cs/{Pascal}/{Pascal}.cs
     compile:
-      bin: cs/{C}/bin/Release/{C}.exe
-      command: csc /o+ /r:System.Numerics /out:$bin $src
+      bin: cs/{Pascal}/bin/Release/{Pascal}.exe
+      command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
       working_directory: cs/
     run:
-      command: $bin
+      command: [mono, $bin]
       working_directory: cs/
     language_ids:
       atcoder: 3006
-  - # Unix
-    name: c#
-    src: cs/{C}/{C}.cs
-    compile:
-      bin: cs/{C}/bin/Release/{C}.exe
-      command: mcs -o+ -r:System.Numerics -out:$bin $src
-      working_directory: cs/
-    run:
-      command: mono $bin
-      working_directory: cs/
-    language_ids:
-      atcoder: 3006
-```
-
-Or simply:
-
-```yaml
----
-service: atcoderbeta
-contest: chokudai_s001
-testsuites: snowchains/$service/$contest/
-extension_on_downloading: yaml
-extensions_on_judging: [json, toml, yaml, yml]
-
-atcoder:
-  default_language: c++
-  variables:
-    cxx_flags: -std=c++14 -O2 -Wall -Wextra
-
-hackerrank:
-  default_language: c++
-  variables:
-    cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
-
-languages:
-  - name: c++
-    src: "{}.cc"
-    compile:
-      bin: build/{}
-      command: g++ $cxx_flags -o $bin $src
-      working_directory: .
-    run:
-      command: $bin
-      working_directory: .
-    language_ids:
-      atcoder: 3003
 ```
 
 ## Test file
@@ -206,9 +249,9 @@ languages:
 
 ```yaml
 ---
-type: "simple"   # "simple" or "interactive"
-trim_crlf: false # Default: <platform> == Windows
-timelimit: 2000  # Optional
+type: simple    # "simple" or "interactive"
+timelimit: 2000 # Optional
+match: exact    # "exact", "lines", or "float". Default: "lines" if the platform is Windows, otherwise "exact"
 
 # Possible types of "in" and "out":
 # * Integer
@@ -221,10 +264,16 @@ cases:
       2 3
       test
     out: 6 test
-  - in: [72, 128 256, myonmyon]
-    out: [456 myonmyon]
-    timelimit: 100 # Can be overridden
-  - in: [1000, 1000 1000, oooooooooooooo] # "out" is optional
+  - in: |
+      72
+      128 256
+      myonmyon
+    out: 456 myonmyon
+  # "out" is optional
+  - in: |
+      1000
+      1000 1000
+      oooooooooooooo
 ```
 
 <https://beta.atcoder.jp/contests/tricky/tasks/tricky_2>
@@ -233,10 +282,11 @@ cases:
 ---
 type: simple
 timelimit: 2000
-# When `absolute_error` or `relative_error` is present,
-# each line is splited by whitespace and compared by token.
-absolute_error: 1E-9
-relative_error: 1E-9
+match:
+  float:
+    absolute_error: 1E-9
+    relative_error: 1E-9
+
 cases:
   - in: |
       3
@@ -255,14 +305,15 @@ cases:
 
 ```yaml
 ---
-type: "interactive"
+type: interactive
 timelimit: 2000
+tester: python3
 
-cases:
-  - tester: "../checkers/py/atcoder_practice_b_checker.py ABCDE"
-  - tester: "../checkers/py/atcoder_practice_b_checker.py EDCBA"
-  - tester: "../checkers/hs/src/AtcoderPracticeBChecker.hs ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-  - tester: "../checkers/hs/src/AtcoderPracticeBChecker.hs ZYXWVUTSRQPONMLKJIHGFEDCBA"
+each_args:
+  - [ABCDE]
+  - [EDCBA]
+  - [ABCDEFGHIJKLMNOPQRSTUVWXYZ]
+  - [ZYXWVUTSRQPONMLKJIHGFEDCBA]
 ```
 
 ```python
@@ -276,37 +327,30 @@ def main() -> None:
     n = len(bs)
     q = 7 if n == 5 else 100
 
+    def reply(c1, c2):
+        print('<' if bs.index(c1) < bs.index(c2) else '>', flush=True)
+
     def judge(a):
         if a == bs:
             sys.exit(0)
         else:
-            print('Wrong answer', file=sys.stderr)
+            print('wrong', file=sys.stderr)
             sys.exit(1)
-
-    def reply(c1, c2):
-        print('<' if weight_by(c1) < weight_by(c2) else '>', flush=True)
-
-    def weight_by(c):
-        try:
-            return bs.index(c)
-        except ValueError:
-            raise RuntimeError(f'No such ball: {c}')
 
     print(f'{n} {q}', flush=True)
     for _ in range(q):
-        ts = re.split('[ \n]', sys.stdin.readline())
+        ts = re.split(r'[ \n]', sys.stdin.readline())
         if len(ts) == 4 and ts[0] == '?':
             reply(ts[1], ts[2])
         elif len(ts) == 3 and ts[0] == '!':
             judge(ts[1])
         else:
-            raise RuntimeError('Invalid input')
+            raise RuntimeError('invalid')
     else:
-        ts = re.split('[ \n]', sys.stdin.readline())
+        ts = re.split(r'[ \n]', sys.stdin.readline())
         if len(ts) == 3 and ts[0] == '!':
             judge(ts[1])
-        raise RuntimeError(
-            'Expected "! <answer>" (you have run out of queries)')
+        raise RuntimeError('answer me')
 
 
 if __name__ == '__main__':
@@ -314,8 +358,6 @@ if __name__ == '__main__':
 ```
 
 ```haskell
-#!/usr/bin/env runghc
-
 {-# LANGUAGE LambdaCase #-}
 
 module Main (main) where
@@ -325,6 +367,7 @@ import Data.List          (elemIndex)
 import Data.Maybe         (fromMaybe)
 import System.Environment (getArgs)
 import System.Exit        (die, exitSuccess)
+import System.IO          (hFlush, stdout)
 import Text.Printf        (printf)
 
 main :: IO ()
@@ -332,18 +375,18 @@ main = do
   bs <- (!! 0) <$> getArgs
   let n                   = length bs
       q                   = if n == 5 then 7 else 100 :: Int
-      reply c1 c2         = putStrLn $ if weightBy c1 < weightBy c2 then "<" else ">"
+      reply c1 c2         = putStrLn (if weightBy c1 < weightBy c2 then "<" else ">") >> hFlush stdout
       judge a | a == bs   = exitSuccess
-              | otherwise = die "Wrong answer"
-      weightBy c          = fromMaybe (error (printf "No such ball: %c" c)) (c `elemIndex` bs)
-  printf "%d %d\n" n q
+              | otherwise = die "wrong"
+      weightBy c          = fromMaybe (error "out of bounds") (c `elemIndex` bs)
+  printf "%d %d\n" n q >> hFlush stdout
   forM_ [1..q] $ \_ -> words <$> getLine >>= \case
     ["?", [c1], [c2]] -> reply c1 c2
     ["!", a]          -> judge a
-    _                 -> error "Invalid format"
+    _                 -> error "invalid"
   words <$> getLine >>= \case
     ["!", a] -> judge a
-    _        -> error "Expected \"! <answer>\" (You have run out of queries)"
+    _        -> error "answer me"
 ```
 
 ## Editor Integrations
@@ -363,7 +406,7 @@ main = do
                (with-current-buffer buffer
                  (erase-buffer))))
            (let ((problem-name (match-string 1 file-path)))
-             (term-run "snowchains" "*snowchains*" "submit" problem-name)))
+             (term-run "snowchains" "*snowchains*" "submit" problem-name "-l" "rust")))
           ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
            (cargo-process-run-bin (match-string 1 file-path)))
           (t
@@ -378,9 +421,9 @@ main = do
                (with-current-buffer buffer
                  (erase-buffer))))
            (let ((problem-name (match-string 1 file-path)))
-             (term-run "snowchains" "*snowchains*" "judge" problem-name)))
+             (term-run "snowchains" "*snowchains*" "judge" problem-name "-l" "rust")))
           ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
-           (cargo-process--start "Test Bin" (concat "cargo test --bin " (match-string 1 file-path))))
+           (cargo-process--start "Test Bin" (concat "test --bin " (match-string 1 file-path))))
           (t
            (cargo-process-test)))))
 

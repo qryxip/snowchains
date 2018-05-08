@@ -1,7 +1,8 @@
 use term::{self, Attr, Terminal};
 
 use std::fmt;
-use std::io::{self, Write};
+use std::io::Write;
+use std::sync::atomic::{self, AtomicBool};
 
 #[derive(Clone, Copy)]
 pub enum Color {
@@ -18,15 +19,27 @@ pub enum Color {
 
 impl Into<&'static [u32]> for Color {
     fn into(self) -> &'static [u32] {
-        match self {
-            Color::Success | Color::TesterStdout => &[118, 10, 2],
-            Color::Warning => &[190, 11, 3],
-            Color::Fatal => &[196, 9, 1],
-            Color::Title | Color::TesterStderr => &[99, 13, 5],
-            Color::CommandInfo | Color::SolverStdout => &[50, 14, 6],
-            Color::SolverStderr => &[198, 13, 8],
+        if COLOR_ENABLED.load(atomic::Ordering::Relaxed) {
+            match self {
+                Color::Success | Color::TesterStdout => &[118, 10, 2],
+                Color::Warning => &[190, 11, 3],
+                Color::Fatal => &[196, 9, 1],
+                Color::Title | Color::TesterStderr => &[99, 13, 5],
+                Color::CommandInfo | Color::SolverStdout => &[50, 14, 6],
+                Color::SolverStderr => &[198, 13, 8],
+            }
+        } else {
+            &[]
         }
     }
+}
+
+pub fn disable_color() {
+    COLOR_ENABLED.swap(false, atomic::Ordering::Relaxed);
+}
+
+lazy_static! {
+    static ref COLOR_ENABLED: AtomicBool = AtomicBool::new(true);
 }
 
 pub fn print_bold<C: Into<Option<Color>>>(color: C, args: fmt::Arguments) {
@@ -35,8 +48,7 @@ pub fn print_bold<C: Into<Option<Color>>>(color: C, args: fmt::Arguments) {
             return;
         }
     }
-    #[cfg_attr(feature = "cargo-clippy", allow(explicit_write))]
-    io::stdout().write_fmt(args).unwrap();
+    print!("{}", args);
 }
 
 pub fn eprint_bold<C: Into<Option<Color>>>(color: C, args: fmt::Arguments) {
@@ -45,8 +57,7 @@ pub fn eprint_bold<C: Into<Option<Color>>>(color: C, args: fmt::Arguments) {
             return;
         }
     }
-    #[cfg_attr(feature = "cargo-clippy", allow(explicit_write))]
-    io::stderr().write_fmt(args).unwrap();
+    eprint!("{}", args);
 }
 
 pub fn println_bold<C: Into<Option<Color>>>(color: C, args: fmt::Arguments) {

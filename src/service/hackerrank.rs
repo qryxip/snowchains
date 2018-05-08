@@ -1,25 +1,25 @@
 use errors::ServiceResult;
-use service::{DownloadProp, DownloadZips, OpenInBrowser};
+use service::{Credentials, DownloadProp, DownloadZips, OpenInBrowser, SessionProp};
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
 
-use httpsession::{HttpSession, Response};
 use httpsession::header::Headers;
+use httpsession::{HttpSession, Response};
 use regex::Regex;
 use select::document::Document;
 use select::predicate::Attr;
 use serde_json;
-use zip::ZipArchive;
 use zip::result::ZipResult;
+use zip::ZipArchive;
 
 use std::io::{self, Read, Seek};
 
-pub fn login() -> ServiceResult<()> {
-    HackerRank::start(true).map(|_| ())
+pub(crate) fn login(sess_prop: &SessionProp) -> ServiceResult<()> {
+    HackerRank::start(sess_prop, true).map(|_| ())
 }
 
-pub fn download(prop: &DownloadProp<&str>) -> ServiceResult<()> {
-    HackerRank::start(false)?.download(prop)
+pub(crate) fn download(sess_prop: &SessionProp, prop: &DownloadProp<&str>) -> ServiceResult<()> {
+    HackerRank::start(sess_prop, false)?.download(prop)
 }
 
 custom_derive! {
@@ -28,8 +28,11 @@ custom_derive! {
 }
 
 impl HackerRank {
-    fn start(prints_message_when_already_logged_in: bool) -> ServiceResult<Self> {
-        let mut hackerrank = HackerRank(super::start_session("hackerrank", "www.hackerrank.com")?);
+    fn start(
+        sess_prop: &SessionProp,
+        prints_message_when_already_logged_in: bool,
+    ) -> ServiceResult<Self> {
+        let mut hackerrank = HackerRank(sess_prop.start_session()?);
         let mut response = hackerrank.get_expecting("/login", &[200, 302])?;
         if response.status().as_u16() == 302 && prints_message_when_already_logged_in {
             eprintln!("Already signed in.");
@@ -48,9 +51,9 @@ impl HackerRank {
 
     fn try_logging_in(&mut self, html: Response) -> ServiceResult<bool> {
         #[derive(Serialize)]
-        struct PostData {
-            login: String,
-            password: String,
+        struct PostData<'a> {
+            login: &'a str,
+            password: &'a str,
             remember_me: bool,
         }
 
@@ -59,11 +62,11 @@ impl HackerRank {
             status: bool,
         }
 
-        let (username, password) = super::ask_username_and_password("Username: ")?;
+        let (username, password) = Credentials::None.or_ask("Username: ")?;
         let csrf_token = extract_csrf_token(html)?;
         let data = PostData {
-            login: username,
-            password,
+            login: &username,
+            password: &password,
             remember_me: true,
         };
         let response = self.post_json("/auth/login", &data, &[200], {
@@ -94,7 +97,7 @@ impl HackerRank {
             .map(|model| model.slug)
         {
             zip_urls.push(format!("{}/{}/download_testcases", url, slug));
-            paths.push(SuiteFilePath::new(dir_to_save, slug.clone(), extension));
+            paths.push(SuiteFilePath::new(dir_to_save, &slug, extension));
             urls.push(format!(
                 "https://www.hackerrank.com/{}/challenges/{}",
                 contest, slug

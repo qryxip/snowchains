@@ -5,14 +5,14 @@ use terminal::Color;
 use testsuite::{ExpectedStdout, SimpleCase};
 use util;
 
-use std::{self, fmt, thread};
-use std::io::{self, Write};
+use std::io::Write as _Write;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{self, fmt, thread};
 
 /// Tests for `case` and `solver` and returns one `SimpleOutput`.
-pub fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {
+pub(super) fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {
     let (tx, rx) = std::sync::mpsc::channel();
     {
         let (case, solver) = (case.clone(), solver.clone());
@@ -31,10 +31,10 @@ pub fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<Sim
             })
     } else {
         rx.recv().unwrap()
-    }.map_err(Into::into)
+    }
 }
 
-fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
+fn run(case: &SimpleCase, solver: &JudgingCommand) -> JudgeResult<SimpleOutput> {
     let (input, expected, timelimit) = case.values();
 
     let mut solver = solver.spawn_piped()?;
@@ -52,7 +52,7 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
             input,
             expected,
         })
-    } else if status.success() && expected.accepts(&stdout) {
+    } else if status.success() && is_match(&expected, &stdout) {
         Ok(SimpleOutput::Accepted {
             elapsed,
             input,
@@ -79,9 +79,49 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> io::Result<SimpleOutput> {
     }
 }
 
+fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
+    fn check<F: FnMut(f64, f64) -> bool>(expected: &str, actual: &str, mut on_float: F) -> bool {
+        expected.split_whitespace().count() == actual.split_whitespace().count()
+            && expected
+                .split_whitespace()
+                .zip(actual.split_whitespace())
+                .all(|(e, a)| {
+                    if let (Ok(e), Ok(a)) = (e.parse::<f64>(), a.parse::<f64>()) {
+                        on_float(e, a)
+                    } else {
+                        e == a
+                    }
+                })
+    }
+
+    match *expected {
+        ExpectedStdout::AcceptAny => true,
+        ExpectedStdout::Exact(ref s) => s == stdout,
+        ExpectedStdout::Lines(ref ls) => {
+            let stdout = stdout.lines().collect::<Vec<_>>();
+            ls.lines().count() == stdout.len()
+                && ls.lines().zip(stdout.iter()).all(|(l, &r)| l == r)
+        }
+        ExpectedStdout::Float {
+            ref lines,
+            absolute_error,
+            relative_error,
+        } => {
+            let stdout = stdout.lines().collect::<Vec<_>>();
+            lines.lines().count() == stdout.len()
+                && lines.lines().zip(stdout.iter()).all(|(e, a)| {
+                    check(e, a, |e, a| {
+                        let (d, r) = (absolute_error, relative_error);
+                        (a - e).abs() <= d || ((a - e) / e).abs() <= r // Doesn't care NaN
+                    })
+                })
+        }
+    }
+}
+
 /// Test result.
 #[cfg_attr(test, derive(Debug))]
-pub enum SimpleOutput {
+pub(super) enum SimpleOutput {
     // Each string may be empty.
     Accepted {
         elapsed: Duration,
@@ -196,7 +236,7 @@ impl JudgingOutput for SimpleOutput {
                 }
                 ExpectedStdout::Lines(ref lines) => {
                     eprintln_bold!(Color::Title, r"expected:");
-                    for l in lines {
+                    for l in lines.lines() {
                         eprintln!("{}", l);
                     }
                 }
@@ -211,7 +251,7 @@ impl JudgingOutput for SimpleOutput {
                         absolute_error,
                         relative_error
                     );
-                    for l in lines {
+                    for l in lines.lines() {
                         if l.split_whitespace().any(|t| t.parse::<f64>().is_ok()) {
                             for (i, t) in l.split_whitespace().enumerate() {
                                 match t.parse::<f64>() {
@@ -280,95 +320,196 @@ impl JudgingOutput for SimpleOutput {
 #[cfg(test)]
 mod tests {
     use command::JudgingCommand;
-    use errors::JudgeErrorKind;
+    use errors::{JudgeErrorKind, JudgeResult};
     use judging::simple::SimpleOutput;
     use testsuite::SimpleCase;
+    use util;
 
-    use decimal::d128;
     use env_logger;
+    use futures::executor;
+    use futures::future::{self, Loop};
+    use futures_timer::FutureExt as _FutureExt;
+    use tempdir::TempDir;
 
-    use std::io;
-    use std::str::FromStr as _FromStr;
+    use std::process::{Command, Stdio};
     use std::sync::Arc;
+    use std::time::Duration;
+    use std::{env, io};
 
     #[test]
     #[ignore]
     fn it_judges_for_atcoder_practice_a() {
-        static CODE: &str =
-            r"(a, (b, c), s) = (int(input()), map(int, input().split()), input()); \
-              print(f'{a + b + c} {s}')";
         static IN1: &str = "1\n2 3\ntest\n";
         static OUT1: &str = "6 test\n";
         static IN2: &str = "72\n128 256\nmyonmyon\n";
         static OUT2: &str = "456 myonmyon\n";
         let _ = env_logger::try_init();
-        let correct_command = python3_command(CODE).unwrap();
-        let wrong_command = python3_command("").unwrap();
-        let error_command = python3_command("import sys; sys.exit(1)").unwrap();
-        let case1 = SimpleCase::new(IN1, OUT1, None, None, None);
-        let case2 = SimpleCase::new(IN2, OUT2, None, None, None);
-        for case in vec![case1, case2] {
-            match super::judge(&case, &correct_command).unwrap() {
-                SimpleOutput::Accepted { .. } => (),
+        let correct_command = bash("read a; read b c; read s; echo `expr $a + $b + $c` $s");
+        let wrong_command = bash("echo yee");
+        let error_command = bash("echo error message 1>&2 && exit 1");
+        for (case_in, case_out) in vec![(IN1, OUT1), (IN2, OUT2)] {
+            match judge_default_matching(case_in, case_out, 500, &correct_command).unwrap() {
+                SimpleOutput::Accepted {
+                    input,
+                    stdout,
+                    stderr,
+                    ..
+                } => {
+                    assert_eq!(case_in, input.as_str());
+                    assert_eq!(case_out, stdout.as_str());
+                    assert_eq!("", stderr.as_str());
+                }
                 o => panic!("{:?}", o),
             }
-            match super::judge(&case, &wrong_command).unwrap() {
-                SimpleOutput::WrongAnswer { .. } => (),
+            match judge_default_matching(case_in, case_out, 500, &wrong_command).unwrap() {
+                SimpleOutput::WrongAnswer {
+                    input,
+                    stdout,
+                    stderr,
+                    ..
+                } => {
+                    assert_eq!(case_in, input.as_str());
+                    assert_eq!("yee\n", stdout.as_str());
+                    assert_eq!("", stderr.as_str());
+                }
                 o => panic!("{:?}", o),
             }
-            match super::judge(&case, &error_command).unwrap() {
-                SimpleOutput::RuntimeError { .. } => (),
+            match judge_default_matching(case_in, case_out, 500, &error_command).unwrap() {
+                SimpleOutput::RuntimeError {
+                    input,
+                    stdout,
+                    stderr,
+                    status,
+                    ..
+                } => {
+                    assert_eq!(case_in, input.as_str());
+                    assert_eq!("", stdout.as_str());
+                    assert_eq!("error message\n", stderr.as_str());
+                    assert_eq!(Some(1), status.code());
+                }
                 o => panic!("{:?}", o),
             }
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
     #[ignore]
     fn it_judges_for_atcoder_tricky_b() {
-        static CODE: &str = r#"import math
+        // Fastest code!
+        // https://beta.atcoder.jp/contests/tricky/submissions?f.Language=&f.Status=AC&f.Task=tricky_2&orderBy=time_consumption
+        // https://beta.atcoder.jp/contests/language-test-201603/submissions?f.Language=&f.Status=AC&f.Task=tricky_2&orderBy=time_consumption
+        static CODE: &str = r#"
+#![cfg_attr(feature = "cargo-clippy", allow(redundant_field_names, many_single_char_names))]
 
+use std::fmt;
+use std::io::{self, BufWriter, Read, Write as _Write};
+use std::str::{self, FromStr};
 
-def main():
-    r = ''
-    for _ in range(0, int(input())):
-        a, b, c = map(int, input().split())
-        if a == 0 and b == 0 and c == 0:
-            r += '3\n'
-        elif a == 0 and b == 0:
-            r += '0\n'
-        elif a == 0:
-            r += '1 {}\n'.format(-c / b)
-        else:
-            d = b ** 2.0 - 4.0 * c * a
-            if d < 0.0:
-                r += '0\n'
-            elif d == 0.0:
-                r += '1 {}\n'.format(-b / (2.0 * a))
-            else:
-                d_sqrt = math.sqrt(d)
-                x1 = (-b - d_sqrt) / (2.0 * a) if b > 0 else \
-                     (-b + d_sqrt) / (2.0 * a)
-                x2 = c / (a * x1)
-                if x1 < x2:
-                    r += '2 {} {}\n'.format(x1, x2)
-                else:
-                    r += '2 {} {}\n'.format(x2, x1)
-    print(r, end='', flush=True)
+fn main() {
+    let abcs = {
+        let mut sc = InputScanOnce::new(io::stdin(), 1024 * 1024);
+        let n = sc.next();
+        sc.trios::<i64, i64, i64>(n)
+    };
+    let mut out = BufWriter::new(io::stdout());
+    for (a, b, c) in abcs {
+        if a == 0 && b == 0 && c == 0 {
+            writeln!(out, "3").unwrap();
+        } else if a == 0 && b == 0 {
+            writeln!(out, "0").unwrap();
+        } else if a == 0 {
+            writeln!(out, "1 {}", (-c as f64) / (b as f64)).unwrap();
+        } else {
+            let (a, b, c) = (a as f64, b as f64, c as f64);
+            let d = b.powi(2) - 4.0 * c * a;
+            if d < 0.0 {
+                writeln!(out, "0").unwrap();
+            } else if d == 0.0 {
+                let x = -b / (2.0 * a);
+                writeln!(out, "1 {}", x).unwrap();
+            } else {
+                let d_sqrt = d.sqrt();
+                let x1 = if b >= 0.0 {
+                    (-b - d_sqrt) / (2.0 * a)
+                } else {
+                    (-b + d_sqrt) / (2.0 * a)
+                };
+                let x2 = c / (a * x1);
+                if x1 < x2 {
+                    writeln!(out, "2 {} {}", x1, x2).unwrap();
+                } else {
+                    writeln!(out, "2 {} {}", x2, x1).unwrap();
+                }
+            }
+        }
+    }
+    out.flush().unwrap();
+}
 
+struct InputScanOnce {
+    buf: Vec<u8>,
+    pos: usize,
+}
 
-if __name__ == '__main__':
-    main()
+impl InputScanOnce {
+    fn new<R: Read>(mut reader: R, estimated: usize) -> Self {
+        let mut buf = Vec::with_capacity(estimated);
+        let _ = io::copy(&mut reader, &mut buf).unwrap();
+        InputScanOnce { buf: buf, pos: 0 }
+    }
+
+    #[inline]
+    fn next<T: FromStr>(&mut self) -> T
+    where
+        T::Err: fmt::Debug,
+    {
+        let mut start = None;
+        loop {
+            match (self.buf[self.pos], start.is_some()) {
+                (b' ', true) | (b'\n', true) => break,
+                (_, true) | (b' ', false) | (b'\n', false) => self.pos += 1,
+                (_, false) => start = Some(self.pos),
+            }
+        }
+        let target = &self.buf[start.unwrap()..self.pos];
+        unsafe { str::from_utf8_unchecked(target) }.parse().unwrap()
+    }
+
+    fn trios<T1: FromStr, T2: FromStr, T3: FromStr>(&mut self, n: usize) -> Vec<(T1, T2, T3)>
+    where
+        T1::Err: fmt::Debug,
+        T2::Err: fmt::Debug,
+        T3::Err: fmt::Debug,
+    {
+        (0..n)
+            .map(|_| (self.next(), self.next(), self.next()))
+            .collect()
+    }
+}
 "#;
         static IN: &str = "3\n1 -3 2\n-10 30 -20\n100 -300 200\n";
         static OUT: &str = "2 1.000 2.000\n2 1.000 2.000\n2 1.000 2.000\n";
         let _ = env_logger::try_init();
-        let command = python3_command(CODE).unwrap();
-        let error = d128::from_str("1E-9").unwrap();
-        // It may take more than 1 second on Windows
-        let case = SimpleCase::new(IN, OUT, None, error, error);
-        match super::judge(&case, &command).unwrap() {
-            SimpleOutput::Accepted { .. } => {}
+        let tempdir = TempDir::new("it_judges_for_atcoder_tricky_b").unwrap();
+        let wd = tempdir.path().to_owned();
+        let src = wd.join("a.rs");
+        let bin = wd.join("a");
+        util::fs::write(&src, CODE.as_bytes()).unwrap();
+        let status = Command::new("rustc")
+            .arg(&src)
+            .arg("-o")
+            .arg(&bin)
+            .current_dir(&wd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let command = Arc::new(JudgingCommand::from_args(&bin, &[], wd));
+        match judge_float_matching(IN, OUT, 500, 1e-9f64, &command).unwrap() {
+            SimpleOutput::Accepted { .. } => tempdir.close().unwrap(),
             o => panic!("{:?}", o),
         }
     }
@@ -376,12 +517,15 @@ if __name__ == '__main__':
     #[test]
     #[ignore]
     fn it_timeouts() {
-        static CODE: &str = r"import time; time.sleep(1)";
         let _ = env_logger::try_init();
-        let command = python3_command(CODE).unwrap();
-        let case = SimpleCase::new("", "", 200, None, None);
-        match super::judge(&case, &command).unwrap() {
-            SimpleOutput::TimelimitExceeded { .. } => {}
+        let command = bash("sleep 1");
+        match judge_default_matching("input\n", "", 200, &command).unwrap() {
+            SimpleOutput::TimelimitExceeded {
+                timelimit, input, ..
+            } => {
+                assert_eq!(Duration::from_millis(200), timelimit);
+                assert_eq!("input\n", input.as_str());
+            }
             o => panic!("{:?}", o),
         }
     }
@@ -389,11 +533,9 @@ if __name__ == '__main__':
     #[test]
     #[ignore]
     fn it_denies_non_utf8_answers() {
-        static CODE: &str = r"import sys; sys.stdout.buffer.write(b'\xc3\x28')";
         let _ = env_logger::try_init();
-        let command = python3_command(CODE).unwrap();
-        let case = SimpleCase::new("", "", None, None, None);
-        let e = super::judge(&case, &command).unwrap_err();
+        let command = bash(r"echo $'\xc3\x28'");
+        let e = judge_default_matching("", "", 500, &command).unwrap_err();
         if let &JudgeErrorKind::Io(ref e) = e.kind() {
             if let io::ErrorKind::InvalidData = e.kind() {
                 return;
@@ -406,23 +548,63 @@ if __name__ == '__main__':
     #[ignore]
     fn it_denies_nonexisting_commands() {
         let _ = env_logger::try_init();
-        let command = Arc::new(JudgingCommand::from_args("nonexisting", &[]).unwrap());
-        let case = SimpleCase::new("", "", None, None, None);
-        let e = super::judge(&case, &command).unwrap_err();
-        if let &JudgeErrorKind::Io(ref e) = e.kind() {
-            if let io::ErrorKind::NotFound = e.kind() {
-                return;
-            }
+        let wd = env::current_dir().unwrap();
+        let command = Arc::new(JudgingCommand::from_args("nonexisting", &[], wd));
+        let e = judge_default_matching("", "", 500, &command).unwrap_err();
+        if let &JudgeErrorKind::Command(_) = e.kind() {
+            return;
         }
         panic!("{:?}", e);
     }
 
-    fn python3_command(code: &str) -> io::Result<Arc<JudgingCommand>> {
+    fn judge_default_matching(
+        input: &str,
+        output: &str,
+        timelimit: u64,
+        command: &Arc<JudgingCommand>,
+    ) -> JudgeResult<SimpleOutput> {
+        let timelimit = Duration::from_millis(timelimit);
+        let case = SimpleCase::default_matching(input, output, timelimit);
+        judge(&case, timelimit * 2, command)
+    }
+
+    fn judge_float_matching(
+        input: &str,
+        output: &str,
+        timelimit: u64,
+        error: f64,
+        command: &Arc<JudgingCommand>,
+    ) -> JudgeResult<SimpleOutput> {
+        let timelimit = Duration::from_millis(timelimit);
+        let case = SimpleCase::float_matching(input, output, timelimit, error, error);
+        judge(&case, timelimit * 2, command)
+    }
+
+    fn judge(
+        case: &SimpleCase,
+        timeout: Duration,
+        command: &Arc<JudgingCommand>,
+    ) -> JudgeResult<SimpleOutput> {
+        let f = future::loop_fn((), move |_| match super::judge(case, command) {
+            Ok(output) => Ok(Loop::Break(output)),
+            Err(e) => {
+                if let JudgeErrorKind::Io(ref io_e) = *e.kind() {
+                    if io_e.kind() == io::ErrorKind::BrokenPipe {
+                        return Ok(Loop::Continue(()));
+                    }
+                }
+                Err(e)
+            }
+        }).timeout(timeout);
+        executor::block_on(f)
+    }
+
+    fn bash(code: &str) -> Arc<JudgingCommand> {
         #[cfg(windows)]
-        static PYTHON3: &str = "python";
+        static BASH: &str = r"C:\msys64\usr\bin\bash.exe";
         #[cfg(not(windows))]
-        static PYTHON3: &str = "python3";
-        let command = JudgingCommand::from_args(PYTHON3, &["-c", code])?;
-        Ok(Arc::new(command))
+        static BASH: &str = "/bin/bash";
+        let wd = env::current_dir().unwrap();
+        Arc::new(JudgingCommand::from_args(BASH, &["-c", code], wd))
     }
 }

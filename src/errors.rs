@@ -1,37 +1,14 @@
-use terminal::Color;
-
-use {bincode, cookie, futures, httpsession, regex, serde_json, serde_urlencoded, serde_yaml, toml};
 use chrono::{self, DateTime, Local};
-use error_chain::{ChainedError, ExitCode};
 use httpsession::UrlError;
 use zip::result::ZipError;
+use {httpsession, serde_json, serde_urlencoded, serde_yaml, toml};
 
-use std::{self, io};
+use std::ffi::OsString;
+use std::io;
 use std::path::PathBuf;
-use std::process::{self, ExitStatus};
+use std::process::ExitStatus;
 use std::string::FromUtf8Error;
 use std::sync::mpsc::RecvError;
-
-pub fn quick_main_colored<C: ExitCode, E: ChainedError>(main: fn() -> std::result::Result<C, E>) {
-    match main() {
-        Ok(code) => process::exit(ExitCode::code(code)),
-        Err(e) => {
-            eprintln!();
-            if e.iter().count() > 1 {
-                eprint!("    ");
-            }
-            for (i, e) in e.iter().enumerate() {
-                let head = if i == 0 { "Error: " } else { "Caused by: " };
-                eprint_bold!(Color::Fatal, "{}", head);
-                eprintln_bold!(None, "{}", e);
-            }
-            if let Some(backtrace) = e.backtrace() {
-                eprintln!("{:?}", backtrace);
-            }
-            process::exit(1);
-        }
-    }
-}
 
 error_chain!{
     foreign_links {
@@ -39,6 +16,21 @@ error_chain!{
         Judge(JudgeError/*, JudgeErrorKind*/);
         SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
         Config(ConfigError/*, ConfigErrorKind*/);
+        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
+        FileIo(FileIoError/*, FileIoErrorKind*/);
+        Io(io::Error);
+    }
+
+    errors {
+        Unimplemented {
+            description("Unimplemented")
+            display("Sorry, not yet implemented")
+        }
+
+        HomeDirNotFound {
+            description("Home directory not found")
+            display("Home directory not found")
+        }
     }
 }
 
@@ -51,9 +43,8 @@ error_chain! {
         FileIo(FileIoError/*, FileIoErrorKind*/);
         CodeReplace(CodeReplaceError/*, CodeReplaceErrorKind*/);
         SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
-        Bincode(bincode::Error);
+        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
         ChronoParse(chrono::ParseError);
-        CookieParse(cookie::ParseError);
         HttpSession(httpsession::Error);
         Io(io::Error);
         Recv(RecvError);
@@ -104,6 +95,11 @@ error_chain! {
                             .to_owned()
                     })
         }
+
+        WrongCredentialsOnTest {
+            description("Wrong username or password")
+            display("Wrong username or password")
+        }
     }
 }
 
@@ -114,15 +110,15 @@ error_chain! {
 
     foreign_links {
         SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
+        FileIo(FileIoError/*, FileIoErrorKind*/);
         Io(io::Error);
         Recv(RecvError);
-        FuturesCanceled(futures::Canceled);
     }
 
     errors {
-        CommandNotFound(command: String) {
-            description("Command not found")
-            display("No such command: {:?}", command)
+        Command(command: OsString) {
+            description("Failed to execute a command")
+            display("Failed to execute: {:?}", command)
         }
 
         Compile(status: ExitStatus) {
@@ -145,14 +141,23 @@ error_chain! {
     }
 
     foreign_links {
+        Config(ConfigError/*, ConfigErrorKind*/);
+        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
         FileIo(FileIoError/*, FileIoErrorKind*/);
+        Io(io::Error);
         SerdeJson(serde_json::Error);
         SerdeYaml(serde_yaml::Error);
         TomlDe(toml::de::Error);
         TomlSer(toml::ser::Error);
+        Zip(ZipError);
     }
 
     errors {
+        DirNotExist(directory: PathBuf) {
+            description("Directory does not exist")
+            display("{:?} does not exist. Execute \"download\" command first", directory)
+        }
+
         NoFile(directory: PathBuf) {
             description("No test suite file")
             display("No test suite file in {:?}. Execute \"download\" command first", directory)
@@ -163,19 +168,24 @@ error_chain! {
             display("Different types of suites")
         }
 
-        Unsubmittable(problem: String) {
-            description("The problem is unsubmittable")
-            display("{:?} is unsubmittable", problem)
-        }
-
         SuiteIsNotSimple {
             description("Target suite is not \"simple\" type")
             display("Target suite is not \"simple\" type")
         }
 
-        Nan {
-            description("NaN")
-            display("Do not input \"NaN\"")
+        Unsubmittable(problem: String) {
+            description("The problem is unsubmittable")
+            display("{:?} is unsubmittable", problem)
+        }
+
+        RegexGroupOutOfBounds(group: usize) {
+            description("Regex group out of bounds")
+            display("Regex group out of bounds: {}", group)
+        }
+
+        UnsupportedExtension(extension: String) {
+            description("Unsupported extension")
+            display("Unsupported extension; {:?}", extension)
         }
     }
 }
@@ -185,21 +195,7 @@ error_chain! {
         ConfigError, ConfigErrorKind, ConfigResultExt, ConfigResult;
     }
 
-    foreign_links {
-        Template(TemplateError/*, TemplateErrorKind*/);
-        CodeReplace(CodeReplaceError/*, CodeReplaceErrorKind*/);
-        FileIo(FileIoError/*, FileIoErrorKind*/);
-        Io(io::Error);
-        Regex(regex::Error);
-        SerdeYaml(serde_yaml::Error);
-    }
-
     errors {
-        ConfigFileNotFound {
-            description("\"snowchains.yaml\" not found")
-            display("\"snowchains.yaml\" not found")
-        }
-
         LanguageNotSpecified {
             description("Language not specified")
             display("Language not specified")
@@ -223,15 +219,14 @@ error_chain! {
     }
 
     foreign_links {
-        Template(TemplateError/*, TemplateErrorKind*/);
-        Regex(regex::Error);
+        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
         FromUtf8(FromUtf8Error);
     }
 
     errors {
-        RegexGroupOutOfBounds(i: usize) {
+        RegexGroupOutOfBounds(group: usize) {
             description("Regex group out of bounds")
-            display("Regex group out of bounds: {}", i)
+            display("Regex group out of bounds: {}", group)
         }
 
         NoMatch(regex: String) {
@@ -243,39 +238,43 @@ error_chain! {
 
 error_chain! {
     types {
-        TemplateError, TemplateErrorKind, TemplateResultExt, TemplateResult;
+        TemplateExpandError, TemplateExpandErrorKind, TemplateExpandResultExt, TemplateExpandResult;
     }
 
     foreign_links {
-        FileIo(FileIoError/*, FileIoErrorKind*/);
+        Io(io::Error);
     }
 
     errors {
-        InvalidVariable(var: String) {
-            description("Invalid variable")
-            display("Invalid variable: {:?}", var)
+        TemplateExpand(debug: String, target: String, ty: &'static str) {
+            description("Failed to expand a template")
+            display("Failed to expand {} % {:?} as {}", debug, target, ty)
         }
 
-        Syntax(whole: String) {
-            description("Syntax error")
-            display("Syntax error: {:?}", whole)
+        UnknownSpecifier(specifier: String) {
+            description("Unknown specifier")
+            display("Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
+                     \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"", specifier)
         }
 
-        NoSuchSpecifier(whole: String, specifier: String, expected: &'static [&'static str]) {
-            description("No such format specifier")
-            display("No such format specifier {:?} (expected {:?}): {:?}",
-                    specifier, expected, whole)
+        EnvVarNotPresent(name: String) {
+            description("An environment variable is not present")
+            display("Environment variable {:?} is not present", name)
         }
 
-        NoSuchVariable(whole: String, keyword: String, expected: Vec<String>) {
-            description("Variable not found")
-            display("No such variable {:?} (expected {:?} + environment variables): {:?}",
-                    keyword, expected, whole)
+        EnvVarNotUnicode(name: String, value: OsString) {
+            description("An environment variable is not valid unicode")
+            display("Environment variable {:?} is not valid unicode: {:?}", name, value)
         }
 
-        NonUtf8EnvVar(var: String) {
-            description("Non UTF-8 environment variable")
-            display("Non UTF-8 environment variable: {:?}", var)
+        HomeDirNotFound {
+            description("Home directory not found")
+            display("Home directory not found")
+        }
+
+        UnsupportedUseOfTilde {
+            description("Unsupported use of \"~\"")
+            display("Unsupported use of \"~\"")
         }
     }
 }
@@ -287,9 +286,15 @@ error_chain! {
 
     foreign_links {
         Io(io::Error);
+        SerdeYaml(serde_yaml::Error);
     }
 
     errors {
+        Search(name: &'static str, start: PathBuf) {
+            description("Failed to search")
+            display("Could not find {:?} in {} or any parent directory", name, start.display())
+        }
+
         OpenInReadOnly(path: PathBuf) {
             description("Failed to open a file in read-only mode")
             display("An IO error occurred while opening {} in read-only mode", path.display())
@@ -300,24 +305,19 @@ error_chain! {
             display("An IO error occurred while opening {} in write-only mode", path.display())
         }
 
+        CreateDirAll(dir: PathBuf) {
+            description("Failed to create a directory")
+            display("Failed to create {}", dir.display())
+        }
+
+        ReadDir(dir: PathBuf) {
+            description("Failed to read a directory")
+            display("Failed to read {}", dir.display())
+        }
+
         Write(path: PathBuf) {
             description("Failed to write data to a file")
             display("Failed to write to {}", path.display())
-        }
-
-        Expand(path: String) {
-            description("Failed to expand a path")
-            display("Failed to expand {:?}", path)
-        }
-
-        HomeDirNotFound {
-            description("Home directory not found")
-            display("Home directory not found")
-        }
-
-        UnsupportedUseOfTilde {
-            description("Unsupported use of \"~\"")
-            display("Unsupported use of \"~\"")
         }
     }
 }
