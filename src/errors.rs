@@ -1,7 +1,8 @@
 use chrono::{self, DateTime, Local};
-use httpsession::UrlError;
+use itertools::Itertools as _Itertools;
+use reqwest::{self, StatusCode};
 use zip::result::ZipError;
-use {httpsession, serde_json, serde_urlencoded, serde_yaml, toml};
+use {bincode, cookie, serde_json, serde_urlencoded, serde_yaml, toml, url};
 
 use std::ffi::OsString;
 use std::io;
@@ -40,17 +41,17 @@ error_chain! {
     }
 
     foreign_links {
+        Session(SessionError/*, SessionErrorKind*/);
         FileIo(FileIoError/*, FileIoErrorKind*/);
         CodeReplace(CodeReplaceError/*, CodeReplaceErrorKind*/);
         SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
         TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
         ChronoParse(chrono::ParseError);
-        HttpSession(httpsession::Error);
         Io(io::Error);
         Recv(RecvError);
         SerdeJson(serde_json::Error);
         SerdeUrlencodedSer(serde_urlencoded::ser::Error);
-        Url(UrlError);
+        UrlParse(url::ParseError);
         Zip(ZipError);
     }
 
@@ -99,6 +100,41 @@ error_chain! {
         WrongCredentialsOnTest {
             description("Wrong username or password")
             display("Wrong username or password")
+        }
+    }
+}
+
+error_chain! {
+    types {
+        SessionError, SessionErrorKind, SessionResultExt, SessionResult;
+    }
+
+    foreign_links {
+        FileIo(FileIoError/*, FileIoErrorKind*/);
+        Bincode(bincode::Error);
+        CookieParse(cookie::ParseError);
+        Reqwest(reqwest::Error);
+        SerdeJson(serde_json::Error);
+        SerdeUrlencodedSer(serde_urlencoded::ser::Error);
+        UrlParse(url::ParseError);
+        Io(io::Error);
+    }
+
+    errors {
+        ParseUrl(input: String) {
+            description("Failed to parse a URL")
+            display("Failed to parse {:?}", input)
+        }
+
+        ForbiddenByRobotsTxt {
+            description("Forbidden by robots.txt")
+            display("Forbidden by robots.txt")
+        }
+
+        UnexpectedStatusCode(expected: Vec<StatusCode>, actual: StatusCode) {
+            description("Unexpected HTTP status code")
+            display("Unexpected HTTP status code {}, expected {}", actual,
+                    expected.iter().format(" or "))
         }
     }
 }
@@ -303,6 +339,16 @@ error_chain! {
         OpenInWriteOnly(path: PathBuf) {
             description("Failed to open a file in write-only mode")
             display("An IO error occurred while opening {} in write-only mode", path.display())
+        }
+
+        OpenInReadWrite(path: PathBuf) {
+            description("Failed to open a file in read/write mode")
+            display("An IO error occurred while opening {} in read/write mode", path.display())
+        }
+
+        Lock(path: PathBuf) {
+            description("Failed to lock a file")
+            display("Failed to lock {}", path.display())
         }
 
         CreateDirAll(dir: PathBuf) {

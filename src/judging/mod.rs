@@ -119,14 +119,14 @@ where
 
     fn print_title(&self, i: usize, n: usize, name: &str, name_width: usize) {
         (0..format!("{}", n).len() - format!("{}", i + 1).len()).for_each(|_| print!(" "));
-        print_bold!(None, "{}/{} ({})", i + 1, n, name);
+        print_bold!(Color::None, "{}/{} ({})", i + 1, n, name);
         (0..name_width - name.width_cjk() + 1).for_each(|_| print!(" "));
         println_bold!(self.color(), "{}", self);
     }
 
     fn eprint_title(&self, i: usize, n: usize, name: &str, name_width: usize) {
         (0..format!("{}", n).len() - format!("{}", i + 1).len()).for_each(|_| eprint!(" "));
-        eprint_bold!(None, "{}/{} ({})", i + 1, n, name);
+        eprint_bold!(Color::None, "{}/{} ({})", i + 1, n, name);
         (0..name_width - name.width_cjk() + 1).for_each(|_| eprint!(" "));
         eprintln_bold!(self.color(), "{}", self);
     }

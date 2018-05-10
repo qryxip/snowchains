@@ -1,4 +1,5 @@
 use errors::{ServiceError, ServiceErrorKind, ServiceResult};
+use service::session::HttpSession;
 use service::{
     Contest, Credentials, DownloadProp, OpenInBrowser, RestoreProp, SessionProp, SubmitProp,
 };
@@ -7,7 +8,6 @@ use testsuite::{SuiteFilePath, TestSuite};
 use util;
 
 use chrono::{DateTime, Local, Utc};
-use httpsession::HttpSession;
 use regex::Regex;
 use select::document::Document;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
@@ -834,13 +834,16 @@ fn find_lang_id(document: &Document, lang_name: &str) -> ServiceResult<u32> {
 
 #[cfg(test)]
 mod tests {
+    use errors::SessionResult;
     use service::atcoder::{AtCoder, AtcoderContest};
+    use service::session::HttpSession;
     use service::{Contest, Credentials};
     use testsuite::TestSuite;
 
     use env_logger;
-    use httpsession::header::UserAgent;
-    use httpsession::{self, HttpSession, RedirectPolicy};
+    use reqwest::header::{Headers, UserAgent};
+    use reqwest::RedirectPolicy;
+    use url::Host;
 
     use std::borrow::Borrow;
     use std::time::Duration;
@@ -1202,14 +1205,18 @@ mod tests {
         assert_eq!(EXPECTED_CODE, code);
     }
 
-    fn start() -> httpsession::Result<AtCoder> {
+    fn start() -> SessionResult<AtCoder> {
+        static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
         let session = HttpSession::builder()
-            .base("beta.atcoder.jp", true, None)
-            .timeout(Duration::from_secs(10))
+            .base(Host::Domain("beta.atcoder.jp"), true, None)
             .redirect(RedirectPolicy::none())
-            .default_header(UserAgent::new(
-                "snowchains <https://github.com/wariuni/snowchains>",
-            ))
+            .timeout(Duration::from_secs(10))
+            .referer(false)
+            .default_headers({
+                let mut headers = Headers::new();
+                headers.set(UserAgent::new(USER_AGENT));
+                headers
+            })
             .with_robots_txt()?;
         Ok(AtCoder {
             session,

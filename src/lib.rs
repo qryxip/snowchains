@@ -17,14 +17,17 @@ extern crate serde_derive;
 #[macro_use]
 extern crate structopt;
 
+extern crate bincode;
 extern crate chrono;
 extern crate combine;
+extern crate cookie;
+extern crate fs2;
 extern crate futures;
 extern crate heck;
-extern crate httpsession;
 extern crate itertools;
 extern crate pbr;
 extern crate regex;
+extern crate reqwest;
 extern crate robots_txt;
 extern crate rpassword;
 extern crate rprompt;
@@ -36,8 +39,13 @@ extern crate serde_yaml;
 extern crate term;
 extern crate toml;
 extern crate unicode_width;
+extern crate url;
 extern crate webbrowser;
 extern crate zip;
+
+#[cfg(test)]
+#[macro_use]
+extern crate nickel;
 
 #[cfg(test)]
 extern crate env_logger;

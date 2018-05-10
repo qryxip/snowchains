@@ -22,7 +22,7 @@ fn main() {
         for (i, e) in e.iter().enumerate() {
             let head = if i == 0 { "Error: " } else { "Caused by: " };
             eprint_bold!(Color::Fatal, "{}", head);
-            eprintln_bold!(None, "{}", e);
+            eprintln_bold!(Color::None, "{}", e);
         }
         if let Some(backtrace) = e.backtrace() {
             eprintln!("{:?}", backtrace);

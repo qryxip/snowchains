@@ -56,6 +56,8 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 service: atcoder # "atcoder", "hackerrank", "other"
 contest: arc001
 
+terminal: prefer256color
+
 session:
   timeout: 2
 

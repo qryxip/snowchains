@@ -4,13 +4,12 @@ extern crate snowchains;
 extern crate serde_derive;
 
 extern crate env_logger;
-extern crate httpsession;
 extern crate serde_yaml;
 extern crate tempdir;
 
-use snowchains::{terminal, util, Credentials, Opt, Prop, ServiceName};
+use snowchains::terminal::TerminalMode;
+use snowchains::{util, Credentials, Opt, Prop, ServiceName};
 
-use httpsession::ColorMode;
 use tempdir::TempDir;
 
 use std::fs::File;
@@ -26,7 +25,6 @@ fn it_logins() {
         }.run(prop)
     }
     let _ = env_logger::try_init();
-    terminal::disable_color();
     let (tempdir1, prop1) = setup("it_logins_1", empty_credentials());
     let (tempdir2, prop2) = setup("it_logins_2", credentials_from_env_vars());
     login(&prop1).unwrap_err();
@@ -128,7 +126,6 @@ if __name__ == '__main__':
     main()
 "#;
     let _ = env_logger::try_init();
-    terminal::disable_color();
     let (tempdir, prop) = setup("it_submits_to_practice_a", credentials_from_env_vars());
     util::fs::write(&tempdir.path().join("py").join("a.py"), CODE).unwrap();
     Opt::Submit {
@@ -145,13 +142,12 @@ if __name__ == '__main__':
 }
 
 fn setup(tempdir_prefix: &str, credentials: Credentials) -> (TempDir, Prop) {
-    terminal::disable_color();
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
     let prop = Prop {
         working_dir: tempdir.path().to_owned(),
         default_lang_on_init: Some("python3"),
-        cookie_dir: tempdir.path().to_owned(),
-        color_mode: ColorMode::NoColor,
+        cookies_dir: tempdir.path().to_owned(),
+        terminal_mode: TerminalMode::Plain,
         credentials,
     };
     Opt::Init {

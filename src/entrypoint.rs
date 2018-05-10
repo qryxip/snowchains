@@ -3,10 +3,9 @@ use judging::{self, JudgeProp};
 use service::{
     atcoder, hackerrank, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp,
 };
+use terminal::TerminalMode;
 use testsuite::{self, SerializableExtension, SuiteFilePath};
 use ServiceName;
-
-use httpsession::ColorMode;
 
 use std::env;
 use std::path::PathBuf;
@@ -258,7 +257,7 @@ impl Opt {
             Opt::Init { directory } => {
                 info!("Running \"init\" command");
                 let directory = prop.working_dir.join(&directory);
-                config::init(&directory, prop.default_lang_on_init)?;
+                config::init(&directory, prop.default_lang_on_init, prop.terminal_mode)?;
             }
             Opt::Switch { service, contest } => {
                 info!("Running \"switch\" command");
@@ -266,7 +265,7 @@ impl Opt {
             }
             Opt::Login { service } => {
                 info!("Running \"login\" command");
-                let config = Config::load_from_file(None, None, &prop.working_dir).ok();
+                let config = Config::load_setting_term_mode(None, None, &prop.working_dir).ok();
                 let sess_prop = prop.sess_prop(service, config.as_ref());
                 match service {
                     ServiceName::AtCoder => atcoder::login(&sess_prop),
@@ -276,7 +275,7 @@ impl Opt {
             }
             Opt::Participate { service, contest } => {
                 info!("Running \"participate\" command");
-                let config = Config::load_from_file(None, None, &prop.working_dir).ok();
+                let config = Config::load_setting_term_mode(None, None, &prop.working_dir).ok();
                 let sess_prop = prop.sess_prop(service, config.as_ref());
                 match service {
                     ServiceName::AtCoder => atcoder::participate(&contest, &sess_prop),
@@ -289,7 +288,7 @@ impl Opt {
                 open_browser,
             } => {
                 info!("Running \"download\" command");
-                let config = Config::load_from_file(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(config.service(), &config);
                 let download_prop = DownloadProp::new(&config, open_browser)?;
                 match config.service() {
@@ -300,7 +299,7 @@ impl Opt {
             }
             Opt::Restore { service, contest } => {
                 info!("Running \"restore\" command");
-                let config = Config::load_from_file(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(config.service(), &config);
                 let restore_prop = RestoreProp::new(&config)?;
                 match config.service() {
@@ -317,7 +316,7 @@ impl Opt {
                 contest,
             } => {
                 info!("Running \"append\" command");
-                let config = Config::load_from_file(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
                 let dir = config.testfiles_dir().expand("")?;
                 let path = SuiteFilePath::new(&dir, &target, extension);
                 testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
@@ -330,7 +329,7 @@ impl Opt {
             } => {
                 let language = language.as_ref().map(String::as_str);
                 info!("Running \"judge\" command");
-                let config = Config::load_from_file(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
                 let judge_prop = JudgeProp::new(&config, &target, language)?;
                 judging::judge(judge_prop)?;
             }
@@ -345,7 +344,7 @@ impl Opt {
             } => {
                 let language = language.as_ref().map(String::as_str);
                 info!("Running \"submit\" command");
-                let config = Config::load_from_file(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(config.service(), &config);
                 let submit_prop = SubmitProp::new(
                     &config,
@@ -371,15 +370,15 @@ impl Opt {
 pub struct Prop {
     pub working_dir: PathBuf,
     pub default_lang_on_init: Option<&'static str>,
-    pub cookie_dir: PathBuf,
-    pub color_mode: ColorMode,
+    pub cookies_dir: PathBuf,
+    pub terminal_mode: TerminalMode,
     pub credentials: Credentials,
 }
 
 impl Prop {
     pub fn new() -> ::Result<Self> {
         let working_dir = env::current_dir()?;
-        let cookie_dir = env::home_dir()
+        let cookies_dir = env::home_dir()
             .ok_or_else(|| ::Error::from(::ErrorKind::HomeDirNotFound))?
             .join(".local")
             .join("share")
@@ -387,8 +386,8 @@ impl Prop {
         Ok(Self {
             working_dir,
             default_lang_on_init: None,
-            cookie_dir,
-            color_mode: ColorMode::Prefer256,
+            cookies_dir,
+            terminal_mode: TerminalMode::Prefer256Color,
             credentials: Credentials::None,
         })
     }
@@ -400,8 +399,7 @@ impl Prop {
     ) -> SessionProp {
         SessionProp::new(
             service.domain(),
-            self.cookie_dir.join(service.as_str()),
-            self.color_mode,
+            self.cookies_dir.join(service.as_str()),
             self.credentials.clone(),
             config.into().map(Config::session),
         )

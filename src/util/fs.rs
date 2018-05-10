@@ -1,7 +1,9 @@
 use errors::{FileIoErrorKind, FileIoResult, FileIoResultExt};
 
+use fs2::FileExt as _FileExt;
+
 use std;
-use std::fs::{File, ReadDir};
+use std::fs::{File, OpenOptions, ReadDir};
 use std::io::Write as _Write;
 use std::path::Path;
 
@@ -36,6 +38,21 @@ pub(crate) fn create_file_and_dirs(path: &Path) -> FileIoResult<File> {
         }
     }
     File::create(path).chain_err(|| FileIoErrorKind::OpenInWriteOnly(path.to_owned()))
+}
+
+pub(crate) fn create_and_lock(path: &Path) -> FileIoResult<File> {
+    if let Some(dir) = path.parent() {
+        create_dir_all(dir)?;
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(path)
+        .chain_err(|| FileIoErrorKind::OpenInReadWrite(path.to_owned()))?;
+    file.try_lock_exclusive()
+        .chain_err(|| FileIoErrorKind::Lock(path.to_owned()))?;
+    Ok(file)
 }
 
 /// Reads a file content into a string.

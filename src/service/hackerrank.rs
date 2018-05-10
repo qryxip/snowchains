@@ -1,11 +1,12 @@
 use errors::ServiceResult;
+use service::session::HttpSession;
 use service::{Credentials, DownloadProp, DownloadZips, OpenInBrowser, SessionProp};
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
 
-use httpsession::header::Headers;
-use httpsession::{HttpSession, Response};
 use regex::Regex;
+use reqwest::header::Headers;
+use reqwest::Response;
 use select::document::Document;
 use select::predicate::Attr;
 use serde_json;

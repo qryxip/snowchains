@@ -6,6 +6,7 @@ use template::{
     BaseDirNone, BaseDirSome, CommandTemplate, CompilationTemplate, JudgeTemplate, PathTemplate,
     StringTemplate,
 };
+use terminal::{self, TerminalMode};
 use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipConfig};
 use util;
 use ServiceName;
@@ -21,7 +22,11 @@ use std::{cmp, io, str};
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
-pub(crate) fn init(directory: &Path, default_lang: Option<&'static str>) -> FileIoResult<()> {
+pub(crate) fn init(
+    directory: &Path,
+    default_lang: Option<&'static str>,
+    terminal: TerminalMode,
+) -> FileIoResult<()> {
     const LANGS: [&str; 8] = [
         "c++", "rust", "haskell", "bash", "python3", "java", "scala", "c#",
     ];
@@ -48,6 +53,8 @@ pub(crate) fn init(directory: &Path, default_lang: Option<&'static str>) -> File
         r#"---
 service: atcoder
 contest: arc001
+
+terminal: {terminal}
 
 session:
   timeout: 10
@@ -203,12 +210,13 @@ languages:
       atcoder: 3025
 {csharp}
 "#,
-        default_lang = default_lang,
+        terminal = terminal,
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
         } else {
             "[/bin/sh, -c]"
         },
+        default_lang = default_lang,
         default_match = if cfg!(windows) { "lines" } else { "exact" },
         exe = if cfg!(target_os = "windows") {
             ".exe"
@@ -305,6 +313,7 @@ pub(crate) struct Config {
     #[serde(default)]
     service: ServiceName,
     contest: String,
+    terminal: TerminalMode,
     session: SessionConfig,
     shell: Vec<StringTemplate>,
     testfiles: TestFiles,
@@ -319,7 +328,7 @@ pub(crate) struct Config {
 
 impl Config {
     /// Loads and deserializes from the nearest `snowchains.yaml`.
-    pub fn load_from_file(
+    pub fn load_setting_term_mode(
         service: Option<ServiceName>,
         contest: Option<String>,
         dir: &Path,
@@ -330,7 +339,12 @@ impl Config {
         config.base_dir = base;
         config.service = service.unwrap_or(config.service);
         config.contest = contest.unwrap_or(config.contest);
-        println!("Loaded {}", path.display());
+        terminal::terminal_mode(config.terminal);
+        println!(
+            "Loaded {} (terminal mode: {})",
+            path.display(),
+            config.terminal,
+        );
         Ok(config)
     }
 

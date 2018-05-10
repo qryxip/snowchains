@@ -1,20 +1,25 @@
 pub(crate) mod atcoder;
 pub(crate) mod hackerrank;
 
+pub mod session;
+
 use config::Config;
 use errors::{
     ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as _ServiceResultExt,
+    SessionResult,
 };
 use replacer::CodeReplacer;
+use service::session::HttpSession;
 use template::{BaseDirSome, PathTemplate};
 use terminal::Color;
 use testsuite::SerializableExtension;
 use {util, ServiceName};
 
 use futures::{executor, future, task, Async, Future, Poll};
-use httpsession::header::{ContentLength, UserAgent};
-use httpsession::{self, ColorMode, CookieStoreOption, HttpSession, RedirectPolicy, Response};
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
+use reqwest::header::{ContentLength, Headers, UserAgent};
+use reqwest::{RedirectPolicy, Response};
+use url::Host;
 use zip::result::ZipResult;
 use zip::ZipArchive;
 use {rpassword, rprompt, webbrowser};
@@ -87,7 +92,7 @@ impl DownloadZips for HttpSession {
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
         let responses = urls.iter()
             .map(|url| self.get(url.as_ref()))
-            .collect::<httpsession::Result<Vec<_>>>()?;
+            .collect::<SessionResult<Vec<_>>>()?;
         download_zip_files(out, alt_capacity, responses).map_err(Into::into)
     }
 }
@@ -235,8 +240,7 @@ pub(crate) struct SessionConfig {
 
 pub(crate) struct SessionProp {
     domain: Option<&'static str>,
-    cookie_path: PathBuf,
-    color_mode: ColorMode,
+    cookies_path: PathBuf,
     timeout: Option<Duration>,
     credentials: Credentials,
 }
@@ -244,15 +248,13 @@ pub(crate) struct SessionProp {
 impl SessionProp {
     pub fn new(
         domain: Option<&'static str>,
-        cookie_path: PathBuf,
-        color_mode: ColorMode,
+        cookies_path: PathBuf,
         credentials: Credentials,
         sess_conf: Option<&SessionConfig>,
     ) -> Self {
         Self {
             domain,
-            cookie_path,
-            color_mode,
+            cookies_path,
             timeout: sess_conf.and_then(|c| c.timeout),
             credentials,
         }
@@ -265,13 +267,19 @@ impl SessionProp {
     pub(self) fn start_session(&self) -> ServiceResult<HttpSession> {
         static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
         let builder = HttpSession::builder()
-            .cookie_store(CookieStoreOption::AutoSave(self.cookie_path.clone()))
-            .echo_actions(self.color_mode)
-            .timeout(self.timeout)
+            .autosave_cookies(&self.cookies_path)
             .redirect(RedirectPolicy::none())
-            .default_header(UserAgent::new(USER_AGENT));
+            .timeout(self.timeout)
+            .referer(false)
+            .default_headers({
+                let mut headers = Headers::new();
+                headers.set(UserAgent::new(USER_AGENT));
+                headers
+            });
         if let Some(domain) = self.domain {
-            builder.base(domain, true, None).with_robots_txt()
+            builder
+                .base(Host::Domain(domain), true, None)
+                .with_robots_txt()
         } else {
             builder.build()
         }.chain_err(|| ServiceError::from(ServiceErrorKind::HttpSessionStart))
