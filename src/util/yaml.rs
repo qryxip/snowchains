@@ -1,6 +1,7 @@
 use regex::Regex;
 use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
 
+use std::borrow::Cow;
 use std::{self, str};
 
 pub(crate) fn serialize_regex<S: Serializer>(
@@ -21,4 +22,49 @@ pub(crate) fn deserialize_regex<'de, D: Deserializer<'de>>(
         &regex
     };
     Regex::new(&regex).map_err(serde::de::Error::custom)
+}
+
+pub(crate) fn repr_string(s: &str) -> Cow<str> {
+    let s = s.trim();
+    if [':', '{', '}', '>', '|'].iter().any(|&c| s.starts_with(c)) || s.ends_with(':')
+        || ['[', ']', '\\', '\'', '"', '#', ',']
+            .iter()
+            .any(|&c| s.contains(c)) || s == "~"
+    {
+        Cow::from(format!("{:?}", s))
+    } else {
+        Cow::from(s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    #[test]
+    fn it_escapes_a_string() {
+        fn is_borrowed<T: ToOwned + ?Sized>(x: &Cow<T>) -> bool {
+            match *x {
+                Cow::Borrowed(_) => true,
+                Cow::Owned(_) => false,
+            }
+        }
+
+        assert!(is_borrowed(&super::repr_string("foo/{}:/bar")));
+        assert!(is_borrowed(&super::repr_string("~/foo/bar")));
+        assert!(!is_borrowed(&super::repr_string("~")));
+        assert!(!is_borrowed(&super::repr_string("[")));
+        assert!(!is_borrowed(&super::repr_string("]")));
+        assert!(!is_borrowed(&super::repr_string("\\")));
+        assert!(!is_borrowed(&super::repr_string("'")));
+        assert!(!is_borrowed(&super::repr_string("\"")));
+        assert!(!is_borrowed(&super::repr_string("#")));
+        assert!(!is_borrowed(&super::repr_string(",")));
+        assert!(!is_borrowed(&super::repr_string(" :foo ")));
+        assert!(!is_borrowed(&super::repr_string(" {foo ")));
+        assert!(!is_borrowed(&super::repr_string(" }foo ")));
+        assert!(!is_borrowed(&super::repr_string(" >foo ")));
+        assert!(!is_borrowed(&super::repr_string(" |foo ")));
+        assert!(!is_borrowed(&super::repr_string(" foo: ")));
+    }
 }

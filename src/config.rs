@@ -12,13 +12,13 @@ use util;
 use ServiceName;
 
 use regex::Regex;
-use {rprompt, serde_yaml};
+use serde_yaml;
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fmt::Write as _Write;
 use std::path::{Path, PathBuf};
+use std::str;
 use std::time::Duration;
-use std::{cmp, io, str};
 
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
@@ -27,34 +27,12 @@ pub(crate) fn init(
     directory: &Path,
     terminal: TerminalMode,
     session_cookies: &str,
-    default_lang: Option<&'static str>,
 ) -> FileIoResult<()> {
-    const LANGS: [&str; 8] = [
-        "c++", "rust", "haskell", "bash", "python3", "java", "scala", "c#",
-    ];
-
-    let ask_lang = || -> io::Result<Cow<'static, str>> {
-        for (i, lang) in LANGS.iter().enumerate() {
-            println!("{}) {}", i + 1, lang);
-        }
-        let input = rprompt::prompt_reply_stderr("Choose or input: ")?;
-        if let Ok(i) = input.parse::<usize>() {
-            if 0 < i && i <= 8 {
-                return Ok(LANGS[i - 1].into());
-            }
-        }
-        Ok(format!("{:?}", input).into())
-    };
-
-    let default_lang = match default_lang {
-        Some(default_lang) => Cow::from(default_lang),
-        None => ask_lang()?,
-    };
-
     let config = format!(
         r#"---
 service: atcoder
 contest: arc001
+language: c++
 
 terminal: {terminal}
 
@@ -96,19 +74,18 @@ testfiles:
 
 services:
   atcoder:
-    default_language: {default_lang}
+    # language: c++
     variables:
       cxx_flags: -std=c++14 -O2 -Wall -Wextra
       rust_version: 1.15.1
       java_class: Main
   hackerrank:
-    default_language: {default_lang}
+    # language: c++
     variables:
       cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
       rust_version: 1.21.0
       java_class: Main
   other:
-    default_language: {default_lang}
     variables:
       cxx_flags: -std=c++14 -O2 -Wall -Wextra
       rust_version: stable
@@ -214,13 +191,12 @@ languages:
 {csharp}
 "#,
         terminal = terminal,
-        session_cookies = session_cookies,
+        session_cookies = util::yaml::repr_string(session_cookies),
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
         } else {
             "[/bin/sh, -c]"
         },
-        default_lang = default_lang,
         default_match = if cfg!(windows) { "lines" } else { "exact" },
         exe = if cfg!(target_os = "windows") {
             ".exe"
@@ -253,59 +229,89 @@ languages:
       atcoder: 3006"#
         }
     );
-
-    util::fs::write(&directory.join(CONFIG_FILE_NAME), config.as_bytes())
+    let path = directory.join(CONFIG_FILE_NAME);
+    util::fs::write(&path, config.as_bytes())?;
+    println!("Wrote to {}", util::path::remove_dots(&path).display());
+    Ok(())
 }
 
 /// Changes <service> and <contest>.
-pub(crate) fn switch(service: ServiceName, contest: &str, dir: &Path) -> FileIoResult<()> {
-    fn print_change(n: usize, prev: &str, new: &str) {
+pub(crate) fn switch(
+    directory: &Path,
+    service: ServiceName,
+    contest: &str,
+    language: Option<&str>,
+) -> FileIoResult<()> {
+    fn print_change(len: usize, prev: &str, new: &str) {
         print!("{}", prev);
-        for _ in 0..n - prev.len() {
-            print!(" ");
-        }
+        (0..len - prev.len()).for_each(|_| print!(" "));
         println!(" -> {:?}", new);
     }
 
-    let path = find_base(dir)?.join(CONFIG_FILE_NAME);
-    let text = util::fs::string_from_path(&path)?;
+    let path = find_base(directory)?.join(CONFIG_FILE_NAME);
+    let text = util::fs::read_to_string(&path)?;
     println!("Loaded {}", path.display());
-    let (replaced, prev_service, prev_contest) = {
+    let (replaced, prev_service, prev_contest, prev_lang) = {
         let mut replaced = "".to_owned();
-        let (mut prev_service, mut prev_contest) = (None, None);
+        let (mut prev_service, mut prev_contest, mut prev_lang) = (None, None, None);
         for line in text.lines() {
             lazy_static! {
                 static ref SERVICE: Regex = Regex::new(r"^service\s*:\s*(\S.*)$").unwrap();
                 static ref CONTEST: Regex = Regex::new(r"^contest\s*:\s*(\S.*)$").unwrap();
+                static ref LANG: Regex = Regex::new(r"^language\s*:\s*(\S.*)$").unwrap();
             }
             if let Some(caps) = SERVICE.captures(line) {
-                prev_service = Some(caps[1].to_owned());
-                replaced += &format!("service: {:?}", service.to_string());
+                prev_service = Some(format!("{:?}", &caps[1]));
+                write!(replaced, "service: {}", service).unwrap();
             } else if let Some(caps) = CONTEST.captures(line) {
-                prev_contest = Some(caps[1].to_owned());
-                replaced += &format!("contest: {:?}", contest);
+                prev_contest = Some(format!("{:?}", &caps[1]));
+                write!(replaced, "contest: {}", util::yaml::repr_string(contest)).unwrap();
+            } else if let (Some(language), Some(caps)) = (language, LANG.captures(line)) {
+                prev_lang = Some(format!("{:?}", &caps[1]));
+                write!(replaced, "language: {}", util::yaml::repr_string(language)).unwrap();
             } else {
                 replaced += line;
             }
             replaced.push('\n');
         }
         if prev_service.is_some() && prev_contest.is_some()
+            && (prev_contest.is_some() == language.is_some())
             && serde_yaml::from_str::<Config>(&replaced).is_ok()
         {
             let (prev_service, prev_contest) = (prev_service.unwrap(), prev_contest.unwrap());
-            (replaced, prev_service, prev_contest)
+            (replaced, prev_service, prev_contest, prev_lang)
         } else {
             let mut config = serde_yaml::from_str::<Config>(&text)?;
-            let prev_service = config.service.to_string();
-            let prev_contest = config.contest;
+            let prev_service = format!("{:?}", config.service.to_string());
+            let prev_contest = format!("{:?}", config.contest);
             config.service = service;
             config.contest = contest.to_owned();
-            (serde_yaml::to_string(&config)?, prev_service, prev_contest)
+            let prev_lang;
+            if let Some(language) = language {
+                prev_lang = Some(config.language);
+                config.language = format!("{:?}", language);
+            } else {
+                prev_lang = None;
+            }
+            (
+                serde_yaml::to_string(&config)?,
+                prev_service,
+                prev_contest,
+                prev_lang,
+            )
         }
     };
-    let n = cmp::max(prev_service.len(), prev_contest.len());
-    print_change(n, &prev_service, &service.to_string());
-    print_change(n, &prev_contest, contest);
+    let len = {
+        let l1 = prev_service.len();
+        let l2 = prev_contest.len();
+        let l3 = prev_lang.as_ref().map(|s| s.len()).unwrap_or(0);
+        *[l1, l2, l3].iter().max().unwrap()
+    };
+    print_change(len, &prev_service, service.as_str());
+    print_change(len, &prev_contest, contest);
+    if let (Some(prev_lang), Some(language)) = (prev_lang, language) {
+        print_change(len, &prev_lang, language);
+    }
     util::fs::write(&path, replaced.as_bytes())?;
     println!("Saved.");
     Ok(())
@@ -317,12 +323,13 @@ pub(crate) struct Config {
     #[serde(default)]
     service: ServiceName,
     contest: String,
+    language: String,
     terminal: TerminalMode,
     session: SessionConfig,
     shell: Vec<StringTemplate>,
     testfiles: TestFiles,
     #[serde(default)]
-    services: BTreeMap<ServiceName, ServiceProp>,
+    services: BTreeMap<ServiceName, ServiceConfig>,
     #[serde(default)]
     interactive: HashMap<String, Language>,
     languages: HashMap<String, Language>,
@@ -407,13 +414,13 @@ impl Config {
     }
 
     pub fn src_to_submit(&self, lang: Option<&str>) -> ConfigResult<PathTemplate<BaseDirSome>> {
-        let lang = find_language(&self.languages, self.default_lang(), lang)?;
+        let lang = find_language(&self.languages, self.lang_name(lang))?;
         let vars = self.vars_for_langs(None);
         Ok(lang.src.base_dir(&self.base_dir).embed_strings(&vars))
     }
 
     pub fn code_replacer(&self, lang: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
-        let lang = find_language(&self.languages, self.default_lang(), lang)?;
+        let lang = find_language(&self.languages, self.lang_name(lang))?;
         let vars = self.vars_for_langs(None);
         Ok(lang.replace.as_ref().map(|r| r.embed_strings(&vars)))
     }
@@ -434,7 +441,7 @@ impl Config {
 
     /// Returns the `lang_id` of `lang` or a default language
     pub fn atcoder_lang_id(&self, lang: Option<&str>) -> ConfigResult<u32> {
-        let lang = find_language(&self.languages, self.default_lang(), lang)?;
+        let lang = find_language(&self.languages, self.lang_name(lang))?;
         lang.language_ids.atcoder.ok_or_else(|| {
             ConfigError::from(ConfigErrorKind::PropertyNotSet("language_ids.atcoder"))
         })
@@ -444,22 +451,22 @@ impl Config {
         &self,
         lang: Option<&str>,
     ) -> ConfigResult<Option<CompilationTemplate>> {
-        self.compilation_command(find_language(&self.languages, self.default_lang(), lang)?)
+        self.compilation_command(find_language(&self.languages, self.lang_name(lang))?)
     }
 
     pub fn interactive_tester_compilation(
         &self,
         lang: Option<&str>,
     ) -> ConfigResult<Option<CompilationTemplate>> {
-        self.compilation_command(find_language(&self.interactive, None, lang)?)
+        self.compilation_command(find_language(&self.interactive, lang)?)
     }
 
     pub fn solver(&self, lang: Option<&str>) -> ConfigResult<JudgeTemplate> {
-        self.judge_command(find_language(&self.languages, self.default_lang(), lang)?)
+        self.judge_command(find_language(&self.languages, self.lang_name(lang))?)
     }
 
     pub fn interactive_tester(&self, lang: Option<&str>) -> ConfigResult<JudgeTemplate> {
-        self.judge_command(find_language(&self.interactive, None, lang)?)
+        self.judge_command(find_language(&self.interactive, lang)?)
     }
 
     fn compilation_command(&self, lang: &Language) -> ConfigResult<Option<CompilationTemplate>> {
@@ -487,10 +494,13 @@ impl Config {
         Ok(cmd.as_judge(&self.shell, wd, &src, bin.as_ref()))
     }
 
-    fn default_lang(&self) -> Option<&str> {
-        self.services
-            .get(&self.service)
-            .map(|s| s.default_language.as_ref())
+    fn lang_name<'a>(&'a self, name: Option<&'a str>) -> &'a str {
+        name.or_else(|| {
+            self.services
+                .get(&self.service)
+                .and_then(|s| s.language.as_ref())
+                .map(String::as_str)
+        }).unwrap_or(&self.language)
     }
 
     fn vars_for_langs<S: Into<Option<ServiceName>>>(&self, service: S) -> HashMap<&str, &str> {
@@ -507,12 +517,12 @@ impl Config {
     }
 }
 
-fn find_language<'a>(
+fn find_language<'a, 'b, S: Into<Option<&'b str>>>(
     langs: &'a HashMap<String, Language>,
-    default_lang: Option<&str>,
-    name: Option<&str>,
+    default_lang: S,
 ) -> ConfigResult<&'a Language> {
-    let name = name.or_else(|| default_lang)
+    let name = default_lang
+        .into()
         .ok_or_else(|| ConfigError::from(ConfigErrorKind::LanguageNotSpecified))?;
     langs
         .get(name)
@@ -549,8 +559,8 @@ struct TestFiles {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ServiceProp {
-    default_language: String,
+struct ServiceConfig {
+    language: Option<String>,
     variables: HashMap<String, String>,
 }
 

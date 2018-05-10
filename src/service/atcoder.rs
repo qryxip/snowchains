@@ -294,7 +294,7 @@ impl AtCoder {
                         }
                     }
                 }
-                let source_code = util::fs::string_from_path(src_path)?;
+                let source_code = util::fs::read_to_string(src_path)?;
                 let source_code = match replacer {
                     Some(replacer) => replacer.replace_as_submission(task, &source_code)?,
                     None => source_code,

@@ -55,6 +55,7 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 ---
 service: atcoder # "atcoder", "hackerrank", "other"
 contest: arc001
+language: c++    # Priority: <command line argument>, `service._.language`, `language`
 
 terminal: prefer256color
 
@@ -99,13 +100,13 @@ testfiles:
 
 services:
   atcoder:
-    default_language: c++
+    # language: c++
     variables:
       cxx_flags: -std=c++14 -O2 -Wall -Wextra
       rust_version: 1.15.1
       java_class: Main
   hackerrank:
-    default_language: c++
+    # language: c++
     variables:
       cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
       rust_version: 1.21.0

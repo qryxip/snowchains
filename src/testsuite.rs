@@ -397,7 +397,7 @@ impl TestSuite {
 
     fn load(path: &SuiteFilePath) -> SuiteFileResult<Self> {
         let (path, extension) = (&path.joined, path.extension);
-        let text = util::fs::string_from_path(path)?;
+        let text = util::fs::read_to_string(path)?;
         let suite: Self = match extension {
             SerializableExtension::Json => serde_json::from_str(&text)?,
             SerializableExtension::Toml => toml::from_str(&text)?,

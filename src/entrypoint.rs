@@ -69,6 +69,8 @@ pub enum Opt {
         service: ServiceName,
         #[structopt(name = "contest", help = "Contest name")]
         contest: String,
+        #[structopt(name = "language", help = "Language name")]
+        language: Option<String>,
     },
 
     #[structopt(
@@ -262,12 +264,16 @@ impl Opt {
                     &prop.working_dir.join(&directory),
                     prop.terminal_mode_on_init,
                     &prop.cookies_on_init,
-                    prop.default_lang_on_init,
                 )?;
             }
-            Opt::Switch { service, contest } => {
+            Opt::Switch {
+                service,
+                contest,
+                language,
+            } => {
                 info!("Running \"switch\" command");
-                config::switch(service, &contest, &prop.working_dir)?;
+                let language = language.as_ref().map(String::as_str);
+                config::switch(&prop.working_dir, service, &contest, language)?;
             }
             Opt::Login { service } => {
                 info!("Running \"login\" command");
@@ -376,7 +382,6 @@ impl Opt {
 
 pub struct Prop {
     pub working_dir: PathBuf,
-    pub default_lang_on_init: Option<&'static str>,
     pub terminal_mode_on_init: TerminalMode,
     pub cookies_on_init: Cow<'static, str>,
     pub credentials: Credentials,
@@ -387,7 +392,6 @@ impl Prop {
         let working_dir = env::current_dir()?;
         Ok(Self {
             working_dir,
-            default_lang_on_init: None,
             terminal_mode_on_init: TerminalMode::Prefer256Color,
             cookies_on_init: Cow::from("~/.local/share/snowchains/$service"),
             credentials: Credentials::None,

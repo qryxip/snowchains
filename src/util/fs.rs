@@ -25,6 +25,13 @@ pub fn write(path: &Path, contents: &[u8]) -> FileIoResult<()> {
         .chain_err(|| FileIoErrorKind::Write(path.to_owned()))
 }
 
+/// Reads a file content into a string.
+pub(crate) fn read_to_string(path: &Path) -> FileIoResult<String> {
+    let file = open(path)?;
+    let len = file.metadata().map(|m| m.len() as usize).unwrap_or(0);
+    super::string_from_read(file, len).map_err(Into::into)
+}
+
 /// Opens a file in read only mode.
 pub(crate) fn open(path: &Path) -> FileIoResult<File> {
     File::open(path).chain_err(|| FileIoErrorKind::OpenInReadOnly(path.to_owned()))
@@ -53,11 +60,4 @@ pub(crate) fn create_and_lock(path: &Path) -> FileIoResult<File> {
     file.try_lock_exclusive()
         .chain_err(|| FileIoErrorKind::Lock(path.to_owned()))?;
     Ok(file)
-}
-
-/// Reads a file content into a string.
-pub(crate) fn string_from_path(path: &Path) -> FileIoResult<String> {
-    let file = open(path)?;
-    let len = file.metadata().map(|m| m.len() as usize).unwrap_or(0);
-    super::string_from_read(file, len).map_err(Into::into)
 }
