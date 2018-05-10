@@ -10,7 +10,7 @@ use errors::{
 };
 use replacer::CodeReplacer;
 use service::session::HttpSession;
-use template::{BaseDirSome, PathTemplate};
+use template::{BaseDirNone, BaseDirSome, PathTemplate};
 use terminal::Color;
 use testsuite::SerializableExtension;
 use {util, ServiceName};
@@ -232,38 +232,37 @@ impl Credentials {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub(crate) struct SessionConfig {
     #[serde(serialize_with = "util::ser::secs", deserialize_with = "util::de::non_zero_secs")]
     timeout: Option<Duration>,
+    cookies: PathTemplate<BaseDirNone>,
+}
+
+impl SessionConfig {
+    pub(crate) fn timeout(&self) -> Option<Duration> {
+        self.timeout
+    }
+
+    pub(crate) fn cookies<'a>(
+        &self,
+        base: &'a Path,
+        service: ServiceName,
+    ) -> PathTemplate<BaseDirSome<'a>> {
+        self.cookies
+            .base_dir(base)
+            .embed_strings(&hashmap!("service" => service.as_str()))
+    }
 }
 
 pub(crate) struct SessionProp {
-    domain: Option<&'static str>,
-    cookies_path: PathBuf,
-    timeout: Option<Duration>,
-    credentials: Credentials,
+    pub domain: Option<&'static str>,
+    pub cookies_path: PathBuf,
+    pub timeout: Option<Duration>,
+    pub credentials: Credentials,
 }
 
 impl SessionProp {
-    pub fn new(
-        domain: Option<&'static str>,
-        cookies_path: PathBuf,
-        credentials: Credentials,
-        sess_conf: Option<&SessionConfig>,
-    ) -> Self {
-        Self {
-            domain,
-            cookies_path,
-            timeout: sess_conf.and_then(|c| c.timeout),
-            credentials,
-        }
-    }
-
-    pub(self) fn credentials(&self) -> Credentials {
-        self.credentials.clone()
-    }
-
     pub(self) fn start_session(&self) -> ServiceResult<HttpSession> {
         static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
         let builder = HttpSession::builder()

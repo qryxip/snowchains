@@ -12,6 +12,7 @@ use snowchains::{util, Credentials, Opt, Prop, ServiceName};
 
 use tempdir::TempDir;
 
+use std::borrow::Cow;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -143,11 +144,12 @@ if __name__ == '__main__':
 
 fn setup(tempdir_prefix: &str, credentials: Credentials) -> (TempDir, Prop) {
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
+    let cookies_on_init = Cow::from(tempdir.path().join("cookies").to_str().unwrap().to_owned());
     let prop = Prop {
         working_dir: tempdir.path().to_owned(),
         default_lang_on_init: Some("python3"),
-        cookies_dir: tempdir.path().to_owned(),
-        terminal_mode: TerminalMode::Plain,
+        terminal_mode_on_init: TerminalMode::Plain,
+        cookies_on_init,
         credentials,
     };
     Opt::Init {

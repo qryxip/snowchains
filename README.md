@@ -59,7 +59,8 @@ contest: arc001
 terminal: prefer256color
 
 session:
-  timeout: 2
+  timeout: 10
+  cookies: ~/.local/share/snowchains/$service
 
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
 

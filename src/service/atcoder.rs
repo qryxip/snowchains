@@ -74,7 +74,7 @@ impl AtCoder {
         let session = sess_prop.start_session()?;
         Ok(Self {
             session,
-            credentials: sess_prop.credentials(),
+            credentials: sess_prop.credentials.clone(),
         })
     }
 

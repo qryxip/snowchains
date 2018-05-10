@@ -17,6 +17,7 @@ use {rprompt, serde_yaml};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use std::{cmp, io, str};
 
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
@@ -24,8 +25,9 @@ static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 /// Creates `snowchains.yaml` in `directory`.
 pub(crate) fn init(
     directory: &Path,
-    default_lang: Option<&'static str>,
     terminal: TerminalMode,
+    session_cookies: &str,
+    default_lang: Option<&'static str>,
 ) -> FileIoResult<()> {
     const LANGS: [&str; 8] = [
         "c++", "rust", "haskell", "bash", "python3", "java", "scala", "c#",
@@ -58,6 +60,7 @@ terminal: {terminal}
 
 session:
   timeout: 10
+  cookies: {session_cookies}
 
 shell: {shell}
 
@@ -211,6 +214,7 @@ languages:
 {csharp}
 "#,
         terminal = terminal,
+        session_cookies = session_cookies,
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
         } else {
@@ -328,17 +332,17 @@ pub(crate) struct Config {
 
 impl Config {
     /// Loads and deserializes from the nearest `snowchains.yaml`.
-    pub fn load_setting_term_mode(
-        service: Option<ServiceName>,
-        contest: Option<String>,
+    pub fn load_setting_term_mode<S: Into<Option<ServiceName>>, C: Into<Option<String>>>(
+        service: S,
+        contest: C,
         dir: &Path,
     ) -> FileIoResult<Self> {
         let base = find_base(dir)?;
         let path = base.join(CONFIG_FILE_NAME);
         let mut config = serde_yaml::from_reader::<_, Self>(util::fs::open(&path)?)?;
         config.base_dir = base;
-        config.service = service.unwrap_or(config.service);
-        config.contest = contest.unwrap_or(config.contest);
+        config.service = service.into().unwrap_or(config.service);
+        config.contest = contest.into().unwrap_or(config.contest);
         terminal::terminal_mode(config.terminal);
         println!(
             "Loaded {} (terminal mode: {})",
@@ -358,9 +362,14 @@ impl Config {
         &self.contest
     }
 
-    /// Gets `session`.
-    pub fn session(&self) -> &SessionConfig {
-        &self.session
+    /// Gets `session.timeout`.
+    pub fn session_timeout(&self) -> Option<Duration> {
+        self.session.timeout()
+    }
+
+    /// Gets `session.cookies` embedding "service" and "base_dir".
+    pub fn session_cookies(&self) -> PathTemplate<BaseDirSome> {
+        self.session.cookies(&self.base_dir, self.service)
     }
 
     /// Gets `testfiles/directory` as a `PathTemplate<BaseDirSome>`.
