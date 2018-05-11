@@ -55,7 +55,7 @@ impl HttpSession {
     /// Fails if `url` is relative and the host not set.
     pub fn resolve_url<'a>(&self, url: &'a str) -> SessionResult<Url> {
         if url.starts_with('/') {
-            if let Some(ref base) = self.base {
+            if let Some(base) = &self.base {
                 return base.join(&url[1..])
                     .chain_err(|| SessionErrorKind::ParseUrl(url.to_owned()));
             }
@@ -113,12 +113,12 @@ impl HttpSession {
     /// - The HTTP request fails, or redirected too many times (see
     ///   `reqwest::RequestBuilder::send`)
     /// - Received invalid "Set-Cookie" (hardly possbile)
-    pub fn post_json<T: Serialize, H: Into<Option<Headers>>>(
+    pub fn post_json(
         &mut self,
         url: &str,
-        data: &T,
+        data: &impl Serialize,
         expected_statuses: &[u16],
-        extra_headers: H,
+        extra_headers: impl Into<Option<Headers>>,
     ) -> SessionResult<Response> {
         self.post(
             url,
@@ -141,12 +141,12 @@ impl HttpSession {
     /// - The HTTP request fails, or redirected too many times (see
     ///   `reqwest::RequestBuilder::send`)
     /// - Received invalid "Set-Cookie" (hardly possbile)
-    pub fn post_urlencoded<T: Serialize, H: Into<Option<Headers>>>(
+    pub fn post_urlencoded(
         &mut self,
         url: &str,
-        data: &T,
+        data: &impl Serialize,
         expected_statuses: &[u16],
-        extra_headers: H,
+        extra_headers: impl Into<Option<Headers>>,
     ) -> SessionResult<Response> {
         self.post(
             url,
@@ -157,13 +157,13 @@ impl HttpSession {
         )
     }
 
-    fn post<S: Into<String>, H: Into<Option<Headers>>>(
+    fn post(
         &mut self,
         url: &str,
-        body: S,
+        body: impl Into<String>,
         content_type: ContentType,
         expected_statuses: &[u16],
-        extra_headers: H,
+        extra_headers: impl Into<Option<Headers>>,
     ) -> SessionResult<Response> {
         let body = body.into();
         self.request(Method::Post, url, expected_statuses, move |mut request| {
@@ -175,12 +175,12 @@ impl HttpSession {
         })
     }
 
-    fn request<F: FnOnce(RequestBuilder) -> reqwest::Result<Response>>(
+    fn request(
         &mut self,
         method: Method,
         url: &str,
         expected_statuses: &[u16],
-        f: F,
+        f: impl FnOnce(RequestBuilder) -> reqwest::Result<Response>,
     ) -> SessionResult<Response> {
         let url = self.resolve_url(url)?;
         self.assert_not_forbidden_by_robots_txt(&url)?;
@@ -213,7 +213,7 @@ impl HttpSession {
     }
 
     fn save(&mut self) -> SessionResult<()> {
-        if let Some(ref mut file) = self.cookies_file {
+        if let Some(file) = &mut self.cookies_file {
             let cookies = self.cookie_jar
                 .iter()
                 .map(cookie::Cookie::to_string)
@@ -374,9 +374,9 @@ impl<B: BaseOption> HttpSessionBuilder<B> {
             self.client_builder.default_headers(headers);
         }
         let client = self.client_builder.build()?;
-        let (cookie_jar, cookies_file) = match self.cookies_file_path {
+        let (cookie_jar, cookies_file) = match &self.cookies_file_path {
             None => (CookieJar::new(), None),
-            Some(ref path) => {
+            Some(path) => {
                 let mut file = util::fs::create_and_lock(path)?;
                 let mut jar = Vec::with_capacity(1024);
                 file.read_to_end(&mut jar)?;
@@ -431,13 +431,13 @@ impl<B: BaseOption> HttpSessionBuilder<B> {
     /// Default is 30 seconds.
     ///
     /// To disable timeout, pass `None`.
-    pub fn timeout<T: Into<Option<Duration>>>(mut self, timeout: T) -> Self {
+    pub fn timeout(mut self, timeout: impl Into<Option<Duration>>) -> Self {
         self.client_builder.timeout(timeout);
         self
     }
 
     /// Sets a file path to save cookies
-    pub fn autosave_cookies<P: Into<PathBuf>>(mut self, path: P) -> Self {
+    pub fn autosave_cookies(mut self, path: impl Into<PathBuf>) -> Self {
         self.cookies_file_path = Some(path.into());
         self
     }
@@ -532,8 +532,8 @@ mod tests {
             session.get_expecting("/nonexisting", &[]).unwrap();
             let e = session.get("/sensitive").unwrap_err();
             match e.kind() {
-                &SessionErrorKind::ForbiddenByRobotsTxt => {}
-                ref e => panic!("{}", e),
+                SessionErrorKind::ForbiddenByRobotsTxt => {}
+                e => panic!("{}", e),
             }
         });
         server.detach();

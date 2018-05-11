@@ -23,14 +23,9 @@ pub(crate) struct CodeReplacer {
 }
 
 impl CodeReplacer {
-    pub fn embed_strings<
-        'a,
-        M: Into<Option<&'a HashMap<K, V>>>,
-        K: 'a + Borrow<str> + Eq + Hash,
-        V: 'a + Borrow<str> + Eq + Hash,
-    >(
+    pub fn embed_strings<'a, K: 'a + Borrow<str> + Eq + Hash, V: 'a + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'a HashMap<K, V>>>,
     ) -> Self {
         let strings = strings.into();
         let local = self.local.embed_strings(strings);

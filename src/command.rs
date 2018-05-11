@@ -21,8 +21,8 @@ impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub fn new<S: AsRef<OsStr>>(
-        args: &[S],
+    pub fn new(
+        args: &[impl AsRef<OsStr>],
         working_dir: PathBuf,
         src: PathBuf,
         bin: PathBuf,
@@ -82,7 +82,7 @@ impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub fn new<S: AsRef<OsStr>>(args: &[S], working_dir: PathBuf) -> Self {
+    pub fn new(args: &[impl AsRef<OsStr>], working_dir: PathBuf) -> Self {
         JudgingCommand(CommandProperty::new(args, working_dir))
     }
 
@@ -141,7 +141,7 @@ struct CommandProperty {
 }
 
 impl CommandProperty {
-    fn new<S: AsRef<OsStr>>(args: &[S], working_dir: PathBuf) -> Self {
+    fn new(args: &[impl AsRef<OsStr>], working_dir: PathBuf) -> Self {
         let (arg0, rest_args) = if args.is_empty() {
             (OsString::new(), vec![])
         } else {

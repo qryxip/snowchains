@@ -361,6 +361,11 @@ error_chain! {
             display("Failed to read {}", dir.display())
         }
 
+        Read(path: PathBuf) {
+            description("Failed read a file")
+            display("Failed read {}", path.display())
+        }
+
         Write(path: PathBuf) {
             description("Failed to write data to a file")
             display("Failed to write to {}", path.display())

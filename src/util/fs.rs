@@ -25,11 +25,9 @@ pub fn write(path: &Path, contents: &[u8]) -> FileIoResult<()> {
         .chain_err(|| FileIoErrorKind::Write(path.to_owned()))
 }
 
-/// Reads a file content into a string.
+/// Calls `std::fs::read_to_string` chaining a `FileIoError`.
 pub(crate) fn read_to_string(path: &Path) -> FileIoResult<String> {
-    let file = open(path)?;
-    let len = file.metadata().map(|m| m.len() as usize).unwrap_or(0);
-    super::string_from_read(file, len).map_err(Into::into)
+    std::fs::read_to_string(path).chain_err(|| FileIoErrorKind::Read(path.to_owned()))
 }
 
 /// Opens a file in read only mode.

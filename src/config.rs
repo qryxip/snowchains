@@ -339,9 +339,9 @@ pub(crate) struct Config {
 
 impl Config {
     /// Loads and deserializes from the nearest `snowchains.yaml`.
-    pub fn load_setting_term_mode<S: Into<Option<ServiceName>>, C: Into<Option<String>>>(
-        service: S,
-        contest: C,
+    pub fn load_setting_term_mode(
+        service: impl Into<Option<ServiceName>>,
+        contest: impl Into<Option<String>>,
         dir: &Path,
     ) -> FileIoResult<Self> {
         let base = find_base(dir)?;
@@ -429,7 +429,7 @@ impl Config {
         let mut replacers = BTreeMap::new();
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.atcoder {
-                if let Some(ref replacer) = lang.replace {
+                if let Some(replacer) = &lang.replace {
                     let vars = self.vars_for_langs(ServiceName::AtCoder);
                     let replacer = replacer.embed_strings(&vars);
                     replacers.insert(lang_id, replacer);
@@ -470,9 +470,9 @@ impl Config {
     }
 
     fn compilation_command(&self, lang: &Language) -> ConfigResult<Option<CompilationTemplate>> {
-        match lang.compile {
+        match &lang.compile {
             None => Ok(None),
-            Some(ref compile) => {
+            Some(compile) => {
                 let wd = compile.working_directory.base_dir(&self.base_dir);
                 let vars = self.vars_for_langs(None);
                 let cmd = compile.command.embed_strings(&vars);
@@ -503,7 +503,7 @@ impl Config {
         }).unwrap_or(&self.language)
     }
 
-    fn vars_for_langs<S: Into<Option<ServiceName>>>(&self, service: S) -> HashMap<&str, &str> {
+    fn vars_for_langs(&self, service: impl Into<Option<ServiceName>>) -> HashMap<&str, &str> {
         let vars_in_service = self.services
             .get(&service.into().unwrap_or(self.service))
             .map(|s| &s.variables);
@@ -517,10 +517,10 @@ impl Config {
     }
 }
 
-fn find_language<'a, 'b, S: Into<Option<&'b str>>>(
-    langs: &'a HashMap<String, Language>,
-    default_lang: S,
-) -> ConfigResult<&'a Language> {
+fn find_language<'a>(
+    langs: &HashMap<String, Language>,
+    default_lang: impl Into<Option<&'a str>>,
+) -> ConfigResult<&Language> {
     let name = default_lang
         .into()
         .ok_or_else(|| ConfigError::from(ConfigErrorKind::LanguageNotSpecified))?;

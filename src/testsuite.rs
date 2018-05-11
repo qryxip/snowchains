@@ -50,7 +50,7 @@ impl Default for SerializableExtension {
 
 impl fmt::Display for SerializableExtension {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             SerializableExtension::Json => write!(f, "json"),
             SerializableExtension::Toml => write!(f, "toml"),
             SerializableExtension::Yaml => write!(f, "yaml"),
@@ -64,11 +64,11 @@ impl FromStr for SerializableExtension {
 
     fn from_str(s: &str) -> std::result::Result<Self, String> {
         match s {
-            ref s if s.eq_ignore_ascii_case("json") => Ok(SerializableExtension::Json),
-            ref s if s.eq_ignore_ascii_case("toml") => Ok(SerializableExtension::Toml),
-            ref s if s.eq_ignore_ascii_case("yaml") => Ok(SerializableExtension::Yaml),
-            ref s if s.eq_ignore_ascii_case("yml") => Ok(SerializableExtension::Yml),
-            ref s => Err(format!("Unsupported extension: {:?}", s)),
+            s if s.eq_ignore_ascii_case("json") => Ok(SerializableExtension::Json),
+            s if s.eq_ignore_ascii_case("toml") => Ok(SerializableExtension::Toml),
+            s if s.eq_ignore_ascii_case("yaml") => Ok(SerializableExtension::Yaml),
+            s if s.eq_ignore_ascii_case("yml") => Ok(SerializableExtension::Yml),
+            s => Err(format!("Unsupported extension: {:?}", s)),
         }
     }
 }
@@ -100,11 +100,11 @@ impl FromStr for SuiteFileExtension {
 
     fn from_str(s: &str) -> std::result::Result<Self, ()> {
         match s {
-            ref s if s.eq_ignore_ascii_case("json") => Ok(SuiteFileExtension::Json),
-            ref s if s.eq_ignore_ascii_case("toml") => Ok(SuiteFileExtension::Toml),
-            ref s if s.eq_ignore_ascii_case("yaml") => Ok(SuiteFileExtension::Yaml),
-            ref s if s.eq_ignore_ascii_case("yml") => Ok(SuiteFileExtension::Yml),
-            ref s if s.eq_ignore_ascii_case("zip") => Ok(SuiteFileExtension::Zip),
+            s if s.eq_ignore_ascii_case("json") => Ok(SuiteFileExtension::Json),
+            s if s.eq_ignore_ascii_case("toml") => Ok(SuiteFileExtension::Toml),
+            s if s.eq_ignore_ascii_case("yaml") => Ok(SuiteFileExtension::Yaml),
+            s if s.eq_ignore_ascii_case("yml") => Ok(SuiteFileExtension::Yml),
+            s if s.eq_ignore_ascii_case("zip") => Ok(SuiteFileExtension::Zip),
             _ => Err(()),
         }
     }
@@ -167,14 +167,14 @@ impl<'a> SuiteFilePathsTemplate<'a> {
                     Err(e) => Some(Err::<_, io::Error>(e)),
                 })
                 .collect::<io::Result<Vec<_>>>()?;
-            filenames.sort_by_key(|&(ref s, _)| s.clone());
+            filenames.sort_by_key(|(s, _)| s.clone());
             filenames.sort_by_key(|&(_, e)| e);
             filenames
         };
         let mut simple_cases = vec![];
         let mut interactive_cases = vec![];
         let mut filenames = vec![];
-        for &(ref stem, ext) in &existing_filenames {
+        for (stem, ext) in &existing_filenames {
             let filename = format!("{}.{}", stem, ext);
             if let Some(ext) = ext.serializable() {
                 let path = SuiteFilePath::new(&dir, stem.as_str(), ext);
@@ -316,20 +316,16 @@ impl ZipEntries {
             })
             .collect::<Vec<_>>();
         for sorting in &self.sort {
-            match *sorting {
-                ZipEntrySorting::Dictionary => {
-                    cases.sort_by(|&(ref s1, _, _), &(ref s2, _, _)| s1.cmp(s2))
-                }
-                ZipEntrySorting::Number => {
-                    cases.sort_by(|&(ref s1, _, _), &(ref s2, _, _)| {
-                        match (s1.parse::<usize>(), s2.parse::<usize>()) {
-                            (Ok(n1), Ok(n2)) => n1.cmp(&n2),
-                            (Ok(_), Err(_)) => Ordering::Less,
-                            (Err(_), Ok(_)) => Ordering::Greater,
-                            (Err(_), Err(_)) => Ordering::Equal,
-                        }
-                    })
-                }
+            match sorting {
+                ZipEntrySorting::Dictionary => cases.sort_by(|(s1, _, _), (s2, _, _)| s1.cmp(s2)),
+                ZipEntrySorting::Number => cases.sort_by(|(s1, _, _), (s2, _, _)| {
+                    match (s1.parse::<usize>(), s2.parse::<usize>()) {
+                        (Ok(n1), Ok(n2)) => n1.cmp(&n2),
+                        (Ok(_), Err(_)) => Ordering::Less,
+                        (Err(_), Ok(_)) => Ordering::Greater,
+                        (Err(_), Err(_)) => Ordering::Equal,
+                    }
+                }),
             }
         }
         let cases = cases
@@ -376,8 +372,8 @@ impl TestSuite {
     /// Constructs a `TestSuite::Simple` with `timelimit` and `samples`.
     ///
     /// Make sure the order is (<outout>, <inout>).
-    pub fn simple<T: Into<Option<Duration>>>(
-        timelimit: T,
+    pub fn simple(
+        timelimit: impl Into<Option<Duration>>,
         absolute_error: Option<f64>,
         relative_error: Option<f64>,
         samples: Vec<(String, String)>,
@@ -421,8 +417,8 @@ impl TestSuite {
         util::fs::write(path, serialized.as_bytes())?;
         print!("Saved to {}", path.display());
         if prints_num_cases {
-            match *self {
-                TestSuite::Simple(ref s) => match s.cases.len() {
+            match self {
+                TestSuite::Simple(s) => match s.cases.len() {
                     0 => print_bold!(Color::Warning, " (no sample case extracted)"),
                     1 => print_bold!(Color::Success, " (1 sample case extracted)"),
                     n => print_bold!(Color::Success, " ({} sample cases extracted)", n),
@@ -436,8 +432,8 @@ impl TestSuite {
     }
 
     fn append(&mut self, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
-        match *self {
-            TestSuite::Simple(ref mut suite) => {
+        match self {
+            TestSuite::Simple(suite) => {
                 suite.append(input, output);
                 Ok(())
             }
@@ -457,11 +453,11 @@ pub(crate) struct SimpleSuite {
 }
 
 impl SimpleSuite {
-    fn from_samples<S: IntoIterator<Item = (String, String)>>(
+    fn from_samples(
         timelimit: Option<Duration>,
         absolute_error: Option<f64>,
         relative_error: Option<f64>,
-        samples: S,
+        samples: impl IntoIterator<Item = (String, String)>,
     ) -> Self {
         let output_match = if absolute_error.is_none() && relative_error.is_none() {
             Match::default()
@@ -514,12 +510,12 @@ impl Serialize for SimpleSuite {
         fn single_string(s: String) -> ScalarOrArray<NonArrayValue> {
             ScalarOrArray::Scalar(NonArrayValue::String(s))
         }
-        let cases: Vec<SimpleCaseRaw> = if let Some(ref raw_cases) = self.raw_cases {
+        let cases = if let Some(raw_cases) = &self.raw_cases {
             raw_cases.clone()
         } else {
             self.cases
                 .iter()
-                .map(|&(ref i, ref o)| SimpleCaseRaw {
+                .map(|(i, o)| SimpleCaseRaw {
                     input: single_string(i.as_ref().clone()),
                     output: o.as_ref().map(|o| single_string(o.as_ref().clone())),
                 })
@@ -536,9 +532,9 @@ impl Serialize for SimpleSuite {
 impl<'de> Deserialize<'de> for SimpleSuite {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         fn to_string(x: &ScalarOrArray<NonArrayValue>) -> Arc<String> {
-            Arc::new(match *x {
-                ScalarOrArray::Scalar(ref x) => x.to_string(),
-                ScalarOrArray::Array(ref xs) => xs.iter().fold("".to_owned(), |mut r, x| {
+            Arc::new(match x {
+                ScalarOrArray::Scalar(x) => x.to_string(),
+                ScalarOrArray::Array(xs) => xs.iter().fold("".to_owned(), |mut r, x| {
                     write!(r, "{}", x).unwrap();
                     r
                 }),
@@ -594,11 +590,11 @@ enum NonArrayValue {
 
 impl fmt::Display for NonArrayValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             NonArrayValue::Integer(n) => writeln!(f, "{}", n),
             NonArrayValue::Float(v) => writeln!(f, "{}", v),
-            NonArrayValue::String(ref s) if s.ends_with('\n') => write!(f, "{}", s),
-            NonArrayValue::String(ref s) => writeln!(f, "{}", s),
+            NonArrayValue::String(s) if s.ends_with('\n') => write!(f, "{}", s),
+            NonArrayValue::String(s) => writeln!(f, "{}", s),
         }
     }
 }
@@ -665,9 +661,9 @@ pub(crate) enum TestCases {
 
 impl TestCases {
     pub fn interactive_tester_compilations(&self) -> HashSet<Arc<CompilationCommand>> {
-        match *self {
+        match self {
             TestCases::Simple(_) => hashset!(),
-            TestCases::Interactive(ref cases) => {
+            TestCases::Interactive(cases) => {
                 let compilations = cases
                     .iter()
                     .filter_map(|case| case.tester_compilation.clone());

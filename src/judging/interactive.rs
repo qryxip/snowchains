@@ -292,7 +292,7 @@ enum InteractiveConsoleOut {
 
 impl InteractiveConsoleOut {
     fn is_solver_s(&self) -> bool {
-        match *self {
+        match self {
             InteractiveConsoleOut::SolverStdout(..)
             | InteractiveConsoleOut::SolverStderr(..)
             | InteractiveConsoleOut::SolverTerminated(..) => true,
@@ -310,11 +310,11 @@ impl InteractiveConsoleOut {
     }
 
     fn content(&self) -> String {
-        match *self {
-            InteractiveConsoleOut::SolverStdout(ref s, _)
-            | InteractiveConsoleOut::SolverStderr(ref s, _)
-            | InteractiveConsoleOut::TesterStdout(ref s, _)
-            | InteractiveConsoleOut::TesterStderr(ref s, _) => format!("{:?}", s),
+        match self {
+            InteractiveConsoleOut::SolverStdout(s, _)
+            | InteractiveConsoleOut::SolverStderr(s, _)
+            | InteractiveConsoleOut::TesterStdout(s, _)
+            | InteractiveConsoleOut::TesterStderr(s, _) => format!("{:?}", s),
             InteractiveConsoleOut::SolverTerminated(Some(c), _)
             | InteractiveConsoleOut::TesterTerminated(Some(c), _) => format!("exit code: {}", c),
             InteractiveConsoleOut::SolverTerminated(None, _)
@@ -330,7 +330,7 @@ impl InteractiveConsoleOut {
         }
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
-        let (kind, color, elapsed) = match *self {
+        let (kind, color, elapsed) = match self {
             InteractiveConsoleOut::SolverStdout(_, t) => {
                 ("Solver stdout", Color::SolverStdout, t)
             }

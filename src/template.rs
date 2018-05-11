@@ -28,14 +28,9 @@ impl StringTemplate {
         StringTemplate(Template::from_str(s).unwrap())
     }
 
-    pub fn embed_strings<
-        'a,
-        M: Into<Option<&'a HashMap<K, V>>>,
-        K: 'a + Borrow<str> + Eq + Hash,
-        V: 'a + Borrow<str> + Eq + Hash,
-    >(
+    pub fn embed_strings<'a, K: 'a + Borrow<str> + Eq + Hash, V: 'a + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'a HashMap<K, V>>>,
     ) -> Self {
         StringTemplate(self.0.embed_strings(strings))
     }
@@ -82,14 +77,9 @@ impl PathTemplate<BaseDirNone> {
 }
 
 impl<'a> PathTemplate<BaseDirSome<'a>> {
-    pub fn embed_strings<
-        'b,
-        M: Into<Option<&'b HashMap<K, V>>>,
-        K: 'b + Borrow<str> + Eq + Hash,
-        V: 'b + Borrow<str> + Eq + Hash,
-    >(
+    pub fn embed_strings<'b, K: 'b + Borrow<str> + Eq + Hash, V: 'b + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'b HashMap<K, V>>>,
     ) -> Self {
         PathTemplate {
             inner: self.inner.embed_strings(strings),
@@ -141,32 +131,27 @@ impl<C> CommandTemplate<C> {
         }
     }
 
-    pub fn embed_strings<
-        'b,
-        M: Into<Option<&'b HashMap<K, V>>>,
-        K: 'b + Borrow<str> + Eq + Hash,
-        V: 'b + Borrow<str> + Eq + Hash,
-    >(
+    pub fn embed_strings<'b, K: 'b + Borrow<str> + Eq + Hash, V: 'b + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'b HashMap<K, V>>>,
     ) -> Self {
         use template::CommandTemplateInner::{Args, Shell};
         let strings = strings.into();
-        let inner = match self.inner {
-            Shell(ref t) => Shell(t.embed_strings(strings)),
-            Args(ref ts) => Args(ts.iter().map(|t| t.embed_strings(strings)).collect()),
+        let inner = match &self.inner {
+            Shell(t) => Shell(t.embed_strings(strings)),
+            Args(ts) => Args(ts.iter().map(|t| t.embed_strings(strings)).collect()),
         };
         Self::new(inner)
     }
 
     fn normalize(&self, shell: &[StringTemplate]) -> Vec<Template> {
-        match self.inner {
-            CommandTemplateInner::Shell(ref t) => {
+        match &self.inner {
+            CommandTemplateInner::Shell(t) => {
                 let mut r = shell.iter().map(|arg| arg.0.clone()).collect::<Vec<_>>();
                 r.push(t.clone());
                 r
             }
-            CommandTemplateInner::Args(ref ts) => ts.clone(),
+            CommandTemplateInner::Args(ts) => ts.clone(),
         }
     }
 }
@@ -203,7 +188,7 @@ impl CommandTemplate<JudgingCommand> {
         let inner = self.normalize(shell)
             .iter()
             .map(|t| match bin {
-                Some(ref bin) => t.embed_path_templates(&[("src", &src), ("bin", bin)]),
+                Some(bin) => t.embed_path_templates(&[("src", &src), ("bin", bin)]),
                 None => t.embed_path_templates(&[("src", &src)]),
             })
             .collect();
@@ -257,14 +242,9 @@ pub(crate) struct JudgeTemplate<'a> {
 }
 
 impl<'a> JudgeTemplate<'a> {
-    pub fn embed_strings<
-        'b,
-        M: Into<Option<&'b HashMap<K, V>>>,
-        K: 'b + Borrow<str> + Eq + Hash,
-        V: 'b + Borrow<str> + Eq + Hash,
-    >(
+    pub fn embed_strings<'b, K: 'b + Borrow<str> + Eq + Hash, V: 'b + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'b HashMap<K, V>>>,
     ) -> Self {
         let strings = strings.into();
         Self {
@@ -291,21 +271,16 @@ impl<'a> JudgeTemplate<'a> {
 struct Template(Vec<Token>);
 
 impl Template {
-    fn embed_strings<
-        'a,
-        M: Into<Option<&'a HashMap<K, V>>>,
-        K: 'a + Borrow<str> + Eq + Hash,
-        V: 'a + Borrow<str> + Eq + Hash,
-    >(
+    fn embed_strings<'a, K: 'a + Borrow<str> + Eq + Hash, V: 'a + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'a HashMap<K, V>>>,
     ) -> Self {
         match strings.into() {
             None => self.clone(),
             Some(strings) => {
                 let mut new = vec![];
                 for token in &self.0 {
-                    if let Token::Var(ref varname) = *token {
+                    if let Token::Var(varname) = token {
                         if let Some(value) = strings.get(varname) {
                             new.push(Token::Text(value.borrow().to_owned()));
                             continue;
@@ -324,7 +299,7 @@ impl Template {
     ) -> Self {
         let mut new = vec![];
         'l: for token in &self.0 {
-            if let Token::Var(ref varname) = *token {
+            if let Token::Var(varname) = token {
                 for &(name, template) in templates {
                     if name == varname {
                         new.push(Token::ExternPath(
@@ -375,23 +350,23 @@ impl Template {
                 Ok(expanded)
             } else {
                 let (mut path, num_skips) = {
-                    match expanded.iter().next() {
-                        Some(ref h) if *h == "~" => match env::home_dir() {
+                    match expanded.iter().next().as_ref() {
+                        Some(h) if *h == "~" => match env::home_dir() {
                             Some(h) => (h, 1),
                             None => bail!(TemplateExpandErrorKind::HomeDirNotFound),
                         },
-                        Some(ref h) if h.to_string_lossy().starts_with('~') => {
+                        Some(h) if h.to_string_lossy().starts_with('~') => {
                             bail!(TemplateExpandErrorKind::UnsupportedUseOfTilde)
                         }
                         _ => (base.to_owned(), 0),
                     }
                 };
-                expanded.iter().skip(num_skips).for_each(|x| match x {
-                    ref x if [OsStr::new(""), OsStr::new(".")].contains(x) => {}
-                    ref x if *x == OsStr::new("..") => {
+                expanded.iter().skip(num_skips).for_each(|x| match &x {
+                    x if [OsStr::new(""), OsStr::new(".")].contains(x) => {}
+                    x if *x == OsStr::new("..") => {
                         path.pop();
                     }
-                    ref x => path.push(x),
+                    x => path.push(x),
                 });
                 Ok(path)
             }
@@ -416,11 +391,11 @@ impl<'a> fmt::Debug for Template {
             if i > 0 {
                 write!(f, " ++ ")?;
             }
-            match *t {
-                Token::ExternPath(ref t, ref b, s) => write!(f, "${}({}, {:?})", s, b.display(), t),
-                Token::Text(ref s) => write!(f, "{:?}", s),
-                Token::Var(ref s) => write!(f, "${}", s),
-                Token::Target(ref s) => write!(f, "{{{}}}", s),
+            match t {
+                Token::ExternPath(t, b, s) => write!(f, "${}({}, {:?})", s, b.display(), t),
+                Token::Text(s) => write!(f, "{:?}", s),
+                Token::Var(s) => write!(f, "${}", s),
+                Token::Target(s) => write!(f, "{{{}}}", s),
             }?
         }
         Ok(())
@@ -430,17 +405,17 @@ impl<'a> fmt::Debug for Template {
 impl<'a> fmt::Display for Template {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for t in &self.0 {
-            match *t {
+            match t {
                 Token::ExternPath(..) => unreachable!(),
-                Token::Text(ref s) => for c in s.chars() {
+                Token::Text(s) => for c in s.chars() {
                     if ['$', '{', '}'].contains(&c) {
                         write!(f, "{}{}", c, c)
                     } else {
                         write!(f, "{}", c)
                     }?;
                 },
-                Token::Target(ref s) => write!(f, "{{{}}}", s)?,
-                Token::Var(ref s) => write!(f, "${}", s)?,
+                Token::Target(s) => write!(f, "{{{}}}", s)?,
+                Token::Var(s) => write!(f, "${}", s)?,
             }
         }
         Ok(())
@@ -512,12 +487,12 @@ impl Token {
         target: &'a str,
         allow_non_utf8_envvar: bool,
     ) -> TemplateExpandResult<Plain<'a>> {
-        match *self {
-            Token::ExternPath(ref t, ref b, _) => t.expand_as_path(&b, target).map(Plain::Path),
-            Token::Text(ref s) => Ok(Plain::Str(Cow::Borrowed(s))),
-            Token::Var(ref k) if allow_non_utf8_envvar => Plain::from_env_var_os(k),
-            Token::Var(ref k) => Plain::from_env_var(k),
-            Token::Target(ref s) => Plain::from_target(target, s),
+        match self {
+            Token::ExternPath(t, b, _) => t.expand_as_path(&b, target).map(Plain::Path),
+            Token::Text(s) => Ok(Plain::Str(Cow::Borrowed(s))),
+            Token::Var(k) if allow_non_utf8_envvar => Plain::from_env_var_os(k),
+            Token::Var(k) => Plain::from_env_var(k),
+            Token::Target(s) => Plain::from_target(target, s),
         }
     }
 }

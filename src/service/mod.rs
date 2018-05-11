@@ -75,20 +75,20 @@ pub(self) trait DownloadZips {
     /// - Any of http access fails
     /// - Any of response code is not 200
     /// - Any of downloaded zip is invalid
-    fn download_zips<S: AsRef<str>, W: Write + Send + 'static>(
+    fn download_zips(
         &mut self,
-        out: W,
+        out: impl 'static + Write + Send,
         alt_capacity: usize,
-        urls: &[S],
+        urls: &[impl AsRef<str>],
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>>;
 }
 
 impl DownloadZips for HttpSession {
-    fn download_zips<S: AsRef<str>, W: Write + Send + 'static>(
+    fn download_zips(
         &mut self,
-        out: W,
+        out: impl 'static + Write + Send,
         alt_capacity: usize,
-        urls: &[S],
+        urls: &[impl AsRef<str>],
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
         let responses = urls.iter()
             .map(|url| self.get(url.as_ref()))
@@ -97,10 +97,10 @@ impl DownloadZips for HttpSession {
     }
 }
 
-fn download_zip_files<W: Write + Send + 'static, I: IntoIterator<Item = Response>>(
-    mut out: W,
+fn download_zip_files(
+    mut out: impl 'static + Write + Send,
     alt_capacity: usize,
-    responses: I,
+    responses: impl IntoIterator<Item = Response>,
 ) -> ZipResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
     let _ = out.write(b"Downloading zip files...\n")?;
     out.flush()?;
@@ -125,7 +125,7 @@ struct Downloading {
 }
 
 impl Downloading {
-    fn new<W: Write>(response: Response, alt_capacity: usize, mb: &mut MultiBar<W>) -> Self {
+    fn new(response: Response, alt_capacity: usize, mb: &mut MultiBar<impl Write>) -> Self {
         let content_length = response.headers().get::<ContentLength>().map(|l| **l);
         let mut progress_bar = mb.create_bar(content_length.unwrap_or(0));
         progress_bar.set_units(Units::Bytes);
@@ -204,11 +204,7 @@ impl Credentials {
     }
 
     pub(self) fn or_ask(&self, username_prompt: &str) -> io::Result<(Rc<String>, Rc<String>)> {
-        if let Credentials::Some {
-            ref username,
-            ref password,
-        } = *self
-        {
+        if let Credentials::Some { username, password } = self {
             Ok((username.clone(), password.clone()))
         } else {
             let username = rprompt::prompt_reply_stderr(username_prompt)?;
@@ -225,7 +221,7 @@ impl Credentials {
     }
 
     pub(self) fn is_some(&self) -> bool {
-        match *self {
+        match self {
             Credentials::None => false,
             Credentials::Some { .. } => true,
         }

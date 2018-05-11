@@ -9,6 +9,7 @@ use util;
 
 use chrono::{DateTime, Local, Utc};
 use regex::Regex;
+use reqwest::StatusCode;
 use select::document::Document;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
 
@@ -81,7 +82,7 @@ impl AtCoder {
     fn login_if_not(&mut self, eprints_message_if_already_logged_in: bool) -> ServiceResult<()> {
         if self.has_cookie() {
             let response = self.get_expecting("/settings", &[200, 302])?;
-            if response.status().as_u16() == 200 {
+            if response.status() == StatusCode::Ok {
                 if eprints_message_if_already_logged_in {
                     eprintln!("Already logged in.");
                 }
@@ -179,12 +180,12 @@ impl AtCoder {
                 Ok((url, suite, path))
             })
             .collect::<ServiceResult<Vec<_>>>()?;
-        for &(_, ref suite, ref path) in &outputs {
+        for (_, suite, path) in &outputs {
             suite.save(path, true)?;
         }
         if open_browser {
             self.open_in_browser(&contest.url_submissions_me(1))?;
-            for &(ref url, _, _) in &outputs {
+            for (url, _, _) in &outputs {
                 self.open_in_browser(url)?;
             }
         }
@@ -209,7 +210,7 @@ impl AtCoder {
         let (submissions, num_pages) = extract_submissions(&first_page)?;
         let mut detail_urls = HashMap::new();
         collect_urls(&mut detail_urls, submissions);
-        for i in 2..num_pages + 1 {
+        for i in 2..=num_pages {
             let page = Document::from_read(self.get(&contest.url_submissions_me(i))?)?;
             let (submission, _) = extract_submissions(&page)?;
             collect_urls(&mut detail_urls, submission);
@@ -284,7 +285,7 @@ impl AtCoder {
                     {
                         bail!(ServiceErrorKind::AlreadyAccepted);
                     }
-                    for i in 2..num_pages + 1 {
+                    for i in 2..=num_pages {
                         if extract_submissions(&Document::from_read(
                             self.get(&contest.url_submissions_me(i))?,
                         )?)?.0
@@ -331,14 +332,14 @@ enum AtcoderContest {
 
 impl fmt::Display for AtcoderContest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             AtcoderContest::Practice => write!(f, "practice contest"),
             AtcoderContest::Apg4b => write!(f, "AtCoder Programming Guide for beginners"),
             AtcoderContest::Abc(n) => write!(f, "ABC{:>03}", n),
             AtcoderContest::Arc(n) => write!(f, "ARC{:>03}", n),
             AtcoderContest::Agc(n) => write!(f, "AGC{:>03}", n),
             AtcoderContest::ChokudaiS(n) => write!(f, "Chokudai SpeedRun {:>03}", n),
-            AtcoderContest::Other(ref s) => write!(f, "{}", s),
+            AtcoderContest::Other(s) => write!(f, "{}", s),
         }
     }
 }
@@ -374,14 +375,14 @@ impl Contest for AtcoderContest {
 impl AtcoderContest {
     fn url_top(&self) -> String {
         static BASE: &'static str = "/contests/";
-        match *self {
+        match self {
             AtcoderContest::Practice => format!("{}practice", BASE),
             AtcoderContest::Apg4b => format!("{}apg4b", BASE),
             AtcoderContest::Abc(n) => format!("{}abc{:>03}", BASE, n),
             AtcoderContest::Arc(n) => format!("{}arc{:>03}", BASE, n),
             AtcoderContest::Agc(n) => format!("{}agc{:>03}", BASE, n),
             AtcoderContest::ChokudaiS(n) => format!("{}chokudai_s{:>03}", BASE, n),
-            AtcoderContest::Other(ref s) => format!("{}{}", BASE, s),
+            AtcoderContest::Other(s) => format!("{}{}", BASE, s),
         }
     }
 
@@ -418,9 +419,9 @@ impl ContestStatus {
     }
 
     fn raise_if_not_begun(&self) -> ServiceResult<()> {
-        match *self {
-            ContestStatus::NotBegun(ref s, t) => {
-                bail!(ServiceErrorKind::ContestNotBegun(s.clone(), t))
+        match self {
+            ContestStatus::NotBegun(s, t) => {
+                bail!(ServiceErrorKind::ContestNotBegun(s.clone(), *t))
             }
             _ => Ok(()),
         }
@@ -483,8 +484,8 @@ pub(self) fn extract_task_urls_with_names(
     super::quit_on_failure(extract(document), Vec::is_empty)
 }
 
-pub(self) fn extract_as_suite<R: Read>(
-    html: R,
+pub(self) fn extract_as_suite(
+    html: impl Read,
     contest: &AtcoderContest,
 ) -> ServiceResult<TestSuite> {
     enum Samples {
@@ -802,7 +803,7 @@ struct Submission {
     is_ac: bool,
 }
 
-pub(self) fn extract_submitted_code<R: Read>(html: R) -> ServiceResult<String> {
+pub(self) fn extract_submitted_code(html: impl Read) -> ServiceResult<String> {
     fn extract(document: &Document) -> Option<String> {
         let predicate = Attr("id", "submission-code").child(Text);
         let code = document.find(predicate).next()?.text();
@@ -1152,14 +1153,14 @@ mod tests {
         let page = atcoder.fetch_tasks_page(&contest).unwrap();
         let urls_and_names = super::extract_task_urls_with_names(&page).unwrap();
         for (
-            &(ref actual_name, ref actual_url),
-            &(expected_name, expected_url, expected_timelimit, expected_samples),
+            (actual_name, actual_url),
+            (expected_name, expected_url, expected_timelimit, expected_samples),
         ) in urls_and_names.iter().zip(expected.iter())
         {
             assert_eq!(expected_name, actual_name);
             assert_eq!(expected_url, actual_url);
             let problem_page = atcoder.get(&actual_url).unwrap();
-            let expected_timelimit = Duration::from_millis(expected_timelimit);
+            let expected_timelimit = Duration::from_millis(*expected_timelimit);
             let expected_suite =
                 TestSuite::simple(expected_timelimit, None, None, own_pairs(expected_samples));
             let actual_suite = super::extract_as_suite(problem_page, &contest).unwrap();
@@ -1170,7 +1171,7 @@ mod tests {
     fn own_pairs<O: Borrow<B>, B: ToOwned<Owned = O> + ?Sized>(pairs: &[(&B, &B)]) -> Vec<(O, O)> {
         pairs
             .iter()
-            .map(|&(ref l, ref r)| ((*l).to_owned(), (*r).to_owned()))
+            .map(|(l, r)| ((*l).to_owned(), (*r).to_owned()))
             .collect()
     }
 

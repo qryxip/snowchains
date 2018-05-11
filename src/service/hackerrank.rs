@@ -121,7 +121,7 @@ impl HackerRank {
     }
 }
 
-fn extract_csrf_token(html: Response) -> ServiceResult<String> {
+fn extract_csrf_token(html: impl Read) -> ServiceResult<String> {
     fn extract(document: &Document) -> Option<String> {
         document
             .find(Attr("name", "csrf-token"))
@@ -133,7 +133,7 @@ fn extract_csrf_token(html: Response) -> ServiceResult<String> {
     super::quit_on_failure(extract(&Document::from_read(html)?), String::is_empty)
 }
 
-fn extract_samples_from_zip<R: Read + Seek>(zip: ZipArchive<R>) -> ZipResult<TestSuite> {
+fn extract_samples_from_zip(zip: ZipArchive<impl Read + Seek>) -> ZipResult<TestSuite> {
     lazy_static! {
         static ref IN_REGEX: Regex = Regex::new(r"input/input[0-9]+\.txt").unwrap();
         static ref OUT_REGEX: Regex = Regex::new(r"output/output[0-9]+\.txt").unwrap();
