@@ -216,7 +216,8 @@ impl JudgingOutput for InteractiveOutput {
                 .unwrap_or(1)
         };
 
-        if self.solver_stderr.is_empty() && self.tester_stderr.is_empty()
+        if self.solver_stderr.is_empty()
+            && self.tester_stderr.is_empty()
             && self.console_outs.is_empty()
         {
             return eprintln_bold!(Color::Title, "EMPTY");

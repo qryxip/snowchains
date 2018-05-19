@@ -164,7 +164,8 @@ impl CommandTemplate<CompilationCommand> {
         src: PathTemplate<BaseDirSome<'a>>,
         bin: PathTemplate<BaseDirSome<'a>>,
     ) -> CompilationTemplate<'a> {
-        let inner = self.normalize(shell)
+        let inner = self
+            .normalize(shell)
             .iter()
             .map(|t| t.embed_path_templates(&[("src", &src), ("bin", &bin)]))
             .collect();
@@ -185,7 +186,8 @@ impl CommandTemplate<JudgingCommand> {
         src: &PathTemplate<BaseDirSome<'b>>,
         bin: Option<&PathTemplate<BaseDirSome<'b>>>,
     ) -> JudgeTemplate<'a> {
-        let inner = self.normalize(shell)
+        let inner = self
+            .normalize(shell)
             .iter()
             .map(|t| match bin {
                 Some(bin) => t.embed_path_templates(&[("src", &src), ("bin", bin)]),
@@ -225,7 +227,8 @@ pub(crate) struct CompilationTemplate<'a> {
 
 impl<'a> CompilationTemplate<'a> {
     pub fn expand(&self, target: &str) -> TemplateExpandResult<CompilationCommand> {
-        let args = self.inner
+        let args = self
+            .inner
             .iter()
             .map(|t| t.expand_as_os_string(target))
             .collect::<TemplateExpandResult<Vec<_>>>()?;
@@ -248,7 +251,8 @@ impl<'a> JudgeTemplate<'a> {
     ) -> Self {
         let strings = strings.into();
         Self {
-            inner: self.inner
+            inner: self
+                .inner
                 .iter()
                 .map(|t| t.embed_strings(strings))
                 .collect(),
@@ -257,7 +261,8 @@ impl<'a> JudgeTemplate<'a> {
     }
 
     pub fn expand(&self, target: &str) -> TemplateExpandResult<JudgingCommand> {
-        let args = self.inner
+        let args = self
+            .inner
             .iter()
             .map(|t| t.expand_as_os_string(target))
             .collect::<TemplateExpandResult<Vec<_>>>()?;

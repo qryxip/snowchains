@@ -274,7 +274,8 @@ pub(crate) fn switch(
             }
             replaced.push('\n');
         }
-        if prev_service.is_some() && prev_contest.is_some()
+        if prev_service.is_some()
+            && prev_contest.is_some()
             && (prev_contest.is_some() == language.is_some())
             && serde_yaml::from_str::<Config>(&replaced).is_ok()
         {
@@ -488,7 +489,8 @@ impl Config {
         let vars = self.vars_for_langs(None);
         let cmd = lang.run.command.embed_strings(&vars);
         let src = lang.src.base_dir(&self.base_dir).embed_strings(&vars);
-        let bin = lang.compile
+        let bin = lang
+            .compile
             .as_ref()
             .map(|c| c.bin.base_dir(&self.base_dir));
         Ok(cmd.as_judge(&self.shell, wd, &src, bin.as_ref()))
@@ -504,7 +506,8 @@ impl Config {
     }
 
     fn vars_for_langs(&self, service: impl Into<Option<ServiceName>>) -> HashMap<&str, &str> {
-        let vars_in_service = self.services
+        let vars_in_service = self
+            .services
             .get(&service.into().unwrap_or(self.service))
             .map(|s| &s.variables);
         let mut vars = hashmap!("service" => self.service.as_str(), "contest" => &self.contest);

@@ -54,7 +54,8 @@ impl CompilationCommand {
         print!("{}\n", self.command.display_args());
         print_bold!(Color::CommandInfo, "Working directory:   ");
         println!("{}", self.command.working_dir.display());
-        let status = self.command
+        let status = self
+            .command
             .build_checking_wd()?
             .stdin(Stdio::null())
             .status()

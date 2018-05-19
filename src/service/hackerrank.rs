@@ -106,7 +106,8 @@ impl HackerRank {
         }
         let zips = self.download_zips(io::stdout(), 50 * 1024 * 1024, &zip_urls)?;
         println!("Extracting zip files...");
-        let extracted = zips.into_iter()
+        let extracted = zips
+            .into_iter()
             .map(extract_samples_from_zip)
             .collect::<Result<Vec<_>, _>>()?;
         for (suite, path) in extracted.into_iter().zip(paths) {

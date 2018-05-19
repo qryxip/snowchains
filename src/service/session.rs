@@ -56,7 +56,8 @@ impl HttpSession {
     pub fn resolve_url<'a>(&self, url: &'a str) -> SessionResult<Url> {
         if url.starts_with('/') {
             if let Some(base) = &self.base {
-                return base.join(&url[1..])
+                return base
+                    .join(&url[1..])
                     .chain_err(|| SessionErrorKind::ParseUrl(url.to_owned()));
             }
         }
@@ -214,7 +215,8 @@ impl HttpSession {
 
     fn save(&mut self) -> SessionResult<()> {
         if let Some(file) = &mut self.cookies_file {
-            let cookies = self.cookie_jar
+            let cookies = self
+                .cookie_jar
                 .iter()
                 .map(cookie::Cookie::to_string)
                 .collect::<Vec<_>>();
@@ -365,7 +367,8 @@ impl<S: AsRef<str>> HttpSessionBuilder<BaseSome<S>> {
 impl<B: BaseOption> HttpSessionBuilder<B> {
     /// Builds.
     pub fn build(mut self) -> SessionResult<HttpSession> {
-        let user_agent = self.default_headers
+        let user_agent = self
+            .default_headers
             .iter()
             .flat_map(|headers| headers.get::<UserAgent>())
             .next()

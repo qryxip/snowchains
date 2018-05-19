@@ -1,4 +1,4 @@
 wrap_comments = true
-required_version = "0.6.1"
+required_version = "0.7.0"
 unstable_features = true
 error_on_unformatted = true

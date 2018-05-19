@@ -119,7 +119,9 @@ pub enum Opt {
             raw(display_order = "1", possible_values = r#"&["atcoder", "hackerrank"]"#)
         )]
         service: Option<ServiceName>,
-        #[structopt(short = "c", long = "contest", help = "Contest name", raw(display_order = "2"))]
+        #[structopt(
+            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+        )]
         contest: Option<String>,
         #[structopt(
             short = "b",
@@ -145,7 +147,9 @@ pub enum Opt {
             raw(display_order = "1", possible_values = "&[\"atcoder\"]")
         )]
         service: Option<ServiceName>,
-        #[structopt(short = "c", long = "contest", help = "Contest name", raw(display_order = "2"))]
+        #[structopt(
+            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+        )]
         contest: Option<String>,
     },
 
@@ -177,7 +181,9 @@ pub enum Opt {
             raw(display_order = "1", possible_values = r#"&["atcoder", "hackerrank", "other"]"#)
         )]
         service: Option<ServiceName>,
-        #[structopt(short = "c", long = "contest", help = "Contest name", raw(display_order = "2"))]
+        #[structopt(
+            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+        )]
         contest: Option<String>,
     },
 
@@ -203,7 +209,9 @@ pub enum Opt {
             raw(display_order = "2", possible_values = r#"&["atcoder", "hackerrank", "other"]"#)
         )]
         service: Option<ServiceName>,
-        #[structopt(short = "c", long = "contest", help = "Contest name", raw(display_order = "3"))]
+        #[structopt(
+            short = "c", long = "contest", help = "Contest name", raw(display_order = "3")
+        )]
         contest: Option<String>,
     },
 
@@ -232,7 +240,9 @@ pub enum Opt {
             raw(display_order = "2", possible_values = "&[\"atcoder\"]")
         )]
         service: Option<ServiceName>,
-        #[structopt(short = "c", long = "contest", help = "Contest name", raw(display_order = "3"))]
+        #[structopt(
+            short = "c", long = "contest", help = "Contest name", raw(display_order = "3")
+        )]
         contest: Option<String>,
         #[structopt(
             short = "b",

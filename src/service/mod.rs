@@ -90,7 +90,8 @@ impl DownloadZips for HttpSession {
         alt_capacity: usize,
         urls: &[impl AsRef<str>],
     ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
-        let responses = urls.iter()
+        let responses = urls
+            .iter()
             .map(|url| self.get(url.as_ref()))
             .collect::<SessionResult<Vec<_>>>()?;
         download_zip_files(out, alt_capacity, responses).map_err(Into::into)

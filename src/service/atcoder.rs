@@ -287,7 +287,7 @@ impl AtCoder {
                     }
                     for i in 2..=num_pages {
                         if extract_submissions(&Document::from_read(
-                            self.get(&contest.url_submissions_me(i))?,
+                            self.get(&contest.url_submissions_me(i))?
                         )?)?.0
                             .any(|s| s.task_screen_name == task_screen_name && s.is_ac)
                         {
@@ -495,8 +495,10 @@ pub(self) fn extract_as_suite(
 
     fn extract_samples(document: &Document, contest: &AtcoderContest) -> Option<Samples> {
         lazy_static! {
-            static ref IN_JA: Regex = Regex::new(r"\A[\s\n]*入力例\s*(\d{1,3})+[.\n]*\z").unwrap();
-            static ref OUT_JA: Regex = Regex::new(r"\A[\s\n]*出力例\s*(\d{1,3})+[.\n]*\z").unwrap();
+            static ref IN_JA: Regex =
+                Regex::new(r"\A[\s\n]*入力例\s*(\d{1,3})+[.\n]*\z").unwrap();
+            static ref OUT_JA: Regex =
+                Regex::new(r"\A[\s\n]*出力例\s*(\d{1,3})+[.\n]*\z").unwrap();
             static ref IN_EN: Regex = Regex::new(r"\ASample Input\s?(\d{1,3}).*\z").unwrap();
             static ref OUT_EN: Regex = Regex::new(r"\ASample Output\s?(\d{1,3}).*\z").unwrap();
         }
@@ -770,7 +772,8 @@ fn extract_submissions(document: &Document) -> ServiceResult<(vec::IntoIter<Subm
                 info!("Extracting submissions: Found tr>td>span>{:?}", status);
                 status == "AC"
             };
-            let detail_url = tr.find(Name("td").and(Class("text-center")).child(Name("a")))
+            let detail_url = tr
+                .find(Name("td").and(Class("text-center")).child(Name("a")))
                 .flat_map(|a| -> Option<String> {
                     let text = a.find(Text).next()?.text();
                     if text != "詳細" && text != "Detail" {

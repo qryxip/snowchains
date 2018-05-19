@@ -196,7 +196,8 @@ impl<'a> SuiteFilePathsTemplate<'a> {
                 }
             }
         }
-        let paths_as_text = dir.join(format!("{{{}}}", filenames.iter().join(", ")))
+        let paths_as_text = dir
+            .join(format!("{{{}}}", filenames.iter().join(", ")))
             .display()
             .to_string();
         if simple_cases.is_empty() && interactive_cases.is_empty() {
@@ -279,7 +280,8 @@ impl ZipEntries {
                 (file.name().to_owned(), util::string_from_read(file, 0)?)
             };
             if let Some(caps) = self.input.entry.captures(&filename) {
-                let name = caps.get(self.input.match_group)
+                let name = caps
+                    .get(self.input.match_group)
                     .ok_or_else(|| {
                         SuiteFileErrorKind::RegexGroupOutOfBounds(self.input.match_group)
                     })?
@@ -292,7 +294,8 @@ impl ZipEntries {
                 }
             }
             if let Some(caps) = self.output.entry.captures(&filename) {
-                let name = caps.get(self.output.match_group)
+                let name = caps
+                    .get(self.output.match_group)
                     .ok_or_else(|| {
                         SuiteFileErrorKind::RegexGroupOutOfBounds(self.output.match_group)
                     })?
@@ -544,7 +547,8 @@ impl<'de> Deserialize<'de> for SimpleSuite {
         Ok(Self {
             timelimit: raw.timelimit,
             output_match: raw.output_match,
-            cases: raw.cases
+            cases: raw
+                .cases
                 .iter()
                 .map(|case| {
                     let input = to_string(&case.input);
