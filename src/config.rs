@@ -1,5 +1,5 @@
 use command::{CompilationCommand, JudgingCommand};
-use errors::{ConfigError, ConfigErrorKind, ConfigResult, FileIoErrorKind, FileIoResult};
+use errors::{ConfigError, ConfigResult, FileIoError, FileIoErrorKind, FileIoResult};
 use replacer::CodeReplacer;
 use service::SessionConfig;
 use template::{
@@ -282,7 +282,8 @@ pub(crate) fn switch(
             let (prev_service, prev_contest) = (prev_service.unwrap(), prev_contest.unwrap());
             (replaced, prev_service, prev_contest, prev_lang)
         } else {
-            let mut config = serde_yaml::from_str::<Config>(&text)?;
+            let mut config = serde_yaml::from_str::<Config>(&text)
+                .map_err(|e| FileIoError::chaining(FileIoErrorKind::Read, &path, e))?;
             let prev_service = format!("{:?}", config.service.to_string());
             let prev_contest = format!("{:?}", config.contest);
             config.service = service;
@@ -295,7 +296,8 @@ pub(crate) fn switch(
                 prev_lang = None;
             }
             (
-                serde_yaml::to_string(&config)?,
+                serde_yaml::to_string(&config)
+                    .map_err(|e| FileIoError::chaining(FileIoErrorKind::Write, &path, e))?,
                 prev_service,
                 prev_contest,
                 prev_lang,
@@ -347,7 +349,8 @@ impl Config {
     ) -> FileIoResult<Self> {
         let base = find_base(dir)?;
         let path = base.join(CONFIG_FILE_NAME);
-        let mut config = serde_yaml::from_reader::<_, Self>(util::fs::open(&path)?)?;
+        let mut config = serde_yaml::from_reader::<_, Self>(util::fs::open(&path)?)
+            .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, err))?;
         config.base_dir = base;
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
@@ -443,9 +446,9 @@ impl Config {
     /// Returns the `lang_id` of `lang` or a default language
     pub fn atcoder_lang_id(&self, lang: Option<&str>) -> ConfigResult<u32> {
         let lang = find_language(&self.languages, self.lang_name(lang))?;
-        lang.language_ids.atcoder.ok_or_else(|| {
-            ConfigError::from(ConfigErrorKind::PropertyNotSet("language_ids.atcoder"))
-        })
+        lang.language_ids
+            .atcoder
+            .ok_or_else(|| ConfigError::PropertyNotSet("language_ids.atcoder"))
     }
 
     pub fn solver_compilation(
@@ -526,16 +529,18 @@ fn find_language<'a>(
 ) -> ConfigResult<&Language> {
     let name = default_lang
         .into()
-        .ok_or_else(|| ConfigError::from(ConfigErrorKind::LanguageNotSpecified))?;
+        .ok_or_else(|| ConfigError::LanguageNotSpecified)?;
     langs
         .get(name)
-        .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(name.to_owned())))
+        .ok_or_else(|| ConfigError::NoSuchLanguage(name.to_owned()))
 }
 
 fn find_base(start: &Path) -> FileIoResult<PathBuf> {
     fn target_exists(dir: &Path) -> FileIoResult<bool> {
         for entry in util::fs::read_dir(dir)? {
-            let path = entry?.path();
+            let path = entry
+                .map_err(|e| FileIoError::chaining(FileIoErrorKind::ReadDir, dir, e))?
+                .path();
             if path.is_file() && path.file_name().unwrap() == CONFIG_FILE_NAME {
                 return Ok(true);
             }
@@ -548,7 +553,10 @@ fn find_base(start: &Path) -> FileIoResult<PathBuf> {
         if let Ok(true) = target_exists(&dir) {
             return Ok(dir);
         } else if !dir.pop() {
-            bail!(FileIoErrorKind::Search(CONFIG_FILE_NAME, start.to_owned()));
+            return Err(FileIoError::new(
+                FileIoErrorKind::Search(CONFIG_FILE_NAME),
+                start,
+            ));
         }
     }
 }

@@ -1,4 +1,4 @@
-use errors::{FileIoErrorKind, FileIoResult, FileIoResultExt};
+use errors::{FileIoError, FileIoErrorKind, FileIoResult};
 
 use fs2::FileExt as _FileExt;
 
@@ -7,32 +7,28 @@ use std::fs::{File, OpenOptions, ReadDir};
 use std::io::Write as _Write;
 use std::path::Path;
 
-/// Calls `std::fs::create_dir_all` chaining a `FileIoError`.
 pub(crate) fn create_dir_all(dir: &Path) -> FileIoResult<()> {
-    std::fs::create_dir_all(dir).chain_err(|| FileIoErrorKind::CreateDirAll(dir.to_owned()))
+    std::fs::create_dir_all(dir)
+        .map_err(|e| FileIoError::chaining(FileIoErrorKind::CreateDirAll, dir, e))
 }
 
-/// Calls `std::fs::read_dir` chaining a `FileIoError`.
 pub(crate) fn read_dir(dir: &Path) -> FileIoResult<ReadDir> {
-    std::fs::read_dir(dir).chain_err(|| FileIoErrorKind::ReadDir(dir.to_owned()))
+    std::fs::read_dir(dir).map_err(|e| FileIoError::chaining(FileIoErrorKind::ReadDir, dir, e))
 }
 
-/// Calls `std::fs::create_dir_all` and `std::fs::write` chaining
-/// `FileIoError`s.
 pub fn write(path: &Path, contents: &[u8]) -> FileIoResult<()> {
     create_file_and_dirs(path)?
         .write_all(contents)
-        .chain_err(|| FileIoErrorKind::Write(path.to_owned()))
+        .map_err(|e| FileIoError::chaining(FileIoErrorKind::Write, path, e))
 }
 
-/// Calls `std::fs::read_to_string` chaining a `FileIoError`.
 pub(crate) fn read_to_string(path: &Path) -> FileIoResult<String> {
-    std::fs::read_to_string(path).chain_err(|| FileIoErrorKind::Read(path.to_owned()))
+    std::fs::read_to_string(path).map_err(|e| FileIoError::chaining(FileIoErrorKind::Read, path, e))
 }
 
 /// Opens a file in read only mode.
 pub(crate) fn open(path: &Path) -> FileIoResult<File> {
-    File::open(path).chain_err(|| FileIoErrorKind::OpenInReadOnly(path.to_owned()))
+    File::open(path).map_err(|e| FileIoError::chaining(FileIoErrorKind::OpenInReadOnly, path, e))
 }
 
 /// Opens a file in write only mode creating its parent directory.
@@ -42,7 +38,7 @@ pub(crate) fn create_file_and_dirs(path: &Path) -> FileIoResult<File> {
             create_dir_all(dir)?;
         }
     }
-    File::create(path).chain_err(|| FileIoErrorKind::OpenInWriteOnly(path.to_owned()))
+    File::create(path).map_err(|e| FileIoError::chaining(FileIoErrorKind::OpenInWriteOnly, path, e))
 }
 
 pub(crate) fn create_and_lock(path: &Path) -> FileIoResult<File> {
@@ -54,8 +50,8 @@ pub(crate) fn create_and_lock(path: &Path) -> FileIoResult<File> {
         .write(true)
         .create(true)
         .open(path)
-        .chain_err(|| FileIoErrorKind::OpenInReadWrite(path.to_owned()))?;
+        .map_err(|e| FileIoError::chaining(FileIoErrorKind::OpenInReadWrite, path, e))?;
     file.try_lock_exclusive()
-        .chain_err(|| FileIoErrorKind::Lock(path.to_owned()))?;
+        .map_err(|e| FileIoError::chaining(FileIoErrorKind::Lock, path, e))?;
     Ok(file)
 }

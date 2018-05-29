@@ -1,4 +1,4 @@
-use errors::{JudgeErrorKind, JudgeResult, JudgeResultExt};
+use errors::JudgeResult;
 use judging::{JudgingCommand, JudgingOutput, MillisRoundedUp};
 use terminal::Color;
 use testsuite::InteractiveCase;
@@ -31,17 +31,14 @@ pub(super) fn judge(
         match result {
             Err(_) => Ok(InteractiveOutput::exceeded(timelimit, couts)),
             Ok(result) => {
-                let (s, t, e1, e2) =
-                    result.chain_err(|| JudgeErrorKind::Command(solver.arg0().to_owned()))?;
+                let (s, t, e1, e2) = result?;
                 Ok(InteractiveOutput::new(Some(timelimit), t, s, couts, e1, e2))
             }
         }
     } else {
         let result = result_rx.recv()?;
         let couts = cout_rx.try_iter().collect::<Vec<_>>();
-        result
-            .map(|(s, t, e1, e2)| InteractiveOutput::new(None, t, s, couts, e1, e2))
-            .chain_err(|| JudgeErrorKind::Command(solver.arg0().to_owned()))
+        result.map(|(s, t, e1, e2)| InteractiveOutput::new(None, t, s, couts, e1, e2))
     }
 }
 

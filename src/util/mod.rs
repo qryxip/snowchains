@@ -54,8 +54,8 @@ impl<T> OkAsRefOr for Option<T> {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum ScalarOrArray<T> {
     Scalar(T),

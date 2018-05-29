@@ -4,12 +4,9 @@ pub(crate) mod hackerrank;
 pub mod session;
 
 use config::Config;
-use errors::{
-    ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as _ServiceResultExt,
-    SessionResult,
-};
+use errors::{ServiceError, ServiceResult, SessionResult};
 use replacer::CodeReplacer;
-use service::session::HttpSession;
+use service::session::{HttpSession, UrlBase};
 use template::{BaseDirNone, BaseDirSome, PathTemplate};
 use terminal::Color;
 use testsuite::SerializableExtension;
@@ -17,8 +14,8 @@ use {util, ServiceName};
 
 use futures::{executor, future, task, Async, Future, Poll};
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
-use reqwest::header::{ContentLength, Headers, UserAgent};
-use reqwest::{RedirectPolicy, Response};
+use reqwest::header::ContentLength;
+use reqwest::Response;
 use url::Host;
 use zip::result::ZipResult;
 use zip::ZipArchive;
@@ -42,7 +39,7 @@ pub(self) fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> S
             return Ok(x);
         }
     }
-    bail!(ServiceErrorKind::Scrape);
+    Err(ServiceError::Scrape)
 }
 
 pub(self) trait OpenInBrowser {
@@ -60,8 +57,11 @@ impl OpenInBrowser for HttpSession {
         let url = self.resolve_url(url)?;
         println!("Opening {} in default browser...", url);
         let status = webbrowser::open(url.as_str())?.status;
-        ensure!(status.success(), ServiceErrorKind::Webbrowser(status));
-        Ok(())
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ServiceError::Webbrowser(status))
+        }
     }
 }
 
@@ -260,25 +260,11 @@ pub(crate) struct SessionProp {
 }
 
 impl SessionProp {
-    pub(self) fn start_session(&self) -> ServiceResult<HttpSession> {
-        static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
-        let builder = HttpSession::builder()
-            .autosave_cookies(&self.cookies_path)
-            .redirect(RedirectPolicy::none())
-            .timeout(self.timeout)
-            .referer(false)
-            .default_headers({
-                let mut headers = Headers::new();
-                headers.set(UserAgent::new(USER_AGENT));
-                headers
-            });
-        if let Some(domain) = self.domain {
-            builder
-                .base(Host::Domain(domain), true, None)
-                .with_robots_txt()
-        } else {
-            builder.build()
-        }.chain_err(|| ServiceError::from(ServiceErrorKind::HttpSessionStart))
+    pub(self) fn start_session(&self) -> SessionResult<HttpSession> {
+        let base = self
+            .domain
+            .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
+        HttpSession::new(base, self.timeout, self.cookies_path.clone())
     }
 }
 
@@ -396,7 +382,7 @@ impl<'a> SubmitProp<&'a str> {
         let replacer = config.code_replacer(language)?;
         let lang_id = match service {
             ServiceName::AtCoder => config.atcoder_lang_id(language)?,
-            _ => bail!(::ErrorKind::Unimplemented),
+            _ => return Err(::Error::Unimplemented),
         };
         Ok(Self {
             contest,

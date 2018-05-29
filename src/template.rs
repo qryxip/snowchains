@@ -1,7 +1,8 @@
 use command::{CompilationCommand, JudgingCommand};
-use errors::{TemplateExpandErrorKind, TemplateExpandResult, TemplateExpandResultExt};
+use errors::{TemplateExpandError, TemplateExpandErrorContext, TemplateExpandResult};
 
 use combine::Parser;
+use failure::ResultExt as _ResultExt;
 use heck::{
     CamelCase as _CamelCase, KebabCase as _KebabCase, MixedCase as _MixedCase,
     ShoutySnakeCase as _ShoutySnakeCase, SnakeCase as _SnakeCase, TitleCase as _TitleCase,
@@ -322,7 +323,7 @@ impl Template {
     }
 
     fn expand_as_os_string(&self, target: &str) -> TemplateExpandResult<OsString> {
-        self.expand_chaining_err(target, "a non UTF-8 string", || {
+        self.expand_with_context(target, "a non UTF-8 string", || {
             let mut r = OsString::new();
             for token in &self.0 {
                 match token.expand(target, true)? {
@@ -336,7 +337,7 @@ impl Template {
     }
 
     fn expand_as_string_or_panic(&self, target: &str) -> TemplateExpandResult<String> {
-        self.expand_chaining_err(target, "a UTF-8 string", || {
+        self.expand_with_context(target, "a UTF-8 string", || {
             let mut r = "".to_owned();
             for token in &self.0 {
                 match token.expand(target, false)? {
@@ -349,7 +350,7 @@ impl Template {
     }
 
     fn expand_as_path(&self, base: &Path, target: &str) -> TemplateExpandResult<PathBuf> {
-        self.expand_chaining_err(target, "a path", || {
+        self.expand_with_context(target, "a path", || {
             let expanded = PathBuf::from(self.expand_as_os_string(target)?);
             if expanded.is_absolute() {
                 Ok(expanded)
@@ -358,10 +359,10 @@ impl Template {
                     match expanded.iter().next().as_ref() {
                         Some(h) if *h == "~" => match env::home_dir() {
                             Some(h) => (h, 1),
-                            None => bail!(TemplateExpandErrorKind::HomeDirNotFound),
+                            None => return Err(TemplateExpandError::HomeDirNotFound),
                         },
                         Some(h) if h.to_string_lossy().starts_with('~') => {
-                            bail!(TemplateExpandErrorKind::UnsupportedUseOfTilde)
+                            return Err(TemplateExpandError::UnsupportedUseOfTilde);
                         }
                         _ => (base.to_owned(), 0),
                     }
@@ -378,15 +379,14 @@ impl Template {
         })
     }
 
-    fn expand_chaining_err<T, F: FnOnce() -> TemplateExpandResult<T>>(
+    fn expand_with_context<T>(
         &self,
         target: &str,
         ty: &'static str,
-        f: F,
+        f: impl FnOnce() -> TemplateExpandResult<T>,
     ) -> TemplateExpandResult<T> {
-        f().chain_err(|| {
-            TemplateExpandErrorKind::TemplateExpand(format!("{:?}", self), target.to_owned(), ty)
-        })
+        f().with_context(|_| TemplateExpandErrorContext::new(&self, target, ty))
+            .map_err(Into::into)
     }
 }
 
@@ -521,7 +521,7 @@ impl<'a> Plain<'a> {
             s if s.eq_ignore_ascii_case("mixed") => Ok(Owned(target.to_mixed_case())),
             s if s.eq_ignore_ascii_case("pascal") => Ok(Owned(target.to_camel_case())),
             s if s.eq_ignore_ascii_case("title") => Ok(Owned(target.to_title_case())),
-            s => bail!(TemplateExpandErrorKind::UnknownSpecifier(s.to_owned())),
+            s => Err(TemplateExpandError::UnknownSpecifier(s.to_owned())),
         }.map(Plain::Str)
     }
 
@@ -529,19 +529,19 @@ impl<'a> Plain<'a> {
         env::var(name)
             .map(|v| Plain::Str(Cow::Owned(v)))
             .map_err(|e| {
-                use errors::TemplateExpandErrorKind::{EnvVarNotPresent, EnvVarNotUnicode};
+                use errors::TemplateExpandError::{EnvVarNotPresent, EnvVarNotUnicode};
                 use std::env::VarError::{NotPresent, NotUnicode};
                 match e {
                     NotPresent => EnvVarNotPresent(name.to_owned()),
                     NotUnicode(v) => EnvVarNotUnicode(name.to_owned(), v),
-                }.into()
+                }
             })
     }
 
     fn from_env_var_os(name: &str) -> TemplateExpandResult<Self> {
         env::var_os(name)
             .map(Plain::OsStr)
-            .ok_or_else(|| TemplateExpandErrorKind::EnvVarNotPresent(name.to_owned()).into())
+            .ok_or_else(|| TemplateExpandError::EnvVarNotPresent(name.to_owned()))
     }
 }
 

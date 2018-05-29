@@ -318,7 +318,7 @@ impl JudgingOutput for SimpleOutput {
 #[cfg(test)]
 mod tests {
     use command::JudgingCommand;
-    use errors::{JudgeErrorKind, JudgeResult};
+    use errors::{JudgeError, JudgeResult};
     use judging::simple::SimpleOutput;
     use testsuite::SimpleCase;
     use util;
@@ -533,13 +533,10 @@ impl InputScanOnce {
     fn it_denies_non_utf8_answers() {
         let _ = env_logger::try_init();
         let command = bash(r"echo $'\xc3\x28'");
-        let e = judge_default_matching("", "", 500, &command).unwrap_err();
-        if let JudgeErrorKind::Io(e) = e.kind() {
-            if let io::ErrorKind::InvalidData = e.kind() {
-                return;
-            }
+        match judge_default_matching("", "", 500, &command).unwrap_err() {
+            JudgeError::Io(ref e) if e.kind() == io::ErrorKind::InvalidData => {}
+            e => panic!("{:?}", e),
         }
-        panic!("{:?}", e);
     }
 
     #[test]
@@ -548,11 +545,10 @@ impl InputScanOnce {
         let _ = env_logger::try_init();
         let wd = env::current_dir().unwrap();
         let command = Arc::new(JudgingCommand::from_args("nonexisting", &[], wd));
-        let e = judge_default_matching("", "", 500, &command).unwrap_err();
-        if let JudgeErrorKind::Command(_) = e.kind() {
-            return;
+        match judge_default_matching("", "", 500, &command).unwrap_err() {
+            JudgeError::Command(..) => {}
+            e => panic!("{:?}", e),
         }
-        panic!("{:?}", e);
     }
 
     fn judge_default_matching(
@@ -583,18 +579,15 @@ impl InputScanOnce {
         timeout: Duration,
         command: &Arc<JudgingCommand>,
     ) -> JudgeResult<SimpleOutput> {
-        let f = future::loop_fn((), move |_| match super::judge(case, command) {
-            Ok(output) => Ok(Loop::Break(output)),
-            Err(e) => {
-                if let JudgeErrorKind::Io(io_e) = e.kind() {
-                    if io_e.kind() == io::ErrorKind::BrokenPipe {
-                        return Ok(Loop::Continue(()));
-                    }
+        executor::block_on(
+            future::loop_fn((), move |_| match super::judge(case, command) {
+                Ok(output) => Ok(Loop::Break(output)),
+                Err(JudgeError::Io(ref e)) if e.kind() == io::ErrorKind::BrokenPipe => {
+                    Ok(Loop::Continue(()))
                 }
-                Err(e)
-            }
-        }).timeout(timeout);
-        executor::block_on(f)
+                Err(e) => Err(e),
+            }).timeout(timeout),
+        )
     }
 
     fn bash(code: &str) -> Arc<JudgingCommand> {

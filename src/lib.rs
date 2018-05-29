@@ -3,7 +3,7 @@
 #[macro_use]
 extern crate custom_derive;
 #[macro_use]
-extern crate error_chain;
+extern crate failure;
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
@@ -71,7 +71,7 @@ mod template;
 mod testsuite;
 
 pub use entrypoint::{Opt, Prop};
-pub use errors::{Error, ErrorKind, Result};
+pub use errors::{Error, Result};
 pub use service::Credentials;
 
 use std::fmt;

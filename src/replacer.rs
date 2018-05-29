@@ -1,4 +1,4 @@
-use errors::{CodeReplaceErrorKind, CodeReplaceResult};
+use errors::{CodeReplaceError, CodeReplaceResult};
 use template::StringTemplate;
 use util;
 
@@ -65,18 +65,14 @@ impl CodeReplacer {
                             continue;
                         }
                     } else {
-                        bail!(CodeReplaceErrorKind::RegexGroupOutOfBounds(
-                            self.match_group
-                        ));
+                        return Err(CodeReplaceError::RegexGroupOutOfBounds(self.match_group));
                     }
                 }
             }
             replaced_lines.push(Cow::from(line));
         }
         if !replaced_p {
-            bail!(CodeReplaceErrorKind::NoMatch(
-                self.regex.as_str().to_owned()
-            ));
+            return Err(CodeReplaceError::NoMatch(self.regex.as_str().to_owned()));
         }
         let mut r = replaced_lines.join("\n");
         if code.ends_with('\n') {
@@ -88,7 +84,7 @@ impl CodeReplacer {
 
 #[cfg(test)]
 mod tests {
-    use errors::{CodeReplaceError, CodeReplaceErrorKind};
+    use errors::CodeReplaceError;
     use replacer::CodeReplacer;
     use template::StringTemplate;
 
@@ -134,7 +130,7 @@ object Foo {}
         let replaced = code_replacer(1).replace(CODE, "A", "Main").unwrap();
         assert_eq!(EXPECTED, replaced);
         match code_replacer(2).replace(CODE, "", "").unwrap_err() {
-            CodeReplaceError(CodeReplaceErrorKind::RegexGroupOutOfBounds(2), _) => {}
+            CodeReplaceError::RegexGroupOutOfBounds(2) => {}
             e => panic!("{}", e),
         }
     }

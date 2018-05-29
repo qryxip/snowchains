@@ -1,374 +1,641 @@
 use chrono::{self, DateTime, Local};
+use cookie;
+use failure::{Context, Fail};
 use itertools::Itertools as _Itertools;
 use reqwest::{self, StatusCode};
+use url::{self, Url};
 use zip::result::ZipError;
-use {bincode, cookie, serde_json, serde_urlencoded, serde_yaml, toml, url};
 
 use std::ffi::OsString;
-use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::string::FromUtf8Error;
 use std::sync::mpsc::RecvError;
+use std::{self, fmt, io};
 
-error_chain!{
-    foreign_links {
-        Service(ServiceError/*, ServiceErrorKind*/);
-        Judge(JudgeError/*, JudgeErrorKind*/);
-        SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
-        Config(ConfigError/*, ConfigErrorKind*/);
-        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
-        FileIo(FileIoError/*, FileIoErrorKind*/);
-        Io(io::Error);
-    }
+pub type Result<T> = std::result::Result<T, self::Error>;
 
-    errors {
-        Unimplemented {
-            description("Unimplemented")
-            display("Sorry, not yet implemented")
-        }
+#[derive(Debug)]
+pub enum Error {
+    Service(ServiceError),
+    Judge(JudgeError),
+    SuiteFile(SuiteFileError),
+    Config(ConfigError),
+    TemplateExpand(TemplateExpandError),
+    FileIo(FileIoError),
+    Std(StdErrorChain),
+    Unimplemented,
+    HomeDirNotFound,
+}
 
-        HomeDirNotFound {
-            description("Home directory not found")
-            display("Home directory not found")
+impl fmt::Display for self::Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            self::Error::Service(e) => write!(f, "{}", e),
+            self::Error::Judge(e) => write!(f, "{}", e),
+            self::Error::SuiteFile(e) => write!(f, "{}", e),
+            self::Error::Config(e) => write!(f, "{}", e),
+            self::Error::TemplateExpand(e) => write!(f, "{}", e),
+            self::Error::FileIo(e) => write!(f, "{}", e),
+            self::Error::Std(e) => write!(f, "{}", e),
+            self::Error::Unimplemented => write!(f, "Sorry, not yet implemented"),
+            self::Error::HomeDirNotFound => write!(f, "Home directory not found"),
         }
     }
 }
 
-error_chain! {
-    types {
-        ServiceError, ServiceErrorKind, ServiceResultExt, ServiceResult;
-    }
-
-    foreign_links {
-        Session(SessionError/*, SessionErrorKind*/);
-        FileIo(FileIoError/*, FileIoErrorKind*/);
-        CodeReplace(CodeReplaceError/*, CodeReplaceErrorKind*/);
-        SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
-        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
-        ChronoParse(chrono::ParseError);
-        Io(io::Error);
-        Recv(RecvError);
-        SerdeJson(serde_json::Error);
-        SerdeUrlencodedSer(serde_urlencoded::ser::Error);
-        UrlParse(url::ParseError);
-        Zip(ZipError);
-    }
-
-    errors {
-        AlreadyAccepted {
-            description("Found an accepted submission")
-            display("Found an accepted submission. Add \"--skip-checking-duplication\" (\"-d\")")
-        }
-
-        ContestNotBegun(contest_name: String, begins_at: DateTime<Local>) {
-            description("Contest has not begun yet")
-            display("{} will begin at {}", contest_name, begins_at)
-        }
-
-        ContestNotFound(contest_name: String) {
-            description("Contest not found")
-            display("{} not found", contest_name)
-        }
-
-        HttpSessionStart {
-            description("Failed to start a HTTP session")
-            display("Failed to start the HTTP session")
-        }
-
-        NoSuchProblem(name: String) {
-            description("No such problem")
-            display("No such problem: {:?}", name)
-        }
-
-        Scrape {
-            description("Scraping failed")
-            display("Scraping failed")
-        }
-
-        Webbrowser(status: ExitStatus) {
-            description("Failed to open a URL in the default browser")
-            display("{}",
-                    if let Some(code) = status.code() {
-                        format!("The default browser terminated abnormally with code {}", code)
-                    } else {
-                        "The default browser terminated abnormally without code (possibly killed)"
-                            .to_owned()
-                    })
-        }
-
-        WrongCredentialsOnTest {
-            description("Wrong username or password")
-            display("Wrong username or password")
+impl Fail for self::Error {
+    fn cause(&self) -> Option<&Fail> {
+        match self {
+            ::Error::Service(e) => e.cause(),
+            ::Error::Judge(e) => e.cause(),
+            ::Error::SuiteFile(e) => e.cause(),
+            ::Error::Config(e) => e.cause(),
+            ::Error::TemplateExpand(e) => e.cause(),
+            ::Error::FileIo(e) => e.cause(),
+            ::Error::Std(e) => e.cause(),
+            _ => None,
         }
     }
 }
 
-error_chain! {
-    types {
-        SessionError, SessionErrorKind, SessionResultExt, SessionResult;
-    }
+derive_from!(Error::Service        <- ServiceError);
+derive_from!(Error::Judge          <- JudgeError);
+derive_from!(Error::SuiteFile      <- SuiteFileError);
+derive_from!(Error::Config         <- ConfigError);
+derive_from!(Error::TemplateExpand <- TemplateExpandError);
+derive_from!(Error::FileIo         <- FileIoError);
+derive_from!(Error::Std            <- io::Error);
 
-    foreign_links {
-        FileIo(FileIoError/*, FileIoErrorKind*/);
-        Bincode(bincode::Error);
-        CookieParse(cookie::ParseError);
-        Reqwest(reqwest::Error);
-        SerdeJson(serde_json::Error);
-        SerdeUrlencodedSer(serde_urlencoded::ser::Error);
-        UrlParse(url::ParseError);
-        Io(io::Error);
-    }
+pub(crate) type ServiceResult<T> = std::result::Result<T, ServiceError>;
 
-    errors {
-        ParseUrl(input: String) {
-            description("Failed to parse a URL")
-            display("Failed to parse {:?}", input)
-        }
+#[derive(Debug)]
+pub enum ServiceError {
+    Session(SessionError),
+    CodeReplace(CodeReplaceError),
+    SuiteFile(SuiteFileError),
+    TemplateExpand(TemplateExpandError),
+    FileIo(FileIoError),
+    Std(StdErrorChain),
+    AlreadyAccepted,
+    ContestNotBegun(String, DateTime<Local>),
+    ContestNotFound(String),
+    NoSuchProblem(String),
+    Scrape,
+    Webbrowser(ExitStatus),
+    WrongCredentialsOnTest,
+}
 
-        ForbiddenByRobotsTxt {
-            description("Forbidden by robots.txt")
-            display("Forbidden by robots.txt")
-        }
-
-        UnexpectedStatusCode(expected: Vec<StatusCode>, actual: StatusCode) {
-            description("Unexpected HTTP status code")
-            display("Unexpected HTTP status code {}, expected {}", actual,
-                    expected.iter().format(" or "))
+impl fmt::Display for ServiceError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ServiceError::Session(e) => write!(f, "{}", e),
+            ServiceError::CodeReplace(e) => write!(f, "{}", e),
+            ServiceError::SuiteFile(e) => write!(f, "{}", e),
+            ServiceError::TemplateExpand(e) => write!(f, "{}", e),
+            ServiceError::FileIo(e) => write!(f, "{}", e),
+            ServiceError::Std(e) => write!(f, "{}", e),
+            ServiceError::AlreadyAccepted => write!(
+                f,
+                "Found an accepted submission. Add \"--skip-checking-duplication\" (\"-d\")"
+            ),
+            ServiceError::ContestNotBegun(s, t) => write!(f, "{} will begin at {}", s, t),
+            ServiceError::ContestNotFound(s) => write!(f, "{} not found", s),
+            ServiceError::NoSuchProblem(s) => write!(f, "No such problem: {:?}", s),
+            ServiceError::Scrape => write!(f, "Failed to scrape"),
+            ServiceError::Webbrowser(s) => match s.code() {
+                Some(c) => write!(
+                    f,
+                    "The default browser terminated abnormally with code {}",
+                    c
+                ),
+                None => write!(
+                    f,
+                    "The default browser terminated abnormally without code (possibly killed)"
+                ),
+            },
+            ServiceError::WrongCredentialsOnTest => write!(f, "Wrong credentials"),
         }
     }
 }
 
-error_chain! {
-    types {
-        JudgeError, JudgeErrorKind, JudgeResultExt, JudgeResult;
-    }
-
-    foreign_links {
-        SuiteFile(SuiteFileError/*, SuiteFileErrorKind*/);
-        FileIo(FileIoError/*, FileIoErrorKind*/);
-        Io(io::Error);
-        Recv(RecvError);
-    }
-
-    errors {
-        Command(command: OsString) {
-            description("Failed to execute a command")
-            display("Failed to execute: {:?}", command)
-        }
-
-        Compile(status: ExitStatus) {
-            description("Compilation failed")
-            display("The compilation command terminated abnormally {}",
-                    if let Some(code) = status.code() { format!("with code {}", code) }
-                    else { "without code".to_owned() })
-        }
-
-        TestFailure(n: usize, d: usize) {
-            description("Test failed")
-            display("{}/{} Test{} failed", n, d, if *n > 0 { "s" } else { "" })
+impl Fail for ServiceError {
+    fn cause(&self) -> Option<&Fail> {
+        match self {
+            ServiceError::Session(e) => e.cause(),
+            ServiceError::CodeReplace(e) => e.cause(),
+            ServiceError::SuiteFile(e) => e.cause(),
+            ServiceError::TemplateExpand(e) => e.cause(),
+            ServiceError::FileIo(e) => e.cause(),
+            ServiceError::Std(e) => e.cause(),
+            _ => None,
         }
     }
 }
 
-error_chain! {
-    types {
-        SuiteFileError, SuiteFileErrorKind, SuiteFileResultExt, SuiteFileResult;
-    }
+derive_from!(ServiceError::Session        <- SessionError);
+derive_from!(ServiceError::CodeReplace    <- CodeReplaceError);
+derive_from!(ServiceError::SuiteFile      <- SuiteFileError);
+derive_from!(ServiceError::TemplateExpand <- TemplateExpandError);
+derive_from!(ServiceError::FileIo         <- FileIoError);
+derive_from!(ServiceError::Std            <- chrono::ParseError);
+derive_from!(ServiceError::Std            <- reqwest::Error);
+derive_from!(ServiceError::Std            <- ZipError);
+derive_from!(ServiceError::Std            <- io::Error);
 
-    foreign_links {
-        Config(ConfigError/*, ConfigErrorKind*/);
-        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
-        FileIo(FileIoError/*, FileIoErrorKind*/);
-        Io(io::Error);
-        SerdeJson(serde_json::Error);
-        SerdeYaml(serde_yaml::Error);
-        TomlDe(toml::de::Error);
-        TomlSer(toml::ser::Error);
-        Zip(ZipError);
-    }
+pub(crate) type SessionResult<T> = std::result::Result<T, SessionError>;
 
-    errors {
-        DirNotExist(directory: PathBuf) {
-            description("Directory does not exist")
-            display("{:?} does not exist. Execute \"download\" command first", directory)
-        }
+#[derive(Debug)]
+pub enum SessionError {
+    Serialize(SerializeError),
+    FileIo(FileIoError),
+    Std(StdErrorChain),
+    Start(Context<StartSessionError>),
+    ParseUrl(String, url::ParseError),
+    ParseCookieFromPath(String, PathBuf, cookie::ParseError),
+    ParseCookieFromUrl(String, Url, cookie::ParseError),
+    ForbiddenByRobotsTxt,
+    UnexpectedStatusCode(Vec<StatusCode>, StatusCode),
+}
 
-        NoFile(directory: PathBuf) {
-            description("No test suite file")
-            display("No test suite file in {:?}. Execute \"download\" command first", directory)
-        }
+derive_from!(SessionError::Serialize <- SerializeError);
+derive_from!(SessionError::FileIo    <- FileIoError);
+derive_from!(SessionError::Std       <- reqwest::Error);
+derive_from!(SessionError::Start     <- Context<StartSessionError>);
 
-        DifferentTypesOfSuites {
-            description("Different types of suites")
-            display("Different types of suites")
-        }
-
-        SuiteIsNotSimple {
-            description("Target suite is not \"simple\" type")
-            display("Target suite is not \"simple\" type")
-        }
-
-        Unsubmittable(problem: String) {
-            description("The problem is unsubmittable")
-            display("{:?} is unsubmittable", problem)
-        }
-
-        RegexGroupOutOfBounds(group: usize) {
-            description("Regex group out of bounds")
-            display("Regex group out of bounds: {}", group)
-        }
-
-        UnsupportedExtension(extension: String) {
-            description("Unsupported extension")
-            display("Unsupported extension; {:?}", extension)
+impl fmt::Display for SessionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SessionError::Serialize(e) => write!(f, "{}", e),
+            SessionError::FileIo(e) => write!(f, "{}", e),
+            SessionError::Std(e) => write!(f, "{}", e),
+            SessionError::Start(e) => write!(f, "{}", e),
+            SessionError::ParseUrl(s, _) => write!(f, "Failed to parse {:?}", s),
+            SessionError::ParseCookieFromPath(s, p, _) => {
+                write!(f, "Failed to parse {:?} in {}", s, p.display())
+            }
+            SessionError::ParseCookieFromUrl(s, u, _) => {
+                write!(f, "Failed to parse {:?} from {}", s, u)
+            }
+            SessionError::ForbiddenByRobotsTxt => write!(f, "Forbidden by robots.txt"),
+            SessionError::UnexpectedStatusCode(ss, s) => write!(
+                f,
+                "Unexpected HTTP status code {} (expected [{}])",
+                ss.iter().format(", "),
+                s,
+            ),
         }
     }
 }
 
-error_chain! {
-    types {
-        ConfigError, ConfigErrorKind, ConfigResultExt, ConfigResult;
-    }
-
-    errors {
-        LanguageNotSpecified {
-            description("Language not specified")
-            display("Language not specified")
-        }
-
-        NoSuchLanguage(name: String) {
-            description("Language not found")
-            display("No such language: \"{}\"", name)
-        }
-
-        PropertyNotSet(property: &'static str) {
-            description("Property not set")
-            display("Property not set: \"{}\"", property)
+impl Fail for SessionError {
+    fn cause(&self) -> Option<&Fail> {
+        match self {
+            SessionError::Serialize(e) => e.cause(),
+            SessionError::FileIo(e) => e.cause(),
+            SessionError::Std(e) => e.cause(),
+            SessionError::Start(e) => e.cause(),
+            SessionError::ParseUrl(_, e) => Some(e),
+            SessionError::ParseCookieFromPath(_, _, e)
+            | SessionError::ParseCookieFromUrl(_, _, e) => Some(e),
+            _ => None,
         }
     }
 }
 
-error_chain! {
-    types {
-        CodeReplaceError, CodeReplaceErrorKind, CodeReplaceResultExt, CodeReplaceResult;
-    }
+#[derive(Debug, Fail)]
+#[fail(display = "Failed to start a session")]
+pub struct StartSessionError;
 
-    foreign_links {
-        TemplateExpand(TemplateExpandError/*, TemplateExpandErrorKind*/);
-        FromUtf8(FromUtf8Error);
-    }
+pub(crate) type JudgeResult<T> = std::result::Result<T, JudgeError>;
 
-    errors {
-        RegexGroupOutOfBounds(group: usize) {
-            description("Regex group out of bounds")
-            display("Regex group out of bounds: {}", group)
-        }
+#[derive(Debug)]
+pub enum JudgeError {
+    SuiteFile(SuiteFileError),
+    FileIo(FileIoError),
+    Io(io::Error),
+    Recv(RecvError),
+    Command(OsString, io::Error),
+    Compile(ExitStatus),
+    TestFailure(usize, usize),
+}
 
-        NoMatch(regex: String) {
-            description("No match")
-            display("No match: {:?}", regex)
+derive_from!(JudgeError::SuiteFile <- SuiteFileError);
+derive_from!(JudgeError::FileIo    <- FileIoError);
+derive_from!(JudgeError::Io        <- io::Error);
+derive_from!(JudgeError::Recv      <- RecvError);
+
+impl fmt::Display for JudgeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            JudgeError::SuiteFile(e) => write!(f, "{}", e),
+            JudgeError::FileIo(e) => write!(f, "{}", e),
+            JudgeError::Io(_) => write!(f, "An IO error occurred"),
+            JudgeError::Recv(e) => write!(f, "{}", e),
+            JudgeError::Command(c, _) => write!(f, "Failed to execute: {:?}", c),
+            JudgeError::Compile(s) => write!(
+                f,
+                "The compilation command terminated abnormally {}",
+                if let Some(code) = s.code() {
+                    format!("with code {}", code)
+                } else {
+                    "without code".to_owned()
+                }
+            ),
+            JudgeError::TestFailure(n, d) => write!(
+                f,
+                "{}/{} Test{} failed",
+                n,
+                d,
+                if *n > 0 { "s" } else { "" }
+            ),
         }
     }
 }
 
-error_chain! {
-    types {
-        TemplateExpandError, TemplateExpandErrorKind, TemplateExpandResultExt, TemplateExpandResult;
-    }
-
-    foreign_links {
-        Io(io::Error);
-    }
-
-    errors {
-        TemplateExpand(debug: String, target: String, ty: &'static str) {
-            description("Failed to expand a template")
-            display("Failed to expand {} % {:?} as {}", debug, target, ty)
-        }
-
-        UnknownSpecifier(specifier: String) {
-            description("Unknown specifier")
-            display("Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
-                     \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"", specifier)
-        }
-
-        EnvVarNotPresent(name: String) {
-            description("An environment variable is not present")
-            display("Environment variable {:?} is not present", name)
-        }
-
-        EnvVarNotUnicode(name: String, value: OsString) {
-            description("An environment variable is not valid unicode")
-            display("Environment variable {:?} is not valid unicode: {:?}", name, value)
-        }
-
-        HomeDirNotFound {
-            description("Home directory not found")
-            display("Home directory not found")
-        }
-
-        UnsupportedUseOfTilde {
-            description("Unsupported use of \"~\"")
-            display("Unsupported use of \"~\"")
+impl Fail for JudgeError {
+    fn cause(&self) -> Option<&Fail> {
+        match self {
+            JudgeError::SuiteFile(e) => e.cause(),
+            JudgeError::FileIo(e) => e.cause(),
+            JudgeError::Io(e) => Some(e),
+            _ => None,
         }
     }
 }
 
-error_chain! {
-    types {
-        FileIoError, FileIoErrorKind, FileIoResultExt, FileIoResult;
+pub(crate) type SuiteFileResult<T> = std::result::Result<T, SuiteFileError>;
+
+#[derive(Debug)]
+pub enum SuiteFileError {
+    Config(ConfigError),
+    TemplateExpand(TemplateExpandError),
+    Serialize(SerializeError),
+    FileIo(FileIoError),
+    Io(io::Error),
+    DirNotExist(PathBuf),
+    NoFile(PathBuf),
+    DifferentTypesOfSuites,
+    SuiteIsNotSimple,
+    Unsubmittable(String),
+    RegexGroupOutOfBounds(usize),
+    UnsupportedExtension(String),
+}
+
+impl fmt::Display for SuiteFileError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SuiteFileError::Config(e) => write!(f, "{}", e),
+            SuiteFileError::TemplateExpand(e) => write!(f, "{}", e),
+            SuiteFileError::Serialize(e) => write!(f, "{}", e),
+            SuiteFileError::FileIo(e) => write!(f, "{}", e),
+            SuiteFileError::Io(_) => write!(f, "An IO error occurred"),
+            SuiteFileError::DirNotExist(d) => write!(
+                f,
+                "{:?} does not exist. Execute \"download\" command first",
+                d
+            ),
+            SuiteFileError::NoFile(d) => write!(
+                f,
+                "No test suite file in {:?}. Execute \"download\" command first",
+                d
+            ),
+            SuiteFileError::DifferentTypesOfSuites => write!(f, "Different types of suites"),
+            SuiteFileError::SuiteIsNotSimple => write!(f, "Target suite is not \"simple\" type"),
+            SuiteFileError::Unsubmittable(p) => write!(f, "{:?} is unsubmittable", p),
+            SuiteFileError::RegexGroupOutOfBounds(i) => {
+                write!(f, "Regex group out of bounds: {}", i)
+            }
+            SuiteFileError::UnsupportedExtension(e) => write!(f, "Unsupported extension; {:?}", e),
+        }
+    }
+}
+
+impl Fail for SuiteFileError {
+    fn cause(&self) -> Option<&Fail> {
+        match self {
+            SuiteFileError::Config(e) => e.cause(),
+            SuiteFileError::TemplateExpand(e) => e.cause(),
+            SuiteFileError::Serialize(e) => e.cause(),
+            SuiteFileError::FileIo(e) => e.cause(),
+            SuiteFileError::Io(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+derive_from!(SuiteFileError::Config         <- ConfigError);
+derive_from!(SuiteFileError::TemplateExpand <- TemplateExpandError);
+derive_from!(SuiteFileError::Serialize      <- SerializeError);
+derive_from!(SuiteFileError::FileIo         <- FileIoError);
+derive_from!(SuiteFileError::Io             <- io::Error);
+
+pub(crate) type ConfigResult<T> = std::result::Result<T, ConfigError>;
+
+#[derive(Debug, Fail)]
+pub enum ConfigError {
+    #[fail(display = "Language not specified")]
+    LanguageNotSpecified,
+    #[fail(display = "No such language: {:?}", _0)]
+    NoSuchLanguage(String),
+    #[fail(display = "Property not set: {:?}", _0)]
+    PropertyNotSet(&'static str),
+}
+
+pub(crate) type CodeReplaceResult<T> = std::result::Result<T, CodeReplaceError>;
+
+#[derive(Debug)]
+pub enum CodeReplaceError {
+    TemplateExpand(TemplateExpandError),
+    NonUtf8(FromUtf8Error),
+    RegexGroupOutOfBounds(usize),
+    NoMatch(String),
+}
+
+derive_from!(CodeReplaceError::TemplateExpand <- TemplateExpandError);
+derive_from!(CodeReplaceError::NonUtf8        <- FromUtf8Error);
+
+impl fmt::Display for CodeReplaceError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CodeReplaceError::TemplateExpand(e) => write!(f, "{}", e),
+            CodeReplaceError::NonUtf8(_) => write!(f, "The source code is not valid UTF-8"),
+            CodeReplaceError::RegexGroupOutOfBounds(i) => {
+                write!(f, "Regex group out of bounds: {}", i)
+            }
+            CodeReplaceError::NoMatch(s) => write!(f, "No match: {:?}", s),
+        }
+    }
+}
+
+impl Fail for CodeReplaceError {
+    fn cause(&self) -> Option<&Fail> {
+        match self {
+            CodeReplaceError::TemplateExpand(e) => e.cause(),
+            CodeReplaceError::NonUtf8(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+pub(crate) type TemplateExpandResult<T> = std::result::Result<T, TemplateExpandError>;
+
+#[derive(Debug)]
+pub enum TemplateExpandError {
+    Context(Context<TemplateExpandErrorContext>),
+    UnknownSpecifier(String),
+    EnvVarNotPresent(String),
+    EnvVarNotUnicode(String, OsString),
+    HomeDirNotFound,
+    UnsupportedUseOfTilde,
+}
+
+derive_from!(TemplateExpandError::Context <- Context<TemplateExpandErrorContext>);
+
+impl fmt::Display for TemplateExpandError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TemplateExpandError::Context(c) => write!(f, "{}", c),
+            TemplateExpandError::UnknownSpecifier(s) => write!(
+                f,
+                "Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
+                 \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"",
+                s
+            ),
+            TemplateExpandError::EnvVarNotPresent(k) => {
+                write!(f, "Environment variable {:?} is not present", k)
+            }
+            TemplateExpandError::EnvVarNotUnicode(k, v) => write!(
+                f,
+                "Environment variable {:?} is not valid unicode: {:?}",
+                k, v
+            ),
+            TemplateExpandError::HomeDirNotFound => write!(f, "Home directory not found"),
+            TemplateExpandError::UnsupportedUseOfTilde => write!(f, "Unsupported use of \"~\""),
+        }
+    }
+}
+
+impl Fail for TemplateExpandError {
+    fn cause(&self) -> Option<&Fail> {
+        match self {
+            TemplateExpandError::Context(c) => c.cause(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct TemplateExpandErrorContext {
+    debug: String,
+    target: String,
+    ty: &'static str,
+}
+
+impl TemplateExpandErrorContext {
+    pub(crate) fn new(
+        debug: &impl fmt::Debug,
+        target: impl Into<String>,
+        ty: &'static str,
+    ) -> Self {
+        Self {
+            debug: format!("{:?}", debug),
+            target: target.into(),
+            ty,
+        }
+    }
+}
+
+impl fmt::Display for TemplateExpandErrorContext {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Failed to expand {} % {:?} as {}",
+            self.debug, self.target, self.ty
+        )
+    }
+}
+
+#[derive(Debug, Fail)]
+#[fail(display = "Failed to serialize {}", content)]
+pub struct SerializeError {
+    content: String,
+    #[cause]
+    cause: StdErrorChain,
+}
+
+impl SerializeError {
+    pub(crate) fn new(content: impl fmt::Debug, cause: impl std::error::Error) -> Self {
+        Self {
+            content: format!("{:?}", content),
+            cause: cause.into(),
+        }
+    }
+}
+
+pub(crate) type FileIoResult<T> = std::result::Result<T, FileIoError>;
+
+#[derive(Debug)]
+pub struct FileIoError {
+    kind: FileIoErrorKind,
+    path: PathBuf,
+    cause: Option<StdErrorChain>,
+}
+
+impl FileIoError {
+    pub(crate) fn new(kind: FileIoErrorKind, path: impl Into<PathBuf>) -> Self {
+        Self {
+            kind,
+            path: path.into(),
+            cause: None,
+        }
     }
 
-    foreign_links {
-        Io(io::Error);
-        SerdeYaml(serde_yaml::Error);
+    pub(crate) fn chaining(
+        kind: FileIoErrorKind,
+        path: impl Into<PathBuf>,
+        cause: impl std::error::Error,
+    ) -> Self {
+        Self {
+            kind,
+            path: path.into(),
+            cause: Some(cause.into()),
+        }
     }
 
-    errors {
-        Search(name: &'static str, start: PathBuf) {
-            description("Failed to search")
-            display("Could not find {:?} in {} or any parent directory", name, start.display())
+    pub(crate) fn read_zip(path: impl Into<PathBuf>, e: ZipError) -> Self {
+        match e {
+            ZipError::Io(e) => Self::chaining(FileIoErrorKind::Read, path, e),
+            ZipError::InvalidArchive(m) => Self::new(FileIoErrorKind::InvalidZipArchive(m), path),
+            ZipError::UnsupportedArchive(m) => {
+                Self::new(FileIoErrorKind::UnsupportedZipArchive(m), path)
+            }
+            ZipError::FileNotFound => Self::chaining(
+                FileIoErrorKind::OpenInReadOnly,
+                path,
+                io::Error::from(io::ErrorKind::NotFound),
+            ),
         }
+    }
 
-        OpenInReadOnly(path: PathBuf) {
-            description("Failed to open a file in read-only mode")
-            display("An IO error occurred while opening {} in read-only mode", path.display())
+    #[cfg(test)]
+    pub(crate) fn is_lock(&self) -> bool {
+        match self.kind {
+            FileIoErrorKind::Lock => true,
+            _ => false,
         }
+    }
+}
 
-        OpenInWriteOnly(path: PathBuf) {
-            description("Failed to open a file in write-only mode")
-            display("An IO error occurred while opening {} in write-only mode", path.display())
+impl fmt::Display for FileIoError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let path = self.path.display();
+        match self.kind {
+            FileIoErrorKind::Search(name) => write!(
+                f,
+                "Could not find {:?} in {} or any parent directory",
+                name, path,
+            ),
+            FileIoErrorKind::OpenInReadOnly => write!(
+                f,
+                "An IO error occurred while opening {} in read-only mode",
+                path,
+            ),
+            FileIoErrorKind::OpenInWriteOnly => write!(
+                f,
+                "An IO error occurred while opening {} in write-only mode",
+                path,
+            ),
+            FileIoErrorKind::OpenInReadWrite => write!(
+                f,
+                "An IO error occurred while opening {} in read/write mode",
+                path,
+            ),
+            FileIoErrorKind::Lock => write!(f, "Failed to lock {}", path),
+            FileIoErrorKind::CreateDirAll => write!(f, "Failed to create {}", path),
+            FileIoErrorKind::ReadDir | FileIoErrorKind::Read => {
+                write!(f, "Failed to read {}", path)
+            }
+            FileIoErrorKind::Write => write!(f, "Failed to write to {}", path),
+            FileIoErrorKind::Deserialize => write!(f, "Failed to deserialize data from {}", path),
+            FileIoErrorKind::InvalidZipArchive(m) => {
+                write!(f, "{} is invalid Zip archive: {}", path, m)
+            }
+            FileIoErrorKind::UnsupportedZipArchive(m) => {
+                write!(f, "{} is unsupported Zip archive: {}", path, m)
+            }
         }
+    }
+}
 
-        OpenInReadWrite(path: PathBuf) {
-            description("Failed to open a file in read/write mode")
-            display("An IO error occurred while opening {} in read/write mode", path.display())
+impl Fail for FileIoError {
+    fn cause(&self) -> Option<&Fail> {
+        match self.cause.as_ref() {
+            Some(cause) => Some(cause),
+            None => None,
         }
+    }
+}
 
-        Lock(path: PathBuf) {
-            description("Failed to lock a file")
-            display("Failed to lock {}", path.display())
-        }
+#[derive(Debug)]
+pub(crate) enum FileIoErrorKind {
+    Search(&'static str),
+    OpenInReadOnly,
+    OpenInWriteOnly,
+    OpenInReadWrite,
+    Lock,
+    CreateDirAll,
+    ReadDir,
+    Read,
+    Write,
+    Deserialize,
+    InvalidZipArchive(&'static str),
+    UnsupportedZipArchive(&'static str),
+}
 
-        CreateDirAll(dir: PathBuf) {
-            description("Failed to create a directory")
-            display("Failed to create {}", dir.display())
-        }
+#[derive(Debug)]
+pub struct StdErrorChain {
+    display: String,
+    debug: String,
+    next: Option<Box<StdErrorChain>>,
+}
 
-        ReadDir(dir: PathBuf) {
-            description("Failed to read a directory")
-            display("Failed to read {}", dir.display())
-        }
+impl fmt::Display for StdErrorChain {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.display)
+    }
+}
 
-        Read(path: PathBuf) {
-            description("Failed read a file")
-            display("Failed read {}", path.display())
+impl Fail for StdErrorChain {
+    fn cause(&self) -> Option<&Fail> {
+        match self.next.as_ref() {
+            Some(next) => Some(next.as_ref()),
+            None => None,
         }
+    }
+}
 
-        Write(path: PathBuf) {
-            description("Failed to write data to a file")
-            display("Failed to write to {}", path.display())
+impl<E: std::error::Error> From<E> for StdErrorChain {
+    fn from(from: E) -> Self {
+        let mut errors = vec![(format!("{}", from), format!("{:?}", from))];
+        let mut from: &std::error::Error = &from;
+        while let Some(cause) = from.cause() {
+            errors.push((format!("{}", cause), format!("{:?}", cause)));
+            from = cause;
         }
+        let (display, debug) = errors.pop().unwrap();
+        let mut chain = Self {
+            display,
+            debug,
+            next: None,
+        };
+        for (display, debug) in errors.into_iter().rev() {
+            chain = Self {
+                display,
+                debug,
+                next: Some(Box::new(chain)),
+            }
+        }
+        chain
     }
 }

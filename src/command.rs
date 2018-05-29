@@ -1,4 +1,4 @@
-use errors::{JudgeErrorKind, JudgeResult, JudgeResultExt};
+use errors::{JudgeError, JudgeResult};
 use terminal::Color;
 use util;
 
@@ -59,7 +59,7 @@ impl CompilationCommand {
             .build_checking_wd()?
             .stdin(Stdio::null())
             .status()
-            .chain_err(|| JudgeErrorKind::Command(self.command.arg0.clone()))?;
+            .map_err(|e| JudgeError::Command(self.command.arg0.clone(), e))?;
         if status.success() {
             if !self.bin.exists() {
                 eprintln_bold!(
@@ -70,7 +70,7 @@ impl CompilationCommand {
             }
             Ok(())
         } else {
-            bail!(JudgeErrorKind::Compile(status));
+            Err(JudgeError::Compile(status))
         }
     }
 }
@@ -116,11 +116,6 @@ impl JudgingCommand {
         println!("{}", testfiles_matched);
     }
 
-    /// Gets the first argument name.
-    pub fn arg0(&self) -> &OsStr {
-        &self.0.arg0
-    }
-
     /// Returns a `Child` which stdin & stdout & stderr are piped.
     pub fn spawn_piped(&self) -> JudgeResult<Child> {
         self.0
@@ -129,7 +124,7 @@ impl JudgingCommand {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .chain_err(|| JudgeErrorKind::Command(self.0.arg0.clone()))
+            .map_err(|e| JudgeError::Command(self.0.arg0.clone(), e))
     }
 }
 

@@ -15,6 +15,17 @@ macro_rules! println_plural {
     };
 }
 
+#[cfg_attr(rustfmt, rustfmt_skip)]
+macro_rules! derive_from {
+    ($t:ident :: $v:ident <- $e:ty) => {
+        impl From<$e> for $t {
+            fn from(e: $e) -> Self {
+                $t::$v(e.into())
+            }
+        }
+    };
+}
+
 macro_rules! print_bold {
     ($color: expr, $($arg: tt)*) => {
         $crate::terminal::print_bold($color, format_args!($($arg)*))

@@ -9,7 +9,6 @@ use reqwest::header::Headers;
 use reqwest::Response;
 use select::document::Document;
 use select::predicate::Attr;
-use serde_json;
 use zip::result::ZipResult;
 use zip::ZipArchive;
 
@@ -51,7 +50,7 @@ impl HackerRank {
     }
 
     fn try_logging_in(&mut self, html: Response) -> ServiceResult<bool> {
-        #[derive(Serialize)]
+        #[derive(Debug, Serialize)]
         struct PostData<'a> {
             login: &'a str,
             password: &'a str,
@@ -70,12 +69,15 @@ impl HackerRank {
             password: &password,
             remember_me: true,
         };
-        let response = self.post_json("/auth/login", &data, &[200], {
-            let mut headers = Headers::new();
-            headers.set_raw("X-CSRF-Token", csrf_token);
-            headers
-        })?;
-        Ok(serde_json::from_reader::<_, ResponseData>(response)?.status)
+        let status = self
+            .post_json("/auth/login", &data, &[200], {
+                let mut headers = Headers::new();
+                headers.set_raw("X-CSRF-Token", csrf_token);
+                headers
+            })?
+            .json::<ResponseData>()?
+            .status;
+        Ok(status)
     }
 
     fn download(&mut self, prop: &DownloadProp<&str>) -> ServiceResult<()> {
@@ -92,7 +94,9 @@ impl HackerRank {
         let (contest, dir_to_save, extension, open_browser) = prop.values();
         let url = format!("/rest/contests/{}/challenges", contest);
         let (mut zip_urls, mut paths, mut urls) = (vec![], vec![], vec![]);
-        for slug in serde_json::from_reader::<_, Challenges>(self.get(&url)?)?
+        for slug in self
+            .get(&url)?
+            .json::<Challenges>()?
             .models
             .into_iter()
             .map(|model| model.slug)

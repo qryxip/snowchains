@@ -1,4 +1,4 @@
-use errors::{ServiceError, ServiceErrorKind, ServiceResult};
+use errors::{ServiceError, ServiceResult};
 use service::session::HttpSession;
 use service::{
     Contest, Credentials, DownloadProp, OpenInBrowser, RestoreProp, SessionProp, SubmitProp,
@@ -98,7 +98,7 @@ impl AtCoder {
     }
 
     fn try_logging_in(&mut self) -> ServiceResult<bool> {
-        #[derive(Serialize)]
+        #[derive(Debug, Serialize)]
         struct Payload<'a> {
             username: &'a str,
             password: &'a str,
@@ -118,7 +118,7 @@ impl AtCoder {
         if success {
             println!("Successfully logged in.");
         } else if self.credentials.is_some() {
-            bail!(ServiceErrorKind::WrongCredentialsOnTest);
+            return Err(ServiceError::WrongCredentialsOnTest);
         }
         Ok(success)
     }
@@ -142,14 +142,14 @@ impl AtCoder {
         contest: &AtcoderContest,
         explicit: bool,
     ) -> ServiceResult<()> {
-        #[derive(Serialize)]
+        #[derive(Debug, Serialize)]
         struct Payload {
             csrf_token: String,
         }
 
         let response = self.get_expecting(&contest.url_top(), &[200, 302])?;
         if response.status().as_u16() == 302 {
-            bail!(ServiceErrorKind::ContestNotFound(contest.to_string()));
+            return Err(ServiceError::ContestNotFound(contest.to_string()));
         }
         let page = Document::from_read(response)?;
         let duration = extract_contest_duration(&page)?;
@@ -241,7 +241,7 @@ impl AtCoder {
 
     #[allow(non_snake_case)]
     fn submit(&mut self, prop: &SubmitProp<AtcoderContest>) -> ServiceResult<()> {
-        #[derive(Serialize)]
+        #[derive(Debug, Serialize)]
         struct Payload {
             #[serde(rename = "data.TaskScreenName")]
             dataTaskScreenName: String,
@@ -283,7 +283,7 @@ impl AtCoder {
                         .into_iter()
                         .any(|s| s.task_screen_name == task_screen_name && s.is_ac)
                     {
-                        bail!(ServiceErrorKind::AlreadyAccepted);
+                        return Err(ServiceError::AlreadyAccepted);
                     }
                     for i in 2..=num_pages {
                         if extract_submissions(&Document::from_read(
@@ -291,7 +291,7 @@ impl AtCoder {
                         )?)?.0
                             .any(|s| s.task_screen_name == task_screen_name && s.is_ac)
                         {
-                            bail!(ServiceErrorKind::AlreadyAccepted);
+                            return Err(ServiceError::AlreadyAccepted);
                         }
                     }
                 }
@@ -315,7 +315,7 @@ impl AtCoder {
                 return Ok(());
             }
         }
-        bail!(ServiceErrorKind::NoSuchProblem(task.to_owned()));
+        Err(ServiceError::NoSuchProblem(task.to_owned()))
     }
 }
 
@@ -420,9 +420,7 @@ impl ContestStatus {
 
     fn raise_if_not_begun(&self) -> ServiceResult<()> {
         match self {
-            ContestStatus::NotBegun(s, t) => {
-                bail!(ServiceErrorKind::ContestNotBegun(s.clone(), *t))
-            }
+            ContestStatus::NotBegun(s, t) => Err(ServiceError::ContestNotBegun(s.clone(), *t)),
             _ => Ok(()),
         }
     }
@@ -688,8 +686,7 @@ pub(self) fn extract_as_suite(
     }
 
     let document = Document::from_read(html)?;
-    let timelimit = extract_timelimit(&document)
-        .ok_or_else::<ServiceError, _>(|| ServiceErrorKind::Scrape.into())?;
+    let timelimit = extract_timelimit(&document).ok_or_else(|| ServiceError::Scrape)?;
     if timelimit == Duration::from_millis(0) {
         return Ok(TestSuite::Unsubmittable);
     }
@@ -720,7 +717,7 @@ fn extract_contest_duration(document: &Document) -> ServiceResult<ContestDuratio
             let t2 = DateTime::parse_from_str(&t2, FORMAT)?.with_timezone(&Utc);
             Ok(ContestDuration(t1, t2))
         }
-        None => bail!(ServiceErrorKind::Scrape),
+        None => Err(ServiceError::Scrape),
     }
 }
 
@@ -795,7 +792,7 @@ fn extract_submissions(document: &Document) -> ServiceResult<(vec::IntoIter<Subm
         Some((submissions.into_iter(), num_pages))
     }
 
-    extract(document).ok_or_else(|| ServiceErrorKind::Scrape.into())
+    extract(document).ok_or_else(|| ServiceError::Scrape)
 }
 
 struct Submission {
@@ -818,7 +815,7 @@ pub(self) fn extract_submitted_code(html: impl Read) -> ServiceResult<String> {
         Some(code)
     }
 
-    extract(&Document::from_read(html)?).ok_or_else(|| ServiceErrorKind::Scrape.into())
+    extract(&Document::from_read(html)?).ok_or_else(|| ServiceError::Scrape)
 }
 
 fn find_lang_id(document: &Document, lang_name: &str) -> ServiceResult<u32> {
@@ -829,24 +826,22 @@ fn find_lang_id(document: &Document, lang_name: &str) -> ServiceResult<u32> {
                 return option
                     .attr("value")
                     .and_then(|v| v.parse().ok())
-                    .ok_or_else(|| ServiceErrorKind::Scrape.into());
+                    .ok_or_else(|| ServiceError::Scrape);
             }
         }
     }
-    bail!(ServiceErrorKind::Scrape)
+    Err(ServiceError::Scrape)
 }
 
 #[cfg(test)]
 mod tests {
     use errors::SessionResult;
     use service::atcoder::{AtCoder, AtcoderContest};
-    use service::session::HttpSession;
+    use service::session::{HttpSession, UrlBase};
     use service::{Contest, Credentials};
     use testsuite::TestSuite;
 
     use env_logger;
-    use reqwest::header::{Headers, UserAgent};
-    use reqwest::RedirectPolicy;
     use url::Host;
 
     use std::borrow::Borrow;
@@ -1210,18 +1205,8 @@ mod tests {
     }
 
     fn start() -> SessionResult<AtCoder> {
-        static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
-        let session = HttpSession::builder()
-            .base(Host::Domain("beta.atcoder.jp"), true, None)
-            .redirect(RedirectPolicy::none())
-            .timeout(Duration::from_secs(10))
-            .referer(false)
-            .default_headers({
-                let mut headers = Headers::new();
-                headers.set(UserAgent::new(USER_AGENT));
-                headers
-            })
-            .with_robots_txt()?;
+        let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
+        let session = HttpSession::new(base, Duration::from_secs(10), None)?;
         Ok(AtCoder {
             session,
             credentials: Credentials::None,

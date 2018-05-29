@@ -3,7 +3,7 @@ mod simple;
 
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
-use errors::{JudgeErrorKind, JudgeResult};
+use errors::{JudgeError, JudgeResult};
 use terminal::Color;
 use testsuite::{TestCase, TestCases};
 
@@ -55,7 +55,7 @@ pub(crate) fn judge(prop: JudgeProp) -> JudgeResult<()> {
                     output.eprint_title(i, num_cases, filename, filename_max_width);
                     output.eprint_details();
                 });
-            bail!(JudgeErrorKind::TestFailure(num_failures, num_cases))
+            Err(JudgeError::TestFailure(num_failures, num_cases))
         }
     }
 

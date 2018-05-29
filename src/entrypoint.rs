@@ -317,7 +317,7 @@ impl Opt {
                 match config.service() {
                     ServiceName::AtCoder => atcoder::download(&sess_prop, download_prop),
                     ServiceName::HackerRank => hackerrank::download(&sess_prop, &download_prop),
-                    ServiceName::Other => bail!(::ErrorKind::Unimplemented),
+                    ServiceName::Other => return Err(::Error::Unimplemented),
                 }?;
             }
             Opt::Restore { service, contest } => {
@@ -327,7 +327,7 @@ impl Opt {
                 let restore_prop = RestoreProp::new(&config)?;
                 match config.service() {
                     ServiceName::AtCoder => atcoder::restore(&sess_prop, restore_prop)?,
-                    _ => bail!(::ErrorKind::Unimplemented),
+                    _ => return Err(::Error::Unimplemented),
                 };
             }
             Opt::Append {
@@ -382,7 +382,7 @@ impl Opt {
                 }
                 match config.service() {
                     ServiceName::AtCoder => atcoder::submit(&sess_prop, submit_prop)?,
-                    _ => bail!(::ErrorKind::Unimplemented),
+                    _ => return Err(::Error::Unimplemented),
                 };
             }
         }
