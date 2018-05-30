@@ -517,14 +517,6 @@ impl FileIoError {
             ),
         }
     }
-
-    #[cfg(test)]
-    pub(crate) fn is_lock(&self) -> bool {
-        match self.kind {
-            FileIoErrorKind::Lock => true,
-            _ => false,
-        }
-    }
 }
 
 impl fmt::Display for FileIoError {

@@ -60,9 +60,9 @@ pub mod macros;
 pub mod terminal;
 pub mod util;
 
+mod app;
 mod command;
 mod config;
-mod entrypoint;
 mod errors;
 mod judging;
 mod replacer;
@@ -70,7 +70,7 @@ mod service;
 mod template;
 mod testsuite;
 
-pub use entrypoint::{Opt, Prop};
+pub use app::{Opt, Prop};
 pub use errors::{Error, Result};
 pub use service::Credentials;
 

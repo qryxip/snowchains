@@ -366,7 +366,7 @@ impl AutosavedCookieJar {
 
 #[cfg(test)]
 mod tests {
-    use errors::{FileIoError, SessionError};
+    use errors::SessionError;
     use service::session::{HttpSession, UrlBase};
 
     use failure::Fail as _Fail;
