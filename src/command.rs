@@ -1,4 +1,4 @@
-use errors::{JudgeErrorKind, JudgeResult, JudgeResultExt};
+use errors::{JudgeError, JudgeResult};
 use terminal::Color;
 use util;
 
@@ -21,8 +21,8 @@ impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub fn new<S: AsRef<OsStr>>(
-        args: &[S],
+    pub fn new(
+        args: &[impl AsRef<OsStr>],
         working_dir: PathBuf,
         src: PathBuf,
         bin: PathBuf,
@@ -54,11 +54,12 @@ impl CompilationCommand {
         print!("{}\n", self.command.display_args());
         print_bold!(Color::CommandInfo, "Working directory:   ");
         println!("{}", self.command.working_dir.display());
-        let status = self.command
+        let status = self
+            .command
             .build_checking_wd()?
             .stdin(Stdio::null())
             .status()
-            .chain_err(|| JudgeErrorKind::Command(self.command.arg0.clone()))?;
+            .map_err(|e| JudgeError::Command(self.command.arg0.clone(), e))?;
         if status.success() {
             if !self.bin.exists() {
                 eprintln_bold!(
@@ -69,7 +70,7 @@ impl CompilationCommand {
             }
             Ok(())
         } else {
-            bail!(JudgeErrorKind::Compile(status));
+            Err(JudgeError::Compile(status))
         }
     }
 }
@@ -82,7 +83,7 @@ impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub fn new<S: AsRef<OsStr>>(args: &[S], working_dir: PathBuf) -> Self {
+    pub fn new(args: &[impl AsRef<OsStr>], working_dir: PathBuf) -> Self {
         JudgingCommand(CommandProperty::new(args, working_dir))
     }
 
@@ -115,11 +116,6 @@ impl JudgingCommand {
         println!("{}", testfiles_matched);
     }
 
-    /// Gets the first argument name.
-    pub fn arg0(&self) -> &OsStr {
-        &self.0.arg0
-    }
-
     /// Returns a `Child` which stdin & stdout & stderr are piped.
     pub fn spawn_piped(&self) -> JudgeResult<Child> {
         self.0
@@ -128,7 +124,7 @@ impl JudgingCommand {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .chain_err(|| JudgeErrorKind::Command(self.0.arg0.clone()))
+            .map_err(|e| JudgeError::Command(self.0.arg0.clone(), e))
     }
 }
 
@@ -141,7 +137,7 @@ struct CommandProperty {
 }
 
 impl CommandProperty {
-    fn new<S: AsRef<OsStr>>(args: &[S], working_dir: PathBuf) -> Self {
+    fn new(args: &[impl AsRef<OsStr>], working_dir: PathBuf) -> Self {
         let (arg0, rest_args) = if args.is_empty() {
             (OsString::new(), vec![])
         } else {

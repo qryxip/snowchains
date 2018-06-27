@@ -1,30 +1,49 @@
+pub mod session;
+
 pub(crate) mod atcoder;
 pub(crate) mod hackerrank;
+pub(crate) mod yukicoder;
+
+pub(self) mod downloader;
 
 use config::Config;
-use errors::{
-    ServiceError, ServiceErrorKind, ServiceResult, ServiceResultExt as _ServiceResultExt,
-};
+use errors::{ServiceError, ServiceResult, SessionResult};
 use replacer::CodeReplacer;
-use template::{BaseDirSome, PathTemplate};
+use service::downloader::ZipDownloader;
+use service::session::{HttpSession, UrlBase};
+use template::{BaseDirNone, BaseDirSome, PathTemplate};
 use terminal::Color;
 use testsuite::SerializableExtension;
 use {util, ServiceName};
 
-use futures::{executor, future, task, Async, Future, Poll};
-use httpsession::header::{ContentLength, UserAgent};
-use httpsession::{self, ColorMode, CookieStoreOption, HttpSession, RedirectPolicy, Response};
-use pbr::{MultiBar, Pipe, ProgressBar, Units};
-use zip::result::ZipResult;
-use zip::ZipArchive;
-use {rpassword, rprompt, webbrowser};
+use itertools::Itertools as _Itertools;
+use reqwest::header::{Headers, UserAgent};
+use reqwest::{self, RedirectPolicy};
+use tokio_core::reactor::Core;
+use url::Host;
+use {rpassword, rprompt};
 
-use std::collections::BTreeMap;
-use std::io::{self, Cursor, Read, Write};
+use std::collections::HashMap;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::{Duration, Instant};
-use std::{self, env, mem, panic, thread};
+use std::time::Duration;
+use std::{self, env, fmt, io};
+
+pub(self) static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
+
+/// Asks username and password.
+pub(self) fn ask_credentials(username_prompt: &str) -> io::Result<(String, String)> {
+    let username = rprompt::prompt_reply_stderr(username_prompt)?;
+    let password = rpassword::prompt_password_stderr("Password: ").or_else(|e| match e.kind() {
+        io::ErrorKind::BrokenPipe => {
+            eprintln_bold!(Color::Warning, "broken pipe");
+            rprompt::prompt_reply_stderr("Password (not hidden): ")
+        }
+        _ => Err(e),
+    })?;
+    Ok((username, password))
+}
 
 /// Gets the value `x` if `Some(x) = o` and `!f(x)`.
 ///
@@ -37,156 +56,14 @@ pub(self) fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> S
             return Ok(x);
         }
     }
-    bail!(ServiceErrorKind::Scrape);
-}
-
-pub(self) trait OpenInBrowser {
-    /// Opens `url`, which is relative or absolute, with default browser
-    /// printing a message.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err` if the exit status code is not 0 or an IO error occures.
-    fn open_in_browser(&self, url: &str) -> ServiceResult<()>;
-}
-
-impl OpenInBrowser for HttpSession {
-    fn open_in_browser(&self, url: &str) -> ServiceResult<()> {
-        let url = self.resolve_url(url)?;
-        println!("Opening {} in default browser...", url);
-        let status = webbrowser::open(url.as_str())?.status;
-        ensure!(status.success(), ServiceErrorKind::Webbrowser(status));
-        Ok(())
-    }
-}
-
-pub(self) trait DownloadZips {
-    /// Sends GET requests to `urls` expecting the response data are all zips.
-    ///
-    /// # Errors
-    ///
-    /// Fails if:
-    /// - Any of `urls` is invalid
-    /// - Any of http access fails
-    /// - Any of response code is not 200
-    /// - Any of downloaded zip is invalid
-    fn download_zips<S: AsRef<str>, W: Write + Send + 'static>(
-        &mut self,
-        out: W,
-        alt_capacity: usize,
-        urls: &[S],
-    ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>>;
-}
-
-impl DownloadZips for HttpSession {
-    fn download_zips<S: AsRef<str>, W: Write + Send + 'static>(
-        &mut self,
-        out: W,
-        alt_capacity: usize,
-        urls: &[S],
-    ) -> ServiceResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
-        let responses = urls.iter()
-            .map(|url| self.get(url.as_ref()))
-            .collect::<httpsession::Result<Vec<_>>>()?;
-        download_zip_files(out, alt_capacity, responses).map_err(Into::into)
-    }
-}
-
-fn download_zip_files<W: Write + Send + 'static, I: IntoIterator<Item = Response>>(
-    mut out: W,
-    alt_capacity: usize,
-    responses: I,
-) -> ZipResult<Vec<ZipArchive<Cursor<Vec<u8>>>>> {
-    let _ = out.write(b"Downloading zip files...\n")?;
-    out.flush()?;
-    let mut mb = MultiBar::on(out);
-    let downloads = responses
-        .into_iter()
-        .map(|response| Downloading::new(response, alt_capacity, &mut mb))
-        .collect::<Vec<_>>();
-    let thread = thread::spawn(move || mb.listen());
-    let zips = executor::block_on(future::join_all(downloads))?;
-    thread.join().unwrap_or_else(|p| panic::resume_unwind(p));
-    zips.into_iter().map(ZipArchive::new).collect()
-}
-
-struct Downloading {
-    size_unknown: bool,
-    response: Response,
-    progress_bar: ProgressBar<Pipe>,
-    content: Cursor<Vec<u8>>,
-    buf: Vec<u8>,
-    bar_updated: Instant,
-}
-
-impl Downloading {
-    fn new<W: Write>(response: Response, alt_capacity: usize, mb: &mut MultiBar<W>) -> Self {
-        let content_length = response.headers().get::<ContentLength>().map(|l| **l);
-        let mut progress_bar = mb.create_bar(content_length.unwrap_or(0));
-        progress_bar.set_units(Units::Bytes);
-        let capacity = content_length.map(|n| n as usize).unwrap_or(alt_capacity);
-        Self {
-            size_unknown: content_length.is_none(),
-            response,
-            progress_bar,
-            content: Cursor::new(Vec::with_capacity(capacity)),
-            buf: vec![unsafe { mem::uninitialized() }; 1024 * 1024],
-            bar_updated: Instant::now(),
-        }
-    }
-
-    fn read(&mut self) -> Poll<Cursor<Vec<u8>>, io::Error> {
-        match self.response.read(&mut self.buf)? {
-            0 => {
-                self.update_progress_bar();
-                let content = mem::replace(&mut self.content, Cursor::new(vec![]));
-                Ok(Async::Ready(content))
-            }
-            n => {
-                let _ = self.content.write(&self.buf[0..n])?;
-                if n == self.buf.len() {
-                    self.buf
-                        .extend(vec![unsafe { mem::uninitialized::<u8>() }; n]);
-                } else if Instant::now() - self.bar_updated > Duration::from_millis(20) {
-                    self.update_progress_bar();
-                }
-                Ok(Async::Pending)
-            }
-        }
-    }
-
-    fn update_progress_bar(&mut self) {
-        let pos = self.content.position();
-        if self.size_unknown {
-            self.progress_bar.total = pos;
-        }
-        self.progress_bar.set(pos);
-        self.bar_updated = Instant::now();
-    }
-}
-
-impl Future for Downloading {
-    type Item = Cursor<Vec<u8>>;
-    type Error = io::Error;
-
-    fn poll(&mut self, cx: &mut task::Context) -> Poll<Cursor<Vec<u8>>, io::Error> {
-        let result = self.read();
-        match result {
-            Ok(Async::Ready(_)) => self.progress_bar.finish(),
-            Ok(Async::Pending) => cx.waker().wake(),
-            Err(_) => self.progress_bar.finish_print("Failed"),
-        }
-        result
-    }
+    Err(ServiceError::Scrape)
 }
 
 #[derive(Clone)]
 pub enum Credentials {
     None,
-    Some {
-        username: Rc<String>,
-        password: Rc<String>,
-    },
+    RevelSession(Rc<String>),
+    UserNameAndPassword(Rc<String>, Rc<String>),
 }
 
 impl Credentials {
@@ -195,122 +72,127 @@ impl Credentials {
         password: &str,
     ) -> std::result::Result<Self, env::VarError> {
         let (username, password) = (Rc::new(env::var(username)?), Rc::new(env::var(password)?));
-        Ok(Credentials::Some { username, password })
+        Ok(Credentials::UserNameAndPassword(username, password))
     }
 
     pub(self) fn or_ask(&self, username_prompt: &str) -> io::Result<(Rc<String>, Rc<String>)> {
-        if let Credentials::Some {
-            ref username,
-            ref password,
-        } = *self
-        {
+        if let Credentials::UserNameAndPassword(username, password) = self {
             Ok((username.clone(), password.clone()))
         } else {
-            let username = rprompt::prompt_reply_stderr(username_prompt)?;
-            let password =
-                rpassword::prompt_password_stderr("Password: ").or_else(|e| match e.kind() {
-                    io::ErrorKind::BrokenPipe => {
-                        eprintln_bold!(Color::Warning, "broken pipe");
-                        rprompt::prompt_reply_stderr("Password (not hidden): ")
-                    }
-                    _ => Err(e),
-                })?;
+            let (username, password) = ask_credentials(username_prompt)?;
             Ok((Rc::new(username), Rc::new(password)))
         }
     }
 
-    pub(self) fn is_some(&self) -> bool {
-        match *self {
+    pub(self) fn not_none(&self) -> bool {
+        match self {
             Credentials::None => false,
-            Credentials::Some { .. } => true,
+            _ => true,
         }
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub(crate) struct SessionConfig {
     #[serde(serialize_with = "util::ser::secs", deserialize_with = "util::de::non_zero_secs")]
     timeout: Option<Duration>,
+    cookies: PathTemplate<BaseDirNone>,
+}
+
+impl SessionConfig {
+    pub(crate) fn timeout(&self) -> Option<Duration> {
+        self.timeout
+    }
+
+    pub(crate) fn cookies<'a>(
+        &self,
+        base: &'a Path,
+        service: ServiceName,
+    ) -> PathTemplate<BaseDirSome<'a>> {
+        self.cookies
+            .base_dir(base)
+            .embed_strings(&hashmap!("service" => service.as_str()))
+    }
 }
 
 pub(crate) struct SessionProp {
-    domain: Option<&'static str>,
-    cookie_path: PathBuf,
-    color_mode: ColorMode,
-    timeout: Option<Duration>,
-    credentials: Credentials,
+    pub domain: Option<&'static str>,
+    pub cookies_path: PathBuf,
+    pub timeout: Option<Duration>,
+    pub credentials: Credentials,
 }
 
 impl SessionProp {
-    pub fn new(
-        domain: Option<&'static str>,
-        cookie_path: PathBuf,
-        color_mode: ColorMode,
-        credentials: Credentials,
-        sess_conf: Option<&SessionConfig>,
-    ) -> Self {
-        Self {
-            domain,
-            cookie_path,
-            color_mode,
-            timeout: sess_conf.and_then(|c| c.timeout),
-            credentials,
+    pub(self) fn start_session(&self) -> SessionResult<HttpSession> {
+        let client = reqwest_client(self.timeout)?;
+        let base = self
+            .domain
+            .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
+        HttpSession::new(client, base, self.cookies_path.clone())
+    }
+
+    pub(self) fn zip_downloader(&self) -> SessionResult<ZipDownloader> {
+        let core = Core::new()?;
+        let mut builder = reqwest::unstable::async::Client::builder();
+        if let Some(timeout) = self.timeout {
+            builder.timeout(timeout);
         }
-    }
-
-    pub(self) fn credentials(&self) -> Credentials {
-        self.credentials.clone()
-    }
-
-    pub(self) fn start_session(&self) -> ServiceResult<HttpSession> {
-        static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
-        let builder = HttpSession::builder()
-            .cookie_store(CookieStoreOption::AutoSave(self.cookie_path.clone()))
-            .echo_actions(self.color_mode)
-            .timeout(self.timeout)
+        let client = builder
             .redirect(RedirectPolicy::none())
-            .default_header(UserAgent::new(USER_AGENT));
-        if let Some(domain) = self.domain {
-            builder.base(domain, true, None).with_robots_txt()
-        } else {
-            builder.build()
-        }.chain_err(|| ServiceError::from(ServiceErrorKind::HttpSessionStart))
+            .referer(false)
+            .default_headers({
+                let mut headers = Headers::new();
+                headers.set(UserAgent::new(USER_AGENT));
+                headers
+            })
+            .build(&core.handle())?;
+        Ok(ZipDownloader::new(client, core))
     }
 }
 
-pub(crate) trait Contest {
-    fn new(s: &str) -> Self;
-}
-
-impl<'a> Contest for &'a str {
-    fn new(_: &str) -> Self {
-        unreachable!()
-    }
+pub(self) fn reqwest_client(
+    timeout: impl Into<Option<Duration>>,
+) -> reqwest::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .redirect(RedirectPolicy::none())
+        .timeout(timeout)
+        .referer(false)
+        .default_headers({
+            let mut headers = Headers::new();
+            headers.set(UserAgent::new(USER_AGENT));
+            headers
+        })
+        .build()
 }
 
 pub(crate) struct DownloadProp<C: Contest> {
-    contest: C,
-    download_dir: PathBuf,
-    extension: SerializableExtension,
-    open_browser: bool,
+    pub contest: C,
+    pub problems: Option<Vec<String>>,
+    pub download_dir: PathBuf,
+    pub extension: SerializableExtension,
+    pub open_browser: bool,
 }
 
-impl<'a> DownloadProp<&'a str> {
-    pub fn new(config: &'a Config, open_browser: bool) -> ::Result<Self> {
-        let contest = config.contest();
+impl DownloadProp<String> {
+    pub fn new(config: &Config, open_browser: bool, problems: Vec<String>) -> ::Result<Self> {
         let download_dir = config.testfiles_dir().expand("")?;
-        let extension = config.extension_on_scrape();
         Ok(Self {
-            contest,
+            contest: config.contest().to_owned(),
+            problems: if problems.is_empty() {
+                None
+            } else {
+                Some(problems)
+            },
             download_dir,
-            extension,
+            extension: config.extension_on_scrape(),
             open_browser,
         })
     }
 
-    pub(self) fn transform<C: Contest>(self) -> DownloadProp<C> {
+    pub(self) fn parse_contest<C: Contest>(self) -> DownloadProp<C> {
         DownloadProp {
-            contest: C::new(self.contest),
+            contest: C::from_string(self.contest),
+            problems: self.problems,
             download_dir: self.download_dir,
             extension: self.extension,
             open_browser: self.open_browser,
@@ -318,38 +200,55 @@ impl<'a> DownloadProp<&'a str> {
     }
 }
 
+impl<C: Contest> PrintTargets for DownloadProp<C> {
+    type Contest = C;
+
+    fn contest(&self) -> &C {
+        &self.contest
+    }
+
+    fn problems(&self) -> Option<&[String]> {
+        self.problems.as_ref().map(Deref::deref)
+    }
+}
+
 impl<C: Contest> DownloadProp<C> {
-    pub(self) fn values(&self) -> (&C, &Path, SerializableExtension, bool) {
-        (
-            &self.contest,
-            &self.download_dir,
-            self.extension,
-            self.open_browser,
-        )
+    pub(self) fn lowerize_problems(self) -> Self {
+        Self {
+            problems: self
+                .problems
+                .map(|ps| ps.into_iter().map(|p| p.to_lowercase()).collect()),
+            ..self
+        }
     }
 }
 
 pub(crate) struct RestoreProp<'a, C: Contest> {
-    contest: C,
-    src_paths: BTreeMap<u32, PathTemplate<BaseDirSome<'a>>>,
-    replacers: BTreeMap<u32, CodeReplacer>,
+    pub contest: C,
+    pub problems: Option<Vec<String>>,
+    pub src_paths: HashMap<&'a str, PathTemplate<BaseDirSome<'a>>>,
+    pub replacers: HashMap<&'a str, CodeReplacer>,
 }
 
-impl<'a> RestoreProp<'a, &'a str> {
-    pub fn new(config: &'a Config) -> ::Result<Self> {
-        let contest = config.contest();
+impl<'a> RestoreProp<'a, String> {
+    pub fn new(config: &'a Config, problems: Vec<String>) -> ::Result<Self> {
         let replacers = config.code_replacers_on_atcoder()?;
-        let src_paths = config.src_paths();
         Ok(Self {
-            contest,
-            src_paths,
+            contest: config.contest().to_owned(),
+            problems: if problems.is_empty() {
+                None
+            } else {
+                Some(problems)
+            },
+            src_paths: config.src_paths(),
             replacers,
         })
     }
 
-    pub(self) fn transform<C: Contest>(self) -> RestoreProp<'a, C> {
+    pub(self) fn parse_contest<C: Contest>(self) -> RestoreProp<'a, C> {
         RestoreProp {
-            contest: C::new(self.contest),
+            contest: C::from_string(self.contest),
+            problems: self.problems,
             src_paths: self.src_paths,
             replacers: self.replacers,
         }
@@ -357,46 +256,42 @@ impl<'a> RestoreProp<'a, &'a str> {
 }
 
 impl<'a, C: Contest> RestoreProp<'a, C> {
-    pub(self) fn values(
-        &self,
-    ) -> (
-        &C,
-        &BTreeMap<u32, PathTemplate<BaseDirSome<'a>>>,
-        &BTreeMap<u32, CodeReplacer>,
-    ) {
-        (&self.contest, &self.src_paths, &self.replacers)
+    pub(self) fn upperize_problems(self) -> Self {
+        Self {
+            problems: self
+                .problems
+                .map(|ps| ps.into_iter().map(|p| p.to_uppercase()).collect()),
+            ..self
+        }
     }
 }
 
 pub(crate) struct SubmitProp<C: Contest> {
-    contest: C,
-    target: String,
-    lang_id: u32,
-    src_path: PathBuf,
-    replacer: Option<CodeReplacer>,
-    open_browser: bool,
-    skip_checking_if_accepted: bool,
+    pub contest: C,
+    pub problem: String,
+    pub lang_id: String,
+    pub src_path: PathBuf,
+    pub replacer: Option<CodeReplacer>,
+    pub open_browser: bool,
+    pub skip_checking_if_accepted: bool,
 }
 
-impl<'a> SubmitProp<&'a str> {
+impl SubmitProp<String> {
     pub fn new(
-        config: &'a Config,
-        target: String,
+        config: &Config,
+        problem: String,
         language: Option<&str>,
         open_browser: bool,
         skip_checking_if_accepted: bool,
     ) -> ::Result<Self> {
         let service = config.service();
-        let contest = config.contest();
-        let src_path = config.src_to_submit(language)?.expand(&target)?;
+        let contest = config.contest().to_owned();
+        let src_path = config.src_to_submit(language)?.expand(&problem)?;
         let replacer = config.code_replacer(language)?;
-        let lang_id = match service {
-            ServiceName::AtCoder => config.atcoder_lang_id(language)?,
-            _ => bail!(::ErrorKind::Unimplemented),
-        };
+        let lang_id = config.lang_id(service, language)?.to_owned();
         Ok(Self {
             contest,
-            target,
+            problem,
             lang_id,
             src_path,
             replacer,
@@ -405,10 +300,10 @@ impl<'a> SubmitProp<&'a str> {
         })
     }
 
-    pub(self) fn transform<C: Contest>(self) -> SubmitProp<C> {
+    pub(self) fn parse_contest<C: Contest>(self) -> SubmitProp<C> {
         SubmitProp {
-            contest: C::new(self.contest),
-            target: self.target,
+            contest: C::from_string(self.contest),
+            problem: self.problem,
             lang_id: self.lang_id,
             src_path: self.src_path,
             replacer: self.replacer,
@@ -418,16 +313,27 @@ impl<'a> SubmitProp<&'a str> {
     }
 }
 
-impl<C: Contest> SubmitProp<C> {
-    pub(self) fn values(&self) -> (&C, &str, u32, &Path, Option<&CodeReplacer>, bool, bool) {
-        (
-            &self.contest,
-            &self.target,
-            self.lang_id,
-            &self.src_path,
-            self.replacer.as_ref(),
-            self.open_browser,
-            self.skip_checking_if_accepted,
-        )
+pub(crate) trait Contest: fmt::Display {
+    fn from_string(s: String) -> Self;
+}
+
+impl Contest for String {
+    fn from_string(s: String) -> Self {
+        s
+    }
+}
+
+pub(self) trait PrintTargets {
+    type Contest: Contest;
+
+    fn contest(&self) -> &Self::Contest;
+    fn problems(&self) -> Option<&[String]>;
+
+    fn print_targets(&self) {
+        print!("Targets: {}/", self.contest());
+        match self.problems() {
+            None => println!("*"),
+            Some(problems) => println!("{{{}}}", problems.iter().join(", ")),
+        }
     }
 }

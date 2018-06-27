@@ -2,29 +2,38 @@
 extern crate snowchains;
 
 extern crate env_logger;
-extern crate error_chain;
+extern crate failure;
 extern crate structopt;
 
 use snowchains::terminal::Color;
 use snowchains::{Opt, Prop};
 
+use failure::Fail;
 use structopt::StructOpt as _StructOpt;
 
 use std::process;
 
 fn main() {
     env_logger::init();
-    if let Err(e) = Prop::new().and_then(|prop| Opt::from_args().run(&prop)) {
+    if let Err(err) = Prop::new().and_then(|prop| Opt::from_args().run(&prop)) {
         eprintln!();
-        if e.iter().count() > 1 {
-            eprint!("    ");
-        }
-        for (i, e) in e.iter().enumerate() {
-            let head = if i == 0 { "Error: " } else { "Caused by: " };
+        for (i, cause) in err.causes().enumerate() {
+            let head = if i == 0 && err.cause().is_none() {
+                "Error: "
+            } else if i == 0 {
+                "    Error: "
+            } else {
+                "Caused by: "
+            };
             eprint_bold!(Color::Fatal, "{}", head);
-            eprintln_bold!(None, "{}", e);
+            for (i, line) in cause.to_string().lines().enumerate() {
+                if i > 0 {
+                    (0..head.len()).for_each(|_| eprint!(" "));
+                }
+                eprintln!("{}", line);
+            }
         }
-        if let Some(backtrace) = e.backtrace() {
+        if let Some(backtrace) = err.backtrace() {
             eprintln!("{:?}", backtrace);
         }
         process::exit(1)

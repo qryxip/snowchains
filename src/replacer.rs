@@ -1,6 +1,6 @@
-use errors::{CodeReplaceErrorKind, CodeReplaceResult};
+use errors::{CodeReplaceError, CodeReplaceResult};
 use template::StringTemplate;
-use util;
+use yaml;
 
 use regex::Regex;
 
@@ -12,8 +12,7 @@ use std::str;
 #[derive(Serialize, Deserialize)]
 pub(crate) struct CodeReplacer {
     #[serde(
-        serialize_with = "util::yaml::serialize_regex",
-        deserialize_with = "util::yaml::deserialize_regex"
+        serialize_with = "yaml::serialize_regex", deserialize_with = "yaml::deserialize_regex"
     )]
     regex: Regex,
     match_group: usize,
@@ -23,14 +22,9 @@ pub(crate) struct CodeReplacer {
 }
 
 impl CodeReplacer {
-    pub fn embed_strings<
-        'a,
-        M: Into<Option<&'a HashMap<K, V>>>,
-        K: 'a + Borrow<str> + Eq + Hash,
-        V: 'a + Borrow<str> + Eq + Hash,
-    >(
+    pub fn embed_strings<'a, K: 'a + Borrow<str> + Eq + Hash, V: 'a + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'a HashMap<K, V>>>,
     ) -> Self {
         let strings = strings.into();
         let local = self.local.embed_strings(strings);
@@ -44,13 +38,13 @@ impl CodeReplacer {
         }
     }
 
-    pub fn replace_as_submission(&self, target: &str, code: &str) -> CodeReplaceResult<String> {
-        let (from, to) = (self.local.expand(target)?, self.submit.expand(target)?);
+    pub fn replace_as_submission(&self, problem: &str, code: &str) -> CodeReplaceResult<String> {
+        let (from, to) = (self.local.expand(problem)?, self.submit.expand(problem)?);
         self.replace(code, &from, &to)
     }
 
-    pub fn replace_from_submission(&self, target: &str, code: &str) -> CodeReplaceResult<String> {
-        let (from, to) = (self.submit.expand(target)?, self.local.expand(target)?);
+    pub fn replace_from_submission(&self, problem: &str, code: &str) -> CodeReplaceResult<String> {
+        let (from, to) = (self.submit.expand(problem)?, self.local.expand(problem)?);
         self.replace(code, &from, &to)
     }
 
@@ -70,18 +64,14 @@ impl CodeReplacer {
                             continue;
                         }
                     } else {
-                        bail!(CodeReplaceErrorKind::RegexGroupOutOfBounds(
-                            self.match_group
-                        ));
+                        return Err(CodeReplaceError::RegexGroupOutOfBounds(self.match_group));
                     }
                 }
             }
             replaced_lines.push(Cow::from(line));
         }
         if !replaced_p {
-            bail!(CodeReplaceErrorKind::NoMatch(
-                self.regex.as_str().to_owned()
-            ));
+            return Err(CodeReplaceError::NoMatch(self.regex.as_str().to_owned()));
         }
         let mut r = replaced_lines.join("\n");
         if code.ends_with('\n') {
@@ -93,7 +83,7 @@ impl CodeReplacer {
 
 #[cfg(test)]
 mod tests {
-    use errors::{CodeReplaceError, CodeReplaceErrorKind};
+    use errors::CodeReplaceError;
     use replacer::CodeReplacer;
     use template::StringTemplate;
 
@@ -139,7 +129,7 @@ object Foo {}
         let replaced = code_replacer(1).replace(CODE, "A", "Main").unwrap();
         assert_eq!(EXPECTED, replaced);
         match code_replacer(2).replace(CODE, "", "").unwrap_err() {
-            CodeReplaceError(CodeReplaceErrorKind::RegexGroupOutOfBounds(2), _) => {}
+            CodeReplaceError::RegexGroupOutOfBounds(2) => {}
             e => panic!("{}", e),
         }
     }

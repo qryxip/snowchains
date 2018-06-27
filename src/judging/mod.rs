@@ -3,7 +3,7 @@ mod simple;
 
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
-use errors::{JudgeErrorKind, JudgeResult};
+use errors::{JudgeError, JudgeResult};
 use terminal::Color;
 use testsuite::{TestCase, TestCases};
 
@@ -55,7 +55,7 @@ pub(crate) fn judge(prop: JudgeProp) -> JudgeResult<()> {
                     output.eprint_title(i, num_cases, filename, filename_max_width);
                     output.eprint_details();
                 });
-            bail!(JudgeErrorKind::TestFailure(num_failures, num_cases))
+            Err(JudgeError::TestFailure(num_failures, num_cases))
         }
     }
 
@@ -88,11 +88,11 @@ pub(crate) struct JudgeProp {
 }
 
 impl JudgeProp {
-    pub fn new(config: &Config, target: &str, language: Option<&str>) -> ::Result<Self> {
-        let (cases, paths) = config.suite_paths().load_merging(config, target)?;
-        let solver = config.solver(language)?.expand(&target)?;
+    pub fn new(config: &Config, problem: &str, language: Option<&str>) -> ::Result<Self> {
+        let (cases, paths) = config.suite_paths().load_merging(config, problem)?;
+        let solver = config.solver(language)?.expand(&problem)?;
         let solver_compilation = match config.solver_compilation(language)? {
-            Some(compilation) => Some(compilation.expand(&target)?),
+            Some(compilation) => Some(compilation.expand(&problem)?),
             None => None,
         };
 
@@ -119,14 +119,14 @@ where
 
     fn print_title(&self, i: usize, n: usize, name: &str, name_width: usize) {
         (0..format!("{}", n).len() - format!("{}", i + 1).len()).for_each(|_| print!(" "));
-        print_bold!(None, "{}/{} ({})", i + 1, n, name);
+        print_bold!(Color::None, "{}/{} ({})", i + 1, n, name);
         (0..name_width - name.width_cjk() + 1).for_each(|_| print!(" "));
         println_bold!(self.color(), "{}", self);
     }
 
     fn eprint_title(&self, i: usize, n: usize, name: &str, name_width: usize) {
         (0..format!("{}", n).len() - format!("{}", i + 1).len()).for_each(|_| eprint!(" "));
-        eprint_bold!(None, "{}/{} ({})", i + 1, n, name);
+        eprint_bold!(Color::None, "{}/{} ({})", i + 1, n, name);
         (0..name_width - name.width_cjk() + 1).for_each(|_| eprint!(" "));
         eprintln_bold!(self.color(), "{}", self);
     }

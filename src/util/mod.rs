@@ -1,15 +1,16 @@
 pub mod fs;
 
 pub(crate) mod de;
+pub(crate) mod path;
 pub(crate) mod ser;
-pub(crate) mod yaml;
+pub(crate) mod std_unstable;
 
 use std::borrow::Cow;
 use std::io::{self, Read};
 use std::str;
 
 /// Returns a `String` read from `read`.
-pub(crate) fn string_from_read<R: Read>(mut read: R, capacity: usize) -> io::Result<String> {
+pub(crate) fn string_from_read(mut read: impl Read, capacity: usize) -> io::Result<String> {
     let mut buf = String::with_capacity(capacity);
     read.read_to_string(&mut buf)?;
     Ok(buf)
@@ -34,7 +35,7 @@ fn trim_trailing_newline(s: &str) -> Cow<str> {
 
 pub(crate) trait OkAsRefOr {
     type Item;
-    /// Get the value `Ok(&x)` if `Some(ref x) = self`.
+    /// Get the value `Ok(&x)` if `Some(x) = self`.
     ///
     /// # Errors
     ///
@@ -46,15 +47,15 @@ impl<T> OkAsRefOr for Option<T> {
     type Item = T;
 
     fn ok_as_ref_or<E>(&self, e: E) -> Result<&T, E> {
-        match *self {
-            Some(ref x) => Ok(x),
+        match self {
+            Some(x) => Ok(x),
             None => Err(e),
         }
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum ScalarOrArray<T> {
     Scalar(T),

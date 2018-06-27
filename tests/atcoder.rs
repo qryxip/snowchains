@@ -4,15 +4,15 @@ extern crate snowchains;
 extern crate serde_derive;
 
 extern crate env_logger;
-extern crate httpsession;
 extern crate serde_yaml;
 extern crate tempdir;
 
-use snowchains::{terminal, util, Credentials, Opt, Prop, ServiceName};
+use snowchains::terminal::TerminalMode;
+use snowchains::{util, Credentials, Opt, Prop, ServiceName};
 
-use httpsession::ColorMode;
 use tempdir::TempDir;
 
+use std::borrow::Cow;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -26,7 +26,6 @@ fn it_logins() {
         }.run(prop)
     }
     let _ = env_logger::try_init();
-    terminal::disable_color();
     let (tempdir1, prop1) = setup("it_logins_1", empty_credentials());
     let (tempdir2, prop2) = setup("it_logins_2", credentials_from_env_vars());
     login(&prop1).unwrap_err();
@@ -47,6 +46,7 @@ fn it_scrapes_samples_from_practice() {
         service: Some(ServiceName::AtCoder),
         contest: Some("practice".to_owned()),
         open_browser: false,
+        problems: vec![],
     }.run(&prop)
         .unwrap();
     let download_dir = tempdir
@@ -68,6 +68,7 @@ fn it_scrapes_samples_from_arc058() {
         service: Some(ServiceName::AtCoder),
         contest: Some("arc058".to_owned()),
         open_browser: false,
+        problems: vec![],
     }.run(&prop)
         .unwrap();
     let download_dir = tempdir
@@ -128,11 +129,10 @@ if __name__ == '__main__':
     main()
 "#;
     let _ = env_logger::try_init();
-    terminal::disable_color();
     let (tempdir, prop) = setup("it_submits_to_practice_a", credentials_from_env_vars());
     util::fs::write(&tempdir.path().join("py").join("a.py"), CODE).unwrap();
     Opt::Submit {
-        target: "a".to_owned(),
+        problem: "a".to_owned(),
         language: Some("python3".to_owned()),
         service: Some(ServiceName::AtCoder),
         contest: Some("practice".to_owned()),
@@ -145,13 +145,12 @@ if __name__ == '__main__':
 }
 
 fn setup(tempdir_prefix: &str, credentials: Credentials) -> (TempDir, Prop) {
-    terminal::disable_color();
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
+    let cookies_on_init = Cow::from(tempdir.path().join("cookies").to_str().unwrap().to_owned());
     let prop = Prop {
         working_dir: tempdir.path().to_owned(),
-        default_lang_on_init: Some("python3"),
-        cookie_dir: tempdir.path().to_owned(),
-        color_mode: ColorMode::NoColor,
+        terminal_mode_on_init: TerminalMode::Plain,
+        cookies_on_init,
         credentials,
     };
     Opt::Init {
@@ -166,8 +165,6 @@ fn credentials_from_env_vars() -> Credentials {
 }
 
 fn empty_credentials() -> Credentials {
-    Credentials::Some {
-        username: Rc::new("".to_owned()),
-        password: Rc::new("".to_owned()),
-    }
+    let s = Rc::new("".to_owned());
+    Credentials::UserNameAndPassword(s.clone(), s)
 }

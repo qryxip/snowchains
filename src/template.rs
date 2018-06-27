@@ -1,7 +1,8 @@
 use command::{CompilationCommand, JudgingCommand};
-use errors::{TemplateExpandErrorKind, TemplateExpandResult, TemplateExpandResultExt};
+use errors::{TemplateExpandError, TemplateExpandErrorContext, TemplateExpandResult};
 
 use combine::Parser;
+use failure::ResultExt as _ResultExt;
 use heck::{
     CamelCase as _CamelCase, KebabCase as _KebabCase, MixedCase as _MixedCase,
     ShoutySnakeCase as _ShoutySnakeCase, SnakeCase as _SnakeCase, TitleCase as _TitleCase,
@@ -28,20 +29,15 @@ impl StringTemplate {
         StringTemplate(Template::from_str(s).unwrap())
     }
 
-    pub fn embed_strings<
-        'a,
-        M: Into<Option<&'a HashMap<K, V>>>,
-        K: 'a + Borrow<str> + Eq + Hash,
-        V: 'a + Borrow<str> + Eq + Hash,
-    >(
+    pub fn embed_strings<'a, K: 'a + Borrow<str> + Eq + Hash, V: 'a + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'a HashMap<K, V>>>,
     ) -> Self {
         StringTemplate(self.0.embed_strings(strings))
     }
 
-    pub fn expand(&self, target: &str) -> TemplateExpandResult<String> {
-        self.0.expand_as_string_or_panic(target)
+    pub fn expand(&self, problem: &str) -> TemplateExpandResult<String> {
+        self.0.expand_as_string_or_panic(problem)
     }
 }
 
@@ -82,14 +78,9 @@ impl PathTemplate<BaseDirNone> {
 }
 
 impl<'a> PathTemplate<BaseDirSome<'a>> {
-    pub fn embed_strings<
-        'b,
-        M: Into<Option<&'b HashMap<K, V>>>,
-        K: 'b + Borrow<str> + Eq + Hash,
-        V: 'b + Borrow<str> + Eq + Hash,
-    >(
+    pub fn embed_strings<'b, K: 'b + Borrow<str> + Eq + Hash, V: 'b + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'b HashMap<K, V>>>,
     ) -> Self {
         PathTemplate {
             inner: self.inner.embed_strings(strings),
@@ -97,8 +88,8 @@ impl<'a> PathTemplate<BaseDirSome<'a>> {
         }
     }
 
-    pub fn expand(&self, target: &str) -> TemplateExpandResult<PathBuf> {
-        self.inner.expand_as_path(&self.base_dir.0, target)
+    pub fn expand(&self, problem: &str) -> TemplateExpandResult<PathBuf> {
+        self.inner.expand_as_path(&self.base_dir.0, problem)
     }
 
     fn clone(&self) -> Self {
@@ -141,32 +132,27 @@ impl<C> CommandTemplate<C> {
         }
     }
 
-    pub fn embed_strings<
-        'b,
-        M: Into<Option<&'b HashMap<K, V>>>,
-        K: 'b + Borrow<str> + Eq + Hash,
-        V: 'b + Borrow<str> + Eq + Hash,
-    >(
+    pub fn embed_strings<'b, K: 'b + Borrow<str> + Eq + Hash, V: 'b + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'b HashMap<K, V>>>,
     ) -> Self {
         use template::CommandTemplateInner::{Args, Shell};
         let strings = strings.into();
-        let inner = match self.inner {
-            Shell(ref t) => Shell(t.embed_strings(strings)),
-            Args(ref ts) => Args(ts.iter().map(|t| t.embed_strings(strings)).collect()),
+        let inner = match &self.inner {
+            Shell(t) => Shell(t.embed_strings(strings)),
+            Args(ts) => Args(ts.iter().map(|t| t.embed_strings(strings)).collect()),
         };
         Self::new(inner)
     }
 
     fn normalize(&self, shell: &[StringTemplate]) -> Vec<Template> {
-        match self.inner {
-            CommandTemplateInner::Shell(ref t) => {
+        match &self.inner {
+            CommandTemplateInner::Shell(t) => {
                 let mut r = shell.iter().map(|arg| arg.0.clone()).collect::<Vec<_>>();
                 r.push(t.clone());
                 r
             }
-            CommandTemplateInner::Args(ref ts) => ts.clone(),
+            CommandTemplateInner::Args(ts) => ts.clone(),
         }
     }
 }
@@ -179,7 +165,8 @@ impl CommandTemplate<CompilationCommand> {
         src: PathTemplate<BaseDirSome<'a>>,
         bin: PathTemplate<BaseDirSome<'a>>,
     ) -> CompilationTemplate<'a> {
-        let inner = self.normalize(shell)
+        let inner = self
+            .normalize(shell)
             .iter()
             .map(|t| t.embed_path_templates(&[("src", &src), ("bin", &bin)]))
             .collect();
@@ -200,10 +187,11 @@ impl CommandTemplate<JudgingCommand> {
         src: &PathTemplate<BaseDirSome<'b>>,
         bin: Option<&PathTemplate<BaseDirSome<'b>>>,
     ) -> JudgeTemplate<'a> {
-        let inner = self.normalize(shell)
+        let inner = self
+            .normalize(shell)
             .iter()
             .map(|t| match bin {
-                Some(ref bin) => t.embed_path_templates(&[("src", &src), ("bin", bin)]),
+                Some(bin) => t.embed_path_templates(&[("src", &src), ("bin", bin)]),
                 None => t.embed_path_templates(&[("src", &src)]),
             })
             .collect();
@@ -239,14 +227,15 @@ pub(crate) struct CompilationTemplate<'a> {
 }
 
 impl<'a> CompilationTemplate<'a> {
-    pub fn expand(&self, target: &str) -> TemplateExpandResult<CompilationCommand> {
-        let args = self.inner
+    pub fn expand(&self, problem: &str) -> TemplateExpandResult<CompilationCommand> {
+        let args = self
+            .inner
             .iter()
-            .map(|t| t.expand_as_os_string(target))
+            .map(|t| t.expand_as_os_string(problem))
             .collect::<TemplateExpandResult<Vec<_>>>()?;
-        let wd = self.wd.expand(target)?;
-        let src = self.src.expand(target)?;
-        let bin = self.bin.expand(target)?;
+        let wd = self.wd.expand(problem)?;
+        let src = self.src.expand(problem)?;
+        let bin = self.bin.expand(problem)?;
         Ok(CompilationCommand::new(&args, wd, src, bin))
     }
 }
@@ -257,18 +246,14 @@ pub(crate) struct JudgeTemplate<'a> {
 }
 
 impl<'a> JudgeTemplate<'a> {
-    pub fn embed_strings<
-        'b,
-        M: Into<Option<&'b HashMap<K, V>>>,
-        K: 'b + Borrow<str> + Eq + Hash,
-        V: 'b + Borrow<str> + Eq + Hash,
-    >(
+    pub fn embed_strings<'b, K: 'b + Borrow<str> + Eq + Hash, V: 'b + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'b HashMap<K, V>>>,
     ) -> Self {
         let strings = strings.into();
         Self {
-            inner: self.inner
+            inner: self
+                .inner
                 .iter()
                 .map(|t| t.embed_strings(strings))
                 .collect(),
@@ -276,12 +261,13 @@ impl<'a> JudgeTemplate<'a> {
         }
     }
 
-    pub fn expand(&self, target: &str) -> TemplateExpandResult<JudgingCommand> {
-        let args = self.inner
+    pub fn expand(&self, problem: &str) -> TemplateExpandResult<JudgingCommand> {
+        let args = self
+            .inner
             .iter()
-            .map(|t| t.expand_as_os_string(target))
+            .map(|t| t.expand_as_os_string(problem))
             .collect::<TemplateExpandResult<Vec<_>>>()?;
-        let wd = self.wd.expand(target)?;
+        let wd = self.wd.expand(problem)?;
         Ok(JudgingCommand::new(&args, wd))
     }
 }
@@ -291,21 +277,16 @@ impl<'a> JudgeTemplate<'a> {
 struct Template(Vec<Token>);
 
 impl Template {
-    fn embed_strings<
-        'a,
-        M: Into<Option<&'a HashMap<K, V>>>,
-        K: 'a + Borrow<str> + Eq + Hash,
-        V: 'a + Borrow<str> + Eq + Hash,
-    >(
+    fn embed_strings<'a, K: 'a + Borrow<str> + Eq + Hash, V: 'a + Borrow<str> + Eq + Hash>(
         &self,
-        strings: M,
+        strings: impl Into<Option<&'a HashMap<K, V>>>,
     ) -> Self {
         match strings.into() {
             None => self.clone(),
             Some(strings) => {
                 let mut new = vec![];
                 for token in &self.0 {
-                    if let Token::Var(ref varname) = *token {
+                    if let Token::Var(varname) = token {
                         if let Some(value) = strings.get(varname) {
                             new.push(Token::Text(value.borrow().to_owned()));
                             continue;
@@ -324,7 +305,7 @@ impl Template {
     ) -> Self {
         let mut new = vec![];
         'l: for token in &self.0 {
-            if let Token::Var(ref varname) = *token {
+            if let Token::Var(varname) = token {
                 for &(name, template) in templates {
                     if name == varname {
                         new.push(Token::ExternPath(
@@ -341,11 +322,11 @@ impl Template {
         Template(new)
     }
 
-    fn expand_as_os_string(&self, target: &str) -> TemplateExpandResult<OsString> {
-        self.expand_chaining_err(target, "a non UTF-8 string", || {
+    fn expand_as_os_string(&self, problem: &str) -> TemplateExpandResult<OsString> {
+        self.expand_with_context(problem, "a non UTF-8 string", || {
             let mut r = OsString::new();
             for token in &self.0 {
-                match token.expand(target, true)? {
+                match token.expand(problem, true)? {
                     Plain::Str(s) => r.push(s.as_ref()),
                     Plain::OsStr(s) => r.push(s),
                     Plain::Path(p) => r.push(p),
@@ -355,11 +336,11 @@ impl Template {
         })
     }
 
-    fn expand_as_string_or_panic(&self, target: &str) -> TemplateExpandResult<String> {
-        self.expand_chaining_err(target, "a UTF-8 string", || {
+    fn expand_as_string_or_panic(&self, problem: &str) -> TemplateExpandResult<String> {
+        self.expand_with_context(problem, "a UTF-8 string", || {
             let mut r = "".to_owned();
             for token in &self.0 {
-                match token.expand(target, false)? {
+                match token.expand(problem, false)? {
                     Plain::Str(s) => r += s.as_ref(),
                     _ => unreachable!(),
                 }
@@ -368,45 +349,44 @@ impl Template {
         })
     }
 
-    fn expand_as_path(&self, base: &Path, target: &str) -> TemplateExpandResult<PathBuf> {
-        self.expand_chaining_err(target, "a path", || {
-            let expanded = PathBuf::from(self.expand_as_os_string(target)?);
+    fn expand_as_path(&self, base: &Path, problem: &str) -> TemplateExpandResult<PathBuf> {
+        self.expand_with_context(problem, "a path", || {
+            let expanded = PathBuf::from(self.expand_as_os_string(problem)?);
             if expanded.is_absolute() {
                 Ok(expanded)
             } else {
                 let (mut path, num_skips) = {
-                    match expanded.iter().next() {
-                        Some(ref h) if *h == "~" => match env::home_dir() {
+                    match expanded.iter().next().as_ref() {
+                        Some(h) if *h == "~" => match env::home_dir() {
                             Some(h) => (h, 1),
-                            None => bail!(TemplateExpandErrorKind::HomeDirNotFound),
+                            None => return Err(TemplateExpandError::HomeDirNotFound),
                         },
-                        Some(ref h) if h.to_string_lossy().starts_with('~') => {
-                            bail!(TemplateExpandErrorKind::UnsupportedUseOfTilde)
+                        Some(h) if h.to_string_lossy().starts_with('~') => {
+                            return Err(TemplateExpandError::UnsupportedUseOfTilde);
                         }
                         _ => (base.to_owned(), 0),
                     }
                 };
-                expanded.iter().skip(num_skips).for_each(|x| match x {
-                    ref x if [OsStr::new(""), OsStr::new(".")].contains(x) => {}
-                    ref x if *x == OsStr::new("..") => {
+                expanded.iter().skip(num_skips).for_each(|x| match &x {
+                    x if [OsStr::new(""), OsStr::new(".")].contains(x) => {}
+                    x if *x == OsStr::new("..") => {
                         path.pop();
                     }
-                    ref x => path.push(x),
+                    x => path.push(x),
                 });
                 Ok(path)
             }
         })
     }
 
-    fn expand_chaining_err<T, F: FnOnce() -> TemplateExpandResult<T>>(
+    fn expand_with_context<T>(
         &self,
-        target: &str,
+        problem: &str,
         ty: &'static str,
-        f: F,
+        f: impl FnOnce() -> TemplateExpandResult<T>,
     ) -> TemplateExpandResult<T> {
-        f().chain_err(|| {
-            TemplateExpandErrorKind::TemplateExpand(format!("{:?}", self), target.to_owned(), ty)
-        })
+        f().with_context(|_| TemplateExpandErrorContext::new(&self, problem, ty))
+            .map_err(Into::into)
     }
 }
 
@@ -416,11 +396,11 @@ impl<'a> fmt::Debug for Template {
             if i > 0 {
                 write!(f, " ++ ")?;
             }
-            match *t {
-                Token::ExternPath(ref t, ref b, s) => write!(f, "${}({}, {:?})", s, b.display(), t),
-                Token::Text(ref s) => write!(f, "{:?}", s),
-                Token::Var(ref s) => write!(f, "${}", s),
-                Token::Target(ref s) => write!(f, "{{{}}}", s),
+            match t {
+                Token::ExternPath(t, b, s) => write!(f, "${}({}, {:?})", s, b.display(), t),
+                Token::Text(s) => write!(f, "{:?}", s),
+                Token::Var(s) => write!(f, "${}", s),
+                Token::Problem(s) => write!(f, "{{{}}}", s),
             }?
         }
         Ok(())
@@ -430,17 +410,17 @@ impl<'a> fmt::Debug for Template {
 impl<'a> fmt::Display for Template {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for t in &self.0 {
-            match *t {
+            match t {
                 Token::ExternPath(..) => unreachable!(),
-                Token::Text(ref s) => for c in s.chars() {
+                Token::Text(s) => for c in s.chars() {
                     if ['$', '{', '}'].contains(&c) {
                         write!(f, "{}{}", c, c)
                     } else {
                         write!(f, "{}", c)
                     }?;
                 },
-                Token::Target(ref s) => write!(f, "{{{}}}", s)?,
-                Token::Var(ref s) => write!(f, "${}", s)?,
+                Token::Problem(s) => write!(f, "{{{}}}", s)?,
+                Token::Var(s) => write!(f, "${}", s)?,
             }
         }
         Ok(())
@@ -456,11 +436,11 @@ impl FromStr for Template {
         let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Text);
         let escaped =
             |f: &'static str, t: &'static str| string(f).map(move |_| Token::Text(t.to_owned()));
-        let target = char('{')
+        let problem = char('{')
             .with(spaces())
             .with(many(letter()))
             .skip(spaces().and(char('}')))
-            .map(Token::Target);
+            .map(Token::Problem);
         let var = char('$')
             .with(choice((
                 alpha_num().and(many(alpha_num().or(char('_')))),
@@ -473,7 +453,7 @@ impl FromStr for Template {
             try(escaped("$$", "$")),
             try(escaped("{{", "{")),
             try(escaped("}}", "}")),
-            target,
+            problem,
             var,
         ))).skip(eof())
             .parse(input)
@@ -503,21 +483,21 @@ enum Token {
     ExternPath(Template, PathBuf, &'static str),
     Text(String),
     Var(String),
-    Target(String),
+    Problem(String),
 }
 
 impl Token {
     fn expand<'a>(
         &'a self,
-        target: &'a str,
+        problem: &'a str,
         allow_non_utf8_envvar: bool,
     ) -> TemplateExpandResult<Plain<'a>> {
-        match *self {
-            Token::ExternPath(ref t, ref b, _) => t.expand_as_path(&b, target).map(Plain::Path),
-            Token::Text(ref s) => Ok(Plain::Str(Cow::Borrowed(s))),
-            Token::Var(ref k) if allow_non_utf8_envvar => Plain::from_env_var_os(k),
-            Token::Var(ref k) => Plain::from_env_var(k),
-            Token::Target(ref s) => Plain::from_target(target, s),
+        match self {
+            Token::ExternPath(t, b, _) => t.expand_as_path(&b, problem).map(Plain::Path),
+            Token::Text(s) => Ok(Plain::Str(Cow::Borrowed(s))),
+            Token::Var(k) if allow_non_utf8_envvar => Plain::from_env_var_os(k),
+            Token::Var(k) => Plain::from_env_var(k),
+            Token::Problem(s) => Plain::from_problem(problem, s),
         }
     }
 }
@@ -529,19 +509,19 @@ enum Plain<'a> {
 }
 
 impl<'a> Plain<'a> {
-    fn from_target(target: &'a str, specifier: &str) -> TemplateExpandResult<Self> {
+    fn from_problem(problem: &'a str, specifier: &str) -> TemplateExpandResult<Self> {
         use std::borrow::Cow::{Borrowed, Owned};
         match specifier {
-            s if s.eq_ignore_ascii_case("") => Ok(Borrowed(target)),
-            s if s.eq_ignore_ascii_case("lower") => Ok(Owned(target.to_lowercase())),
-            s if s.eq_ignore_ascii_case("upper") => Ok(Owned(target.to_uppercase())),
-            s if s.eq_ignore_ascii_case("kebab") => Ok(Owned(target.to_kebab_case())),
-            s if s.eq_ignore_ascii_case("snake") => Ok(Owned(target.to_snake_case())),
-            s if s.eq_ignore_ascii_case("screaming") => Ok(Owned(target.to_shouty_snake_case())),
-            s if s.eq_ignore_ascii_case("mixed") => Ok(Owned(target.to_mixed_case())),
-            s if s.eq_ignore_ascii_case("pascal") => Ok(Owned(target.to_camel_case())),
-            s if s.eq_ignore_ascii_case("title") => Ok(Owned(target.to_title_case())),
-            s => bail!(TemplateExpandErrorKind::UnknownSpecifier(s.to_owned())),
+            s if s.eq_ignore_ascii_case("") => Ok(Borrowed(problem)),
+            s if s.eq_ignore_ascii_case("lower") => Ok(Owned(problem.to_lowercase())),
+            s if s.eq_ignore_ascii_case("upper") => Ok(Owned(problem.to_uppercase())),
+            s if s.eq_ignore_ascii_case("kebab") => Ok(Owned(problem.to_kebab_case())),
+            s if s.eq_ignore_ascii_case("snake") => Ok(Owned(problem.to_snake_case())),
+            s if s.eq_ignore_ascii_case("screaming") => Ok(Owned(problem.to_shouty_snake_case())),
+            s if s.eq_ignore_ascii_case("mixed") => Ok(Owned(problem.to_mixed_case())),
+            s if s.eq_ignore_ascii_case("pascal") => Ok(Owned(problem.to_camel_case())),
+            s if s.eq_ignore_ascii_case("title") => Ok(Owned(problem.to_title_case())),
+            s => Err(TemplateExpandError::UnknownSpecifier(s.to_owned())),
         }.map(Plain::Str)
     }
 
@@ -549,19 +529,19 @@ impl<'a> Plain<'a> {
         env::var(name)
             .map(|v| Plain::Str(Cow::Owned(v)))
             .map_err(|e| {
-                use errors::TemplateExpandErrorKind::{EnvVarNotPresent, EnvVarNotUnicode};
+                use errors::TemplateExpandError::{EnvVarNotPresent, EnvVarNotUnicode};
                 use std::env::VarError::{NotPresent, NotUnicode};
                 match e {
                     NotPresent => EnvVarNotPresent(name.to_owned()),
                     NotUnicode(v) => EnvVarNotUnicode(name.to_owned(), v),
-                }.into()
+                }
             })
     }
 
     fn from_env_var_os(name: &str) -> TemplateExpandResult<Self> {
         env::var_os(name)
             .map(Plain::OsStr)
-            .ok_or_else(|| TemplateExpandErrorKind::EnvVarNotPresent(name.to_owned()).into())
+            .ok_or_else(|| TemplateExpandError::EnvVarNotPresent(name.to_owned()))
     }
 }
 

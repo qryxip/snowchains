@@ -94,16 +94,16 @@ fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
                 })
     }
 
-    match *expected {
+    match expected {
         ExpectedStdout::AcceptAny => true,
-        ExpectedStdout::Exact(ref s) => s == stdout,
-        ExpectedStdout::Lines(ref ls) => {
+        ExpectedStdout::Exact(s) => s == stdout,
+        ExpectedStdout::Lines(ls) => {
             let stdout = stdout.lines().collect::<Vec<_>>();
             ls.lines().count() == stdout.len()
                 && ls.lines().zip(stdout.iter()).all(|(l, &r)| l == r)
         }
         ExpectedStdout::Float {
-            ref lines,
+            lines,
             absolute_error,
             relative_error,
         } => {
@@ -111,7 +111,7 @@ fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
             lines.lines().count() == stdout.len()
                 && lines.lines().zip(stdout.iter()).all(|(e, a)| {
                     check(e, a, |e, a| {
-                        let (d, r) = (absolute_error, relative_error);
+                        let (d, r) = (*absolute_error, *relative_error);
                         (a - e).abs() <= d || ((a - e) / e).abs() <= r // Doesn't care NaN
                     })
                 })
@@ -153,7 +153,7 @@ pub(super) enum SimpleOutput {
 
 impl fmt::Display for SimpleOutput {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             SimpleOutput::Accepted { elapsed, .. } => {
                 write!(f, "Accepted ({}ms)", elapsed.millis_rounded_up())
             }
@@ -177,14 +177,14 @@ impl fmt::Display for SimpleOutput {
 
 impl JudgingOutput for SimpleOutput {
     fn failure(&self) -> bool {
-        match *self {
+        match self {
             SimpleOutput::Accepted { .. } => false,
             _ => true,
         }
     }
 
     fn color(&self) -> Color {
-        match *self {
+        match self {
             SimpleOutput::Accepted { .. } => Color::Success,
             SimpleOutput::TimelimitExceeded { .. } => Color::Fatal,
             SimpleOutput::WrongAnswer { .. } | SimpleOutput::RuntimeError { .. } => Color::Warning,
@@ -229,19 +229,19 @@ impl JudgingOutput for SimpleOutput {
         }
 
         fn eprint_expected_sectioon_unless_empty(content: &ExpectedStdout) {
-            match *content {
+            match content {
                 ExpectedStdout::AcceptAny => {}
-                ExpectedStdout::Exact(ref content) => {
+                ExpectedStdout::Exact(content) => {
                     eprint_section("expected", content);
                 }
-                ExpectedStdout::Lines(ref lines) => {
+                ExpectedStdout::Lines(lines) => {
                     eprintln_bold!(Color::Title, r"expected:");
                     for l in lines.lines() {
                         eprintln!("{}", l);
                     }
                 }
                 ExpectedStdout::Float {
-                    ref lines,
+                    lines,
                     absolute_error,
                     relative_error,
                 } => {
@@ -270,11 +270,11 @@ impl JudgingOutput for SimpleOutput {
             }
         }
 
-        match *self {
+        match self {
             SimpleOutput::Accepted {
-                ref input,
-                ref stdout,
-                ref stderr,
+                input,
+                stdout,
+                stderr,
                 ..
             } => {
                 eprint_section("input", input);
@@ -282,18 +282,16 @@ impl JudgingOutput for SimpleOutput {
                 eprint_section_unless_empty("stderr", stderr);
             }
             SimpleOutput::TimelimitExceeded {
-                ref input,
-                ref expected,
-                ..
+                input, expected, ..
             } => {
                 eprint_section("input", input);
                 eprint_expected_sectioon_unless_empty(expected);
             }
             SimpleOutput::WrongAnswer {
-                ref input,
-                ref expected,
-                ref stdout,
-                ref stderr,
+                input,
+                expected,
+                stdout,
+                stderr,
                 ..
             } => {
                 eprint_section("input", input);
@@ -302,10 +300,10 @@ impl JudgingOutput for SimpleOutput {
                 eprint_section_unless_empty("stderr", stderr);
             }
             SimpleOutput::RuntimeError {
-                ref input,
-                ref expected,
-                ref stdout,
-                ref stderr,
+                input,
+                expected,
+                stdout,
+                stderr,
                 ..
             } => {
                 eprint_section("input", input);
@@ -320,21 +318,18 @@ impl JudgingOutput for SimpleOutput {
 #[cfg(test)]
 mod tests {
     use command::JudgingCommand;
-    use errors::{JudgeErrorKind, JudgeResult};
+    use errors::{JudgeError, JudgeResult};
     use judging::simple::SimpleOutput;
     use testsuite::SimpleCase;
     use util;
 
     use env_logger;
-    use futures::executor;
-    use futures::future::{self, Loop};
-    use futures_timer::FutureExt as _FutureExt;
     use tempdir::TempDir;
 
     use std::process::{Command, Stdio};
-    use std::sync::Arc;
+    use std::sync::{mpsc, Arc};
     use std::time::Duration;
-    use std::{env, io};
+    use std::{env, io, thread};
 
     #[test]
     #[ignore]
@@ -455,7 +450,7 @@ struct InputScanOnce {
 impl InputScanOnce {
     fn new<R: Read>(mut reader: R, estimated: usize) -> Self {
         let mut buf = Vec::with_capacity(estimated);
-        let _ = io::copy(&mut reader, &mut buf).unwrap();
+        io::copy(&mut reader, &mut buf).unwrap();
         InputScanOnce { buf: buf, pos: 0 }
     }
 
@@ -535,13 +530,10 @@ impl InputScanOnce {
     fn it_denies_non_utf8_answers() {
         let _ = env_logger::try_init();
         let command = bash(r"echo $'\xc3\x28'");
-        let e = judge_default_matching("", "", 500, &command).unwrap_err();
-        if let &JudgeErrorKind::Io(ref e) = e.kind() {
-            if let io::ErrorKind::InvalidData = e.kind() {
-                return;
-            }
+        match judge_default_matching("", "", 500, &command).unwrap_err() {
+            JudgeError::Io(ref e) if e.kind() == io::ErrorKind::InvalidData => {}
+            e => panic!("{:?}", e),
         }
-        panic!("{:?}", e);
     }
 
     #[test]
@@ -550,11 +542,10 @@ impl InputScanOnce {
         let _ = env_logger::try_init();
         let wd = env::current_dir().unwrap();
         let command = Arc::new(JudgingCommand::from_args("nonexisting", &[], wd));
-        let e = judge_default_matching("", "", 500, &command).unwrap_err();
-        if let &JudgeErrorKind::Command(_) = e.kind() {
-            return;
+        match judge_default_matching("", "", 500, &command).unwrap_err() {
+            JudgeError::Command(..) => {}
+            e => panic!("{:?}", e),
         }
-        panic!("{:?}", e);
     }
 
     fn judge_default_matching(
@@ -585,18 +576,22 @@ impl InputScanOnce {
         timeout: Duration,
         command: &Arc<JudgingCommand>,
     ) -> JudgeResult<SimpleOutput> {
-        let f = future::loop_fn((), move |_| match super::judge(case, command) {
-            Ok(output) => Ok(Loop::Break(output)),
-            Err(e) => {
-                if let JudgeErrorKind::Io(ref io_e) = *e.kind() {
-                    if io_e.kind() == io::ErrorKind::BrokenPipe {
-                        return Ok(Loop::Continue(()));
-                    }
+        let (case, command) = (case.clone(), command.clone());
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || loop {
+            match super::judge(&case, &command) {
+                Err(JudgeError::Io(ref e)) if e.kind() == io::ErrorKind::BrokenPipe => {}
+                Err(err) => {
+                    tx.send(Err(err)).unwrap();
+                    break;
                 }
-                Err(e)
+                Ok(output) => {
+                    tx.send(Ok(output)).unwrap();
+                    break;
+                }
             }
-        }).timeout(timeout);
-        executor::block_on(f)
+        });
+        rx.recv_timeout(timeout).unwrap()
     }
 
     fn bash(code: &str) -> Arc<JudgingCommand> {

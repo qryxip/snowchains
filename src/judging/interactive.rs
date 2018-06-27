@@ -1,4 +1,4 @@
-use errors::{JudgeErrorKind, JudgeResult, JudgeResultExt};
+use errors::JudgeResult;
 use judging::{JudgingCommand, JudgingOutput, MillisRoundedUp};
 use terminal::Color;
 use testsuite::InteractiveCase;
@@ -31,17 +31,14 @@ pub(super) fn judge(
         match result {
             Err(_) => Ok(InteractiveOutput::exceeded(timelimit, couts)),
             Ok(result) => {
-                let (s, t, e1, e2) =
-                    result.chain_err(|| JudgeErrorKind::Command(solver.arg0().to_owned()))?;
+                let (s, t, e1, e2) = result?;
                 Ok(InteractiveOutput::new(Some(timelimit), t, s, couts, e1, e2))
             }
         }
     } else {
         let result = result_rx.recv()?;
         let couts = cout_rx.try_iter().collect::<Vec<_>>();
-        result
-            .map(|(s, t, e1, e2)| InteractiveOutput::new(None, t, s, couts, e1, e2))
-            .chain_err(|| JudgeErrorKind::Command(solver.arg0().to_owned()))
+        result.map(|(s, t, e1, e2)| InteractiveOutput::new(None, t, s, couts, e1, e2))
     }
 }
 
@@ -216,7 +213,8 @@ impl JudgingOutput for InteractiveOutput {
                 .unwrap_or(1)
         };
 
-        if self.solver_stderr.is_empty() && self.tester_stderr.is_empty()
+        if self.solver_stderr.is_empty()
+            && self.tester_stderr.is_empty()
             && self.console_outs.is_empty()
         {
             return eprintln_bold!(Color::Title, "EMPTY");
@@ -292,7 +290,7 @@ enum InteractiveConsoleOut {
 
 impl InteractiveConsoleOut {
     fn is_solver_s(&self) -> bool {
-        match *self {
+        match self {
             InteractiveConsoleOut::SolverStdout(..)
             | InteractiveConsoleOut::SolverStderr(..)
             | InteractiveConsoleOut::SolverTerminated(..) => true,
@@ -310,11 +308,11 @@ impl InteractiveConsoleOut {
     }
 
     fn content(&self) -> String {
-        match *self {
-            InteractiveConsoleOut::SolverStdout(ref s, _)
-            | InteractiveConsoleOut::SolverStderr(ref s, _)
-            | InteractiveConsoleOut::TesterStdout(ref s, _)
-            | InteractiveConsoleOut::TesterStderr(ref s, _) => format!("{:?}", s),
+        match self {
+            InteractiveConsoleOut::SolverStdout(s, _)
+            | InteractiveConsoleOut::SolverStderr(s, _)
+            | InteractiveConsoleOut::TesterStdout(s, _)
+            | InteractiveConsoleOut::TesterStderr(s, _) => format!("{:?}", s),
             InteractiveConsoleOut::SolverTerminated(Some(c), _)
             | InteractiveConsoleOut::TesterTerminated(Some(c), _) => format!("exit code: {}", c),
             InteractiveConsoleOut::SolverTerminated(None, _)
@@ -330,7 +328,7 @@ impl InteractiveConsoleOut {
         }
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
-        let (kind, color, elapsed) = match *self {
+        let (kind, color, elapsed) = match self {
             InteractiveConsoleOut::SolverStdout(_, t) => {
                 ("Solver stdout", Color::SolverStdout, t)
             }
