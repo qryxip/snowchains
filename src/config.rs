@@ -1,21 +1,20 @@
 use command::{CompilationCommand, JudgingCommand};
-use errors::{ConfigError, ConfigResult, FileIoError, FileIoErrorKind, FileIoResult};
+use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
 use replacer::CodeReplacer;
 use service::SessionConfig;
 use template::{
     BaseDirNone, BaseDirSome, CommandTemplate, CompilationTemplate, JudgeTemplate, PathTemplate,
     StringTemplate,
 };
-use terminal::{self, TerminalMode};
+use terminal::{self, Color, TerminalMode};
 use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipConfig};
-use util;
-use ServiceName;
+use {util, yaml, ServiceName};
 
-use regex::Regex;
 use serde_yaml;
+use unicode_width::UnicodeWidthStr as _UnicodeWidthStr;
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fmt::Write as _Write;
 use std::path::{Path, PathBuf};
 use std::str;
 use std::time::Duration;
@@ -80,10 +79,14 @@ services:
       rust_version: 1.15.1
       java_class: Main
   hackerrank:
-    # language: c++
     variables:
       cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
       rust_version: 1.21.0
+      java_class: Main
+  yukicoder:
+    variables:
+      cxx_flags: =std=c++14 -O2 -Wall -Wextra
+      rust_version: 1.22.1
       java_class: Main
   other:
     variables:
@@ -118,6 +121,7 @@ languages:
       working_directory: cc/
     language_ids:
       atcoder: 3003
+      yukicoder: cpp14
   rust:
     src: rs/src/bin/{{kebab}}.rs
     compile:
@@ -129,6 +133,7 @@ languages:
       working_directory: rs/
     language_ids:
       atcoder: 3504
+      yukicoder: rust
   haskell:
     src: hs/src/{{Pascal}}.hs
     compile:
@@ -140,6 +145,7 @@ languages:
       working_directory: hs/
     language_ids:
       atcoder: 3014
+      yukicoder: haskell
   bash:
     src: bash/{{kebab}}.bash
     run:
@@ -147,6 +153,7 @@ languages:
       working_directory: bash/
     language_ids:
       atcoder: 3001
+      yukicoder: sh
   python3:
     src: py/{{kebab}}.py
     run:
@@ -154,6 +161,7 @@ languages:
       working_directory: py/
     language_ids:
       atcoder: 3023
+      yukicoder: python3
   java:
     src: java/src/main/java/{{Pascal}}.java
     compile:
@@ -171,6 +179,7 @@ languages:
       all_matched: false
     language_ids:
       atcoder: 3016
+      yukicoder: java8
   scala:
     src: scala/src/main/scala/{{Pascal}}.scala
     compile:
@@ -188,10 +197,19 @@ languages:
       all_matched: false
     language_ids:
       atcoder: 3025
+      yukicoder: scala
 {csharp}
+  text:
+    src: txt/{{snake}}.txt
+    run:
+      command: [cat, $src]
+      working_directory: txt/
+    language_ids:
+      atcoder: 3027
+      yukicoder: text
 "#,
         terminal = terminal,
-        session_cookies = util::yaml::repr_string(session_cookies),
+        session_cookies = yaml::escape_string(session_cookies),
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
         } else {
@@ -214,7 +232,8 @@ languages:
       command: [$bin]
       working_directory: cs/
     language_ids:
-      atcoder: 3006"#
+      atcoder: 3006
+      yukicoder: csharp"#
         } else {
             r#"  c#:
     src: cs/{Pascal}/{Pascal}.cs
@@ -226,7 +245,8 @@ languages:
       command: [mono, $bin]
       working_directory: cs/
     language_ids:
-      atcoder: 3006"#
+      atcoder: 3006
+      yukicoder: csharp_mono"#
         }
     );
     let path = directory.join(CONFIG_FILE_NAME);
@@ -235,87 +255,83 @@ languages:
     Ok(())
 }
 
-/// Changes <service> and <contest>.
+/// Changes attributes.
 pub(crate) fn switch(
     directory: &Path,
-    service: ServiceName,
-    contest: &str,
-    language: Option<&str>,
+    service: Option<ServiceName>,
+    contest: Option<String>,
+    language: Option<String>,
 ) -> FileIoResult<()> {
-    fn print_change(len: usize, prev: &str, new: &str) {
+    fn print_change(left_width: usize, prev: &Option<String>, new: &Option<String>) {
+        let prev = prev.as_ref().map(String::as_str).unwrap_or("~");
+        let new = new.as_ref().map(String::as_str).unwrap_or("~");
         print!("{}", prev);
-        (0..len - prev.len()).for_each(|_| print!(" "));
-        println!(" -> {:?}", new);
+        (0..left_width - prev.len()).for_each(|_| print!(" "));
+        println!(" -> {}", new);
     }
 
     let path = find_base(directory)?.join(CONFIG_FILE_NAME);
-    let text = util::fs::read_to_string(&path)?;
+    let mut old_yaml = util::fs::read_to_string(&path)?;
+    let old_config = serde_yaml::from_str::<Config>(&old_yaml)
+        .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, err))?;
     println!("Loaded {}", path.display());
-    let (replaced, prev_service, prev_contest, prev_lang) = {
-        let mut replaced = "".to_owned();
-        let (mut prev_service, mut prev_contest, mut prev_lang) = (None, None, None);
-        for line in text.lines() {
-            lazy_static! {
-                static ref SERVICE: Regex = Regex::new(r"^service\s*:\s*(\S.*)$").unwrap();
-                static ref CONTEST: Regex = Regex::new(r"^contest\s*:\s*(\S.*)$").unwrap();
-                static ref LANG: Regex = Regex::new(r"^language\s*:\s*(\S.*)$").unwrap();
-            }
-            if let Some(caps) = SERVICE.captures(line) {
-                prev_service = Some(format!("{:?}", &caps[1]));
-                write!(replaced, "service: {}", service).unwrap();
-            } else if let Some(caps) = CONTEST.captures(line) {
-                prev_contest = Some(format!("{:?}", &caps[1]));
-                write!(replaced, "contest: {}", util::yaml::repr_string(contest)).unwrap();
-            } else if let (Some(language), Some(caps)) = (language, LANG.captures(line)) {
-                prev_lang = Some(format!("{:?}", &caps[1]));
-                write!(replaced, "language: {}", util::yaml::repr_string(language)).unwrap();
-            } else {
-                replaced += line;
-            }
-            replaced.push('\n');
-        }
-        if prev_service.is_some()
-            && prev_contest.is_some()
-            && (prev_contest.is_some() == language.is_some())
-            && serde_yaml::from_str::<Config>(&replaced).is_ok()
-        {
-            let (prev_service, prev_contest) = (prev_service.unwrap(), prev_contest.unwrap());
-            (replaced, prev_service, prev_contest, prev_lang)
-        } else {
-            let mut config = serde_yaml::from_str::<Config>(&text)
-                .map_err(|e| FileIoError::chaining(FileIoErrorKind::Read, &path, e))?;
-            let prev_service = format!("{:?}", config.service.to_string());
-            let prev_contest = format!("{:?}", config.contest);
-            config.service = service;
-            config.contest = contest.to_owned();
-            let prev_lang;
-            if let Some(language) = language {
-                prev_lang = Some(config.language);
-                config.language = format!("{:?}", language);
-            } else {
-                prev_lang = None;
-            }
-            (
-                serde_yaml::to_string(&config)
-                    .map_err(|e| FileIoError::chaining(FileIoErrorKind::Write, &path, e))?,
-                prev_service,
-                prev_contest,
-                prev_lang,
-            )
-        }
-    };
-    let len = {
-        let l1 = prev_service.len();
-        let l2 = prev_contest.len();
-        let l3 = prev_lang.as_ref().map(|s| s.len()).unwrap_or(0);
-        *[l1, l2, l3].iter().max().unwrap()
-    };
-    print_change(len, &prev_service, service.as_str());
-    print_change(len, &prev_contest, contest);
-    if let (Some(prev_lang), Some(language)) = (prev_lang, language) {
-        print_change(len, &prev_lang, language);
+
+    let mut m = hashmap!();
+    if let Some(service) = service {
+        m.insert("service", Cow::from(service.as_str()));
     }
-    util::fs::write(&path, replaced.as_bytes())?;
+    if let Some(contest) = contest.as_ref() {
+        m.insert("contest", Cow::from(contest.clone()));
+    }
+    if let Some(language) = language.as_ref() {
+        if old_config.language.is_some() {
+            m.insert("language", Cow::from(language.clone()));
+        } else {
+            let line_to_insert = format!("language: {}", yaml::escape_string(&language));
+            old_yaml = {
+                let mut lines = old_yaml.lines().collect::<Vec<_>>();
+                let index = if lines.get(0) == Some(&"---") { 1 } else { 0 };
+                lines.insert(index, &line_to_insert);
+                lines.join("\n")
+            };
+        }
+    }
+
+    let (new_yaml, new_config) = yaml::replace_scalars(&old_yaml, &m)
+        .and_then(|new_yaml| {
+            let new_config = serde_yaml::from_str(&new_yaml)?;
+            Ok((new_yaml, new_config))
+        })
+        .or_else(|warning| {
+            eprintln_bold!(Color::Warning, "{}", warning);
+            let mut new_config = serde_yaml::from_str::<Config>(&old_yaml)
+                .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, err))?;
+            new_config.service = service.unwrap_or(new_config.service);
+            new_config.contest = contest.unwrap_or(new_config.contest);
+            new_config.language = language.or(new_config.language);
+            let new_yaml = serde_yaml::to_string(&new_config)
+                .map_err(|err| FileIoError::chaining(FileIoErrorKind::Write, &path, err))?;
+            Ok((new_yaml, new_config))
+        })?;
+
+    let s1 = Some(format!("{:?}", old_config.service.as_str()));
+    let s2 = Some(format!("{:?}", new_config.service.as_str()));
+    let c1 = Some(format!("{:?}", old_config.contest));
+    let c2 = Some(format!("{:?}", new_config.contest));
+    let l1 = old_config.language.as_ref().map(|l| format!("{:?}", l));
+    let l2 = new_config.language.as_ref().map(|l| format!("{:?}", l));
+    let w = [
+        s1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
+        c1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
+        l1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
+    ].iter()
+        .cloned()
+        .max()
+        .unwrap();
+    print_change(w, &s1, &s2);
+    print_change(w, &c1, &c2);
+    print_change(w, &l1, &l2);
+    util::fs::write(&path, new_yaml.as_bytes())?;
     println!("Saved.");
     Ok(())
 }
@@ -326,7 +342,7 @@ pub(crate) struct Config {
     #[serde(default)]
     service: ServiceName,
     contest: String,
-    language: String,
+    language: Option<String>,
     terminal: TerminalMode,
     session: SessionConfig,
     shell: Vec<StringTemplate>,
@@ -405,75 +421,78 @@ impl Config {
         self.testfiles.scrape
     }
 
-    pub fn src_paths(&self) -> BTreeMap<u32, PathTemplate<BaseDirSome>> {
+    pub fn src_paths(&self) -> HashMap<&str, PathTemplate<BaseDirSome>> {
         let vars = self.vars_for_langs(None);
-        let mut templates = BTreeMap::new();
+        let mut templates = hashmap!();
         for lang in self.languages.values() {
-            if let Some(lang_id) = lang.language_ids.atcoder {
+            if let Some(lang_id) = lang.language_ids.get(&ServiceName::AtCoder) {
                 let template = lang.src.base_dir(&self.base_dir).embed_strings(&vars);
-                templates.insert(lang_id, template);
+                templates.insert(lang_id.as_str(), template);
             }
         }
         templates
     }
 
-    pub fn src_to_submit(&self, lang: Option<&str>) -> ConfigResult<PathTemplate<BaseDirSome>> {
-        let lang = find_language(&self.languages, self.lang_name(lang))?;
+    pub fn src_to_submit(&self, lang: Option<&str>) -> LoadConfigResult<PathTemplate<BaseDirSome>> {
+        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         let vars = self.vars_for_langs(None);
         Ok(lang.src.base_dir(&self.base_dir).embed_strings(&vars))
     }
 
-    pub fn code_replacer(&self, lang: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
-        let lang = find_language(&self.languages, self.lang_name(lang))?;
+    pub fn code_replacer(&self, lang: Option<&str>) -> LoadConfigResult<Option<CodeReplacer>> {
+        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         let vars = self.vars_for_langs(None);
         Ok(lang.replace.as_ref().map(|r| r.embed_strings(&vars)))
     }
 
-    pub fn code_replacers_on_atcoder(&self) -> ConfigResult<BTreeMap<u32, CodeReplacer>> {
-        let mut replacers = BTreeMap::new();
+    pub fn code_replacers_on_atcoder(&self) -> LoadConfigResult<HashMap<&str, CodeReplacer>> {
+        let mut replacers = hashmap!();
         for lang in self.languages.values() {
-            if let Some(lang_id) = lang.language_ids.atcoder {
+            if let Some(lang_id) = lang.language_ids.get(&ServiceName::AtCoder) {
                 if let Some(replacer) = &lang.replace {
                     let vars = self.vars_for_langs(ServiceName::AtCoder);
                     let replacer = replacer.embed_strings(&vars);
-                    replacers.insert(lang_id, replacer);
+                    replacers.insert(lang_id.as_str(), replacer);
                 }
             }
         }
         Ok(replacers)
     }
 
-    /// Returns the `lang_id` of `lang` or a default language
-    pub fn atcoder_lang_id(&self, lang: Option<&str>) -> ConfigResult<u32> {
-        let lang = find_language(&self.languages, self.lang_name(lang))?;
+    pub fn lang_id(&self, service: ServiceName, lang: Option<&str>) -> LoadConfigResult<&str> {
+        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         lang.language_ids
-            .atcoder
-            .ok_or_else(|| ConfigError::PropertyNotSet("language_ids.atcoder"))
+            .get(&service)
+            .map(String::as_str)
+            .ok_or_else(|| LoadConfigError::PropertyNotSet("language_ids.atcoder"))
     }
 
     pub fn solver_compilation(
         &self,
         lang: Option<&str>,
-    ) -> ConfigResult<Option<CompilationTemplate>> {
-        self.compilation_command(find_language(&self.languages, self.lang_name(lang))?)
+    ) -> LoadConfigResult<Option<CompilationTemplate>> {
+        self.compilation_command(find_language(&self.languages, self.lang_name(lang)?)?)
     }
 
     pub fn interactive_tester_compilation(
         &self,
         lang: Option<&str>,
-    ) -> ConfigResult<Option<CompilationTemplate>> {
+    ) -> LoadConfigResult<Option<CompilationTemplate>> {
         self.compilation_command(find_language(&self.interactive, lang)?)
     }
 
-    pub fn solver(&self, lang: Option<&str>) -> ConfigResult<JudgeTemplate> {
-        self.judge_command(find_language(&self.languages, self.lang_name(lang))?)
+    pub fn solver(&self, lang: Option<&str>) -> LoadConfigResult<JudgeTemplate> {
+        self.judge_command(find_language(&self.languages, self.lang_name(lang)?)?)
     }
 
-    pub fn interactive_tester(&self, lang: Option<&str>) -> ConfigResult<JudgeTemplate> {
+    pub fn interactive_tester(&self, lang: Option<&str>) -> LoadConfigResult<JudgeTemplate> {
         self.judge_command(find_language(&self.interactive, lang)?)
     }
 
-    fn compilation_command(&self, lang: &Language) -> ConfigResult<Option<CompilationTemplate>> {
+    fn compilation_command(
+        &self,
+        lang: &Language,
+    ) -> LoadConfigResult<Option<CompilationTemplate>> {
         match &lang.compile {
             None => Ok(None),
             Some(compile) => {
@@ -487,7 +506,7 @@ impl Config {
         }
     }
 
-    fn judge_command(&self, lang: &Language) -> ConfigResult<JudgeTemplate> {
+    fn judge_command(&self, lang: &Language) -> LoadConfigResult<JudgeTemplate> {
         let wd = lang.run.working_directory.base_dir(&self.base_dir);
         let vars = self.vars_for_langs(None);
         let cmd = lang.run.command.embed_strings(&vars);
@@ -499,13 +518,14 @@ impl Config {
         Ok(cmd.as_judge(&self.shell, wd, &src, bin.as_ref()))
     }
 
-    fn lang_name<'a>(&'a self, name: Option<&'a str>) -> &'a str {
+    fn lang_name<'a>(&'a self, name: Option<&'a str>) -> LoadConfigResult<&'a str> {
         name.or_else(|| {
             self.services
                 .get(&self.service)
                 .and_then(|s| s.language.as_ref())
                 .map(String::as_str)
-        }).unwrap_or(&self.language)
+        }).or_else(|| self.language.as_ref().map(String::as_str))
+            .ok_or_else(|| LoadConfigError::PropertyNotSet("language"))
     }
 
     fn vars_for_langs(&self, service: impl Into<Option<ServiceName>>) -> HashMap<&str, &str> {
@@ -526,13 +546,13 @@ impl Config {
 fn find_language<'a>(
     langs: &HashMap<String, Language>,
     default_lang: impl Into<Option<&'a str>>,
-) -> ConfigResult<&Language> {
+) -> LoadConfigResult<&Language> {
     let name = default_lang
         .into()
-        .ok_or_else(|| ConfigError::LanguageNotSpecified)?;
+        .ok_or_else(|| LoadConfigError::LanguageNotSpecified)?;
     langs
         .get(name)
-        .ok_or_else(|| ConfigError::NoSuchLanguage(name.to_owned()))
+        .ok_or_else(|| LoadConfigError::NoSuchLanguage(name.to_owned()))
 }
 
 fn find_base(start: &Path) -> FileIoResult<PathBuf> {
@@ -582,8 +602,8 @@ struct Language {
     compile: Option<Compile>,
     run: Run,
     replace: Option<CodeReplacer>,
-    #[serde(default, skip_serializing_if = "LanguageIds::is_empty")]
-    language_ids: LanguageIds,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    language_ids: BTreeMap<ServiceName, String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -599,16 +619,4 @@ struct Run {
     command: CommandTemplate<JudgingCommand>,
     #[serde(default)]
     working_directory: PathTemplate<BaseDirNone>,
-}
-
-#[derive(Default, Serialize, Deserialize)]
-struct LanguageIds {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    atcoder: Option<u32>,
-}
-
-impl LanguageIds {
-    fn is_empty(&self) -> bool {
-        self.atcoder.is_none()
-    }
 }

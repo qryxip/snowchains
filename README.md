@@ -12,13 +12,11 @@ Tools for online programming contests.
 - Submits a source code
 - Downloads source codes you have submitted
 
-|                | Scrape samples | Download system tests | Submit        |
-| :------------- | :------------: | :-------------------: | :-----------: |
-| AtCoder (Beta) | ✓             | Unimplemented         | ✓            |
-
-|                | Target Contest                        |
-| :------------- | :------------------------------------ |
-| AtCoder (Beta) | `https://beta.atcoder.jp/contests/{}` |
+|                      | Target                                | Scrape samples | Download system tests | Submit        |
+| :------------------- | :------------------------------------ | :------------: | :-------------------: | :-----------: |
+| AtCoder (Beta)       | `https://beta.atcoder.jp/contests/{}` | ✓              | ⨉                     | ✓             |
+| Yukicoder (Problems) | `https://yukicoder.me/problems/no/{}` | ✓              | ✓                     | ✓             |
+| Yukicoder (Contest)  | `https://yukicoder.me/contests/{}`    | ✓              | ✓                     | ✓             |
 
 ## Instrallation
 
@@ -43,9 +41,9 @@ $ snowchains --help
 $ snowchains <i|init> ./
 $ snowchains <w|switch> <service> <contest>                                 # e.g. ("atcoder", "agc001")
 $ snowchains <d|download> [-s <service>] [-c <contest>] [-b|--open-browser] # Does not ask username and password unless they are needed
-$ $EDITOR ./snowchains/<service>/<contest>/<target>.yaml                    # Add more test cases
-$ snowchains <j|judge> <target> [language]
-$ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judging] [-d|--skip-checking-duplication]
+$ $EDITOR ./snowchains/<service>/<contest>/<problem>.yaml                   # Add more test cases
+$ snowchains <j|judge> <problem> [language]
+$ snowchains <s|submit> <problem> [language] [-b|--open-browser] [-j|--skip-judging] [-d|--skip-checking-duplication]
 ```
 
 ## Config File (snowchains.yaml)
@@ -53,9 +51,9 @@ $ snowchains <s|submit> <target> [language] [-b|--open-browser] [-j|--skip-judgi
 ```yaml
 # Example
 ---
-service: atcoder # "atcoder", "hackerrank", "other"
+service: atcoder # "atcoder", "hackerrank", "yukicoder", "other"
 contest: arc001
-language: c++    # Priority: <command line argument>, `service._.language`, `language`
+language: c++    # Priorities: <command line argument>, `service._.language`, `language`
 
 terminal: prefer256color
 
@@ -106,10 +104,14 @@ services:
       rust_version: 1.15.1
       java_class: Main
   hackerrank:
-    # language: c++
     variables:
       cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
       rust_version: 1.21.0
+      java_class: Main
+  yukicoder:
+    variables:
+      cxx_flags: =std=c++14 -O2 -Wall -Wextra
+      rust_version: 1.22.1
       java_class: Main
   other:
     default_language: c++
@@ -171,6 +173,7 @@ languages:
       working_directory: cc/               # default: "."
     language_ids:                          # optional
       atcoder: 3003
+      yukicoder: cpp14
   rust:
     src: rs/src/bin/{kebab}.rs
     compile:
@@ -182,6 +185,7 @@ languages:
       working_directory: rs/
     language_ids:
       atcoder: 3504
+      yukicoder: rust
   haskell:
     src: hs/src/{Pascal}.hs
     compile:
@@ -193,6 +197,7 @@ languages:
       working_directory: hs/
     language_ids:
       atcoder: 3014
+      yukicoder: haskell
   python3:
     src: py/{kebab}.py
     run:
@@ -200,6 +205,7 @@ languages:
       working_directory: py/
     language_ids:
       atcoder: 3023
+      yukicoder: python3
   java:
     src: java/src/main/java/{Pascal}.java
     compile:
@@ -217,6 +223,7 @@ languages:
       all_matched: false
     language_ids:
       atcoder: 3016
+      yukicoder: java8
   # c#:
   #   src: cs/{Pascal}/{Pascal}.cs
   #   compile:
@@ -228,6 +235,7 @@ languages:
   #     working_directory: cs/
   #   language_ids:
   #     atcoder: 3006
+  #     yukicoder: csharp
   c#:
     src: cs/{Pascal}/{Pascal}.cs
     compile:
@@ -239,6 +247,7 @@ languages:
       working_directory: cs/
     language_ids:
       atcoder: 3006
+      yukicoder: csharp_mono
 ```
 
 ## Test file

@@ -1,6 +1,6 @@
 use errors::{CodeReplaceError, CodeReplaceResult};
 use template::StringTemplate;
-use util;
+use yaml;
 
 use regex::Regex;
 
@@ -12,8 +12,7 @@ use std::str;
 #[derive(Serialize, Deserialize)]
 pub(crate) struct CodeReplacer {
     #[serde(
-        serialize_with = "util::yaml::serialize_regex",
-        deserialize_with = "util::yaml::deserialize_regex"
+        serialize_with = "yaml::serialize_regex", deserialize_with = "yaml::deserialize_regex"
     )]
     regex: Regex,
     match_group: usize,
@@ -39,13 +38,13 @@ impl CodeReplacer {
         }
     }
 
-    pub fn replace_as_submission(&self, target: &str, code: &str) -> CodeReplaceResult<String> {
-        let (from, to) = (self.local.expand(target)?, self.submit.expand(target)?);
+    pub fn replace_as_submission(&self, problem: &str, code: &str) -> CodeReplaceResult<String> {
+        let (from, to) = (self.local.expand(problem)?, self.submit.expand(problem)?);
         self.replace(code, &from, &to)
     }
 
-    pub fn replace_from_submission(&self, target: &str, code: &str) -> CodeReplaceResult<String> {
-        let (from, to) = (self.submit.expand(target)?, self.local.expand(target)?);
+    pub fn replace_from_submission(&self, problem: &str, code: &str) -> CodeReplaceResult<String> {
+        let (from, to) = (self.submit.expand(problem)?, self.local.expand(problem)?);
         self.replace(code, &from, &to)
     }
 

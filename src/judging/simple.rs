@@ -324,15 +324,12 @@ mod tests {
     use util;
 
     use env_logger;
-    use futures::executor;
-    use futures::future::{self, Loop};
-    use futures_timer::FutureExt as _FutureExt;
     use tempdir::TempDir;
 
     use std::process::{Command, Stdio};
-    use std::sync::Arc;
+    use std::sync::{mpsc, Arc};
     use std::time::Duration;
-    use std::{env, io};
+    use std::{env, io, thread};
 
     #[test]
     #[ignore]
@@ -453,7 +450,7 @@ struct InputScanOnce {
 impl InputScanOnce {
     fn new<R: Read>(mut reader: R, estimated: usize) -> Self {
         let mut buf = Vec::with_capacity(estimated);
-        let _ = io::copy(&mut reader, &mut buf).unwrap();
+        io::copy(&mut reader, &mut buf).unwrap();
         InputScanOnce { buf: buf, pos: 0 }
     }
 
@@ -579,15 +576,22 @@ impl InputScanOnce {
         timeout: Duration,
         command: &Arc<JudgingCommand>,
     ) -> JudgeResult<SimpleOutput> {
-        executor::block_on(
-            future::loop_fn((), move |_| match super::judge(case, command) {
-                Ok(output) => Ok(Loop::Break(output)),
-                Err(JudgeError::Io(ref e)) if e.kind() == io::ErrorKind::BrokenPipe => {
-                    Ok(Loop::Continue(()))
+        let (case, command) = (case.clone(), command.clone());
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || loop {
+            match super::judge(&case, &command) {
+                Err(JudgeError::Io(ref e)) if e.kind() == io::ErrorKind::BrokenPipe => {}
+                Err(err) => {
+                    tx.send(Err(err)).unwrap();
+                    break;
                 }
-                Err(e) => Err(e),
-            }).timeout(timeout),
-        )
+                Ok(output) => {
+                    tx.send(Ok(output)).unwrap();
+                    break;
+                }
+            }
+        });
+        rx.recv_timeout(timeout).unwrap()
     }
 
     fn bash(code: &str) -> Arc<JudgingCommand> {

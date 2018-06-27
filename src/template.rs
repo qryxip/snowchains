@@ -36,8 +36,8 @@ impl StringTemplate {
         StringTemplate(self.0.embed_strings(strings))
     }
 
-    pub fn expand(&self, target: &str) -> TemplateExpandResult<String> {
-        self.0.expand_as_string_or_panic(target)
+    pub fn expand(&self, problem: &str) -> TemplateExpandResult<String> {
+        self.0.expand_as_string_or_panic(problem)
     }
 }
 
@@ -88,8 +88,8 @@ impl<'a> PathTemplate<BaseDirSome<'a>> {
         }
     }
 
-    pub fn expand(&self, target: &str) -> TemplateExpandResult<PathBuf> {
-        self.inner.expand_as_path(&self.base_dir.0, target)
+    pub fn expand(&self, problem: &str) -> TemplateExpandResult<PathBuf> {
+        self.inner.expand_as_path(&self.base_dir.0, problem)
     }
 
     fn clone(&self) -> Self {
@@ -227,15 +227,15 @@ pub(crate) struct CompilationTemplate<'a> {
 }
 
 impl<'a> CompilationTemplate<'a> {
-    pub fn expand(&self, target: &str) -> TemplateExpandResult<CompilationCommand> {
+    pub fn expand(&self, problem: &str) -> TemplateExpandResult<CompilationCommand> {
         let args = self
             .inner
             .iter()
-            .map(|t| t.expand_as_os_string(target))
+            .map(|t| t.expand_as_os_string(problem))
             .collect::<TemplateExpandResult<Vec<_>>>()?;
-        let wd = self.wd.expand(target)?;
-        let src = self.src.expand(target)?;
-        let bin = self.bin.expand(target)?;
+        let wd = self.wd.expand(problem)?;
+        let src = self.src.expand(problem)?;
+        let bin = self.bin.expand(problem)?;
         Ok(CompilationCommand::new(&args, wd, src, bin))
     }
 }
@@ -261,13 +261,13 @@ impl<'a> JudgeTemplate<'a> {
         }
     }
 
-    pub fn expand(&self, target: &str) -> TemplateExpandResult<JudgingCommand> {
+    pub fn expand(&self, problem: &str) -> TemplateExpandResult<JudgingCommand> {
         let args = self
             .inner
             .iter()
-            .map(|t| t.expand_as_os_string(target))
+            .map(|t| t.expand_as_os_string(problem))
             .collect::<TemplateExpandResult<Vec<_>>>()?;
-        let wd = self.wd.expand(target)?;
+        let wd = self.wd.expand(problem)?;
         Ok(JudgingCommand::new(&args, wd))
     }
 }
@@ -322,11 +322,11 @@ impl Template {
         Template(new)
     }
 
-    fn expand_as_os_string(&self, target: &str) -> TemplateExpandResult<OsString> {
-        self.expand_with_context(target, "a non UTF-8 string", || {
+    fn expand_as_os_string(&self, problem: &str) -> TemplateExpandResult<OsString> {
+        self.expand_with_context(problem, "a non UTF-8 string", || {
             let mut r = OsString::new();
             for token in &self.0 {
-                match token.expand(target, true)? {
+                match token.expand(problem, true)? {
                     Plain::Str(s) => r.push(s.as_ref()),
                     Plain::OsStr(s) => r.push(s),
                     Plain::Path(p) => r.push(p),
@@ -336,11 +336,11 @@ impl Template {
         })
     }
 
-    fn expand_as_string_or_panic(&self, target: &str) -> TemplateExpandResult<String> {
-        self.expand_with_context(target, "a UTF-8 string", || {
+    fn expand_as_string_or_panic(&self, problem: &str) -> TemplateExpandResult<String> {
+        self.expand_with_context(problem, "a UTF-8 string", || {
             let mut r = "".to_owned();
             for token in &self.0 {
-                match token.expand(target, false)? {
+                match token.expand(problem, false)? {
                     Plain::Str(s) => r += s.as_ref(),
                     _ => unreachable!(),
                 }
@@ -349,9 +349,9 @@ impl Template {
         })
     }
 
-    fn expand_as_path(&self, base: &Path, target: &str) -> TemplateExpandResult<PathBuf> {
-        self.expand_with_context(target, "a path", || {
-            let expanded = PathBuf::from(self.expand_as_os_string(target)?);
+    fn expand_as_path(&self, base: &Path, problem: &str) -> TemplateExpandResult<PathBuf> {
+        self.expand_with_context(problem, "a path", || {
+            let expanded = PathBuf::from(self.expand_as_os_string(problem)?);
             if expanded.is_absolute() {
                 Ok(expanded)
             } else {
@@ -381,11 +381,11 @@ impl Template {
 
     fn expand_with_context<T>(
         &self,
-        target: &str,
+        problem: &str,
         ty: &'static str,
         f: impl FnOnce() -> TemplateExpandResult<T>,
     ) -> TemplateExpandResult<T> {
-        f().with_context(|_| TemplateExpandErrorContext::new(&self, target, ty))
+        f().with_context(|_| TemplateExpandErrorContext::new(&self, problem, ty))
             .map_err(Into::into)
     }
 }
@@ -400,7 +400,7 @@ impl<'a> fmt::Debug for Template {
                 Token::ExternPath(t, b, s) => write!(f, "${}({}, {:?})", s, b.display(), t),
                 Token::Text(s) => write!(f, "{:?}", s),
                 Token::Var(s) => write!(f, "${}", s),
-                Token::Target(s) => write!(f, "{{{}}}", s),
+                Token::Problem(s) => write!(f, "{{{}}}", s),
             }?
         }
         Ok(())
@@ -419,7 +419,7 @@ impl<'a> fmt::Display for Template {
                         write!(f, "{}", c)
                     }?;
                 },
-                Token::Target(s) => write!(f, "{{{}}}", s)?,
+                Token::Problem(s) => write!(f, "{{{}}}", s)?,
                 Token::Var(s) => write!(f, "${}", s)?,
             }
         }
@@ -436,11 +436,11 @@ impl FromStr for Template {
         let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Text);
         let escaped =
             |f: &'static str, t: &'static str| string(f).map(move |_| Token::Text(t.to_owned()));
-        let target = char('{')
+        let problem = char('{')
             .with(spaces())
             .with(many(letter()))
             .skip(spaces().and(char('}')))
-            .map(Token::Target);
+            .map(Token::Problem);
         let var = char('$')
             .with(choice((
                 alpha_num().and(many(alpha_num().or(char('_')))),
@@ -453,7 +453,7 @@ impl FromStr for Template {
             try(escaped("$$", "$")),
             try(escaped("{{", "{")),
             try(escaped("}}", "}")),
-            target,
+            problem,
             var,
         ))).skip(eof())
             .parse(input)
@@ -483,21 +483,21 @@ enum Token {
     ExternPath(Template, PathBuf, &'static str),
     Text(String),
     Var(String),
-    Target(String),
+    Problem(String),
 }
 
 impl Token {
     fn expand<'a>(
         &'a self,
-        target: &'a str,
+        problem: &'a str,
         allow_non_utf8_envvar: bool,
     ) -> TemplateExpandResult<Plain<'a>> {
         match self {
-            Token::ExternPath(t, b, _) => t.expand_as_path(&b, target).map(Plain::Path),
+            Token::ExternPath(t, b, _) => t.expand_as_path(&b, problem).map(Plain::Path),
             Token::Text(s) => Ok(Plain::Str(Cow::Borrowed(s))),
             Token::Var(k) if allow_non_utf8_envvar => Plain::from_env_var_os(k),
             Token::Var(k) => Plain::from_env_var(k),
-            Token::Target(s) => Plain::from_target(target, s),
+            Token::Problem(s) => Plain::from_problem(problem, s),
         }
     }
 }
@@ -509,18 +509,18 @@ enum Plain<'a> {
 }
 
 impl<'a> Plain<'a> {
-    fn from_target(target: &'a str, specifier: &str) -> TemplateExpandResult<Self> {
+    fn from_problem(problem: &'a str, specifier: &str) -> TemplateExpandResult<Self> {
         use std::borrow::Cow::{Borrowed, Owned};
         match specifier {
-            s if s.eq_ignore_ascii_case("") => Ok(Borrowed(target)),
-            s if s.eq_ignore_ascii_case("lower") => Ok(Owned(target.to_lowercase())),
-            s if s.eq_ignore_ascii_case("upper") => Ok(Owned(target.to_uppercase())),
-            s if s.eq_ignore_ascii_case("kebab") => Ok(Owned(target.to_kebab_case())),
-            s if s.eq_ignore_ascii_case("snake") => Ok(Owned(target.to_snake_case())),
-            s if s.eq_ignore_ascii_case("screaming") => Ok(Owned(target.to_shouty_snake_case())),
-            s if s.eq_ignore_ascii_case("mixed") => Ok(Owned(target.to_mixed_case())),
-            s if s.eq_ignore_ascii_case("pascal") => Ok(Owned(target.to_camel_case())),
-            s if s.eq_ignore_ascii_case("title") => Ok(Owned(target.to_title_case())),
+            s if s.eq_ignore_ascii_case("") => Ok(Borrowed(problem)),
+            s if s.eq_ignore_ascii_case("lower") => Ok(Owned(problem.to_lowercase())),
+            s if s.eq_ignore_ascii_case("upper") => Ok(Owned(problem.to_uppercase())),
+            s if s.eq_ignore_ascii_case("kebab") => Ok(Owned(problem.to_kebab_case())),
+            s if s.eq_ignore_ascii_case("snake") => Ok(Owned(problem.to_snake_case())),
+            s if s.eq_ignore_ascii_case("screaming") => Ok(Owned(problem.to_shouty_snake_case())),
+            s if s.eq_ignore_ascii_case("mixed") => Ok(Owned(problem.to_mixed_case())),
+            s if s.eq_ignore_ascii_case("pascal") => Ok(Owned(problem.to_camel_case())),
+            s if s.eq_ignore_ascii_case("title") => Ok(Owned(problem.to_title_case())),
             s => Err(TemplateExpandError::UnknownSpecifier(s.to_owned())),
         }.map(Plain::Str)
     }

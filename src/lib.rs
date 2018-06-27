@@ -22,7 +22,7 @@ extern crate chrono;
 extern crate combine;
 extern crate cookie;
 extern crate fs2;
-extern crate futures;
+extern crate futures as futures_01;
 extern crate heck;
 extern crate itertools;
 extern crate pbr;
@@ -37,10 +37,12 @@ extern crate serde_json;
 extern crate serde_urlencoded;
 extern crate serde_yaml;
 extern crate term;
+extern crate tokio_core;
 extern crate toml;
 extern crate unicode_width;
 extern crate url;
 extern crate webbrowser;
+extern crate yaml_rust;
 extern crate zip;
 
 #[cfg(test)]
@@ -49,8 +51,6 @@ extern crate nickel;
 
 #[cfg(test)]
 extern crate env_logger;
-#[cfg(test)]
-extern crate futures_timer;
 #[cfg(test)]
 extern crate tempdir;
 
@@ -69,6 +69,7 @@ mod replacer;
 mod service;
 mod template;
 mod testsuite;
+mod yaml;
 
 pub use app::{Opt, Prop};
 pub use errors::{Error, Result};
@@ -82,6 +83,7 @@ use std::str::FromStr;
 pub enum ServiceName {
     AtCoder,
     HackerRank,
+    Yukicoder,
     Other,
 }
 
@@ -104,6 +106,7 @@ impl FromStr for ServiceName {
         match s {
             s if s.eq_ignore_ascii_case("atcoder") => Ok(ServiceName::AtCoder),
             s if s.eq_ignore_ascii_case("hackerrank") => Ok(ServiceName::HackerRank),
+            s if s.eq_ignore_ascii_case("yukicoder") => Ok(ServiceName::Yukicoder),
             s if s.eq_ignore_ascii_case("other") => Ok(ServiceName::Other),
             _ => Err(Never),
         }
@@ -115,6 +118,7 @@ impl ServiceName {
         match self {
             ServiceName::AtCoder => "atcoder",
             ServiceName::HackerRank => "hackerrank",
+            ServiceName::Yukicoder => "yukicoder",
             ServiceName::Other => "other",
         }
     }
@@ -123,6 +127,7 @@ impl ServiceName {
         match self {
             ServiceName::AtCoder => Some("beta.atcoder.jp"),
             ServiceName::HackerRank => Some("www.hackerrank.com"),
+            ServiceName::Yukicoder => Some("yukicoder.me"),
             ServiceName::Other => None,
         }
     }

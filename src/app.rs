@@ -2,7 +2,7 @@ use config::{self, Config};
 use errors::TemplateExpandResult;
 use judging::{self, JudgeProp};
 use service::{
-    atcoder, hackerrank, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp,
+    atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp,
 };
 use terminal::TerminalMode;
 use testsuite::{self, SerializableExtension, SuiteFilePath};
@@ -15,27 +15,31 @@ use std::path::PathBuf;
 #[derive(StructOpt)]
 #[structopt(
     usage = "snowchains <i|init> [directory]\n    \
-             snowchains <w|switch> <service> <contest>\n    \
+             snowchains <w|switch> [-s|--service <service>]\
+             \n                          [-c|--contest <contest>]\
+             \n                          [-l|--language <language>]\n    \
              snowchains <l|login> <service>\n    \
              snowchains <p|participate> <service> <contest>\n    \
              snowchains <d|download> [-s|--service <service>]\
              \n                            [-c|--contest <contest>]\
-             \n                            [-b|--open-browser]\n    \
+             \n                            [-b|--open-browser]\
+             \n                            [-p|--problems <problems>...]\n    \
              snowchains <r|restore> [-s|--service <service>]\
-             \n                           [-c|--contest <contest>]\n    \
-             snowchains <a|append> <target> <extension> <input> [output]\
-             \n                                                       [-s|--service <service>]\
-             \n                                                       \
+             \n                           [-c|--contest <contest>]\
+             \n                           [-p|--problems <problems>...]\n    \
+             snowchains <a|append> <problem> <extension> <input> [output]\
+             \n                                                        [-s|--service <service>]\
+             \n                                                        \
              [-c|--contest <contest>]\n    \
-             snowchains <j|judge> <target> [-l|--language <language>]\
-             \n                                  [-s|--service <service>]\
-             \n                                  [-c|--contest <contest>]\n    \
-             snowchains <s|submit> <target> [-l|--language <language>]\
+             snowchains <j|judge> <problem> [-l|--language <language>]\
              \n                                   [-s|--service <service>]\
-             \n                                   [-c|--contest <contest>]\
-             \n                                   [-b|--open-browser]\
-             \n                                   [-j|--skip-judging]\
-             \n                                   [-d|--skip-checking-duplication]"
+             \n                                   [-c|--contest <contest>]\n    \
+             snowchains <s|submit> <problem> [-l|--language <language>]\
+             \n                                    [-s|--service <service>]\
+             \n                                    [-c|--contest <contest>]\
+             \n                                    [-b|--open-browser]\
+             \n                                    [-j|--skip-judging]\
+             \n                                    [-d|--skip-checking-duplication]"
 )]
 pub enum Opt {
     #[structopt(
@@ -57,19 +61,22 @@ pub enum Opt {
     #[structopt(
         name = "switch",
         about = "Changes <service> and <contest> of the \"snowchains.yaml\"",
-        usage = "snowchains <w|switch> <service> <contest>",
+        usage = "snowchains <d|switch> [-s|--service <service>]\
+                 \n                          [-c|--contest <contest>]\
+                 \n                          [-l|--language <language>]",
         raw(display_order = "2", aliases = r#"&["w"]"#)
     )]
     Switch {
         #[structopt(
-            name = "service",
+            short = "s",
+            long = "service",
             help = "Service name",
-            raw(possible_values = r#"&["atcoder", "hackerrank", "other"]"#)
+            raw(possible_values = r#"&["atcoder", "hackerrank", "yukicoder", "other"]"#)
         )]
-        service: ServiceName,
-        #[structopt(name = "contest", help = "Contest name")]
-        contest: String,
-        #[structopt(name = "language", help = "Language name")]
+        service: Option<ServiceName>,
+        #[structopt(short = "c", long = "contest", help = "Contest name")]
+        contest: Option<String>,
+        #[structopt(short = "l", long = "language", help = "Language name")]
         language: Option<String>,
     },
 
@@ -83,7 +90,7 @@ pub enum Opt {
         #[structopt(
             name = "service",
             help = "Service name",
-            raw(possible_values = r#"&["atcoder", "hackerrank"]"#)
+            raw(possible_values = r#"&["atcoder", "hackerrank", "yukicoder"]"#)
         )]
         service: ServiceName,
     },
@@ -108,7 +115,8 @@ pub enum Opt {
         about = "Downloads test cases",
         usage = "snowchains <d|download> [-s|--service <service>]\
                  \n                            [-c|--contest <contest>]\
-                 \n                            [-b|--open-browser]",
+                 \n                            [-b|--open-browser]\
+                 \n                            [-p|--problems <problems>...]",
         raw(display_order = "5", aliases = r#"&["d"]"#)
     )]
     Download {
@@ -116,7 +124,9 @@ pub enum Opt {
             short = "s",
             long = "service",
             help = "Service name",
-            raw(display_order = "1", possible_values = r#"&["atcoder", "hackerrank"]"#)
+            raw(
+                display_order = "1", possible_values = r#"&["atcoder", "hackerrank", "yukicoder"]"#
+            )
         )]
         service: Option<ServiceName>,
         #[structopt(
@@ -130,13 +140,18 @@ pub enum Opt {
             raw(display_order = "1")
         )]
         open_browser: bool,
+        #[structopt(
+            short = "p", long = "problems", help = "Problem names", raw(display_order = "2")
+        )]
+        problems: Vec<String>,
     },
 
     #[structopt(
         name = "restore",
         about = "Downloads the source codes you've submitted",
         usage = "snowchains <r|restore> [-s|--service <service>]\
-                 \n                           [-c|--contest <contest>]",
+                 \n                           [-c|--contest <contest>]\
+                 \n                           [-p|--problems <problems>...]",
         raw(display_order = "6", aliases = r#"&["r"]"#)
     )]
     Restore {
@@ -151,19 +166,23 @@ pub enum Opt {
             short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
         )]
         contest: Option<String>,
+        #[structopt(
+            short = "p", long = "problems", help = "Problem names", raw(display_order = "2")
+        )]
+        problems: Vec<String>,
     },
 
     #[structopt(
         name = "append",
         about = "Appends a test case to a test suite file",
-        usage = "snowchains <a|append> <target> <extension> <input> [output]\
-                 \n                                                       [-s|--service <service>]\
-                 \n                                                       [-c|--contest <contest>]",
+        usage = "snowchains <a|append> <problem> <extension> <input> [output]\
+                 \n                                                        [-s|--service <service>]\
+                 \n                                                        [-c|--contest <contest>]",
         raw(display_order = "7", aliases = r#"&["a"]"#)
     )]
     Append {
-        #[structopt(name = "target", help = "Target name")]
-        target: String,
+        #[structopt(name = "problem", help = "Problem name")]
+        problem: String,
         #[structopt(
             name = "extension",
             help = "Extension",
@@ -190,14 +209,14 @@ pub enum Opt {
     #[structopt(
         name = "judge",
         about = "Tests a binary or script",
-        usage = "snowchains <j|judge> <target> [-l|--language <language>]\
-                 \n                                  [-s|--service <service>]\
-                 \n                                  [-c|--contest <contest>]",
+        usage = "snowchains <j|judge> <problem> [-l|--language <language>]\
+                 \n                                   [-s|--service <service>]\
+                 \n                                   [-c|--contest <contest>]",
         raw(display_order = "8", aliases = r#"&["j"]"#)
     )]
     Judge {
-        #[structopt(name = "target", help = "Target name")]
-        target: String,
+        #[structopt(name = "problem", help = "Problem name")]
+        problem: String,
         #[structopt(
             short = "l", long = "language", help = "Language name", raw(display_order = "1")
         )]
@@ -206,7 +225,10 @@ pub enum Opt {
             short = "s",
             long = "service",
             help = "Service name",
-            raw(display_order = "2", possible_values = r#"&["atcoder", "hackerrank", "other"]"#)
+            raw(
+                display_order = "2",
+                possible_values = r#"&["atcoder", "hackerrank", "yukicoder", "other"]"#
+            )
         )]
         service: Option<ServiceName>,
         #[structopt(
@@ -218,17 +240,17 @@ pub enum Opt {
     #[structopt(
         name = "submit",
         about = "Submits a source code",
-        usage = "snowchains <s|submit> <target> [-l|--language <language>]\
-                 \n                                   [-s|--service <service>]\
-                 \n                                   [-c|--contest <contest>]\
-                 \n                                   [-b|--open-browser]\
-                 \n                                   [-j|--skip-judging]\
-                 \n                                   [-d|--skip-checking-duplication]",
+        usage = "snowchains <s|submit> <problem> [-l|--language <language>]\
+                 \n                                    [-s|--service <service>]\
+                 \n                                    [-c|--contest <contest>]\
+                 \n                                    [-b|--open-browser]\
+                 \n                                    [-j|--skip-judging]\
+                 \n                                    [-d|--skip-checking-duplication]",
         raw(display_order = "9", aliases = r#"&["s"]"#)
     )]
     Submit {
-        #[structopt(name = "target", help = "Target name")]
-        target: String,
+        #[structopt(name = "problem", help = "Problem name")]
+        problem: String,
         #[structopt(
             short = "l", long = "language", help = "Language name", raw(display_order = "1")
         )]
@@ -237,7 +259,7 @@ pub enum Opt {
             short = "s",
             long = "service",
             help = "Service name",
-            raw(display_order = "2", possible_values = "&[\"atcoder\"]")
+            raw(display_order = "2", possible_values = "&[\"atcoder\", \"yukicoder\"]")
         )]
         service: Option<ServiceName>,
         #[structopt(
@@ -282,8 +304,7 @@ impl Opt {
                 language,
             } => {
                 info!("Running \"switch\" command");
-                let language = language.as_ref().map(String::as_str);
-                config::switch(&prop.working_dir, service, &contest, language)?;
+                config::switch(&prop.working_dir, service, contest, language)?;
             }
             Opt::Login { service } => {
                 info!("Running \"login\" command");
@@ -292,6 +313,7 @@ impl Opt {
                 match service {
                     ServiceName::AtCoder => atcoder::login(&sess_prop),
                     ServiceName::HackerRank => hackerrank::login(&sess_prop),
+                    ServiceName::Yukicoder => yukicoder::login(&sess_prop),
                     ServiceName::Other => unreachable!(),
                 }?;
             }
@@ -309,29 +331,35 @@ impl Opt {
                 service,
                 contest,
                 open_browser,
+                problems,
             } => {
                 info!("Running \"download\" command");
                 let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
-                let download_prop = DownloadProp::new(&config, open_browser)?;
+                let download_prop = DownloadProp::new(&config, open_browser, problems)?;
                 match config.service() {
                     ServiceName::AtCoder => atcoder::download(&sess_prop, download_prop),
                     ServiceName::HackerRank => hackerrank::download(&sess_prop, &download_prop),
+                    ServiceName::Yukicoder => yukicoder::download(&sess_prop, download_prop),
                     ServiceName::Other => return Err(::Error::Unimplemented),
                 }?;
             }
-            Opt::Restore { service, contest } => {
+            Opt::Restore {
+                service,
+                contest,
+                problems,
+            } => {
                 info!("Running \"restore\" command");
                 let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
-                let restore_prop = RestoreProp::new(&config)?;
+                let restore_prop = RestoreProp::new(&config, problems)?;
                 match config.service() {
                     ServiceName::AtCoder => atcoder::restore(&sess_prop, restore_prop)?,
                     _ => return Err(::Error::Unimplemented),
                 };
             }
             Opt::Append {
-                target,
+                problem,
                 extension,
                 input,
                 output,
@@ -341,11 +369,11 @@ impl Opt {
                 info!("Running \"append\" command");
                 let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
                 let dir = config.testfiles_dir().expand("")?;
-                let path = SuiteFilePath::new(&dir, &target, extension);
+                let path = SuiteFilePath::new(&dir, &problem, extension);
                 testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
             }
             Opt::Judge {
-                target,
+                problem,
                 language,
                 service,
                 contest,
@@ -353,11 +381,11 @@ impl Opt {
                 let language = language.as_ref().map(String::as_str);
                 info!("Running \"judge\" command");
                 let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
-                let judge_prop = JudgeProp::new(&config, &target, language)?;
+                let judge_prop = JudgeProp::new(&config, &problem, language)?;
                 judging::judge(judge_prop)?;
             }
             Opt::Submit {
-                target,
+                problem,
                 language,
                 service,
                 contest,
@@ -371,17 +399,18 @@ impl Opt {
                 let sess_prop = prop.sess_prop(&config)?;
                 let submit_prop = SubmitProp::new(
                     &config,
-                    target.clone(),
+                    problem.clone(),
                     language,
                     open_browser,
                     skip_checking_duplication,
                 )?;
                 if !skip_judging {
-                    judging::judge(JudgeProp::new(&config, &target, language)?)?;
+                    judging::judge(JudgeProp::new(&config, &problem, language)?)?;
                     println!();
                 }
                 match config.service() {
                     ServiceName::AtCoder => atcoder::submit(&sess_prop, submit_prop)?,
+                    ServiceName::Yukicoder => yukicoder::submit(&sess_prop, submit_prop)?,
                     _ => return Err(::Error::Unimplemented),
                 };
             }

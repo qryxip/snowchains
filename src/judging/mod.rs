@@ -88,11 +88,11 @@ pub(crate) struct JudgeProp {
 }
 
 impl JudgeProp {
-    pub fn new(config: &Config, target: &str, language: Option<&str>) -> ::Result<Self> {
-        let (cases, paths) = config.suite_paths().load_merging(config, target)?;
-        let solver = config.solver(language)?.expand(&target)?;
+    pub fn new(config: &Config, problem: &str, language: Option<&str>) -> ::Result<Self> {
+        let (cases, paths) = config.suite_paths().load_merging(config, problem)?;
+        let solver = config.solver(language)?.expand(&problem)?;
         let solver_compilation = match config.solver_compilation(language)? {
-            Some(compilation) => Some(compilation.expand(&target)?),
+            Some(compilation) => Some(compilation.expand(&problem)?),
             None => None,
         };
 

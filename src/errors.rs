@@ -1,10 +1,12 @@
+#![cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
+
 use chrono::{self, DateTime, Local};
-use cookie;
 use failure::{Context, Fail};
 use itertools::Itertools as _Itertools;
 use reqwest::{self, StatusCode};
 use url::{self, Url};
 use zip::result::ZipError;
+use {cookie, serde_urlencoded};
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -20,7 +22,7 @@ pub enum Error {
     Service(ServiceError),
     Judge(JudgeError),
     SuiteFile(SuiteFileError),
-    Config(ConfigError),
+    LoadConfig(LoadConfigError),
     TemplateExpand(TemplateExpandError),
     FileIo(FileIoError),
     Std(StdErrorChain),
@@ -34,7 +36,7 @@ impl fmt::Display for self::Error {
             self::Error::Service(e) => write!(f, "{}", e),
             self::Error::Judge(e) => write!(f, "{}", e),
             self::Error::SuiteFile(e) => write!(f, "{}", e),
-            self::Error::Config(e) => write!(f, "{}", e),
+            self::Error::LoadConfig(e) => write!(f, "{}", e),
             self::Error::TemplateExpand(e) => write!(f, "{}", e),
             self::Error::FileIo(e) => write!(f, "{}", e),
             self::Error::Std(e) => write!(f, "{}", e),
@@ -45,12 +47,12 @@ impl fmt::Display for self::Error {
 }
 
 impl Fail for self::Error {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         match self {
             ::Error::Service(e) => e.cause(),
             ::Error::Judge(e) => e.cause(),
             ::Error::SuiteFile(e) => e.cause(),
-            ::Error::Config(e) => e.cause(),
+            ::Error::LoadConfig(e) => e.cause(),
             ::Error::TemplateExpand(e) => e.cause(),
             ::Error::FileIo(e) => e.cause(),
             ::Error::Std(e) => e.cause(),
@@ -62,7 +64,7 @@ impl Fail for self::Error {
 derive_from!(Error::Service        <- ServiceError);
 derive_from!(Error::Judge          <- JudgeError);
 derive_from!(Error::SuiteFile      <- SuiteFileError);
-derive_from!(Error::Config         <- ConfigError);
+derive_from!(Error::LoadConfig     <- LoadConfigError);
 derive_from!(Error::TemplateExpand <- TemplateExpandError);
 derive_from!(Error::FileIo         <- FileIoError);
 derive_from!(Error::Std            <- io::Error);
@@ -75,14 +77,16 @@ pub enum ServiceError {
     CodeReplace(CodeReplaceError),
     SuiteFile(SuiteFileError),
     TemplateExpand(TemplateExpandError),
+    Serialize(SerializeError),
     FileIo(FileIoError),
+    Submit(SubmitError),
     Std(StdErrorChain),
     AlreadyAccepted,
     ContestNotBegun(String, DateTime<Local>),
     ContestNotFound(String),
-    NoSuchProblem(String),
+    PleaseSpecifyProblems,
     Scrape,
-    Webbrowser(ExitStatus),
+    UnexpectedRedirection(String),
     WrongCredentialsOnTest,
 }
 
@@ -93,7 +97,9 @@ impl fmt::Display for ServiceError {
             ServiceError::CodeReplace(e) => write!(f, "{}", e),
             ServiceError::SuiteFile(e) => write!(f, "{}", e),
             ServiceError::TemplateExpand(e) => write!(f, "{}", e),
+            ServiceError::Serialize(e) => write!(f, "{}", e),
             ServiceError::FileIo(e) => write!(f, "{}", e),
+            ServiceError::Submit(e) => write!(f, "{}", e),
             ServiceError::Std(e) => write!(f, "{}", e),
             ServiceError::AlreadyAccepted => write!(
                 f,
@@ -101,34 +107,10 @@ impl fmt::Display for ServiceError {
             ),
             ServiceError::ContestNotBegun(s, t) => write!(f, "{} will begin at {}", s, t),
             ServiceError::ContestNotFound(s) => write!(f, "{} not found", s),
-            ServiceError::NoSuchProblem(s) => write!(f, "No such problem: {:?}", s),
+            ServiceError::PleaseSpecifyProblems => write!(f, "Please specify problems"),
             ServiceError::Scrape => write!(f, "Failed to scrape"),
-            ServiceError::Webbrowser(s) => match s.code() {
-                Some(c) => write!(
-                    f,
-                    "The default browser terminated abnormally with code {}",
-                    c
-                ),
-                None => write!(
-                    f,
-                    "The default browser terminated abnormally without code (possibly killed)"
-                ),
-            },
+            ServiceError::UnexpectedRedirection(u) => write!(f, "Unexpected redirection to {}", u),
             ServiceError::WrongCredentialsOnTest => write!(f, "Wrong credentials"),
-        }
-    }
-}
-
-impl Fail for ServiceError {
-    fn cause(&self) -> Option<&Fail> {
-        match self {
-            ServiceError::Session(e) => e.cause(),
-            ServiceError::CodeReplace(e) => e.cause(),
-            ServiceError::SuiteFile(e) => e.cause(),
-            ServiceError::TemplateExpand(e) => e.cause(),
-            ServiceError::FileIo(e) => e.cause(),
-            ServiceError::Std(e) => e.cause(),
-            _ => None,
         }
     }
 }
@@ -137,11 +119,53 @@ derive_from!(ServiceError::Session        <- SessionError);
 derive_from!(ServiceError::CodeReplace    <- CodeReplaceError);
 derive_from!(ServiceError::SuiteFile      <- SuiteFileError);
 derive_from!(ServiceError::TemplateExpand <- TemplateExpandError);
+derive_from!(ServiceError::Serialize      <- SerializeError);
+derive_from!(ServiceError::Submit         <- SubmitError);
 derive_from!(ServiceError::FileIo         <- FileIoError);
 derive_from!(ServiceError::Std            <- chrono::ParseError);
 derive_from!(ServiceError::Std            <- reqwest::Error);
+derive_from!(ServiceError::Std            <- serde_urlencoded::ser::Error);
 derive_from!(ServiceError::Std            <- ZipError);
 derive_from!(ServiceError::Std            <- io::Error);
+
+impl Fail for ServiceError {
+    fn cause(&self) -> Option<&dyn Fail> {
+        match self {
+            ServiceError::Session(e) => e.cause(),
+            ServiceError::CodeReplace(e) => e.cause(),
+            ServiceError::SuiteFile(e) => e.cause(),
+            ServiceError::TemplateExpand(e) => e.cause(),
+            ServiceError::Serialize(e) => e.cause(),
+            ServiceError::FileIo(e) => e.cause(),
+            ServiceError::Std(e) => e.cause(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Fail)]
+pub enum SubmitError {
+    NoSuchProblem(String),
+    Rejected(String, usize, Option<Url>),
+}
+
+impl fmt::Display for SubmitError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SubmitError::NoSuchProblem(problem) => write!(f, "No such problem: {:?}", problem),
+            SubmitError::Rejected(lang_id, len, None) => write!(
+                f,
+                "Submission rejected: language={:?}, size={}, location=<none>",
+                lang_id, len
+            ),
+            SubmitError::Rejected(lang_id, len, Some(location)) => write!(
+                f,
+                "Submission rejected: language={:?}, size={}, location={}",
+                lang_id, len, location
+            ),
+        }
+    }
+}
 
 pub(crate) type SessionResult<T> = std::result::Result<T, SessionError>;
 
@@ -154,13 +178,16 @@ pub enum SessionError {
     ParseUrl(String, url::ParseError),
     ParseCookieFromPath(String, PathBuf, cookie::ParseError),
     ParseCookieFromUrl(String, Url, cookie::ParseError),
+    HeaderMissing(&'static str),
     ForbiddenByRobotsTxt,
     UnexpectedStatusCode(Vec<StatusCode>, StatusCode),
+    Webbrowser(ExitStatus),
 }
 
 derive_from!(SessionError::Serialize <- SerializeError);
 derive_from!(SessionError::FileIo    <- FileIoError);
 derive_from!(SessionError::Std       <- reqwest::Error);
+derive_from!(SessionError::Std       <- io::Error);
 derive_from!(SessionError::Start     <- Context<StartSessionError>);
 
 impl fmt::Display for SessionError {
@@ -177,19 +204,33 @@ impl fmt::Display for SessionError {
             SessionError::ParseCookieFromUrl(s, u, _) => {
                 write!(f, "Failed to parse {:?} from {}", s, u)
             }
+            SessionError::HeaderMissing(s) => {
+                write!(f, "The response does not contain {:?} header", s)
+            }
             SessionError::ForbiddenByRobotsTxt => write!(f, "Forbidden by robots.txt"),
             SessionError::UnexpectedStatusCode(ss, s) => write!(
                 f,
                 "Unexpected HTTP status code {} (expected [{}])",
-                ss.iter().format(", "),
                 s,
+                ss.iter().format(", "),
             ),
+            SessionError::Webbrowser(s) => match s.code() {
+                Some(c) => write!(
+                    f,
+                    "The default browser terminated abnormally with code {}",
+                    c
+                ),
+                None => write!(
+                    f,
+                    "The default browser terminated abnormally without code (possibly killed)"
+                ),
+            },
         }
     }
 }
 
 impl Fail for SessionError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         match self {
             SessionError::Serialize(e) => e.cause(),
             SessionError::FileIo(e) => e.cause(),
@@ -254,7 +295,7 @@ impl fmt::Display for JudgeError {
 }
 
 impl Fail for JudgeError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         match self {
             JudgeError::SuiteFile(e) => e.cause(),
             JudgeError::FileIo(e) => e.cause(),
@@ -268,7 +309,7 @@ pub(crate) type SuiteFileResult<T> = std::result::Result<T, SuiteFileError>;
 
 #[derive(Debug)]
 pub enum SuiteFileError {
-    Config(ConfigError),
+    LoadConfig(LoadConfigError),
     TemplateExpand(TemplateExpandError),
     Serialize(SerializeError),
     FileIo(FileIoError),
@@ -285,7 +326,7 @@ pub enum SuiteFileError {
 impl fmt::Display for SuiteFileError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            SuiteFileError::Config(e) => write!(f, "{}", e),
+            SuiteFileError::LoadConfig(e) => write!(f, "{}", e),
             SuiteFileError::TemplateExpand(e) => write!(f, "{}", e),
             SuiteFileError::Serialize(e) => write!(f, "{}", e),
             SuiteFileError::FileIo(e) => write!(f, "{}", e),
@@ -312,9 +353,9 @@ impl fmt::Display for SuiteFileError {
 }
 
 impl Fail for SuiteFileError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         match self {
-            SuiteFileError::Config(e) => e.cause(),
+            SuiteFileError::LoadConfig(e) => e.cause(),
             SuiteFileError::TemplateExpand(e) => e.cause(),
             SuiteFileError::Serialize(e) => e.cause(),
             SuiteFileError::FileIo(e) => e.cause(),
@@ -324,16 +365,16 @@ impl Fail for SuiteFileError {
     }
 }
 
-derive_from!(SuiteFileError::Config         <- ConfigError);
+derive_from!(SuiteFileError::LoadConfig     <- LoadConfigError);
 derive_from!(SuiteFileError::TemplateExpand <- TemplateExpandError);
 derive_from!(SuiteFileError::Serialize      <- SerializeError);
 derive_from!(SuiteFileError::FileIo         <- FileIoError);
 derive_from!(SuiteFileError::Io             <- io::Error);
 
-pub(crate) type ConfigResult<T> = std::result::Result<T, ConfigError>;
+pub(crate) type LoadConfigResult<T> = std::result::Result<T, LoadConfigError>;
 
 #[derive(Debug, Fail)]
-pub enum ConfigError {
+pub enum LoadConfigError {
     #[fail(display = "Language not specified")]
     LanguageNotSpecified,
     #[fail(display = "No such language: {:?}", _0)]
@@ -369,7 +410,7 @@ impl fmt::Display for CodeReplaceError {
 }
 
 impl Fail for CodeReplaceError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         match self {
             CodeReplaceError::TemplateExpand(e) => e.cause(),
             CodeReplaceError::NonUtf8(e) => Some(e),
@@ -417,7 +458,7 @@ impl fmt::Display for TemplateExpandError {
 }
 
 impl Fail for TemplateExpandError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         match self {
             TemplateExpandError::Context(c) => c.cause(),
             _ => None,
@@ -428,19 +469,19 @@ impl Fail for TemplateExpandError {
 #[derive(Debug)]
 pub struct TemplateExpandErrorContext {
     debug: String,
-    target: String,
+    problem: String,
     ty: &'static str,
 }
 
 impl TemplateExpandErrorContext {
     pub(crate) fn new(
         debug: &impl fmt::Debug,
-        target: impl Into<String>,
+        problem: impl Into<String>,
         ty: &'static str,
     ) -> Self {
         Self {
             debug: format!("{:?}", debug),
-            target: target.into(),
+            problem: problem.into(),
             ty,
         }
     }
@@ -451,7 +492,7 @@ impl fmt::Display for TemplateExpandErrorContext {
         write!(
             f,
             "Failed to expand {} % {:?} as {}",
-            self.debug, self.target, self.ty
+            self.debug, self.problem, self.ty
         )
     }
 }
@@ -561,7 +602,7 @@ impl fmt::Display for FileIoError {
 }
 
 impl Fail for FileIoError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         match self.cause.as_ref() {
             Some(cause) => Some(cause),
             None => None,
@@ -599,7 +640,7 @@ impl fmt::Display for StdErrorChain {
 }
 
 impl Fail for StdErrorChain {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         match self.next.as_ref() {
             Some(next) => Some(next.as_ref()),
             None => None,

@@ -46,6 +46,7 @@ fn it_scrapes_samples_from_practice() {
         service: Some(ServiceName::AtCoder),
         contest: Some("practice".to_owned()),
         open_browser: false,
+        problems: vec![],
     }.run(&prop)
         .unwrap();
     let download_dir = tempdir
@@ -67,6 +68,7 @@ fn it_scrapes_samples_from_arc058() {
         service: Some(ServiceName::AtCoder),
         contest: Some("arc058".to_owned()),
         open_browser: false,
+        problems: vec![],
     }.run(&prop)
         .unwrap();
     let download_dir = tempdir
@@ -130,7 +132,7 @@ if __name__ == '__main__':
     let (tempdir, prop) = setup("it_submits_to_practice_a", credentials_from_env_vars());
     util::fs::write(&tempdir.path().join("py").join("a.py"), CODE).unwrap();
     Opt::Submit {
-        target: "a".to_owned(),
+        problem: "a".to_owned(),
         language: Some("python3".to_owned()),
         service: Some(ServiceName::AtCoder),
         contest: Some("practice".to_owned()),
@@ -163,8 +165,6 @@ fn credentials_from_env_vars() -> Credentials {
 }
 
 fn empty_credentials() -> Credentials {
-    Credentials::Some {
-        username: Rc::new("".to_owned()),
-        password: Rc::new("".to_owned()),
-    }
+    let s = Rc::new("".to_owned());
+    Credentials::UserNameAndPassword(s.clone(), s)
 }

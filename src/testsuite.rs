@@ -4,6 +4,7 @@ use errors::{FileIoError, FileIoErrorKind, SerializeError, SuiteFileError, Suite
 use template::{BaseDirSome, PathTemplate};
 use terminal::Color;
 use util::{self, ScalarOrArray};
+use yaml;
 
 use itertools::Itertools as _Itertools;
 use regex::Regex;
@@ -146,9 +147,9 @@ impl<'a> SuiteFilePathsTemplate<'a> {
     pub fn load_merging(
         &self,
         config: &Config,
-        target: &str,
+        problem: &str,
     ) -> SuiteFileResult<(TestCases, String)> {
-        let dir = self.directory.expand(target)?;
+        let dir = self.directory.expand(problem)?;
         if !dir.exists() {
             return Err(SuiteFileError::DirNotExist(dir.to_owned()));
         }
@@ -160,7 +161,7 @@ impl<'a> SuiteFilePathsTemplate<'a> {
                         let stem = path.file_stem()?.to_str()?.to_owned();
                         let ext = path.extension()?.to_str()?;
                         let ext = SuiteFileExtension::from_str(ext).ok()?;
-                        ensure_opt!(target.eq_ignore_ascii_case(&stem));
+                        ensure_opt!(problem.eq_ignore_ascii_case(&stem));
                         ensure_opt!(self.extensions.contains(&ext));
                         Some(Ok((stem, ext)))
                     }
@@ -181,10 +182,10 @@ impl<'a> SuiteFilePathsTemplate<'a> {
                 match TestSuite::load(&path)? {
                     TestSuite::Simple(suite) => simple_cases.extend(suite.with_filename(&filename)),
                     TestSuite::Interactive(suite) => {
-                        interactive_cases.extend(suite.cases(&config, &filename, target)?);
+                        interactive_cases.extend(suite.cases(&config, &filename, problem)?);
                     }
                     TestSuite::Unsubmittable => {
-                        return Err(SuiteFileError::Unsubmittable(target.to_owned()))
+                        return Err(SuiteFileError::Unsubmittable(problem.to_owned()))
                     }
                 }
                 filenames.push(filename);
@@ -354,8 +355,7 @@ enum ZipEntrySorting {
 #[derive(Serialize, Deserialize)]
 struct ZipEntry {
     #[serde(
-        serialize_with = "util::yaml::serialize_regex",
-        deserialize_with = "util::yaml::deserialize_regex"
+        serialize_with = "yaml::serialize_regex", deserialize_with = "yaml::deserialize_regex"
     )]
     entry: Regex,
     match_group: usize,
@@ -373,8 +373,6 @@ pub(crate) enum TestSuite {
 
 impl TestSuite {
     /// Constructs a `TestSuite::Simple` with `timelimit` and `samples`.
-    ///
-    /// Make sure the order is (<outout>, <inout>).
     pub fn simple(
         timelimit: impl Into<Option<Duration>>,
         absolute_error: Option<f64>,
@@ -457,12 +455,12 @@ impl TestSuite {
 }
 
 trait WrapInIoError {
-    type Target;
-    fn wrap_in_io_error(self) -> io::Result<Self::Target>;
+    type Problem;
+    fn wrap_in_io_error(self) -> io::Result<Self::Problem>;
 }
 
 impl<T, E: 'static + std::error::Error + Send + Sync> WrapInIoError for std::result::Result<T, E> {
-    type Target = T;
+    type Problem = T;
 
     fn wrap_in_io_error(self) -> io::Result<T> {
         self.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
@@ -499,7 +497,7 @@ impl SimpleSuite {
             output_match,
             cases: samples
                 .into_iter()
-                .map(|(o, i)| (Arc::new(i), Some(Arc::new(o))))
+                .map(|(i, o)| (Arc::new(i), Some(Arc::new(o))))
                 .collect(),
             raw_cases: None,
         }
@@ -653,7 +651,7 @@ impl InteractiveSuite {
         &self,
         config: &Config,
         filename: &str,
-        target: &str,
+        problem: &str,
     ) -> SuiteFileResult<vec::IntoIter<InteractiveCase>> {
         let mut cases = Vec::with_capacity(self.each_args.len());
         for (i, args) in self.each_args.iter().enumerate() {
@@ -665,9 +663,9 @@ impl InteractiveSuite {
             let tester = config
                 .interactive_tester(lang)?
                 .embed_strings(&m)
-                .expand(&target)?;
+                .expand(&problem)?;
             let tester_compilation = match config.interactive_tester_compilation(lang)? {
-                Some(compilation) => Some(Arc::new(compilation.expand(&target)?)),
+                Some(compilation) => Some(Arc::new(compilation.expand(&problem)?)),
                 None => None,
             };
             cases.push(InteractiveCase {
@@ -814,6 +812,7 @@ fn nan() -> f64 {
     f64::NAN
 }
 
+#[cfg_attr(feature = "cargo-clippy", allow(trivially_copy_pass_by_ref))]
 fn is_nan(v: &f64) -> bool {
     v.is_nan()
 }

@@ -1,24 +1,19 @@
 use errors::ServiceResult;
 use service::session::HttpSession;
-use service::{Credentials, DownloadProp, DownloadZips, OpenInBrowser, SessionProp};
-use testsuite::{SuiteFilePath, TestSuite};
-use util;
+use service::{Credentials, DownloadProp, SessionProp};
 
-use regex::Regex;
 use reqwest::header::Headers;
 use reqwest::Response;
 use select::document::Document;
 use select::predicate::Attr;
-use zip::result::ZipResult;
-use zip::ZipArchive;
 
-use std::io::{self, Read, Seek};
+use std::io::Read;
 
 pub(crate) fn login(sess_prop: &SessionProp) -> ServiceResult<()> {
     HackerRank::start(sess_prop, true).map(|_| ())
 }
 
-pub(crate) fn download(sess_prop: &SessionProp, prop: &DownloadProp<&str>) -> ServiceResult<()> {
+pub(crate) fn download(sess_prop: &SessionProp, prop: &DownloadProp<String>) -> ServiceResult<()> {
     HackerRank::start(sess_prop, false)?.download(prop)
 }
 
@@ -80,49 +75,8 @@ impl HackerRank {
         Ok(status)
     }
 
-    fn download(&mut self, prop: &DownloadProp<&str>) -> ServiceResult<()> {
-        #[derive(Deserialize)]
-        struct Challenges {
-            models: Vec<Model>,
-        }
-
-        #[derive(Deserialize)]
-        struct Model {
-            slug: String,
-        }
-
-        let (contest, dir_to_save, extension, open_browser) = prop.values();
-        let url = format!("/rest/contests/{}/challenges", contest);
-        let (mut zip_urls, mut paths, mut urls) = (vec![], vec![], vec![]);
-        for slug in self
-            .get(&url)?
-            .json::<Challenges>()?
-            .models
-            .into_iter()
-            .map(|model| model.slug)
-        {
-            zip_urls.push(format!("{}/{}/download_testcases", url, slug));
-            paths.push(SuiteFilePath::new(dir_to_save, &slug, extension));
-            urls.push(format!(
-                "https://www.hackerrank.com/{}/challenges/{}",
-                contest, slug
-            ));
-        }
-        let zips = self.download_zips(io::stdout(), 50 * 1024 * 1024, &zip_urls)?;
-        println!("Extracting zip files...");
-        let extracted = zips
-            .into_iter()
-            .map(extract_samples_from_zip)
-            .collect::<Result<Vec<_>, _>>()?;
-        for (suite, path) in extracted.into_iter().zip(paths) {
-            suite.save(&path, true)?;
-        }
-        if open_browser {
-            for url in &urls {
-                self.open_in_browser(url)?;
-            }
-        }
-        Ok(())
+    fn download(&mut self, _: &DownloadProp<String>) -> ServiceResult<()> {
+        unimplemented!()
     }
 }
 
@@ -136,28 +90,4 @@ fn extract_csrf_token(html: impl Read) -> ServiceResult<String> {
     }
 
     super::quit_on_failure(extract(&Document::from_read(html)?), String::is_empty)
-}
-
-fn extract_samples_from_zip(zip: ZipArchive<impl Read + Seek>) -> ZipResult<TestSuite> {
-    lazy_static! {
-        static ref IN_REGEX: Regex = Regex::new(r"input/input[0-9]+\.txt").unwrap();
-        static ref OUT_REGEX: Regex = Regex::new(r"output/output[0-9]+\.txt").unwrap();
-    }
-    let mut zip = zip;
-    let (mut inputs, mut outputs) = (vec![], vec![]);
-    for i in 0..zip.len() {
-        let file = zip.by_index(i)?;
-        let size = file.size() as usize;
-        if IN_REGEX.is_match(file.name()) {
-            inputs.push(util::string_from_read(file, size)?);
-        } else if OUT_REGEX.is_match(file.name()) {
-            outputs.push(util::string_from_read(file, size)?);
-        }
-    }
-    Ok(TestSuite::simple(
-        None,
-        None,
-        None,
-        outputs.into_iter().zip(inputs).collect(),
-    ))
 }

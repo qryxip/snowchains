@@ -1,17 +1,18 @@
 use errors::{
     FileIoError, FileIoErrorKind, SerializeError, SessionError, SessionResult, StartSessionError,
 };
+use service::USER_AGENT;
 use terminal::Color;
 use util;
 
 use cookie::{self, CookieJar};
 use failure::ResultExt as _ResultExt;
-use reqwest::header::{ContentType, Headers, Location, SetCookie, UserAgent};
-use reqwest::{self, header, Method, RedirectPolicy, RequestBuilder, Response, StatusCode};
+use reqwest::header::{self, ContentType, Headers, Location, SetCookie};
+use reqwest::{self, multipart, Method, RequestBuilder, Response, StatusCode};
 use robots_txt::{Robots, SimpleMatcher};
 use serde::Serialize;
 use url::{Host, Url};
-use {bincode, serde_json, serde_urlencoded};
+use {bincode, serde_json, serde_urlencoded, webbrowser};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -19,9 +20,6 @@ use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write as _IoWrite};
 use std::path::PathBuf;
-use std::time::Duration;
-
-static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
 
 /// A wrapper of `reqwest::Client`.
 #[derive(Debug)]
@@ -34,21 +32,11 @@ pub(crate) struct HttpSession {
 
 impl HttpSession {
     pub fn new(
+        client: reqwest::Client,
         base: impl Into<Option<UrlBase>>,
-        timeout: impl Into<Option<Duration>>,
         cookies_path: impl Into<Option<PathBuf>>,
     ) -> SessionResult<Self> {
         let start = || -> SessionResult<HttpSession> {
-            let client = reqwest::Client::builder()
-                .redirect(RedirectPolicy::none())
-                .timeout(timeout)
-                .referer(false)
-                .default_headers({
-                    let mut headers = Headers::new();
-                    headers.set(UserAgent::new(USER_AGENT));
-                    headers
-                })
-                .build()?;
             let base = base.into();
             let host = base.as_ref().map(|base| base.host.clone());
             let jar = match cookies_path.into() {
@@ -97,6 +85,17 @@ impl HttpSession {
         }
     }
 
+    pub fn cookies_to_header(&self) -> Option<header::Cookie> {
+        self.jar.as_ref().map(AutosavedCookieJar::to_header)
+    }
+
+    pub fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> SessionResult<()> {
+        match self.jar.as_mut() {
+            None => Ok(()),
+            Some(jar) => jar.insert_cookie(cookie),
+        }
+    }
+
     /// Removes all cookies.
     pub fn clear_cookies(&mut self) -> SessionResult<()> {
         if let Some(jar) = self.jar.as_mut() {
@@ -112,6 +111,19 @@ impl HttpSession {
         match self.base.as_ref() {
             Some(base) => base.with(url),
             None => Url::parse(url).map_err(|e| SessionError::ParseUrl(url.to_owned(), e)),
+        }
+    }
+
+    /// Opens `url`, which is relative or absolute, with default browser
+    /// printing a message.
+    pub fn open_in_browser(&self, url: &str) -> SessionResult<()> {
+        let url = self.resolve_url(url)?;
+        println!("Opening {} in default browser...", url);
+        let status = webbrowser::open(url.as_str())?.status;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(SessionError::Webbrowser(status))
         }
     }
 
@@ -163,6 +175,21 @@ impl HttpSession {
             expected_statuses,
             extra_headers,
         )
+    }
+
+    pub fn post_multipart(
+        &mut self,
+        url: &str,
+        form: multipart::Form,
+        expected_statuses: &[u16],
+        extra_headers: impl Into<Option<Headers>>,
+    ) -> SessionResult<Response> {
+        self.request(Method::Post, url, expected_statuses, move |mut request| {
+            if let Some(extra_headers) = extra_headers.into() {
+                request.headers(extra_headers);
+            }
+            request.multipart(form).send()
+        })
     }
 
     fn post(
@@ -336,6 +363,11 @@ impl AutosavedCookieJar {
             })
     }
 
+    fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> SessionResult<()> {
+        self.inner.add(cookie);
+        self.save()
+    }
+
     fn update(&mut self, response: &Response) -> SessionResult<()> {
         if let Some(setcookie) = response.headers().get::<SetCookie>() {
             for cookie in setcookie.iter() {
@@ -345,8 +377,9 @@ impl AutosavedCookieJar {
                 })?;
                 self.inner.add(cookie);
             }
+            self.save()?;
         }
-        self.save().map_err(Into::into)
+        Ok(())
     }
 
     fn save(&mut self) -> SessionResult<()> {
@@ -367,6 +400,7 @@ impl AutosavedCookieJar {
 #[cfg(test)]
 mod tests {
     use errors::SessionError;
+    use service;
     use service::session::{HttpSession, UrlBase};
 
     use failure::Fail as _Fail;
@@ -395,8 +429,9 @@ mod tests {
             server.listen("127.0.0.1:2000").unwrap()
         };
         let result = panic::catch_unwind(|| {
+            let client = service::reqwest_client(None).unwrap();
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
-            let mut session = HttpSession::new(Some(base), None, None).unwrap();
+            let mut session = HttpSession::new(client, Some(base), None).unwrap();
             let response = session.get("/").unwrap();
             assert!(
                 response
@@ -421,10 +456,11 @@ mod tests {
         let _ = env_logger::try_init();
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
         let path = tempdir.path().join("cookies");
-        HttpSession::new(None, None, path.clone()).unwrap();
-        HttpSession::new(None, None, path.clone()).unwrap();
-        let _session = HttpSession::new(None, None, path.clone()).unwrap();
-        let err = HttpSession::new(None, None, path.clone()).unwrap_err();
+        let client = service::reqwest_client(None).unwrap();
+        HttpSession::new(client.clone(), None, path.clone()).unwrap();
+        HttpSession::new(client.clone(), None, path.clone()).unwrap();
+        let _session = HttpSession::new(client.clone(), None, path.clone()).unwrap();
+        let err = HttpSession::new(client, None, path.clone()).unwrap_err();
         if let SessionError::Start(ref ctx) = err {
             if ctx.cause().is_some() {
                 return;

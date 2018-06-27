@@ -1,11 +1,10 @@
-use errors::{ServiceError, ServiceResult};
+use errors::{ServiceError, ServiceResult, SubmitError};
 use service::session::HttpSession;
-use service::{
-    Contest, Credentials, DownloadProp, OpenInBrowser, RestoreProp, SessionProp, SubmitProp,
-};
+use service::{Contest, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp};
 use terminal::Color;
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
+use util::std_unstable::RemoveItem_ as _RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
 use regex::Regex;
@@ -33,22 +32,27 @@ pub(crate) fn participate(contest_name: &str, sess_prop: &SessionProp) -> Servic
 /// from them.
 pub(crate) fn download(
     sess_prop: &SessionProp,
-    download_prop: DownloadProp<&str>,
+    download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
-    AtCoder::start(sess_prop)?.download(&download_prop.transform())
+    let download_prop = download_prop.parse_contest().lowerize_problems();
+    AtCoder::start(sess_prop)?.download(&download_prop)
 }
 
 /// Downloads submitted source codes.
 pub(crate) fn restore(
     sess_prop: &SessionProp,
-    restore_prop: RestoreProp<&str>,
+    restore_prop: RestoreProp<String>,
 ) -> ServiceResult<()> {
-    AtCoder::start(sess_prop)?.restore(&restore_prop.transform())
+    let restore_prop = restore_prop.parse_contest().upperize_problems();
+    AtCoder::start(sess_prop)?.restore(&restore_prop)
 }
 
 /// Submits a source code.
-pub(crate) fn submit(sess_prop: &SessionProp, submit_prop: SubmitProp<&str>) -> ServiceResult<()> {
-    AtCoder::start(sess_prop)?.submit(&submit_prop.transform())
+pub(crate) fn submit(
+    sess_prop: &SessionProp,
+    submit_prop: SubmitProp<String>,
+) -> ServiceResult<()> {
+    AtCoder::start(sess_prop)?.submit(&submit_prop.parse_contest())
 }
 
 pub(self) struct AtCoder {
@@ -117,7 +121,7 @@ impl AtCoder {
         let success = response.status().as_u16() == 200;
         if success {
             println!("Successfully logged in.");
-        } else if self.credentials.is_some() {
+        } else if self.credentials.not_none() {
             return Err(ServiceError::WrongCredentialsOnTest);
         }
         Ok(success)
@@ -170,22 +174,40 @@ impl AtCoder {
     }
 
     fn download(&mut self, prop: &DownloadProp<AtcoderContest>) -> ServiceResult<()> {
-        let (contest, dir_to_save, extension, open_browser) = prop.values();
+        let DownloadProp {
+            contest,
+            problems,
+            download_dir,
+            extension,
+            open_browser,
+        } = prop;
         let tasks_page = self.fetch_tasks_page(contest)?;
         let outputs = extract_task_urls_with_names(&tasks_page)?
             .into_iter()
+            .map(|(name, url)| (name.to_lowercase(), url))
+            .filter(|(name, _)| {
+                problems.is_none() || problems.as_ref().unwrap().iter().any(|s| s == name)
+            })
             .map(|(name, url)| -> ServiceResult<_> {
                 let suite = extract_as_suite(self.get(&url)?, contest)?;
-                let path = SuiteFilePath::new(dir_to_save, &name.to_lowercase(), extension);
-                Ok((url, suite, path))
+                let path = SuiteFilePath::new(download_dir, &name, *extension);
+                Ok((url, suite, path, name))
             })
             .collect::<ServiceResult<Vec<_>>>()?;
-        for (_, suite, path) in &outputs {
+        let mut not_found = match problems.as_ref() {
+            None => vec![],
+            Some(problems) => problems.iter().collect(),
+        };
+        for (_, suite, path, name) in &outputs {
             suite.save(path, true)?;
+            not_found.remove_item_(&name);
         }
-        if open_browser {
+        if !not_found.is_empty() {
+            eprintln_bold!(Color::Warning, "Not found: {:?}", not_found);
+        }
+        if *open_browser {
             self.open_in_browser(&contest.url_submissions_me(1))?;
-            for (url, _, _) in &outputs {
+            for (url, _, _, _) in &outputs {
                 self.open_in_browser(url)?;
             }
         }
@@ -205,7 +227,12 @@ impl AtCoder {
             }
         }
 
-        let (contest, src_paths, replacers) = prop.values();
+        let RestoreProp {
+            contest,
+            problems,
+            src_paths,
+            replacers,
+        } = prop;
         let first_page = Document::from_read(self.get(&contest.url_submissions_me(1))?)?;
         let (submissions, num_pages) = extract_submissions(&first_page)?;
         let mut detail_urls = HashMap::new();
@@ -215,27 +242,47 @@ impl AtCoder {
             let (submission, _) = extract_submissions(&page)?;
             collect_urls(&mut detail_urls, submission);
         }
+        let mut results = vec![];
         for ((task_name, lang_name), detail_url) in detail_urls {
+            if problems.is_some() && !problems.as_ref().unwrap().iter().any(|p| p == &task_name) {
+                continue;
+            }
             let code = extract_submitted_code(self.get(&detail_url)?)?;
             let lang_id = find_lang_id(&first_page, &lang_name)?;
-            if let Some(path_template) = src_paths.get(&lang_id) {
+            if let Some(path_template) = src_paths.get(lang_id.as_str()) {
                 let path = path_template.expand(&task_name.to_lowercase())?;
-                let code = match replacers.get(&lang_id) {
+                let code = match replacers.get(lang_id.as_str()) {
                     Some(replacer) => replacer.replace_from_submission(&task_name, &code)?,
                     None => code,
                 };
                 util::fs::write(&path, code.as_bytes())?;
-                println!(
-                    "{} - {:?} (id: {}): Saved to {}",
-                    task_name,
-                    lang_name,
-                    lang_id,
-                    path.display()
-                );
+                results.push((task_name, lang_name, lang_id, path));
             } else {
                 eprintln_bold!(Color::Warning, "Ignoring {:?} (id: {})", lang_name, lang_id);
             }
         }
+        let mut not_found = match problems.as_ref() {
+            None => vec![],
+            Some(problems) => problems.iter().collect(),
+        };
+        for (task_name, lang_name, lang_id, path) in &results {
+            println!(
+                "{} - {:?} (id: {}): Saved to {}",
+                task_name,
+                lang_name,
+                lang_id,
+                path.display()
+            );
+            not_found.remove_item_(&task_name);
+        }
+        if !not_found.is_empty() {
+            eprintln_bold!(Color::Warning, "Not found: {:?}", not_found);
+        }
+        println!(
+            "Saved {} file{}.",
+            results.len(),
+            if results.len() > 1 { "s" } else { "" }
+        );
         Ok(())
     }
 
@@ -246,14 +293,21 @@ impl AtCoder {
             #[serde(rename = "data.TaskScreenName")]
             dataTaskScreenName: String,
             #[serde(rename = "data.LanguageId")]
-            dataLanguageId: u32,
+            dataLanguageId: String,
             sourceCode: String,
             csrf_token: String,
         }
 
-        let (contest, task, lang_id, src_path, replacer, open_browser, skip_checking_if_accepted) =
-            prop.values();
-        let tasks_page = self.fetch_tasks_page(contest)?;
+        let SubmitProp {
+            contest,
+            problem,
+            lang_id,
+            src_path,
+            replacer,
+            open_browser,
+            skip_checking_if_accepted,
+        } = prop;
+        let tasks_page = self.fetch_tasks_page(&contest)?;
         let checks_if_accepted = !skip_checking_if_accepted && *contest != AtcoderContest::Practice
             && {
                 let duration = extract_contest_duration(&tasks_page)?;
@@ -262,7 +316,7 @@ impl AtCoder {
                 status.is_active()
             };
         for (name, url) in extract_task_urls_with_names(&tasks_page)? {
-            if name.to_uppercase() == task.to_uppercase() {
+            if name.to_uppercase() == problem.to_uppercase() {
                 #[cfg_attr(rustfmt, rustfmt_skip)]
                 let task_screen_name = {
                     lazy_static! {
@@ -287,7 +341,7 @@ impl AtCoder {
                     }
                     for i in 2..=num_pages {
                         if extract_submissions(&Document::from_read(
-                            self.get(&contest.url_submissions_me(i))?
+                            self.get(&contest.url_submissions_me(i))?,
                         )?)?.0
                             .any(|s| s.task_screen_name == task_screen_name && s.is_ac)
                         {
@@ -297,25 +351,25 @@ impl AtCoder {
                 }
                 let source_code = util::fs::read_to_string(src_path)?;
                 let source_code = match replacer {
-                    Some(replacer) => replacer.replace_as_submission(task, &source_code)?,
+                    Some(replacer) => replacer.replace_as_submission(&problem, &source_code)?,
                     None => source_code,
                 };
                 let csrf_token = extract_csrf_token(&Document::from_read(self.get(&url)?)?)?;
                 let url = contest.url_submit();
                 let payload = Payload {
                     dataTaskScreenName: task_screen_name,
-                    dataLanguageId: lang_id,
+                    dataLanguageId: lang_id.clone(),
                     sourceCode: source_code,
                     csrf_token,
                 };
                 self.post_urlencoded(&url, &payload, &[302], None)?;
-                if open_browser {
+                if *open_browser {
                     self.open_in_browser(&contest.url_submissions_me(1))?;
                 }
                 return Ok(());
             }
         }
-        Err(ServiceError::NoSuchProblem(task.to_owned()))
+        Err(SubmitError::NoSuchProblem(problem.clone()).into())
     }
 }
 
@@ -330,21 +384,7 @@ enum AtcoderContest {
     Other(String),
 }
 
-impl fmt::Display for AtcoderContest {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            AtcoderContest::Practice => write!(f, "practice contest"),
-            AtcoderContest::Apg4b => write!(f, "AtCoder Programming Guide for beginners"),
-            AtcoderContest::Abc(n) => write!(f, "ABC{:>03}", n),
-            AtcoderContest::Arc(n) => write!(f, "ARC{:>03}", n),
-            AtcoderContest::Agc(n) => write!(f, "AGC{:>03}", n),
-            AtcoderContest::ChokudaiS(n) => write!(f, "Chokudai SpeedRun {:>03}", n),
-            AtcoderContest::Other(s) => write!(f, "{}", s),
-        }
-    }
-}
-
-impl Contest for AtcoderContest {
+impl AtcoderContest {
     fn new(s: &str) -> Self {
         lazy_static! {
             static ref NAME: Regex = Regex::new(r"\A\s*([a-zA-Z_]+)(\d{3})\s*\z").unwrap();
@@ -370,9 +410,7 @@ impl Contest for AtcoderContest {
             AtcoderContest::Other(s.to_owned())
         }
     }
-}
 
-impl AtcoderContest {
     fn url_top(&self) -> String {
         static BASE: &'static str = "/contests/";
         match self {
@@ -400,6 +438,26 @@ impl AtcoderContest {
 
     fn url_submissions_me(&self, page: u32) -> String {
         format!("{}/submissions/me?page={}", self.url_top(), page)
+    }
+}
+
+impl fmt::Display for AtcoderContest {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AtcoderContest::Practice => write!(f, "practice contest"),
+            AtcoderContest::Apg4b => write!(f, "AtCoder Programming Guide for beginners"),
+            AtcoderContest::Abc(n) => write!(f, "ABC{:>03}", n),
+            AtcoderContest::Arc(n) => write!(f, "ARC{:>03}", n),
+            AtcoderContest::Agc(n) => write!(f, "AGC{:>03}", n),
+            AtcoderContest::ChokudaiS(n) => write!(f, "Chokudai SpeedRun {:>03}", n),
+            AtcoderContest::Other(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+impl Contest for AtcoderContest {
+    fn from_string(s: String) -> Self {
+        Self::new(&s)
     }
 }
 
@@ -652,7 +710,7 @@ pub(self) fn extract_as_suite(
         let mut samples = vec![];
         for (i, input) in inputs {
             if let Some(output) = outputs.remove(&i) {
-                samples.push((output, input));
+                samples.push((input, output));
             }
         }
         if samples.is_empty() {
@@ -818,14 +876,14 @@ pub(self) fn extract_submitted_code(html: impl Read) -> ServiceResult<String> {
     extract(&Document::from_read(html)?).ok_or_else(|| ServiceError::Scrape)
 }
 
-fn find_lang_id(document: &Document, lang_name: &str) -> ServiceResult<u32> {
+fn find_lang_id(document: &Document, lang_name: &str) -> ServiceResult<String> {
     let predicate = Attr("id", "select-language").child(Name("option"));
     for option in document.find(predicate) {
         if let Some(text) = option.find(Text).next().map(|n| n.text()) {
             if text == lang_name {
                 return option
                     .attr("value")
-                    .and_then(|v| v.parse().ok())
+                    .map(ToOwned::to_owned)
                     .ok_or_else(|| ServiceError::Scrape);
             }
         }
@@ -838,7 +896,7 @@ mod tests {
     use errors::SessionResult;
     use service::atcoder::{AtCoder, AtcoderContest};
     use service::session::{HttpSession, UrlBase};
-    use service::{Contest, Credentials};
+    use service::{self, Credentials};
     use testsuite::TestSuite;
 
     use env_logger;
@@ -888,20 +946,20 @@ mod tests {
     #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc001() {
         static A: &[(&str, &str)] = &[
-            ("4 1\n", "9\n131142143\n"),
-            ("5 5\n", "20\n12341234123412341234\n"),
-            ("4 0\n", "4\n1111\n"),
+            ("9\n131142143\n", "4 1\n"),
+            ("20\n12341234123412341234\n", "5 5\n"),
+            ("4\n1111\n", "4 0\n"),
         ];
-        static B: &[(&str, &str)] = &[("5\n", "7 34\n"), ("2\n", "19 28\n"), ("0\n", "10 10\n")];
+        static B: &[(&str, &str)] = &[("7 34\n", "5\n"), ("19 28\n", "2\n"), ("10 10\n", "0\n")];
         static C: &[(&str, &str)] = &[
-            ("Q.......\n....Q...\n.......Q\n.....Q..\n..Q.....\n......Q.\n.Q......\n...Q....\n",
-             "........\n........\n.......Q\n........\n..Q.....\n........\n.Q......\n........\n"),
-            ("No Answer\n",
-             ".....Q..\n.Q......\n........\n........\n........\nQ.......\n........\n........\n"),
+            ("........\n........\n.......Q\n........\n..Q.....\n........\n.Q......\n........\n",
+             "Q.......\n....Q...\n.......Q\n.....Q..\n..Q.....\n......Q.\n.Q......\n...Q....\n"),
+            (".....Q..\n.Q......\n........\n........\n........\nQ.......\n........\n........\n",
+             "No Answer\n"),
         ];
         static D: &[(&str, &str)] = &[
-            ("8.22677276241436\n", "7\n3 3\n2 5\n4 6\n2 3\n3 6\n3 4\n4 6\n2 5\n1 5\n"),
-            ("5\n", "5\n3 3\n0 5\n0 5\n0 5\n0 5\n0 5\n0 5\n"),
+            ("7\n3 3\n2 5\n4 6\n2 3\n3 6\n3 4\n4 6\n2 5\n1 5\n", "8.22677276241436\n"),
+            ("5\n3 3\n0 5\n0 5\n0 5\n0 5\n0 5\n0 5\n", "5\n"),
         ];
         let expected = [
             ("A", "/contests/arc001/tasks/arc001_1", 2000, A),
@@ -917,24 +975,24 @@ mod tests {
     #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc002() {
         static A: &[(&str, &str)] = &[
-            ("NO\n", "1001\n"),
-            ("YES\n", "2012\n"),
-            ("NO\n", "2100\n"),
-            ("YES\n", "2000\n"),
+            ("1001\n", "NO\n"),
+            ("2012\n", "YES\n"),
+            ("2100\n", "NO\n"),
+            ("2000\n", "YES\n"),
         ];
         static B: &[(&str, &str)] = &[
-            ("2013/01/01\n", "2012/05/02\n"),
+            ("2012/05/02\n", "2013/01/01\n"),
             ("2020/05/02\n", "2020/05/02\n"),
-            ("2088/02/29\n", "2088/02/28\n"),
+            ("2088/02/28\n", "2088/02/29\n"),
         ];
         static C: &[(&str, &str)] = &[
-            ("2\n", "4\nABXY\n"),
-            ("7\n", "13\nABABABABXBXBX\n"),
-            ("4\n", "8\nAABBAABB\n"),
+            ("4\nABXY\n", "2\n"),
+            ("13\nABABABABXBXBX\n", "7\n"),
+            ("8\nAABBAABB\n", "4\n"),
         ];
         static D: &[(&str, &str)] = &[
-            ("o\n", "3 10\n..o.o.xxx.\n...o.xo.x.\no.xxo..x..\n"),
-            ("x\n", "3 5\n..x..\n.o...\n...x.\n"),
+            ("3 10\n..o.o.xxx.\n...o.xo.x.\no.xxo..x..\n", "o\n"),
+            ("3 5\n..x..\n.o...\n...x.\n", "x\n"),
         ];
         let expected = [
             ("A", "/contests/arc002/tasks/arc002_1", 2000, A),
@@ -951,23 +1009,23 @@ mod tests {
     #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc019() {
         static A: &[(&str, &str)] = &[
-            ("120\n", "1Z0\n"),
-            ("42060\n", "4ZD6O\n"),
-            ("8192\n", "BI9Z\n"),
+            ("1Z0\n", "120\n"),
+            ("4ZD6O\n", "42060\n"),
+            ("BI9Z\n", "8192\n"),
         ];
         static B: &[(&str, &str)] = &[
-            ("73\n", "ARC\n"),
-            ("0\n", "S\n"),
-            ("350\n", "NOLEMONNOMELON\n"),
+            ("ARC\n", "73\n"),
+            ("S\n", "0\n"),
+            ("NOLEMONNOMELON\n", "350\n"),
         ];
         static C: &[(&str, &str)] = &[
-            ("19\n", "5 7 3\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n"),
-            ("21\n", "5 7 2\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n"),
-            ("-1\n", "5 7 1\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n"),
-            ("94\n",
-             "6 35 4\nT...TT.....TT...TTT...TTT..TTG.....\n..T..T.TTT.T..T..E..T..E...TTT.TTT.\n\
+            ("5 7 3\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n", "19\n"),
+            ("5 7 2\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n", "21\n"),
+            ("5 7 1\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n", "-1\n"),
+            ("6 35 4\nT...TT.....TT...TTT...TTT..TTG.....\n..T..T.TTT.T..T..E..T..E...TTT.TTT.\n\
               .TTT.T.....E.TTTTT.TTT.TTT.TTT.....\n.....T.TT.TT.TTTTT.TTT.TTT.TTTTTTT.\n\
-              .TTT.T.TT..T..T..S..T..TTT.TTTTTTT.\n.CTT.E.TTT.TT...TTT...TT.....E.....\n"),
+              .TTT.T.TT..T..T..S..T..TTT.TTTTTTT.\n.CTT.E.TTT.TT...TTT...TT.....E.....\n",
+             "94\n"),
         ];
         static D: &[(&str, &str)] = &[];
         let expected = [
@@ -984,25 +1042,25 @@ mod tests {
     #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc058() {
         static C: &[(&str, &str)] = &[
-            ("2000\n", "1000 8\n1 3 4 5 6 7 8 9\n"),
-            ("9999\n", "9999 1\n0\n"),
+            ("1000 8\n1 3 4 5 6 7 8 9\n", "2000\n"),
+            ("9999 1\n0\n", "9999\n"),
         ];
         static D: &[(&str, &str)] = &[
-            ("2\n", "2 3 1 1\n"),
-            ("3570\n", "10 7 3 4\n"),
-            ("1\n", "100000 100000 99999 99999\n"),
-            ("738162020\n", "100000 100000 44444 55555\n"),
+            ("2 3 1 1\n", "2\n"),
+            ("10 7 3 4\n", "3570\n"),
+            ("100000 100000 99999 99999\n", "1\n"),
+            ("100000 100000 44444 55555\n", "738162020\n"),
         ];
         static E: &[(&str, &str)] = &[
-            ("1\n", "3 5 7 5\n"),
-            ("34\n", "4 5 7 5\n"),
-            ("863912418\n", "37 4 2 3\n"),
-            ("562805100\n", "40 5 7 5\n"),
+            ("3 5 7 5\n", "1\n"),
+            ("4 5 7 5\n", "34\n"),
+            ("37 4 2 3\n", "863912418\n"),
+            ("40 5 7 5\n", "562805100\n"),
         ];
         static F: &[(&str, &str)] = &[
-            ("atcodar\n", "3 7\nat\ncoder\ncodar\n"),
-            ("codarat\n", "3 7\ncoder\ncodar\nat\n"),
-            ("namidazzzzzzz\n", "4 13\nkyuri\nnamida\nzzzzzzz\naaaaaa\n"),
+            ("3 7\nat\ncoder\ncodar\n", "atcodar\n"),
+            ("3 7\ncoder\ncodar\nat\n", "codarat\n"),
+            ("4 13\nkyuri\nnamida\nzzzzzzz\naaaaaa\n", "namidazzzzzzz\n"),
         ];
         let expected = [
             ("C", "/contests/arc058/tasks/arc058_a", 2000, C),
@@ -1018,26 +1076,26 @@ mod tests {
     #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_abc041() {
         static A: &[(&str, &str)] = &[
-            ("c\n", "atcoder\n3\n"),
-            ("b\n", "beginner\n1\n"),
-            ("t\n", "contest\n7\n"),
-            ("z\n", "z\n1\n"),
+            ("atcoder\n3\n", "c\n"),
+            ("beginner\n1\n", "b\n"),
+            ("contest\n7\n", "t\n"),
+            ("z\n1\n", "z\n"),
         ];
         static B: &[(&str, &str)] = &[
-            ("24\n", "2 3 4\n"),
-            ("1000000000\n", "10000 1000 100\n"),
-            ("999999937\n", "100000 1 100000\n"),
-            ("999999664\n", "1000000000 1000000000 1000000000\n"),
+            ("2 3 4\n", "24\n"),
+            ("10000 1000 100\n", "1000000000\n"),
+            ("100000 1 100000\n", "999999937\n"),
+            ("1000000000 1000000000 1000000000\n", "999999664\n"),
         ];
         static C: &[(&str, &str)] = &[
-            ("2\n3\n1\n", "3\n140 180 160\n"),
-            ("1\n2\n", "2\n1000000000 1\n"),
-            ("4\n5\n7\n8\n3\n1\n6\n2\n", "8\n3 1 4 15 9 2 6 5\n"),
+            ("3\n140 180 160\n", "2\n3\n1\n"),
+            ("2\n1000000000 1\n", "1\n2\n"),
+            ("8\n3 1 4 15 9 2 6 5\n", "4\n5\n7\n8\n3\n1\n6\n2\n"),
         ];
         static D: &[(&str, &str)] = &[
-            ("2\n", "3 2\n2 1\n2 3\n"),
-            ("3\n", "5 5\n1 2\n2 3\n3 5\n1 4\n4 5\n"),
-            ("10461394944000\n", "16 1\n1 2\n"),
+            ("3 2\n2 1\n2 3\n", "2\n"),
+            ("5 5\n1 2\n2 3\n3 5\n1 4\n4 5\n", "3\n"),
+            ("16 1\n1 2\n", "10461394944000\n"),
         ];
         let expected = [
             ("A", "/contests/abc041/tasks/abc041_a", 2000, A),
@@ -1054,78 +1112,78 @@ mod tests {
     #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_chokudai_s001() {
         static A: &[(&str, &str)] = &[
-            ("5\n", "5\n3 1 5 4 2\n"),
-            ("6\n", "6\n1 2 3 4 5 6\n"),
-            ("7\n", "7\n7 6 5 4 3 2 1\n"),
-            ("20\n", "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "5\n"),
+            ("6\n1 2 3 4 5 6\n", "6\n"),
+            ("7\n7 6 5 4 3 2 1\n", "7\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "20\n"),
         ];
         static B: &[(&str, &str)] = &[
-            ("15\n", "5\n3 1 5 4 2\n"),
-            ("21\n", "6\n1 2 3 4 5 6\n"),
-            ("28\n", "7\n7 6 5 4 3 2 1\n"),
-            ("210\n", "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "15\n"),
+            ("6\n1 2 3 4 5 6\n", "21\n"),
+            ("7\n7 6 5 4 3 2 1\n", "28\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "210\n"),
         ];
         static C: &[(&str, &str)] = &[
-            ("3,1,5,4,2\n", "5\n3 1 5 4 2\n"),
-            ("1,2,3,4,5,6\n", "6\n1 2 3 4 5 6\n"),
-            ("7,6,5,4,3,2,1\n", "7\n7 6 5 4 3 2 1\n"),
-            ("19,11,10,7,8,9,17,18,20,4,3,15,16,1,5,14,6,2,13,12\n",
-             "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "3,1,5,4,2\n"),
+            ("6\n1 2 3 4 5 6\n", "1,2,3,4,5,6\n"),
+            ("7\n7 6 5 4 3 2 1\n", "7,6,5,4,3,2,1\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+             "19,11,10,7,8,9,17,18,20,4,3,15,16,1,5,14,6,2,13,12\n"),
         ];
         static D: &[(&str, &str)] = &[
-            ("1 2 3 4 5\n", "5\n3 1 5 4 2\n"),
-            ("1 2 3 4 5 6\n", "6\n1 2 3 4 5 6\n"),
-            ("1 2 3 4 5 6 7\n", "7\n7 6 5 4 3 2 1\n"),
-            ("1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20\n",
-             "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "1 2 3 4 5\n"),
+            ("6\n1 2 3 4 5 6\n", "1 2 3 4 5 6\n"),
+            ("7\n7 6 5 4 3 2 1\n", "1 2 3 4 5 6 7\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
+             "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20\n"),
         ];
         static E: &[(&str, &str)] = &[
-            ("2\n", "5\n3 1 5 4 2\n"),
-            ("1\n", "6\n1 2 3 4 5 6\n"),
-            ("7\n", "7\n7 6 5 4 3 2 1\n"),
-            ("14\n", "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "2\n"),
+            ("6\n1 2 3 4 5 6\n", "1\n"),
+            ("7\n7 6 5 4 3 2 1\n", "7\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "14\n"),
         ];
         static F: &[(&str, &str)] = &[
-            ("2\n", "5\n3 1 5 4 2\n"),
-            ("6\n", "6\n1 2 3 4 5 6\n"),
-            ("1\n", "7\n7 6 5 4 3 2 1\n"),
-            ("2\n", "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "2\n"),
+            ("6\n1 2 3 4 5 6\n", "6\n"),
+            ("7\n7 6 5 4 3 2 1\n", "1\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "2\n"),
         ];
         static G: &[(&str, &str)] = &[
-            ("31542\n", "5\n3 1 5 4 2\n"),
-            ("123456\n", "6\n1 2 3 4 5 6\n"),
-            ("7654321\n", "7\n7 6 5 4 3 2 1\n"),
-            ("370453866\n", "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "31542\n"),
+            ("6\n1 2 3 4 5 6\n", "123456\n"),
+            ("7\n7 6 5 4 3 2 1\n", "7654321\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "370453866\n"),
         ];
         static H: &[(&str, &str)] = &[
-            ("2\n", "5\n3 1 5 4 2\n"),
-            ("6\n", "6\n1 2 3 4 5 6\n"),
-            ("1\n", "7\n7 6 5 4 3 2 1\n"),
-            ("6\n", "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "2\n"),
+            ("6\n1 2 3 4 5 6\n", "6\n"),
+            ("7\n7 6 5 4 3 2 1\n", "1\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "6\n"),
         ];
         static I: &[(&str, &str)] = &[
-            ("1\n", "5\n3 1 5 4 2\n"),
-            ("2\n", "6\n1 2 3 4 5 6\n"),
-            ("2\n", "7\n7 6 5 4 3 2 1\n"),
-            ("3\n", "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "1\n"),
+            ("6\n1 2 3 4 5 6\n", "2\n"),
+            ("7\n7 6 5 4 3 2 1\n", "2\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "3\n"),
         ];
         static J: &[(&str, &str)] = &[
-            ("5\n", "5\n3 1 5 4 2\n"),
-            ("0\n", "6\n1 2 3 4 5 6\n"),
-            ("21\n", "7\n7 6 5 4 3 2 1\n"),
-            ("114\n", "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "5\n"),
+            ("6\n1 2 3 4 5 6\n", "0\n"),
+            ("7\n7 6 5 4 3 2 1\n", "21\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "114\n"),
         ];
         static K: &[(&str, &str)] = &[
-            ("54\n", "5\n3 1 5 4 2\n"),
-            ("1\n", "6\n1 2 3 4 5 6\n"),
-            ("5040\n", "7\n7 6 5 4 3 2 1\n"),
-            ("542869439\n", "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "54\n"),
+            ("6\n1 2 3 4 5 6\n", "1\n"),
+            ("7\n7 6 5 4 3 2 1\n", "5040\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "542869439\n"),
         ];
         static L: &[(&str, &str)] = &[
-            ("YES\n", "5\n3 1 5 4 2\n"),
-            ("YES\n", "6\n1 2 3 4 5 6\n"),
-            ("YES\n", "7\n7 6 5 4 3 2 1\n"),
-            ("YES\n", "20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n"),
+            ("5\n3 1 5 4 2\n", "YES\n"),
+            ("6\n1 2 3 4 5 6\n", "YES\n"),
+            ("7\n7 6 5 4 3 2 1\n", "YES\n"),
+            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "YES\n"),
         ];
         let expected = [
             ("A", "/contests/chokudai_s001/tasks/chokudai_S001_a", 2000, A),
@@ -1205,8 +1263,9 @@ mod tests {
     }
 
     fn start() -> SessionResult<AtCoder> {
+        let client = service::reqwest_client(Duration::from_secs(10))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
-        let session = HttpSession::new(base, Duration::from_secs(10), None)?;
+        let session = HttpSession::new(client, base, None)?;
         Ok(AtCoder {
             session,
             credentials: Credentials::None,
