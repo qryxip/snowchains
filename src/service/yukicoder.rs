@@ -1,10 +1,10 @@
 use errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
+use palette::Palette;
 use service::downloader::ZipDownloader;
 use service::session::HttpSession;
 use service::{
     Contest, Credentials, DownloadProp, PrintTargets as _PrintTargets, SessionProp, SubmitProp,
 };
-use terminal::Color;
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
 
@@ -150,10 +150,12 @@ impl Yukicoder {
                     }
                 }
                 if !not_found.is_empty() {
-                    eprintln_bold!(Color::Warning, "Not found: {:?}", not_found);
+                    let msg = format!("Not found: {:?}", not_found);
+                    eprintln!("{}", Palette::Warning.paint(msg));
                 }
                 if !not_public.is_empty() {
-                    eprintln_bold!(Color::Warning, "Not public: {:?}", not_public);
+                    let msg = format!("Not public: {:?}", not_public);
+                    eprintln!("{}", Palette::Warning.paint(msg));
                 }
             }
             (YukicoderContest::Contest(contest), problems) => {
@@ -320,7 +322,7 @@ fn ask_yes_or_no(mes: &str, default: bool) -> io::Result<bool> {
 fn ask_string(prompt: &str) -> io::Result<String> {
     rpassword::prompt_password_stderr(prompt).or_else(|err| match err.kind() {
         io::ErrorKind::BrokenPipe => {
-            eprintln_bold!(Color::Warning, "{}", err);
+            eprintln!("{}", Palette::Warning.paint(err.to_string()));
             rprompt::prompt_reply_stderr(prompt)
         }
         _ => Err(err),

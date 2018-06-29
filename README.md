@@ -55,7 +55,7 @@ service: atcoder # "atcoder", "hackerrank", "yukicoder", "other"
 contest: arc001
 language: c++    # Priorities: <command line argument>, `service._.language`, `language`
 
-terminal: prefer256color
+color: auto # "always", "never", or "auto"
 
 session:
   timeout: 10

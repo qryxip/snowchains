@@ -8,11 +8,11 @@ pub(self) mod downloader;
 
 use config::Config;
 use errors::{ServiceError, ServiceResult, SessionResult};
+use palette::Palette;
 use replacer::CodeReplacer;
 use service::downloader::ZipDownloader;
 use service::session::{HttpSession, UrlBase};
 use template::{BaseDirNone, BaseDirSome, PathTemplate};
-use terminal::Color;
 use testsuite::SerializableExtension;
 use {util, ServiceName};
 
@@ -37,7 +37,7 @@ pub(self) fn ask_credentials(username_prompt: &str) -> io::Result<(String, Strin
     let username = rprompt::prompt_reply_stderr(username_prompt)?;
     let password = rpassword::prompt_password_stderr("Password: ").or_else(|e| match e.kind() {
         io::ErrorKind::BrokenPipe => {
-            eprintln_bold!(Color::Warning, "broken pipe");
+            eprintln!("{}", Palette::Warning.paint("broken pipe"));
             rprompt::prompt_reply_stderr("Password (not hidden): ")
         }
         _ => Err(e),

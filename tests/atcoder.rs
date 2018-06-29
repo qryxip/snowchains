@@ -7,7 +7,7 @@ extern crate env_logger;
 extern crate serde_yaml;
 extern crate tempdir;
 
-use snowchains::terminal::TerminalMode;
+use snowchains::palette::ColorMode;
 use snowchains::{util, Credentials, Opt, Prop, ServiceName};
 
 use tempdir::TempDir;
@@ -149,7 +149,7 @@ fn setup(tempdir_prefix: &str, credentials: Credentials) -> (TempDir, Prop) {
     let cookies_on_init = Cow::from(tempdir.path().join("cookies").to_str().unwrap().to_owned());
     let prop = Prop {
         working_dir: tempdir.path().to_owned(),
-        terminal_mode_on_init: TerminalMode::Plain,
+        color_mode_on_init: ColorMode::Never,
         cookies_on_init,
         credentials,
     };

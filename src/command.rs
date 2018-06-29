@@ -1,5 +1,5 @@
 use errors::{JudgeError, JudgeResult};
-use terminal::Color;
+use palette::Palette;
 use util;
 
 use std::ffi::{OsStr, OsString};
@@ -37,7 +37,8 @@ impl CompilationCommand {
     /// Executes the command.
     pub fn execute(&self) -> JudgeResult<()> {
         if !self.src.exists() {
-            eprintln_bold!(Color::Warning, "Warning: {} not found", self.src.display());
+            let msg = format!("Warning: {} not found", self.src.display());
+            eprintln!("{}", Palette::Warning.bold().paint(msg));
         }
         if self.src.exists() && self.bin.exists() {
             if self.src.metadata()?.modified()? < self.bin.metadata()?.modified()? {
@@ -50,10 +51,13 @@ impl CompilationCommand {
                 println!("Created {}", dir.display());
             }
         }
-        print_bold!(Color::CommandInfo, "Compilation Command: ");
-        print!("{}\n", self.command.display_args());
-        print_bold!(Color::CommandInfo, "Working directory:   ");
-        println!("{}", self.command.working_dir.display());
+        println!(
+            "{} {}\n{}   {}",
+            Palette::CommandInfo.bold().paint("Compilation Command:"),
+            self.command.display_args(),
+            Palette::CommandInfo.bold().paint("Working directory:"),
+            self.command.working_dir.display(),
+        );
         let status = self
             .command
             .build_checking_wd()?
@@ -62,11 +66,8 @@ impl CompilationCommand {
             .map_err(|e| JudgeError::Command(self.command.arg0.clone(), e))?;
         if status.success() {
             if !self.bin.exists() {
-                eprintln_bold!(
-                    Color::Warning,
-                    "Warning: {} not created",
-                    self.bin.display()
-                );
+                let msg = format!("Warning: {} not created", self.bin.display());
+                eprintln!("{}", Palette::Warning.paint(msg));
             }
             Ok(())
         } else {
@@ -108,12 +109,15 @@ impl JudgingCommand {
     /// Test files:        /path/to/testfiles/{a.json, a.yaml}
     /// """
     pub fn print_info(&self, testfiles_matched: &str) {
-        print_bold!(Color::CommandInfo, "Command:           ");
-        print!("{}\n", self.0.display_args());
-        print_bold!(Color::CommandInfo, "Working directory: ");
-        print!("{}\n", self.0.working_dir.display());
-        print_bold!(Color::CommandInfo, "Test files:        ");
-        println!("{}", testfiles_matched);
+        println!(
+            "{}           {}\n{} {}\n{}        {}",
+            Palette::CommandInfo.bold().paint("Command:"),
+            self.0.display_args(),
+            Palette::CommandInfo.bold().paint("Working directory:"),
+            self.0.working_dir.display(),
+            Palette::CommandInfo.bold().paint("Test files:"),
+            testfiles_matched,
+        );
     }
 
     /// Returns a `Child` which stdin & stdout & stderr are piped.

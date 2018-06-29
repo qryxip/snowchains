@@ -25,29 +25,3 @@ macro_rules! derive_from {
         }
     };
 }
-
-macro_rules! print_bold {
-    ($color: expr, $($arg: tt)*) => {
-        $crate::terminal::print_bold($color, format_args!($($arg)*))
-    }
-}
-
-macro_rules! println_bold {
-    ($color: expr, $($arg: tt)*) => {
-        $crate::terminal::println_bold($color, format_args!($($arg)*))
-    }
-}
-
-#[macro_export]
-macro_rules! eprint_bold {
-    ($color: expr, $($arg: tt)*) => {
-        $crate::terminal::eprint_bold($color, format_args!($($arg)*))
-    }
-}
-
-#[macro_export]
-macro_rules! eprintln_bold {
-    ($color: expr, $($arg: tt)*) => {
-        $crate::terminal::eprintln_bold($color, format_args!($($arg)*))
-    }
-}

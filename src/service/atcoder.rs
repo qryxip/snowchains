@@ -1,7 +1,7 @@
 use errors::{ServiceError, ServiceResult, SubmitError};
+use palette::Palette;
 use service::session::HttpSession;
 use service::{Contest, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp};
-use terminal::Color;
 use testsuite::{SuiteFilePath, TestSuite};
 use util;
 use util::std_unstable::RemoveItem_ as _RemoveItem_;
@@ -203,7 +203,8 @@ impl AtCoder {
             not_found.remove_item_(&name);
         }
         if !not_found.is_empty() {
-            eprintln_bold!(Color::Warning, "Not found: {:?}", not_found);
+            let msg = format!("Not found: {:?}", not_found);
+            eprintln!("{}", Palette::Warning.paint(msg));
         }
         if *open_browser {
             self.open_in_browser(&contest.url_submissions_me(1))?;
@@ -258,7 +259,8 @@ impl AtCoder {
                 util::fs::write(&path, code.as_bytes())?;
                 results.push((task_name, lang_name, lang_id, path));
             } else {
-                eprintln_bold!(Color::Warning, "Ignoring {:?} (id: {})", lang_name, lang_id);
+                let msg = format!("Ignoring {:?} (id: {})", lang_name, lang_id);
+                eprintln!("{}", Palette::Warning.paint(msg));
             }
         }
         let mut not_found = match problems.as_ref() {
@@ -276,7 +278,8 @@ impl AtCoder {
             not_found.remove_item_(&task_name);
         }
         if !not_found.is_empty() {
-            eprintln_bold!(Color::Warning, "Not found: {:?}", not_found);
+            let msg = format!("Not found: {:?}", not_found);
+            eprintln!("{}", Palette::Warning.paint(msg));
         }
         println!(
             "Saved {} file{}.",

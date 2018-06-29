@@ -1,6 +1,6 @@
 use errors::JudgeResult;
 use judging::{JudgingCommand, JudgingOutput, MillisRoundedUp};
-use terminal::Color;
+use palette::Palette;
 use testsuite::InteractiveCase;
 use util;
 
@@ -196,10 +196,10 @@ impl JudgingOutput for InteractiveOutput {
         }
     }
 
-    fn color(&self) -> Color {
+    fn palette(&self) -> Palette {
         match self.kind {
-            InteractiveOutputKind::Success => Color::Success,
-            InteractiveOutputKind::Failure => Color::Warning,
+            InteractiveOutputKind::Success => Palette::Success,
+            InteractiveOutputKind::Failure => Palette::Warning,
         }
     }
 
@@ -217,7 +217,7 @@ impl JudgingOutput for InteractiveOutput {
             && self.tester_stderr.is_empty()
             && self.console_outs.is_empty()
         {
-            return eprintln_bold!(Color::Title, "EMPTY");
+            return eprintln!("{}", Palette::Title.bold().paint("EMPTY"));
         }
         let tester_len = max_length(InteractiveConsoleOut::is_tester_s);
         let solver_len = max_length(InteractiveConsoleOut::is_solver_s);
@@ -228,11 +228,11 @@ impl JudgingOutput for InteractiveOutput {
             eprintln!("");
         }
         if !self.solver_stderr.is_empty() {
-            eprintln_bold!(Color::Title, "Solver stderr:");
+            eprintln!("{}", Palette::Title.bold().paint("Solver stderr:"));
             util::eprintln_trimming_trailing_newline(&self.solver_stderr);
         }
         if !self.tester_stderr.is_empty() {
-            eprintln_bold!(Color::Title, "Tester stderr:");
+            eprintln!("{}", Palette::Title.bold().paint("Tester stderr:"));
             util::eprintln_trimming_trailing_newline(&self.tester_stderr);
         }
     }
@@ -328,50 +328,50 @@ impl InteractiveConsoleOut {
         }
 
         #[cfg_attr(rustfmt, rustfmt_skip)]
-        let (kind, color, elapsed) = match self {
+        let (kind, palette, elapsed) = match self {
             InteractiveConsoleOut::SolverStdout(_, t) => {
-                ("Solver stdout", Color::SolverStdout, t)
+                ("Solver stdout", Palette::SolverStdout, t)
             }
             InteractiveConsoleOut::SolverStderr(_, t) => {
-                ("Solver,stderr", Color::SolverStderr, t)
+                ("Solver,stderr", Palette::SolverStderr, t)
             }
             InteractiveConsoleOut::SolverTerminated(Some(0), t) => {
-                ("Solver finished", Color::Success, t)
+                ("Solver finished", Palette::Success, t)
             }
             InteractiveConsoleOut::SolverTerminated(Some(_), t) => {
-                ("Solver finished", Color::Fatal, t)
+                ("Solver finished", Palette::Fatal, t)
             }
             InteractiveConsoleOut::SolverTerminated(None, t) => {
-                ("Solver killed", Color::Warning, t)
+                ("Solver killed", Palette::Warning, t)
             }
             InteractiveConsoleOut::TesterStdout(_, t) => {
-                ("Tester stdout", Color::TesterStdout, t)
+                ("Tester stdout", Palette::TesterStdout, t)
             }
             InteractiveConsoleOut::TesterStderr(_, t) => {
-                ("Tester stderr", Color::TesterStderr, t)
+                ("Tester stderr", Palette::TesterStderr, t)
             }
             InteractiveConsoleOut::TesterTerminated(Some(0), t) => {
-                ("Tester finished", Color::Success, t)
+                ("Tester finished", Palette::Success, t)
             }
             InteractiveConsoleOut::TesterTerminated(Some(_), t) => {
-                ("Tester finished", Color::Warning, t)
+                ("Tester finished", Palette::Warning, t)
             }
             InteractiveConsoleOut::TesterTerminated(None, t) => {
-                ("Tester killed", Color::Warning, t)
+                ("Tester killed", Palette::Warning, t)
             }
         };
         let elapsed = elapsed.millis_rounded_up();
         let content = self.content();
         let length = content.chars().count();
-        eprint_bold!(color, "{:<15}", kind);
+        eprint!("{}", palette.paint(format!("{:<15}", kind)));
         eprint!("│");
         if self.is_solver_s() {
             eprint_spaces(tester_length);
             eprint!("│");
-            eprint_bold!(color, "{}", content);
+            eprint!("{}", palette.paint(content));
             eprint_spaces(solver_length - length);
         } else {
-            eprint_bold!(color, "{}", content);
+            eprint!("{}", palette.paint(content));
             eprint_spaces(tester_length - length);
             eprint!("│");
             eprint_spaces(solver_length);

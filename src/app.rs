@@ -1,10 +1,10 @@
 use config::{self, Config};
 use errors::TemplateExpandResult;
 use judging::{self, JudgeProp};
+use palette::ColorMode;
 use service::{
     atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp,
 };
-use terminal::TerminalMode;
 use testsuite::{self, SerializableExtension, SuiteFilePath};
 use ServiceName;
 
@@ -294,7 +294,7 @@ impl Opt {
                 info!("Running \"init\" command");
                 config::init(
                     &prop.working_dir.join(&directory),
-                    prop.terminal_mode_on_init,
+                    prop.color_mode_on_init,
                     &prop.cookies_on_init,
                 )?;
             }
@@ -308,7 +308,7 @@ impl Opt {
             }
             Opt::Login { service } => {
                 info!("Running \"login\" command");
-                let config = Config::load_setting_term_mode(service, None, &prop.working_dir)?;
+                let config = Config::load_setting_color_mode(service, None, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 match service {
                     ServiceName::AtCoder => atcoder::login(&sess_prop),
@@ -320,7 +320,7 @@ impl Opt {
             Opt::Participate { service, contest } => {
                 info!("Running \"participate\" command");
                 let config =
-                    Config::load_setting_term_mode(service, contest.clone(), &prop.working_dir)?;
+                    Config::load_setting_color_mode(service, contest.clone(), &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 match service {
                     ServiceName::AtCoder => atcoder::participate(&contest, &sess_prop),
@@ -334,7 +334,7 @@ impl Opt {
                 problems,
             } => {
                 info!("Running \"download\" command");
-                let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_mode(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 let download_prop = DownloadProp::new(&config, open_browser, problems)?;
                 match config.service() {
@@ -350,7 +350,7 @@ impl Opt {
                 problems,
             } => {
                 info!("Running \"restore\" command");
-                let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_mode(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 let restore_prop = RestoreProp::new(&config, problems)?;
                 match config.service() {
@@ -367,7 +367,7 @@ impl Opt {
                 contest,
             } => {
                 info!("Running \"append\" command");
-                let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_mode(service, contest, &prop.working_dir)?;
                 let dir = config.testfiles_dir().expand("")?;
                 let path = SuiteFilePath::new(&dir, &problem, extension);
                 testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
@@ -380,7 +380,7 @@ impl Opt {
             } => {
                 let language = language.as_ref().map(String::as_str);
                 info!("Running \"judge\" command");
-                let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_mode(service, contest, &prop.working_dir)?;
                 let judge_prop = JudgeProp::new(&config, &problem, language)?;
                 judging::judge(judge_prop)?;
             }
@@ -395,7 +395,7 @@ impl Opt {
             } => {
                 let language = language.as_ref().map(String::as_str);
                 info!("Running \"submit\" command");
-                let config = Config::load_setting_term_mode(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_mode(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 let submit_prop = SubmitProp::new(
                     &config,
@@ -421,7 +421,7 @@ impl Opt {
 
 pub struct Prop {
     pub working_dir: PathBuf,
-    pub terminal_mode_on_init: TerminalMode,
+    pub color_mode_on_init: ColorMode,
     pub cookies_on_init: Cow<'static, str>,
     pub credentials: Credentials,
 }
@@ -431,7 +431,7 @@ impl Prop {
         let working_dir = env::current_dir()?;
         Ok(Self {
             working_dir,
-            terminal_mode_on_init: TerminalMode::Prefer256Color,
+            color_mode_on_init: ColorMode::Auto,
             cookies_on_init: Cow::from("~/.local/share/snowchains/$service"),
             credentials: Credentials::None,
         })

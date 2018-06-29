@@ -1,12 +1,12 @@
 use command::{CompilationCommand, JudgingCommand};
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
+use palette::{self, ColorMode, Palette};
 use replacer::CodeReplacer;
 use service::SessionConfig;
 use template::{
     BaseDirNone, BaseDirSome, CommandTemplate, CompilationTemplate, JudgeTemplate, PathTemplate,
     StringTemplate,
 };
-use terminal::{self, Color, TerminalMode};
 use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipConfig};
 use {util, yaml, ServiceName};
 
@@ -22,18 +22,14 @@ use std::time::Duration;
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
-pub(crate) fn init(
-    directory: &Path,
-    terminal: TerminalMode,
-    session_cookies: &str,
-) -> FileIoResult<()> {
+pub(crate) fn init(directory: &Path, color: ColorMode, session_cookies: &str) -> FileIoResult<()> {
     let config = format!(
         r#"---
 service: atcoder
 contest: arc001
 language: c++
 
-terminal: {terminal}
+color: {color}
 
 session:
   timeout: 10
@@ -208,7 +204,7 @@ languages:
       atcoder: 3027
       yukicoder: text
 "#,
-        terminal = terminal,
+        color = color,
         session_cookies = yaml::escape_string(session_cookies),
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
@@ -303,7 +299,7 @@ pub(crate) fn switch(
             Ok((new_yaml, new_config))
         })
         .or_else(|warning| {
-            eprintln_bold!(Color::Warning, "{}", warning);
+            eprintln!("{}", Palette::Warning.paint(warning.to_string()));
             let mut new_config = serde_yaml::from_str::<Config>(&old_yaml)
                 .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, err))?;
             new_config.service = service.unwrap_or(new_config.service);
@@ -343,7 +339,7 @@ pub(crate) struct Config {
     service: ServiceName,
     contest: String,
     language: Option<String>,
-    terminal: TerminalMode,
+    color: ColorMode,
     session: SessionConfig,
     shell: Vec<StringTemplate>,
     testfiles: TestFiles,
@@ -358,7 +354,7 @@ pub(crate) struct Config {
 
 impl Config {
     /// Loads and deserializes from the nearest `snowchains.yaml`.
-    pub fn load_setting_term_mode(
+    pub fn load_setting_color_mode(
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
         dir: &Path,
@@ -370,12 +366,8 @@ impl Config {
         config.base_dir = base;
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
-        terminal::terminal_mode(config.terminal);
-        println!(
-            "Loaded {} (terminal mode: {})",
-            path.display(),
-            config.terminal,
-        );
+        palette::enable_ansi_support(config.color);
+        println!("Loaded {} (color: {})", path.display(), config.color);
         Ok(config)
     }
 

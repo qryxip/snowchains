@@ -4,7 +4,7 @@ mod simple;
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
 use errors::{JudgeError, JudgeResult};
-use terminal::Color;
+use palette::Palette;
 use testsuite::{TestCase, TestCases};
 
 use unicode_width::UnicodeWidthStr as _UnicodeWidthStr;
@@ -110,25 +110,24 @@ pub(self) trait JudgingOutput
 where
     Self: fmt::Display,
 {
-    /// Whether `self` is a failure.
     fn failure(&self) -> bool;
-    /// A color of `self`.
-    fn color(&self) -> Color;
-    /// Prints details to stderr.
+    fn palette(&self) -> Palette;
     fn eprint_details(&self);
 
     fn print_title(&self, i: usize, n: usize, name: &str, name_width: usize) {
         (0..format!("{}", n).len() - format!("{}", i + 1).len()).for_each(|_| print!(" "));
-        print_bold!(Color::None, "{}/{} ({})", i + 1, n, name);
+        let msg = format!("{}/{} ({})", i + 1, n, name);
+        print!("{}", Palette::Plain.bold().paint(msg));
         (0..name_width - name.width_cjk() + 1).for_each(|_| print!(" "));
-        println_bold!(self.color(), "{}", self);
+        println!("{}", self.palette().bold().paint(self.to_string()));
     }
 
     fn eprint_title(&self, i: usize, n: usize, name: &str, name_width: usize) {
         (0..format!("{}", n).len() - format!("{}", i + 1).len()).for_each(|_| eprint!(" "));
-        eprint_bold!(Color::None, "{}/{} ({})", i + 1, n, name);
+        let msg = format!("{}/{} ({})", i + 1, n, name);
+        eprint!("{}", Palette::Plain.bold().paint(msg));
         (0..name_width - name.width_cjk() + 1).for_each(|_| eprint!(" "));
-        eprintln_bold!(self.color(), "{}", self);
+        eprintln!("{}", self.palette().bold().paint(self.to_string()));
     }
 }
 

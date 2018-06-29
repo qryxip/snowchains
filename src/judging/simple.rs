@@ -1,7 +1,7 @@
 use command::JudgingCommand;
 use errors::JudgeResult;
 use judging::{JudgingOutput, MillisRoundedUp};
-use terminal::Color;
+use palette::Palette;
 use testsuite::{ExpectedStdout, SimpleCase};
 use util;
 
@@ -183,11 +183,13 @@ impl JudgingOutput for SimpleOutput {
         }
     }
 
-    fn color(&self) -> Color {
+    fn palette(&self) -> Palette {
         match self {
-            SimpleOutput::Accepted { .. } => Color::Success,
-            SimpleOutput::TimelimitExceeded { .. } => Color::Fatal,
-            SimpleOutput::WrongAnswer { .. } | SimpleOutput::RuntimeError { .. } => Color::Warning,
+            SimpleOutput::Accepted { .. } => Palette::Success,
+            SimpleOutput::TimelimitExceeded { .. } => Palette::Fatal,
+            SimpleOutput::WrongAnswer { .. } | SimpleOutput::RuntimeError { .. } => {
+                Palette::Warning
+            }
         }
     }
 
@@ -196,21 +198,22 @@ impl JudgingOutput for SimpleOutput {
 
         fn eprint_size(num_bytes: usize) {
             if num_bytes > 10 * 1024 * 1024 {
-                let mb = num_bytes / (1024 * 1024);
-                eprintln_bold!(Color::Warning, "OMITTED ({}MB)", mb);
+                let msg = format!("OMITTED ({}MB)", num_bytes / (1024 * 1024));
+                eprintln!("{}", Palette::Warning.bold().paint(msg));
             } else if num_bytes > 10 * 1024 {
-                let kb = num_bytes / 1024;
-                eprintln_bold!(Color::Warning, "OMITTED ({}KB)", kb);
+                let msg = format!("OMITTED ({}KB)", num_bytes / 1024);
+                eprintln!("{}", Palette::Warning.bold().paint(msg));
             } else {
-                eprintln_bold!(Color::Warning, "OMITTED ({}B)", num_bytes);
+                let msg = format!("OMITTED ({}B)", num_bytes);
+                eprintln!("{}", Palette::Warning.bold().paint(msg));
             }
         }
 
         fn eprint_section(head: &'static str, content: &str) {
+            eprintln!("{}", Palette::Title.bold().paint(format!("{}:", head)));
             let num_bytes = content.as_bytes().len();
-            eprintln_bold!(Color::Title, "{}:", head);
             if num_bytes == 0 {
-                eprintln_bold!(Color::Warning, "EMPTY");
+                eprintln!("{}", Palette::Warning.bold().paint("EMPTY"));
             } else if num_bytes > THRESHOLD_TO_OMIT {
                 eprint_size(num_bytes);
             } else {
@@ -219,7 +222,7 @@ impl JudgingOutput for SimpleOutput {
         }
 
         fn eprint_section_unless_empty(head: &'static str, content: &str) {
-            eprintln_bold!(Color::Title, "{}:", head);
+            eprintln!("{}", Palette::Title.bold().paint(format!("{}:", head)));
             let num_bytes = content.as_bytes().len();
             if num_bytes > THRESHOLD_TO_OMIT {
                 eprint_size(num_bytes);
@@ -235,7 +238,7 @@ impl JudgingOutput for SimpleOutput {
                     eprint_section("expected", content);
                 }
                 ExpectedStdout::Lines(lines) => {
-                    eprintln_bold!(Color::Title, r"expected:");
+                    eprintln!("{}", Palette::Title.bold().paint("expected:"));
                     for l in lines.lines() {
                         eprintln!("{}", l);
                     }
@@ -245,18 +248,21 @@ impl JudgingOutput for SimpleOutput {
                     absolute_error,
                     relative_error,
                 } => {
-                    eprintln_bold!(
-                        Color::Title,
+                    let msg = format!(
                         "expected (absolute: {}, relative: {}):",
-                        absolute_error,
-                        relative_error
+                        absolute_error, relative_error
                     );
+                    eprintln!("{}", Palette::Title.bold().paint(msg));
                     for l in lines.lines() {
                         if l.split_whitespace().any(|t| t.parse::<f64>().is_ok()) {
                             for (i, t) in l.split_whitespace().enumerate() {
                                 match t.parse::<f64>() {
-                                    Ok(v) if i == 0 => eprint_bold!(Color::CommandInfo, "{}", v),
-                                    Ok(v) => eprint_bold!(Color::CommandInfo, " {}", v),
+                                    Ok(v) if i == 0 => {
+                                        eprint!("{}", Palette::CommandInfo.paint(v.to_string()))
+                                    }
+                                    Ok(v) => {
+                                        eprint!("{}", Palette::CommandInfo.paint(v.to_string()))
+                                    }
                                     Err(_) if i == 0 => eprint!("{}", t),
                                     Err(_) => eprint!(" {}", t),
                                 }

@@ -1,8 +1,8 @@
 use errors::{
     FileIoError, FileIoErrorKind, SerializeError, SessionError, SessionResult, StartSessionError,
 };
+use palette::Palette;
 use service::USER_AGENT;
-use terminal::Color;
 use util;
 
 use cookie::{self, CookieJar};
@@ -257,9 +257,11 @@ fn statuses_from(from: &[u16]) -> Vec<StatusCode> {
 }
 
 fn echo_method(method: &Method, url: &Url) {
-    print_bold!(Color::None, "{} ", method);
-    print_bold!(Color::Url, "{}", url);
-    print!(" ... ");
+    print!(
+        "{} {} ... ",
+        Palette::Plain.bold().paint(method.to_string()),
+        Palette::Url.paint(url.to_string()),
+    );
     io::stdout().flush().unwrap();
 }
 
@@ -273,11 +275,12 @@ where
 
 impl ResponseExt for Response {
     fn echo_status(&self, expected_statuses: &[StatusCode]) {
-        if expected_statuses.contains(&self.status()) {
-            println_bold!(Color::Success, "{}", self.status());
+        let palette = if expected_statuses.contains(&self.status()) {
+            Palette::Success
         } else {
-            println_bold!(Color::Fatal, "{}", self.status());
-        }
+            Palette::Fatal
+        };
+        println!("{}", palette.bold().paint(self.status().to_string()));
     }
 
     fn filter_by_status(self, expected: Vec<StatusCode>) -> SessionResult<Self> {

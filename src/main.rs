@@ -1,11 +1,10 @@
-#[macro_use]
 extern crate snowchains;
 
 extern crate env_logger;
 extern crate failure;
 extern crate structopt;
 
-use snowchains::terminal::Color;
+use snowchains::palette::Palette;
 use snowchains::{Opt, Prop};
 
 use failure::Fail;
@@ -25,7 +24,7 @@ fn main() {
             } else {
                 "Caused by: "
             };
-            eprint_bold!(Color::Fatal, "{}", head);
+            eprint!("{}", Palette::Fatal.bold().paint(head));
             for (i, line) in cause.to_string().lines().enumerate() {
                 if i > 0 {
                     (0..head.len()).for_each(|_| eprint!(" "));

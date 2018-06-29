@@ -1,8 +1,8 @@
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
 use errors::{FileIoError, FileIoErrorKind, SerializeError, SuiteFileError, SuiteFileResult};
+use palette::Palette;
 use template::{BaseDirSome, PathTemplate};
-use terminal::Color;
 use util::{self, ScalarOrArray};
 use yaml;
 
@@ -429,17 +429,17 @@ impl TestSuite {
         util::fs::write(path, serialized.as_bytes())?;
         print!("Saved to {}", path.display());
         if prints_num_cases {
-            match self {
+            let msg = match self {
                 TestSuite::Simple(s) => match s.cases.len() {
-                    0 => print_bold!(Color::Warning, " (no sample case extracted)"),
-                    1 => print_bold!(Color::Success, " (1 sample case extracted)"),
-                    n => print_bold!(Color::Success, " ({} sample cases extracted)", n),
+                    0 => Palette::Warning.paint(" (no sample case extracted)"),
+                    1 => Palette::Success.paint(" (1 sample case extracted)"),
+                    n => Palette::Success.paint(format!(" ({} sample cases extracted)", n)),
                 },
-                TestSuite::Interactive(_) => print_bold!(Color::Success, " (interactive problem)"),
-                TestSuite::Unsubmittable => print_bold!(Color::Success, " (unsubmittable problem)"),
-            }
+                TestSuite::Interactive(_) => Palette::Success.paint(" (interactive problem)"),
+                TestSuite::Unsubmittable => Palette::Success.paint(" (unsubmittable problem)"),
+            };
+            println!("{}", msg);
         }
-        println!();
         Ok(())
     }
 

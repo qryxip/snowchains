@@ -17,6 +17,7 @@ extern crate serde_derive;
 #[macro_use]
 extern crate structopt;
 
+extern crate ansi_term;
 extern crate bincode;
 extern crate chrono;
 extern crate combine;
@@ -55,9 +56,9 @@ extern crate env_logger;
 extern crate tempdir;
 
 #[macro_use]
-pub mod macros;
+mod macros;
 
-pub mod terminal;
+pub mod palette;
 pub mod util;
 
 mod app;
