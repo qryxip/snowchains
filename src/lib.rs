@@ -1,8 +1,6 @@
 #![recursion_limit = "1024"]
 
 #[macro_use]
-extern crate custom_derive;
-#[macro_use]
 extern crate failure;
 #[macro_use]
 extern crate lazy_static;
@@ -10,8 +8,6 @@ extern crate lazy_static;
 extern crate log;
 #[macro_use]
 extern crate maplit;
-#[macro_use]
-extern crate newtype_derive;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]

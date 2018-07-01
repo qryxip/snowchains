@@ -7,7 +7,7 @@ pub(crate) mod yukicoder;
 pub(self) mod downloader;
 
 use config::Config;
-use errors::{ServiceError, ServiceResult, SessionResult};
+use errors::SessionResult;
 use palette::Palette;
 use replacer::CodeReplacer;
 use service::downloader::ZipDownloader;
@@ -43,20 +43,6 @@ pub(self) fn ask_credentials(username_prompt: &str) -> io::Result<(String, Strin
         _ => Err(e),
     })?;
     Ok((username, password))
-}
-
-/// Gets the value `x` if `Some(x) = o` and `!f(x)`.
-///
-/// # Errors
-///
-/// Returns `Err` if the above condition is not satisfied.
-pub(self) fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> ServiceResult<T> {
-    if let Some(x) = o {
-        if !f(&x) {
-            return Ok(x);
-        }
-    }
-    Err(ServiceError::Scrape)
 }
 
 #[derive(Clone)]
