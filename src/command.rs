@@ -1,11 +1,10 @@
 use errors::{JudgeError, JudgeResult};
 use palette::Palette;
-use util;
+use path::AbsPathBuf;
 
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write;
 use std::io;
-use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
 /// Compilation command.
@@ -13,8 +12,8 @@ use std::process::{Child, Command, Stdio};
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct CompilationCommand {
     command: CommandProperty,
-    src: PathBuf,
-    bin: PathBuf,
+    src: AbsPathBuf,
+    bin: AbsPathBuf,
 }
 
 impl CompilationCommand {
@@ -23,9 +22,9 @@ impl CompilationCommand {
     /// Wraps `command` in `sh` or `cmd` if necessary.
     pub fn new(
         args: &[impl AsRef<OsStr>],
-        working_dir: PathBuf,
-        src: PathBuf,
-        bin: PathBuf,
+        working_dir: AbsPathBuf,
+        src: AbsPathBuf,
+        bin: AbsPathBuf,
     ) -> Self {
         Self {
             command: CommandProperty::new(args, working_dir),
@@ -45,10 +44,10 @@ impl CompilationCommand {
                 println!("{} is up to date.", self.bin.display());
                 return Ok(());
             }
-        } else if let Some(dir) = self.bin.parent() {
-            if !dir.exists() {
-                util::fs::create_dir_all(dir)?;
-                println!("Created {}", dir.display());
+        } else if let Some(parent) = self.bin.parent() {
+            if !parent.exists() {
+                ::fs::create_dir_all(&parent)?;
+                println!("Created {}", parent.display());
             }
         }
         println!(
@@ -84,12 +83,12 @@ impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub fn new(args: &[impl AsRef<OsStr>], working_dir: PathBuf) -> Self {
+    pub fn new(args: &[impl AsRef<OsStr>], working_dir: AbsPathBuf) -> Self {
         JudgingCommand(CommandProperty::new(args, working_dir))
     }
 
     #[cfg(test)]
-    pub fn from_args<S: AsRef<OsStr>>(arg0: S, rest_args: &[S], working_dir: PathBuf) -> Self {
+    pub fn from_args<S: AsRef<OsStr>>(arg0: S, rest_args: &[S], working_dir: AbsPathBuf) -> Self {
         JudgingCommand(CommandProperty {
             arg0: arg0.as_ref().to_owned(),
             rest_args: rest_args
@@ -137,11 +136,11 @@ impl JudgingCommand {
 struct CommandProperty {
     arg0: OsString,
     rest_args: Vec<OsString>,
-    working_dir: PathBuf,
+    working_dir: AbsPathBuf,
 }
 
 impl CommandProperty {
-    fn new(args: &[impl AsRef<OsStr>], working_dir: PathBuf) -> Self {
+    fn new(args: &[impl AsRef<OsStr>], working_dir: AbsPathBuf) -> Self {
         let (arg0, rest_args) = if args.is_empty() {
             (OsString::new(), vec![])
         } else {

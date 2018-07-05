@@ -9,6 +9,7 @@ pub(self) mod downloader;
 use config::Config;
 use errors::SessionResult;
 use palette::Palette;
+use path::{AbsPath, AbsPathBuf};
 use replacer::CodeReplacer;
 use service::downloader::ZipDownloader;
 use service::session::{HttpSession, UrlBase};
@@ -25,7 +26,6 @@ use {rpassword, rprompt};
 
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 use std::{self, env, fmt, io};
@@ -92,7 +92,7 @@ impl SessionConfig {
 
     pub(crate) fn cookies<'a>(
         &self,
-        base: &'a Path,
+        base: AbsPath<'a>,
         service: ServiceName,
     ) -> PathTemplate<BaseDirSome<'a>> {
         self.cookies
@@ -103,7 +103,7 @@ impl SessionConfig {
 
 pub(crate) struct SessionProp {
     pub domain: Option<&'static str>,
-    pub cookies_path: PathBuf,
+    pub cookies_path: AbsPathBuf,
     pub timeout: Option<Duration>,
     pub credentials: Credentials,
 }
@@ -154,7 +154,7 @@ pub(self) fn reqwest_client(
 pub(crate) struct DownloadProp<C: Contest> {
     pub contest: C,
     pub problems: Option<Vec<String>>,
-    pub download_dir: PathBuf,
+    pub download_dir: AbsPathBuf,
     pub extension: SerializableExtension,
     pub open_browser: bool,
 }
@@ -256,7 +256,7 @@ pub(crate) struct SubmitProp<C: Contest> {
     pub contest: C,
     pub problem: String,
     pub lang_id: String,
-    pub src_path: PathBuf,
+    pub src_path: AbsPathBuf,
     pub replacer: Option<CodeReplacer>,
     pub open_browser: bool,
     pub skip_checking_if_accepted: bool,

@@ -3,7 +3,6 @@ use palette::Palette;
 use service::session::{GetPost, HttpSession};
 use service::{Contest, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp};
 use testsuite::{SuiteFilePath, TestSuite};
-use util;
 use util::std_unstable::RemoveItem_ as _RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
@@ -253,7 +252,7 @@ impl AtCoder {
                     Some(replacer) => replacer.replace_from_submission(&task_name, &code)?,
                     None => code,
                 };
-                util::fs::write(&path, code.as_bytes())?;
+                ::fs::write(&path, code.as_bytes())?;
                 results.push((task_name, lang_name, lang_id, path));
             } else {
                 let msg = format!("Ignoring {:?} (id: {})", lang_name, lang_id);
@@ -352,7 +351,7 @@ impl AtCoder {
                         }
                     }
                 }
-                let source_code = util::fs::read_to_string(src_path)?;
+                let source_code = ::fs::read_to_string(src_path)?;
                 let source_code = match replacer {
                     Some(replacer) => replacer.replace_as_submission(&problem, &source_code)?,
                     None => source_code,

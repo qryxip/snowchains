@@ -1,6 +1,7 @@
 use command::{CompilationCommand, JudgingCommand};
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
 use palette::{self, ColorMode, Palette};
+use path::{AbsPath, AbsPathBuf};
 use replacer::CodeReplacer;
 use service::SessionConfig;
 use template::{
@@ -8,21 +9,25 @@ use template::{
     StringTemplate,
 };
 use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipConfig};
-use {util, yaml, ServiceName};
+use {yaml, ServiceName};
 
 use serde_yaml;
 use unicode_width::UnicodeWidthStr as _UnicodeWidthStr;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
+use std::ops::Deref as _Deref;
 use std::str;
 use std::time::Duration;
 
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
-pub(crate) fn init(directory: &Path, color: ColorMode, session_cookies: &str) -> FileIoResult<()> {
+pub(crate) fn init(
+    directory: AbsPath,
+    color: ColorMode,
+    session_cookies: &str,
+) -> FileIoResult<()> {
     let config = format!(
         r#"---
 service: atcoder
@@ -246,14 +251,14 @@ languages:
         }
     );
     let path = directory.join(CONFIG_FILE_NAME);
-    util::fs::write(&path, config.as_bytes())?;
-    println!("Wrote to {}", util::path::remove_dots(&path).display());
+    ::fs::write(&path, config.as_bytes())?;
+    println!("Wrote to {}", path.display());
     Ok(())
 }
 
 /// Changes attributes.
 pub(crate) fn switch(
-    directory: &Path,
+    directory: AbsPath,
     service: Option<ServiceName>,
     contest: Option<String>,
     language: Option<String>,
@@ -266,10 +271,10 @@ pub(crate) fn switch(
         println!(" -> {}", new);
     }
 
-    let path = find_base(directory)?.join(CONFIG_FILE_NAME);
-    let mut old_yaml = util::fs::read_to_string(&path)?;
+    let path = ::fs::find_filepath(directory, CONFIG_FILE_NAME)?;
+    let mut old_yaml = ::fs::read_to_string(&path)?;
     let old_config = serde_yaml::from_str::<Config>(&old_yaml)
-        .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, err))?;
+        .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, path.deref(), err))?;
     println!("Loaded {}", path.display());
 
     let mut m = hashmap!();
@@ -300,13 +305,14 @@ pub(crate) fn switch(
         })
         .or_else(|warning| {
             eprintln!("{}", Palette::Warning.paint(warning.to_string()));
-            let mut new_config = serde_yaml::from_str::<Config>(&old_yaml)
-                .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, err))?;
+            let mut new_config = serde_yaml::from_str::<Config>(&old_yaml).map_err(|err| {
+                FileIoError::chaining(FileIoErrorKind::Deserialize, path.deref(), err)
+            })?;
             new_config.service = service.unwrap_or(new_config.service);
             new_config.contest = contest.unwrap_or(new_config.contest);
             new_config.language = language.or(new_config.language);
             let new_yaml = serde_yaml::to_string(&new_config)
-                .map_err(|err| FileIoError::chaining(FileIoErrorKind::Write, &path, err))?;
+                .map_err(|err| FileIoError::chaining(FileIoErrorKind::Write, path.deref(), err))?;
             Ok((new_yaml, new_config))
         })?;
 
@@ -327,7 +333,7 @@ pub(crate) fn switch(
     print_change(w, &s1, &s2);
     print_change(w, &c1, &c2);
     print_change(w, &l1, &l2);
-    util::fs::write(&path, new_yaml.as_bytes())?;
+    ::fs::write(&path, new_yaml.as_bytes())?;
     println!("Saved.");
     Ok(())
 }
@@ -349,7 +355,7 @@ pub(crate) struct Config {
     interactive: HashMap<String, Language>,
     languages: HashMap<String, Language>,
     #[serde(skip)]
-    base_dir: PathBuf,
+    base_dir: AbsPathBuf,
 }
 
 impl Config {
@@ -357,13 +363,12 @@ impl Config {
     pub fn load_setting_color_mode(
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
-        dir: &Path,
+        dir: AbsPath,
     ) -> FileIoResult<Self> {
-        let base = find_base(dir)?;
-        let path = base.join(CONFIG_FILE_NAME);
-        let mut config = serde_yaml::from_reader::<_, Self>(util::fs::open(&path)?)
-            .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, err))?;
-        config.base_dir = base;
+        let path = ::fs::find_filepath(dir, CONFIG_FILE_NAME)?;
+        let mut config = serde_yaml::from_reader::<_, Self>(::fs::open(&path)?)
+            .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, path.deref(), err))?;
+        config.base_dir = path.parent().unwrap();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
         palette::enable_ansi_support(config.color);
@@ -545,32 +550,6 @@ fn find_language<'a>(
     langs
         .get(name)
         .ok_or_else(|| LoadConfigError::NoSuchLanguage(name.to_owned()))
-}
-
-fn find_base(start: &Path) -> FileIoResult<PathBuf> {
-    fn target_exists(dir: &Path) -> FileIoResult<bool> {
-        for entry in util::fs::read_dir(dir)? {
-            let path = entry
-                .map_err(|e| FileIoError::chaining(FileIoErrorKind::ReadDir, dir, e))?
-                .path();
-            if path.is_file() && path.file_name().unwrap() == CONFIG_FILE_NAME {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    let mut dir = PathBuf::from(start);
-    loop {
-        if let Ok(true) = target_exists(&dir) {
-            return Ok(dir);
-        } else if !dir.pop() {
-            return Err(FileIoError::new(
-                FileIoErrorKind::Search(CONFIG_FILE_NAME),
-                start,
-            ));
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize)]

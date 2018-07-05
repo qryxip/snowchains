@@ -2,6 +2,7 @@ use command::{CompilationCommand, JudgingCommand};
 use config::Config;
 use errors::{FileIoError, FileIoErrorKind, SerializeError, SuiteFileError, SuiteFileResult};
 use palette::Palette;
+use path::{AbsPath, AbsPathBuf};
 use template::{BaseDirSome, PathTemplate};
 use util::{self, ScalarOrArray};
 use yaml;
@@ -16,7 +17,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::{self, Write as _Write};
 use std::iter::FromIterator as _FromIterator;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -154,7 +155,7 @@ impl<'a> SuiteFilePathsTemplate<'a> {
             return Err(SuiteFileError::DirNotExist(dir.to_owned()));
         }
         let existing_filenames = {
-            let mut filenames = util::fs::read_dir(&dir)?
+            let mut filenames = ::fs::read_dir(&dir)?
                 .filter_map(|entry| match entry {
                     Ok(entry) => {
                         let path = entry.path();
@@ -216,11 +217,11 @@ impl<'a> SuiteFilePathsTemplate<'a> {
 /// File path which extension is 'json', 'toml', 'yaml', or 'yml'.
 pub(crate) struct SuiteFilePath {
     extension: SerializableExtension,
-    joined: Arc<PathBuf>,
+    joined: Arc<AbsPathBuf>,
 }
 
 impl<'a> SuiteFilePath {
-    pub fn new(directory: &Path, stem: &str, extension: SerializableExtension) -> Self {
+    pub fn new(directory: AbsPath, stem: &str, extension: SerializableExtension) -> Self {
         let joined = directory.join(stem).with_extension(&extension.to_string());
         Self {
             extension,
@@ -243,7 +244,7 @@ pub(crate) struct ZipConfig {
 }
 
 impl ZipConfig {
-    fn load(&self, filename: &str, dir: &Path) -> SuiteFileResult<Vec<SimpleCase>> {
+    fn load(&self, filename: &str, dir: AbsPath) -> SuiteFileResult<Vec<SimpleCase>> {
         let (timelimit, output_match) = (self.timelimit, self.output_match);
         let mut r = vec![];
         for e in &self.entries {
@@ -265,7 +266,7 @@ struct ZipEntries {
 impl ZipEntries {
     fn load(
         &self,
-        path: &Path,
+        path: AbsPath,
         filename: &str,
         timelimit: Option<Duration>,
         output_match: Match,
@@ -274,7 +275,7 @@ impl ZipEntries {
             return Ok(vec![]);
         }
         let mut zip =
-            ZipArchive::new(util::fs::open(path)?).map_err(|e| FileIoError::read_zip(path, e))?;
+            ZipArchive::new(::fs::open(path)?).map_err(|e| FileIoError::read_zip(path, e))?;
         let mut pairs = hashmap!();
         for i in 0..zip.len() {
             let (filename, content) = {
@@ -397,7 +398,7 @@ impl TestSuite {
             FileIoError::chaining(FileIoErrorKind::Deserialize, path, err)
         }
         let (path, extension) = (&path.joined, path.extension);
-        let content = util::fs::read_to_string(&path)?;
+        let content = ::fs::read_to_string(&path)?;
         match extension {
             SerializableExtension::Json => {
                 serde_json::from_str(&content).map_err(|e| chain_err(e, &path))
@@ -426,7 +427,7 @@ impl TestSuite {
                 serde_yaml::to_string(self).map_err(|e| chain_err(e, self))
             }
         }?;
-        util::fs::write(path, serialized.as_bytes())?;
+        ::fs::write(path.as_ref(), serialized.as_bytes())?;
         print!("Saved to {}", path.display());
         if prints_num_cases {
             let msg = match self {

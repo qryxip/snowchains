@@ -326,8 +326,8 @@ mod tests {
     use command::JudgingCommand;
     use errors::{JudgeError, JudgeResult};
     use judging::simple::SimpleOutput;
+    use path::AbsPathBuf;
     use testsuite::SimpleCase;
-    use util;
 
     use env_logger;
     use tempdir::TempDir;
@@ -493,14 +493,14 @@ impl InputScanOnce {
         static OUT: &str = "2 1.000 2.000\n2 1.000 2.000\n2 1.000 2.000\n";
         let _ = env_logger::try_init();
         let tempdir = TempDir::new("it_judges_for_atcoder_tricky_b").unwrap();
-        let wd = tempdir.path().to_owned();
+        let wd = AbsPathBuf::new_or_panic(tempdir.path());
         let src = wd.join("a.rs");
         let bin = wd.join("a");
-        util::fs::write(&src, CODE.as_bytes()).unwrap();
+        ::fs::write(&src, CODE.as_bytes()).unwrap();
         let status = Command::new("rustc")
-            .arg(&src)
+            .arg(src.as_ref())
             .arg("-o")
-            .arg(&bin)
+            .arg(bin.as_ref())
             .current_dir(&wd)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -508,7 +508,7 @@ impl InputScanOnce {
             .status()
             .unwrap();
         assert!(status.success());
-        let command = Arc::new(JudgingCommand::from_args(&bin, &[], wd));
+        let command = Arc::new(JudgingCommand::from_args(bin.as_ref(), &[], wd));
         match judge_float_matching(IN, OUT, 500, 1e-9f64, &command).unwrap() {
             SimpleOutput::Accepted { .. } => tempdir.close().unwrap(),
             o => panic!("{:?}", o),
@@ -546,8 +546,8 @@ impl InputScanOnce {
     #[ignore]
     fn it_denies_nonexisting_commands() {
         let _ = env_logger::try_init();
-        let wd = env::current_dir().unwrap();
-        let command = Arc::new(JudgingCommand::from_args("nonexisting", &[], wd));
+        let cwd = env::current_dir().map(AbsPathBuf::new_or_panic).unwrap();
+        let command = Arc::new(JudgingCommand::from_args("nonexisting", &[], cwd));
         match judge_default_matching("", "", 500, &command).unwrap_err() {
             JudgeError::Command(..) => {}
             e => panic!("{:?}", e),
@@ -605,7 +605,7 @@ impl InputScanOnce {
         static BASH: &str = r"C:\msys64\usr\bin\bash.exe";
         #[cfg(not(windows))]
         static BASH: &str = "/bin/bash";
-        let wd = env::current_dir().unwrap();
-        Arc::new(JudgingCommand::from_args(BASH, &["-c", code], wd))
+        let cwd = env::current_dir().map(AbsPathBuf::new_or_panic).unwrap();
+        Arc::new(JudgingCommand::from_args(BASH, &["-c", code], cwd))
     }
 }

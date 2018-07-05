@@ -2,8 +2,8 @@ use errors::{
     FileIoError, FileIoErrorKind, SerializeError, SessionError, SessionResult, StartSessionError,
 };
 use palette::Palette;
+use path::AbsPathBuf;
 use service::USER_AGENT;
-use util;
 
 use cookie::{self, CookieJar};
 use failure::ResultExt as _ResultExt;
@@ -19,7 +19,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write as _IoWrite};
-use std::path::PathBuf;
 
 pub(super) trait GetPost {
     fn session(&mut self) -> &mut HttpSession;
@@ -46,7 +45,7 @@ impl HttpSession {
     pub fn new(
         client: reqwest::Client,
         base: impl Into<Option<UrlBase>>,
-        cookies_path: impl Into<Option<PathBuf>>,
+        cookies_path: impl Into<Option<AbsPathBuf>>,
     ) -> SessionResult<Self> {
         let start = || -> SessionResult<HttpSession> {
             let base = base.into();
@@ -319,25 +318,26 @@ impl UrlBase {
 
 #[derive(Debug)]
 struct AutosavedCookieJar {
-    path: PathBuf,
+    path: AbsPathBuf,
     file: File,
     inner: CookieJar,
 }
 
 impl AutosavedCookieJar {
-    fn new(path: impl Into<PathBuf>) -> SessionResult<Self> {
+    fn new(path: impl Into<AbsPathBuf>) -> SessionResult<Self> {
         let path = path.into();
         let exists = path.exists();
-        let mut file = util::fs::create_and_lock(&path)?;
+        let mut file = ::fs::create_and_lock(&path)?;
         let mut inner = CookieJar::new();
         if exists {
             let mut cookies =
                 Vec::with_capacity(file.metadata().map(|m| m.len() as usize + 1).unwrap_or(0));
             file.read_to_end(&mut cookies)
-                .map_err(|e| FileIoError::chaining(FileIoErrorKind::Read, &path, e))?;
+                .map_err(|e| FileIoError::chaining(FileIoErrorKind::Read, path.as_ref(), e))?;
             if !cookies.is_empty() {
-                let cookies = bincode::deserialize::<Vec<String>>(&cookies)
-                    .map_err(|e| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, e))?;
+                let cookies = bincode::deserialize::<Vec<String>>(&cookies).map_err(|e| {
+                    FileIoError::chaining(FileIoErrorKind::Deserialize, path.as_ref(), e)
+                })?;
                 for cookie in cookies {
                     let cookie = cookie::Cookie::parse(cookie.clone()).map_err(|e| {
                         SessionError::ParseCookieFromPath(cookie, path.to_owned(), e)
@@ -347,7 +347,7 @@ impl AutosavedCookieJar {
             }
         } else {
             file.write_all(&bincode::serialize(&Vec::<String>::new()).unwrap())
-                .map_err(|e| FileIoError::chaining(FileIoErrorKind::Write, &path, e))?;
+                .map_err(|e| FileIoError::chaining(FileIoErrorKind::Write, path.as_ref(), e))?;
         }
         Ok(Self { file, path, inner })
     }
@@ -391,13 +391,16 @@ impl AutosavedCookieJar {
             .seek(SeekFrom::Start(0))
             .and_then(|_| self.file.set_len(0))
             .and_then(|()| self.file.write_all(&value))
-            .map_err(|e| FileIoError::chaining(FileIoErrorKind::Write, &self.path, e).into())
+            .map_err(|e| {
+                FileIoError::chaining(FileIoErrorKind::Write, self.path.as_ref(), e).into()
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use errors::SessionError;
+    use path::AbsPathBuf;
     use service;
     use service::session::{HttpSession, UrlBase};
 
@@ -448,7 +451,7 @@ mod tests {
     fn it_keeps_a_file_locked_while_alive() {
         let _ = env_logger::try_init();
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
-        let path = tempdir.path().join("cookies");
+        let path = AbsPathBuf::new_or_panic(tempdir.path().join("cookies"));
         let client = service::reqwest_client(None).unwrap();
         HttpSession::new(client.clone(), None, path.clone()).unwrap();
         HttpSession::new(client.clone(), None, path.clone()).unwrap();

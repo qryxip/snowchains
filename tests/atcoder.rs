@@ -8,7 +8,8 @@ extern crate serde_yaml;
 extern crate tempdir;
 
 use snowchains::palette::ColorMode;
-use snowchains::{util, Credentials, Opt, Prop, ServiceName};
+use snowchains::path::AbsPathBuf;
+use snowchains::{Credentials, Opt, Prop, ServiceName};
 
 use tempdir::TempDir;
 
@@ -130,7 +131,7 @@ if __name__ == '__main__':
 "#;
     let _ = env_logger::try_init();
     let (tempdir, prop) = setup("it_submits_to_practice_a", credentials_from_env_vars());
-    util::fs::write(&tempdir.path().join("py").join("a.py"), CODE).unwrap();
+    std::fs::write(&tempdir.path().join("py").join("a.py"), CODE).unwrap();
     Opt::Submit {
         problem: "a".to_owned(),
         language: Some("python3".to_owned()),
@@ -148,7 +149,7 @@ fn setup(tempdir_prefix: &str, credentials: Credentials) -> (TempDir, Prop) {
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
     let cookies_on_init = Cow::from(tempdir.path().join("cookies").to_str().unwrap().to_owned());
     let prop = Prop {
-        working_dir: tempdir.path().to_owned(),
+        working_dir: AbsPathBuf::new_or_panic(tempdir.path()),
         color_mode_on_init: ColorMode::Never,
         cookies_on_init,
         credentials,

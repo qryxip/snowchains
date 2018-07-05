@@ -2,6 +2,7 @@ use config::{self, Config};
 use errors::TemplateExpandResult;
 use judging::{self, JudgeProp};
 use palette::ColorMode;
+use path::AbsPathBuf;
 use service::{
     atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp,
 };
@@ -420,7 +421,7 @@ impl Opt {
 }
 
 pub struct Prop {
-    pub working_dir: PathBuf,
+    pub working_dir: AbsPathBuf,
     pub color_mode_on_init: ColorMode,
     pub cookies_on_init: Cow<'static, str>,
     pub credentials: Credentials,
@@ -428,7 +429,9 @@ pub struct Prop {
 
 impl Prop {
     pub fn new() -> ::Result<Self> {
-        let working_dir = env::current_dir()?;
+        let working_dir = env::current_dir()
+            .map(AbsPathBuf::new_or_panic)
+            .map_err(::Error::Getcwd)?;
         Ok(Self {
             working_dir,
             color_mode_on_init: ColorMode::Auto,

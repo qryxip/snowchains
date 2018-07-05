@@ -1,5 +1,6 @@
 use command::{CompilationCommand, JudgingCommand};
 use errors::{TemplateExpandError, TemplateExpandErrorContext, TemplateExpandResult};
+use path::{AbsPath, AbsPathBuf};
 
 use combine::Parser;
 use failure::ResultExt as _ResultExt;
@@ -12,10 +13,10 @@ use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::{self, env, fmt};
 
@@ -45,7 +46,7 @@ pub(crate) trait BaseDirOption {}
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
 #[derive(Clone, Copy)]
-pub(crate) struct BaseDirSome<'a>(&'a Path);
+pub(crate) struct BaseDirSome<'a>(AbsPath<'a>);
 
 impl<'a> BaseDirOption for BaseDirSome<'a> {}
 
@@ -69,7 +70,7 @@ impl PathTemplate<BaseDirNone> {
         }
     }
 
-    pub(crate) fn base_dir<'a>(&self, base_dir: &'a Path) -> PathTemplate<BaseDirSome<'a>> {
+    pub(crate) fn base_dir<'a>(&self, base_dir: AbsPath<'a>) -> PathTemplate<BaseDirSome<'a>> {
         PathTemplate {
             inner: self.inner.clone(),
             base_dir: BaseDirSome(base_dir),
@@ -88,7 +89,7 @@ impl<'a> PathTemplate<BaseDirSome<'a>> {
         }
     }
 
-    pub fn expand(&self, problem: &str) -> TemplateExpandResult<PathBuf> {
+    pub fn expand(&self, problem: &str) -> TemplateExpandResult<AbsPathBuf> {
         self.inner.expand_as_path(&self.base_dir.0, problem)
     }
 
@@ -329,7 +330,7 @@ impl Template {
                 match token.expand(problem, true)? {
                     Plain::Str(s) => r.push(s.as_ref()),
                     Plain::OsStr(s) => r.push(s),
-                    Plain::Path(p) => r.push(p),
+                    Plain::Path(p) => r.push(p.as_ref()),
                 }
             }
             Ok(r)
@@ -349,33 +350,10 @@ impl Template {
         })
     }
 
-    fn expand_as_path(&self, base: &Path, problem: &str) -> TemplateExpandResult<PathBuf> {
+    fn expand_as_path(&self, base: AbsPath, problem: &str) -> TemplateExpandResult<AbsPathBuf> {
         self.expand_with_context(problem, "a path", || {
-            let expanded = PathBuf::from(self.expand_as_os_string(problem)?);
-            if expanded.is_absolute() {
-                Ok(expanded)
-            } else {
-                let (mut path, num_skips) = {
-                    match expanded.iter().next().as_ref() {
-                        Some(h) if *h == "~" => match env::home_dir() {
-                            Some(h) => (h, 1),
-                            None => return Err(TemplateExpandError::HomeDirNotFound),
-                        },
-                        Some(h) if h.to_string_lossy().starts_with('~') => {
-                            return Err(TemplateExpandError::UnsupportedUseOfTilde);
-                        }
-                        _ => (base.to_owned(), 0),
-                    }
-                };
-                expanded.iter().skip(num_skips).for_each(|x| match &x {
-                    x if [OsStr::new(""), OsStr::new(".")].contains(x) => {}
-                    x if *x == OsStr::new("..") => {
-                        path.pop();
-                    }
-                    x => path.push(x),
-                });
-                Ok(path)
-            }
+            let path = PathBuf::from(self.expand_as_os_string(problem)?);
+            base.join_expanding_tilde(path).map_err(Into::into)
         })
     }
 
@@ -480,7 +458,7 @@ impl<'de> Deserialize<'de> for Template {
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone)]
 enum Token {
-    ExternPath(Template, PathBuf, &'static str),
+    ExternPath(Template, AbsPathBuf, &'static str),
     Text(String),
     Var(String),
     Problem(String),
@@ -505,7 +483,7 @@ impl Token {
 enum Plain<'a> {
     Str(Cow<'a, str>),
     OsStr(OsString),
-    Path(PathBuf),
+    Path(AbsPathBuf),
 }
 
 impl<'a> Plain<'a> {
@@ -561,6 +539,7 @@ impl fmt::Display for TemplateParseError {
 #[cfg(test)]
 mod tests {
     use command::CompilationCommand;
+    use path::AbsPathBuf;
     use template::{
         BaseDirNone, CommandTemplate, CommandTemplateInner, PathTemplate, StringTemplate, Template,
     };
@@ -568,7 +547,7 @@ mod tests {
     use serde_json;
 
     use std::ffi::OsStr;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::{env, panic};
 
     macro_rules! test {
@@ -651,21 +630,19 @@ mod tests {
 
     #[test]
     fn it_expands_a_path_template() {
-        fn process_input(input: &str) -> PathBuf {
+        fn process_input(input: &str) -> AbsPathBuf {
             PathTemplate::new(input.parse().unwrap())
-                .base_dir(base_dir())
+                .base_dir(&base_dir())
                 .expand("problem-name")
                 .unwrap()
         }
 
-        fn process_expected<S: AsRef<OsStr>>(expected: S) -> PathBuf {
+        fn process_expected<S: AsRef<OsStr>>(expected: S) -> AbsPathBuf {
             let expected = Path::new(expected.as_ref());
             if expected.is_absolute() {
-                expected.to_owned()
+                AbsPathBuf::new_or_panic(expected)
             } else {
-                let mut path = base_dir().to_owned();
-                path.push(expected);
-                path
+                base_dir().join(expected)
             }
         }
 
@@ -683,9 +660,9 @@ mod tests {
         test!("cs/{Pascal}/{Pascal}.cs" => "./cs/ProblemName/ProblemName.cs");
         test!("$ENVVAR"                 => "./<value of ENVVAR>");
         {
-            fn process_input(input: &str) -> PathBuf {
+            fn process_input(input: &str) -> AbsPathBuf {
                 PathTemplate::new(input.parse().unwrap())
-                    .base_dir(base_dir())
+                    .base_dir(&base_dir())
                     .embed_strings(&hashmap!["service" => "Service", "contest" => "Contest"])
                     .expand("")
                     .unwrap()
@@ -697,8 +674,8 @@ mod tests {
         test!("~root"     => !);
     }
 
-    fn base_dir() -> &'static Path {
-        Path::new(if cfg!(windows) {
+    fn base_dir() -> AbsPathBuf {
+        AbsPathBuf::new_or_panic(if cfg!(windows) {
             r"C:\basedir"
         } else {
             "/basedir"

@@ -7,6 +7,7 @@ use reqwest::{self, StatusCode};
 use url::{self, Url};
 use zip::result::ZipError;
 use {cookie, serde_urlencoded};
+use path::AbsPathBuf;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -25,9 +26,8 @@ pub enum Error {
     LoadConfig(LoadConfigError),
     TemplateExpand(TemplateExpandError),
     FileIo(FileIoError),
-    Std(StdErrorChain),
+    Getcwd(io::Error),
     Unimplemented,
-    HomeDirNotFound,
 }
 
 impl fmt::Display for self::Error {
@@ -39,9 +39,8 @@ impl fmt::Display for self::Error {
             self::Error::LoadConfig(e) => write!(f, "{}", e),
             self::Error::TemplateExpand(e) => write!(f, "{}", e),
             self::Error::FileIo(e) => write!(f, "{}", e),
-            self::Error::Std(e) => write!(f, "{}", e),
+            self::Error::Getcwd(_) => write!(f, "Failed to get the current directory"),
             self::Error::Unimplemented => write!(f, "Sorry, not yet implemented"),
-            self::Error::HomeDirNotFound => write!(f, "Home directory not found"),
         }
     }
 }
@@ -55,7 +54,7 @@ impl Fail for self::Error {
             ::Error::LoadConfig(e) => e.cause(),
             ::Error::TemplateExpand(e) => e.cause(),
             ::Error::FileIo(e) => e.cause(),
-            ::Error::Std(e) => e.cause(),
+            ::Error::Getcwd(e) => Some(e),
             _ => None,
         }
     }
@@ -67,7 +66,6 @@ derive_from!(Error::SuiteFile      <- SuiteFileError);
 derive_from!(Error::LoadConfig     <- LoadConfigError);
 derive_from!(Error::TemplateExpand <- TemplateExpandError);
 derive_from!(Error::FileIo         <- FileIoError);
-derive_from!(Error::Std            <- io::Error);
 
 pub(crate) type ServiceResult<T> = std::result::Result<T, ServiceError>;
 
@@ -176,7 +174,7 @@ pub enum SessionError {
     Std(StdErrorChain),
     Start(Context<StartSessionError>),
     ParseUrl(String, url::ParseError),
-    ParseCookieFromPath(String, PathBuf, cookie::ParseError),
+    ParseCookieFromPath(String, AbsPathBuf, cookie::ParseError),
     ParseCookieFromUrl(String, Url, cookie::ParseError),
     HeaderMissing(&'static str),
     ForbiddenByRobotsTxt,
@@ -314,8 +312,8 @@ pub enum SuiteFileError {
     Serialize(SerializeError),
     FileIo(FileIoError),
     Io(io::Error),
-    DirNotExist(PathBuf),
-    NoFile(PathBuf),
+    DirNotExist(AbsPathBuf),
+    NoFile(AbsPathBuf),
     DifferentTypesOfSuites,
     SuiteIsNotSimple,
     Unsubmittable(String),
@@ -424,19 +422,20 @@ pub(crate) type TemplateExpandResult<T> = std::result::Result<T, TemplateExpandE
 #[derive(Debug)]
 pub enum TemplateExpandError {
     Context(Context<TemplateExpandErrorContext>),
+    FileIo(FileIoError),
     UnknownSpecifier(String),
     EnvVarNotPresent(String),
     EnvVarNotUnicode(String, OsString),
-    HomeDirNotFound,
-    UnsupportedUseOfTilde,
 }
 
 derive_from!(TemplateExpandError::Context <- Context<TemplateExpandErrorContext>);
+derive_from!(TemplateExpandError::FileIo  <- FileIoError);
 
 impl fmt::Display for TemplateExpandError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TemplateExpandError::Context(c) => write!(f, "{}", c),
+            TemplateExpandError::FileIo(e) => write!(f, "{}", e),
             TemplateExpandError::UnknownSpecifier(s) => write!(
                 f,
                 "Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
@@ -451,8 +450,6 @@ impl fmt::Display for TemplateExpandError {
                 "Environment variable {:?} is not valid unicode: {:?}",
                 k, v
             ),
-            TemplateExpandError::HomeDirNotFound => write!(f, "Home directory not found"),
-            TemplateExpandError::UnsupportedUseOfTilde => write!(f, "Unsupported use of \"~\""),
         }
     }
 }
@@ -461,6 +458,7 @@ impl Fail for TemplateExpandError {
     fn cause(&self) -> Option<&dyn Fail> {
         match self {
             TemplateExpandError::Context(c) => c.cause(),
+            TemplateExpandError::FileIo(e) => e.cause(),
             _ => None,
         }
     }
@@ -591,6 +589,10 @@ impl fmt::Display for FileIoError {
             }
             FileIoErrorKind::Write => write!(f, "Failed to write to {}", path),
             FileIoErrorKind::Deserialize => write!(f, "Failed to deserialize data from {}", path),
+            FileIoErrorKind::HomeDirNotFound => write!(f, "Home directory not found"),
+            FileIoErrorKind::UnsupportedUseOfTilde => {
+                write!(f, "Unsupported use of \"~\": {}", path)
+            }
             FileIoErrorKind::InvalidZipArchive(m) => {
                 write!(f, "{} is invalid Zip archive: {}", path, m)
             }
@@ -622,6 +624,8 @@ pub(crate) enum FileIoErrorKind {
     Read,
     Write,
     Deserialize,
+    HomeDirNotFound,
+    UnsupportedUseOfTilde,
     InvalidZipArchive(&'static str),
     UnsupportedZipArchive(&'static str),
 }

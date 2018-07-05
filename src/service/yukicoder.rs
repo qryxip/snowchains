@@ -6,7 +6,6 @@ use service::{
     Contest, Credentials, DownloadProp, PrintTargets as _PrintTargets, SessionProp, SubmitProp,
 };
 use testsuite::{SuiteFilePath, TestSuite};
-use util;
 
 use cookie::Cookie;
 use regex::Regex;
@@ -201,7 +200,7 @@ impl Yukicoder {
         if let Some(zips) = zips {
             for (no, zip) in nos.iter().zip(&zips) {
                 let path = download_dir.join(format!("{}.zip", no));
-                util::fs::write(&path, zip)?;
+                ::fs::write(&path, zip)?;
                 println!("Saved to {}", path.display());
             }
         }
@@ -224,7 +223,7 @@ impl Yukicoder {
             skip_checking_if_accepted,
         } = prop;
         self.login(true)?;
-        let code = util::fs::read_to_string(src_path)?;
+        let code = ::fs::read_to_string(src_path)?;
         let code = match replacer {
             Some(replacer) => replacer.replace_as_submission(&problem, &code)?,
             None => code,

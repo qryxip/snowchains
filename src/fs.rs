@@ -1,49 +1,49 @@
 use errors::{FileIoError, FileIoErrorKind, FileIoResult};
+use path::{AbsPath, AbsPathBuf};
 
 use fs2::FileExt as _FileExt;
 
 use std;
 use std::fs::{File, OpenOptions, ReadDir};
 use std::io::Write as _Write;
-use std::path::Path;
 
-pub(crate) fn create_dir_all(dir: &Path) -> FileIoResult<()> {
+pub(crate) fn create_dir_all(dir: AbsPath) -> FileIoResult<()> {
     std::fs::create_dir_all(dir)
         .map_err(|e| FileIoError::chaining(FileIoErrorKind::CreateDirAll, dir, e))
 }
 
-pub(crate) fn read_dir(dir: &Path) -> FileIoResult<ReadDir> {
+pub(crate) fn read_dir(dir: AbsPath) -> FileIoResult<ReadDir> {
     std::fs::read_dir(dir).map_err(|e| FileIoError::chaining(FileIoErrorKind::ReadDir, dir, e))
 }
 
-pub fn write(path: &Path, contents: &[u8]) -> FileIoResult<()> {
+pub(crate) fn write(path: AbsPath, contents: &[u8]) -> FileIoResult<()> {
     create_file_and_dirs(path)?
         .write_all(contents)
         .map_err(|e| FileIoError::chaining(FileIoErrorKind::Write, path, e))
 }
 
-pub(crate) fn read_to_string(path: &Path) -> FileIoResult<String> {
+pub(crate) fn read_to_string(path: AbsPath) -> FileIoResult<String> {
     std::fs::read_to_string(path).map_err(|e| FileIoError::chaining(FileIoErrorKind::Read, path, e))
 }
 
 /// Opens a file in read only mode.
-pub(crate) fn open(path: &Path) -> FileIoResult<File> {
+pub(crate) fn open(path: AbsPath) -> FileIoResult<File> {
     File::open(path).map_err(|e| FileIoError::chaining(FileIoErrorKind::OpenInReadOnly, path, e))
 }
 
 /// Opens a file in write only mode creating its parent directory.
-pub(crate) fn create_file_and_dirs(path: &Path) -> FileIoResult<File> {
+pub(crate) fn create_file_and_dirs(path: AbsPath) -> FileIoResult<File> {
     if let Some(dir) = path.parent() {
         if !dir.exists() {
-            create_dir_all(dir)?;
+            create_dir_all(&dir)?;
         }
     }
     File::create(path).map_err(|e| FileIoError::chaining(FileIoErrorKind::OpenInWriteOnly, path, e))
 }
 
-pub(crate) fn create_and_lock(path: &Path) -> FileIoResult<File> {
-    if let Some(dir) = path.parent() {
-        create_dir_all(dir)?;
+pub(crate) fn create_and_lock(path: AbsPath) -> FileIoResult<File> {
+    if let Some(parent) = path.parent() {
+        create_dir_all(&parent)?;
     }
     let file = OpenOptions::new()
         .read(true)
@@ -54,4 +54,17 @@ pub(crate) fn create_and_lock(path: &Path) -> FileIoResult<File> {
     file.try_lock_exclusive()
         .map_err(|e| FileIoError::chaining(FileIoErrorKind::Lock, path, e))?;
     Ok(file)
+}
+
+pub(crate) fn find_filepath(start: AbsPath, filename: &'static str) -> FileIoResult<AbsPathBuf> {
+    let mut dir = start.to_owned();
+    loop {
+        let path = dir.join(filename);
+        if std::fs::metadata(&path).is_ok() {
+            break Ok(path);
+        }
+        if !dir.pop() {
+            break Err(FileIoError::new(FileIoErrorKind::Search(filename), start));
+        }
+    }
 }

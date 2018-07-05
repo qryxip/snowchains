@@ -55,12 +55,14 @@ extern crate tempdir;
 mod macros;
 
 pub mod palette;
+pub mod path;
 pub mod util;
 
 mod app;
 mod command;
 mod config;
 mod errors;
+mod fs;
 mod judging;
 mod replacer;
 mod service;
