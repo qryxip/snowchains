@@ -7,7 +7,7 @@ extern crate env_logger;
 extern crate serde_yaml;
 extern crate tempdir;
 
-use snowchains::palette::ColorMode;
+use snowchains::palette::ColorChoice;
 use snowchains::path::AbsPathBuf;
 use snowchains::{Credentials, Opt, Prop, ServiceName};
 
@@ -23,6 +23,7 @@ use std::rc::Rc;
 fn it_logins() {
     fn login(prop: &Prop) -> snowchains::Result<()> {
         Opt::Login {
+            color_choice: ColorChoice::Never,
             service: ServiceName::AtCoder,
         }.run(prop)
     }
@@ -44,10 +45,11 @@ fn it_scrapes_samples_from_practice() {
         credentials_from_env_vars(),
     );
     Opt::Download {
+        open_browser: false,
         service: Some(ServiceName::AtCoder),
         contest: Some("practice".to_owned()),
-        open_browser: false,
         problems: vec![],
+        color_choice: ColorChoice::Never,
     }.run(&prop)
         .unwrap();
     let download_dir = tempdir
@@ -66,10 +68,11 @@ fn it_scrapes_samples_from_arc058() {
     let _ = env_logger::try_init();
     let (tempdir, prop) = setup("it_scrapes_samples_from_arc058", Credentials::None);
     Opt::Download {
+        open_browser: false,
         service: Some(ServiceName::AtCoder),
         contest: Some("arc058".to_owned()),
-        open_browser: false,
         problems: vec![],
+        color_choice: ColorChoice::Never,
     }.run(&prop)
         .unwrap();
     let download_dir = tempdir
@@ -133,13 +136,14 @@ if __name__ == '__main__':
     let (tempdir, prop) = setup("it_submits_to_practice_a", credentials_from_env_vars());
     std::fs::write(&tempdir.path().join("py").join("a.py"), CODE).unwrap();
     Opt::Submit {
-        problem: "a".to_owned(),
-        language: Some("python3".to_owned()),
-        service: Some(ServiceName::AtCoder),
-        contest: Some("practice".to_owned()),
         open_browser: false,
         skip_judging: true,
         skip_checking_duplication: false,
+        language: Some("python3".to_owned()),
+        service: Some(ServiceName::AtCoder),
+        contest: Some("practice".to_owned()),
+        color_choice: ColorChoice::Never,
+        problem: "a".to_owned(),
     }.run(&prop)
         .unwrap();
     tempdir.close().unwrap();
@@ -150,11 +154,11 @@ fn setup(tempdir_prefix: &str, credentials: Credentials) -> (TempDir, Prop) {
     let cookies_on_init = Cow::from(tempdir.path().join("cookies").to_str().unwrap().to_owned());
     let prop = Prop {
         working_dir: AbsPathBuf::new_or_panic(tempdir.path()),
-        color_mode_on_init: ColorMode::Never,
         cookies_on_init,
         credentials,
     };
     Opt::Init {
+        color_choice: ColorChoice::Never,
         directory: PathBuf::from("."),
     }.run(&prop)
         .unwrap();

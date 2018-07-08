@@ -35,7 +35,7 @@ pub(crate) fn append(
 }
 
 /// Extension of a test suite file.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SerializableExtension {
     Json,

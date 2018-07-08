@@ -1,7 +1,7 @@
 use config::{self, Config};
 use errors::TemplateExpandResult;
 use judging::{self, JudgeProp};
-use palette::ColorMode;
+use palette::{self, ColorChoice};
 use path::AbsPathBuf;
 use service::{
     atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp,
@@ -13,43 +13,37 @@ use std::borrow::Cow;
 use std::env;
 use std::path::PathBuf;
 
-#[derive(StructOpt)]
+#[derive(Debug, StructOpt)]
 #[structopt(
-    usage = "snowchains <i|init> [directory]\n    \
-             snowchains <w|switch> [-s|--service <service>]\
-             \n                          [-c|--contest <contest>]\
-             \n                          [-l|--language <language>]\n    \
-             snowchains <l|login> <service>\n    \
-             snowchains <p|participate> <service> <contest>\n    \
-             snowchains <d|download> [-s|--service <service>]\
-             \n                            [-c|--contest <contest>]\
-             \n                            [-b|--open-browser]\
-             \n                            [-p|--problems <problems>...]\n    \
-             snowchains <r|restore> [-s|--service <service>]\
-             \n                           [-c|--contest <contest>]\
-             \n                           [-p|--problems <problems>...]\n    \
-             snowchains <a|append> <problem> <extension> <input> [output]\
-             \n                                                        [-s|--service <service>]\
-             \n                                                        \
-             [-c|--contest <contest>]\n    \
-             snowchains <j|judge> <problem> [-l|--language <language>]\
-             \n                                   [-s|--service <service>]\
-             \n                                   [-c|--contest <contest>]\n    \
-             snowchains <s|submit> <problem> [-l|--language <language>]\
-             \n                                    [-s|--service <service>]\
-             \n                                    [-c|--contest <contest>]\
-             \n                                    [-b|--open-browser]\
-             \n                                    [-j|--skip-judging]\
-             \n                                    [-d|--skip-checking-duplication]"
+    usage = "snowchains <i|init> [OPTIONS] [directory]\
+             \n    snowchains <w|switch> [OPTIONS]\
+             \n    snowchains <l|login> [OPTIONS] <service>\
+             \n    snowchains <p|participate> [OPTIONS] <service> <contest>\
+             \n    snowchains <d|download> [FLAGS] [OPTIONS]\
+             \n    snowchains <r|restore> [OPTIONS]\
+             \n    snowchains <a|append> [OPTIONS] <problem> <extension> <input> [output]\
+             \n    snowchains <j|judge> [OPTIONS] <problem>\
+             \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>"
 )]
 pub enum Opt {
     #[structopt(
         name = "init",
         about = "Creates a \"snowchains.yaml\"",
-        usage = "snowchains <i|init> [directory]",
+        usage = "snowchains <i|init> [OPTIONS] [directory]",
         raw(display_order = "1", aliases = r#"&["i"]"#)
     )]
     Init {
+        #[structopt(
+            short = "C",
+            long = "color",
+            name = "WHEN",
+            raw(
+                help = "ColorChoice::clap_help()",
+                default_value = "ColorChoice::clap_default_value()",
+                possible_values = "ColorChoice::clap_possible_values()"
+            )
+        )]
+        color_choice: ColorChoice,
         #[structopt(
             name = "directory",
             help = "Directory to create a \"snowchains.yaml\"",
@@ -61,10 +55,8 @@ pub enum Opt {
 
     #[structopt(
         name = "switch",
-        about = "Changes <service> and <contest> of the \"snowchains.yaml\"",
-        usage = "snowchains <d|switch> [-s|--service <service>]\
-                 \n                          [-c|--contest <contest>]\
-                 \n                          [-l|--language <language>]",
+        about = "Changes attribute values of a \"snowchains.yaml\"",
+        usage = "snowchains <w|switch> [OPTIONS]",
         raw(display_order = "2", aliases = r#"&["w"]"#)
     )]
     Switch {
@@ -72,22 +64,52 @@ pub enum Opt {
             short = "s",
             long = "service",
             help = "Service name",
-            raw(possible_values = r#"&["atcoder", "hackerrank", "yukicoder", "other"]"#)
+            raw(
+                possible_values = r#"&["atcoder", "hackerrank", "yukicoder", "other"]"#,
+                display_order = "1"
+            )
         )]
         service: Option<ServiceName>,
-        #[structopt(short = "c", long = "contest", help = "Contest name")]
+        #[structopt(
+            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+        )]
         contest: Option<String>,
-        #[structopt(short = "l", long = "language", help = "Language name")]
+        #[structopt(
+            short = "l", long = "language", help = "Language name", raw(display_order = "3")
+        )]
         language: Option<String>,
+        #[structopt(
+            short = "C",
+            long = "color",
+            name = "WHEN",
+            raw(
+                help = "ColorChoice::clap_help()",
+                default_value = "ColorChoice::clap_default_value()",
+                possible_values = "ColorChoice::clap_possible_values()",
+                display_order = "4"
+            )
+        )]
+        color_choice: ColorChoice,
     },
 
     #[structopt(
         name = "login",
         about = "Logges in to a service",
-        usage = "snowchains <l|login> <service>",
+        usage = "snowchains <l|login> [OPTIONS] <service>",
         raw(display_order = "3", aliases = r#"&["l"]"#)
     )]
     Login {
+        #[structopt(
+            short = "C",
+            long = "color",
+            name = "WHEN",
+            raw(
+                help = "ColorChoice::clap_help()",
+                default_value = "ColorChoice::clap_default_value()",
+                possible_values = "ColorChoice::clap_possible_values()"
+            )
+        )]
+        color_choice: ColorChoice,
         #[structopt(
             name = "service",
             help = "Service name",
@@ -99,10 +121,21 @@ pub enum Opt {
     #[structopt(
         name = "participate",
         about = "Participates in a contest",
-        usage = "snowchains <p|participate> <service> <contest>",
+        usage = "snowchains <p|participate> [OPTIONS] <service> <contest>",
         raw(display_order = "4", aliases = r#"&["p"]"#)
     )]
     Participate {
+        #[structopt(
+            short = "C",
+            long = "color",
+            name = "WHEN",
+            raw(
+                help = "ColorChoice::clap_help()",
+                default_value = "ColorChoice::clap_default_value()",
+                possible_values = "ColorChoice::clap_possible_values()"
+            )
+        )]
+        color_choice: ColorChoice,
         #[structopt(
             name = "service", help = "Service name", raw(possible_values = r#"&["atcoder"]"#)
         )]
@@ -114,19 +147,20 @@ pub enum Opt {
     #[structopt(
         name = "download",
         about = "Downloads test cases",
-        usage = "snowchains <d|download> [-s|--service <service>]\
-                 \n                            [-c|--contest <contest>]\
-                 \n                            [-b|--open-browser]\
-                 \n                            [-p|--problems <problems>...]",
+        usage = "snowchains <d|download> [FLAGS] [OPTIONS]",
         raw(display_order = "5", aliases = r#"&["d"]"#)
     )]
     Download {
+        #[structopt(
+            short = "b", long = "open-browser", help = "Opens the pages with your default browser"
+        )]
+        open_browser: bool,
         #[structopt(
             short = "s",
             long = "service",
             help = "Service name",
             raw(
-                display_order = "1", possible_values = r#"&["atcoder", "hackerrank", "yukicoder"]"#
+                possible_values = r#"&["atcoder", "hackerrank", "yukicoder"]"#, display_order = "1"
             )
         )]
         service: Option<ServiceName>,
@@ -135,24 +169,27 @@ pub enum Opt {
         )]
         contest: Option<String>,
         #[structopt(
-            short = "b",
-            long = "open-browser",
-            help = "Opens the pages with your default browser",
-            raw(display_order = "1")
-        )]
-        open_browser: bool,
-        #[structopt(
-            short = "p", long = "problems", help = "Problem names", raw(display_order = "2")
+            short = "p", long = "problems", help = "Problem names", raw(display_order = "3")
         )]
         problems: Vec<String>,
+        #[structopt(
+            short = "C",
+            long = "color",
+            name = "WHEN",
+            raw(
+                help = "ColorChoice::clap_help()",
+                default_value = "ColorChoice::clap_default_value()",
+                possible_values = "ColorChoice::clap_possible_values()",
+                display_order = "4"
+            )
+        )]
+        color_choice: ColorChoice,
     },
 
     #[structopt(
         name = "restore",
         about = "Downloads the source codes you've submitted",
-        usage = "snowchains <r|restore> [-s|--service <service>]\
-                 \n                           [-c|--contest <contest>]\
-                 \n                           [-p|--problems <problems>...]",
+        usage = "snowchains <r|restore> [OPTIONS]",
         raw(display_order = "6", aliases = r#"&["r"]"#)
     )]
     Restore {
@@ -168,20 +205,53 @@ pub enum Opt {
         )]
         contest: Option<String>,
         #[structopt(
-            short = "p", long = "problems", help = "Problem names", raw(display_order = "2")
+            short = "p", long = "problems", help = "Problem names", raw(display_order = "3")
         )]
         problems: Vec<String>,
+        #[structopt(
+            short = "C",
+            long = "color",
+            name = "WHEN",
+            raw(
+                help = "ColorChoice::clap_help()",
+                default_value = "ColorChoice::clap_default_value()",
+                possible_values = "ColorChoice::clap_possible_values()",
+                display_order = "4"
+            )
+        )]
+        color_choice: ColorChoice,
     },
 
     #[structopt(
         name = "append",
         about = "Appends a test case to a test suite file",
-        usage = "snowchains <a|append> <problem> <extension> <input> [output]\
-                 \n                                                        [-s|--service <service>]\
-                 \n                                                        [-c|--contest <contest>]",
+        usage = "snowchains <a|append> [OPTIONS] <problem> <extension> <input> [output]",
         raw(display_order = "7", aliases = r#"&["a"]"#)
     )]
     Append {
+        #[structopt(
+            short = "s",
+            long = "service",
+            help = "Service name",
+            raw(display_order = "1", possible_values = r#"&["atcoder", "hackerrank", "other"]"#)
+        )]
+        service: Option<ServiceName>,
+        #[structopt(
+            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+        )]
+        contest: Option<String>,
+        #[structopt(
+            short = "C",
+            long = "color",
+            name = "WHEN",
+            raw(
+                help = "ColorChoice::clap_help()",
+                default_value = "ColorChoice::clap_default_value()",
+                possible_values = "ColorChoice::clap_possible_values()",
+                display_order = "3"
+            )
+        )]
+        color_choice: ColorChoice,
         #[structopt(name = "problem", help = "Problem name")]
         problem: String,
         #[structopt(
@@ -194,122 +264,126 @@ pub enum Opt {
         input: String,
         #[structopt(name = "output", help = "\"expected\" value to append")]
         output: Option<String>,
+    },
+
+    #[structopt(
+        name = "judge",
+        about = "Tests a binary or script",
+        usage = "snowchains <j|judge> [OPTIONS] <problem>",
+        raw(display_order = "8", aliases = r#"&["j"]"#)
+    )]
+    Judge {
         #[structopt(
             short = "s",
             long = "service",
             help = "Service name",
-            raw(display_order = "1", possible_values = r#"&["atcoder", "hackerrank", "other"]"#)
+            raw(
+                display_order = "1",
+                possible_values = r#"&["atcoder", "hackerrank", "yukicoder", "other"]"#
+            )
         )]
         service: Option<ServiceName>,
         #[structopt(
             short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
         )]
         contest: Option<String>,
-    },
-
-    #[structopt(
-        name = "judge",
-        about = "Tests a binary or script",
-        usage = "snowchains <j|judge> <problem> [-l|--language <language>]\
-                 \n                                   [-s|--service <service>]\
-                 \n                                   [-c|--contest <contest>]",
-        raw(display_order = "8", aliases = r#"&["j"]"#)
-    )]
-    Judge {
-        #[structopt(name = "problem", help = "Problem name")]
-        problem: String,
         #[structopt(
-            short = "l", long = "language", help = "Language name", raw(display_order = "1")
+            short = "l", long = "language", help = "Language name", raw(display_order = "3")
         )]
         language: Option<String>,
         #[structopt(
-            short = "s",
-            long = "service",
-            help = "Service name",
+            short = "C",
+            long = "color",
+            name = "WHEN",
             raw(
-                display_order = "2",
-                possible_values = r#"&["atcoder", "hackerrank", "yukicoder", "other"]"#
+                help = "ColorChoice::clap_help()",
+                default_value = "ColorChoice::clap_default_value()",
+                possible_values = "ColorChoice::clap_possible_values()",
+                display_order = "4"
             )
         )]
-        service: Option<ServiceName>,
-        #[structopt(
-            short = "c", long = "contest", help = "Contest name", raw(display_order = "3")
-        )]
-        contest: Option<String>,
+        color_choice: ColorChoice,
+        #[structopt(name = "problem", help = "Problem name")]
+        problem: String,
     },
 
     #[structopt(
         name = "submit",
         about = "Submits a source code",
-        usage = "snowchains <s|submit> <problem> [-l|--language <language>]\
-                 \n                                    [-s|--service <service>]\
-                 \n                                    [-c|--contest <contest>]\
-                 \n                                    [-b|--open-browser]\
-                 \n                                    [-j|--skip-judging]\
-                 \n                                    [-d|--skip-checking-duplication]",
+        usage = "snowchains <s|submit> [FLAGS] [OPTIONS] <problem>",
         raw(display_order = "9", aliases = r#"&["s"]"#)
     )]
     Submit {
-        #[structopt(name = "problem", help = "Problem name")]
-        problem: String,
         #[structopt(
-            short = "l", long = "language", help = "Language name", raw(display_order = "1")
-        )]
-        language: Option<String>,
-        #[structopt(
-            short = "s",
-            long = "service",
-            help = "Service name",
-            raw(display_order = "2", possible_values = "&[\"atcoder\", \"yukicoder\"]")
-        )]
-        service: Option<ServiceName>,
-        #[structopt(
-            short = "c", long = "contest", help = "Contest name", raw(display_order = "3")
-        )]
-        contest: Option<String>,
-        #[structopt(
-            short = "b",
-            long = "open-browser",
-            help = "Opens the pages with your default browser",
-            raw(display_order = "1")
+            short = "b", long = "open-browser", help = "Opens the pages with your default browser"
         )]
         open_browser: bool,
-        #[structopt(
-            short = "j", long = "skip-judging", help = "Skips judging", raw(display_order = "2")
-        )]
+        #[structopt(short = "j", long = "skip-judging", help = "Skips judging")]
         skip_judging: bool,
         #[structopt(
             short = "d",
             long = "skip-checking-duplication",
-            help = "Submits even if the contest is active and your code is already accepted",
-            raw(display_order = "3")
+            help = "Submits even if the contest is active and your code is already accepted"
         )]
         skip_checking_duplication: bool,
+        #[structopt(
+            short = "s",
+            long = "service",
+            help = "Service name",
+            raw(possible_values = "&[\"atcoder\", \"yukicoder\"]", display_order = "1")
+        )]
+        service: Option<ServiceName>,
+        #[structopt(
+            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+        )]
+        contest: Option<String>,
+        #[structopt(
+            short = "l", long = "language", help = "Language name", raw(display_order = "3")
+        )]
+        language: Option<String>,
+        #[structopt(
+            short = "C",
+            long = "color",
+            name = "WHEN",
+            raw(
+                help = "ColorChoice::clap_help()",
+                default_value = "ColorChoice::clap_default_value()",
+                possible_values = "ColorChoice::clap_possible_values()",
+                display_order = "4"
+            )
+        )]
+        color_choice: ColorChoice,
+        #[structopt(name = "problem", help = "Problem name")]
+        problem: String,
     },
 }
 
 impl Opt {
     pub fn run(self, prop: &Prop) -> ::Result<()> {
+        info!("Opt = {:?}", self);
         match self {
-            Opt::Init { directory } => {
-                info!("Running \"init\" command");
-                config::init(
-                    &prop.working_dir.join(&directory),
-                    prop.color_mode_on_init,
-                    &prop.cookies_on_init,
-                )?;
+            Opt::Init {
+                color_choice,
+                directory,
+            } => {
+                palette::try_enable_ansi(color_choice);
+                config::init(&prop.working_dir.join(&directory), &prop.cookies_on_init)?;
             }
             Opt::Switch {
                 service,
                 contest,
                 language,
+                color_choice,
             } => {
-                info!("Running \"switch\" command");
+                palette::try_enable_ansi(color_choice);
                 config::switch(&prop.working_dir, service, contest, language)?;
             }
-            Opt::Login { service } => {
-                info!("Running \"login\" command");
-                let config = Config::load_setting_color_mode(service, None, &prop.working_dir)?;
+            Opt::Login {
+                color_choice,
+                service,
+            } => {
+                palette::try_enable_ansi(color_choice);
+                let config = Config::load_setting_color_range(service, None, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 match service {
                     ServiceName::AtCoder => atcoder::login(&sess_prop),
@@ -318,10 +392,14 @@ impl Opt {
                     ServiceName::Other => unreachable!(),
                 }?;
             }
-            Opt::Participate { service, contest } => {
-                info!("Running \"participate\" command");
+            Opt::Participate {
+                color_choice,
+                service,
+                contest,
+            } => {
+                palette::try_enable_ansi(color_choice);
                 let config =
-                    Config::load_setting_color_mode(service, contest.clone(), &prop.working_dir)?;
+                    Config::load_setting_color_range(service, contest.clone(), &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 match service {
                     ServiceName::AtCoder => atcoder::participate(&contest, &sess_prop),
@@ -329,13 +407,14 @@ impl Opt {
                 }?;
             }
             Opt::Download {
+                open_browser,
                 service,
                 contest,
-                open_browser,
                 problems,
+                color_choice,
             } => {
-                info!("Running \"download\" command");
-                let config = Config::load_setting_color_mode(service, contest, &prop.working_dir)?;
+                palette::try_enable_ansi(color_choice);
+                let config = Config::load_setting_color_range(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 let download_prop = DownloadProp::new(&config, open_browser, problems)?;
                 match config.service() {
@@ -349,9 +428,10 @@ impl Opt {
                 service,
                 contest,
                 problems,
+                color_choice,
             } => {
-                info!("Running \"restore\" command");
-                let config = Config::load_setting_color_mode(service, contest, &prop.working_dir)?;
+                palette::try_enable_ansi(color_choice);
+                let config = Config::load_setting_color_range(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 let restore_prop = RestoreProp::new(&config, problems)?;
                 match config.service() {
@@ -360,43 +440,46 @@ impl Opt {
                 };
             }
             Opt::Append {
+                service,
+                contest,
+                color_choice,
                 problem,
                 extension,
                 input,
                 output,
-                service,
-                contest,
             } => {
-                info!("Running \"append\" command");
-                let config = Config::load_setting_color_mode(service, contest, &prop.working_dir)?;
+                palette::try_enable_ansi(color_choice);
+                let config = Config::load_setting_color_range(service, contest, &prop.working_dir)?;
                 let dir = config.testfiles_dir().expand("")?;
                 let path = SuiteFilePath::new(&dir, &problem, extension);
                 testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
             }
             Opt::Judge {
-                problem,
-                language,
                 service,
                 contest,
+                language,
+                color_choice,
+                problem,
             } => {
+                palette::try_enable_ansi(color_choice);
                 let language = language.as_ref().map(String::as_str);
-                info!("Running \"judge\" command");
-                let config = Config::load_setting_color_mode(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_range(service, contest, &prop.working_dir)?;
                 let judge_prop = JudgeProp::new(&config, &problem, language)?;
                 judging::judge(judge_prop)?;
             }
             Opt::Submit {
-                problem,
-                language,
-                service,
-                contest,
                 open_browser,
                 skip_judging,
                 skip_checking_duplication,
+                language,
+                service,
+                contest,
+                color_choice,
+                problem,
             } => {
+                palette::try_enable_ansi(color_choice);
                 let language = language.as_ref().map(String::as_str);
-                info!("Running \"submit\" command");
-                let config = Config::load_setting_color_mode(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_range(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 let submit_prop = SubmitProp::new(
                     &config,
@@ -422,7 +505,6 @@ impl Opt {
 
 pub struct Prop {
     pub working_dir: AbsPathBuf,
-    pub color_mode_on_init: ColorMode,
     pub cookies_on_init: Cow<'static, str>,
     pub credentials: Credentials,
 }
@@ -434,7 +516,6 @@ impl Prop {
             .map_err(::Error::Getcwd)?;
         Ok(Self {
             working_dir,
-            color_mode_on_init: ColorMode::Auto,
             cookies_on_init: Cow::from("~/.local/share/snowchains/$service"),
             credentials: Credentials::None,
         })

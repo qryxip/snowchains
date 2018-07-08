@@ -33,7 +33,6 @@ extern crate serde;
 extern crate serde_json;
 extern crate serde_urlencoded;
 extern crate serde_yaml;
-extern crate term;
 extern crate tokio_core;
 extern crate toml;
 extern crate unicode_width;
@@ -41,6 +40,9 @@ extern crate url;
 extern crate webbrowser;
 extern crate yaml_rust;
 extern crate zip;
+
+#[cfg(not(windows))]
+extern crate term;
 
 #[cfg(test)]
 #[macro_use]
@@ -77,7 +79,7 @@ pub use service::Credentials;
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceName {
     AtCoder,
@@ -137,6 +139,6 @@ pub struct Never;
 
 impl fmt::Display for Never {
     fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result {
-        unreachable!("should be filtered by `clap::Arg::possible_values`")
+        panic!("should be filtered by `clap::Arg::possible_values`")
     }
 }

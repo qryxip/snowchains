@@ -1,6 +1,6 @@
 use command::{CompilationCommand, JudgingCommand};
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
-use palette::{self, ColorMode, Palette};
+use palette::{ColorRange, Palette};
 use path::{AbsPath, AbsPathBuf};
 use replacer::CodeReplacer;
 use service::SessionConfig;
@@ -23,18 +23,14 @@ use std::time::Duration;
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
-pub(crate) fn init(
-    directory: AbsPath,
-    color: ColorMode,
-    session_cookies: &str,
-) -> FileIoResult<()> {
+pub(crate) fn init(directory: AbsPath, session_cookies: &str) -> FileIoResult<()> {
     let config = format!(
         r#"---
 service: atcoder
 contest: arc001
 language: c++
 
-color: {color}
+color_range: {color_range}
 
 session:
   timeout: 10
@@ -209,7 +205,7 @@ languages:
       atcoder: 3027
       yukicoder: text
 "#,
-        color = color,
+        color_range = ColorRange::default(),
         session_cookies = yaml::escape_string(session_cookies),
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
@@ -345,7 +341,7 @@ pub(crate) struct Config {
     service: ServiceName,
     contest: String,
     language: Option<String>,
-    color: ColorMode,
+    color_range: ColorRange,
     session: SessionConfig,
     shell: Vec<StringTemplate>,
     testfiles: TestFiles,
@@ -359,8 +355,7 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    /// Loads and deserializes from the nearest `snowchains.yaml`.
-    pub fn load_setting_color_mode(
+    pub fn load_setting_color_range(
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
         dir: AbsPath,
@@ -371,8 +366,12 @@ impl Config {
         config.base_dir = path.parent().unwrap();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
-        palette::enable_ansi_support(config.color);
-        println!("Loaded {} (color: {})", path.display(), config.color);
+        config.color_range.set_globally();
+        println!(
+            "Loaded {} (color_range: {})",
+            path.display(),
+            config.color_range
+        );
         Ok(config)
     }
 
