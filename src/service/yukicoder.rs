@@ -1,6 +1,6 @@
 use errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
 use palette::Palette;
-use service::downloader::ZipDownloader;
+use service::downloader::{self, ZipDownloader};
 use service::session::{GetPost, HttpSession};
 use service::{
     Contest, Credentials, DownloadProp, PrintTargets as _PrintTargets, SessionProp, SubmitProp,
@@ -183,14 +183,13 @@ impl Yukicoder {
         let zips = if nos.is_empty() {
             None
         } else {
-            let url_sufs = nos
-                .iter()
-                .map(|no| format!("{}/testcase.zip", no))
-                .collect::<Vec<_>>();
             Some(zip_downloader.download(
                 io::stdout(),
-                "https://yukicoder.me/problems/no/",
-                &url_sufs,
+                &downloader::Urls {
+                    pref: "https://yukicoder.me/problems/no/",
+                    names: &nos,
+                    suf: "/testcase.zip",
+                },
                 self.session.cookies_to_header().as_ref(),
             )?)
         };

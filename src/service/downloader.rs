@@ -7,11 +7,39 @@ use reqwest::header::{self, ContentLength};
 use reqwest::unstable::async::Decoder;
 use reqwest::{self, StatusCode};
 use tokio_core::reactor::Core;
+use url::{self, Url};
 use zip::ZipArchive;
 
 use std::io::{self, Cursor, Write as _Write};
 use std::time::{Duration, Instant};
-use std::{mem, panic, thread};
+use std::{self, fmt, mem, panic, thread};
+
+pub(super) struct Urls<'a, S: 'a + fmt::Display> {
+    pub pref: &'static str,
+    pub names: &'a [S],
+    pub suf: &'static str,
+}
+
+impl<'a, S: 'a + fmt::Display> Urls<'a, S> {
+    fn try_to_urls(&self) -> std::result::Result<Vec<Url>, url::ParseError> {
+        self.names
+            .iter()
+            .map(|name| Url::parse(&format!("{}{}{}", self.pref, name, self.suf)))
+            .collect()
+    }
+}
+
+impl<'a, S: 'a + fmt::Display> fmt::Display for Urls<'a, S> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.pref)?;
+        if self.names.len() == 1 {
+            write!(f, "{}", self.names[0])
+        } else {
+            write!(f, "{{{}}}", self.names.iter().format(", "))
+        }?;
+        write!(f, "{}", self.suf)
+    }
+}
 
 pub(super) struct ZipDownloader {
     client: reqwest::unstable::async::Client,
@@ -26,23 +54,17 @@ impl ZipDownloader {
     pub(super) fn download(
         &mut self,
         mut out: impl 'static + io::Write + Send,
-        url_pref: &str,
-        url_sufs: &[impl AsRef<str>],
+        urls: &Urls<impl fmt::Display>,
         cookie: Option<&header::Cookie>,
     ) -> ServiceResult<Vec<Vec<u8>>> {
         let (client, core) = (&self.client, &mut self.core);
-        write!(out, "Downloading {}", url_pref)?;
-        if url_sufs.len() == 1 {
-            writeln!(out, "{}...", url_sufs[0].as_ref())?;
-        } else {
-            let sufs = url_sufs.iter().map(AsRef::as_ref).format(", ");
-            writeln!(out, "{{{}}}...", sufs)?;
-        }
+        writeln!(out, "Downloading {} ...", urls)?;
         out.flush()?;
-        let works = url_sufs
-            .iter()
-            .map(|url_suf| format!("{}{}", url_pref, url_suf.as_ref()))
-            .map(|url| receive_header(client, &url, cookie.cloned()));
+        let works = urls
+            .try_to_urls()
+            .unwrap_or_else(|_| unimplemented!())
+            .into_iter()
+            .map(|url| receive_header(client, url, cookie.cloned()));
         let resps = core.run(future::join_all(works))?;
         if resps.len() == 1 {
             writeln!(out, "The endpoint returned 200.")?;
@@ -68,7 +90,7 @@ impl ZipDownloader {
 
 fn receive_header(
     client: &reqwest::unstable::async::Client,
-    url: &str,
+    url: Url,
     cookie: Option<header::Cookie>,
 ) -> impl Future<Item = reqwest::unstable::async::Response, Error = SessionError> {
     let mut req = client.get(url);

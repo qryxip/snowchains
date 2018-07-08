@@ -419,7 +419,7 @@ impl Opt {
                 let download_prop = DownloadProp::new(&config, open_browser, problems)?;
                 match config.service() {
                     ServiceName::AtCoder => atcoder::download(&sess_prop, download_prop),
-                    ServiceName::HackerRank => hackerrank::download(&sess_prop, &download_prop),
+                    ServiceName::HackerRank => hackerrank::download(&sess_prop, download_prop),
                     ServiceName::Yukicoder => yukicoder::download(&sess_prop, download_prop),
                     ServiceName::Other => return Err(::Error::Unimplemented),
                 }?;

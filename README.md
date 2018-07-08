@@ -12,11 +12,12 @@ Tools for online programming contests.
 - Submits a source code
 - Downloads source codes you have submitted
 
-|                      | Target                                | Scrape samples | Download system tests | Submit        |
-| :------------------- | :------------------------------------ | :------------: | :-------------------: | :-----------: |
-| AtCoder (Beta)       | `https://beta.atcoder.jp/contests/{}` | ✓              | ⨉                     | ✓             |
-| Yukicoder (Problems) | `https://yukicoder.me/problems/no/{}` | ✓              | ✓                     | ✓             |
-| Yukicoder (Contest)  | `https://yukicoder.me/contests/{}`    | ✓              | ✓                     | ✓             |
+|                         | Target                             | Scrape samples  | Download system tests | Submit          |
+| :---------------------- | :--------------------------------- | :-------------: | :-------------------: | :-------------: |
+| AtCoder Beta            | `beta.atcoder.jp/contests/{}`      | ✓               | ⨉                     | ✓               |
+| HackerRank (Challenges) | `www.hackerrank.com/challenges/{}` | Not implemented | ✓                     | Not implemented |
+| yukicoder (Problems)    | `yukicoder.me/problems/no/{}`      | ✓               | ✓                     | ✓               |
+| yukicoder (Contest)     | `yukicoder.me/contests/{}`         | ✓               | ✓                     | ✓               |
 
 ## Instrallation
 
@@ -39,11 +40,12 @@ $ cargo [+stable] install-update -ag
 ```console
 $ snowchains --help
 $ snowchains <i|init> ./
-$ snowchains <w|switch> <service> <contest>                                 # e.g. ("atcoder", "agc001")
-$ snowchains <d|download> [-s <service>] [-c <contest>] [-b|--open-browser] # Does not ask username and password unless they are needed
-$ $EDITOR ./snowchains/<service>/<contest>/<problem>.yaml                   # Add more test cases
-$ snowchains <j|judge> <problem> [language]
-$ snowchains <s|submit> <problem> [language] [-b|--open-browser] [-j|--skip-judging] [-d|--skip-checking-duplication]
+$ snowchains <w|switch> [-s <service>] [-c <contest>] [-l <language>]                       # e.g. "-s atcoder -c arc100 -l c++"
+$ snowchains <d|download> [-b|--open-browser] [-s <service>] [-c <contest>] [-p <problems>] # Does not ask username and password unless they are needed
+$ $EDITOR ./snowchains/<service>/<contest>/<problem>.yaml                                   # Add more test cases
+$ snowchains <j|judge> [-s <service>] [-c <contest>] [-l <language>] <problem>
+$ snowchains <s|submit> [-b|--open-browser] [-j|--skip-judging] [-d|--skip-checking-duplication] \
+                        [-s <service>] [-c <contest>] [-l <language>] <problem>
 ```
 
 ## Config File (snowchains.yaml)
@@ -55,7 +57,7 @@ service: atcoder # "atcoder", "hackerrank", "yukicoder", "other"
 contest: arc001
 language: c++    # Priorities: <command line argument>, `service._.language`, `language`
 
-color: auto # "always", "never", or "auto"
+color_range: 256color # "8color", "16color", "256color"
 
 session:
   timeout: 10
@@ -87,7 +89,7 @@ testfiles:
           entry: /\Aoutput/output([0-9]+)\.txt\z/
           match_group: 1
         sort: [number]
-      # YukiCoder
+      # yukicoder
       - in:
           entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
           match_group: 1

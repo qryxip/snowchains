@@ -11,6 +11,8 @@ extern crate maplit;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
+extern crate serde_json;
+#[macro_use]
 extern crate structopt;
 
 extern crate ansi_term;
@@ -30,7 +32,6 @@ extern crate rpassword;
 extern crate rprompt;
 extern crate select;
 extern crate serde;
-extern crate serde_json;
 extern crate serde_urlencoded;
 extern crate serde_yaml;
 extern crate tokio_core;
