@@ -2,24 +2,23 @@ extern crate snowchains;
 
 extern crate env_logger;
 extern crate failure;
+extern crate serde;
+extern crate serde_yaml;
 extern crate tempdir;
 
-use snowchains::palette::ColorChoice;
-use snowchains::path::AbsPathBuf;
-use snowchains::{Credentials, Opt, Prop, ServiceName};
+#[allow(dead_code)]
+mod common;
 
-use failure::Fail;
-use tempdir::TempDir;
+use snowchains::{Credentials, Prop, ServiceName};
 
-use std::borrow::Cow;
-use std::path::PathBuf;
-use std::rc::Rc;
+use std::env;
 
 #[test]
 #[ignore]
 fn it_logins() {
     let _ = env_logger::try_init();
-    test("it_logins", false, login).unwrap();
+    let credentials = credentials_from_env_vars().unwrap();
+    common::test("it_logins", credentials, |prop| login(prop)).unwrap();
 }
 
 #[test]
@@ -29,43 +28,58 @@ fn it_logins() {
 )]
 fn it_raises_an_error_if_the_credentials_are_wrong() {
     let _ = env_logger::try_init();
-    test(
+    common::test(
         "it_raises_an_error_if_the_credentials_is_wrong",
-        true,
+        common::dummy_credentials(),
         login,
     ).unwrap();
 }
 
-fn login(prop: &Prop) -> snowchains::Result<()> {
-    Opt::Login {
-        color_choice: ColorChoice::Never,
-        service: ServiceName::HackerRank,
-    }.run(prop)
+#[test]
+#[ignore]
+fn it_downloads_testcases_from_master() {
+    let _ = env_logger::try_init();
+    let credentials = credentials_from_env_vars().unwrap();
+    common::test(
+        "it_downloads_test_cases_from_master",
+        credentials,
+        |prop| -> Result<(), failure::Error> {
+            static CONTEST: &str = "master";
+            static PROBLEMS: &[&str] = &["solve-me-first", "simple-array-sum"];
+            download(prop, CONTEST, PROBLEMS)?;
+            for problem in PROBLEMS {
+                common::confirm_zip_exists(prop, CONTEST, problem)?;
+            }
+            Ok(())
+        },
+    ).unwrap();
 }
 
-fn test<E: Fail>(
-    tempdir_prefix: &str,
-    use_dummy_credentials: bool,
-    f: impl FnOnce(&Prop) -> Result<(), E>,
-) -> Result<(), failure::Error> {
-    let tempdir = TempDir::new(tempdir_prefix)?;
-    let result = (|| -> Result<(), failure::Error> {
-        let credentials = if use_dummy_credentials {
-            Credentials::UserNameAndPassword(Rc::new("".to_owned()), Rc::new("".to_owned()))
-        } else {
-            Credentials::from_env_vars("HACKERRANK_USERNAME", "HACKERRANK_PASSWORD")?
-        };
-        let prop = Prop {
-            working_dir: AbsPathBuf::new_or_panic(tempdir.path()),
-            cookies_on_init: Cow::from("$service"),
-            credentials,
-        };
-        Opt::Init {
-            color_choice: ColorChoice::Never,
-            directory: PathBuf::from("."),
-        }.run(&prop)?;
-        f(&prop).map_err(Into::into)
-    })();
-    tempdir.close()?;
-    result
+#[test]
+#[ignore]
+fn it_downloads_testcases_from_hourrank_20() {
+    let _ = env_logger::try_init();
+    let credentials = credentials_from_env_vars().unwrap();
+    common::test(
+        "it_downloads_test_cases_from_hourrank_20",
+        credentials,
+        |prop| -> Result<(), failure::Error> {
+            static CONTEST: &str = "hourrank-20";
+            static PROBLEM: &str = "hot-and-cold";
+            download(prop, CONTEST, &[PROBLEM])?;
+            common::confirm_zip_exists(prop, CONTEST, PROBLEM).map_err(Into::into)
+        },
+    ).unwrap();
+}
+
+fn login(prop: &Prop) -> snowchains::Result<()> {
+    common::login(prop, ServiceName::HackerRank)
+}
+
+fn download(prop: &Prop, contest: &str, problems: &[&str]) -> snowchains::Result<()> {
+    common::download(prop, ServiceName::HackerRank, contest, problems)
+}
+
+fn credentials_from_env_vars() -> Result<Credentials, env::VarError> {
+    Credentials::from_env_vars("HACKERRANK_USERNAME", "HACKERRANK_PASSWORD")
 }

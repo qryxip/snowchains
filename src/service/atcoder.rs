@@ -174,6 +174,7 @@ impl AtCoder {
             download_dir,
             extension,
             open_browser,
+            ..
         } = prop;
         let outputs = self
             .fetch_tasks_page(contest)?

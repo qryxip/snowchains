@@ -124,6 +124,7 @@ impl Yukicoder {
             download_dir,
             extension,
             open_browser,
+            suppress_download_bars,
         } = download_prop;
         self.login(false)?;
         let scrape =
@@ -183,15 +184,17 @@ impl Yukicoder {
         let zips = if nos.is_empty() {
             None
         } else {
-            Some(zip_downloader.download(
-                io::stdout(),
-                &downloader::Urls {
-                    pref: Cow::from("https://yukicoder.me/problems/no/"),
-                    names: nos.clone(),
-                    suf: "/testcase.zip",
-                },
-                self.session.cookies_to_header().as_ref(),
-            )?)
+            let urls = downloader::Urls {
+                pref: Cow::from("https://yukicoder.me/problems/no/"),
+                names: nos.clone(),
+                suf: "/testcase.zip",
+            };
+            let cookie = self.session.cookies_to_header();
+            Some(if *suppress_download_bars {
+                zip_downloader.download(io::sink(), &urls, cookie.as_ref())
+            } else {
+                zip_downloader.download(io::stdout(), &urls, cookie.as_ref())
+            }?)
         };
         for (_, suite, path) in &outputs {
             suite.save(path, true)?;

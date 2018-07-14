@@ -156,6 +156,7 @@ fn setup(tempdir_prefix: &str, credentials: Credentials) -> (TempDir, Prop) {
         working_dir: AbsPathBuf::new_or_panic(tempdir.path()),
         cookies_on_init,
         credentials,
+        suppress_download_bars: true,
     };
     Opt::Init {
         color_choice: ColorChoice::Never,

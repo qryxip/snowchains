@@ -52,28 +52,31 @@ impl Hackerrank {
     }
 
     fn login(&mut self, option: LoginOption) -> ServiceResult<()> {
-        let (mut username, mut password, retry) = match &self.credentials {
+        let (mut username, mut password, on_test) = match &self.credentials {
             Credentials::RevelSession(_) => return Err(ServiceError::WrongCredentialsOnTest),
             Credentials::UserNameAndPassword(username, password) => {
-                (username.clone(), password.clone(), false)
+                (username.clone(), password.clone(), true)
             }
             Credentials::None => {
                 let (username, password) = super::ask_credentials("Username: ")?;
-                (Rc::new(username), Rc::new(password), true)
+                (Rc::new(username), Rc::new(password), false)
             }
         };
         let mut res = self.get("/login").acceptable(&[200, 302]).send()?;
         if res.status() == StatusCode::Found && option == LoginOption::Explicit {
             eprintln!("Already signed in.");
         } else if res.status() == StatusCode::Ok {
-            if option == LoginOption::NotNecessary && !super::ask_yes_or_no("Login? ", false)? {
+            if option == LoginOption::NotNecessary
+                && !on_test
+                && !super::ask_yes_or_no("Login? ", false)?
+            {
                 return Ok(());
             }
             loop {
                 if self.try_logging_in(&username, &password, res)? {
                     break println!("Succeeded to login.");
                 }
-                if !retry {
+                if on_test {
                     return Err(ServiceError::WrongCredentialsOnTest);
                 }
                 let (username_, password_) = super::ask_credentials("Username: ")?;
@@ -136,6 +139,7 @@ impl Hackerrank {
             download_dir,
             extension,
             open_browser,
+            suppress_download_bars,
         } = download_prop;
         let problems = problems.as_ref();
 
@@ -212,9 +216,11 @@ impl Hackerrank {
         }
 
         warn_unless_empty(&cannot_view, "cannot be viewed");
+
         for (suite, path) in scraped {
             suite.save(&path, true)?;
         }
+
         if !zip_targets.is_empty() {
             let (pref, names);
             if zip_targets.keys().count() == 1 {
@@ -241,17 +247,21 @@ impl Hackerrank {
                 names,
                 suf: "/download_testcases",
             };
-            let zips = sess_prop.zip_downloader()?.download(
-                io::stdout(),
-                &urls,
-                self.session.cookies_to_header().as_ref(),
-            )?;
+            let cookie = self.session.cookies_to_header();
+            let mut downloader = sess_prop.zip_downloader()?;
+            let zips = if *suppress_download_bars {
+                downloader.download(io::sink(), &urls, cookie.as_ref())
+            } else {
+                downloader.download(io::stdout(), &urls, cookie.as_ref())
+            }?;
+
             for (problem, zip) in urls.names.iter().zip(&zips) {
                 let path = download_dir.join(format!("{}.zip", problem));
                 ::fs::write(&path, zip)?;
                 println!("Saved to {}", path.display());
             }
         }
+
         if *open_browser {
             for url in browser_urls {
                 self.session.open_in_browser(&url)?;

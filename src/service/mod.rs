@@ -169,10 +169,16 @@ pub(crate) struct DownloadProp<C: Contest> {
     pub download_dir: AbsPathBuf,
     pub extension: SerializableExtension,
     pub open_browser: bool,
+    pub suppress_download_bars: bool,
 }
 
 impl DownloadProp<String> {
-    pub fn new(config: &Config, open_browser: bool, problems: Vec<String>) -> ::Result<Self> {
+    pub fn new(
+        config: &Config,
+        open_browser: bool,
+        suppress_download_bars: bool,
+        problems: Vec<String>,
+    ) -> ::Result<Self> {
         let download_dir = config.testfiles_dir().expand("")?;
         Ok(Self {
             contest: config.contest().to_owned(),
@@ -184,6 +190,7 @@ impl DownloadProp<String> {
             download_dir,
             extension: config.extension_on_scrape(),
             open_browser,
+            suppress_download_bars,
         })
     }
 
@@ -194,6 +201,7 @@ impl DownloadProp<String> {
             download_dir: self.download_dir,
             extension: self.extension,
             open_browser: self.open_browser,
+            suppress_download_bars: self.suppress_download_bars,
         }
     }
 }

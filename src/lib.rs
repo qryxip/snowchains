@@ -117,7 +117,7 @@ impl FromStr for ServiceName {
 }
 
 impl ServiceName {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             ServiceName::AtCoder => "atcoder",
             ServiceName::HackerRank => "hackerrank",

@@ -416,7 +416,12 @@ impl Opt {
                 palette::try_enable_ansi(color_choice);
                 let config = Config::load_setting_color_range(service, contest, &prop.working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
-                let download_prop = DownloadProp::new(&config, open_browser, problems)?;
+                let download_prop = DownloadProp::new(
+                    &config,
+                    open_browser,
+                    prop.suppress_download_bars,
+                    problems,
+                )?;
                 match config.service() {
                     ServiceName::AtCoder => atcoder::download(&sess_prop, download_prop),
                     ServiceName::HackerRank => hackerrank::download(&sess_prop, download_prop),
@@ -507,6 +512,7 @@ pub struct Prop {
     pub working_dir: AbsPathBuf,
     pub cookies_on_init: Cow<'static, str>,
     pub credentials: Credentials,
+    pub suppress_download_bars: bool,
 }
 
 impl Prop {
@@ -518,6 +524,7 @@ impl Prop {
             working_dir,
             cookies_on_init: Cow::from("~/.local/share/snowchains/$service"),
             credentials: Credentials::None,
+            suppress_download_bars: false,
         })
     }
 

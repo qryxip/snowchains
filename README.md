@@ -16,7 +16,7 @@ Tools for online programming contests.
 | :---------------------- | :------------------------------------------- | :------------------ | :-------------: | :-------------------: | :-------------: |
 | AtCoder Beta            | `beta.atcoder.jp/contests/{}`                | `*`                 | ✓               | ⨉                     | ✓               |
 | HackerRank (Problems)   | `www.hackerrank.com/challenges/{}`           | `"master"`          | ✓               | ✓                     | Not implemented |
-| HackerRank (Contests)   | `www.hackerrank.com/contests/{}/challenges/` | `(?!master)`        | Not implemented | ✓                     | Not implemented |
+| HackerRank (Contests)   | `www.hackerrank.com/contests/{}/challenges/` | `(?!master)`        | ✓               | ✓                     | Not implemented |
 | yukicoder (Problems)    | `yukicoder.me/problems/no/{}`                | `"no"`              | ✓               | ✓                     | ✓               |
 | yukicoder (Contests)    | `yukicoder.me/contests/{}`                   | `(?!no)`            | ✓               | ✓                     | ✓               |
 
