@@ -1,10 +1,12 @@
 use errors::{FileIoError, FileIoErrorKind, FileIoResult};
 
+use dirs;
+
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
+use std::fmt;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::{env, fmt};
 
 pub(crate) type AbsPath<'a> = &'a AbsPathBuf;
 
@@ -46,7 +48,7 @@ impl AbsPathBuf {
         if path.is_absolute() {
             Ok(AbsPathBuf(remove_dots(Cow::from(path))))
         } else if path.iter().next() == Some(OsStr::new("~")) {
-            let home = env::home_dir()
+            let home = dirs::home_dir()
                 .ok_or_else(|| FileIoError::new(FileIoErrorKind::HomeDirNotFound, path.clone()))?;
             Ok(AbsPathBuf(concat_removing_dots(home, path.iter().skip(1))))
         } else {
@@ -136,7 +138,8 @@ impl AsRef<Path> for AbsPathBuf {
 mod tests {
     use path::AbsPathBuf;
 
-    use std::env;
+    use dirs;
+
     use std::path::Path;
 
     #[cfg(not(windows))]
@@ -163,7 +166,7 @@ mod tests {
 
     #[test]
     fn it_expands_tilde() {
-        let home = env::home_dir().unwrap();
+        let home = dirs::home_dir().unwrap();
         let expected = home.join("foo");
         let actual = AbsPathBuf::default()
             .join_expanding_tilde("~/foo")

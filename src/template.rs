@@ -544,7 +544,7 @@ mod tests {
         BaseDirNone, CommandTemplate, CommandTemplateInner, PathTemplate, StringTemplate, Template,
     };
 
-    use serde_json;
+    use {dirs, serde_json};
 
     use std::ffi::OsStr;
     use std::path::Path;
@@ -669,8 +669,8 @@ mod tests {
             }
             test!("snowchains/$service/$contest" => "snowchains/Service/Contest");
         }
-        test!("~"         => env::home_dir().unwrap());
-        test!("~/foo/bar" => env::home_dir().unwrap().join("foo/bar"));
+        test!("~"         => dirs::home_dir().unwrap());
+        test!("~/foo/bar" => dirs::home_dir().unwrap().join("foo/bar"));
         test!("~root"     => !);
     }
 

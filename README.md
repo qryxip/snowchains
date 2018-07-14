@@ -12,12 +12,13 @@ Tools for online programming contests.
 - Submits a source code
 - Downloads source codes you have submitted
 
-|                         | Target                             | Scrape samples  | Download system tests | Submit          |
-| :---------------------- | :--------------------------------- | :-------------: | :-------------------: | :-------------: |
-| AtCoder Beta            | `beta.atcoder.jp/contests/{}`      | ✓               | ⨉                     | ✓               |
-| HackerRank (Challenges) | `www.hackerrank.com/challenges/{}` | Not implemented | ✓                     | Not implemented |
-| yukicoder (Problems)    | `yukicoder.me/problems/no/{}`      | ✓               | ✓                     | ✓               |
-| yukicoder (Contest)     | `yukicoder.me/contests/{}`         | ✓               | ✓                     | ✓               |
+|                         | Target                                       | "contest" attribute | Scrape samples  | Download system tests | Submit          |
+| :---------------------- | :------------------------------------------- | :------------------ | :-------------: | :-------------------: | :-------------: |
+| AtCoder Beta            | `beta.atcoder.jp/contests/{}`                | `*`                 | ✓               | ⨉                     | ✓               |
+| HackerRank (Problems)   | `www.hackerrank.com/challenges/{}`           | `"master"`          | ✓               | ✓                     | Not implemented |
+| HackerRank (Contests)   | `www.hackerrank.com/contests/{}/challenges/` | `(?!master)`        | Not implemented | ✓                     | Not implemented |
+| yukicoder (Problems)    | `yukicoder.me/problems/no/{}`                | `"no"`              | ✓               | ✓                     | ✓               |
+| yukicoder (Contests)    | `yukicoder.me/contests/{}`                   | `(?!no)`            | ✓               | ✓                     | ✓               |
 
 ## Instrallation
 
@@ -137,7 +138,7 @@ interactive:
       command: $bin $*
       working_directory: hs/
 
-# test files: <testsuite>/<problem>.[json|toml,yaml,yml]
+# test files: <testsuite>/<problem>.[json|toml|yaml|yml|zip]
 # source:     <<src> % <problem>>
 # binary:     <<bin> % <problem>>
 #
@@ -177,14 +178,14 @@ languages:
       atcoder: 3003
       yukicoder: cpp14
   rust:
-    src: rs/src/bin/{kebab}.rs
+    src: rs$rust_version/src/bin/{kebab}.rs
     compile:
-      bin: rs/target/release/{kebab}
+      bin: rs$rust_version/target/release/{kebab}
       command: [rustc, +$rust_version, -o, $bin, $src]
-      working_directory: rs/
+      working_directory: rs$rust_version/
     run:
       command: [$bin]
-      working_directory: rs/
+      working_directory: rs$rust_version/
     language_ids:
       atcoder: 3504
       yukicoder: rust

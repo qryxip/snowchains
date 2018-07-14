@@ -20,6 +20,7 @@ extern crate bincode;
 extern crate chrono;
 extern crate combine;
 extern crate cookie;
+extern crate dirs;
 extern crate fs2;
 extern crate futures as futures_01;
 extern crate heck;

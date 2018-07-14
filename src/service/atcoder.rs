@@ -769,7 +769,8 @@ impl Extract for Document {
             Some(Samples::Interactive) => Ok(TestSuite::interactive(timelimit)),
             None => {
                 warn!("Extracting sample cases: Could not extract sample cases");
-                Ok(TestSuite::simple(timelimit, None, None, vec![]))
+                let empty = Vec::<(&'static str, &'static str)>::new();
+                Ok(TestSuite::simple(timelimit, None, None, empty))
             }
         }
     }

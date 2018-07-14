@@ -77,7 +77,7 @@ impl Yukicoder {
             let mut first = true;
             loop {
                 if first {
-                    if !assure && !ask_yes_or_no("Login? ", true)? {
+                    if !assure && !super::ask_yes_or_no("Login? ", true)? {
                         break;
                     }
                     println!(
@@ -186,8 +186,8 @@ impl Yukicoder {
             Some(zip_downloader.download(
                 io::stdout(),
                 &downloader::Urls {
-                    pref: "https://yukicoder.me/problems/no/",
-                    names: &nos,
+                    pref: Cow::from("https://yukicoder.me/problems/no/"),
+                    names: nos.clone(),
                     suf: "/testcase.zip",
                 },
                 self.session.cookies_to_header().as_ref(),
@@ -307,18 +307,6 @@ impl Yukicoder {
                 .collect())
         } else {
             Ok(vec![])
-        }
-    }
-}
-
-fn ask_yes_or_no(mes: &str, default: bool) -> io::Result<bool> {
-    let prompt = format!("{}{} ", mes, if default { "(Y/n)" } else { "(y/N)" });
-    loop {
-        match &rprompt::prompt_reply_stderr(&prompt)? {
-            s if s.is_empty() => break Ok(default),
-            s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
-            s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
-            _ => eprintln!("Answer \"y\", \"yes\", \"n\", \"no\", or \"\"."),
         }
     }
 }
@@ -511,23 +499,28 @@ mod tests {
     #[test]
     #[ignore]
     fn it_extracts_samples_from_problem1() {
-        static EXPECTED: &[(&str, &str)] = &[
-            ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
-            ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
-            (
-                "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
-                 3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
-                 8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
-                "-1\n",
-            ),
-        ];
         let _ = env_logger::try_init();
+        let expected = TestSuite::simple(
+            Duration::from_secs(5),
+            None,
+            None,
+            vec![
+                ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
+                ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
+                (
+                    "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
+                     3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
+                     8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
+                     8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
+                    "-1\n",
+                ),
+            ],
+        );
         let samples = {
             let mut yukicoder = start().unwrap();
             let document = yukicoder.get("/problems/no/1").recv_html().unwrap();
             document.extract_samples().unwrap()
         };
-        let expected = TestSuite::simple(Duration::from_secs(5), None, None, own_pairs(EXPECTED));
         assert_eq!(expected, samples);
     }
 

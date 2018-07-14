@@ -32,6 +32,18 @@ use std::{self, env, fmt, io};
 
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
 
+pub(self) fn ask_yes_or_no(mes: &str, default: bool) -> io::Result<bool> {
+    let prompt = format!("{}{} ", mes, if default { "(Y/n)" } else { "(y/N)" });
+    loop {
+        match &rprompt::prompt_reply_stderr(&prompt)? {
+            s if s.is_empty() => break Ok(default),
+            s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
+            s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
+            _ => eprintln!("Answer \"y\", \"yes\", \"n\", \"no\", or \"\"."),
+        }
+    }
+}
+
 /// Asks username and password.
 pub(self) fn ask_credentials(username_prompt: &str) -> io::Result<(String, String)> {
     let username = rprompt::prompt_reply_stderr(username_prompt)?;

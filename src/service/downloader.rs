@@ -10,17 +10,18 @@ use tokio_core::reactor::Core;
 use url::{self, Url};
 use zip::ZipArchive;
 
+use std::borrow::Cow;
 use std::io::{self, Cursor, Write as _Write};
 use std::time::{Duration, Instant};
 use std::{self, fmt, mem, panic, thread};
 
-pub(super) struct Urls<'a, S: 'a + fmt::Display> {
-    pub pref: &'static str,
-    pub names: &'a [S],
+pub(super) struct Urls<'a, S: fmt::Display> {
+    pub pref: Cow<'a, str>,
+    pub names: Vec<S>,
     pub suf: &'static str,
 }
 
-impl<'a, S: 'a + fmt::Display> Urls<'a, S> {
+impl<'a, S: fmt::Display> Urls<'a, S> {
     fn try_to_urls(&self) -> std::result::Result<Vec<Url>, url::ParseError> {
         self.names
             .iter()
@@ -29,7 +30,7 @@ impl<'a, S: 'a + fmt::Display> Urls<'a, S> {
     }
 }
 
-impl<'a, S: 'a + fmt::Display> fmt::Display for Urls<'a, S> {
+impl<'a, S: fmt::Display> fmt::Display for Urls<'a, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.pref)?;
         if self.names.len() == 1 {

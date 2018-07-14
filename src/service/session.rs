@@ -11,6 +11,7 @@ use reqwest::header::{self, Headers, Location, SetCookie};
 use reqwest::{self, multipart, Method, Response, StatusCode};
 use robots_txt::{Robots, SimpleMatcher};
 use select::document::Document;
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 use url::{Host, Url};
 use {bincode, webbrowser};
@@ -189,8 +190,14 @@ pub(crate) struct Request<'a> {
 }
 
 impl<'a> Request<'a> {
-    pub fn headers(mut self, headers: Headers) -> Self {
+    pub fn raw_header(
+        mut self,
+        name: impl Into<Cow<'static, str>>,
+        value: impl Into<header::Raw>,
+    ) -> Self {
         if let Ok(inner) = self.inner.as_mut() {
+            let mut headers = Headers::new();
+            headers.set_raw(name, value);
             inner.headers(headers);
         }
         self
@@ -241,6 +248,10 @@ impl<'a> Request<'a> {
 
     pub fn recv_html(self) -> SessionResult<Document> {
         Ok(Document::from(self.send()?.text()?.as_str()))
+    }
+
+    pub fn recv_json<T: DeserializeOwned>(self) -> SessionResult<T> {
+        Ok(self.send()?.json()?)
     }
 }
 

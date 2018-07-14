@@ -120,14 +120,14 @@ languages:
       atcoder: 3003
       yukicoder: cpp14
   rust:
-    src: rs/src/bin/{{kebab}}.rs
+    src: rs$rust_version/src/bin/{{kebab}}.rs
     compile:
-      bin: rs/target/release/{{kebab}}{exe}
+      bin: rs$rust_version/target/release/{{kebab}}{exe}
       command: [rustc, +$rust_version, -o, $bin, $src]
-      working_directory: rs/
+      working_directory: rs$rust_version/
     run:
       command: [$bin]
-      working_directory: rs/
+      working_directory: rs$rust_version/
     language_ids:
       atcoder: 3504
       yukicoder: rust
@@ -492,8 +492,11 @@ impl Config {
         match &lang.compile {
             None => Ok(None),
             Some(compile) => {
-                let wd = compile.working_directory.base_dir(&self.base_dir);
                 let vars = self.vars_for_langs(None);
+                let wd = compile
+                    .working_directory
+                    .base_dir(&self.base_dir)
+                    .embed_strings(&vars);
                 let cmd = compile.command.embed_strings(&vars);
                 let src = lang.src.base_dir(&self.base_dir).embed_strings(&vars);
                 let bin = compile.bin.base_dir(&self.base_dir).embed_strings(&vars);
@@ -503,14 +506,18 @@ impl Config {
     }
 
     fn judge_command(&self, lang: &Language) -> LoadConfigResult<JudgeTemplate> {
-        let wd = lang.run.working_directory.base_dir(&self.base_dir);
         let vars = self.vars_for_langs(None);
+        let wd = lang
+            .run
+            .working_directory
+            .base_dir(&self.base_dir)
+            .embed_strings(&vars);
         let cmd = lang.run.command.embed_strings(&vars);
         let src = lang.src.base_dir(&self.base_dir).embed_strings(&vars);
         let bin = lang
             .compile
             .as_ref()
-            .map(|c| c.bin.base_dir(&self.base_dir));
+            .map(|c| c.bin.base_dir(&self.base_dir).embed_strings(&vars));
         Ok(cmd.as_judge(&self.shell, wd, &src, bin.as_ref()))
     }
 
