@@ -185,9 +185,10 @@ pub(crate) enum ReplaceYamlScalarWarning {
 }
 
 #[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
-derive_from!(ReplaceYamlScalarWarning::Deserialize <- serde_yaml::Error);
-#[cfg_attr(rustfmt, rustfmt_skip)]
-derive_from!(ReplaceYamlScalarWarning::Scan        <- ScanError);
+derive_from!(
+    ReplaceYamlScalarWarning::Deserialize <- serde_yaml::Error,
+    ReplaceYamlScalarWarning::Scan        <- ScanError,
+);
 
 impl fmt::Display for ReplaceYamlScalarWarning {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -3,7 +3,8 @@ use palette::Palette;
 use service::downloader::{self, ZipDownloader};
 use service::session::{GetPost, HttpSession};
 use service::{
-    Contest, Credentials, DownloadProp, PrintTargets as _PrintTargets, SessionProp, SubmitProp,
+    Contest, DownloadProp, PrintTargets as _PrintTargets, RevelSession, SessionProp, SubmitProp,
+    TryIntoDocument as _TryIntoDocument,
 };
 use testsuite::{SuiteFilePath, TestSuite};
 
@@ -44,7 +45,7 @@ pub(crate) fn submit(
 struct Yukicoder {
     session: HttpSession,
     username: Username,
-    credentials: Credentials,
+    credential: RevelSession,
 }
 
 impl GetPost for Yukicoder {
@@ -59,16 +60,13 @@ impl Yukicoder {
         Ok(Self {
             session,
             username: Username::None,
-            credentials: sess_prop.credentials.clone(),
+            credential: sess_prop.credentials.yukicoder.clone(),
         })
     }
 
     fn login(&mut self, assure: bool) -> ServiceResult<()> {
-        if let Credentials::UserNameAndPassword(..) = self.credentials {
-            return Err(ServiceError::WrongCredentialsOnTest);
-        }
-        if let Credentials::RevelSession(revel_session) = self.credentials.clone() {
-            if !self.confirm_revel_session((*revel_session).clone())? {
+        if let RevelSession::Some(revel_session) = self.credential.clone() {
+            if !self.confirm_revel_session(revel_session.as_ref().clone())? {
                 return Err(ServiceError::WrongCredentialsOnTest);
             }
         }
@@ -140,13 +138,14 @@ impl Yukicoder {
                 let (mut not_found, mut not_public) = (vec![], vec![]);
                 for problem in problems {
                     let url = format!("/problems/no/{}", problem);
-                    let mut res = self.get(&url).acceptable(&[200, 404]).send()?;
-                    let document = Document::from(res.text()?.as_str());
+                    let res = self.get(&url).acceptable(&[200, 404]).send()?;
+                    let status = res.status();
+                    let document = res.try_into_document()?;
                     let public = match document.find(Attr("id", "content").child(Text)).next() {
                         None => true,
                         Some(t) => !t.text().contains("非表示"),
                     };
-                    if res.status() == StatusCode::NotFound {
+                    if status == StatusCode::NotFound {
                         not_found.push(problem);
                     } else if !public {
                         not_public.push(problem);
@@ -227,7 +226,7 @@ impl Yukicoder {
         self.login(true)?;
         let code = ::fs::read_to_string(src_path)?;
         let code = match replacer {
-            Some(replacer) => replacer.replace_as_submission(&problem, &code)?,
+            Some(replacer) => replacer.replace_from_local_to_submission(&problem, &code)?,
             None => code,
         };
         let mut url = match contest {
@@ -490,7 +489,7 @@ mod tests {
     use errors::SessionResult;
     use service::session::{GetPost as _GetPost, HttpSession, UrlBase};
     use service::yukicoder::{Extract as _Extract, Username, Yukicoder};
-    use service::{self, Credentials};
+    use service::{self, RevelSession};
     use testsuite::TestSuite;
 
     use env_logger;
@@ -561,7 +560,7 @@ mod tests {
         Ok(Yukicoder {
             session,
             username: Username::None,
-            credentials: Credentials::None,
+            credential: RevelSession::None,
         })
     }
 }

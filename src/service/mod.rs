@@ -13,13 +13,14 @@ use path::{AbsPath, AbsPathBuf};
 use replacer::CodeReplacer;
 use service::downloader::ZipDownloader;
 use service::session::{HttpSession, UrlBase};
-use template::{BaseDirNone, BaseDirSome, PathTemplate};
+use template::{Template, TemplateBuilder};
 use testsuite::SerializableExtension;
 use {util, ServiceName};
 
 use itertools::Itertools as _Itertools;
 use reqwest::header::{Headers, UserAgent};
-use reqwest::{self, RedirectPolicy};
+use reqwest::{self, RedirectPolicy, Response};
+use select::document::Document;
 use tokio_core::reactor::Core;
 use url::Host;
 use {rpassword, rprompt};
@@ -28,7 +29,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::time::Duration;
-use std::{self, env, fmt, io};
+use std::{fmt, io};
 
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
 
@@ -57,24 +58,42 @@ pub(self) fn ask_credentials(username_prompt: &str) -> io::Result<(String, Strin
     Ok((username, password))
 }
 
-#[derive(Clone)]
-pub enum Credentials {
-    None,
-    RevelSession(Rc<String>),
-    UserNameAndPassword(Rc<String>, Rc<String>),
+pub(self) trait TryIntoDocument {
+    fn try_into_document(self) -> reqwest::Result<Document>;
 }
 
-impl Credentials {
-    pub fn from_env_vars(
-        username: &str,
-        password: &str,
-    ) -> std::result::Result<Self, env::VarError> {
-        let (username, password) = (Rc::new(env::var(username)?), Rc::new(env::var(password)?));
-        Ok(Credentials::UserNameAndPassword(username, password))
+impl TryIntoDocument for Response {
+    fn try_into_document(mut self) -> reqwest::Result<Document> {
+        Ok(Document::from(self.text()?.as_str()))
     }
+}
 
+#[derive(Clone)]
+pub struct Credentials {
+    pub atcoder: UserNameAndPassword,
+    pub hackerrank: UserNameAndPassword,
+    pub yukicoder: RevelSession,
+}
+
+impl Default for Credentials {
+    fn default() -> Self {
+        Self {
+            atcoder: UserNameAndPassword::None,
+            hackerrank: UserNameAndPassword::None,
+            yukicoder: RevelSession::None,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum UserNameAndPassword {
+    None,
+    Some(Rc<String>, Rc<String>),
+}
+
+impl UserNameAndPassword {
     pub(self) fn or_ask(&self, username_prompt: &str) -> io::Result<(Rc<String>, Rc<String>)> {
-        if let Credentials::UserNameAndPassword(username, password) = self {
+        if let UserNameAndPassword::Some(username, password) = self {
             Ok((username.clone(), password.clone()))
         } else {
             let (username, password) = ask_credentials(username_prompt)?;
@@ -82,19 +101,28 @@ impl Credentials {
         }
     }
 
-    pub(self) fn not_none(&self) -> bool {
+    pub(self) fn is_some(&self) -> bool {
         match self {
-            Credentials::None => false,
-            _ => true,
+            UserNameAndPassword::None => false,
+            UserNameAndPassword::Some(..) => true,
         }
     }
 }
 
+#[derive(Clone)]
+pub enum RevelSession {
+    None,
+    Some(Rc<String>),
+}
+
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SessionConfig {
-    #[serde(serialize_with = "util::ser::secs", deserialize_with = "util::de::non_zero_secs")]
+    #[serde(
+        serialize_with = "util::ser::secs",
+        deserialize_with = "util::de::non_zero_secs"
+    )]
     timeout: Option<Duration>,
-    cookies: PathTemplate<BaseDirNone>,
+    cookies: TemplateBuilder<AbsPathBuf>,
 }
 
 impl SessionConfig {
@@ -102,14 +130,10 @@ impl SessionConfig {
         self.timeout
     }
 
-    pub(crate) fn cookies<'a>(
-        &self,
-        base: AbsPath<'a>,
-        service: ServiceName,
-    ) -> PathTemplate<BaseDirSome<'a>> {
+    pub(crate) fn cookies(&self, base_dir: AbsPath, service: ServiceName) -> Template<AbsPathBuf> {
         self.cookies
-            .base_dir(base)
-            .embed_strings(&hashmap!("service" => service.as_str()))
+            .build(base_dir)
+            .strings(hashmap!("service".to_owned() => service.to_string()))
     }
 }
 
@@ -232,7 +256,7 @@ impl<C: Contest> DownloadProp<C> {
 pub(crate) struct RestoreProp<'a, C: Contest> {
     pub contest: C,
     pub problems: Option<Vec<String>>,
-    pub src_paths: HashMap<&'a str, PathTemplate<BaseDirSome<'a>>>,
+    pub src_paths: HashMap<&'a str, Template<AbsPathBuf>>,
     pub replacers: HashMap<&'a str, CodeReplacer>,
 }
 

@@ -2,7 +2,8 @@ use errors::{ServiceError, ServiceResult, SessionResult};
 use palette::Palette;
 use service::session::{GetPost, HttpSession};
 use service::{
-    downloader, Contest, Credentials, DownloadProp, PrintTargets as _PrintTargets, SessionProp,
+    downloader, Contest, DownloadProp, PrintTargets as _PrintTargets, SessionProp,
+    TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
 use testsuite::{SuiteFilePath, TestSuite};
 
@@ -32,7 +33,7 @@ pub(crate) fn download(
 
 struct Hackerrank {
     session: HttpSession,
-    credentials: Credentials,
+    credentials: UserNameAndPassword,
 }
 
 impl GetPost for Hackerrank {
@@ -44,7 +45,7 @@ impl GetPost for Hackerrank {
 impl Hackerrank {
     fn start(sess_prop: &SessionProp) -> SessionResult<Self> {
         let session = sess_prop.start_session()?;
-        let credentials = sess_prop.credentials.clone();
+        let credentials = sess_prop.credentials.hackerrank.clone();
         Ok(Hackerrank {
             session,
             credentials,
@@ -52,15 +53,10 @@ impl Hackerrank {
     }
 
     fn login(&mut self, option: LoginOption) -> ServiceResult<()> {
-        let (mut username, mut password, on_test) = match &self.credentials {
-            Credentials::RevelSession(_) => return Err(ServiceError::WrongCredentialsOnTest),
-            Credentials::UserNameAndPassword(username, password) => {
-                (username.clone(), password.clone(), true)
-            }
-            Credentials::None => {
-                let (username, password) = super::ask_credentials("Username: ")?;
-                (Rc::new(username), Rc::new(password), false)
-            }
+        let (mut username, mut password, on_test) = {
+            let on_test = self.credentials.is_some();
+            let (username, password) = self.credentials.or_ask("Username: ")?;
+            (username, password, on_test)
         };
         let mut res = self.get("/login").acceptable(&[200, 302]).send()?;
         if res.status() == StatusCode::Found && option == LoginOption::Explicit {
@@ -94,17 +90,17 @@ impl Hackerrank {
         &mut self,
         username: &str,
         password: &str,
-        mut response: Response,
+        response: Response,
     ) -> ServiceResult<bool> {
         #[derive(Deserialize)]
         struct LoginResponse {
             status: bool,
         }
 
-        let token = Document::from(response.text()?.as_str()).extract_csrf_token()?;
+        let csrf_token = response.try_into_document()?.extract_csrf_token()?;
         let status = self
             .post("/auth/login")
-            .raw_header("X-CSRF-Token", token)
+            .raw_header("X-CSRF-Token", csrf_token)
             .acceptable(&[200])
             .send_json(&json!({
                 "login": username,
@@ -378,7 +374,7 @@ mod tests {
     use errors::SessionResult;
     use service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
     use service::session::{GetPost as _GetPost, HttpSession, UrlBase};
-    use service::{self, Credentials};
+    use service::{self, UserNameAndPassword};
     use testsuite::TestSuite;
 
     use select::document::Document;
@@ -417,7 +413,7 @@ mod tests {
         let session = HttpSession::new(client, base, None)?;
         Ok(Hackerrank {
             session,
-            credentials: Credentials::None,
+            credentials: UserNameAndPassword::None,
         })
     }
 }

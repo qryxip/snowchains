@@ -15,7 +15,6 @@ macro_rules! println_plural {
     };
 }
 
-#[cfg_attr(rustfmt, rustfmt_skip)]
 macro_rules! derive_from {
     ($t:ident :: $v:ident <- $e:ty) => {
         impl From<$e> for $t {
@@ -23,5 +22,15 @@ macro_rules! derive_from {
                 $t::$v(e.into())
             }
         }
+    };
+    ($($t:ident :: $v:ident <- $e:ty),*) => {
+        $(
+            derive_from!($t :: $v <- $e);
+        )*
+    };
+    ($($t:ident :: $v:ident <- $e:ty),*,) => {
+        $(
+            derive_from!($t :: $v <- $e);
+        )*
     };
 }

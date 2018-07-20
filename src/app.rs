@@ -1,5 +1,5 @@
 use config::{self, Config};
-use errors::TemplateExpandResult;
+use errors::ExpandTemplateResult;
 use judging::{self, JudgeProp};
 use palette::{self, ColorChoice};
 use path::AbsPathBuf;
@@ -71,11 +71,17 @@ pub enum Opt {
         )]
         service: Option<ServiceName>,
         #[structopt(
-            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+            short = "c",
+            long = "contest",
+            help = "Contest name",
+            raw(display_order = "2")
         )]
         contest: Option<String>,
         #[structopt(
-            short = "l", long = "language", help = "Language name", raw(display_order = "3")
+            short = "l",
+            long = "language",
+            help = "Language name",
+            raw(display_order = "3")
         )]
         language: Option<String>,
         #[structopt(
@@ -137,7 +143,9 @@ pub enum Opt {
         )]
         color_choice: ColorChoice,
         #[structopt(
-            name = "service", help = "Service name", raw(possible_values = r#"&["atcoder"]"#)
+            name = "service",
+            help = "Service name",
+            raw(possible_values = r#"&["atcoder"]"#)
         )]
         service: ServiceName,
         #[structopt(name = "contest", help = "Contest name")]
@@ -152,7 +160,9 @@ pub enum Opt {
     )]
     Download {
         #[structopt(
-            short = "b", long = "open-browser", help = "Opens the pages with your default browser"
+            short = "b",
+            long = "open-browser",
+            help = "Opens the pages with your default browser"
         )]
         open_browser: bool,
         #[structopt(
@@ -160,16 +170,23 @@ pub enum Opt {
             long = "service",
             help = "Service name",
             raw(
-                possible_values = r#"&["atcoder", "hackerrank", "yukicoder"]"#, display_order = "1"
+                possible_values = r#"&["atcoder", "hackerrank", "yukicoder"]"#,
+                display_order = "1"
             )
         )]
         service: Option<ServiceName>,
         #[structopt(
-            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+            short = "c",
+            long = "contest",
+            help = "Contest name",
+            raw(display_order = "2")
         )]
         contest: Option<String>,
         #[structopt(
-            short = "p", long = "problems", help = "Problem names", raw(display_order = "3")
+            short = "p",
+            long = "problems",
+            help = "Problem names",
+            raw(display_order = "3")
         )]
         problems: Vec<String>,
         #[structopt(
@@ -201,11 +218,17 @@ pub enum Opt {
         )]
         service: Option<ServiceName>,
         #[structopt(
-            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+            short = "c",
+            long = "contest",
+            help = "Contest name",
+            raw(display_order = "2")
         )]
         contest: Option<String>,
         #[structopt(
-            short = "p", long = "problems", help = "Problem names", raw(display_order = "3")
+            short = "p",
+            long = "problems",
+            help = "Problem names",
+            raw(display_order = "3")
         )]
         problems: Vec<String>,
         #[structopt(
@@ -233,11 +256,17 @@ pub enum Opt {
             short = "s",
             long = "service",
             help = "Service name",
-            raw(display_order = "1", possible_values = r#"&["atcoder", "hackerrank", "other"]"#)
+            raw(
+                display_order = "1",
+                possible_values = r#"&["atcoder", "hackerrank", "other"]"#
+            )
         )]
         service: Option<ServiceName>,
         #[structopt(
-            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+            short = "c",
+            long = "contest",
+            help = "Contest name",
+            raw(display_order = "2")
         )]
         contest: Option<String>,
         #[structopt(
@@ -284,11 +313,17 @@ pub enum Opt {
         )]
         service: Option<ServiceName>,
         #[structopt(
-            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+            short = "c",
+            long = "contest",
+            help = "Contest name",
+            raw(display_order = "2")
         )]
         contest: Option<String>,
         #[structopt(
-            short = "l", long = "language", help = "Language name", raw(display_order = "3")
+            short = "l",
+            long = "language",
+            help = "Language name",
+            raw(display_order = "3")
         )]
         language: Option<String>,
         #[structopt(
@@ -315,7 +350,9 @@ pub enum Opt {
     )]
     Submit {
         #[structopt(
-            short = "b", long = "open-browser", help = "Opens the pages with your default browser"
+            short = "b",
+            long = "open-browser",
+            help = "Opens the pages with your default browser"
         )]
         open_browser: bool,
         #[structopt(short = "j", long = "skip-judging", help = "Skips judging")]
@@ -330,15 +367,24 @@ pub enum Opt {
             short = "s",
             long = "service",
             help = "Service name",
-            raw(possible_values = "&[\"atcoder\", \"yukicoder\"]", display_order = "1")
+            raw(
+                possible_values = "&[\"atcoder\", \"yukicoder\"]",
+                display_order = "1"
+            )
         )]
         service: Option<ServiceName>,
         #[structopt(
-            short = "c", long = "contest", help = "Contest name", raw(display_order = "2")
+            short = "c",
+            long = "contest",
+            help = "Contest name",
+            raw(display_order = "2")
         )]
         contest: Option<String>,
         #[structopt(
-            short = "l", long = "language", help = "Language name", raw(display_order = "3")
+            short = "l",
+            long = "language",
+            help = "Language name",
+            raw(display_order = "3")
         )]
         language: Option<String>,
         #[structopt(
@@ -361,13 +407,19 @@ pub enum Opt {
 impl Opt {
     pub fn run(self, prop: &Prop) -> ::Result<()> {
         info!("Opt = {:?}", self);
+        let Prop {
+            working_dir,
+            cookies_on_init,
+            suppress_download_bars,
+            ..
+        } = prop;
         match self {
             Opt::Init {
                 color_choice,
                 directory,
             } => {
                 palette::try_enable_ansi(color_choice);
-                config::init(&prop.working_dir.join(&directory), &prop.cookies_on_init)?;
+                config::init(&working_dir.join(&directory), &cookies_on_init)?;
             }
             Opt::Switch {
                 service,
@@ -376,18 +428,18 @@ impl Opt {
                 color_choice,
             } => {
                 palette::try_enable_ansi(color_choice);
-                config::switch(&prop.working_dir, service, contest, language)?;
+                config::switch(&working_dir, service, contest, language)?;
             }
             Opt::Login {
                 color_choice,
                 service,
             } => {
                 palette::try_enable_ansi(color_choice);
-                let config = Config::load_setting_color_range(service, None, &prop.working_dir)?;
+                let config = Config::load_setting_color_range(service, None, working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 match service {
-                    ServiceName::AtCoder => atcoder::login(&sess_prop),
-                    ServiceName::HackerRank => hackerrank::login(&sess_prop),
+                    ServiceName::Atcoder => atcoder::login(&sess_prop),
+                    ServiceName::Hackerrank => hackerrank::login(&sess_prop),
                     ServiceName::Yukicoder => yukicoder::login(&sess_prop),
                     ServiceName::Other => unreachable!(),
                 }?;
@@ -399,10 +451,10 @@ impl Opt {
             } => {
                 palette::try_enable_ansi(color_choice);
                 let config =
-                    Config::load_setting_color_range(service, contest.clone(), &prop.working_dir)?;
+                    Config::load_setting_color_range(service, contest.clone(), working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 match service {
-                    ServiceName::AtCoder => atcoder::participate(&contest, &sess_prop),
+                    ServiceName::Atcoder => atcoder::participate(&contest, &sess_prop),
                     _ => unreachable!(),
                 }?;
             }
@@ -414,17 +466,13 @@ impl Opt {
                 color_choice,
             } => {
                 palette::try_enable_ansi(color_choice);
-                let config = Config::load_setting_color_range(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_range(service, contest, working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
-                let download_prop = DownloadProp::new(
-                    &config,
-                    open_browser,
-                    prop.suppress_download_bars,
-                    problems,
-                )?;
+                let download_prop =
+                    DownloadProp::new(&config, open_browser, *suppress_download_bars, problems)?;
                 match config.service() {
-                    ServiceName::AtCoder => atcoder::download(&sess_prop, download_prop),
-                    ServiceName::HackerRank => hackerrank::download(&sess_prop, download_prop),
+                    ServiceName::Atcoder => atcoder::download(&sess_prop, download_prop),
+                    ServiceName::Hackerrank => hackerrank::download(&sess_prop, download_prop),
                     ServiceName::Yukicoder => yukicoder::download(&sess_prop, download_prop),
                     ServiceName::Other => return Err(::Error::Unimplemented),
                 }?;
@@ -436,11 +484,11 @@ impl Opt {
                 color_choice,
             } => {
                 palette::try_enable_ansi(color_choice);
-                let config = Config::load_setting_color_range(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_range(service, contest, working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 let restore_prop = RestoreProp::new(&config, problems)?;
                 match config.service() {
-                    ServiceName::AtCoder => atcoder::restore(&sess_prop, restore_prop)?,
+                    ServiceName::Atcoder => atcoder::restore(&sess_prop, restore_prop)?,
                     _ => return Err(::Error::Unimplemented),
                 };
             }
@@ -454,7 +502,7 @@ impl Opt {
                 output,
             } => {
                 palette::try_enable_ansi(color_choice);
-                let config = Config::load_setting_color_range(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_range(service, contest, working_dir)?;
                 let dir = config.testfiles_dir().expand("")?;
                 let path = SuiteFilePath::new(&dir, &problem, extension);
                 testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
@@ -468,7 +516,7 @@ impl Opt {
             } => {
                 palette::try_enable_ansi(color_choice);
                 let language = language.as_ref().map(String::as_str);
-                let config = Config::load_setting_color_range(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_range(service, contest, working_dir)?;
                 let judge_prop = JudgeProp::new(&config, &problem, language)?;
                 judging::judge(judge_prop)?;
             }
@@ -484,7 +532,7 @@ impl Opt {
             } => {
                 palette::try_enable_ansi(color_choice);
                 let language = language.as_ref().map(String::as_str);
-                let config = Config::load_setting_color_range(service, contest, &prop.working_dir)?;
+                let config = Config::load_setting_color_range(service, contest, working_dir)?;
                 let sess_prop = prop.sess_prop(&config)?;
                 let submit_prop = SubmitProp::new(
                     &config,
@@ -498,7 +546,7 @@ impl Opt {
                     println!();
                 }
                 match config.service() {
-                    ServiceName::AtCoder => atcoder::submit(&sess_prop, submit_prop)?,
+                    ServiceName::Atcoder => atcoder::submit(&sess_prop, submit_prop)?,
                     ServiceName::Yukicoder => yukicoder::submit(&sess_prop, submit_prop)?,
                     _ => return Err(::Error::Unimplemented),
                 };
@@ -523,12 +571,12 @@ impl Prop {
         Ok(Self {
             working_dir,
             cookies_on_init: Cow::from("~/.local/share/snowchains/$service"),
-            credentials: Credentials::None,
+            credentials: Credentials::default(),
             suppress_download_bars: false,
         })
     }
 
-    fn sess_prop(&self, config: &Config) -> TemplateExpandResult<SessionProp> {
+    fn sess_prop(&self, config: &Config) -> ExpandTemplateResult<SessionProp> {
         let cookies_path = config.session_cookies().expand("")?;
         Ok(SessionProp {
             domain: config.service().domain(),

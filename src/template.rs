@@ -1,5 +1,5 @@
 use command::{CompilationCommand, JudgingCommand};
-use errors::{TemplateExpandError, TemplateExpandErrorContext, TemplateExpandResult};
+use errors::{ExpandTemplateError, ExpandTemplateErrorContext, ExpandTemplateResult};
 use path::{AbsPath, AbsPathBuf};
 
 use combine::Parser;
@@ -8,409 +8,263 @@ use heck::{
     CamelCase as _CamelCase, KebabCase as _KebabCase, MixedCase as _MixedCase,
     ShoutySnakeCase as _ShoutySnakeCase, SnakeCase as _SnakeCase, TitleCase as _TitleCase,
 };
+use serde::de::DeserializeOwned;
 use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
 
 use std::borrow::Borrow;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
-use std::marker::PhantomData;
-use std::path::PathBuf;
 use std::str::FromStr;
 use std::{self, env, fmt};
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Serialize, Deserialize)]
-pub(crate) struct StringTemplate(Template);
+#[derive(Default, Serialize, Deserialize)]
+pub(crate) struct TemplateBuilder<T: Target>(T::Inner);
 
-impl StringTemplate {
-    #[cfg(test)]
-    pub fn from_static_str(s: &'static str) -> Self {
-        StringTemplate(Template::from_str(s).unwrap())
+#[cfg(test)]
+impl<T: Target> FromStr for TemplateBuilder<T>
+where
+    T::Inner: FromStr<Err = ParseTemplateError>,
+{
+    type Err = ParseTemplateError;
+
+    fn from_str(s: &str) -> ParseTemplateResult<Self> {
+        T::Inner::from_str(s).map(TemplateBuilder)
     }
+}
 
-    pub fn embed_strings<'a, K: 'a + Borrow<str> + Eq + Hash, V: 'a + Borrow<str> + Eq + Hash>(
+impl TemplateBuilder<String> {
+    pub fn build(&self) -> Template<String> {
+        Template {
+            inner: self.0.clone(),
+            base_dir: (),
+            command_additional: (),
+            strings: hashmap!(),
+        }
+    }
+}
+
+impl TemplateBuilder<AbsPathBuf> {
+    pub fn build(&self, base_dir: AbsPath) -> Template<AbsPathBuf> {
+        Template {
+            inner: self.0.clone(),
+            base_dir: base_dir.to_owned(),
+            command_additional: (),
+            strings: hashmap!(),
+        }
+    }
+}
+
+impl TemplateBuilder<CompilationCommand> {
+    pub fn build(
         &self,
-        strings: impl Into<Option<&'a HashMap<K, V>>>,
-    ) -> Self {
-        StringTemplate(self.0.embed_strings(strings))
-    }
-
-    pub fn expand(&self, problem: &str) -> TemplateExpandResult<String> {
-        self.0.expand_as_string_or_panic(problem)
-    }
-}
-
-pub(crate) trait BaseDirOption {}
-
-#[cfg_attr(test, derive(PartialEq, Debug))]
-#[derive(Clone, Copy)]
-pub(crate) struct BaseDirSome<'a>(AbsPath<'a>);
-
-impl<'a> BaseDirOption for BaseDirSome<'a> {}
-
-#[cfg_attr(test, derive(PartialEq, Debug))]
-#[derive(Clone, Copy)]
-pub(crate) struct BaseDirNone;
-
-impl BaseDirOption for BaseDirNone {}
-
-#[cfg_attr(test, derive(Debug, PartialEq))]
-pub(crate) struct PathTemplate<B: BaseDirOption> {
-    inner: Template,
-    base_dir: B,
-}
-
-impl PathTemplate<BaseDirNone> {
-    fn new(inner: Template) -> Self {
-        Self {
-            inner,
-            base_dir: BaseDirNone,
-        }
-    }
-
-    pub(crate) fn base_dir<'a>(&self, base_dir: AbsPath<'a>) -> PathTemplate<BaseDirSome<'a>> {
-        PathTemplate {
-            inner: self.inner.clone(),
-            base_dir: BaseDirSome(base_dir),
-        }
-    }
-}
-
-impl<'a> PathTemplate<BaseDirSome<'a>> {
-    pub fn embed_strings<'b, K: 'b + Borrow<str> + Eq + Hash, V: 'b + Borrow<str> + Eq + Hash>(
-        &self,
-        strings: impl Into<Option<&'b HashMap<K, V>>>,
-    ) -> Self {
-        PathTemplate {
-            inner: self.inner.embed_strings(strings),
-            base_dir: BaseDirSome(self.base_dir.0),
-        }
-    }
-
-    pub fn expand(&self, problem: &str) -> TemplateExpandResult<AbsPathBuf> {
-        self.inner.expand_as_path(&self.base_dir.0, problem)
-    }
-
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            base_dir: self.base_dir,
-        }
-    }
-}
-
-impl Default for PathTemplate<BaseDirNone> {
-    fn default() -> Self {
-        PathTemplate::new(Template(vec![Token::Text("".to_owned())]))
-    }
-}
-
-impl Serialize for PathTemplate<BaseDirNone> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-        self.inner.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for PathTemplate<BaseDirNone> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        Template::deserialize(deserializer).map(Self::new)
-    }
-}
-
-#[cfg_attr(test, derive(Debug, PartialEq))]
-pub(crate) struct CommandTemplate<C> {
-    inner: CommandTemplateInner,
-    phantom: PhantomData<fn() -> C>,
-}
-
-impl<C> CommandTemplate<C> {
-    fn new(inner: CommandTemplateInner) -> Self {
-        Self {
-            inner,
-            phantom: PhantomData,
-        }
-    }
-
-    pub fn embed_strings<'b, K: 'b + Borrow<str> + Eq + Hash, V: 'b + Borrow<str> + Eq + Hash>(
-        &self,
-        strings: impl Into<Option<&'b HashMap<K, V>>>,
-    ) -> Self {
-        use template::CommandTemplateInner::{Args, Shell};
-        let strings = strings.into();
-        let inner = match &self.inner {
-            Shell(t) => Shell(t.embed_strings(strings)),
-            Args(ts) => Args(ts.iter().map(|t| t.embed_strings(strings)).collect()),
+        base_dir: AbsPath,
+        shell: &[TemplateBuilder<OsString>],
+        wd: &TemplateBuilder<AbsPathBuf>,
+        src: &TemplateBuilder<AbsPathBuf>,
+        bin: &TemplateBuilder<AbsPathBuf>,
+    ) -> Template<CompilationCommand> {
+        let command_additional = CommandAdditionalInfo {
+            shell: shell.iter().map(|t| t.0.clone()).collect(),
+            working_dir: wd.0.clone(),
+            src: src.0.clone(),
+            bin: Some(bin.0.clone()),
         };
-        Self::new(inner)
-    }
-
-    fn normalize(&self, shell: &[StringTemplate]) -> Vec<Template> {
-        match &self.inner {
-            CommandTemplateInner::Shell(t) => {
-                let mut r = shell.iter().map(|arg| arg.0.clone()).collect::<Vec<_>>();
-                r.push(t.clone());
-                r
-            }
-            CommandTemplateInner::Args(ts) => ts.clone(),
+        Template {
+            inner: self.0.clone(),
+            base_dir: base_dir.to_owned(),
+            command_additional,
+            strings: hashmap!(),
         }
     }
 }
 
-impl CommandTemplate<CompilationCommand> {
-    pub fn as_compilation<'a>(
+impl TemplateBuilder<JudgingCommand> {
+    pub fn build(
         &self,
-        shell: &[StringTemplate],
-        wd: PathTemplate<BaseDirSome<'a>>,
-        src: PathTemplate<BaseDirSome<'a>>,
-        bin: PathTemplate<BaseDirSome<'a>>,
-    ) -> CompilationTemplate<'a> {
-        let inner = self
-            .normalize(shell)
-            .iter()
-            .map(|t| t.embed_path_templates(&[("src", &src), ("bin", &bin)]))
-            .collect();
-        CompilationTemplate {
-            inner,
-            wd,
-            src,
-            bin,
+        base_dir: AbsPath,
+        shell: &[TemplateBuilder<OsString>],
+        wd: &TemplateBuilder<AbsPathBuf>,
+        src: &TemplateBuilder<AbsPathBuf>,
+        bin: Option<&TemplateBuilder<AbsPathBuf>>,
+    ) -> Template<JudgingCommand> {
+        let command_additional = CommandAdditionalInfo {
+            shell: shell.iter().map(|t| t.0.clone()).collect(),
+            working_dir: wd.0.clone(),
+            src: src.0.clone(),
+            bin: bin.map(|bin| bin.0.clone()),
+        };
+        Template {
+            inner: self.0.clone(),
+            base_dir: base_dir.to_owned(),
+            command_additional,
+            strings: hashmap!(),
         }
     }
 }
 
-impl CommandTemplate<JudgingCommand> {
-    pub fn as_judge<'a, 'b>(
-        &self,
-        shell: &[StringTemplate],
-        wd: PathTemplate<BaseDirSome<'a>>,
-        src: &PathTemplate<BaseDirSome<'b>>,
-        bin: Option<&PathTemplate<BaseDirSome<'b>>>,
-    ) -> JudgeTemplate<'a> {
-        let inner = self
-            .normalize(shell)
-            .iter()
-            .map(|t| match bin {
-                Some(bin) => t.embed_path_templates(&[("src", &src), ("bin", bin)]),
-                None => t.embed_path_templates(&[("src", &src)]),
-            })
-            .collect();
-        JudgeTemplate { inner, wd }
+pub(crate) struct Template<T: Target> {
+    inner: T::Inner,
+    base_dir: T::BaseDir,
+    command_additional: T::CommandAdditional,
+    strings: HashMap<String, String>,
+}
+
+impl<T: Target> Template<T> {
+    pub fn insert_string(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
+        self.strings
+            .insert(key.as_ref().to_owned(), value.as_ref().to_owned());
+        self
+    }
+
+    pub fn insert_strings<K: AsRef<str>, V: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
+        mut self,
+        strings: I,
+    ) -> Self {
+        for (k, v) in strings {
+            self.strings
+                .insert(k.as_ref().to_owned(), v.as_ref().to_owned());
+        }
+        self
+    }
+
+    pub fn strings(self, mut strings: HashMap<String, String>) -> Self {
+        for (k, v) in self.strings {
+            strings.insert(k, v);
+        }
+        Self { strings, ..self }
     }
 }
 
-impl<C> Serialize for CommandTemplate<C> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-        self.inner.serialize(serializer)
+impl Template<String> {
+    pub fn expand(&self, problem: &str) -> ExpandTemplateResult<String> {
+        self.inner.expand_as_string(problem, &self.strings)
     }
 }
 
-impl<'de, C> Deserialize<'de> for CommandTemplate<C> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        CommandTemplateInner::deserialize(deserializer).map(Self::new)
+impl Template<AbsPathBuf> {
+    pub fn expand(&self, problem: &str) -> ExpandTemplateResult<AbsPathBuf> {
+        self.inner
+            .expand_as_path(problem, &self.base_dir, &self.strings)
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-enum CommandTemplateInner {
-    Shell(Template),
-    Args(Vec<Template>),
-}
-
-pub(crate) struct CompilationTemplate<'a> {
-    inner: Vec<Template>,
-    wd: PathTemplate<BaseDirSome<'a>>,
-    src: PathTemplate<BaseDirSome<'a>>,
-    bin: PathTemplate<BaseDirSome<'a>>,
-}
-
-impl<'a> CompilationTemplate<'a> {
-    pub fn expand(&self, problem: &str) -> TemplateExpandResult<CompilationCommand> {
-        let args = self
-            .inner
-            .iter()
-            .map(|t| t.expand_as_os_string(problem))
-            .collect::<TemplateExpandResult<Vec<_>>>()?;
-        let wd = self.wd.expand(problem)?;
-        let src = self.src.expand(problem)?;
-        let bin = self.bin.expand(problem)?;
+impl Template<CompilationCommand> {
+    pub fn expand(&self, problem: &str) -> ExpandTemplateResult<CompilationCommand> {
+        let (args, wd, src, bin) = self.expand_as_command(problem)?;
+        let bin = bin.unwrap();
         Ok(CompilationCommand::new(&args, wd, src, bin))
     }
 }
 
-pub(crate) struct JudgeTemplate<'a> {
-    inner: Vec<Template>,
-    wd: PathTemplate<BaseDirSome<'a>>,
-}
-
-impl<'a> JudgeTemplate<'a> {
-    pub fn embed_strings<'b, K: 'b + Borrow<str> + Eq + Hash, V: 'b + Borrow<str> + Eq + Hash>(
-        &self,
-        strings: impl Into<Option<&'b HashMap<K, V>>>,
-    ) -> Self {
-        let strings = strings.into();
-        Self {
-            inner: self
-                .inner
-                .iter()
-                .map(|t| t.embed_strings(strings))
-                .collect(),
-            wd: self.wd.clone(),
-        }
-    }
-
-    pub fn expand(&self, problem: &str) -> TemplateExpandResult<JudgingCommand> {
-        let args = self
-            .inner
-            .iter()
-            .map(|t| t.expand_as_os_string(problem))
-            .collect::<TemplateExpandResult<Vec<_>>>()?;
-        let wd = self.wd.expand(problem)?;
+impl Template<JudgingCommand> {
+    pub fn expand(&self, problem: &str) -> ExpandTemplateResult<JudgingCommand> {
+        let (args, wd, _, _) = self.expand_as_command(problem)?;
         Ok(JudgingCommand::new(&args, wd))
     }
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone)]
-struct Template(Vec<Token>);
-
-impl Template {
-    fn embed_strings<'a, K: 'a + Borrow<str> + Eq + Hash, V: 'a + Borrow<str> + Eq + Hash>(
-        &self,
-        strings: impl Into<Option<&'a HashMap<K, V>>>,
-    ) -> Self {
-        match strings.into() {
-            None => self.clone(),
-            Some(strings) => {
-                let mut new = vec![];
-                for token in &self.0 {
-                    if let Token::Var(varname) = token {
-                        if let Some(value) = strings.get(varname) {
-                            new.push(Token::Text(value.borrow().to_owned()));
-                            continue;
-                        }
-                    }
-                    new.push(token.clone());
-                }
-                Template(new)
-            }
-        }
-    }
-
-    fn embed_path_templates(
-        &self,
-        templates: &[(&'static str, &PathTemplate<BaseDirSome>)],
-    ) -> Self {
-        let mut new = vec![];
-        'l: for token in &self.0 {
-            if let Token::Var(varname) = token {
-                for &(name, template) in templates {
-                    if name == varname {
-                        new.push(Token::ExternPath(
-                            template.inner.clone(),
-                            template.base_dir.0.to_owned(),
-                            name,
-                        ));
-                        continue 'l;
-                    }
-                }
-            }
-            new.push(token.clone());
-        }
-        Template(new)
-    }
-
-    fn expand_as_os_string(&self, problem: &str) -> TemplateExpandResult<OsString> {
-        self.expand_with_context(problem, "a non UTF-8 string", || {
-            let mut r = OsString::new();
-            for token in &self.0 {
-                match token.expand(problem, true)? {
-                    Plain::Str(s) => r.push(s.as_ref()),
-                    Plain::OsStr(s) => r.push(s),
-                    Plain::Path(p) => r.push(p.as_ref()),
-                }
-            }
-            Ok(r)
-        })
-    }
-
-    fn expand_as_string_or_panic(&self, problem: &str) -> TemplateExpandResult<String> {
-        self.expand_with_context(problem, "a UTF-8 string", || {
-            let mut r = "".to_owned();
-            for token in &self.0 {
-                match token.expand(problem, false)? {
-                    Plain::Str(s) => r += s.as_ref(),
-                    _ => unreachable!(),
-                }
-            }
-            Ok(r)
-        })
-    }
-
-    fn expand_as_path(&self, base: AbsPath, problem: &str) -> TemplateExpandResult<AbsPathBuf> {
-        self.expand_with_context(problem, "a path", || {
-            let path = PathBuf::from(self.expand_as_os_string(problem)?);
-            base.join_expanding_tilde(path).map_err(Into::into)
-        })
-    }
-
-    fn expand_with_context<T>(
+impl<
+        T: Target<
+            Inner = CommandTemplateInner,
+            BaseDir = AbsPathBuf,
+            CommandAdditional = CommandAdditionalInfo,
+        >,
+    > Template<T>
+{
+    fn expand_as_command(
         &self,
         problem: &str,
-        ty: &'static str,
-        f: impl FnOnce() -> TemplateExpandResult<T>,
-    ) -> TemplateExpandResult<T> {
-        f().with_context(|_| TemplateExpandErrorContext::new(&self, problem, ty))
-            .map_err(Into::into)
-    }
-}
-
-impl<'a> fmt::Debug for Template {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for (i, t) in self.0.iter().enumerate() {
-            if i > 0 {
-                write!(f, " ++ ")?;
+    ) -> ExpandTemplateResult<(Vec<OsString>, AbsPathBuf, AbsPathBuf, Option<AbsPathBuf>)> {
+        let CommandAdditionalInfo {
+            working_dir,
+            src,
+            bin,
+            ..
+        } = &self.command_additional;
+        let wd = working_dir.expand_as_path(problem, &self.base_dir, &self.strings)?;
+        let src = src.expand_as_path(problem, &self.base_dir, &self.strings)?;
+        let bin = match bin {
+            None => None,
+            Some(bin) => Some(bin.expand_as_path(problem, &self.base_dir, &self.strings)?),
+        };
+        let args = {
+            let mut os_strings = hashmap!("src" => src.as_os_str());
+            if let Some(bin) = bin.as_ref() {
+                os_strings.insert("bin", bin.as_os_str());
             }
-            match t {
-                Token::ExternPath(t, b, s) => write!(f, "${}({}, {:?})", s, b.display(), t),
-                Token::Text(s) => write!(f, "{:?}", s),
-                Token::Var(s) => write!(f, "${}", s),
-                Token::Problem(s) => write!(f, "{{{}}}", s),
-            }?
-        }
-        Ok(())
+            match &self.inner {
+                CommandTemplateInner::Args(args) => Cow::Borrowed(args),
+                CommandTemplateInner::Shell(arg) => {
+                    let mut args = self.command_additional.shell.to_vec();
+                    args.push(arg.clone());
+                    Cow::Owned(args)
+                }
+            }.iter()
+                .map(|arg| arg.expand_as_os_string(problem, &self.strings, &os_strings))
+                .collect::<ExpandTemplateResult<Vec<_>>>()?
+        };
+        Ok((args, wd, src, bin))
     }
 }
 
-impl<'a> fmt::Display for Template {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for t in &self.0 {
-            match t {
-                Token::ExternPath(..) => unreachable!(),
-                Token::Text(s) => for c in s.chars() {
-                    if ['$', '{', '}'].contains(&c) {
-                        write!(f, "{}{}", c, c)
-                    } else {
-                        write!(f, "{}", c)
-                    }?;
-                },
-                Token::Problem(s) => write!(f, "{{{}}}", s)?,
-                Token::Var(s) => write!(f, "${}", s)?,
-            }
-        }
-        Ok(())
-    }
+pub(crate) trait Target {
+    type Inner: Clone + Serialize + DeserializeOwned;
+    type BaseDir;
+    type CommandAdditional;
 }
 
-impl FromStr for Template {
-    type Err = TemplateParseError;
+impl Target for String {
+    type Inner = Tokens;
+    type BaseDir = ();
+    type CommandAdditional = ();
+}
 
-    fn from_str(input: &str) -> TemplateParseResult<Self> {
+impl Target for OsString {
+    type Inner = Tokens;
+    type BaseDir = ();
+    type CommandAdditional = ();
+}
+
+impl Target for AbsPathBuf {
+    type Inner = Tokens;
+    type BaseDir = AbsPathBuf;
+    type CommandAdditional = ();
+}
+
+impl Target for CompilationCommand {
+    type Inner = CommandTemplateInner;
+    type BaseDir = AbsPathBuf;
+    type CommandAdditional = CommandAdditionalInfo;
+}
+
+impl Target for JudgingCommand {
+    type Inner = CommandTemplateInner;
+    type BaseDir = AbsPathBuf;
+    type CommandAdditional = CommandAdditionalInfo;
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone)]
+enum Token {
+    Text(String),
+    Var(String),
+    Problem(String),
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Default)]
+pub struct Tokens(Vec<Token>);
+
+impl FromStr for Tokens {
+    type Err = ParseTemplateError;
+
+    fn from_str(input: &str) -> ParseTemplateResult<Self> {
         use combine::char::{alpha_num, char, letter, spaces, string};
         use combine::{choice, eof, many, many1, satisfy, try};
+
         let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Text);
         let escaped =
             |f: &'static str, t: &'static str| string(f).map(move |_| Token::Text(t.to_owned()));
@@ -435,102 +289,209 @@ impl FromStr for Template {
             var,
         ))).skip(eof())
             .parse(input)
-            .map(|(ts, _)| Template(ts))
-            .map_err(|_| TemplateParseError {
+            .map(|(tokens, _)| Tokens(tokens))
+            .map_err(|_| ParseTemplateError {
                 input: input.to_owned(),
             })
     }
 }
 
-impl Serialize for Template {
-    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-        serializer.collect_str(&self)
+impl fmt::Display for Tokens {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for token in &self.0 {
+            match token {
+                Token::Text(s) => for c in s.chars() {
+                    if ['$', '{', '}'].contains(&c) {
+                        write!(f, "{}{}", c, c)
+                    } else {
+                        write!(f, "{}", c)
+                    }?;
+                },
+                Token::Problem(s) => write!(f, "{{{}}}", s)?,
+                Token::Var(s) => write!(f, "${}", s)?,
+            }
+        }
+        Ok(())
     }
 }
 
-impl<'de> Deserialize<'de> for Template {
+impl fmt::Debug for Tokens {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let n = self.0.len();
+        if n != 1 {
+            write!(f, "(")?;
+        }
+        for (i, t) in self.0.iter().enumerate() {
+            if i > 0 {
+                write!(f, " ++ ")?;
+            }
+            match t {
+                Token::Text(s) => write!(f, "{:?}", s),
+                Token::Var(s) => write!(f, "${}", s),
+                Token::Problem(s) => write!(f, "{{{}}}", s),
+            }?
+        }
+        if n != 1 {
+            write!(f, ")")?;
+        }
+        Ok(())
+    }
+}
+
+impl Serialize for Tokens {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serializer.collect_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Tokens {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
         Self::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
 
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone)]
-enum Token {
-    ExternPath(Template, AbsPathBuf, &'static str),
-    Text(String),
-    Var(String),
-    Problem(String),
-}
-
-impl Token {
-    fn expand<'a>(
-        &'a self,
-        problem: &'a str,
-        allow_non_utf8_envvar: bool,
-    ) -> TemplateExpandResult<Plain<'a>> {
-        match self {
-            Token::ExternPath(t, b, _) => t.expand_as_path(&b, problem).map(Plain::Path),
-            Token::Text(s) => Ok(Plain::Str(Cow::Borrowed(s))),
-            Token::Var(k) if allow_non_utf8_envvar => Plain::from_env_var_os(k),
-            Token::Var(k) => Plain::from_env_var(k),
-            Token::Problem(s) => Plain::from_problem(problem, s),
-        }
-    }
-}
-
-enum Plain<'a> {
-    Str(Cow<'a, str>),
-    OsStr(OsString),
-    Path(AbsPathBuf),
-}
-
-impl<'a> Plain<'a> {
-    fn from_problem(problem: &'a str, specifier: &str) -> TemplateExpandResult<Self> {
-        use std::borrow::Cow::{Borrowed, Owned};
-        match specifier {
-            s if s.eq_ignore_ascii_case("") => Ok(Borrowed(problem)),
-            s if s.eq_ignore_ascii_case("lower") => Ok(Owned(problem.to_lowercase())),
-            s if s.eq_ignore_ascii_case("upper") => Ok(Owned(problem.to_uppercase())),
-            s if s.eq_ignore_ascii_case("kebab") => Ok(Owned(problem.to_kebab_case())),
-            s if s.eq_ignore_ascii_case("snake") => Ok(Owned(problem.to_snake_case())),
-            s if s.eq_ignore_ascii_case("screaming") => Ok(Owned(problem.to_shouty_snake_case())),
-            s if s.eq_ignore_ascii_case("mixed") => Ok(Owned(problem.to_mixed_case())),
-            s if s.eq_ignore_ascii_case("pascal") => Ok(Owned(problem.to_camel_case())),
-            s if s.eq_ignore_ascii_case("title") => Ok(Owned(problem.to_title_case())),
-            s => Err(TemplateExpandError::UnknownSpecifier(s.to_owned())),
-        }.map(Plain::Str)
-    }
-
-    fn from_env_var(name: &str) -> TemplateExpandResult<Self> {
-        env::var(name)
-            .map(|v| Plain::Str(Cow::Owned(v)))
-            .map_err(|e| {
-                use errors::TemplateExpandError::{EnvVarNotPresent, EnvVarNotUnicode};
-                use std::env::VarError::{NotPresent, NotUnicode};
-                match e {
-                    NotPresent => EnvVarNotPresent(name.to_owned()),
-                    NotUnicode(v) => EnvVarNotUnicode(name.to_owned(), v),
+impl Tokens {
+    fn expand_as_string(
+        &self,
+        problem: &str,
+        strings: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<str>>,
+    ) -> ExpandTemplateResult<String> {
+        self.expand_with_context(
+            || {
+                let mut r = "".to_owned();
+                for token in &self.0 {
+                    match token {
+                        Token::Text(s) => r += s,
+                        Token::Var(k) => {
+                            let value = match strings.get(k.as_str()) {
+                                Some(v) => Cow::Borrowed(v.as_ref()),
+                                None => env::var(k).map(Cow::Owned).map_err(|e| match e {
+                                    env::VarError::NotPresent => {
+                                        ExpandTemplateError::EnvVarNotPresent(k.to_owned())
+                                    }
+                                    env::VarError::NotUnicode(v) => {
+                                        ExpandTemplateError::EnvVarNotUnicode(k.to_owned(), v)
+                                    }
+                                })?,
+                            };
+                            r += &value;
+                        }
+                        Token::Problem(s) => r += &apply_specifier(problem, s)?,
+                    }
                 }
-            })
+                Ok(r)
+            },
+            || ExpandTemplateErrorContext::Str {
+                tokens: self.clone(),
+                problem: problem.to_owned(),
+            },
+        )
     }
 
-    fn from_env_var_os(name: &str) -> TemplateExpandResult<Self> {
-        env::var_os(name)
-            .map(Plain::OsStr)
-            .ok_or_else(|| TemplateExpandError::EnvVarNotPresent(name.to_owned()))
+    fn expand_as_os_string(
+        &self,
+        problem: &str,
+        strings: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<str>>,
+        os_strings: &HashMap<&'static str, &OsStr>,
+    ) -> ExpandTemplateResult<OsString> {
+        self.expand_with_context(
+            || {
+                let mut r = OsString::new();
+                for token in &self.0 {
+                    match token {
+                        Token::Text(s) => r.push(s),
+                        Token::Var(k) => {
+                            let value = strings
+                                .get(k.as_str())
+                                .map(|v| Cow::Borrowed(OsStr::new(v.as_ref())));
+                            let value = value
+                                .or_else(|| os_strings.get(k.as_str()).map(|&v| Cow::Borrowed(v)));
+                            let value = value.or_else(|| env::var_os(k).map(Cow::Owned));
+                            let value = value.ok_or_else(|| {
+                                ExpandTemplateError::EnvVarNotPresent(k.to_owned())
+                            })?;
+                            r.push(&value);
+                        }
+                        Token::Problem(s) => r.push(apply_specifier(problem, s)?.as_ref()),
+                    }
+                }
+                Ok(r)
+            },
+            || ExpandTemplateErrorContext::OsStr {
+                tokens: self.clone(),
+                problem: problem.to_owned(),
+            },
+        )
+    }
+
+    fn expand_as_path(
+        &self,
+        problem: &str,
+        base_dir: AbsPath,
+        strings: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<str>>,
+    ) -> ExpandTemplateResult<AbsPathBuf> {
+        self.expand_with_context(
+            || {
+                self.expand_as_os_string(problem, strings, &hashmap!())
+                    .and_then(|s| base_dir.join_expanding_tilde(&s).map_err(Into::into))
+            },
+            || ExpandTemplateErrorContext::Path {
+                tokens: self.clone(),
+                problem: problem.to_owned(),
+                base_dir: base_dir.to_owned(),
+            },
+        )
+    }
+
+    fn expand_with_context<T: Target>(
+        &self,
+        f1: impl FnOnce() -> ExpandTemplateResult<T>,
+        f2: impl FnOnce() -> ExpandTemplateErrorContext,
+    ) -> ExpandTemplateResult<T> {
+        f1().with_context(|_| f2()).map_err(Into::into)
     }
 }
 
-type TemplateParseResult<T> = std::result::Result<T, TemplateParseError>;
+fn apply_specifier<'a>(problem: &'a str, specifier: &str) -> ExpandTemplateResult<Cow<'a, str>> {
+    use std::borrow::Cow::{Borrowed, Owned};
+    match specifier {
+        s if s.eq_ignore_ascii_case("") => Ok(Borrowed(problem)),
+        s if s.eq_ignore_ascii_case("lower") => Ok(Owned(problem.to_lowercase())),
+        s if s.eq_ignore_ascii_case("upper") => Ok(Owned(problem.to_uppercase())),
+        s if s.eq_ignore_ascii_case("kebab") => Ok(Owned(problem.to_kebab_case())),
+        s if s.eq_ignore_ascii_case("snake") => Ok(Owned(problem.to_snake_case())),
+        s if s.eq_ignore_ascii_case("screaming") => Ok(Owned(problem.to_shouty_snake_case())),
+        s if s.eq_ignore_ascii_case("mixed") => Ok(Owned(problem.to_mixed_case())),
+        s if s.eq_ignore_ascii_case("pascal") => Ok(Owned(problem.to_camel_case())),
+        s if s.eq_ignore_ascii_case("title") => Ok(Owned(problem.to_title_case())),
+        s => Err(ExpandTemplateError::UnknownSpecifier(s.to_owned())),
+    }
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum CommandTemplateInner {
+    Shell(Tokens),
+    Args(Vec<Tokens>),
+}
+
+pub(crate) struct CommandAdditionalInfo {
+    shell: Vec<Tokens>,
+    working_dir: Tokens,
+    src: Tokens,
+    bin: Option<Tokens>,
+}
+
+type ParseTemplateResult<T> = std::result::Result<T, ParseTemplateError>;
 
 #[derive(Debug, PartialEq)]
-struct TemplateParseError {
+pub struct ParseTemplateError {
     input: String,
 }
 
-impl fmt::Display for TemplateParseError {
+impl fmt::Display for ParseTemplateError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Failed to parse {:?}", self.input)
     }
@@ -538,21 +499,21 @@ impl fmt::Display for TemplateParseError {
 
 #[cfg(test)]
 mod tests {
-    use command::CompilationCommand;
+    use super::TemplateBuilder;
+
+    use command::{CompilationCommand, JudgingCommand};
     use path::AbsPathBuf;
-    use template::{
-        BaseDirNone, CommandTemplate, CommandTemplateInner, PathTemplate, StringTemplate, Template,
-    };
 
-    use {dirs, serde_json};
+    use {dirs, env_logger, serde_json};
 
-    use std::ffi::OsStr;
+    use std::env;
+    use std::ffi::{OsStr, OsString};
     use std::path::Path;
-    use std::{env, panic};
+    use std::sync::atomic::{self, AtomicBool};
 
     macro_rules! test {
         ($input:expr => !) => {
-            panic::catch_unwind(move || process_input($input)).unwrap_err()
+            ::std::panic::catch_unwind(move || process_input($input)).unwrap_err()
         };
         ($input:expr => $expected:expr) => {
             assert_eq!(process_expected($expected), process_input($input))
@@ -563,48 +524,48 @@ mod tests {
     fn it_serializes_and_deserializes_templates() {
         #[derive(Debug, PartialEq, Serialize, Deserialize)]
         struct S {
-            a: StringTemplate,
-            b: PathTemplate<BaseDirNone>,
-            c: CommandTemplate<CompilationCommand>,
-            d: CommandTemplate<CompilationCommand>,
+            a: TemplateBuilder<String>,
+            b: TemplateBuilder<OsString>,
+            c: TemplateBuilder<AbsPathBuf>,
+            d: TemplateBuilder<CompilationCommand>,
+            e: TemplateBuilder<JudgingCommand>,
         }
 
-        fn template(input: &str) -> Template {
-            input.parse().unwrap()
-        }
+        static JSON: &str = r#"{
+  "a": "target is {}",
+  "b": "target is {}",
+  "c": "rs/{kebab}.rs",
+  "d": [
+    "rustc",
+    "+stable",
+    "-o",
+    "$bin",
+    "$src"
+  ],
+  "e": "$bin"
+}"#;
 
-        let s1 = S {
-            a: StringTemplate(template("{}/{kebab}/$VAR$VAR$${{}}")),
-            b: PathTemplate::new(template("{}{ snake }")),
-            c: CommandTemplate::new(CommandTemplateInner::Shell(template("yes > /dev/null"))),
-            d: CommandTemplate::new(CommandTemplateInner::Args(vec![
-                template("sh"),
-                template("-c"),
-                template("yes > /dev/null"),
-            ])),
-        };
-        let s2 = serde_json::to_string(&s1).unwrap();
-        let s2 = serde_json::from_str::<S>(&s2).unwrap();
+        let _ = env_logger::try_init();
+        let s1 = serde_json::from_str::<S>(JSON).unwrap();
+        let re_serialized = serde_json::to_string_pretty(&s1).unwrap();
+        let s2 = serde_json::from_str::<S>(&re_serialized).unwrap();
+        assert_eq!(JSON, re_serialized);
         assert_eq!(s1, s2);
     }
 
     #[test]
-    fn it_expands_a_string_template() {
+    fn it_expands_string_templates() {
         fn process_input(input: &str) -> String {
-            StringTemplate(input.parse().unwrap())
-                .expand("problem name")
-                .unwrap()
+            let template = input.parse::<TemplateBuilder<String>>().unwrap();
+            template.build().expand("problem name").unwrap()
         }
 
         fn process_expected(expected: &str) -> &str {
             expected
         }
 
-        env::set_var("ENVVAR", "<value of ENVVAR>");
-        env::set_var("_ENVVAR", "<value of _ENVVAR>");
-        env::set_var("__", "<value of __>");
-        env::set_var("---", "");
-        env::remove_var("NONEXISTING");
+        let _ = env_logger::try_init();
+        set_env_vars();
         test!(""                   => "");
         test!("text"               => "text");
         test!("{}"                 => "problem name");
@@ -629,15 +590,13 @@ mod tests {
     }
 
     #[test]
-    fn it_expands_a_path_template() {
+    fn it_expands_path_templates() {
         fn process_input(input: &str) -> AbsPathBuf {
-            PathTemplate::new(input.parse().unwrap())
-                .base_dir(&base_dir())
-                .expand("problem-name")
-                .unwrap()
+            let template = input.parse::<TemplateBuilder<AbsPathBuf>>().unwrap();
+            template.build(&base_dir()).expand("problem-name").unwrap()
         }
 
-        fn process_expected<S: AsRef<OsStr>>(expected: S) -> AbsPathBuf {
+        fn process_expected(expected: impl AsRef<OsStr>) -> AbsPathBuf {
             let expected = Path::new(expected.as_ref());
             if expected.is_absolute() {
                 AbsPathBuf::new_or_panic(expected)
@@ -646,7 +605,8 @@ mod tests {
             }
         }
 
-        env::set_var("ENVVAR", "<value of ENVVAR>");
+        let _ = env_logger::try_init();
+        set_env_vars();
         if cfg!(windows) {
             test!(r"C:\absolute" => r"C:\absolute");
         } else {
@@ -661,9 +621,13 @@ mod tests {
         test!("$ENVVAR"                 => "./<value of ENVVAR>");
         {
             fn process_input(input: &str) -> AbsPathBuf {
-                PathTemplate::new(input.parse().unwrap())
-                    .base_dir(&base_dir())
-                    .embed_strings(&hashmap!["service" => "Service", "contest" => "Contest"])
+                let template = input.parse::<TemplateBuilder<AbsPathBuf>>().unwrap();
+                template
+                    .build(&base_dir())
+                    .strings(hashmap!(
+                        "service".to_owned() => "Service".to_owned(),
+                        "contest".to_owned() => "Contest".to_owned()
+                    ))
                     .expand("")
                     .unwrap()
             }
@@ -672,6 +636,17 @@ mod tests {
         test!("~"         => dirs::home_dir().unwrap());
         test!("~/foo/bar" => dirs::home_dir().unwrap().join("foo/bar"));
         test!("~root"     => !);
+    }
+
+    fn set_env_vars() {
+        static NOT_YET: AtomicBool = AtomicBool::new(true);
+        if NOT_YET.swap(false, atomic::Ordering::Relaxed) {
+            env::set_var("ENVVAR", "<value of ENVVAR>");
+            env::set_var("_ENVVAR", "<value of _ENVVAR>");
+            env::set_var("__", "<value of __>");
+            env::set_var("---", "");
+            env::remove_var("NONEXISTING");
+        }
     }
 
     fn base_dir() -> AbsPathBuf {

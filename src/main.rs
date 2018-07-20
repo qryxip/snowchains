@@ -4,8 +4,8 @@ extern crate env_logger;
 extern crate failure;
 extern crate structopt;
 
+use snowchains::app::{Opt, Prop};
 use snowchains::palette::Palette;
-use snowchains::{Opt, Prop};
 
 use failure::Fail;
 use structopt::StructOpt as _StructOpt;

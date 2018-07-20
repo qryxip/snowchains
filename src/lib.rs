@@ -22,7 +22,7 @@ extern crate combine;
 extern crate cookie;
 extern crate dirs;
 extern crate fs2;
-extern crate futures as futures_01;
+extern crate futures;
 extern crate heck;
 extern crate itertools;
 extern crate pbr;
@@ -58,25 +58,23 @@ extern crate tempdir;
 #[macro_use]
 mod macros;
 
+pub mod app;
 pub mod palette;
 pub mod path;
+pub mod service;
 pub mod util;
 
-mod app;
 mod command;
 mod config;
 mod errors;
 mod fs;
 mod judging;
 mod replacer;
-mod service;
 mod template;
 mod testsuite;
 mod yaml;
 
-pub use app::{Opt, Prop};
 pub use errors::{Error, Result};
-pub use service::Credentials;
 
 use std::fmt;
 use std::str::FromStr;
@@ -84,8 +82,8 @@ use std::str::FromStr;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceName {
-    AtCoder,
-    HackerRank,
+    Atcoder,
+    Hackerrank,
     Yukicoder,
     Other,
 }
@@ -98,7 +96,7 @@ impl Default for ServiceName {
 
 impl fmt::Display for ServiceName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_str())
+        write!(f, "{}", self.to_str())
     }
 }
 
@@ -107,8 +105,8 @@ impl FromStr for ServiceName {
 
     fn from_str(s: &str) -> std::result::Result<Self, Never> {
         match s {
-            s if s.eq_ignore_ascii_case("atcoder") => Ok(ServiceName::AtCoder),
-            s if s.eq_ignore_ascii_case("hackerrank") => Ok(ServiceName::HackerRank),
+            s if s.eq_ignore_ascii_case("atcoder") => Ok(ServiceName::Atcoder),
+            s if s.eq_ignore_ascii_case("hackerrank") => Ok(ServiceName::Hackerrank),
             s if s.eq_ignore_ascii_case("yukicoder") => Ok(ServiceName::Yukicoder),
             s if s.eq_ignore_ascii_case("other") => Ok(ServiceName::Other),
             _ => Err(Never),
@@ -117,10 +115,10 @@ impl FromStr for ServiceName {
 }
 
 impl ServiceName {
-    pub fn as_str(self) -> &'static str {
+    pub fn to_str(self) -> &'static str {
         match self {
-            ServiceName::AtCoder => "atcoder",
-            ServiceName::HackerRank => "hackerrank",
+            ServiceName::Atcoder => "atcoder",
+            ServiceName::Hackerrank => "hackerrank",
             ServiceName::Yukicoder => "yukicoder",
             ServiceName::Other => "other",
         }
@@ -128,8 +126,8 @@ impl ServiceName {
 
     pub(crate) fn domain(self) -> Option<&'static str> {
         match self {
-            ServiceName::AtCoder => Some("beta.atcoder.jp"),
-            ServiceName::HackerRank => Some("www.hackerrank.com"),
+            ServiceName::Atcoder => Some("beta.atcoder.jp"),
+            ServiceName::Hackerrank => Some("www.hackerrank.com"),
             ServiceName::Yukicoder => Some("yukicoder.me"),
             ServiceName::Other => None,
         }

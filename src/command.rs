@@ -11,15 +11,13 @@ use std::process::{Child, Command, Stdio};
 #[cfg_attr(test, derive(Debug))]
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct CompilationCommand {
-    command: CommandProperty,
+    inner: Inner,
     src: AbsPathBuf,
     bin: AbsPathBuf,
 }
 
 impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
-    ///
-    /// Wraps `command` in `sh` or `cmd` if necessary.
     pub fn new(
         args: &[impl AsRef<OsStr>],
         working_dir: AbsPathBuf,
@@ -27,7 +25,7 @@ impl CompilationCommand {
         bin: AbsPathBuf,
     ) -> Self {
         Self {
-            command: CommandProperty::new(args, working_dir),
+            inner: Inner::new(args, working_dir),
             src,
             bin,
         }
@@ -53,16 +51,16 @@ impl CompilationCommand {
         println!(
             "{} {}\n{}   {}",
             Palette::CommandInfo.bold().paint("Compilation Command:"),
-            self.command.display_args(),
+            self.inner.display_args(),
             Palette::CommandInfo.bold().paint("Working directory:"),
-            self.command.working_dir.display(),
+            self.inner.working_dir.display(),
         );
         let status = self
-            .command
+            .inner
             .build_checking_wd()?
             .stdin(Stdio::null())
             .status()
-            .map_err(|e| JudgeError::Command(self.command.arg0.clone(), e))?;
+            .map_err(|e| JudgeError::Command(self.inner.arg0.clone(), e))?;
         if status.success() {
             if !self.bin.exists() {
                 let msg = format!("Warning: {} not created", self.bin.display());
@@ -77,19 +75,19 @@ impl CompilationCommand {
 
 /// Command for simple/interactive testing.
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub(crate) struct JudgingCommand(CommandProperty);
+pub(crate) struct JudgingCommand(Inner);
 
 impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
     pub fn new(args: &[impl AsRef<OsStr>], working_dir: AbsPathBuf) -> Self {
-        JudgingCommand(CommandProperty::new(args, working_dir))
+        JudgingCommand(Inner::new(args, working_dir))
     }
 
     #[cfg(test)]
     pub fn from_args<S: AsRef<OsStr>>(arg0: S, rest_args: &[S], working_dir: AbsPathBuf) -> Self {
-        JudgingCommand(CommandProperty {
+        JudgingCommand(Inner {
             arg0: arg0.as_ref().to_owned(),
             rest_args: rest_args
                 .iter()
@@ -133,13 +131,13 @@ impl JudgingCommand {
 
 #[cfg_attr(test, derive(Debug))]
 #[derive(Clone, PartialEq, Eq, Hash)]
-struct CommandProperty {
+struct Inner {
     arg0: OsString,
     rest_args: Vec<OsString>,
     working_dir: AbsPathBuf,
 }
 
-impl CommandProperty {
+impl Inner {
     fn new(args: &[impl AsRef<OsStr>], working_dir: AbsPathBuf) -> Self {
         let (arg0, rest_args) = if args.is_empty() {
             (OsString::new(), vec![])

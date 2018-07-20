@@ -1,6 +1,4 @@
-use errors::{
-    FileIoError, FileIoErrorKind, SerializeError, SessionError, SessionResult, StartSessionError,
-};
+use errors::{FileIoError, FileIoErrorKind, SessionError, SessionResult, StartSessionError};
 use palette::Palette;
 use path::AbsPathBuf;
 use service::USER_AGENT;
@@ -344,10 +342,10 @@ impl AutosavedCookieJar {
             let mut cookies =
                 Vec::with_capacity(file.metadata().map(|m| m.len() as usize + 1).unwrap_or(0));
             file.read_to_end(&mut cookies)
-                .map_err(|e| FileIoError::chaining(FileIoErrorKind::Read, path.as_ref(), e))?;
+                .map_err(|err| FileIoError::new(FileIoErrorKind::Read, path.as_ref()).with(err))?;
             if !cookies.is_empty() {
-                let cookies = bincode::deserialize::<Vec<String>>(&cookies).map_err(|e| {
-                    FileIoError::chaining(FileIoErrorKind::Deserialize, path.as_ref(), e)
+                let cookies = bincode::deserialize::<Vec<String>>(&cookies).map_err(|err| {
+                    FileIoError::new(FileIoErrorKind::Deserialize, path.as_ref()).with(err)
                 })?;
                 for cookie in cookies {
                     let cookie = cookie::Cookie::parse(cookie.clone()).map_err(|e| {
@@ -358,7 +356,7 @@ impl AutosavedCookieJar {
             }
         } else {
             file.write_all(&bincode::serialize(&Vec::<String>::new()).unwrap())
-                .map_err(|e| FileIoError::chaining(FileIoErrorKind::Write, path.as_ref(), e))?;
+                .map_err(|err| FileIoError::new(FileIoErrorKind::Write, path.as_ref()).with(err))?;
         }
         Ok(Self { file, path, inner })
     }
@@ -397,14 +395,13 @@ impl AutosavedCookieJar {
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>();
-        let value = bincode::serialize(&value).map_err(|e| SerializeError::new(&value, e))?;
+        let value = bincode::serialize(&value)?;
         self.file
             .seek(SeekFrom::Start(0))
             .and_then(|_| self.file.set_len(0))
             .and_then(|()| self.file.write_all(&value))
-            .map_err(|e| {
-                FileIoError::chaining(FileIoErrorKind::Write, self.path.as_ref(), e).into()
-            })
+            .map_err(|err| FileIoError::new(FileIoErrorKind::Write, self.path.as_ref()).with(err))
+            .map_err(Into::into)
     }
 }
 

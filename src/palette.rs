@@ -93,8 +93,7 @@ impl fmt::Display for ColorRange {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug)]
 pub enum ColorChoice {
     Never,
     Auto,

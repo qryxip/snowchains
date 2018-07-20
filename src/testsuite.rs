@@ -1,9 +1,9 @@
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
-use errors::{FileIoError, FileIoErrorKind, SerializeError, SuiteFileError, SuiteFileResult};
+use errors::{FileIoError, FileIoErrorCause, FileIoErrorKind, SuiteFileError, SuiteFileResult};
 use palette::Palette;
 use path::{AbsPath, AbsPathBuf};
-use template::{BaseDirSome, PathTemplate};
+use template::Template;
 use util::{self, ScalarOrArray};
 use yaml;
 
@@ -125,14 +125,14 @@ impl fmt::Display for SuiteFileExtension {
 }
 
 pub(crate) struct SuiteFilePathsTemplate<'a> {
-    directory: PathTemplate<BaseDirSome<'a>>,
+    directory: Template<AbsPathBuf>,
     extensions: &'a BTreeSet<SuiteFileExtension>,
     zip: &'a ZipConfig,
 }
 
 impl<'a> SuiteFilePathsTemplate<'a> {
     pub fn new(
-        directory: PathTemplate<BaseDirSome<'a>>,
+        directory: Template<AbsPathBuf>,
         extensions: &'a BTreeSet<SuiteFileExtension>,
         zip: &'a ZipConfig,
     ) -> Self {
@@ -356,7 +356,8 @@ enum ZipEntrySorting {
 #[derive(Serialize, Deserialize)]
 struct ZipEntry {
     #[serde(
-        serialize_with = "yaml::serialize_regex", deserialize_with = "yaml::deserialize_regex"
+        serialize_with = "yaml::serialize_regex",
+        deserialize_with = "yaml::deserialize_regex"
     )]
     entry: Regex,
     match_group: usize,
@@ -394,9 +395,10 @@ impl TestSuite {
     }
 
     fn load(path: &SuiteFilePath) -> SuiteFileResult<Self> {
-        fn chain_err<E: std::error::Error>(err: E, path: &Path) -> FileIoError {
-            FileIoError::chaining(FileIoErrorKind::Deserialize, path, err)
+        fn chain_err<E: Into<FileIoErrorCause>>(err: E, path: &Path) -> FileIoError {
+            FileIoError::new(FileIoErrorKind::Deserialize, path).with(err)
         }
+
         let (path, extension) = (&path.joined, path.extension);
         let content = ::fs::read_to_string(&path)?;
         match extension {
@@ -414,19 +416,14 @@ impl TestSuite {
 
     /// Serializes `self` and save it to given path.
     pub fn save(&self, path: &SuiteFilePath, prints_num_cases: bool) -> SuiteFileResult<()> {
-        fn chain_err<E: std::error::Error>(err: E, content: &TestSuite) -> SerializeError {
-            SerializeError::new(content, err)
-        }
         let (path, extension) = (&path.joined, path.extension);
         let serialized = match extension {
-            SerializableExtension::Json => {
-                serde_json::to_string(self).map_err(|e| chain_err(e, self))
-            }
-            SerializableExtension::Toml => toml::to_string(self).map_err(|e| chain_err(e, self)),
+            SerializableExtension::Json => serde_json::to_string(self)?,
+            SerializableExtension::Toml => toml::to_string(self)?,
             SerializableExtension::Yaml | SerializableExtension::Yml => {
-                serde_yaml::to_string(self).map_err(|e| chain_err(e, self))
+                serde_yaml::to_string(self)?
             }
-        }?;
+        };
         ::fs::write(path.as_ref(), serialized.as_bytes())?;
         print!("Saved to {}", path.display());
         if prints_num_cases {
@@ -663,7 +660,7 @@ impl InteractiveSuite {
             }
             let tester = config
                 .interactive_tester(lang)?
-                .embed_strings(&m)
+                .insert_strings(&m)
                 .expand(&problem)?;
             let tester_compilation = match config.interactive_tester_compilation(lang)? {
                 Some(compilation) => Some(Arc::new(compilation.expand(&problem)?)),

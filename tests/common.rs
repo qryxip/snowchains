@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 extern crate snowchains;
 
 extern crate failure;
@@ -5,28 +6,32 @@ extern crate serde;
 extern crate serde_yaml;
 extern crate tempdir;
 
+use snowchains::app::{Opt, Prop};
 use snowchains::palette::ColorChoice;
 use snowchains::path::AbsPathBuf;
-use snowchains::{Credentials, Opt, Prop, ServiceName};
+use snowchains::service::{Credentials, RevelSession, UserNameAndPassword};
+use snowchains::ServiceName;
 
 use serde::{de, Deserialize, Deserializer};
 use tempdir::TempDir;
 
 use std::borrow::Cow;
 use std::fs::File;
-use std::io;
+use std::panic::UnwindSafe;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::{env, io, panic};
 
-pub fn test<E: Into<failure::Error>>(
+pub fn test_in_tempdir<E: Into<failure::Error>>(
     tempdir_prefix: &str,
     credentials: Credentials,
-    f: impl FnOnce(&Prop) -> Result<(), E>,
-) -> Result<(), failure::Error> {
-    let tempdir = TempDir::new(tempdir_prefix)?;
-    let result = (|| -> Result<(), failure::Error> {
+    f: impl FnOnce(&Prop) -> Result<(), E> + UnwindSafe,
+) {
+    let tempdir = TempDir::new(tempdir_prefix).unwrap();
+    let tempdir_path = tempdir.path().to_owned();
+    let result = panic::catch_unwind(move || -> Result<(), failure::Error> {
         let prop = Prop {
-            working_dir: AbsPathBuf::new_or_panic(tempdir.path()),
+            working_dir: AbsPathBuf::new_or_panic(tempdir_path),
             cookies_on_init: Cow::from("$service"),
             credentials,
             suppress_download_bars: true,
@@ -36,13 +41,34 @@ pub fn test<E: Into<failure::Error>>(
             directory: PathBuf::from("."),
         }.run(&prop)?;
         f(&prop).map_err(Into::into)
-    })();
-    tempdir.close()?;
-    result
+    });
+    tempdir.close().unwrap();
+    match result {
+        Err(panic) => panic::resume_unwind(panic),
+        Ok(result) => result.unwrap(),
+    }
+}
+
+pub fn credentials_from_env_vars() -> ::std::result::Result<Credentials, env::VarError> {
+    let atcoder_username = Rc::new(env::var("ATCODER_USERNAME")?);
+    let atcoder_password = Rc::new(env::var("ATCODER_PASSWORD")?);
+    let hackerrank_username = Rc::new(env::var("HACKERRANK_USERNAME")?);
+    let hackerrank_password = Rc::new(env::var("HACKERRANK_PASSWORD")?);
+    let yukicoder_revel_session = Rc::new(env::var("YUKICODER_REVEL_SESSION")?);
+    Ok(Credentials {
+        atcoder: UserNameAndPassword::Some(atcoder_username, atcoder_password),
+        hackerrank: UserNameAndPassword::Some(hackerrank_username, hackerrank_password),
+        yukicoder: RevelSession::Some(yukicoder_revel_session),
+    })
 }
 
 pub fn dummy_credentials() -> Credentials {
-    Credentials::UserNameAndPassword(Rc::new("".to_owned()), Rc::new("".to_owned()))
+    let dummy = Rc::new(" ".to_owned());
+    Credentials {
+        atcoder: UserNameAndPassword::Some(dummy.clone(), dummy.clone()),
+        hackerrank: UserNameAndPassword::Some(dummy.clone(), dummy.clone()),
+        yukicoder: RevelSession::Some(dummy),
+    }
 }
 
 pub fn login(prop: &Prop, service: ServiceName) -> snowchains::Result<()> {
@@ -96,7 +122,7 @@ pub fn confirm_num_cases(
         let path = prop
             .working_dir
             .join("snowchains")
-            .join(service.as_str())
+            .join(service.to_str())
             .join(contest)
             .join(format!("{}.yaml", problem));
         let file = File::open(&path).unwrap();

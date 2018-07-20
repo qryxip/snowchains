@@ -9,16 +9,15 @@ extern crate tempdir;
 #[allow(dead_code)]
 mod common;
 
-use snowchains::{Credentials, Prop, ServiceName};
-
-use std::env;
+use snowchains::app::Prop;
+use snowchains::ServiceName;
 
 #[test]
 #[ignore]
 fn it_logins() {
     let _ = env_logger::try_init();
-    let credentials = credentials_from_env_vars().unwrap();
-    common::test("it_logins", credentials, |prop| login(prop)).unwrap();
+    let credentials = common::credentials_from_env_vars().unwrap();
+    common::test_in_tempdir("it_logins", credentials, login);
 }
 
 #[test]
@@ -26,21 +25,21 @@ fn it_logins() {
 #[should_panic(
     expected = "called `Result::unwrap()` on an `Err` value: Service(WrongCredentialsOnTest)"
 )]
-fn it_raises_an_error_if_the_credentials_are_wrong() {
+fn it_raises_an_error_if_when_login_fails() {
     let _ = env_logger::try_init();
-    common::test(
+    common::test_in_tempdir(
         "it_raises_an_error_if_the_credentials_is_wrong",
         common::dummy_credentials(),
         login,
-    ).unwrap();
+    );
 }
 
 #[test]
 #[ignore]
 fn it_downloads_testcases_from_master() {
     let _ = env_logger::try_init();
-    let credentials = credentials_from_env_vars().unwrap();
-    common::test(
+    let credentials = common::credentials_from_env_vars().unwrap();
+    common::test_in_tempdir(
         "it_downloads_test_cases_from_master",
         credentials,
         |prop| -> Result<(), failure::Error> {
@@ -52,15 +51,15 @@ fn it_downloads_testcases_from_master() {
             }
             Ok(())
         },
-    ).unwrap();
+    );
 }
 
 #[test]
 #[ignore]
 fn it_downloads_testcases_from_hourrank_20() {
     let _ = env_logger::try_init();
-    let credentials = credentials_from_env_vars().unwrap();
-    common::test(
+    let credentials = common::credentials_from_env_vars().unwrap();
+    common::test_in_tempdir(
         "it_downloads_test_cases_from_hourrank_20",
         credentials,
         |prop| -> Result<(), failure::Error> {
@@ -69,17 +68,13 @@ fn it_downloads_testcases_from_hourrank_20() {
             download(prop, CONTEST, &[PROBLEM])?;
             common::confirm_zip_exists(prop, CONTEST, PROBLEM).map_err(Into::into)
         },
-    ).unwrap();
+    );
 }
 
 fn login(prop: &Prop) -> snowchains::Result<()> {
-    common::login(prop, ServiceName::HackerRank)
+    common::login(prop, ServiceName::Hackerrank)
 }
 
 fn download(prop: &Prop, contest: &str, problems: &[&str]) -> snowchains::Result<()> {
-    common::download(prop, ServiceName::HackerRank, contest, problems)
-}
-
-fn credentials_from_env_vars() -> Result<Credentials, env::VarError> {
-    Credentials::from_env_vars("HACKERRANK_USERNAME", "HACKERRANK_PASSWORD")
+    common::download(prop, ServiceName::Hackerrank, contest, problems)
 }

@@ -1,6 +1,6 @@
 use errors::{ServiceError, ServiceResult, SessionError};
 
-use futures_01::{future, task, Async, Future, Poll, Stream};
+use futures::{future, task, Async, Future, Poll, Stream};
 use itertools::Itertools as _Itertools;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
 use reqwest::header::{self, ContentLength};

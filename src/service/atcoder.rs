@@ -1,7 +1,10 @@
 use errors::{ServiceError, ServiceResult, SubmitError};
 use palette::Palette;
 use service::session::{GetPost, HttpSession};
-use service::{Contest, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp};
+use service::{
+    Contest, DownloadProp, RestoreProp, SessionProp, SubmitProp,
+    TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
+};
 use testsuite::{SuiteFilePath, TestSuite};
 use util::std_unstable::RemoveItem_ as _RemoveItem_;
 
@@ -17,12 +20,12 @@ use std::{fmt, vec};
 
 /// Logins to "beta.atcoder.jp".
 pub(crate) fn login(sess_prop: &SessionProp) -> ServiceResult<()> {
-    AtCoder::start(sess_prop)?.login_if_not(true)
+    Atcoder::start(sess_prop)?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
 pub(crate) fn participate(contest_name: &str, sess_prop: &SessionProp) -> ServiceResult<()> {
-    AtCoder::start(sess_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
+    Atcoder::start(sess_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
@@ -32,7 +35,7 @@ pub(crate) fn download(
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
     let download_prop = download_prop.parse_contest().lowerize_problems();
-    AtCoder::start(sess_prop)?.download(&download_prop)
+    Atcoder::start(sess_prop)?.download(&download_prop)
 }
 
 /// Downloads submitted source codes.
@@ -41,7 +44,7 @@ pub(crate) fn restore(
     restore_prop: RestoreProp<String>,
 ) -> ServiceResult<()> {
     let restore_prop = restore_prop.parse_contest().upperize_problems();
-    AtCoder::start(sess_prop)?.restore(&restore_prop)
+    Atcoder::start(sess_prop)?.restore(&restore_prop)
 }
 
 /// Submits a source code.
@@ -49,26 +52,26 @@ pub(crate) fn submit(
     sess_prop: &SessionProp,
     submit_prop: SubmitProp<String>,
 ) -> ServiceResult<()> {
-    AtCoder::start(sess_prop)?.submit(&submit_prop.parse_contest())
+    Atcoder::start(sess_prop)?.submit(&submit_prop.parse_contest())
 }
 
-pub(self) struct AtCoder {
+pub(self) struct Atcoder {
     session: HttpSession,
-    credentials: Credentials,
+    credentials: UserNameAndPassword,
 }
 
-impl GetPost for AtCoder {
+impl GetPost for Atcoder {
     fn session(&mut self) -> &mut HttpSession {
         &mut self.session
     }
 }
 
-impl AtCoder {
+impl Atcoder {
     fn start(sess_prop: &SessionProp) -> ServiceResult<Self> {
         let session = sess_prop.start_session()?;
         Ok(Self {
             session,
-            credentials: sess_prop.credentials.clone(),
+            credentials: sess_prop.credentials.atcoder.clone(),
         })
     }
 
@@ -91,26 +94,19 @@ impl AtCoder {
     }
 
     fn try_logging_in(&mut self) -> ServiceResult<bool> {
-        #[derive(Debug, Serialize)]
-        struct Payload<'a> {
-            username: &'a str,
-            password: &'a str,
-            csrf_token: String,
-        }
-
         let csrf_token = self.get("/login").recv_html()?.extract_csrf_token()?;
         let (username, password) = self.credentials.or_ask("Username: ")?;
-        let payload = Payload {
-            username: &username,
-            password: &password,
-            csrf_token,
-        };
+        let payload = hashmap!(
+            "username" => username.as_str(),
+            "password" => password.as_str(),
+            "csrf_token" => csrf_token.as_str(),
+        );
         self.post("/login").send_form(&payload)?;
         let res = self.get("/settings").acceptable(&[200, 302]).send()?;
         let success = res.status() == StatusCode::Ok;
         if success {
             println!("Successfully logged in.");
-        } else if self.credentials.not_none() {
+        } else if self.credentials.is_some() {
             return Err(ServiceError::WrongCredentialsOnTest);
         }
         Ok(success)
@@ -126,7 +122,7 @@ impl AtCoder {
             .acceptable(&[200, 302, 404])
             .send()?;
         if res.status() == StatusCode::Ok {
-            Ok(Document::from_read(res)?)
+            Ok(res.try_into_document()?)
         } else {
             self.register_if_active_or_explicit(contest, false)?;
             Ok(self.get(&contest.url_tasks()).recv_html()?)
@@ -138,16 +134,11 @@ impl AtCoder {
         contest: &AtcoderContest,
         explicit: bool,
     ) -> ServiceResult<()> {
-        #[derive(Debug, Serialize)]
-        struct Payload {
-            csrf_token: String,
-        }
-
-        let mut res = self.get(&contest.url_top()).acceptable(&[200, 302]).send()?;
+        let res = self.get(&contest.url_top()).acceptable(&[200, 302]).send()?;
         if res.status() == StatusCode::Found {
             return Err(ServiceError::ContestNotFound(contest.to_string()));
         }
-        let page = Document::from(res.text()?.as_str());
+        let page = res.try_into_document()?;
         let duration = page.extract_contest_duration()?;
         let status = duration.check_current_status(contest.to_string());
         if !explicit {
@@ -155,13 +146,12 @@ impl AtCoder {
         }
         if explicit || *contest == AtcoderContest::Practice || status.is_active() {
             self.login_if_not(false)?;
-            let payload = Payload {
-                csrf_token: self
-                    .get(&contest.url_top())
-                    .recv_html()?
-                    .extract_csrf_token()?,
-            };
+            let csrf_token = self
+                .get(&contest.url_top())
+                .recv_html()?
+                .extract_csrf_token()?;
             let url = contest.url_register();
+            let payload = hashmap!("csrf_token" => csrf_token.as_str());
             self.post(&url).send_form(&payload)?;
         }
         Ok(())
@@ -250,7 +240,7 @@ impl AtCoder {
             if let Some(path_template) = src_paths.get(lang_id.as_str()) {
                 let path = path_template.expand(&task_name.to_lowercase())?;
                 let code = match replacers.get(lang_id.as_str()) {
-                    Some(replacer) => replacer.replace_from_submission(&task_name, &code)?,
+                    Some(replacer) => replacer.replace_from_submission_to_local(&task_name, &code)?,
                     None => code,
                 };
                 ::fs::write(&path, code.as_bytes())?;
@@ -288,16 +278,6 @@ impl AtCoder {
 
     #[allow(non_snake_case)]
     fn submit(&mut self, prop: &SubmitProp<AtcoderContest>) -> ServiceResult<()> {
-        #[derive(Debug, Serialize)]
-        struct Payload {
-            #[serde(rename = "data.TaskScreenName")]
-            dataTaskScreenName: String,
-            #[serde(rename = "data.LanguageId")]
-            dataLanguageId: String,
-            sourceCode: String,
-            csrf_token: String,
-        }
-
         let SubmitProp {
             contest,
             problem,
@@ -354,17 +334,19 @@ impl AtCoder {
                 }
                 let source_code = ::fs::read_to_string(src_path)?;
                 let source_code = match replacer {
-                    Some(replacer) => replacer.replace_as_submission(&problem, &source_code)?,
+                    Some(replacer) => {
+                        replacer.replace_from_local_to_submission(&problem, &source_code)?
+                    }
                     None => source_code,
                 };
                 let csrf_token = self.get(&url).recv_html()?.extract_csrf_token()?;
                 let url = contest.url_submit();
-                let payload = Payload {
-                    dataTaskScreenName: task_screen_name,
-                    dataLanguageId: lang_id.clone(),
-                    sourceCode: source_code,
-                    csrf_token,
-                };
+                let payload = hashmap!(
+                    "data.TaskScreenName" => &task_screen_name,
+                    "data.LanguageId" => lang_id,
+                    "sourceCode" => &source_code,
+                    "csrf_token" => &csrf_token,
+                );
                 self.post(&url).send_form(&payload)?;
                 if *open_browser {
                     self.session
@@ -903,9 +885,9 @@ impl Extract for Document {
 #[cfg(test)]
 mod tests {
     use errors::SessionResult;
-    use service::atcoder::{AtCoder, AtcoderContest, Extract as _Extract};
+    use service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
     use service::session::{GetPost as _GetPost, HttpSession, UrlBase};
-    use service::{self, Credentials};
+    use service::{self, UserNameAndPassword};
     use testsuite::TestSuite;
 
     use env_logger;
@@ -1277,13 +1259,13 @@ mod tests {
         assert_eq!(EXPECTED_CODE, code);
     }
 
-    fn start() -> SessionResult<AtCoder> {
+    fn start() -> SessionResult<Atcoder> {
         let client = service::reqwest_client(Duration::from_secs(10))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
         let session = HttpSession::new(client, base, None)?;
-        Ok(AtCoder {
+        Ok(Atcoder {
             session,
-            credentials: Credentials::None,
+            credentials: UserNameAndPassword::None,
         })
     }
 }
