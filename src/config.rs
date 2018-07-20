@@ -1,39 +1,34 @@
 use command::{CompilationCommand, JudgingCommand};
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
-use replacer::CodeReplacer;
+use palette::{ColorRange, Palette};
+use path::{AbsPath, AbsPathBuf};
+use replacer::{CodeReplacer, CodeReplacerConf};
 use service::SessionConfig;
-use template::{
-    BaseDirNone, BaseDirSome, CommandTemplate, CompilationTemplate, JudgeTemplate, PathTemplate,
-    StringTemplate,
-};
-use terminal::{self, Color, TerminalMode};
+use template::{Template, TemplateBuilder};
 use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipConfig};
-use {util, yaml, ServiceName};
+use {yaml, ServiceName};
 
 use serde_yaml;
 use unicode_width::UnicodeWidthStr as _UnicodeWidthStr;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
+use std::ffi::OsString;
+use std::ops::Deref as _Deref;
 use std::str;
 use std::time::Duration;
 
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
-pub(crate) fn init(
-    directory: &Path,
-    terminal: TerminalMode,
-    session_cookies: &str,
-) -> FileIoResult<()> {
+pub(crate) fn init(directory: AbsPath, session_cookies: &str) -> FileIoResult<()> {
     let config = format!(
         r#"---
 service: atcoder
 contest: arc001
 language: c++
 
-terminal: {terminal}
+color_range: {color_range}
 
 session:
   timeout: 10
@@ -123,14 +118,14 @@ languages:
       atcoder: 3003
       yukicoder: cpp14
   rust:
-    src: rs/src/bin/{{kebab}}.rs
+    src: rs$rust_version/src/bin/{{kebab}}.rs
     compile:
-      bin: rs/target/release/{{kebab}}{exe}
+      bin: rs$rust_version/target/release/{{kebab}}{exe}
       command: [rustc, +$rust_version, -o, $bin, $src]
-      working_directory: rs/
+      working_directory: rs$rust_version/
     run:
       command: [$bin]
-      working_directory: rs/
+      working_directory: rs$rust_version/
     language_ids:
       atcoder: 3504
       yukicoder: rust
@@ -208,7 +203,7 @@ languages:
       atcoder: 3027
       yukicoder: text
 "#,
-        terminal = terminal,
+        color_range = ColorRange::default(),
         session_cookies = yaml::escape_string(session_cookies),
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
@@ -250,14 +245,14 @@ languages:
         }
     );
     let path = directory.join(CONFIG_FILE_NAME);
-    util::fs::write(&path, config.as_bytes())?;
-    println!("Wrote to {}", util::path::remove_dots(&path).display());
+    ::fs::write(&path, config.as_bytes())?;
+    println!("Wrote to {}", path.display());
     Ok(())
 }
 
 /// Changes attributes.
 pub(crate) fn switch(
-    directory: &Path,
+    directory: AbsPath,
     service: Option<ServiceName>,
     contest: Option<String>,
     language: Option<String>,
@@ -270,15 +265,15 @@ pub(crate) fn switch(
         println!(" -> {}", new);
     }
 
-    let path = find_base(directory)?.join(CONFIG_FILE_NAME);
-    let mut old_yaml = util::fs::read_to_string(&path)?;
+    let path = ::fs::find_filepath(directory, CONFIG_FILE_NAME)?;
+    let mut old_yaml = ::fs::read_to_string(&path)?;
     let old_config = serde_yaml::from_str::<Config>(&old_yaml)
-        .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, err))?;
+        .map_err(|err| FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err))?;
     println!("Loaded {}", path.display());
 
     let mut m = hashmap!();
     if let Some(service) = service {
-        m.insert("service", Cow::from(service.as_str()));
+        m.insert("service", Cow::from(service.to_str()));
     }
     if let Some(contest) = contest.as_ref() {
         m.insert("contest", Cow::from(contest.clone()));
@@ -303,19 +298,20 @@ pub(crate) fn switch(
             Ok((new_yaml, new_config))
         })
         .or_else(|warning| {
-            eprintln_bold!(Color::Warning, "{}", warning);
-            let mut new_config = serde_yaml::from_str::<Config>(&old_yaml)
-                .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, err))?;
+            eprintln!("{}", Palette::Warning.paint(warning.to_string()));
+            let mut new_config = serde_yaml::from_str::<Config>(&old_yaml).map_err(|err| {
+                FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
+            })?;
             new_config.service = service.unwrap_or(new_config.service);
             new_config.contest = contest.unwrap_or(new_config.contest);
             new_config.language = language.or(new_config.language);
             let new_yaml = serde_yaml::to_string(&new_config)
-                .map_err(|err| FileIoError::chaining(FileIoErrorKind::Write, &path, err))?;
+                .map_err(|err| FileIoError::new(FileIoErrorKind::Write, path.deref()).with(err))?;
             Ok((new_yaml, new_config))
         })?;
 
-    let s1 = Some(format!("{:?}", old_config.service.as_str()));
-    let s2 = Some(format!("{:?}", new_config.service.as_str()));
+    let s1 = Some(format!("{:?}", old_config.service.to_str()));
+    let s2 = Some(format!("{:?}", new_config.service.to_str()));
     let c1 = Some(format!("{:?}", old_config.contest));
     let c2 = Some(format!("{:?}", new_config.contest));
     let l1 = old_config.language.as_ref().map(|l| format!("{:?}", l));
@@ -331,7 +327,7 @@ pub(crate) fn switch(
     print_change(w, &s1, &s2);
     print_change(w, &c1, &c2);
     print_change(w, &l1, &l2);
-    util::fs::write(&path, new_yaml.as_bytes())?;
+    ::fs::write(&path, new_yaml.as_bytes())?;
     println!("Saved.");
     Ok(())
 }
@@ -343,9 +339,9 @@ pub(crate) struct Config {
     service: ServiceName,
     contest: String,
     language: Option<String>,
-    terminal: TerminalMode,
+    color_range: ColorRange,
     session: SessionConfig,
-    shell: Vec<StringTemplate>,
+    shell: Vec<TemplateBuilder<OsString>>,
     testfiles: TestFiles,
     #[serde(default)]
     services: BTreeMap<ServiceName, ServiceConfig>,
@@ -353,28 +349,26 @@ pub(crate) struct Config {
     interactive: HashMap<String, Language>,
     languages: HashMap<String, Language>,
     #[serde(skip)]
-    base_dir: PathBuf,
+    base_dir: AbsPathBuf,
 }
 
 impl Config {
-    /// Loads and deserializes from the nearest `snowchains.yaml`.
-    pub fn load_setting_term_mode(
+    pub fn load_setting_color_range(
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
-        dir: &Path,
+        dir: AbsPath,
     ) -> FileIoResult<Self> {
-        let base = find_base(dir)?;
-        let path = base.join(CONFIG_FILE_NAME);
-        let mut config = serde_yaml::from_reader::<_, Self>(util::fs::open(&path)?)
-            .map_err(|err| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, err))?;
-        config.base_dir = base;
+        let path = ::fs::find_filepath(dir, CONFIG_FILE_NAME)?;
+        let mut config = serde_yaml::from_reader::<_, Self>(::fs::open(&path)?)
+            .map_err(|err| FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err))?;
+        config.base_dir = path.parent().unwrap();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
-        terminal::terminal_mode(config.terminal);
+        config.color_range.set_globally();
         println!(
-            "Loaded {} (terminal mode: {})",
+            "Loaded {} (color_range: {})",
             path.display(),
-            config.terminal,
+            config.color_range
         );
         Ok(config)
     }
@@ -395,18 +389,17 @@ impl Config {
     }
 
     /// Gets `session.cookies` embedding "service" and "base_dir".
-    pub fn session_cookies(&self) -> PathTemplate<BaseDirSome> {
+    pub fn session_cookies(&self) -> Template<AbsPathBuf> {
         self.session.cookies(&self.base_dir, self.service)
     }
 
-    /// Gets `testfiles/directory` as a `PathTemplate<BaseDirSome>`.
-    pub fn testfiles_dir(&self) -> PathTemplate<BaseDirSome> {
+    /// Gets `testfiles/directory` as a `Template`.
+    pub fn testfiles_dir(&self) -> Template<AbsPathBuf> {
         self.testfiles
             .directory
-            .base_dir(&self.base_dir)
-            .embed_strings(
-                &hashmap!("service" => self.service.as_str(), "contest" => &self.contest),
-            )
+            .build(&self.base_dir)
+            .insert_string("service", self.service.to_str())
+            .insert_string("contest", &self.contest)
     }
 
     pub fn suite_paths(&self) -> SuiteFilePathsTemplate {
@@ -421,37 +414,37 @@ impl Config {
         self.testfiles.scrape
     }
 
-    pub fn src_paths(&self) -> HashMap<&str, PathTemplate<BaseDirSome>> {
+    pub fn src_paths(&self) -> HashMap<&str, Template<AbsPathBuf>> {
         let vars = self.vars_for_langs(None);
         let mut templates = hashmap!();
         for lang in self.languages.values() {
-            if let Some(lang_id) = lang.language_ids.get(&ServiceName::AtCoder) {
-                let template = lang.src.base_dir(&self.base_dir).embed_strings(&vars);
+            if let Some(lang_id) = lang.language_ids.get(&ServiceName::Atcoder) {
+                let template = lang.src.build(&self.base_dir).insert_strings(&vars);
                 templates.insert(lang_id.as_str(), template);
             }
         }
         templates
     }
 
-    pub fn src_to_submit(&self, lang: Option<&str>) -> LoadConfigResult<PathTemplate<BaseDirSome>> {
+    pub fn src_to_submit(&self, lang: Option<&str>) -> LoadConfigResult<Template<AbsPathBuf>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         let vars = self.vars_for_langs(None);
-        Ok(lang.src.base_dir(&self.base_dir).embed_strings(&vars))
+        Ok(lang.src.build(&self.base_dir).insert_strings(&vars))
     }
 
     pub fn code_replacer(&self, lang: Option<&str>) -> LoadConfigResult<Option<CodeReplacer>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         let vars = self.vars_for_langs(None);
-        Ok(lang.replace.as_ref().map(|r| r.embed_strings(&vars)))
+        Ok(lang.replace.as_ref().map(|r| r.build(&vars)))
     }
 
     pub fn code_replacers_on_atcoder(&self) -> LoadConfigResult<HashMap<&str, CodeReplacer>> {
         let mut replacers = hashmap!();
         for lang in self.languages.values() {
-            if let Some(lang_id) = lang.language_ids.get(&ServiceName::AtCoder) {
+            if let Some(lang_id) = lang.language_ids.get(&ServiceName::Atcoder) {
                 if let Some(replacer) = &lang.replace {
-                    let vars = self.vars_for_langs(ServiceName::AtCoder);
-                    let replacer = replacer.embed_strings(&vars);
+                    let vars = self.vars_for_langs(ServiceName::Atcoder);
+                    let replacer = replacer.build(&vars);
                     replacers.insert(lang_id.as_str(), replacer);
                 }
             }
@@ -470,52 +463,58 @@ impl Config {
     pub fn solver_compilation(
         &self,
         lang: Option<&str>,
-    ) -> LoadConfigResult<Option<CompilationTemplate>> {
-        self.compilation_command(find_language(&self.languages, self.lang_name(lang)?)?)
+    ) -> LoadConfigResult<Option<Template<CompilationCommand>>> {
+        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
+        Ok(self.compilation_command(lang))
     }
 
     pub fn interactive_tester_compilation(
         &self,
         lang: Option<&str>,
-    ) -> LoadConfigResult<Option<CompilationTemplate>> {
-        self.compilation_command(find_language(&self.interactive, lang)?)
+    ) -> LoadConfigResult<Option<Template<CompilationCommand>>> {
+        let lang = find_language(&self.interactive, lang)?;
+        Ok(self.compilation_command(lang))
     }
 
-    pub fn solver(&self, lang: Option<&str>) -> LoadConfigResult<JudgeTemplate> {
-        self.judge_command(find_language(&self.languages, self.lang_name(lang)?)?)
+    pub fn solver(&self, lang: Option<&str>) -> LoadConfigResult<Template<JudgingCommand>> {
+        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
+        Ok(self.judge_command(lang))
     }
 
-    pub fn interactive_tester(&self, lang: Option<&str>) -> LoadConfigResult<JudgeTemplate> {
-        self.judge_command(find_language(&self.interactive, lang)?)
-    }
-
-    fn compilation_command(
+    pub fn interactive_tester(
         &self,
-        lang: &Language,
-    ) -> LoadConfigResult<Option<CompilationTemplate>> {
-        match &lang.compile {
-            None => Ok(None),
-            Some(compile) => {
-                let wd = compile.working_directory.base_dir(&self.base_dir);
-                let vars = self.vars_for_langs(None);
-                let cmd = compile.command.embed_strings(&vars);
-                let src = lang.src.base_dir(&self.base_dir).embed_strings(&vars);
-                let bin = compile.bin.base_dir(&self.base_dir).embed_strings(&vars);
-                Ok(Some(cmd.as_compilation(&self.shell, wd, src, bin)))
-            }
-        }
+        lang: Option<&str>,
+    ) -> LoadConfigResult<Template<JudgingCommand>> {
+        let lang = find_language(&self.interactive, lang)?;
+        Ok(self.judge_command(lang))
     }
 
-    fn judge_command(&self, lang: &Language) -> LoadConfigResult<JudgeTemplate> {
-        let wd = lang.run.working_directory.base_dir(&self.base_dir);
-        let vars = self.vars_for_langs(None);
-        let cmd = lang.run.command.embed_strings(&vars);
-        let src = lang.src.base_dir(&self.base_dir).embed_strings(&vars);
-        let bin = lang
-            .compile
-            .as_ref()
-            .map(|c| c.bin.base_dir(&self.base_dir));
-        Ok(cmd.as_judge(&self.shell, wd, &src, bin.as_ref()))
+    fn compilation_command(&self, lang: &Language) -> Option<Template<CompilationCommand>> {
+        lang.compile.as_ref().map(|compile| {
+            compile
+                .command
+                .build(
+                    &self.base_dir,
+                    &self.shell,
+                    &compile.working_directory,
+                    &lang.src,
+                    &compile.bin,
+                )
+                .insert_strings(&self.vars_for_langs(None))
+        })
+    }
+
+    fn judge_command(&self, lang: &Language) -> Template<JudgingCommand> {
+        lang.run
+            .command
+            .build(
+                &self.base_dir,
+                &self.shell,
+                &lang.run.working_directory,
+                &lang.src,
+                lang.compile.as_ref().map(|c| &c.bin),
+            )
+            .insert_strings(&self.vars_for_langs(None))
     }
 
     fn lang_name<'a>(&'a self, name: Option<&'a str>) -> LoadConfigResult<&'a str> {
@@ -533,7 +532,7 @@ impl Config {
             .services
             .get(&service.into().unwrap_or(self.service))
             .map(|s| &s.variables);
-        let mut vars = hashmap!("service" => self.service.as_str(), "contest" => &self.contest);
+        let mut vars = hashmap!("service" => self.service.to_str(), "contest" => &self.contest);
         if let Some(vars_in_service) = vars_in_service {
             for (k, v) in vars_in_service {
                 vars.insert(k, v);
@@ -555,35 +554,9 @@ fn find_language<'a>(
         .ok_or_else(|| LoadConfigError::NoSuchLanguage(name.to_owned()))
 }
 
-fn find_base(start: &Path) -> FileIoResult<PathBuf> {
-    fn target_exists(dir: &Path) -> FileIoResult<bool> {
-        for entry in util::fs::read_dir(dir)? {
-            let path = entry
-                .map_err(|e| FileIoError::chaining(FileIoErrorKind::ReadDir, dir, e))?
-                .path();
-            if path.is_file() && path.file_name().unwrap() == CONFIG_FILE_NAME {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    let mut dir = PathBuf::from(start);
-    loop {
-        if let Ok(true) = target_exists(&dir) {
-            return Ok(dir);
-        } else if !dir.pop() {
-            return Err(FileIoError::new(
-                FileIoErrorKind::Search(CONFIG_FILE_NAME),
-                start,
-            ));
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 struct TestFiles {
-    directory: PathTemplate<BaseDirNone>,
+    directory: TemplateBuilder<AbsPathBuf>,
     forall: BTreeSet<SuiteFileExtension>,
     scrape: SerializableExtension,
     zip: ZipConfig,
@@ -597,26 +570,26 @@ struct ServiceConfig {
 
 #[derive(Serialize, Deserialize)]
 struct Language {
-    src: PathTemplate<BaseDirNone>,
+    src: TemplateBuilder<AbsPathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     compile: Option<Compile>,
     run: Run,
-    replace: Option<CodeReplacer>,
+    replace: Option<CodeReplacerConf>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     language_ids: BTreeMap<ServiceName, String>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Compile {
-    bin: PathTemplate<BaseDirNone>,
-    command: CommandTemplate<CompilationCommand>,
+    bin: TemplateBuilder<AbsPathBuf>,
+    command: TemplateBuilder<CompilationCommand>,
     #[serde(default)]
-    working_directory: PathTemplate<BaseDirNone>,
+    working_directory: TemplateBuilder<AbsPathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Run {
-    command: CommandTemplate<JudgingCommand>,
+    command: TemplateBuilder<JudgingCommand>,
     #[serde(default)]
-    working_directory: PathTemplate<BaseDirNone>,
+    working_directory: TemplateBuilder<AbsPathBuf>,
 }

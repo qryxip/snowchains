@@ -15,7 +15,6 @@ macro_rules! println_plural {
     };
 }
 
-#[cfg_attr(rustfmt, rustfmt_skip)]
 macro_rules! derive_from {
     ($t:ident :: $v:ident <- $e:ty) => {
         impl From<$e> for $t {
@@ -24,30 +23,14 @@ macro_rules! derive_from {
             }
         }
     };
-}
-
-macro_rules! print_bold {
-    ($color: expr, $($arg: tt)*) => {
-        $crate::terminal::print_bold($color, format_args!($($arg)*))
-    }
-}
-
-macro_rules! println_bold {
-    ($color: expr, $($arg: tt)*) => {
-        $crate::terminal::println_bold($color, format_args!($($arg)*))
-    }
-}
-
-#[macro_export]
-macro_rules! eprint_bold {
-    ($color: expr, $($arg: tt)*) => {
-        $crate::terminal::eprint_bold($color, format_args!($($arg)*))
-    }
-}
-
-#[macro_export]
-macro_rules! eprintln_bold {
-    ($color: expr, $($arg: tt)*) => {
-        $crate::terminal::eprintln_bold($color, format_args!($($arg)*))
-    }
+    ($($t:ident :: $v:ident <- $e:ty),*) => {
+        $(
+            derive_from!($t :: $v <- $e);
+        )*
+    };
+    ($($t:ident :: $v:ident <- $e:ty),*,) => {
+        $(
+            derive_from!($t :: $v <- $e);
+        )*
+    };
 }

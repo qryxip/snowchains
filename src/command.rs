@@ -1,34 +1,31 @@
 use errors::{JudgeError, JudgeResult};
-use terminal::Color;
-use util;
+use palette::Palette;
+use path::AbsPathBuf;
 
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write;
 use std::io;
-use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
 /// Compilation command.
 #[cfg_attr(test, derive(Debug))]
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct CompilationCommand {
-    command: CommandProperty,
-    src: PathBuf,
-    bin: PathBuf,
+    inner: Inner,
+    src: AbsPathBuf,
+    bin: AbsPathBuf,
 }
 
 impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
-    ///
-    /// Wraps `command` in `sh` or `cmd` if necessary.
     pub fn new(
         args: &[impl AsRef<OsStr>],
-        working_dir: PathBuf,
-        src: PathBuf,
-        bin: PathBuf,
+        working_dir: AbsPathBuf,
+        src: AbsPathBuf,
+        bin: AbsPathBuf,
     ) -> Self {
         Self {
-            command: CommandProperty::new(args, working_dir),
+            inner: Inner::new(args, working_dir),
             src,
             bin,
         }
@@ -37,36 +34,37 @@ impl CompilationCommand {
     /// Executes the command.
     pub fn execute(&self) -> JudgeResult<()> {
         if !self.src.exists() {
-            eprintln_bold!(Color::Warning, "Warning: {} not found", self.src.display());
+            let msg = format!("Warning: {} not found", self.src.display());
+            eprintln!("{}", Palette::Warning.bold().paint(msg));
         }
         if self.src.exists() && self.bin.exists() {
             if self.src.metadata()?.modified()? < self.bin.metadata()?.modified()? {
                 println!("{} is up to date.", self.bin.display());
                 return Ok(());
             }
-        } else if let Some(dir) = self.bin.parent() {
-            if !dir.exists() {
-                util::fs::create_dir_all(dir)?;
-                println!("Created {}", dir.display());
+        } else if let Some(parent) = self.bin.parent() {
+            if !parent.exists() {
+                ::fs::create_dir_all(&parent)?;
+                println!("Created {}", parent.display());
             }
         }
-        print_bold!(Color::CommandInfo, "Compilation Command: ");
-        print!("{}\n", self.command.display_args());
-        print_bold!(Color::CommandInfo, "Working directory:   ");
-        println!("{}", self.command.working_dir.display());
+        println!(
+            "{} {}\n{}   {}",
+            Palette::CommandInfo.bold().paint("Compilation Command:"),
+            self.inner.display_args(),
+            Palette::CommandInfo.bold().paint("Working directory:"),
+            self.inner.working_dir.display(),
+        );
         let status = self
-            .command
+            .inner
             .build_checking_wd()?
             .stdin(Stdio::null())
             .status()
-            .map_err(|e| JudgeError::Command(self.command.arg0.clone(), e))?;
+            .map_err(|e| JudgeError::Command(self.inner.arg0.clone(), e))?;
         if status.success() {
             if !self.bin.exists() {
-                eprintln_bold!(
-                    Color::Warning,
-                    "Warning: {} not created",
-                    self.bin.display()
-                );
+                let msg = format!("Warning: {} not created", self.bin.display());
+                eprintln!("{}", Palette::Warning.paint(msg));
             }
             Ok(())
         } else {
@@ -77,19 +75,19 @@ impl CompilationCommand {
 
 /// Command for simple/interactive testing.
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub(crate) struct JudgingCommand(CommandProperty);
+pub(crate) struct JudgingCommand(Inner);
 
 impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub fn new(args: &[impl AsRef<OsStr>], working_dir: PathBuf) -> Self {
-        JudgingCommand(CommandProperty::new(args, working_dir))
+    pub fn new(args: &[impl AsRef<OsStr>], working_dir: AbsPathBuf) -> Self {
+        JudgingCommand(Inner::new(args, working_dir))
     }
 
     #[cfg(test)]
-    pub fn from_args<S: AsRef<OsStr>>(arg0: S, rest_args: &[S], working_dir: PathBuf) -> Self {
-        JudgingCommand(CommandProperty {
+    pub fn from_args<S: AsRef<OsStr>>(arg0: S, rest_args: &[S], working_dir: AbsPathBuf) -> Self {
+        JudgingCommand(Inner {
             arg0: arg0.as_ref().to_owned(),
             rest_args: rest_args
                 .iter()
@@ -108,12 +106,15 @@ impl JudgingCommand {
     /// Test files:        /path/to/testfiles/{a.json, a.yaml}
     /// """
     pub fn print_info(&self, testfiles_matched: &str) {
-        print_bold!(Color::CommandInfo, "Command:           ");
-        print!("{}\n", self.0.display_args());
-        print_bold!(Color::CommandInfo, "Working directory: ");
-        print!("{}\n", self.0.working_dir.display());
-        print_bold!(Color::CommandInfo, "Test files:        ");
-        println!("{}", testfiles_matched);
+        println!(
+            "{}           {}\n{} {}\n{}        {}",
+            Palette::CommandInfo.bold().paint("Command:"),
+            self.0.display_args(),
+            Palette::CommandInfo.bold().paint("Working directory:"),
+            self.0.working_dir.display(),
+            Palette::CommandInfo.bold().paint("Test files:"),
+            testfiles_matched,
+        );
     }
 
     /// Returns a `Child` which stdin & stdout & stderr are piped.
@@ -130,14 +131,14 @@ impl JudgingCommand {
 
 #[cfg_attr(test, derive(Debug))]
 #[derive(Clone, PartialEq, Eq, Hash)]
-struct CommandProperty {
+struct Inner {
     arg0: OsString,
     rest_args: Vec<OsString>,
-    working_dir: PathBuf,
+    working_dir: AbsPathBuf,
 }
 
-impl CommandProperty {
-    fn new(args: &[impl AsRef<OsStr>], working_dir: PathBuf) -> Self {
+impl Inner {
+    fn new(args: &[impl AsRef<OsStr>], working_dir: AbsPathBuf) -> Self {
         let (arg0, rest_args) = if args.is_empty() {
             (OsString::new(), vec![])
         } else {

@@ -1,35 +1,38 @@
 use errors::{CodeReplaceError, CodeReplaceResult};
-use template::StringTemplate;
+use template::{Template, TemplateBuilder};
 use yaml;
 
 use regex::Regex;
 
-use std::borrow::{Borrow, Cow};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::str;
 
 #[derive(Serialize, Deserialize)]
-pub(crate) struct CodeReplacer {
+pub(crate) struct CodeReplacerConf {
     #[serde(
-        serialize_with = "yaml::serialize_regex", deserialize_with = "yaml::deserialize_regex"
+        serialize_with = "yaml::serialize_regex",
+        deserialize_with = "yaml::deserialize_regex"
     )]
     regex: Regex,
     match_group: usize,
-    local: StringTemplate,
-    submit: StringTemplate,
+    local: TemplateBuilder<String>,
+    submit: TemplateBuilder<String>,
     all_matched: bool,
 }
 
-impl CodeReplacer {
-    pub fn embed_strings<'a, K: 'a + Borrow<str> + Eq + Hash, V: 'a + Borrow<str> + Eq + Hash>(
+impl CodeReplacerConf {
+    pub fn build<'a, K: 'a + AsRef<str> + Eq + Hash, V: 'a + AsRef<str> + Eq + Hash>(
         &self,
         strings: impl Into<Option<&'a HashMap<K, V>>>,
-    ) -> Self {
-        let strings = strings.into();
-        let local = self.local.embed_strings(strings);
-        let submit = self.submit.embed_strings(strings);
-        Self {
+    ) -> CodeReplacer {
+        let (mut local, mut submit) = (self.local.build(), self.submit.build());
+        if let Some(strings) = strings.into() {
+            local = local.insert_strings(strings);
+            submit = submit.insert_strings(strings);
+        }
+        CodeReplacer {
             regex: self.regex.clone(),
             match_group: self.match_group,
             local,
@@ -37,13 +40,31 @@ impl CodeReplacer {
             all_matched: self.all_matched,
         }
     }
+}
 
-    pub fn replace_as_submission(&self, problem: &str, code: &str) -> CodeReplaceResult<String> {
+pub(crate) struct CodeReplacer {
+    regex: Regex,
+    match_group: usize,
+    local: Template<String>,
+    submit: Template<String>,
+    all_matched: bool,
+}
+
+impl CodeReplacer {
+    pub fn replace_from_local_to_submission(
+        &self,
+        problem: &str,
+        code: &str,
+    ) -> CodeReplaceResult<String> {
         let (from, to) = (self.local.expand(problem)?, self.submit.expand(problem)?);
         self.replace(code, &from, &to)
     }
 
-    pub fn replace_from_submission(&self, problem: &str, code: &str) -> CodeReplaceResult<String> {
+    pub fn replace_from_submission_to_local(
+        &self,
+        problem: &str,
+        code: &str,
+    ) -> CodeReplaceResult<String> {
         let (from, to) = (self.submit.expand(problem)?, self.local.expand(problem)?);
         self.replace(code, &from, &to)
     }
@@ -85,7 +106,7 @@ impl CodeReplacer {
 mod tests {
     use errors::CodeReplaceError;
     use replacer::CodeReplacer;
-    use template::StringTemplate;
+    use template::TemplateBuilder;
 
     use regex::Regex;
 
@@ -117,11 +138,13 @@ object Foo {}
 "#;
 
         fn code_replacer(match_group: usize) -> CodeReplacer {
+            let local = "{Camel}".parse::<TemplateBuilder<String>>().unwrap();
+            let submit = "Main".parse::<TemplateBuilder<String>>().unwrap();
             CodeReplacer {
                 regex: Regex::new(r"^object\s+([A-Z][a-zA-Z0-9_]*).*$").unwrap(),
                 match_group,
-                local: StringTemplate::from_static_str("{Camel}"),
-                submit: StringTemplate::from_static_str("Main"),
+                local: local.build(),
+                submit: submit.build(),
                 all_matched: false,
             }
         }

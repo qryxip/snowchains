@@ -1,25 +1,35 @@
-use errors::{
-    FileIoError, FileIoErrorKind, SerializeError, SessionError, SessionResult, StartSessionError,
-};
+use errors::{FileIoError, FileIoErrorKind, SessionError, SessionResult, StartSessionError};
+use palette::Palette;
+use path::AbsPathBuf;
 use service::USER_AGENT;
-use terminal::Color;
-use util;
 
 use cookie::{self, CookieJar};
 use failure::ResultExt as _ResultExt;
-use reqwest::header::{self, ContentType, Headers, Location, SetCookie};
-use reqwest::{self, multipart, Method, RequestBuilder, Response, StatusCode};
+use reqwest::header::{self, Headers, Location, SetCookie};
+use reqwest::{self, multipart, Method, Response, StatusCode};
 use robots_txt::{Robots, SimpleMatcher};
+use select::document::Document;
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 use url::{Host, Url};
-use {bincode, serde_json, serde_urlencoded, webbrowser};
+use {bincode, webbrowser};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write as _IoWrite};
-use std::path::PathBuf;
+
+pub(super) trait GetPost {
+    fn session(&mut self) -> &mut HttpSession;
+
+    fn get(&mut self, url: &str) -> self::Request {
+        self.session().get(url)
+    }
+
+    fn post(&mut self, url: &str) -> self::Request {
+        self.session().post(url)
+    }
+}
 
 /// A wrapper of `reqwest::Client`.
 #[derive(Debug)]
@@ -34,7 +44,7 @@ impl HttpSession {
     pub fn new(
         client: reqwest::Client,
         base: impl Into<Option<UrlBase>>,
-        cookies_path: impl Into<Option<PathBuf>>,
+        cookies_path: impl Into<Option<AbsPathBuf>>,
     ) -> SessionResult<Self> {
         let start = || -> SessionResult<HttpSession> {
             let base = base.into();
@@ -43,36 +53,40 @@ impl HttpSession {
                 Some(path) => Some(AutosavedCookieJar::new(path)?),
                 None => None,
             };
-            let mut session = Self {
+            let mut sess = Self {
                 client,
                 robots_txts: hashmap!(),
                 base,
                 jar,
             };
             if let Some(host) = host {
-                let mut response = session.get_expecting("/robots.txt", &[200, 301, 302, 404])?;
-                while [301, 302].contains(&response.status().as_u16()) {
-                    let location = response
+                let mut res = sess
+                    .get("/robots.txt")
+                    .acceptable(&[200, 301, 302, 404])
+                    .send()?;
+                while [301, 302].contains(&res.status().as_u16()) {
+                    let location = res
                         .headers()
                         .get::<Location>()
                         .map(|location| (*location).to_owned());
                     if let Some(location) = location {
-                        response = session.get_expecting(&location, &[200, 301, 302, 404])?;
+                        res = sess
+                            .get(&location)
+                            .acceptable(&[200, 301, 302, 404])
+                            .send()?;
                     } else {
-                        return Ok(session);
+                        return Ok(sess);
                     }
                 }
-                match response.status().as_u16() {
+                match res.status().as_u16() {
                     200 => {
-                        session
-                            .robots_txts
-                            .insert(host.to_string(), response.text()?);
+                        sess.robots_txts.insert(host.to_string(), res.text()?);
                     }
                     404 => (),
                     _ => unreachable!(),
                 }
             }
-            Ok(session)
+            Ok(sess)
         };
         start().context(StartSessionError).map_err(Into::into)
     }
@@ -127,113 +141,30 @@ impl HttpSession {
         }
     }
 
-    /// Sends a GET request to `url`, expecting the response status code is 200.
-    pub fn get(&mut self, url: &str) -> SessionResult<Response> {
-        self.request(Method::Get, url, &[200], |mut request| request.send())
+    pub fn get(&mut self, url: &str) -> self::Request {
+        self.request(url, Method::Get, vec![StatusCode::Ok])
     }
 
-    /// Sends a GET request to `url`.
-    pub fn get_expecting(
-        &mut self,
-        url: &str,
-        expected_statuses: &[u16],
-    ) -> SessionResult<Response> {
-        self.request(Method::Get, url, expected_statuses, |mut request| {
-            request.send()
-        })
+    pub fn post(&mut self, url: &str) -> self::Request {
+        self.request(url, Method::Post, vec![StatusCode::Found])
     }
 
-    /// Sends a POST request to `url`, serializing `data`.
-    pub fn post_json(
-        &mut self,
-        url: &str,
-        data: &(impl fmt::Debug + Serialize),
-        expected_statuses: &[u16],
-        extra_headers: impl Into<Option<Headers>>,
-    ) -> SessionResult<Response> {
-        self.post(
-            url,
-            serde_json::to_string(data).map_err(|e| SerializeError::new(data, e))?,
-            ContentType::json(),
-            expected_statuses,
-            extra_headers,
-        )
+    fn request(&mut self, url: &str, method: Method, acceptable: Vec<StatusCode>) -> self::Request {
+        self::Request {
+            inner: self.try_request(url, method),
+            session: self,
+            acceptable,
+        }
     }
 
-    /// Sends a POST request to `url`, serializing `data`.
-    pub fn post_urlencoded(
-        &mut self,
-        url: &str,
-        data: &(impl fmt::Debug + Serialize),
-        expected_statuses: &[u16],
-        extra_headers: impl Into<Option<Headers>>,
-    ) -> SessionResult<Response> {
-        self.post(
-            url,
-            serde_urlencoded::to_string(data).map_err(|e| SerializeError::new(data, e))?,
-            ContentType::form_url_encoded(),
-            expected_statuses,
-            extra_headers,
-        )
-    }
-
-    pub fn post_multipart(
-        &mut self,
-        url: &str,
-        form: multipart::Form,
-        expected_statuses: &[u16],
-        extra_headers: impl Into<Option<Headers>>,
-    ) -> SessionResult<Response> {
-        self.request(Method::Post, url, expected_statuses, move |mut request| {
-            if let Some(extra_headers) = extra_headers.into() {
-                request.headers(extra_headers);
-            }
-            request.multipart(form).send()
-        })
-    }
-
-    fn post(
-        &mut self,
-        url: &str,
-        body: impl Into<String>,
-        content_type: ContentType,
-        expected_statuses: &[u16],
-        extra_headers: impl Into<Option<Headers>>,
-    ) -> SessionResult<Response> {
-        let body = body.into();
-        self.request(Method::Post, url, expected_statuses, move |mut request| {
-            request.body(body).header(content_type);
-            if let Some(extra_headers) = extra_headers.into() {
-                request.headers(extra_headers);
-            }
-            request.send()
-        })
-    }
-
-    fn request(
-        &mut self,
-        method: Method,
-        url: &str,
-        expected_statuses: &[u16],
-        f: impl FnOnce(RequestBuilder) -> reqwest::Result<Response>,
-    ) -> SessionResult<Response> {
+    fn try_request(&mut self, url: &str, method: Method) -> SessionResult<reqwest::RequestBuilder> {
         let url = self.resolve_url(url)?;
         self.assert_not_forbidden_by_robots_txt(&url)?;
-        let expected_statuses = statuses_from(expected_statuses);
-        echo_method(&method, &url);
-        let mut request = self.client.request(method, url.as_str());
-        if let Some(jar) = self.jar.as_mut() {
-            request.header(jar.to_header());
+        let mut req = self.client.request(method, url.as_str());
+        if let Some(jar) = self.jar.as_ref() {
+            req.header(jar.to_header());
         }
-        let response = f(request).map_err(|e| {
-            println!();
-            e
-        })?;
-        response.echo_status(&expected_statuses);
-        if let Some(jar) = self.jar.as_mut() {
-            jar.update(&response)?;
-        }
-        response.filter_by_status(expected_statuses)
+        Ok(req)
     }
 
     fn assert_not_forbidden_by_robots_txt(&self, url: &Url) -> SessionResult<()> {
@@ -250,17 +181,91 @@ impl HttpSession {
     }
 }
 
-fn statuses_from(from: &[u16]) -> Vec<StatusCode> {
-    from.iter()
-        .map(|&n| StatusCode::try_from(n).unwrap_or_else(|_| StatusCode::Unregistered(n)))
-        .collect::<Vec<StatusCode>>()
+pub(crate) struct Request<'a> {
+    session: &'a mut HttpSession,
+    inner: SessionResult<reqwest::RequestBuilder>,
+    acceptable: Vec<StatusCode>,
 }
 
-fn echo_method(method: &Method, url: &Url) {
-    print_bold!(Color::None, "{} ", method);
-    print_bold!(Color::Url, "{}", url);
-    print!(" ... ");
-    io::stdout().flush().unwrap();
+impl<'a> Request<'a> {
+    pub fn raw_header(
+        mut self,
+        name: impl Into<Cow<'static, str>>,
+        value: impl Into<header::Raw>,
+    ) -> Self {
+        if let Ok(inner) = self.inner.as_mut() {
+            let mut headers = Headers::new();
+            headers.set_raw(name, value);
+            inner.headers(headers);
+        }
+        self
+    }
+
+    pub fn acceptable(self, statuses: &[u16]) -> Self {
+        let acceptable = statuses
+            .iter()
+            .map(|&n| StatusCode::try_from(n).unwrap_or_else(|_| StatusCode::Unregistered(n)))
+            .collect();
+        Self { acceptable, ..self }
+    }
+
+    pub fn send(self) -> SessionResult<Response> {
+        let req = self.inner?.build()?;
+        req.echo_method();
+        let res = self.session.client.execute(req).map_err(|err| {
+            println!();
+            err
+        })?;
+        res.echo_status(&self.acceptable);
+        if let Some(jar) = self.session.jar.as_mut() {
+            jar.update(&res)?;
+        }
+        res.filter_by_status(self.acceptable)
+    }
+
+    pub fn send_form(mut self, form: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
+        if let Ok(inner) = self.inner.as_mut() {
+            inner.form(form);
+        }
+        self.send()
+    }
+
+    pub fn send_json(mut self, json: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
+        if let Ok(inner) = self.inner.as_mut() {
+            inner.json(json);
+        }
+        self.send()
+    }
+
+    pub fn send_multipart(mut self, multipart: multipart::Form) -> SessionResult<Response> {
+        if let Ok(inner) = self.inner.as_mut() {
+            inner.multipart(multipart);
+        }
+        self.send()
+    }
+
+    pub fn recv_html(self) -> SessionResult<Document> {
+        Ok(Document::from(self.send()?.text()?.as_str()))
+    }
+
+    pub fn recv_json<T: DeserializeOwned>(self) -> SessionResult<T> {
+        Ok(self.send()?.json()?)
+    }
+}
+
+trait EchoMethod {
+    fn echo_method(&self);
+}
+
+impl EchoMethod for reqwest::Request {
+    fn echo_method(&self) {
+        print!(
+            "{} {} ... ",
+            Palette::Plain.bold().paint(self.method().to_string()),
+            Palette::Url.paint(self.url().to_string()),
+        );
+        io::stdout().flush().unwrap();
+    }
 }
 
 trait ResponseExt
@@ -273,11 +278,12 @@ where
 
 impl ResponseExt for Response {
     fn echo_status(&self, expected_statuses: &[StatusCode]) {
-        if expected_statuses.contains(&self.status()) {
-            println_bold!(Color::Success, "{}", self.status());
+        let palette = if expected_statuses.contains(&self.status()) {
+            Palette::Success
         } else {
-            println_bold!(Color::Fatal, "{}", self.status());
-        }
+            Palette::Fatal
+        };
+        println!("{}", palette.bold().paint(self.status().to_string()));
     }
 
     fn filter_by_status(self, expected: Vec<StatusCode>) -> SessionResult<Self> {
@@ -321,25 +327,26 @@ impl UrlBase {
 
 #[derive(Debug)]
 struct AutosavedCookieJar {
-    path: PathBuf,
+    path: AbsPathBuf,
     file: File,
     inner: CookieJar,
 }
 
 impl AutosavedCookieJar {
-    fn new(path: impl Into<PathBuf>) -> SessionResult<Self> {
+    fn new(path: impl Into<AbsPathBuf>) -> SessionResult<Self> {
         let path = path.into();
         let exists = path.exists();
-        let mut file = util::fs::create_and_lock(&path)?;
+        let mut file = ::fs::create_and_lock(&path)?;
         let mut inner = CookieJar::new();
         if exists {
             let mut cookies =
                 Vec::with_capacity(file.metadata().map(|m| m.len() as usize + 1).unwrap_or(0));
             file.read_to_end(&mut cookies)
-                .map_err(|e| FileIoError::chaining(FileIoErrorKind::Read, &path, e))?;
+                .map_err(|err| FileIoError::new(FileIoErrorKind::Read, path.as_ref()).with(err))?;
             if !cookies.is_empty() {
-                let cookies = bincode::deserialize::<Vec<String>>(&cookies)
-                    .map_err(|e| FileIoError::chaining(FileIoErrorKind::Deserialize, &path, e))?;
+                let cookies = bincode::deserialize::<Vec<String>>(&cookies).map_err(|err| {
+                    FileIoError::new(FileIoErrorKind::Deserialize, path.as_ref()).with(err)
+                })?;
                 for cookie in cookies {
                     let cookie = cookie::Cookie::parse(cookie.clone()).map_err(|e| {
                         SessionError::ParseCookieFromPath(cookie, path.to_owned(), e)
@@ -349,7 +356,7 @@ impl AutosavedCookieJar {
             }
         } else {
             file.write_all(&bincode::serialize(&Vec::<String>::new()).unwrap())
-                .map_err(|e| FileIoError::chaining(FileIoErrorKind::Write, &path, e))?;
+                .map_err(|err| FileIoError::new(FileIoErrorKind::Write, path.as_ref()).with(err))?;
         }
         Ok(Self { file, path, inner })
     }
@@ -388,18 +395,20 @@ impl AutosavedCookieJar {
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>();
-        let value = bincode::serialize(&value).map_err(|e| SerializeError::new(&value, e))?;
+        let value = bincode::serialize(&value)?;
         self.file
             .seek(SeekFrom::Start(0))
             .and_then(|_| self.file.set_len(0))
             .and_then(|()| self.file.write_all(&value))
-            .map_err(|e| FileIoError::chaining(FileIoErrorKind::Write, &self.path, e).into())
+            .map_err(|err| FileIoError::new(FileIoErrorKind::Write, self.path.as_ref()).with(err))
+            .map_err(Into::into)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use errors::SessionError;
+    use path::AbsPathBuf;
     use service;
     use service::session::{HttpSession, UrlBase};
 
@@ -431,19 +440,14 @@ mod tests {
         let result = panic::catch_unwind(|| {
             let client = service::reqwest_client(None).unwrap();
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
-            let mut session = HttpSession::new(client, Some(base), None).unwrap();
-            let response = session.get("/").unwrap();
-            assert!(
-                response
-                    .headers()
-                    .get::<reqwest::header::SetCookie>()
-                    .is_some()
-            );
-            session.get_expecting("/nonexisting", &[404]).unwrap();
-            session.get_expecting("/nonexisting", &[]).unwrap();
-            match session.get("/sensitive").unwrap_err() {
+            let mut sess = HttpSession::new(client, Some(base), None).unwrap();
+            let res = sess.get("/").send().unwrap();
+            assert!(res.headers().get::<reqwest::header::SetCookie>().is_some());
+            sess.get("/nonexisting").acceptable(&[404]).send().unwrap();
+            sess.get("/nonexisting").acceptable(&[]).send().unwrap();
+            match sess.get("/sensitive").send().unwrap_err() {
                 SessionError::ForbiddenByRobotsTxt => {}
-                e => panic!("{:?}", e),
+                err => panic!("{:?}", err),
             }
         });
         server.detach();
@@ -455,7 +459,7 @@ mod tests {
     fn it_keeps_a_file_locked_while_alive() {
         let _ = env_logger::try_init();
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
-        let path = tempdir.path().join("cookies");
+        let path = AbsPathBuf::new_or_panic(tempdir.path().join("cookies"));
         let client = service::reqwest_client(None).unwrap();
         HttpSession::new(client.clone(), None, path.clone()).unwrap();
         HttpSession::new(client.clone(), None, path.clone()).unwrap();

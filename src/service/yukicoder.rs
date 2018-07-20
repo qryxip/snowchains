@@ -1,17 +1,17 @@
 use errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
+use palette::Palette;
 use service::downloader::ZipDownloader;
-use service::session::HttpSession;
+use service::session::{GetPost, HttpSession};
 use service::{
-    Contest, Credentials, DownloadProp, PrintTargets as _PrintTargets, SessionProp, SubmitProp,
+    Contest, DownloadProp, PrintTargets as _PrintTargets, RevelSession, SessionProp, SubmitProp,
+    TryIntoDocument as _TryIntoDocument,
 };
-use terminal::Color;
 use testsuite::{SuiteFilePath, TestSuite};
-use util;
 
 use cookie::Cookie;
 use regex::Regex;
 use reqwest::header::Location;
-use reqwest::multipart;
+use reqwest::{multipart, StatusCode};
 use select::document::Document;
 use select::predicate::{Attr, Class, Name, Predicate as _Predicate, Text};
 use {rpassword, rprompt};
@@ -45,7 +45,13 @@ pub(crate) fn submit(
 struct Yukicoder {
     session: HttpSession,
     username: Username,
-    credentials: Credentials,
+    credential: RevelSession,
+}
+
+impl GetPost for Yukicoder {
+    fn session(&mut self) -> &mut HttpSession {
+        &mut self.session
+    }
 }
 
 impl Yukicoder {
@@ -54,16 +60,13 @@ impl Yukicoder {
         Ok(Self {
             session,
             username: Username::None,
-            credentials: sess_prop.credentials.clone(),
+            credential: sess_prop.credentials.yukicoder.clone(),
         })
     }
 
     fn login(&mut self, assure: bool) -> ServiceResult<()> {
-        if let Credentials::UserNameAndPassword(..) = self.credentials {
-            return Err(ServiceError::WrongCredentialsOnTest);
-        }
-        if let Credentials::RevelSession(revel_session) = self.credentials.clone() {
-            if !self.confirm_revel_session((*revel_session).clone())? {
+        if let RevelSession::Some(revel_session) = self.credential.clone() {
+            if !self.confirm_revel_session(revel_session.as_ref().clone())? {
                 return Err(ServiceError::WrongCredentialsOnTest);
             }
         }
@@ -72,7 +75,7 @@ impl Yukicoder {
             let mut first = true;
             loop {
                 if first {
-                    if !assure && !ask_yes_or_no("Login? ", true)? {
+                    if !assure && !super::ask_yes_or_no("Login? ", true)? {
                         break;
                     }
                     println!(
@@ -104,7 +107,7 @@ impl Yukicoder {
     }
 
     fn fetch_username(&mut self) -> SessionResult<()> {
-        self.username = Document::from(self.session.get("/")?.text()?.as_str()).extract_username();
+        self.username = self.get("/").recv_html()?.extract_username();
         Ok(())
     }
 
@@ -119,6 +122,7 @@ impl Yukicoder {
             download_dir,
             extension,
             open_browser,
+            suppress_download_bars,
         } = download_prop;
         self.login(false)?;
         let scrape =
@@ -134,13 +138,14 @@ impl Yukicoder {
                 let (mut not_found, mut not_public) = (vec![], vec![]);
                 for problem in problems {
                     let url = format!("/problems/no/{}", problem);
-                    let mut response = self.session.get_expecting(&url, &[200, 404])?;
-                    let document = Document::from(response.text()?.as_str());
+                    let res = self.get(&url).acceptable(&[200, 404]).send()?;
+                    let status = res.status();
+                    let document = res.try_into_document()?;
                     let public = match document.find(Attr("id", "content").child(Text)).next() {
                         None => true,
                         Some(t) => !t.text().contains("非表示"),
                     };
-                    if response.status().as_u16() == 404 {
+                    if status == StatusCode::NotFound {
                         not_found.push(problem);
                     } else if !public {
                         not_public.push(problem);
@@ -150,22 +155,24 @@ impl Yukicoder {
                     }
                 }
                 if !not_found.is_empty() {
-                    eprintln_bold!(Color::Warning, "Not found: {:?}", not_found);
+                    let msg = format!("Not found: {:?}", not_found);
+                    eprintln!("{}", Palette::Warning.paint(msg));
                 }
                 if !not_public.is_empty() {
-                    eprintln_bold!(Color::Warning, "Not public: {:?}", not_public);
+                    let msg = format!("Not public: {:?}", not_public);
+                    eprintln!("{}", Palette::Warning.paint(msg));
                 }
             }
             (YukicoderContest::Contest(contest), problems) => {
-                let target_problems = {
-                    let text = self.session.get(&format!("/contests/{}", contest))?.text()?;
-                    Document::from(text.as_str()).extract_problems()?
-                };
+                let target_problems = self
+                    .get(&format!("/contests/{}", contest))
+                    .recv_html()?
+                    .extract_problems()?;
                 let mut outputs = vec![];
                 for (name, href) in target_problems {
                     if problems.is_none() || problems.as_ref().unwrap().contains(&name) {
                         let name = name.to_lowercase();
-                        let document = Document::from(self.session.get(&href)?.text()?.as_str());
+                        let document = self.get(&href).recv_html()?;
                         outputs.push(scrape(&document, &name).map(|(s, p)| (href, s, p))?);
                         nos.push(Cow::from(name));
                     }
@@ -173,28 +180,31 @@ impl Yukicoder {
             }
         }
         let nos = self.filter_solved(&nos)?;
-        let zips = if nos.is_empty() {
-            None
-        } else {
-            let url_sufs = nos
-                .iter()
-                .map(|no| format!("{}/testcase.zip", no))
-                .collect::<Vec<_>>();
-            Some(zip_downloader.download(
-                io::stdout(),
-                "https://yukicoder.me/problems/no/",
-                &url_sufs,
-                self.session.cookies_to_header().as_ref(),
-            )?)
-        };
         for (_, suite, path) in &outputs {
             suite.save(path, true)?;
         }
-        if let Some(zips) = zips {
-            for (no, zip) in nos.iter().zip(&zips) {
-                let path = download_dir.join(format!("{}.zip", no));
-                util::fs::write(&path, zip)?;
-                println!("Saved to {}", path.display());
+        if !nos.is_empty() {
+            static URL_PREF: &str = "https://yukicoder.me/problems/no/";
+            static URL_SUF: &str = "/testcase.zip";
+            let cookie = self.session.cookies_to_header();
+            if *suppress_download_bars {
+                zip_downloader.download(
+                    io::sink(),
+                    URL_PREF.into(),
+                    URL_SUF,
+                    download_dir,
+                    &nos,
+                    cookie.as_ref(),
+                )?;
+            } else {
+                zip_downloader.download(
+                    io::stdout(),
+                    URL_PREF.into(),
+                    URL_SUF,
+                    download_dir,
+                    &nos,
+                    cookie.as_ref(),
+                )?;
             }
         }
         if *open_browser {
@@ -216,23 +226,22 @@ impl Yukicoder {
             skip_checking_if_accepted,
         } = prop;
         self.login(true)?;
-        let code = util::fs::read_to_string(src_path)?;
+        let code = ::fs::read_to_string(src_path)?;
         let code = match replacer {
-            Some(replacer) => replacer.replace_as_submission(&problem, &code)?,
+            Some(replacer) => replacer.replace_from_local_to_submission(&problem, &code)?,
             None => code,
         };
         let mut url = match contest {
             YukicoderContest::No => format!("/problems/no/{}", problem),
-            YukicoderContest::Contest(contest) => {
-                let text = self.session.get(&format!("/contests/{}", contest))?.text()?;
-                Document::from(text.as_str())
-                    .extract_problems()?
-                    .into_iter()
-                    .filter(|(name, _)| name.eq_ignore_ascii_case(problem))
-                    .map(|(_, href)| href)
-                    .next()
-                    .ok_or_else(|| SubmitError::NoSuchProblem(problem.clone()))?
-            }
+            YukicoderContest::Contest(contest) => self
+                .get(&format!("/contests/{}", contest))
+                .recv_html()?
+                .extract_problems()?
+                .into_iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case(problem))
+                .map(|(_, href)| href)
+                .next()
+                .ok_or_else(|| SubmitError::NoSuchProblem(problem.clone()))?,
         };
         url += "/submit";
         let no = {
@@ -247,7 +256,7 @@ impl Yukicoder {
                 return Err(ServiceError::AlreadyAccepted);
             }
         }
-        let document = Document::from(self.session.get(&url)?.text()?.as_str());
+        let document = self.get(&url).recv_html()?;
         let token = document.extract_csrf_token_from_submit_page()?;
         let form = multipart::Form::new()
             .text("csrf_token", token)
@@ -255,8 +264,8 @@ impl Yukicoder {
             .text("source", code.clone())
             .text("submit", "提出する");
         let url = document.extract_url_from_submit_page()?;
-        let response = self.session.post_multipart(&url, form, &[302], None)?;
-        let location = match response.headers().get::<Location>() {
+        let res = self.post(&url).send_multipart(form)?;
+        let location = match res.headers().get::<Location>() {
             None => None,
             Some(location) => Some(self.session.resolve_url(&location)?),
         };
@@ -289,7 +298,8 @@ impl Yukicoder {
         if let Some(username) = username.name() {
             let url = format!("/api/v1/solved/name/{}", username);
             let solved_nos = session
-                .get(&url)?
+                .get(&url)
+                .send()?
                 .json::<Vec<Problem>>()?
                 .into_iter()
                 .map(|problem| problem.no.to_string())
@@ -305,22 +315,10 @@ impl Yukicoder {
     }
 }
 
-fn ask_yes_or_no(mes: &str, default: bool) -> io::Result<bool> {
-    let prompt = format!("{}{} ", mes, if default { "(Y/n)" } else { "(y/N)" });
-    loop {
-        match &rprompt::prompt_reply_stderr(&prompt)? {
-            s if s.is_empty() => break Ok(default),
-            s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
-            s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
-            _ => eprintln!("Answer \"y\", \"yes\", \"n\", \"no\", or \"\"."),
-        }
-    }
-}
-
 fn ask_string(prompt: &str) -> io::Result<String> {
     rpassword::prompt_password_stderr(prompt).or_else(|err| match err.kind() {
         io::ErrorKind::BrokenPipe => {
-            eprintln_bold!(Color::Warning, "{}", err);
+            eprintln!("{}", Palette::Warning.paint(err.to_string()));
             rprompt::prompt_reply_stderr(prompt)
         }
         _ => Err(err),
@@ -491,13 +489,12 @@ impl Extract for Document {
 #[cfg(test)]
 mod tests {
     use errors::SessionResult;
-    use service::session::{HttpSession, UrlBase};
+    use service::session::{GetPost as _GetPost, HttpSession, UrlBase};
     use service::yukicoder::{Extract as _Extract, Username, Yukicoder};
-    use service::{self, Credentials};
+    use service::{self, RevelSession};
     use testsuite::TestSuite;
 
     use env_logger;
-    use select::document::Document;
     use url::Host;
 
     use std::borrow::Borrow;
@@ -506,22 +503,28 @@ mod tests {
     #[test]
     #[ignore]
     fn it_extracts_samples_from_problem1() {
-        static EXPECTED: &[(&str, &str)] = &[
-            ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
-            ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
-            (
-                "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
-                 3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
-                 8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
-                "-1\n",
-            ),
-        ];
         let _ = env_logger::try_init();
-        let mut yukicoder = start().unwrap();
-        let mut response = yukicoder.session.get("/problems/no/1").unwrap();
-        let text = response.text().unwrap();
-        let samples = Document::from(text.as_str()).extract_samples().unwrap();
-        let expected = TestSuite::simple(Duration::from_secs(5), None, None, own_pairs(EXPECTED));
+        let expected = TestSuite::simple(
+            Duration::from_secs(5),
+            None,
+            None,
+            vec![
+                ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
+                ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
+                (
+                    "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
+                     3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
+                     8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
+                     8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
+                    "-1\n",
+                ),
+            ],
+        );
+        let samples = {
+            let mut yukicoder = start().unwrap();
+            let document = yukicoder.get("/problems/no/1").recv_html().unwrap();
+            document.extract_samples().unwrap()
+        };
         assert_eq!(expected, samples);
     }
 
@@ -537,10 +540,11 @@ mod tests {
             ("F", "/problems/no/196"),
         ];
         let _ = env_logger::try_init();
-        let mut yukicoder = start().unwrap();
-        let mut response = yukicoder.session.get("/contests/100").unwrap();
-        let text = response.text().unwrap();
-        let problems = Document::from(text.as_str()).extract_problems().unwrap();
+        let problems = {
+            let mut yukicoder = start().unwrap();
+            let document = yukicoder.get("/contests/100").recv_html().unwrap();
+            document.extract_problems().unwrap()
+        };
         assert_eq!(own_pairs(EXPECTED), problems);
     }
 
@@ -558,7 +562,7 @@ mod tests {
         Ok(Yukicoder {
             session,
             username: Username::None,
-            credentials: Credentials::None,
+            credential: RevelSession::None,
         })
     }
 }

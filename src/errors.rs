@@ -1,12 +1,12 @@
-#![cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
-
 use chrono::{self, DateTime, Local};
 use failure::{Context, Fail};
 use itertools::Itertools as _Itertools;
+use path::AbsPathBuf;
 use reqwest::{self, StatusCode};
+use template::Tokens;
 use url::{self, Url};
 use zip::result::ZipError;
-use {cookie, serde_urlencoded};
+use {bincode, cookie, serde_json, serde_urlencoded, serde_yaml, toml};
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -23,11 +23,10 @@ pub enum Error {
     Judge(JudgeError),
     SuiteFile(SuiteFileError),
     LoadConfig(LoadConfigError),
-    TemplateExpand(TemplateExpandError),
+    ExpandTemplate(ExpandTemplateError),
     FileIo(FileIoError),
-    Std(StdErrorChain),
+    Getcwd(io::Error),
     Unimplemented,
-    HomeDirNotFound,
 }
 
 impl fmt::Display for self::Error {
@@ -37,11 +36,10 @@ impl fmt::Display for self::Error {
             self::Error::Judge(e) => write!(f, "{}", e),
             self::Error::SuiteFile(e) => write!(f, "{}", e),
             self::Error::LoadConfig(e) => write!(f, "{}", e),
-            self::Error::TemplateExpand(e) => write!(f, "{}", e),
+            self::Error::ExpandTemplate(e) => write!(f, "{}", e),
             self::Error::FileIo(e) => write!(f, "{}", e),
-            self::Error::Std(e) => write!(f, "{}", e),
+            self::Error::Getcwd(_) => write!(f, "Failed to get the current directory"),
             self::Error::Unimplemented => write!(f, "Sorry, not yet implemented"),
-            self::Error::HomeDirNotFound => write!(f, "Home directory not found"),
         }
     }
 }
@@ -53,21 +51,23 @@ impl Fail for self::Error {
             ::Error::Judge(e) => e.cause(),
             ::Error::SuiteFile(e) => e.cause(),
             ::Error::LoadConfig(e) => e.cause(),
-            ::Error::TemplateExpand(e) => e.cause(),
+            ::Error::ExpandTemplate(e) => e.cause(),
             ::Error::FileIo(e) => e.cause(),
-            ::Error::Std(e) => e.cause(),
+            ::Error::Getcwd(e) => Some(e),
             _ => None,
         }
     }
 }
 
-derive_from!(Error::Service        <- ServiceError);
-derive_from!(Error::Judge          <- JudgeError);
-derive_from!(Error::SuiteFile      <- SuiteFileError);
-derive_from!(Error::LoadConfig     <- LoadConfigError);
-derive_from!(Error::TemplateExpand <- TemplateExpandError);
-derive_from!(Error::FileIo         <- FileIoError);
-derive_from!(Error::Std            <- io::Error);
+#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
+derive_from!(
+    Error::Service        <- ServiceError,
+    Error::Judge          <- JudgeError,
+    Error::SuiteFile      <- SuiteFileError,
+    Error::LoadConfig     <- LoadConfigError,
+    Error::ExpandTemplate <- ExpandTemplateError,
+    Error::FileIo         <- FileIoError,
+);
 
 pub(crate) type ServiceResult<T> = std::result::Result<T, ServiceError>;
 
@@ -76,11 +76,14 @@ pub enum ServiceError {
     Session(SessionError),
     CodeReplace(CodeReplaceError),
     SuiteFile(SuiteFileError),
-    TemplateExpand(TemplateExpandError),
-    Serialize(SerializeError),
+    ExpandTemplate(ExpandTemplateError),
     FileIo(FileIoError),
     Submit(SubmitError),
-    Std(StdErrorChain),
+    ChronoParse(StdErrorWithDisplayChain<chrono::ParseError>),
+    Reqwest(StdErrorWithDisplayChain<reqwest::Error>),
+    SerdeUrlencodedSer(StdErrorWithDisplayChain<serde_urlencoded::ser::Error>),
+    Zip(StdErrorWithDisplayChain<ZipError>),
+    Io(StdErrorWithDisplayChain<io::Error>),
     AlreadyAccepted,
     ContestNotBegun(String, DateTime<Local>),
     ContestNotFound(String),
@@ -96,11 +99,14 @@ impl fmt::Display for ServiceError {
             ServiceError::Session(e) => write!(f, "{}", e),
             ServiceError::CodeReplace(e) => write!(f, "{}", e),
             ServiceError::SuiteFile(e) => write!(f, "{}", e),
-            ServiceError::TemplateExpand(e) => write!(f, "{}", e),
-            ServiceError::Serialize(e) => write!(f, "{}", e),
+            ServiceError::ExpandTemplate(e) => write!(f, "{}", e),
             ServiceError::FileIo(e) => write!(f, "{}", e),
             ServiceError::Submit(e) => write!(f, "{}", e),
-            ServiceError::Std(e) => write!(f, "{}", e),
+            ServiceError::ChronoParse(e) => write!(f, "{}", e),
+            ServiceError::Reqwest(e) => write!(f, "{}", e),
+            ServiceError::SerdeUrlencodedSer(e) => write!(f, "{}", e),
+            ServiceError::Zip(e) => write!(f, "{}", e),
+            ServiceError::Io(e) => write!(f, "{}", e),
             ServiceError::AlreadyAccepted => write!(
                 f,
                 "Found an accepted submission. Add \"--skip-checking-duplication\" (\"-d\")"
@@ -115,18 +121,20 @@ impl fmt::Display for ServiceError {
     }
 }
 
-derive_from!(ServiceError::Session        <- SessionError);
-derive_from!(ServiceError::CodeReplace    <- CodeReplaceError);
-derive_from!(ServiceError::SuiteFile      <- SuiteFileError);
-derive_from!(ServiceError::TemplateExpand <- TemplateExpandError);
-derive_from!(ServiceError::Serialize      <- SerializeError);
-derive_from!(ServiceError::Submit         <- SubmitError);
-derive_from!(ServiceError::FileIo         <- FileIoError);
-derive_from!(ServiceError::Std            <- chrono::ParseError);
-derive_from!(ServiceError::Std            <- reqwest::Error);
-derive_from!(ServiceError::Std            <- serde_urlencoded::ser::Error);
-derive_from!(ServiceError::Std            <- ZipError);
-derive_from!(ServiceError::Std            <- io::Error);
+#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
+derive_from!(
+    ServiceError::Session            <- SessionError,
+    ServiceError::CodeReplace        <- CodeReplaceError,
+    ServiceError::SuiteFile          <- SuiteFileError,
+    ServiceError::ExpandTemplate     <- ExpandTemplateError,
+    ServiceError::Submit             <- SubmitError,
+    ServiceError::FileIo             <- FileIoError,
+    ServiceError::ChronoParse        <- chrono::ParseError,
+    ServiceError::Reqwest            <- reqwest::Error,
+    ServiceError::SerdeUrlencodedSer <- serde_urlencoded::ser::Error,
+    ServiceError::Zip                <- ZipError,
+    ServiceError::Io                 <- io::Error,
+);
 
 impl Fail for ServiceError {
     fn cause(&self) -> Option<&dyn Fail> {
@@ -134,10 +142,13 @@ impl Fail for ServiceError {
             ServiceError::Session(e) => e.cause(),
             ServiceError::CodeReplace(e) => e.cause(),
             ServiceError::SuiteFile(e) => e.cause(),
-            ServiceError::TemplateExpand(e) => e.cause(),
-            ServiceError::Serialize(e) => e.cause(),
+            ServiceError::ExpandTemplate(e) => e.cause(),
             ServiceError::FileIo(e) => e.cause(),
-            ServiceError::Std(e) => e.cause(),
+            ServiceError::ChronoParse(e) => e.cause(),
+            ServiceError::Reqwest(e) => e.cause(),
+            ServiceError::SerdeUrlencodedSer(e) => e.cause(),
+            ServiceError::Zip(e) => e.cause(),
+            ServiceError::Io(e) => e.cause(),
             _ => None,
         }
     }
@@ -171,12 +182,13 @@ pub(crate) type SessionResult<T> = std::result::Result<T, SessionError>;
 
 #[derive(Debug)]
 pub enum SessionError {
-    Serialize(SerializeError),
     FileIo(FileIoError),
-    Std(StdErrorChain),
+    Bincode(StdErrorWithDisplayChain<bincode::Error>),
+    Reqwest(StdErrorWithDisplayChain<reqwest::Error>),
+    Io(StdErrorWithDisplayChain<io::Error>),
     Start(Context<StartSessionError>),
     ParseUrl(String, url::ParseError),
-    ParseCookieFromPath(String, PathBuf, cookie::ParseError),
+    ParseCookieFromPath(String, AbsPathBuf, cookie::ParseError),
     ParseCookieFromUrl(String, Url, cookie::ParseError),
     HeaderMissing(&'static str),
     ForbiddenByRobotsTxt,
@@ -184,18 +196,22 @@ pub enum SessionError {
     Webbrowser(ExitStatus),
 }
 
-derive_from!(SessionError::Serialize <- SerializeError);
-derive_from!(SessionError::FileIo    <- FileIoError);
-derive_from!(SessionError::Std       <- reqwest::Error);
-derive_from!(SessionError::Std       <- io::Error);
-derive_from!(SessionError::Start     <- Context<StartSessionError>);
+#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
+derive_from!(
+    SessionError::FileIo    <- FileIoError,
+    SessionError::Bincode   <- bincode::Error,
+    SessionError::Reqwest   <- reqwest::Error,
+    SessionError::Io        <- io::Error,
+    SessionError::Start     <- Context<StartSessionError>,
+);
 
 impl fmt::Display for SessionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            SessionError::Serialize(e) => write!(f, "{}", e),
             SessionError::FileIo(e) => write!(f, "{}", e),
-            SessionError::Std(e) => write!(f, "{}", e),
+            SessionError::Bincode(e) => write!(f, "{}", e),
+            SessionError::Reqwest(e) => write!(f, "{}", e),
+            SessionError::Io(e) => write!(f, "{}", e),
             SessionError::Start(e) => write!(f, "{}", e),
             SessionError::ParseUrl(s, _) => write!(f, "Failed to parse {:?}", s),
             SessionError::ParseCookieFromPath(s, p, _) => {
@@ -232,9 +248,10 @@ impl fmt::Display for SessionError {
 impl Fail for SessionError {
     fn cause(&self) -> Option<&dyn Fail> {
         match self {
-            SessionError::Serialize(e) => e.cause(),
             SessionError::FileIo(e) => e.cause(),
-            SessionError::Std(e) => e.cause(),
+            SessionError::Bincode(e) => e.cause(),
+            SessionError::Reqwest(e) => e.cause(),
+            SessionError::Io(e) => e.cause(),
             SessionError::Start(e) => e.cause(),
             SessionError::ParseUrl(_, e) => Some(e),
             SessionError::ParseCookieFromPath(_, _, e)
@@ -261,10 +278,13 @@ pub enum JudgeError {
     TestFailure(usize, usize),
 }
 
-derive_from!(JudgeError::SuiteFile <- SuiteFileError);
-derive_from!(JudgeError::FileIo    <- FileIoError);
-derive_from!(JudgeError::Io        <- io::Error);
-derive_from!(JudgeError::Recv      <- RecvError);
+#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
+derive_from!(
+    JudgeError::SuiteFile <- SuiteFileError,
+    JudgeError::FileIo    <- FileIoError,
+    JudgeError::Io        <- io::Error,
+    JudgeError::Recv      <- RecvError,
+);
 
 impl fmt::Display for JudgeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -310,12 +330,14 @@ pub(crate) type SuiteFileResult<T> = std::result::Result<T, SuiteFileError>;
 #[derive(Debug)]
 pub enum SuiteFileError {
     LoadConfig(LoadConfigError),
-    TemplateExpand(TemplateExpandError),
-    Serialize(SerializeError),
+    ExpandTemplate(ExpandTemplateError),
     FileIo(FileIoError),
+    SerdeJson(StdErrorWithDisplayChain<serde_json::Error>),
+    SerdeYaml(StdErrorWithDisplayChain<serde_yaml::Error>),
+    TomlSer(StdErrorWithDisplayChain<toml::ser::Error>),
     Io(io::Error),
-    DirNotExist(PathBuf),
-    NoFile(PathBuf),
+    DirNotExist(AbsPathBuf),
+    NoFile(AbsPathBuf),
     DifferentTypesOfSuites,
     SuiteIsNotSimple,
     Unsubmittable(String),
@@ -327,10 +349,12 @@ impl fmt::Display for SuiteFileError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             SuiteFileError::LoadConfig(e) => write!(f, "{}", e),
-            SuiteFileError::TemplateExpand(e) => write!(f, "{}", e),
-            SuiteFileError::Serialize(e) => write!(f, "{}", e),
+            SuiteFileError::ExpandTemplate(e) => write!(f, "{}", e),
             SuiteFileError::FileIo(e) => write!(f, "{}", e),
             SuiteFileError::Io(_) => write!(f, "An IO error occurred"),
+            SuiteFileError::SerdeJson(_)
+            | SuiteFileError::SerdeYaml(_)
+            | SuiteFileError::TomlSer(_) => write!(f, "Failed to serialize"),
             SuiteFileError::DirNotExist(d) => write!(
                 f,
                 "{:?} does not exist. Execute \"download\" command first",
@@ -356,20 +380,27 @@ impl Fail for SuiteFileError {
     fn cause(&self) -> Option<&dyn Fail> {
         match self {
             SuiteFileError::LoadConfig(e) => e.cause(),
-            SuiteFileError::TemplateExpand(e) => e.cause(),
-            SuiteFileError::Serialize(e) => e.cause(),
+            SuiteFileError::ExpandTemplate(e) => e.cause(),
             SuiteFileError::FileIo(e) => e.cause(),
+            SuiteFileError::SerdeJson(e) => Some(e),
+            SuiteFileError::SerdeYaml(e) => Some(e),
+            SuiteFileError::TomlSer(e) => Some(e),
             SuiteFileError::Io(e) => Some(e),
             _ => None,
         }
     }
 }
 
-derive_from!(SuiteFileError::LoadConfig     <- LoadConfigError);
-derive_from!(SuiteFileError::TemplateExpand <- TemplateExpandError);
-derive_from!(SuiteFileError::Serialize      <- SerializeError);
-derive_from!(SuiteFileError::FileIo         <- FileIoError);
-derive_from!(SuiteFileError::Io             <- io::Error);
+#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
+derive_from!(
+    SuiteFileError::LoadConfig     <- LoadConfigError,
+    SuiteFileError::ExpandTemplate <- ExpandTemplateError,
+    SuiteFileError::SerdeJson      <- serde_json::Error,
+    SuiteFileError::SerdeYaml      <- serde_yaml::Error,
+    SuiteFileError::TomlSer        <- toml::ser::Error,
+    SuiteFileError::FileIo         <- FileIoError,
+    SuiteFileError::Io             <- io::Error,
+);
 
 pub(crate) type LoadConfigResult<T> = std::result::Result<T, LoadConfigError>;
 
@@ -387,19 +418,22 @@ pub(crate) type CodeReplaceResult<T> = std::result::Result<T, CodeReplaceError>;
 
 #[derive(Debug)]
 pub enum CodeReplaceError {
-    TemplateExpand(TemplateExpandError),
+    ExpandTemplate(ExpandTemplateError),
     NonUtf8(FromUtf8Error),
     RegexGroupOutOfBounds(usize),
     NoMatch(String),
 }
 
-derive_from!(CodeReplaceError::TemplateExpand <- TemplateExpandError);
-derive_from!(CodeReplaceError::NonUtf8        <- FromUtf8Error);
+#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
+derive_from!(
+    CodeReplaceError::ExpandTemplate <- ExpandTemplateError,
+    CodeReplaceError::NonUtf8        <- FromUtf8Error,
+);
 
 impl fmt::Display for CodeReplaceError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CodeReplaceError::TemplateExpand(e) => write!(f, "{}", e),
+            CodeReplaceError::ExpandTemplate(e) => write!(f, "{}", e),
             CodeReplaceError::NonUtf8(_) => write!(f, "The source code is not valid UTF-8"),
             CodeReplaceError::RegexGroupOutOfBounds(i) => {
                 write!(f, "Regex group out of bounds: {}", i)
@@ -412,104 +446,104 @@ impl fmt::Display for CodeReplaceError {
 impl Fail for CodeReplaceError {
     fn cause(&self) -> Option<&dyn Fail> {
         match self {
-            CodeReplaceError::TemplateExpand(e) => e.cause(),
+            CodeReplaceError::ExpandTemplate(e) => e.cause(),
             CodeReplaceError::NonUtf8(e) => Some(e),
             _ => None,
         }
     }
 }
 
-pub(crate) type TemplateExpandResult<T> = std::result::Result<T, TemplateExpandError>;
+pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateError>;
 
 #[derive(Debug)]
-pub enum TemplateExpandError {
-    Context(Context<TemplateExpandErrorContext>),
+pub enum ExpandTemplateError {
+    Context(Context<ExpandTemplateErrorContext>),
+    FileIo(FileIoError),
     UnknownSpecifier(String),
     EnvVarNotPresent(String),
     EnvVarNotUnicode(String, OsString),
-    HomeDirNotFound,
-    UnsupportedUseOfTilde,
 }
 
-derive_from!(TemplateExpandError::Context <- Context<TemplateExpandErrorContext>);
+#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
+derive_from!(
+    ExpandTemplateError::Context <- Context<ExpandTemplateErrorContext>,
+    ExpandTemplateError::FileIo  <- FileIoError,
+);
 
-impl fmt::Display for TemplateExpandError {
+impl fmt::Display for ExpandTemplateError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            TemplateExpandError::Context(c) => write!(f, "{}", c),
-            TemplateExpandError::UnknownSpecifier(s) => write!(
+            ExpandTemplateError::Context(c) => write!(f, "{}", c),
+            ExpandTemplateError::FileIo(e) => write!(f, "{}", e),
+            ExpandTemplateError::UnknownSpecifier(s) => write!(
                 f,
                 "Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
                  \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"",
                 s
             ),
-            TemplateExpandError::EnvVarNotPresent(k) => {
+            ExpandTemplateError::EnvVarNotPresent(k) => {
                 write!(f, "Environment variable {:?} is not present", k)
             }
-            TemplateExpandError::EnvVarNotUnicode(k, v) => write!(
+            ExpandTemplateError::EnvVarNotUnicode(k, v) => write!(
                 f,
                 "Environment variable {:?} is not valid unicode: {:?}",
                 k, v
             ),
-            TemplateExpandError::HomeDirNotFound => write!(f, "Home directory not found"),
-            TemplateExpandError::UnsupportedUseOfTilde => write!(f, "Unsupported use of \"~\""),
         }
     }
 }
 
-impl Fail for TemplateExpandError {
+impl Fail for ExpandTemplateError {
     fn cause(&self) -> Option<&dyn Fail> {
         match self {
-            TemplateExpandError::Context(c) => c.cause(),
+            ExpandTemplateError::Context(c) => c.cause(),
+            ExpandTemplateError::FileIo(e) => e.cause(),
             _ => None,
         }
     }
 }
 
 #[derive(Debug)]
-pub struct TemplateExpandErrorContext {
-    debug: String,
-    problem: String,
-    ty: &'static str,
+pub enum ExpandTemplateErrorContext {
+    Str {
+        tokens: Tokens,
+        problem: String,
+    },
+    OsStr {
+        tokens: Tokens,
+        problem: String,
+    },
+    Path {
+        tokens: Tokens,
+        problem: String,
+        base_dir: AbsPathBuf,
+    },
 }
 
-impl TemplateExpandErrorContext {
-    pub(crate) fn new(
-        debug: &impl fmt::Debug,
-        problem: impl Into<String>,
-        ty: &'static str,
-    ) -> Self {
-        Self {
-            debug: format!("{:?}", debug),
-            problem: problem.into(),
-            ty,
-        }
-    }
-}
-
-impl fmt::Display for TemplateExpandErrorContext {
+impl fmt::Display for ExpandTemplateErrorContext {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Failed to expand {} % {:?} as {}",
-            self.debug, self.problem, self.ty
-        )
-    }
-}
-
-#[derive(Debug, Fail)]
-#[fail(display = "Failed to serialize {}", content)]
-pub struct SerializeError {
-    content: String,
-    #[cause]
-    cause: StdErrorChain,
-}
-
-impl SerializeError {
-    pub(crate) fn new(content: impl fmt::Debug, cause: impl std::error::Error) -> Self {
-        Self {
-            content: format!("{:?}", content),
-            cause: cause.into(),
+        match self {
+            ExpandTemplateErrorContext::Str { tokens, problem } => write!(
+                f,
+                "Failed to expand ({:?} % {:?}) as a UTF-8 string",
+                tokens, problem
+            ),
+            ExpandTemplateErrorContext::OsStr { tokens, problem } => write!(
+                f,
+                "Failed to expand ({:?} % {:?}) as a non UTF-8 string",
+                tokens, problem
+            ),
+            ExpandTemplateErrorContext::Path {
+                tokens,
+                problem,
+                base_dir,
+            } => write!(
+                f,
+                "Failed to expand ({} </> ({:?} % {:?})) as an absolute path",
+                base_dir.display(),
+                tokens,
+                problem,
+            ),
         }
     }
 }
@@ -520,7 +554,7 @@ pub(crate) type FileIoResult<T> = std::result::Result<T, FileIoError>;
 pub struct FileIoError {
     kind: FileIoErrorKind,
     path: PathBuf,
-    cause: Option<StdErrorChain>,
+    cause: Option<FileIoErrorCause>,
 }
 
 impl FileIoError {
@@ -532,30 +566,22 @@ impl FileIoError {
         }
     }
 
-    pub(crate) fn chaining(
-        kind: FileIoErrorKind,
-        path: impl Into<PathBuf>,
-        cause: impl std::error::Error,
-    ) -> Self {
+    pub(crate) fn with(self, cause: impl Into<FileIoErrorCause>) -> Self {
         Self {
-            kind,
-            path: path.into(),
             cause: Some(cause.into()),
+            ..self
         }
     }
 
     pub(crate) fn read_zip(path: impl Into<PathBuf>, e: ZipError) -> Self {
         match e {
-            ZipError::Io(e) => Self::chaining(FileIoErrorKind::Read, path, e),
+            ZipError::Io(e) => Self::new(FileIoErrorKind::Read, path).with(e),
             ZipError::InvalidArchive(m) => Self::new(FileIoErrorKind::InvalidZipArchive(m), path),
             ZipError::UnsupportedArchive(m) => {
                 Self::new(FileIoErrorKind::UnsupportedZipArchive(m), path)
             }
-            ZipError::FileNotFound => Self::chaining(
-                FileIoErrorKind::OpenInReadOnly,
-                path,
-                io::Error::from(io::ErrorKind::NotFound),
-            ),
+            ZipError::FileNotFound => Self::new(FileIoErrorKind::OpenInReadOnly, path)
+                .with(io::Error::from(io::ErrorKind::NotFound)),
         }
     }
 }
@@ -591,6 +617,10 @@ impl fmt::Display for FileIoError {
             }
             FileIoErrorKind::Write => write!(f, "Failed to write to {}", path),
             FileIoErrorKind::Deserialize => write!(f, "Failed to deserialize data from {}", path),
+            FileIoErrorKind::HomeDirNotFound => write!(f, "Home directory not found"),
+            FileIoErrorKind::UnsupportedUseOfTilde => {
+                write!(f, "Unsupported use of \"~\": {:?}", self.path)
+            }
             FileIoErrorKind::InvalidZipArchive(m) => {
                 write!(f, "{} is invalid Zip archive: {}", path, m)
             }
@@ -603,10 +633,7 @@ impl fmt::Display for FileIoError {
 
 impl Fail for FileIoError {
     fn cause(&self) -> Option<&dyn Fail> {
-        match self.cause.as_ref() {
-            Some(cause) => Some(cause),
-            None => None,
-        }
+        self.cause.as_ref().map(|cause| cause as &dyn Fail)
     }
 }
 
@@ -622,53 +649,178 @@ pub(crate) enum FileIoErrorKind {
     Read,
     Write,
     Deserialize,
+    HomeDirNotFound,
+    UnsupportedUseOfTilde,
     InvalidZipArchive(&'static str),
     UnsupportedZipArchive(&'static str),
 }
 
 #[derive(Debug)]
-pub struct StdErrorChain {
-    display: String,
-    debug: String,
-    next: Option<Box<StdErrorChain>>,
+pub(crate) enum FileIoErrorCause {
+    Bincode(bincode::Error),
+    SerdeJson(serde_json::Error),
+    SerdeYaml(serde_yaml::Error),
+    TomlDe(toml::de::Error),
+    Io(StdErrorWithDisplayChain<io::Error>),
 }
 
-impl fmt::Display for StdErrorChain {
+#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
+derive_from!(
+    FileIoErrorCause::Bincode   <- bincode::Error,
+    FileIoErrorCause::SerdeJson <- serde_json::Error,
+    FileIoErrorCause::SerdeYaml <- serde_yaml::Error,
+    FileIoErrorCause::TomlDe    <- toml::de::Error,
+    FileIoErrorCause::Io        <- io::Error,
+);
+
+impl fmt::Display for FileIoErrorCause {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            FileIoErrorCause::Bincode(e) => write!(f, "{}", e),
+            FileIoErrorCause::SerdeJson(e) => write!(f, "{}", e),
+            FileIoErrorCause::SerdeYaml(e) => write!(f, "{}", e),
+            FileIoErrorCause::TomlDe(e) => write!(f, "{}", e),
+            FileIoErrorCause::Io(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl Fail for FileIoErrorCause {
+    fn cause(&self) -> Option<&dyn Fail> {
+        match self {
+            FileIoErrorCause::Bincode(e) => e.cause(),
+            FileIoErrorCause::SerdeJson(e) => e.cause(),
+            FileIoErrorCause::SerdeYaml(e) => e.cause(),
+            FileIoErrorCause::TomlDe(e) => e.cause(),
+            FileIoErrorCause::Io(e) => e.cause(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct StdErrorWithDisplayChain<E: 'static + std::error::Error + Send + Sync> {
+    inner: E,
+    chain: Option<Box<DisplayChain>>,
+}
+
+impl<E: 'static + std::error::Error + Send + Sync> From<E> for StdErrorWithDisplayChain<E> {
+    fn from(from: E) -> Self {
+        let mut causes_rev = {
+            let mut causes = vec![];
+            let mut cause: Option<&dyn std::error::Error> = from.cause();
+            while let Some(next_cause) = cause {
+                causes.push(next_cause.to_string());
+                cause = (next_cause as &dyn std::error::Error).cause();
+            }
+            causes.into_iter().rev()
+        };
+        let chain = match causes_rev.next() {
+            None => None,
+            Some(cause) => {
+                let mut chain = Box::new(DisplayChain {
+                    display: cause.to_string(),
+                    next: None,
+                });
+                for cause in causes_rev {
+                    chain = Box::new(DisplayChain {
+                        display: cause.to_string(),
+                        next: Some(chain),
+                    });
+                }
+                Some(chain)
+            }
+        };
+        Self { inner: from, chain }
+    }
+}
+
+impl<E: 'static + std::error::Error + Send + Sync> fmt::Display for StdErrorWithDisplayChain<E> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl<E: 'static + std::error::Error + Send + Sync> Fail for StdErrorWithDisplayChain<E> {
+    fn cause(&self) -> Option<&dyn Fail> {
+        match self.chain.as_ref() {
+            None => None,
+            Some(chain) => Some(chain.as_ref()),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct DisplayChain {
+    display: String,
+    next: Option<Box<DisplayChain>>,
+}
+
+impl fmt::Display for DisplayChain {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.display)
     }
 }
 
-impl Fail for StdErrorChain {
+impl Fail for DisplayChain {
     fn cause(&self) -> Option<&dyn Fail> {
         match self.next.as_ref() {
-            Some(next) => Some(next.as_ref()),
             None => None,
+            Some(cause) => Some(cause.as_ref()),
         }
     }
 }
 
-impl<E: std::error::Error> From<E> for StdErrorChain {
-    fn from(from: E) -> Self {
-        let mut errors = vec![(format!("{}", from), format!("{:?}", from))];
-        let mut from: &std::error::Error = &from;
-        while let Some(cause) = from.cause() {
-            errors.push((format!("{}", cause), format!("{:?}", cause)));
-            from = cause;
+#[cfg(test)]
+mod tests {
+    use errors::StdErrorWithDisplayChain;
+
+    use failure::Fail as _Fail;
+
+    use std::{self, fmt};
+
+    #[test]
+    fn std_error_with_display_chain_works() {
+        #[derive(Debug)]
+        struct E {
+            value: &'static str,
+            cause: Option<Box<E>>,
         }
-        let (display, debug) = errors.pop().unwrap();
-        let mut chain = Self {
-            display,
-            debug,
-            next: None,
-        };
-        for (display, debug) in errors.into_iter().rev() {
-            chain = Self {
-                display,
-                debug,
-                next: Some(Box::new(chain)),
+
+        impl E {
+            fn new(value: &'static str) -> Self {
+                Self { value, cause: None }
+            }
+
+            fn chain(self, value: &'static str) -> Self {
+                Self {
+                    value,
+                    cause: Some(Box::new(self)),
+                }
             }
         }
-        chain
+
+        impl fmt::Display for E {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "E({:?})", self.value)
+            }
+        }
+
+        impl std::error::Error for E {
+            fn cause(&self) -> Option<&dyn std::error::Error> {
+                self.cause.as_ref().map(|c| c as &dyn std::error::Error)
+            }
+        }
+
+        let e = E::new("foo").chain("bar").chain("baz").chain("qux");
+        let e = StdErrorWithDisplayChain::from(e);
+        assert_eq!(
+            e.causes().map(ToString::to_string).collect::<Vec<_>>(),
+            vec![
+                "E(\"qux\")".to_owned(),
+                "E(\"baz\")".to_owned(),
+                "E(\"bar\")".to_owned(),
+                "E(\"foo\")".to_owned(),
+            ]
+        );
     }
 }

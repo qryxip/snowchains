@@ -1,7 +1,4 @@
-pub mod fs;
-
 pub(crate) mod de;
-pub(crate) mod path;
 pub(crate) mod ser;
 pub(crate) mod std_unstable;
 

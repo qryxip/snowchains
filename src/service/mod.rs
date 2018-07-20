@@ -7,37 +7,50 @@ pub(crate) mod yukicoder;
 pub(self) mod downloader;
 
 use config::Config;
-use errors::{ServiceError, ServiceResult, SessionResult};
+use errors::SessionResult;
+use palette::Palette;
+use path::{AbsPath, AbsPathBuf};
 use replacer::CodeReplacer;
 use service::downloader::ZipDownloader;
 use service::session::{HttpSession, UrlBase};
-use template::{BaseDirNone, BaseDirSome, PathTemplate};
-use terminal::Color;
+use template::{Template, TemplateBuilder};
 use testsuite::SerializableExtension;
 use {util, ServiceName};
 
 use itertools::Itertools as _Itertools;
 use reqwest::header::{Headers, UserAgent};
-use reqwest::{self, RedirectPolicy};
+use reqwest::{self, RedirectPolicy, Response};
+use select::document::Document;
 use tokio_core::reactor::Core;
 use url::Host;
 use {rpassword, rprompt};
 
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
-use std::{self, env, fmt, io};
+use std::{fmt, io};
 
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
+
+pub(self) fn ask_yes_or_no(mes: &str, default: bool) -> io::Result<bool> {
+    let prompt = format!("{}{} ", mes, if default { "(Y/n)" } else { "(y/N)" });
+    loop {
+        match &rprompt::prompt_reply_stderr(&prompt)? {
+            s if s.is_empty() => break Ok(default),
+            s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
+            s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
+            _ => eprintln!("Answer \"y\", \"yes\", \"n\", \"no\", or \"\"."),
+        }
+    }
+}
 
 /// Asks username and password.
 pub(self) fn ask_credentials(username_prompt: &str) -> io::Result<(String, String)> {
     let username = rprompt::prompt_reply_stderr(username_prompt)?;
     let password = rpassword::prompt_password_stderr("Password: ").or_else(|e| match e.kind() {
         io::ErrorKind::BrokenPipe => {
-            eprintln_bold!(Color::Warning, "broken pipe");
+            eprintln!("{}", Palette::Warning.paint("broken pipe"));
             rprompt::prompt_reply_stderr("Password (not hidden): ")
         }
         _ => Err(e),
@@ -45,38 +58,42 @@ pub(self) fn ask_credentials(username_prompt: &str) -> io::Result<(String, Strin
     Ok((username, password))
 }
 
-/// Gets the value `x` if `Some(x) = o` and `!f(x)`.
-///
-/// # Errors
-///
-/// Returns `Err` if the above condition is not satisfied.
-pub(self) fn quit_on_failure<T>(o: Option<T>, f: for<'a> fn(&'a T) -> bool) -> ServiceResult<T> {
-    if let Some(x) = o {
-        if !f(&x) {
-            return Ok(x);
-        }
+pub(self) trait TryIntoDocument {
+    fn try_into_document(self) -> reqwest::Result<Document>;
+}
+
+impl TryIntoDocument for Response {
+    fn try_into_document(mut self) -> reqwest::Result<Document> {
+        Ok(Document::from(self.text()?.as_str()))
     }
-    Err(ServiceError::Scrape)
 }
 
 #[derive(Clone)]
-pub enum Credentials {
-    None,
-    RevelSession(Rc<String>),
-    UserNameAndPassword(Rc<String>, Rc<String>),
+pub struct Credentials {
+    pub atcoder: UserNameAndPassword,
+    pub hackerrank: UserNameAndPassword,
+    pub yukicoder: RevelSession,
 }
 
-impl Credentials {
-    pub fn from_env_vars(
-        username: &str,
-        password: &str,
-    ) -> std::result::Result<Self, env::VarError> {
-        let (username, password) = (Rc::new(env::var(username)?), Rc::new(env::var(password)?));
-        Ok(Credentials::UserNameAndPassword(username, password))
+impl Default for Credentials {
+    fn default() -> Self {
+        Self {
+            atcoder: UserNameAndPassword::None,
+            hackerrank: UserNameAndPassword::None,
+            yukicoder: RevelSession::None,
+        }
     }
+}
 
+#[derive(Clone)]
+pub enum UserNameAndPassword {
+    None,
+    Some(Rc<String>, Rc<String>),
+}
+
+impl UserNameAndPassword {
     pub(self) fn or_ask(&self, username_prompt: &str) -> io::Result<(Rc<String>, Rc<String>)> {
-        if let Credentials::UserNameAndPassword(username, password) = self {
+        if let UserNameAndPassword::Some(username, password) = self {
             Ok((username.clone(), password.clone()))
         } else {
             let (username, password) = ask_credentials(username_prompt)?;
@@ -84,19 +101,28 @@ impl Credentials {
         }
     }
 
-    pub(self) fn not_none(&self) -> bool {
+    pub(self) fn is_some(&self) -> bool {
         match self {
-            Credentials::None => false,
-            _ => true,
+            UserNameAndPassword::None => false,
+            UserNameAndPassword::Some(..) => true,
         }
     }
 }
 
+#[derive(Clone)]
+pub enum RevelSession {
+    None,
+    Some(Rc<String>),
+}
+
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SessionConfig {
-    #[serde(serialize_with = "util::ser::secs", deserialize_with = "util::de::non_zero_secs")]
+    #[serde(
+        serialize_with = "util::ser::secs",
+        deserialize_with = "util::de::non_zero_secs"
+    )]
     timeout: Option<Duration>,
-    cookies: PathTemplate<BaseDirNone>,
+    cookies: TemplateBuilder<AbsPathBuf>,
 }
 
 impl SessionConfig {
@@ -104,20 +130,16 @@ impl SessionConfig {
         self.timeout
     }
 
-    pub(crate) fn cookies<'a>(
-        &self,
-        base: &'a Path,
-        service: ServiceName,
-    ) -> PathTemplate<BaseDirSome<'a>> {
+    pub(crate) fn cookies(&self, base_dir: AbsPath, service: ServiceName) -> Template<AbsPathBuf> {
         self.cookies
-            .base_dir(base)
-            .embed_strings(&hashmap!("service" => service.as_str()))
+            .build(base_dir)
+            .strings(hashmap!("service".to_owned() => service.to_string()))
     }
 }
 
 pub(crate) struct SessionProp {
     pub domain: Option<&'static str>,
-    pub cookies_path: PathBuf,
+    pub cookies_path: AbsPathBuf,
     pub timeout: Option<Duration>,
     pub credentials: Credentials,
 }
@@ -168,13 +190,19 @@ pub(self) fn reqwest_client(
 pub(crate) struct DownloadProp<C: Contest> {
     pub contest: C,
     pub problems: Option<Vec<String>>,
-    pub download_dir: PathBuf,
+    pub download_dir: AbsPathBuf,
     pub extension: SerializableExtension,
     pub open_browser: bool,
+    pub suppress_download_bars: bool,
 }
 
 impl DownloadProp<String> {
-    pub fn new(config: &Config, open_browser: bool, problems: Vec<String>) -> ::Result<Self> {
+    pub fn new(
+        config: &Config,
+        open_browser: bool,
+        suppress_download_bars: bool,
+        problems: Vec<String>,
+    ) -> ::Result<Self> {
         let download_dir = config.testfiles_dir().expand("")?;
         Ok(Self {
             contest: config.contest().to_owned(),
@@ -186,6 +214,7 @@ impl DownloadProp<String> {
             download_dir,
             extension: config.extension_on_scrape(),
             open_browser,
+            suppress_download_bars,
         })
     }
 
@@ -196,6 +225,7 @@ impl DownloadProp<String> {
             download_dir: self.download_dir,
             extension: self.extension,
             open_browser: self.open_browser,
+            suppress_download_bars: self.suppress_download_bars,
         }
     }
 }
@@ -226,7 +256,7 @@ impl<C: Contest> DownloadProp<C> {
 pub(crate) struct RestoreProp<'a, C: Contest> {
     pub contest: C,
     pub problems: Option<Vec<String>>,
-    pub src_paths: HashMap<&'a str, PathTemplate<BaseDirSome<'a>>>,
+    pub src_paths: HashMap<&'a str, Template<AbsPathBuf>>,
     pub replacers: HashMap<&'a str, CodeReplacer>,
 }
 
@@ -270,7 +300,7 @@ pub(crate) struct SubmitProp<C: Contest> {
     pub contest: C,
     pub problem: String,
     pub lang_id: String,
-    pub src_path: PathBuf,
+    pub src_path: AbsPathBuf,
     pub replacer: Option<CodeReplacer>,
     pub open_browser: bool,
     pub skip_checking_if_accepted: bool,

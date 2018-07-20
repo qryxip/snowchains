@@ -1,8 +1,9 @@
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
-use errors::{FileIoError, FileIoErrorKind, SerializeError, SuiteFileError, SuiteFileResult};
-use template::{BaseDirSome, PathTemplate};
-use terminal::Color;
+use errors::{FileIoError, FileIoErrorCause, FileIoErrorKind, SuiteFileError, SuiteFileResult};
+use palette::Palette;
+use path::{AbsPath, AbsPathBuf};
+use template::Template;
 use util::{self, ScalarOrArray};
 use yaml;
 
@@ -16,7 +17,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::{self, Write as _Write};
 use std::iter::FromIterator as _FromIterator;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,7 +35,7 @@ pub(crate) fn append(
 }
 
 /// Extension of a test suite file.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SerializableExtension {
     Json,
@@ -124,14 +125,14 @@ impl fmt::Display for SuiteFileExtension {
 }
 
 pub(crate) struct SuiteFilePathsTemplate<'a> {
-    directory: PathTemplate<BaseDirSome<'a>>,
+    directory: Template<AbsPathBuf>,
     extensions: &'a BTreeSet<SuiteFileExtension>,
     zip: &'a ZipConfig,
 }
 
 impl<'a> SuiteFilePathsTemplate<'a> {
     pub fn new(
-        directory: PathTemplate<BaseDirSome<'a>>,
+        directory: Template<AbsPathBuf>,
         extensions: &'a BTreeSet<SuiteFileExtension>,
         zip: &'a ZipConfig,
     ) -> Self {
@@ -154,7 +155,7 @@ impl<'a> SuiteFilePathsTemplate<'a> {
             return Err(SuiteFileError::DirNotExist(dir.to_owned()));
         }
         let existing_filenames = {
-            let mut filenames = util::fs::read_dir(&dir)?
+            let mut filenames = ::fs::read_dir(&dir)?
                 .filter_map(|entry| match entry {
                     Ok(entry) => {
                         let path = entry.path();
@@ -216,11 +217,11 @@ impl<'a> SuiteFilePathsTemplate<'a> {
 /// File path which extension is 'json', 'toml', 'yaml', or 'yml'.
 pub(crate) struct SuiteFilePath {
     extension: SerializableExtension,
-    joined: Arc<PathBuf>,
+    joined: Arc<AbsPathBuf>,
 }
 
 impl<'a> SuiteFilePath {
-    pub fn new(directory: &Path, stem: &str, extension: SerializableExtension) -> Self {
+    pub fn new(directory: AbsPath, stem: &str, extension: SerializableExtension) -> Self {
         let joined = directory.join(stem).with_extension(&extension.to_string());
         Self {
             extension,
@@ -243,7 +244,7 @@ pub(crate) struct ZipConfig {
 }
 
 impl ZipConfig {
-    fn load(&self, filename: &str, dir: &Path) -> SuiteFileResult<Vec<SimpleCase>> {
+    fn load(&self, filename: &str, dir: AbsPath) -> SuiteFileResult<Vec<SimpleCase>> {
         let (timelimit, output_match) = (self.timelimit, self.output_match);
         let mut r = vec![];
         for e in &self.entries {
@@ -265,7 +266,7 @@ struct ZipEntries {
 impl ZipEntries {
     fn load(
         &self,
-        path: &Path,
+        path: AbsPath,
         filename: &str,
         timelimit: Option<Duration>,
         output_match: Match,
@@ -274,7 +275,7 @@ impl ZipEntries {
             return Ok(vec![]);
         }
         let mut zip =
-            ZipArchive::new(util::fs::open(path)?).map_err(|e| FileIoError::read_zip(path, e))?;
+            ZipArchive::new(::fs::open(path)?).map_err(|e| FileIoError::read_zip(path, e))?;
         let mut pairs = hashmap!();
         for i in 0..zip.len() {
             let (filename, content) = {
@@ -355,7 +356,8 @@ enum ZipEntrySorting {
 #[derive(Serialize, Deserialize)]
 struct ZipEntry {
     #[serde(
-        serialize_with = "yaml::serialize_regex", deserialize_with = "yaml::deserialize_regex"
+        serialize_with = "yaml::serialize_regex",
+        deserialize_with = "yaml::deserialize_regex"
     )]
     entry: Regex,
     match_group: usize,
@@ -373,11 +375,11 @@ pub(crate) enum TestSuite {
 
 impl TestSuite {
     /// Constructs a `TestSuite::Simple` with `timelimit` and `samples`.
-    pub fn simple(
-        timelimit: impl Into<Option<Duration>>,
+    pub fn simple<T: Into<Option<Duration>>, S: Into<String>, I: IntoIterator<Item = (S, S)>>(
+        timelimit: T,
         absolute_error: Option<f64>,
         relative_error: Option<f64>,
-        samples: Vec<(String, String)>,
+        samples: I,
     ) -> Self {
         TestSuite::Simple(SimpleSuite::from_samples(
             timelimit.into(),
@@ -393,11 +395,12 @@ impl TestSuite {
     }
 
     fn load(path: &SuiteFilePath) -> SuiteFileResult<Self> {
-        fn chain_err<E: std::error::Error>(err: E, path: &Path) -> FileIoError {
-            FileIoError::chaining(FileIoErrorKind::Deserialize, path, err)
+        fn chain_err<E: Into<FileIoErrorCause>>(err: E, path: &Path) -> FileIoError {
+            FileIoError::new(FileIoErrorKind::Deserialize, path).with(err)
         }
+
         let (path, extension) = (&path.joined, path.extension);
-        let content = util::fs::read_to_string(&path)?;
+        let content = ::fs::read_to_string(&path)?;
         match extension {
             SerializableExtension::Json => {
                 serde_json::from_str(&content).map_err(|e| chain_err(e, &path))
@@ -413,33 +416,28 @@ impl TestSuite {
 
     /// Serializes `self` and save it to given path.
     pub fn save(&self, path: &SuiteFilePath, prints_num_cases: bool) -> SuiteFileResult<()> {
-        fn chain_err<E: std::error::Error>(err: E, content: &TestSuite) -> SerializeError {
-            SerializeError::new(content, err)
-        }
         let (path, extension) = (&path.joined, path.extension);
         let serialized = match extension {
-            SerializableExtension::Json => {
-                serde_json::to_string(self).map_err(|e| chain_err(e, self))
-            }
-            SerializableExtension::Toml => toml::to_string(self).map_err(|e| chain_err(e, self)),
+            SerializableExtension::Json => serde_json::to_string(self)?,
+            SerializableExtension::Toml => toml::to_string(self)?,
             SerializableExtension::Yaml | SerializableExtension::Yml => {
-                serde_yaml::to_string(self).map_err(|e| chain_err(e, self))
+                serde_yaml::to_string(self)?
             }
-        }?;
-        util::fs::write(path, serialized.as_bytes())?;
+        };
+        ::fs::write(path.as_ref(), serialized.as_bytes())?;
         print!("Saved to {}", path.display());
         if prints_num_cases {
-            match self {
+            let msg = match self {
                 TestSuite::Simple(s) => match s.cases.len() {
-                    0 => print_bold!(Color::Warning, " (no sample case extracted)"),
-                    1 => print_bold!(Color::Success, " (1 sample case extracted)"),
-                    n => print_bold!(Color::Success, " ({} sample cases extracted)", n),
+                    0 => Palette::Warning.paint(" (no sample case extracted)"),
+                    1 => Palette::Success.paint(" (1 sample case extracted)"),
+                    n => Palette::Success.paint(format!(" ({} sample cases extracted)", n)),
                 },
-                TestSuite::Interactive(_) => print_bold!(Color::Success, " (interactive problem)"),
-                TestSuite::Unsubmittable => print_bold!(Color::Success, " (unsubmittable problem)"),
-            }
+                TestSuite::Interactive(_) => Palette::Success.paint(" (interactive problem)"),
+                TestSuite::Unsubmittable => Palette::Success.paint(" (unsubmittable problem)"),
+            };
+            println!("{}", msg);
         }
-        println!();
         Ok(())
     }
 
@@ -478,11 +476,11 @@ pub(crate) struct SimpleSuite {
 }
 
 impl SimpleSuite {
-    fn from_samples(
+    fn from_samples<S: Into<String>, I: IntoIterator<Item = (S, S)>>(
         timelimit: Option<Duration>,
         absolute_error: Option<f64>,
         relative_error: Option<f64>,
-        samples: impl IntoIterator<Item = (String, String)>,
+        samples: I,
     ) -> Self {
         let output_match = if absolute_error.is_none() && relative_error.is_none() {
             Match::default()
@@ -497,7 +495,7 @@ impl SimpleSuite {
             output_match,
             cases: samples
                 .into_iter()
-                .map(|(i, o)| (Arc::new(i), Some(Arc::new(o))))
+                .map(|(i, o)| (Arc::new(i.into()), Some(Arc::new(o.into()))))
                 .collect(),
             raw_cases: None,
         }
@@ -662,7 +660,7 @@ impl InteractiveSuite {
             }
             let tester = config
                 .interactive_tester(lang)?
-                .embed_strings(&m)
+                .insert_strings(&m)
                 .expand(&problem)?;
             let tester_compilation = match config.interactive_tester_compilation(lang)? {
                 Some(compilation) => Some(Arc::new(compilation.expand(&problem)?)),
