@@ -49,12 +49,18 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     }
 }
 
-pub fn credentials_from_env_vars() -> ::std::result::Result<Credentials, env::VarError> {
-    let atcoder_username = Rc::new(env::var("ATCODER_USERNAME")?);
-    let atcoder_password = Rc::new(env::var("ATCODER_PASSWORD")?);
-    let hackerrank_username = Rc::new(env::var("HACKERRANK_USERNAME")?);
-    let hackerrank_password = Rc::new(env::var("HACKERRANK_PASSWORD")?);
-    let yukicoder_revel_session = Rc::new(env::var("YUKICODER_REVEL_SESSION")?);
+pub fn credentials_from_env_vars() -> Result<Credentials, failure::Error> {
+    fn read(name: &'static str) -> Result<Rc<String>, failure::Error> {
+        env::var(name)
+            .map(Rc::new)
+            .map_err(|e| failure::err_msg(format!("Failed to read {:?}: {}", name, e)))
+    }
+
+    let atcoder_username = read("ATCODER_USERNAME")?;
+    let atcoder_password = read("ATCODER_PASSWORD")?;
+    let hackerrank_username = read("HACKERRANK_USERNAME")?;
+    let hackerrank_password = read("HACKERRANK_PASSWORD")?;
+    let yukicoder_revel_session = read("YUKICODER_REVEL_SESSION")?;
     Ok(Credentials {
         atcoder: UserNameAndPassword::Some(atcoder_username, atcoder_password),
         hackerrank: UserNameAndPassword::Some(hackerrank_username, hackerrank_password),

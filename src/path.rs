@@ -156,7 +156,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn it_removes_dots() {
-        let base = Path::new(r"C:\foo");
+        let base = AbsPathBuf::new_or_panic(r"C:\foo");
         assert_eq!(Path::new(r"C:\foo"), base.join("").0);
         assert_eq!(Path::new(r"C:\foo"), base.join(".").0);
         assert_eq!(Path::new(r"C:\foo\bar"), base.join("bar").0);

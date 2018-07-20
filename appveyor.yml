@@ -22,6 +22,7 @@ environment:
 install:
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:RUSTUP_HOST}/rustup-init.exe"
   - rustup-init.exe -y --default-toolchain %RUSTUP_TOOLCHAIN% --default-host %RUSTUP_HOST% --no-modify-path
+  - del rustup-init.exe
   - set PATH=C:\Users\appveyor\.cargo\bin;%PATH%
   - rustc -vV
   - cargo -vV

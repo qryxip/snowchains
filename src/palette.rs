@@ -1,11 +1,20 @@
-use ansi_term::{ANSIGenericString, Colour, Style};
-use term::{Terminal as _Terminal, TerminfoTerminal};
 use Never;
+
+use ansi_term::{ANSIGenericString, Colour, Style};
+
+#[cfg(windows)]
+use ansi_term;
+
+#[cfg(not(windows))]
+use term::{Terminal as _Terminal, TerminfoTerminal};
 
 use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::atomic::{self, AtomicBool, AtomicIsize};
-use std::{self, fmt, io};
+use std::{self, fmt};
+
+#[cfg(not(windows))]
+use std::io;
 
 static ANSI_ENABLED: AtomicBool = AtomicBool::new(false);
 static COLOR_RANGE: AtomicIsize = AtomicIsize::new(2);
