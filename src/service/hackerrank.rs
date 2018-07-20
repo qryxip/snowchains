@@ -2,7 +2,7 @@ use errors::{ServiceError, ServiceResult, SessionResult};
 use palette::Palette;
 use service::session::{GetPost, HttpSession};
 use service::{
-    downloader, Contest, DownloadProp, PrintTargets as _PrintTargets, SessionProp,
+    Contest, DownloadProp, PrintTargets as _PrintTargets, SessionProp,
     TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
 use testsuite::{SuiteFilePath, TestSuite};
@@ -53,15 +53,15 @@ impl Hackerrank {
     }
 
     fn login(&mut self, option: LoginOption) -> ServiceResult<()> {
-        let (mut username, mut password, on_test) = {
-            let on_test = self.credentials.is_some();
-            let (username, password) = self.credentials.or_ask("Username: ")?;
-            (username, password, on_test)
-        };
         let mut res = self.get("/login").acceptable(&[200, 302]).send()?;
         if res.status() == StatusCode::Found && option == LoginOption::Explicit {
             eprintln!("Already signed in.");
         } else if res.status() == StatusCode::Ok {
+            let (mut username, mut password, on_test) = {
+                let on_test = self.credentials.is_some();
+                let (username, password) = self.credentials.or_ask("Username: ")?;
+                (username, password, on_test)
+            };
             if option == LoginOption::NotNecessary
                 && !on_test
                 && !super::ask_yes_or_no("Login? ", false)?
@@ -218,16 +218,16 @@ impl Hackerrank {
         }
 
         if !zip_targets.is_empty() {
-            let (pref, names);
+            let (url_pref, names);
             if zip_targets.keys().count() == 1 {
                 let contest = zip_targets.keys().next().unwrap();
-                pref = Cow::from(format!(
+                url_pref = Cow::from(format!(
                     "https://www.hackerrank.com/rest/contests/{}/challenges/",
                     contest
                 ));
                 names = zip_targets.values().next().unwrap().clone();
             } else {
-                pref = Cow::from("https://www.hackerrank.com/rest/contests/");
+                url_pref = Cow::from("https://www.hackerrank.com/rest/contests/");
                 names = zip_targets
                     .iter()
                     .flat_map(|(contest, problems)| {
@@ -238,23 +238,27 @@ impl Hackerrank {
                     })
                     .collect::<Vec<_>>();
             };
-            let urls = downloader::Urls {
-                pref,
-                names,
-                suf: "/download_testcases",
-            };
+            static URL_SUF: &str = "/download_testcases";
             let cookie = self.session.cookies_to_header();
             let mut downloader = sess_prop.zip_downloader()?;
-            let zips = if *suppress_download_bars {
-                downloader.download(io::sink(), &urls, cookie.as_ref())
+            if *suppress_download_bars {
+                downloader.download(
+                    io::sink(),
+                    url_pref,
+                    URL_SUF,
+                    download_dir,
+                    &names,
+                    cookie.as_ref(),
+                )?;
             } else {
-                downloader.download(io::stdout(), &urls, cookie.as_ref())
-            }?;
-
-            for (problem, zip) in urls.names.iter().zip(&zips) {
-                let path = download_dir.join(format!("{}.zip", problem));
-                ::fs::write(&path, zip)?;
-                println!("Saved to {}", path.display());
+                downloader.download(
+                    io::stdout(),
+                    url_pref,
+                    URL_SUF,
+                    download_dir,
+                    &names,
+                    cookie.as_ref(),
+                )?;
             }
         }
 
@@ -270,7 +274,7 @@ impl Hackerrank {
 #[derive(Clone, Copy, PartialEq)]
 enum LoginOption {
     Explicit,
-    Ensure,
+    // Ensure,
     NotNecessary,
 }
 

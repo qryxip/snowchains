@@ -1,6 +1,6 @@
 use errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
 use palette::Palette;
-use service::downloader::{self, ZipDownloader};
+use service::downloader::ZipDownloader;
 use service::session::{GetPost, HttpSession};
 use service::{
     Contest, DownloadProp, PrintTargets as _PrintTargets, RevelSession, SessionProp, SubmitProp,
@@ -180,29 +180,31 @@ impl Yukicoder {
             }
         }
         let nos = self.filter_solved(&nos)?;
-        let zips = if nos.is_empty() {
-            None
-        } else {
-            let urls = downloader::Urls {
-                pref: Cow::from("https://yukicoder.me/problems/no/"),
-                names: nos.clone(),
-                suf: "/testcase.zip",
-            };
-            let cookie = self.session.cookies_to_header();
-            Some(if *suppress_download_bars {
-                zip_downloader.download(io::sink(), &urls, cookie.as_ref())
-            } else {
-                zip_downloader.download(io::stdout(), &urls, cookie.as_ref())
-            }?)
-        };
         for (_, suite, path) in &outputs {
             suite.save(path, true)?;
         }
-        if let Some(zips) = zips {
-            for (no, zip) in nos.iter().zip(&zips) {
-                let path = download_dir.join(format!("{}.zip", no));
-                ::fs::write(&path, zip)?;
-                println!("Saved to {}", path.display());
+        if !nos.is_empty() {
+            static URL_PREF: &str = "https://yukicoder.me/problems/no/";
+            static URL_SUF: &str = "/testcase.zip";
+            let cookie = self.session.cookies_to_header();
+            if *suppress_download_bars {
+                zip_downloader.download(
+                    io::sink(),
+                    URL_PREF.into(),
+                    URL_SUF,
+                    download_dir,
+                    &nos,
+                    cookie.as_ref(),
+                )?;
+            } else {
+                zip_downloader.download(
+                    io::stdout(),
+                    URL_PREF.into(),
+                    URL_SUF,
+                    download_dir,
+                    &nos,
+                    cookie.as_ref(),
+                )?;
             }
         }
         if *open_browser {
