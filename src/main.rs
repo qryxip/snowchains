@@ -16,7 +16,7 @@ fn main() {
     env_logger::init();
     if let Err(err) = Prop::new().and_then(|prop| Opt::from_args().run(&prop)) {
         eprintln!();
-        for (i, cause) in err.causes().enumerate() {
+        for (i, cause) in (&err as &Fail).iter_chain().enumerate() {
             let head = if i == 0 && err.cause().is_none() {
                 "Error: "
             } else if i == 0 {

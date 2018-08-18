@@ -774,7 +774,7 @@ impl Fail for DisplayChain {
 mod tests {
     use errors::StdErrorWithDisplayChain;
 
-    use failure::Fail as _Fail;
+    use failure::Fail;
 
     use std::{self, fmt};
 
@@ -814,7 +814,10 @@ mod tests {
         let e = E::new("foo").chain("bar").chain("baz").chain("qux");
         let e = StdErrorWithDisplayChain::from(e);
         assert_eq!(
-            e.causes().map(ToString::to_string).collect::<Vec<_>>(),
+            (&e as &Fail)
+                .iter_chain()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
             vec![
                 "E(\"qux\")".to_owned(),
                 "E(\"baz\")".to_owned(),
