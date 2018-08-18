@@ -3,7 +3,7 @@ name = "snowchains"
 version = "0.23.0"
 description = "Tools for online programming contests"
 license = "MIT"
-authors = ["wariuni <wariuni@gmail.com>"]
+authors = ["Ryo Yamashita <wariuni@gmail.com>"]
 readme = "README.md"
 repository = "https://github.com/wariuni/snowchains"
 
