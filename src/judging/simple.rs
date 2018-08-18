@@ -81,17 +81,16 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> JudgeResult<SimpleOutput> 
 
 fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
     fn check<F: FnMut(f64, f64) -> bool>(expected: &str, actual: &str, mut on_float: F) -> bool {
-        expected.split_whitespace().count() == actual.split_whitespace().count()
-            && expected
-                .split_whitespace()
-                .zip(actual.split_whitespace())
-                .all(|(e, a)| {
-                    if let (Ok(e), Ok(a)) = (e.parse::<f64>(), a.parse::<f64>()) {
-                        on_float(e, a)
-                    } else {
-                        e == a
-                    }
-                })
+        expected.split_whitespace().count() == actual.split_whitespace().count() && expected
+            .split_whitespace()
+            .zip(actual.split_whitespace())
+            .all(|(e, a)| {
+                if let (Ok(e), Ok(a)) = (e.parse::<f64>(), a.parse::<f64>()) {
+                    on_float(e, a)
+                } else {
+                    e == a
+                }
+            })
     }
 
     match expected {
@@ -108,13 +107,14 @@ fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
             relative_error,
         } => {
             let stdout = stdout.lines().collect::<Vec<_>>();
-            lines.lines().count() == stdout.len()
-                && lines.lines().zip(stdout.iter()).all(|(e, a)| {
+            lines.lines().count() == stdout.len() && lines.lines().zip(stdout.iter()).all(
+                |(e, a)| {
                     check(e, a, |e, a| {
                         let (d, r) = (*absolute_error, *relative_error);
                         (a - e).abs() <= d || ((a - e) / e).abs() <= r // Doesn't care NaN
                     })
-                })
+                },
+            )
         }
     }
 }

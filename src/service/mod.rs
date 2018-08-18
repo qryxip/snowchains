@@ -166,8 +166,7 @@ impl SessionProp {
                 let mut headers = Headers::new();
                 headers.set(UserAgent::new(USER_AGENT));
                 headers
-            })
-            .build(&core.handle())?;
+            }).build(&core.handle())?;
         Ok(ZipDownloader::new(client, core))
     }
 }
@@ -183,8 +182,7 @@ pub(self) fn reqwest_client(
             let mut headers = Headers::new();
             headers.set(UserAgent::new(USER_AGENT));
             headers
-        })
-        .build()
+        }).build()
 }
 
 pub(crate) struct DownloadProp<C: Contest> {

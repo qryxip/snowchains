@@ -106,8 +106,7 @@ impl Hackerrank {
                 "login": username,
                 "password": password,
                 "remember_me": true
-            }))?
-            .json::<LoginResponse>()?
+            }))?.json::<LoginResponse>()?
             .status;
         Ok(status)
     }
@@ -147,8 +146,7 @@ impl Hackerrank {
                     self.get(&format!("/rest/contests/master/challenges/{}", problem))
                         .recv_json::<ProblemQueryResponse>()
                         .map(|r| r.model)
-                })
-                .collect::<SessionResult<Vec<_>>>()?,
+                }).collect::<SessionResult<Vec<_>>>()?,
             (HackerrankContest::Contest(contest), problems) => {
                 self.login(LoginOption::NotNecessary)?;
                 self.get(&format!("/rest/contests/{}/challenges", contest))
@@ -158,8 +156,7 @@ impl Hackerrank {
                     .filter(|model| match problems {
                         None => true,
                         Some(problems) => problems.contains(&model.slug),
-                    })
-                    .map(|model| {
+                    }).map(|model| {
                         if model.public_test_cases {
                             Ok(model)
                         } else {
@@ -169,8 +166,7 @@ impl Hackerrank {
                                 .recv_json::<ProblemQueryResponse>()
                                 .map(|r| r.model)
                         }
-                    })
-                    .collect::<SessionResult<Vec<_>>>()?
+                    }).collect::<SessionResult<Vec<_>>>()?
             }
         };
 
@@ -235,8 +231,7 @@ impl Hackerrank {
                             .iter()
                             .map(|problem| format!("{}/challenges/{}", contest, problem))
                             .collect::<Vec<_>>()
-                    })
-                    .collect::<Vec<_>>();
+                    }).collect::<Vec<_>>();
             };
             static URL_SUF: &str = "/download_testcases";
             let cookie = self.session.cookies_to_header();
@@ -357,8 +352,7 @@ impl Extract for Document {
                     pre.find(Name("span").and(Class("err")).child(Text))
                         .map(|text| text.text())
                         .join("")
-                })
-                .collect()
+                }).collect()
         }
 
         let in_pred = Class("challenge_sample_input").descendant(Name("pre"));

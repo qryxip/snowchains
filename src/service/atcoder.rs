@@ -134,7 +134,10 @@ impl Atcoder {
         contest: &AtcoderContest,
         explicit: bool,
     ) -> ServiceResult<()> {
-        let res = self.get(&contest.url_top()).acceptable(&[200, 302]).send()?;
+        let res = self
+            .get(&contest.url_top())
+            .acceptable(&[200, 302])
+            .send()?;
         if res.status() == StatusCode::Found {
             return Err(ServiceError::ContestNotFound(contest.to_string()));
         }
@@ -173,13 +176,11 @@ impl Atcoder {
             .map(|(name, url)| (name.to_lowercase(), url))
             .filter(|(name, _)| {
                 problems.is_none() || problems.as_ref().unwrap().iter().any(|s| s == name)
-            })
-            .map(|(name, url)| -> ServiceResult<_> {
+            }).map(|(name, url)| -> ServiceResult<_> {
                 let suite = self.get(&url).recv_html()?.extract_as_suite(contest)?;
                 let path = SuiteFilePath::new(download_dir, &name, *extension);
                 Ok((url, suite, path, name))
-            })
-            .collect::<ServiceResult<Vec<_>>>()?;
+            }).collect::<ServiceResult<Vec<_>>>()?;
         let mut not_found = match problems.as_ref() {
             None => vec![],
             Some(problems) => problems.iter().collect(),
@@ -235,12 +236,17 @@ impl Atcoder {
             if problems.is_some() && !problems.as_ref().unwrap().iter().any(|p| p == &task_name) {
                 continue;
             }
-            let code = self.get(&detail_url).recv_html()?.extract_submitted_code()?;
+            let code = self
+                .get(&detail_url)
+                .recv_html()?
+                .extract_submitted_code()?;
             let lang_id = first_page.extract_lang_id(&lang_name)?;
             if let Some(path_template) = src_paths.get(lang_id.as_str()) {
                 let path = path_template.expand(&task_name.to_lowercase())?;
                 let code = match replacers.get(lang_id.as_str()) {
-                    Some(replacer) => replacer.replace_from_submission_to_local(&task_name, &code)?,
+                    Some(replacer) => {
+                        replacer.replace_from_submission_to_local(&task_name, &code)?
+                    }
                     None => code,
                 };
                 ::fs::write(&path, code.as_bytes())?;
@@ -288,8 +294,8 @@ impl Atcoder {
             skip_checking_if_accepted,
         } = prop;
         let tasks_page = self.fetch_tasks_page(&contest)?;
-        let checks_if_accepted = !skip_checking_if_accepted && *contest != AtcoderContest::Practice
-            && {
+        let checks_if_accepted =
+            !skip_checking_if_accepted && *contest != AtcoderContest::Practice && {
                 let duration = tasks_page.extract_contest_duration()?;
                 let status = duration.check_current_status(contest.to_string());
                 status.raise_if_not_begun()?;
@@ -837,8 +843,7 @@ impl Extract for Document {
                         let href = a.attr("href")?.to_owned();
                         info!("Extracting submissions: Found tr>td>a[href={:?}]", href);
                         Some(href)
-                    })
-                    .next()?;
+                    }).next()?;
                 submissions.push(Submission {
                     task_name,
                     task_screen_name,

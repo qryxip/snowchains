@@ -424,8 +424,7 @@ impl Extract for Document {
                         let (s, m) = (cs[1].parse::<u64>().unwrap(), cs[2].parse::<u64>().unwrap());
                         Duration::from_millis(1000 * s + m)
                     })
-                })
-                .next()?;
+                }).next()?;
             let mut samples = vec![];
             let predicate = Attr("id", "content")
                 .child(Name("div").and(Class("block")))

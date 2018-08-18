@@ -203,8 +203,8 @@ impl<
                     Cow::Owned(args)
                 }
             }.iter()
-                .map(|arg| arg.expand_as_os_string(problem, &self.strings, &os_strings))
-                .collect::<ExpandTemplateResult<Vec<_>>>()?
+            .map(|arg| arg.expand_as_os_string(problem, &self.strings, &os_strings))
+            .collect::<ExpandTemplateResult<Vec<_>>>()?
         };
         Ok((args, wd, src, bin))
     }
@@ -278,8 +278,7 @@ impl FromStr for Tokens {
                 alpha_num().and(many(alpha_num().or(char('_')))),
                 char('_').and(many1(alpha_num().or(char('_')))),
                 char('*').and(many(satisfy(|_| false))),
-            )))
-            .map(|(h, t): (_, String)| Token::Var(format!("{}{}", h, t)));
+            ))).map(|(h, t): (_, String)| Token::Var(format!("{}{}", h, t)));
         many(choice((
             plain,
             try(escaped("$$", "$")),
@@ -288,11 +287,11 @@ impl FromStr for Tokens {
             problem,
             var,
         ))).skip(eof())
-            .parse(input)
-            .map(|(tokens, _)| Tokens(tokens))
-            .map_err(|_| ParseTemplateError {
-                input: input.to_owned(),
-            })
+        .parse(input)
+        .map(|(tokens, _)| Tokens(tokens))
+        .map_err(|_| ParseTemplateError {
+            input: input.to_owned(),
+        })
     }
 }
 
@@ -627,8 +626,7 @@ mod tests {
                     .strings(hashmap!(
                         "service".to_owned() => "Service".to_owned(),
                         "contest".to_owned() => "Contest".to_owned()
-                    ))
-                    .expand("")
+                    )).expand("")
                     .unwrap()
             }
             test!("snowchains/$service/$contest" => "snowchains/Service/Contest");

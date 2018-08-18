@@ -164,7 +164,7 @@ if __name__ == '__main__':
                 color_choice: ColorChoice::Never,
                 problem: "a".to_owned(),
             }.run(&prop)
-                .map_err(Into::into)
+            .map_err(Into::into)
         },
     );
 }

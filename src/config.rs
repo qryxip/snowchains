@@ -296,8 +296,7 @@ pub(crate) fn switch(
         .and_then(|new_yaml| {
             let new_config = serde_yaml::from_str(&new_yaml)?;
             Ok((new_yaml, new_config))
-        })
-        .or_else(|warning| {
+        }).or_else(|warning| {
             eprintln!("{}", Palette::Warning.paint(warning.to_string()));
             let mut new_config = serde_yaml::from_str::<Config>(&old_yaml).map_err(|err| {
                 FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
@@ -320,7 +319,8 @@ pub(crate) fn switch(
         s1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
         c1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
         l1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
-    ].iter()
+    ]
+        .iter()
         .cloned()
         .max()
         .unwrap();
@@ -359,8 +359,9 @@ impl Config {
         dir: AbsPath,
     ) -> FileIoResult<Self> {
         let path = ::fs::find_filepath(dir, CONFIG_FILE_NAME)?;
-        let mut config = serde_yaml::from_reader::<_, Self>(::fs::open(&path)?)
-            .map_err(|err| FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err))?;
+        let mut config = serde_yaml::from_reader::<_, Self>(::fs::open(&path)?).map_err(|err| {
+            FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
+        })?;
         config.base_dir = path.parent().unwrap();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
@@ -499,8 +500,7 @@ impl Config {
                     &compile.working_directory,
                     &lang.src,
                     &compile.bin,
-                )
-                .insert_strings(&self.vars_for_langs(None))
+                ).insert_strings(&self.vars_for_langs(None))
         })
     }
 
@@ -513,8 +513,7 @@ impl Config {
                 &lang.run.working_directory,
                 &lang.src,
                 lang.compile.as_ref().map(|c| &c.bin),
-            )
-            .insert_strings(&self.vars_for_langs(None))
+            ).insert_strings(&self.vars_for_langs(None))
     }
 
     fn lang_name<'a>(&'a self, name: Option<&'a str>) -> LoadConfigResult<&'a str> {
@@ -524,7 +523,7 @@ impl Config {
                 .and_then(|s| s.language.as_ref())
                 .map(String::as_str)
         }).or_else(|| self.language.as_ref().map(String::as_str))
-            .ok_or_else(|| LoadConfigError::PropertyNotSet("language"))
+        .ok_or_else(|| LoadConfigError::PropertyNotSet("language"))
     }
 
     fn vars_for_langs(&self, service: impl Into<Option<ServiceName>>) -> HashMap<&str, &str> {

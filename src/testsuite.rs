@@ -167,8 +167,7 @@ impl<'a> SuiteFilePathsTemplate<'a> {
                         Some(Ok((stem, ext)))
                     }
                     Err(e) => Some(Err::<_, io::Error>(e)),
-                })
-                .collect::<io::Result<Vec<_>>>()?;
+                }).collect::<io::Result<Vec<_>>>()?;
             filenames.sort_by_key(|(s, _)| s.clone());
             filenames.sort_by_key(|&(_, e)| e);
             filenames
@@ -279,7 +278,9 @@ impl ZipEntries {
         let mut pairs = hashmap!();
         for i in 0..zip.len() {
             let (filename, content) = {
-                let file = zip.by_index(i).map_err(|e| FileIoError::read_zip(path, e))?;
+                let file = zip
+                    .by_index(i)
+                    .map_err(|e| FileIoError::read_zip(path, e))?;
                 let filename = file.name().to_owned();
                 let content = util::string_from_read(file, 0)
                     .map_err(|e| FileIoError::read_zip(path, e.into()))?;
@@ -318,8 +319,7 @@ impl ZipEntries {
                 } else {
                     None
                 }
-            })
-            .collect::<Vec<_>>();
+            }).collect::<Vec<_>>();
         for sorting in &self.sort {
             match sorting {
                 ZipEntrySorting::Dictionary => cases.sort_by(|(s1, _, _), (s2, _, _)| s1.cmp(s2)),
@@ -340,8 +340,7 @@ impl ZipEntries {
                 input: Arc::new(input),
                 expected: Arc::new(ExpectedStdout::new(Some(&output), output_match)),
                 timelimit,
-            })
-            .collect();
+            }).collect();
         Ok(cases)
     }
 }
@@ -517,8 +516,7 @@ impl SimpleSuite {
                     expected,
                     timelimit,
                 }
-            })
-            .collect::<Vec<_>>()
+            }).collect::<Vec<_>>()
     }
 
     fn append(&mut self, input: &str, output: Option<&str>) {
@@ -541,8 +539,7 @@ impl Serialize for SimpleSuite {
                 .map(|(i, o)| SimpleCaseRaw {
                     input: single_string(i.as_ref().clone()),
                     output: o.as_ref().map(|o| single_string(o.as_ref().clone())),
-                })
-                .collect()
+                }).collect()
         };
         SimpleSuiteRaw {
             timelimit: self.timelimit,
@@ -574,8 +571,7 @@ impl<'de> Deserialize<'de> for SimpleSuite {
                     let input = to_string(&case.input);
                     let output = case.output.as_ref().map(to_string);
                     (input, output)
-                })
-                .collect(),
+                }).collect(),
             raw_cases: Some(raw.cases),
         })
     }

@@ -86,8 +86,7 @@ impl<'a, 'b, S: AsRef<str>> Urls<'a, 'b, S> {
             .map(|name| {
                 let url = format!("{}{}{}", self.pref, name, self.suf);
                 Url::parse(&url).map_err(|err| SessionError::ParseUrl(url, err))
-            })
-            .collect()
+            }).collect()
     }
 }
 

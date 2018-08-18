@@ -38,8 +38,7 @@ pub(crate) fn judge(prop: JudgeProp) -> JudgeResult<()> {
                 let output = judge(&case, solver)?;
                 output.print_title(i, num_cases, &filename, filename_max_width);
                 Ok(output)
-            })
-            .collect::<JudgeResult<Vec<O>>>()?;
+            }).collect::<JudgeResult<Vec<O>>>()?;
 
         let num_failures = outputs.iter().filter(|o| o.failure()).count();
         if num_failures == 0 {
