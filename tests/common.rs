@@ -6,9 +6,9 @@ extern crate serde;
 extern crate serde_yaml;
 extern crate tempdir;
 
-use snowchains::app::{Opt, Prop};
-use snowchains::palette::ColorChoice;
-use snowchains::path::AbsPathBuf;
+use snowchains::app::{App, Opt};
+use snowchains::console::{ColorChoice, Console};
+use snowchains::path::{AbsPath, AbsPathBuf};
 use snowchains::service::{Credentials, RevelSession, UserNameAndPassword};
 use snowchains::ServiceName;
 
@@ -25,22 +25,22 @@ use std::{env, io, panic};
 pub fn test_in_tempdir<E: Into<failure::Error>>(
     tempdir_prefix: &str,
     credentials: Credentials,
-    f: impl FnOnce(&Prop) -> Result<(), E> + UnwindSafe,
+    f: impl FnOnce(App<io::Empty, io::Sink, io::Sink>) -> Result<(), E> + UnwindSafe,
 ) {
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
     let tempdir_path = tempdir.path().to_owned();
     let result = panic::catch_unwind(move || -> Result<(), failure::Error> {
-        let prop = Prop {
+        let mut app = App {
             working_dir: AbsPathBuf::new_or_panic(tempdir_path),
             cookies_on_init: Cow::from("$service"),
             credentials,
-            suppress_download_bars: true,
+            console: Console::null(),
         };
-        Opt::Init {
+        app.run(Opt::Init {
             color_choice: ColorChoice::Never,
             directory: PathBuf::from("."),
-        }.run(&prop)?;
-        f(&prop).map_err(Into::into)
+        })?;
+        f(app).map_err(Into::into)
     });
     tempdir.close().unwrap();
     match result {
@@ -77,30 +77,33 @@ pub fn dummy_credentials() -> Credentials {
     }
 }
 
-pub fn login(prop: &Prop, service: ServiceName) -> snowchains::Result<()> {
-    Opt::Login {
+pub fn login(
+    mut app: App<io::Empty, io::Sink, io::Sink>,
+    service: ServiceName,
+) -> snowchains::Result<()> {
+    app.run(Opt::Login {
         color_choice: ColorChoice::Never,
         service,
-    }.run(prop)
+    })
 }
 
 pub fn download(
-    prop: &Prop,
+    mut app: App<io::Empty, io::Sink, io::Sink>,
     service: ServiceName,
     contest: &str,
     problems: &[&str],
 ) -> snowchains::Result<()> {
-    Opt::Download {
+    app.run(Opt::Download {
         open_browser: false,
         service: Some(service),
         contest: Some(contest.to_owned()),
         problems: problems.iter().map(|&s| s.to_owned()).collect(),
         color_choice: ColorChoice::Never,
-    }.run(prop)
+    })
 }
 
 pub fn confirm_num_cases(
-    prop: &Prop,
+    wd: AbsPath,
     service: ServiceName,
     contest: &str,
     pairs: &[(&str, usize)],
@@ -125,8 +128,7 @@ pub fn confirm_num_cases(
     }
 
     for &(problem, expected_num_cases) in pairs {
-        let path = prop
-            .working_dir
+        let path = wd
             .join("snowchains")
             .join(service.to_str())
             .join(contest)
@@ -137,9 +139,8 @@ pub fn confirm_num_cases(
     }
 }
 
-pub fn confirm_zip_exists(prop: &Prop, contest: &str, problem: &str) -> io::Result<()> {
-    let path = prop
-        .working_dir
+pub fn confirm_zip_exists(wd: AbsPath, contest: &str, problem: &str) -> io::Result<()> {
+    let path = wd
         .join("snowchains")
         .join("hackerrank")
         .join(contest)

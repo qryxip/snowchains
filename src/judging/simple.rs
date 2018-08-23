@@ -1,18 +1,18 @@
 use command::JudgingCommand;
+use console::{Palette, Printer};
 use errors::JudgeResult;
-use judging::{JudgingOutput, MillisRoundedUp};
-use palette::Palette;
+use judging::{MillisRoundedUp, Outcome};
 use testsuite::{ExpectedStdout, SimpleCase};
 use util;
 
-use std::io::Write as _Write;
+use std::io::{self, Write};
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{self, fmt, thread};
 
 /// Tests for `case` and `solver` and returns one `SimpleOutput`.
-pub(super) fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutput> {
+pub(super) fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutcome> {
     let (tx, rx) = std::sync::mpsc::channel();
     {
         let (case, solver) = (case.clone(), solver.clone());
@@ -23,7 +23,7 @@ pub(super) fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeRes
     if let (input, expected, Some(timelimit)) = case.values() {
         rx.recv_timeout(timelimit + Duration::from_millis(50))
             .unwrap_or_else(|_| {
-                Ok(SimpleOutput::TimelimitExceeded {
+                Ok(SimpleOutcome::TimelimitExceeded {
                     timelimit,
                     input,
                     expected,
@@ -34,7 +34,7 @@ pub(super) fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeRes
     }
 }
 
-fn run(case: &SimpleCase, solver: &JudgingCommand) -> JudgeResult<SimpleOutput> {
+fn run(case: &SimpleCase, solver: &JudgingCommand) -> JudgeResult<SimpleOutcome> {
     let (input, expected, timelimit) = case.values();
 
     let mut solver = solver.spawn_piped()?;
@@ -47,20 +47,20 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> JudgeResult<SimpleOutput> 
     let stderr = Arc::new(util::string_from_read(solver.stderr.unwrap(), 1024)?);
 
     if timelimit.is_some() && elapsed > timelimit.unwrap() {
-        Ok(SimpleOutput::TimelimitExceeded {
+        Ok(SimpleOutcome::TimelimitExceeded {
             timelimit: timelimit.unwrap(),
             input,
             expected,
         })
     } else if status.success() && is_match(&expected, &stdout) {
-        Ok(SimpleOutput::Accepted {
+        Ok(SimpleOutcome::Accepted {
             elapsed,
             input,
             stdout,
             stderr,
         })
     } else if status.success() {
-        Ok(SimpleOutput::WrongAnswer {
+        Ok(SimpleOutcome::WrongAnswer {
             elapsed,
             input,
             expected,
@@ -68,7 +68,7 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> JudgeResult<SimpleOutput> 
             stderr,
         })
     } else {
-        Ok(SimpleOutput::RuntimeError {
+        Ok(SimpleOutcome::RuntimeError {
             elapsed,
             input,
             expected,
@@ -121,7 +121,7 @@ fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
 
 /// Test result.
 #[cfg_attr(test, derive(Debug))]
-pub(super) enum SimpleOutput {
+pub(super) enum SimpleOutcome {
     // Each string may be empty.
     Accepted {
         elapsed: Duration,
@@ -151,21 +151,21 @@ pub(super) enum SimpleOutput {
     },
 }
 
-impl fmt::Display for SimpleOutput {
+impl fmt::Display for SimpleOutcome {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            SimpleOutput::Accepted { elapsed, .. } => {
+            SimpleOutcome::Accepted { elapsed, .. } => {
                 write!(f, "Accepted ({}ms)", elapsed.millis_rounded_up())
             }
-            SimpleOutput::TimelimitExceeded { timelimit, .. } => write!(
+            SimpleOutcome::TimelimitExceeded { timelimit, .. } => write!(
                 f,
                 "Time Limit Exceeded ({}ms)",
                 timelimit.millis_rounded_up()
             ),
-            SimpleOutput::WrongAnswer { elapsed, .. } => {
+            SimpleOutcome::WrongAnswer { elapsed, .. } => {
                 write!(f, "Wrong Answer ({}ms)", elapsed.millis_rounded_up())
             }
-            SimpleOutput::RuntimeError {
+            SimpleOutcome::RuntimeError {
                 elapsed, status, ..
             } => {
                 let elapsed = elapsed.millis_rounded_up();
@@ -175,72 +175,89 @@ impl fmt::Display for SimpleOutput {
     }
 }
 
-impl JudgingOutput for SimpleOutput {
+impl Outcome for SimpleOutcome {
     fn failure(&self) -> bool {
         match self {
-            SimpleOutput::Accepted { .. } => false,
+            SimpleOutcome::Accepted { .. } => false,
             _ => true,
         }
     }
 
     fn palette(&self) -> Palette {
         match self {
-            SimpleOutput::Accepted { .. } => Palette::Success,
-            SimpleOutput::TimelimitExceeded { .. } => Palette::Fatal,
-            SimpleOutput::WrongAnswer { .. } | SimpleOutput::RuntimeError { .. } => {
+            SimpleOutcome::Accepted { .. } => Palette::Success,
+            SimpleOutcome::TimelimitExceeded { .. } => Palette::Fatal,
+            SimpleOutcome::WrongAnswer { .. } | SimpleOutcome::RuntimeError { .. } => {
                 Palette::Warning
             }
         }
     }
 
-    fn eprint_details(&self) {
+    fn print_details(&self, mut printer: Printer<impl Write>) -> io::Result<()> {
         const THRESHOLD_TO_OMIT: usize = 1024;
 
-        fn eprint_size(num_bytes: usize) {
+        fn print_size(mut printer: Printer<impl Write>, num_bytes: usize) -> io::Result<()> {
+            let mut printer = printer.bold(Palette::Warning);
             if num_bytes > 10 * 1024 * 1024 {
-                let msg = format!("OMITTED ({}MB)", num_bytes / (1024 * 1024));
-                eprintln!("{}", Palette::Warning.bold().paint(msg));
+                writeln!(printer, "OMITTED ({}MB)", num_bytes / (1024 * 1024))
             } else if num_bytes > 10 * 1024 {
-                let msg = format!("OMITTED ({}KB)", num_bytes / 1024);
-                eprintln!("{}", Palette::Warning.bold().paint(msg));
+                writeln!(printer, "OMITTED ({}KB)", num_bytes / 1024)
             } else {
-                let msg = format!("OMITTED ({}B)", num_bytes);
-                eprintln!("{}", Palette::Warning.bold().paint(msg));
+                writeln!(printer, "OMITTED ({}B)", num_bytes)
             }
         }
 
-        fn eprint_section(head: &'static str, content: &str) {
-            eprintln!("{}", Palette::Title.bold().paint(format!("{}:", head)));
+        fn print_section(
+            mut printer: Printer<impl Write>,
+            head: &'static str,
+            content: &str,
+        ) -> io::Result<()> {
+            writeln!(printer.bold(Palette::Title), "{}:", head)?;
             let num_bytes = content.as_bytes().len();
             if num_bytes == 0 {
-                eprintln!("{}", Palette::Warning.bold().paint("EMPTY"));
+                writeln!(printer.bold(Palette::Warning), "EMPTY")?;
             } else if num_bytes > THRESHOLD_TO_OMIT {
-                eprint_size(num_bytes);
+                print_size(printer, num_bytes)?;
             } else {
-                util::eprintln_trimming_trailing_newline(content);
+                write!(printer, "{}", content)?;
+                if !content.ends_with('\n') {
+                    writeln!(printer.bold(Palette::Warning), "<noeol>")?;
+                }
             }
+            Ok(())
         }
 
-        fn eprint_section_unless_empty(head: &'static str, content: &str) {
-            eprintln!("{}", Palette::Title.bold().paint(format!("{}:", head)));
+        fn print_section_unless_empty(
+            mut printer: Printer<impl Write>,
+            head: &'static str,
+            content: &str,
+        ) -> io::Result<()> {
+            writeln!(printer.bold(Palette::Title), "{}:", head)?;
             let num_bytes = content.as_bytes().len();
             if num_bytes > THRESHOLD_TO_OMIT {
-                eprint_size(num_bytes);
+                print_size(printer, num_bytes)?;
             } else if num_bytes > 0 {
-                util::eprintln_trimming_trailing_newline(content);
+                write!(printer, "{}", content)?;
+                if !content.ends_with('\n') {
+                    writeln!(printer.bold(Palette::Warning), "<noeol>")?;
+                }
             }
+            Ok(())
         }
 
-        fn eprint_expected_sectioon_unless_empty(content: &ExpectedStdout) {
+        fn print_expected_sectioon_unless_empty(
+            mut printer: Printer<impl Write>,
+            content: &ExpectedStdout,
+        ) -> io::Result<()> {
             match content {
                 ExpectedStdout::AcceptAny => {}
                 ExpectedStdout::Exact(content) => {
-                    eprint_section("expected", content);
+                    print_section(printer, "expected", content)?;
                 }
                 ExpectedStdout::Lines(lines) => {
-                    eprintln!("{}", Palette::Title.bold().paint("expected:"));
+                    writeln!(printer.bold(Palette::Title), "expected:")?;
                     for l in lines.lines() {
-                        eprintln!("{}", l);
+                        writeln!(printer, "{}", l)?;
                     }
                 }
                 ExpectedStdout::Float {
@@ -248,74 +265,73 @@ impl JudgingOutput for SimpleOutput {
                     absolute_error,
                     relative_error,
                 } => {
-                    let msg = format!(
+                    writeln!(
+                        printer.bold(Palette::Title),
                         "expected (absolute: {}, relative: {}):",
-                        absolute_error, relative_error
-                    );
-                    eprintln!("{}", Palette::Title.bold().paint(msg));
+                        absolute_error,
+                        relative_error
+                    )?;
                     for l in lines.lines() {
                         if l.split_whitespace().any(|t| t.parse::<f64>().is_ok()) {
                             for (i, t) in l.split_whitespace().enumerate() {
                                 match t.parse::<f64>() {
                                     Ok(v) if i == 0 => {
-                                        eprint!("{}", Palette::CommandInfo.paint(v.to_string()))
+                                        writeln!(printer.plain(Palette::CommandInfo), "{}", v)
                                     }
-                                    Ok(v) => {
-                                        eprint!("{}", Palette::CommandInfo.paint(v.to_string()))
-                                    }
-                                    Err(_) if i == 0 => eprint!("{}", t),
-                                    Err(_) => eprint!(" {}", t),
-                                }
+                                    Ok(v) => writeln!(printer.plain(Palette::CommandInfo), "{}", v),
+                                    Err(_) if i == 0 => writeln!(printer, "{}", t),
+                                    Err(_) => writeln!(printer, " {}", t),
+                                }?;
                             }
-                            eprintln!();
                         } else {
-                            eprintln!("{}", l);
+                            writeln!(printer, "{}", l)?;
                         }
                     }
                 }
             }
+            Ok(())
         }
 
         match self {
-            SimpleOutput::Accepted {
+            SimpleOutcome::Accepted {
                 input,
-                stdout,
-                stderr,
+                stdout: actual_stdout,
+                stderr: actual_stderr,
                 ..
             } => {
-                eprint_section("input", input);
-                eprint_section("stdout", stdout);
-                eprint_section_unless_empty("stderr", stderr);
+                print_section(printer.reborrow(), "input", input)?;
+                print_section(printer.reborrow(), "stdout", actual_stdout)?;
+                print_section_unless_empty(printer.reborrow(), "stderr", actual_stderr)
             }
-            SimpleOutput::TimelimitExceeded {
+            SimpleOutcome::TimelimitExceeded {
                 input, expected, ..
             } => {
-                eprint_section("input", input);
-                eprint_expected_sectioon_unless_empty(expected);
+                print_section(printer.reborrow(), "input", input)?;
+                print_expected_sectioon_unless_empty(printer.reborrow(), expected)
             }
-            SimpleOutput::WrongAnswer {
+            SimpleOutcome::WrongAnswer {
                 input,
                 expected,
-                stdout,
-                stderr,
+                stdout: actual_stdout,
+                stderr: actual_stderr,
                 ..
             } => {
-                eprint_section("input", input);
-                eprint_expected_sectioon_unless_empty(expected);
-                eprint_section("stdout", stdout);
-                eprint_section_unless_empty("stderr", stderr);
+                print_section(printer.reborrow(), "input", input)?;
+                print_expected_sectioon_unless_empty(printer.reborrow(), expected)?;
+                print_section(printer.reborrow(), "stdout", actual_stdout)?;
+                print_section_unless_empty(printer.reborrow(), "stderr", actual_stderr)
             }
-            SimpleOutput::RuntimeError {
+            SimpleOutcome::RuntimeError {
                 input,
                 expected,
-                stdout,
-                stderr,
+                stdout: actual_stdout,
+                stderr: actual_stderr,
                 ..
             } => {
-                eprint_section("input", input);
-                eprint_expected_sectioon_unless_empty(expected);
-                eprint_section_unless_empty("stdout", stdout);
-                eprint_section("stderr", stderr);
+                print_section(printer.reborrow(), "input", input)?;
+                print_expected_sectioon_unless_empty(printer.reborrow(), expected)?;
+                print_section_unless_empty(printer.reborrow(), "stdout", actual_stdout)?;
+                print_section(printer.reborrow(), "printer", actual_stderr)
             }
         }
     }
@@ -325,7 +341,7 @@ impl JudgingOutput for SimpleOutput {
 mod tests {
     use command::JudgingCommand;
     use errors::{JudgeError, JudgeResult};
-    use judging::simple::SimpleOutput;
+    use judging::simple::SimpleOutcome;
     use path::AbsPathBuf;
     use testsuite::SimpleCase;
 
@@ -350,7 +366,7 @@ mod tests {
         let error_command = bash("echo error message 1>&2 && exit 1");
         for (case_in, case_out) in vec![(IN1, OUT1), (IN2, OUT2)] {
             match judge_default_matching(case_in, case_out, 500, &correct_command).unwrap() {
-                SimpleOutput::Accepted {
+                SimpleOutcome::Accepted {
                     input,
                     stdout,
                     stderr,
@@ -363,7 +379,7 @@ mod tests {
                 o => panic!("{:?}", o),
             }
             match judge_default_matching(case_in, case_out, 500, &wrong_command).unwrap() {
-                SimpleOutput::WrongAnswer {
+                SimpleOutcome::WrongAnswer {
                     input,
                     stdout,
                     stderr,
@@ -376,7 +392,7 @@ mod tests {
                 o => panic!("{:?}", o),
             }
             match judge_default_matching(case_in, case_out, 500, &error_command).unwrap() {
-                SimpleOutput::RuntimeError {
+                SimpleOutcome::RuntimeError {
                     input,
                     stdout,
                     stderr,
@@ -510,7 +526,7 @@ impl InputScanOnce {
         assert!(status.success());
         let command = Arc::new(JudgingCommand::from_args(bin.as_ref(), &[], wd));
         match judge_float_matching(IN, OUT, 500, 1e-9f64, &command).unwrap() {
-            SimpleOutput::Accepted { .. } => tempdir.close().unwrap(),
+            SimpleOutcome::Accepted { .. } => tempdir.close().unwrap(),
             o => panic!("{:?}", o),
         }
     }
@@ -521,7 +537,7 @@ impl InputScanOnce {
         let _ = env_logger::try_init();
         let command = bash("sleep 1");
         match judge_default_matching("input\n", "", 200, &command).unwrap() {
-            SimpleOutput::TimelimitExceeded {
+            SimpleOutcome::TimelimitExceeded {
                 timelimit, input, ..
             } => {
                 assert_eq!(Duration::from_millis(200), timelimit);
@@ -559,7 +575,7 @@ impl InputScanOnce {
         output: &str,
         timelimit: u64,
         command: &Arc<JudgingCommand>,
-    ) -> JudgeResult<SimpleOutput> {
+    ) -> JudgeResult<SimpleOutcome> {
         let timelimit = Duration::from_millis(timelimit);
         let case = SimpleCase::default_matching(input, output, timelimit);
         judge(&case, timelimit * 2, command)
@@ -571,7 +587,7 @@ impl InputScanOnce {
         timelimit: u64,
         error: f64,
         command: &Arc<JudgingCommand>,
-    ) -> JudgeResult<SimpleOutput> {
+    ) -> JudgeResult<SimpleOutcome> {
         let timelimit = Duration::from_millis(timelimit);
         let case = SimpleCase::float_matching(input, output, timelimit, error, error);
         judge(&case, timelimit * 2, command)
@@ -581,7 +597,7 @@ impl InputScanOnce {
         case: &SimpleCase,
         timeout: Duration,
         command: &Arc<JudgingCommand>,
-    ) -> JudgeResult<SimpleOutput> {
+    ) -> JudgeResult<SimpleOutcome> {
         let (case, command) = (case.clone(), command.clone());
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || loop {

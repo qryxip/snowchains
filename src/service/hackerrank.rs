@@ -1,6 +1,7 @@
+use console::{self, Palette};
 use errors::{ServiceError, ServiceResult, SessionResult};
-use palette::Palette;
-use service::session::{GetPost, HttpSession};
+use service::downloader::ZipDownloader;
+use service::session::{HasSession, HttpSession};
 use service::{
     Contest, DownloadProp, PrintTargets as _PrintTargets, SessionProp,
     TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
@@ -15,37 +16,49 @@ use serde::{self, Deserialize, Deserializer};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::io::{self, BufRead, Write};
 use std::rc::Rc;
-use std::{self, fmt, io};
+use std::time::Duration;
+use std::{self, fmt};
 
-pub(crate) fn login(sess_prop: &SessionProp) -> ServiceResult<()> {
+pub(crate) fn login(
+    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+) -> ServiceResult<()> {
     Hackerrank::start(sess_prop)?.login(LoginOption::Explicit)
 }
 
 pub(crate) fn download(
-    sess_prop: &SessionProp,
+    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
     let download_prop = download_prop.parse_contest();
-    download_prop.print_targets();
-    Hackerrank::start(sess_prop)?.download(sess_prop, &download_prop)
+    download_prop.write_targets(sess_prop.console.stdout())?;
+    let timeout = sess_prop.timeout;
+    Hackerrank::start(sess_prop)?.download(&download_prop, timeout)
 }
 
-struct Hackerrank {
-    session: HttpSession,
+struct Hackerrank<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> {
+    session: HttpSession<'a, I, O, E>,
     credentials: UserNameAndPassword,
 }
 
-impl GetPost for Hackerrank {
-    fn session(&mut self) -> &mut HttpSession {
+impl<'a, I: BufRead, O: Write, E: Write> HasSession<'a> for Hackerrank<'a, I, O, E> {
+    type Stdin = I;
+    type Stdout = O;
+    type Stderr = E;
+
+    fn session<'b>(&'b mut self) -> &'b mut HttpSession<'a, I, O, E>
+    where
+        'a: 'b,
+    {
         &mut self.session
     }
 }
 
-impl Hackerrank {
-    fn start(sess_prop: &SessionProp) -> SessionResult<Self> {
-        let session = sess_prop.start_session()?;
+impl<'a, I: BufRead, O: Write, E: Write> Hackerrank<'a, I, O, E> {
+    fn start(sess_prop: SessionProp<'a, I, O, E>) -> SessionResult<Self> {
         let credentials = sess_prop.credentials.hackerrank.clone();
+        let session = sess_prop.start_session()?;
         Ok(Hackerrank {
             session,
             credentials,
@@ -55,30 +68,39 @@ impl Hackerrank {
     fn login(&mut self, option: LoginOption) -> ServiceResult<()> {
         let mut res = self.get("/login").acceptable(&[200, 302]).send()?;
         if res.status() == StatusCode::Found && option == LoginOption::Explicit {
-            eprintln!("Already signed in.");
+            writeln!(self.stderr(), "Already signed in.")?;
+            self.stderr().flush()?;
         } else if res.status() == StatusCode::Ok {
             let (mut username, mut password, on_test) = {
-                let on_test = self.credentials.is_some();
-                let (username, password) = self.credentials.or_ask("Username: ")?;
-                (username, password, on_test)
+                match self.credentials.clone() {
+                    UserNameAndPassword::Some(username, password) => {
+                        (username.clone(), password.clone(), true)
+                    }
+                    UserNameAndPassword::None => (
+                        Rc::new(self.console().prompt_reply_stderr("Username: ")?),
+                        Rc::new(self.console().prompt_password_stderr("Password: ")?),
+                        false,
+                    ),
+                }
             };
             if option == LoginOption::NotNecessary
                 && !on_test
-                && !super::ask_yes_or_no("Login? ", false)?
+                && !self.console().ask_yes_or_no("Login? ", false)?
             {
                 return Ok(());
             }
             loop {
                 if self.try_logging_in(&username, &password, res)? {
-                    break println!("Succeeded to login.");
+                    writeln!(self.stdout(), "Succeeded to login.")?;
+                    break self.stdout().flush()?;
                 }
                 if on_test {
                     return Err(ServiceError::WrongCredentialsOnTest);
                 }
-                let (username_, password_) = super::ask_credentials("Username: ")?;
-                username = Rc::new(username_);
-                password = Rc::new(password_);
-                eprintln!("Failed to login. Try again.");
+                username = Rc::new(self.console().prompt_reply_stderr("Username: ")?);
+                password = Rc::new(self.console().prompt_password_stderr("Password: ")?);
+                writeln!(self.stderr(), "Failed to login. Try again.")?;
+                self.stderr().flush()?;
                 self.session.clear_cookies()?;
                 res = self.get("/login").send()?;
             }
@@ -113,19 +135,30 @@ impl Hackerrank {
 
     fn download(
         &mut self,
-        sess_prop: &SessionProp,
         download_prop: &DownloadProp<HackerrankContest>,
+        timeout: Option<Duration>,
     ) -> ServiceResult<()> {
-        fn warn_unless_empty(problems: &[impl AsRef<str>], verb: &str) {
+        fn warn_unless_empty(
+            mut stderr: console::Stderr<impl Write>,
+            problems: &[impl AsRef<str>],
+            verb: &str,
+        ) -> io::Result<()> {
             if !problems.is_empty() {
                 let suf = if problems.len() == 1 { "" } else { "s" };
                 let problems = problems
                     .iter()
                     .map(|problem| format!("{:?}", problem.as_ref()))
                     .format(", ");
-                let mes = format!("Following problem{} {}: {}", suf, verb, problems);
-                eprintln!("{}", Palette::Warning.paint(mes));
+                writeln!(
+                    stderr.plain(Palette::Warning),
+                    "Following problem{} {}: {}",
+                    suf,
+                    verb,
+                    problems
+                )?;
+                stderr.flush()?;
             }
+            Ok(())
         }
 
         let DownloadProp {
@@ -134,7 +167,6 @@ impl Hackerrank {
             download_dir,
             extension,
             open_browser,
-            suppress_download_bars,
         } = download_prop;
         let problems = problems.as_ref();
 
@@ -177,7 +209,7 @@ impl Hackerrank {
                 .collect::<Vec<_>>()
         });
         if let Some(not_found) = not_found {
-            warn_unless_empty(&not_found, "not found");
+            warn_unless_empty(self.stderr(), &not_found, "not found")?;
         }
 
         let mut browser_urls = vec![];
@@ -207,11 +239,12 @@ impl Hackerrank {
             }
         }
 
-        warn_unless_empty(&cannot_view, "cannot be viewed");
+        warn_unless_empty(self.stderr(), &cannot_view, "cannot be viewed")?;
 
         for (suite, path) in scraped {
-            suite.save(&path, true)?;
+            suite.save(&path, self.stdout())?;
         }
+        self.stdout().flush()?;
 
         if !zip_targets.is_empty() {
             let (url_pref, names);
@@ -235,28 +268,16 @@ impl Hackerrank {
             };
             static URL_SUF: &str = "/download_testcases";
             let cookie = self.session.cookies_to_header();
-            let mut downloader = sess_prop.zip_downloader()?;
-            if *suppress_download_bars {
-                downloader.download(
-                    io::sink(),
-                    url_pref,
-                    URL_SUF,
-                    download_dir,
-                    &names,
-                    cookie.as_ref(),
-                )?;
-            } else {
-                downloader.download(
-                    io::stdout(),
-                    url_pref,
-                    URL_SUF,
-                    download_dir,
-                    &names,
-                    cookie.as_ref(),
-                )?;
-            }
+            ZipDownloader {
+                out: io::sink(),
+                url_pref: &url_pref,
+                url_suf: URL_SUF,
+                download_dir,
+                names: &names,
+                timeout,
+                cookie: cookie.as_ref(),
+            }.download()?;
         }
-
         if *open_browser {
             for url in browser_urls {
                 self.session.open_in_browser(&url)?;
@@ -369,15 +390,17 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
+    use console::Console;
     use errors::SessionResult;
     use service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
-    use service::session::{GetPost as _GetPost, HttpSession, UrlBase};
+    use service::session::{HasSession as _HasSession, HttpSession, UrlBase};
     use service::{self, UserNameAndPassword};
     use testsuite::TestSuite;
 
     use select::document::Document;
     use url::Host;
 
+    use std::io::{BufRead, Write};
     use std::time::Duration;
 
     #[test]
@@ -394,7 +417,8 @@ mod tests {
             ],
         );
         let actual = {
-            let mut hackerrank = start().unwrap();
+            let mut null = Console::null();
+            let mut hackerrank = start(&mut null).unwrap();
             let json = hackerrank
                 .get("/rest/contests/hourrank-20/challenges/hot-and-cold")
                 .recv_json::<ProblemQueryResponse>()
@@ -405,10 +429,12 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    fn start() -> SessionResult<Hackerrank> {
+    fn start<I: BufRead, O: Write, E: Write>(
+        console: &mut Console<I, O, E>,
+    ) -> SessionResult<Hackerrank<I, O, E>> {
         let client = service::reqwest_client(Duration::from_secs(10))?;
         let base = UrlBase::new(Host::Domain("www.hackerrank.com"), true, None);
-        let session = HttpSession::new(client, base, None)?;
+        let session = HttpSession::new(console, client, base, None)?;
         Ok(Hackerrank {
             session,
             credentials: UserNameAndPassword::None,

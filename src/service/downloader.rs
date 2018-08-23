@@ -1,88 +1,126 @@
 use errors::{FileIoResult, ServiceError, ServiceResult, SessionError, SessionResult};
 use path::{AbsPath, AbsPathBuf};
+use service;
 
-use futures::{future, task, Async, Future, Poll, Stream};
+use futures::sync::oneshot;
+use futures::{self, future, task, Async, Future, Poll, Stream};
 use itertools::Itertools as _Itertools;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
-use reqwest::header::{self, ContentLength};
+use reqwest::header::{self, ContentLength, Headers, UserAgent};
 use reqwest::unstable::async::Decoder;
-use reqwest::{self, StatusCode};
+use reqwest::{self, RedirectPolicy, StatusCode};
 use tokio_core::reactor::Core;
 use url::Url;
 use zip::ZipArchive;
 
-use std::borrow::Cow;
 use std::fs::File;
 use std::io::{self, BufWriter, Write as _Write};
 use std::time::{Duration, Instant};
 use std::{fmt, panic, thread};
 
-pub(super) struct ZipDownloader {
-    client: reqwest::unstable::async::Client,
-    core: Core,
+pub(super) struct ZipDownloader<'a, W: io::Write, S: AsRef<str> + 'a> {
+    pub out: W,
+    pub url_pref: &'a str,
+    pub url_suf: &'static str,
+    pub download_dir: AbsPath<'a>,
+    pub names: &'a [S],
+    pub timeout: Option<Duration>,
+    pub cookie: Option<&'a header::Cookie>,
 }
 
-impl ZipDownloader {
-    pub(super) fn new(client: reqwest::unstable::async::Client, core: Core) -> Self {
-        Self { client, core }
-    }
-
-    pub(super) fn download(
-        &mut self,
-        mut out: impl io::Write + Send + 'static,
-        url_pref: Cow<str>,
-        url_suf: &'static str,
-        download_dir: AbsPath,
-        names: &[impl AsRef<str>],
-        cookie: Option<&header::Cookie>,
-    ) -> ServiceResult<()> {
-        let (client, core) = (&self.client, &mut self.core);
+impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
+    pub(super) fn download(mut self) -> ServiceResult<()> {
         let urls = Urls {
-            pref: url_pref,
-            names,
-            suf: url_suf,
+            pref: self.url_pref.to_owned(),
+            names: self.names.iter().map(|s| s.as_ref().to_owned()).collect(),
+            suf: self.url_suf,
         };
         let paths = Paths {
-            dir: download_dir,
-            names,
+            dir: self.download_dir.to_owned(),
+            names: self.names.iter().map(|s| s.as_ref().to_owned()).collect(),
         };
-        writeln!(out, "URLS: {}\nTo:   {}", urls, download_dir.display(),)?;
-        out.flush()?;
-        let works = urls
-            .try_to_urls()?
-            .into_iter()
-            .map(|url| receive_header(client, url, cookie.cloned()));
-        let resps = core.run(future::join_all(works))?;
-        if resps.len() == 1 {
-            writeln!(out, "The endpoint returned 200.")?;
-        } else {
-            writeln!(out, "All endpoints returned 200.")?;
+        let timeout = self.timeout;
+        let cookie = self.cookie.cloned();
+        writeln!(
+            self.out,
+            "URLS: {}\nTo:   {}",
+            urls,
+            self.download_dir.display(),
+        )?;
+        self.out.flush()?;
+        let (header_result_tx, header_result_rx) = oneshot::channel();
+        let (mut pb_tx, pb_rx) = futures::sync::mpsc::channel(self.names.len());
+        let thread = thread::spawn(move || -> ServiceResult<()> {
+            let mut core = Core::new()?;
+            let mut builder = reqwest::unstable::async::Client::builder();
+            if let Some(timeout) = timeout {
+                builder.timeout(timeout);
+            }
+            let client = builder
+                .redirect(RedirectPolicy::none())
+                .referer(false)
+                .default_headers({
+                    let mut headers = Headers::new();
+                    headers.set(UserAgent::new(service::USER_AGENT));
+                    headers
+                }).build(&core.handle())?;
+            let works = urls
+                .try_to_urls()?
+                .into_iter()
+                .map(|url| receive_header(&client, url, cookie.clone()));
+            let resps = match core.run(future::join_all(works)) {
+                Ok(resps) => {
+                    header_result_tx.send(Ok(resps.len())).unwrap();
+                    resps
+                }
+                Err(err) => {
+                    header_result_tx.send(Err(())).unwrap();
+                    return Err(err.into());
+                }
+            };
+            let works = resps
+                .into_iter()
+                .zip(paths.iter())
+                .zip(pb_rx.collect().wait().unwrap())
+                .map(|((resp, path), pb)| DownloadBody::new(resp, &path, pb))
+                .collect::<FileIoResult<Vec<_>>>()?;
+            core.run(future::join_all(works).map(|_| ()))
+        });
+        match header_result_rx.wait() {
+            Ok(Ok(1)) => {
+                self.out.write_all(b"The endpoint returned 200.\n")?;
+                self.out.flush()?;
+            }
+            Ok(Ok(_)) => {
+                self.out.write_all(b"All endpoints returned 200.\n")?;
+                self.out.flush()?;
+            }
+            _ => {}
         }
-        out.flush()?;
-        let mut mb = MultiBar::on(out);
-        let works = resps
-            .into_iter()
-            .zip(paths.iter())
-            .map(|(resp, path)| DownloadBody::new(resp, &path, &mut mb))
-            .collect::<FileIoResult<Vec<_>>>()?;
-        let thread = thread::spawn(move || mb.listen());
-        let result = core.run(future::join_all(works)).map(|_| ());
-        thread.join().unwrap_or_else(|p| panic::resume_unwind(p));
+        let result = {
+            let mut mb = MultiBar::on(&mut self.out);
+            for _ in 0..self.names.len() {
+                pb_tx.try_send(mb.create_bar(0)).unwrap();
+            }
+            drop(pb_tx);
+            mb.listen();
+            thread.join().unwrap_or_else(|p| panic::resume_unwind(p))
+        };
+        self.out.flush()?;
         result
     }
 }
 
-struct Urls<'a, 'b, S: AsRef<str> + 'b> {
-    pref: Cow<'a, str>,
-    names: &'b [S],
+struct Urls {
+    pref: String,
+    names: Vec<String>,
     suf: &'static str,
 }
 
-impl<'a, 'b, S: AsRef<str>> Urls<'a, 'b, S> {
+impl Urls {
     fn try_to_urls(&self) -> SessionResult<Vec<Url>> {
         self.names
             .iter()
-            .map(AsRef::as_ref)
             .map(|name| {
                 let url = format!("{}{}{}", self.pref, name, self.suf);
                 Url::parse(&url).map_err(|err| SessionError::ParseUrl(url, err))
@@ -90,32 +128,30 @@ impl<'a, 'b, S: AsRef<str>> Urls<'a, 'b, S> {
     }
 }
 
-impl<'a, 'b, S: AsRef<str>> fmt::Display for Urls<'a, 'b, S> {
+impl fmt::Display for Urls {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.pref)?;
         if self.names.len() == 1 {
-            write!(f, "{}", self.names[0].as_ref())
+            write!(f, "{}", self.names[0])
         } else {
-            write!(
-                f,
-                "{{{}}}",
-                self.names.iter().map(AsRef::as_ref).format(", ")
-            )
+            write!(f, "{{{}}}", self.names.iter().format(", "))
         }?;
         write!(f, "{}", self.suf)
     }
 }
 
-struct Paths<'a, 'b, S: AsRef<str> + 'b> {
-    dir: AbsPath<'a>,
-    names: &'b [S],
+struct Paths {
+    dir: AbsPathBuf,
+    names: Vec<String>,
 }
 
-impl<'a, 'b, S: AsRef<str>> Paths<'a, 'b, S> {
-    fn iter<'c>(&'c self) -> impl Iterator<Item = AbsPathBuf> + 'c {
+impl Paths {
+    fn iter(&self) -> impl Iterator<Item = AbsPathBuf> {
         self.names
             .iter()
-            .map(move |s| self.dir.join(format!("{}.zip", s.as_ref())))
+            .map(|s| self.dir.join(format!("{}.zip", s)))
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 }
 
@@ -150,13 +186,13 @@ impl DownloadBody {
     fn new(
         response: reqwest::unstable::async::Response,
         path: AbsPath,
-        mb: &mut MultiBar<impl io::Write>,
+        mut progress_bar: ProgressBar<Pipe>,
     ) -> FileIoResult<Self> {
         const ALT_CAPACITY: usize = 30 * 1024 * 1024;
         let len = response.headers().get::<ContentLength>().map(|l| **l);
         let cap = len.map(|n| n as usize).unwrap_or(ALT_CAPACITY);
         let file = BufWriter::with_capacity(cap, ::fs::create_file_and_dirs(path)?);
-        let mut progress_bar = mb.create_bar(len.unwrap_or(0));
+        progress_bar.total = len.unwrap_or(0);
         progress_bar.set_units(Units::Bytes);
         Ok(Self {
             size_unknown: len.is_none(),
@@ -198,7 +234,10 @@ impl Future for DownloadBody {
             }
             Ok(Async::Ready(Some(chunk))) => {
                 const LEAST_INTERVAL: Duration = Duration::from_millis(200);
-                self.file.write_all(&chunk)?;
+                self.file.write_all(&chunk).map_err(|err| {
+                    self.progress_bar.finish_print("Failed");
+                    err
+                })?;
                 self.pos += chunk.len() as u64;
                 if Instant::now() - self.updated > LEAST_INTERVAL {
                     self.update_progress_bar();

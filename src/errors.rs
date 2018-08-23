@@ -25,6 +25,7 @@ pub enum Error {
     LoadConfig(LoadConfigError),
     ExpandTemplate(ExpandTemplateError),
     FileIo(FileIoError),
+    Io(io::Error),
     Getcwd(io::Error),
     Unimplemented,
 }
@@ -38,6 +39,7 @@ impl fmt::Display for self::Error {
             self::Error::LoadConfig(e) => write!(f, "{}", e),
             self::Error::ExpandTemplate(e) => write!(f, "{}", e),
             self::Error::FileIo(e) => write!(f, "{}", e),
+            self::Error::Io(e) => write!(f, "{}", e),
             self::Error::Getcwd(_) => write!(f, "Failed to get the current directory"),
             self::Error::Unimplemented => write!(f, "Sorry, not yet implemented"),
         }
@@ -67,6 +69,7 @@ derive_from!(
     Error::LoadConfig     <- LoadConfigError,
     Error::ExpandTemplate <- ExpandTemplateError,
     Error::FileIo         <- FileIoError,
+    Error::Io             <- io::Error,
 );
 
 pub(crate) type ServiceResult<T> = std::result::Result<T, ServiceError>;
@@ -586,6 +589,16 @@ impl FileIoError {
     }
 }
 
+impl From<io::Error> for FileIoError {
+    fn from(from: io::Error) -> Self {
+        Self {
+            kind: FileIoErrorKind::Other,
+            path: PathBuf::new(),
+            cause: Some(from.into()),
+        }
+    }
+}
+
 impl fmt::Display for FileIoError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let path = self.path.display();
@@ -627,6 +640,10 @@ impl fmt::Display for FileIoError {
             FileIoErrorKind::UnsupportedZipArchive(m) => {
                 write!(f, "{} is unsupported Zip archive: {}", path, m)
             }
+            FileIoErrorKind::Other => match &self.cause {
+                Some(cause) => write!(f, "{}", cause),
+                None => write!(f, "other"),
+            },
         }
     }
 }
@@ -653,6 +670,7 @@ pub(crate) enum FileIoErrorKind {
     UnsupportedUseOfTilde,
     InvalidZipArchive(&'static str),
     UnsupportedZipArchive(&'static str),
+    Other,
 }
 
 #[derive(Debug)]

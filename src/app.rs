@@ -1,7 +1,7 @@
 use config::{self, Config};
+use console::{self, ColorChoice, Console};
 use errors::ExpandTemplateResult;
 use judging::{self, JudgeProp};
-use palette::{self, ColorChoice};
 use path::AbsPathBuf;
 use service::{
     atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp,
@@ -10,7 +10,7 @@ use testsuite::{self, SerializableExtension, SuiteFilePath};
 use ServiceName;
 
 use std::borrow::Cow;
-use std::env;
+use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 #[derive(Debug, StructOpt)]
@@ -404,22 +404,27 @@ pub enum Opt {
     },
 }
 
-impl Opt {
-    pub fn run(self, prop: &Prop) -> ::Result<()> {
-        info!("Opt = {:?}", self);
-        let Prop {
-            working_dir,
-            cookies_on_init,
-            suppress_download_bars,
-            ..
-        } = prop;
-        match self {
+pub struct App<I: BufRead, O: Write, E: Write> {
+    pub working_dir: AbsPathBuf,
+    pub cookies_on_init: Cow<'static, str>,
+    pub credentials: Credentials,
+    pub console: Console<I, O, E>,
+}
+
+impl<I: BufRead, O: Write, E: Write> App<I, O, E> {
+    pub fn run(&mut self, opt: Opt) -> ::Result<()> {
+        info!("Opt = {:?}", opt);
+        let working_dir = self.working_dir.clone();
+        let cookies_on_init = self.cookies_on_init.clone();
+        match opt {
             Opt::Init {
                 color_choice,
                 directory,
             } => {
-                palette::try_enable_ansi(color_choice);
-                config::init(&working_dir.join(&directory), &cookies_on_init)?;
+                self.console
+                    .fill_palettes(color_choice, &console::Conf::default())?;
+                let wd = working_dir.join(&directory);
+                config::init(self.console.stdout(), &wd, &cookies_on_init)?;
             }
             Opt::Switch {
                 service,
@@ -427,20 +432,23 @@ impl Opt {
                 language,
                 color_choice,
             } => {
-                palette::try_enable_ansi(color_choice);
-                config::switch(&working_dir, service, contest, language)?;
+                self.console
+                    .fill_palettes(color_choice, &console::Conf::default())?;
+                config::switch(self.console.out(), &working_dir, service, contest, language)?;
             }
             Opt::Login {
                 color_choice,
                 service,
             } => {
-                palette::try_enable_ansi(color_choice);
-                let config = Config::load_setting_color_range(service, None, working_dir)?;
-                let sess_prop = prop.sess_prop(&config)?;
+                self.console
+                    .fill_palettes(color_choice, &console::Conf::default())?;
+                let config = Config::load(self.console.out(), service, None, &working_dir)?;
+                self.console.fill_palettes(color_choice, config.console())?;
+                let sess_prop = self.sess_prop(&config)?;
                 match service {
-                    ServiceName::Atcoder => atcoder::login(&sess_prop),
-                    ServiceName::Hackerrank => hackerrank::login(&sess_prop),
-                    ServiceName::Yukicoder => yukicoder::login(&sess_prop),
+                    ServiceName::Atcoder => atcoder::login(sess_prop),
+                    ServiceName::Hackerrank => hackerrank::login(sess_prop),
+                    ServiceName::Yukicoder => yukicoder::login(sess_prop),
                     ServiceName::Other => unreachable!(),
                 }?;
             }
@@ -449,12 +457,14 @@ impl Opt {
                 service,
                 contest,
             } => {
-                palette::try_enable_ansi(color_choice);
+                self.console
+                    .fill_palettes(color_choice, &console::Conf::default())?;
                 let config =
-                    Config::load_setting_color_range(service, contest.clone(), working_dir)?;
-                let sess_prop = prop.sess_prop(&config)?;
+                    Config::load(self.console.out(), service, contest.clone(), &working_dir)?;
+                self.console.fill_palettes(color_choice, config.console())?;
+                let sess_prop = self.sess_prop(&config)?;
                 match service {
-                    ServiceName::Atcoder => atcoder::participate(&contest, &sess_prop),
+                    ServiceName::Atcoder => atcoder::participate(&contest, sess_prop),
                     _ => unreachable!(),
                 }?;
             }
@@ -465,15 +475,16 @@ impl Opt {
                 problems,
                 color_choice,
             } => {
-                palette::try_enable_ansi(color_choice);
-                let config = Config::load_setting_color_range(service, contest, working_dir)?;
-                let sess_prop = prop.sess_prop(&config)?;
-                let download_prop =
-                    DownloadProp::new(&config, open_browser, *suppress_download_bars, problems)?;
+                self.console
+                    .fill_palettes(color_choice, &console::Conf::default())?;
+                let config = Config::load(self.console.out(), service, contest, &working_dir)?;
+                self.console.fill_palettes(color_choice, config.console())?;
+                let sess_prop = self.sess_prop(&config)?;
+                let download_prop = DownloadProp::new(&config, open_browser, problems)?;
                 match config.service() {
-                    ServiceName::Atcoder => atcoder::download(&sess_prop, download_prop),
-                    ServiceName::Hackerrank => hackerrank::download(&sess_prop, download_prop),
-                    ServiceName::Yukicoder => yukicoder::download(&sess_prop, download_prop),
+                    ServiceName::Atcoder => atcoder::download(sess_prop, download_prop),
+                    ServiceName::Hackerrank => hackerrank::download(sess_prop, download_prop),
+                    ServiceName::Yukicoder => yukicoder::download(sess_prop, download_prop),
                     ServiceName::Other => return Err(::Error::Unimplemented),
                 }?;
             }
@@ -483,12 +494,14 @@ impl Opt {
                 problems,
                 color_choice,
             } => {
-                palette::try_enable_ansi(color_choice);
-                let config = Config::load_setting_color_range(service, contest, working_dir)?;
-                let sess_prop = prop.sess_prop(&config)?;
+                self.console
+                    .fill_palettes(color_choice, &console::Conf::default())?;
+                let config = Config::load(self.console.out(), service, contest, &working_dir)?;
+                self.console.fill_palettes(color_choice, config.console())?;
+                let sess_prop = self.sess_prop(&config)?;
                 let restore_prop = RestoreProp::new(&config, problems)?;
                 match config.service() {
-                    ServiceName::Atcoder => atcoder::restore(&sess_prop, restore_prop)?,
+                    ServiceName::Atcoder => atcoder::restore(sess_prop, restore_prop)?,
                     _ => return Err(::Error::Unimplemented),
                 };
             }
@@ -501,11 +514,14 @@ impl Opt {
                 input,
                 output,
             } => {
-                palette::try_enable_ansi(color_choice);
-                let config = Config::load_setting_color_range(service, contest, working_dir)?;
+                self.console
+                    .fill_palettes(color_choice, &console::Conf::default())?;
+                let config = Config::load(self.console.out(), service, contest, &working_dir)?;
+                self.console.fill_palettes(color_choice, config.console())?;
                 let dir = config.testfiles_dir().expand("")?;
                 let path = SuiteFilePath::new(&dir, &problem, extension);
-                testsuite::append(&path, &input, output.as_ref().map(String::as_str))?;
+                let output = output.as_ref().map(String::as_str);
+                testsuite::append(&path, &input, output, self.console.stdout())?;
             }
             Opt::Judge {
                 service,
@@ -514,10 +530,12 @@ impl Opt {
                 color_choice,
                 problem,
             } => {
-                palette::try_enable_ansi(color_choice);
+                self.console
+                    .fill_palettes(color_choice, &console::Conf::default())?;
                 let language = language.as_ref().map(String::as_str);
-                let config = Config::load_setting_color_range(service, contest, working_dir)?;
-                let judge_prop = JudgeProp::new(&config, &problem, language)?;
+                let config = Config::load(self.console.out(), service, contest, &working_dir)?;
+                self.console.fill_palettes(color_choice, config.console())?;
+                let judge_prop = JudgeProp::new(self.console.out(), &config, &problem, language)?;
                 judging::judge(judge_prop)?;
             }
             Opt::Submit {
@@ -530,10 +548,21 @@ impl Opt {
                 color_choice,
                 problem,
             } => {
-                palette::try_enable_ansi(color_choice);
+                self.console
+                    .fill_palettes(color_choice, &console::Conf::default())?;
                 let language = language.as_ref().map(String::as_str);
-                let config = Config::load_setting_color_range(service, contest, working_dir)?;
-                let sess_prop = prop.sess_prop(&config)?;
+                let config = Config::load(self.console.out(), service, contest, &working_dir)?;
+                self.console.fill_palettes(color_choice, config.console())?;
+                if !skip_judging {
+                    judging::judge(JudgeProp::new(
+                        self.console.out(),
+                        &config,
+                        &problem,
+                        language,
+                    )?)?;
+                    writeln!(self.console.stdout())?;
+                }
+                let sess_prop = self.sess_prop(&config)?;
                 let submit_prop = SubmitProp::new(
                     &config,
                     problem.clone(),
@@ -541,44 +570,20 @@ impl Opt {
                     open_browser,
                     skip_checking_duplication,
                 )?;
-                if !skip_judging {
-                    judging::judge(JudgeProp::new(&config, &problem, language)?)?;
-                    println!();
-                }
                 match config.service() {
-                    ServiceName::Atcoder => atcoder::submit(&sess_prop, submit_prop)?,
-                    ServiceName::Yukicoder => yukicoder::submit(&sess_prop, submit_prop)?,
+                    ServiceName::Atcoder => atcoder::submit(sess_prop, submit_prop)?,
+                    ServiceName::Yukicoder => yukicoder::submit(sess_prop, submit_prop)?,
                     _ => return Err(::Error::Unimplemented),
                 };
             }
         }
         Ok(())
     }
-}
 
-pub struct Prop {
-    pub working_dir: AbsPathBuf,
-    pub cookies_on_init: Cow<'static, str>,
-    pub credentials: Credentials,
-    pub suppress_download_bars: bool,
-}
-
-impl Prop {
-    pub fn new() -> ::Result<Self> {
-        let working_dir = env::current_dir()
-            .map(AbsPathBuf::new_or_panic)
-            .map_err(::Error::Getcwd)?;
-        Ok(Self {
-            working_dir,
-            cookies_on_init: Cow::from("~/.local/share/snowchains/$service"),
-            credentials: Credentials::default(),
-            suppress_download_bars: false,
-        })
-    }
-
-    fn sess_prop(&self, config: &Config) -> ExpandTemplateResult<SessionProp> {
+    fn sess_prop(&mut self, config: &Config) -> ExpandTemplateResult<SessionProp<I, O, E>> {
         let cookies_path = config.session_cookies().expand("")?;
         Ok(SessionProp {
+            console: &mut self.console,
             domain: config.service().domain(),
             cookies_path,
             timeout: config.session_timeout(),

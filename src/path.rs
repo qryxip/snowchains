@@ -8,7 +8,7 @@ use std::fmt;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
-pub(crate) type AbsPath<'a> = &'a AbsPathBuf;
+pub type AbsPath<'a> = &'a AbsPathBuf;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct AbsPathBuf(PathBuf);

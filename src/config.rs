@@ -1,6 +1,6 @@
 use command::{CompilationCommand, JudgingCommand};
+use console::{self, ConsoleOut, Palette, Printer};
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
-use palette::{ColorRange, Palette};
 use path::{AbsPath, AbsPathBuf};
 use replacer::{CodeReplacer, CodeReplacerConf};
 use service::SessionConfig;
@@ -9,11 +9,11 @@ use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplat
 use {yaml, ServiceName};
 
 use serde_yaml;
-use unicode_width::UnicodeWidthStr as _UnicodeWidthStr;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
+use std::io::{self, Write};
 use std::ops::Deref as _Deref;
 use std::str;
 use std::time::Duration;
@@ -21,14 +21,20 @@ use std::time::Duration;
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
-pub(crate) fn init(directory: AbsPath, session_cookies: &str) -> FileIoResult<()> {
+pub(crate) fn init(
+    mut printer: Printer<impl Write>,
+    directory: AbsPath,
+    session_cookies: &str,
+) -> FileIoResult<()> {
     let config = format!(
         r#"---
 service: atcoder
 contest: arc001
 language: c++
 
-color_range: {color_range}
+# console:
+#   color: 256color
+#   cjk: true
 
 session:
   timeout: 10
@@ -203,7 +209,6 @@ languages:
       atcoder: 3027
       yukicoder: text
 "#,
-        color_range = ColorRange::default(),
         session_cookies = yaml::escape_string(session_cookies),
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
@@ -246,30 +251,37 @@ languages:
     );
     let path = directory.join(CONFIG_FILE_NAME);
     ::fs::write(&path, config.as_bytes())?;
-    println!("Wrote to {}", path.display());
+    writeln!(printer, "Wrote to {}", path.display())?;
+    printer.flush()?;
     Ok(())
 }
 
 /// Changes attributes.
 pub(crate) fn switch(
+    mut out: ConsoleOut<impl Write, impl Write>,
     directory: AbsPath,
     service: Option<ServiceName>,
     contest: Option<String>,
     language: Option<String>,
 ) -> FileIoResult<()> {
-    fn print_change(left_width: usize, prev: &Option<String>, new: &Option<String>) {
+    fn print_change(
+        mut stdout: console::Stdout<impl Write>,
+        left_width: usize,
+        prev: &Option<String>,
+        new: &Option<String>,
+    ) -> io::Result<()> {
         let prev = prev.as_ref().map(String::as_str).unwrap_or("~");
         let new = new.as_ref().map(String::as_str).unwrap_or("~");
-        print!("{}", prev);
-        (0..left_width - prev.len()).for_each(|_| print!(" "));
-        println!(" -> {}", new);
+        write!(stdout, "{}", prev)?;
+        (0..left_width - prev.len()).try_for_each(|_| write!(stdout, " "))?;
+        writeln!(stdout, " -> {}", new)
     }
 
     let path = ::fs::find_filepath(directory, CONFIG_FILE_NAME)?;
     let mut old_yaml = ::fs::read_to_string(&path)?;
     let old_config = serde_yaml::from_str::<Config>(&old_yaml)
         .map_err(|err| FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err))?;
-    println!("Loaded {}", path.display());
+    writeln!(out.stdout(), "Loaded {}", path.display())?;
 
     let mut m = hashmap!();
     if let Some(service) = service {
@@ -296,8 +308,9 @@ pub(crate) fn switch(
         .and_then(|new_yaml| {
             let new_config = serde_yaml::from_str(&new_yaml)?;
             Ok((new_yaml, new_config))
-        }).or_else(|warning| {
-            eprintln!("{}", Palette::Warning.paint(warning.to_string()));
+        }).or_else::<FileIoError, _>(|warning| {
+            writeln!(out.stderr().plain(Palette::Warning), "{}", warning)?;
+            out.stderr().flush()?;
             let mut new_config = serde_yaml::from_str::<Config>(&old_yaml).map_err(|err| {
                 FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
             })?;
@@ -315,20 +328,23 @@ pub(crate) fn switch(
     let c2 = Some(format!("{:?}", new_config.contest));
     let l1 = old_config.language.as_ref().map(|l| format!("{:?}", l));
     let l2 = new_config.language.as_ref().map(|l| format!("{:?}", l));
+    let mut stdout = out.stdout();
     let w = [
-        s1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
-        c1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
-        l1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
+        s1.as_ref().map(|s| stdout.width(s)).unwrap_or(1),
+        c1.as_ref().map(|s| stdout.width(s)).unwrap_or(1),
+        l1.as_ref().map(|s| stdout.width(s)).unwrap_or(1),
     ]
         .iter()
         .cloned()
         .max()
         .unwrap();
-    print_change(w, &s1, &s2);
-    print_change(w, &c1, &c2);
-    print_change(w, &l1, &l2);
+    print_change(stdout.reborrow(), w, &s1, &s2)?;
+    print_change(stdout.reborrow(), w, &c1, &c2)?;
+    print_change(stdout.reborrow(), w, &l1, &l2)?;
     ::fs::write(&path, new_yaml.as_bytes())?;
-    println!("Saved.");
+
+    writeln!(stdout, "Saved.")?;
+    stdout.flush()?;
     Ok(())
 }
 
@@ -339,7 +355,8 @@ pub(crate) struct Config {
     service: ServiceName,
     contest: String,
     language: Option<String>,
-    color_range: ColorRange,
+    #[serde(default)]
+    console: console::Conf,
     session: SessionConfig,
     shell: Vec<TemplateBuilder<OsString>>,
     testfiles: TestFiles,
@@ -353,7 +370,8 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    pub fn load_setting_color_range(
+    pub fn load(
+        mut out: ConsoleOut<impl Write, impl Write>,
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
         dir: AbsPath,
@@ -365,12 +383,9 @@ impl Config {
         config.base_dir = path.parent().unwrap();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
-        config.color_range.set_globally();
-        println!(
-            "Loaded {} (color_range: {})",
-            path.display(),
-            config.color_range
-        );
+        let mut stdout = out.stdout();
+        writeln!(stdout, "Loaded {}", path.display())?;
+        stdout.flush()?;
         Ok(config)
     }
 
@@ -382,6 +397,10 @@ impl Config {
     /// Gets `contest`.
     pub fn contest(&self) -> &str {
         &self.contest
+    }
+
+    pub fn console(&self) -> &console::Conf {
+        &self.console
     }
 
     /// Gets `session.timeout`.
