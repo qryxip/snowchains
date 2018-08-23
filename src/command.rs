@@ -2,10 +2,12 @@ use console::{ConsoleOut, Palette, Printer};
 use errors::{JudgeError, JudgeResult};
 use path::AbsPathBuf;
 
+use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _FmtWrite;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::process::{Child, Command, Stdio};
+use std::time::Instant;
 
 /// Compilation command.
 #[cfg_attr(test, derive(Debug))]
@@ -33,6 +35,12 @@ impl CompilationCommand {
 
     /// Executes the command.
     pub fn run(&self, out: &mut ConsoleOut<impl Write, impl Write>) -> JudgeResult<()> {
+        fn read_from_pipe(pipe: &mut impl Read) -> io::Result<String> {
+            let mut outcome = "".to_owned();
+            pipe.read_to_string(&mut outcome)?;
+            Ok(outcome)
+        }
+
         if !self.src.exists() {
             writeln!(
                 out.stderr().bold(Palette::Warning),
@@ -62,12 +70,34 @@ impl CompilationCommand {
             writeln!(stdout, "   {}", self.inner.working_dir.display())?;
             stdout.flush()?;
         }
-        let status = self
-            .inner
-            .build_checking_wd()?
-            .stdin(Stdio::null())
-            .status()
-            .map_err(|e| JudgeError::Command(self.inner.arg0.clone(), e))?;
+
+        let mut proc = self.inner.build_checking_wd()?;
+        proc.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let start = Instant::now();
+        let mut proc = proc.spawn().map_err(self.map_err())?;
+        let status = proc.wait().map_err(self.map_err())?;
+        let elapsed = Instant::now() - start;
+        let code = match status.code() {
+            Some(code) => Cow::from(code.to_string()),
+            None => Cow::from("<no exit code>"),
+        };
+        writeln!(out.stdout(), "Status code: {}", code)?;
+        writeln!(out.stdout(), "Time       : {:?}", elapsed)?;
+        out.stdout().flush()?;
+
+        let build_stdout = read_from_pipe(proc.stdout.as_mut().unwrap()).map_err(self.map_err())?;
+        let build_stderr = read_from_pipe(proc.stderr.as_mut().unwrap()).map_err(self.map_err())?;
+        for (title, s) in &[("stdout:", build_stdout), ("stderr:", build_stderr)] {
+            if !s.is_empty() {
+                let mut stdout = out.stdout();
+                writeln!(stdout.bold(Palette::Title), "{}", title)?;
+                writeln!(stdout, "{}", s)?;
+                stdout.flush()?;
+            }
+        }
+
         if status.success() {
             if !self.bin.exists() {
                 let mut stderr = out.stderr();
@@ -82,6 +112,10 @@ impl CompilationCommand {
         } else {
             Err(JudgeError::Compile(status))
         }
+    }
+
+    fn map_err<'a>(&'a self) -> impl Fn(io::Error) -> JudgeError + 'a {
+        move |err| JudgeError::Command(self.inner.arg0.clone(), err)
     }
 }
 
