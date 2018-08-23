@@ -55,7 +55,7 @@ $ snowchains <s|submit> [-b|--open-browser] [-j|--skip-judging] [-d|--skip-check
 # Example
 ---
 service: atcoder # "atcoder", "hackerrank", "yukicoder", "other"
-contest: arc001
+contest: arc100
 language: c++    # Priorities: <command line argument>, `service._.language`, `language`
 
 # console:
@@ -105,40 +105,38 @@ services:
   atcoder:
     # language: c++
     variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra
       rust_version: 1.15.1
       java_class: Main
   hackerrank:
+    # language: c++
     variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
       rust_version: 1.21.0
       java_class: Main
   yukicoder:
+    # language: c++
     variables:
-      cxx_flags: =std=c++14 -O2 -Wall -Wextra
-      rust_version: 1.22.1
+      rust_version: 1.28.0
       java_class: Main
   other:
-    default_language: c++
+    # language: c++
     variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra
       rust_version: stable
 
 interactive:
   python3:
     src: py/{kebab}-tester.py
     run:
-      command: python3, --, $src, $*
-      working_directory: py/
+      command: python3 -- $src $*
+      working_directory: py
   haskell:
     src: hs/src/{Pascal}Tester.hs
     compile:
       bin: hs/target/{Pascal}Tester
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: hs/
+      working_directory: hs
     run:
       command: $bin $*
-      working_directory: hs/
+      working_directory: hs
 
 # test files: <testsuite>/<problem>.[json|toml|yaml|yml|zip]
 # source:     <<src> % <problem>>
@@ -168,26 +166,26 @@ interactive:
 #   "$bin" => "<path to the binary file>"
 languages:
   c++:
-    src: cc/{kebab}.cc
-    compile:                               # optional
-      bin: cc/build/{kebab}
-      command: g++ $cxx_flags -o $bin $src
-      working_directory: cc/               # default: "."
+    src: cpp/{kebab}.cpp     # source file to test and to submit
+    compile:                 # optional
+      bin: cpp/build/{kebab}
+      command: [g++, -std=c++14, -Wall, -Wextra, -g, -fsanitize=undefined, -D_GLIBCXX_DEBUG, -o, $bin, $src]
+      working_directory: cpp # default: "."
     run:
       command: [$bin]
-      working_directory: cc/               # default: "."
-    language_ids:                          # optional
-      atcoder: 3003
-      yukicoder: cpp14
+      working_directory: cpp # default: "."
+    language_ids:            # optional
+      atcoder: 3003          # "C++14 (GCC x.x.x)"
+      yukicoder: cpp14       # "C++14 (gcc x.x.x)"
   rust:
     src: rs$rust_version/src/bin/{kebab}.rs
     compile:
       bin: rs$rust_version/target/release/{kebab}
       command: [rustc, +$rust_version, -o, $bin, $src]
-      working_directory: rs$rust_version/
+      working_directory: rs$rust_version
     run:
       command: [$bin]
-      working_directory: rs$rust_version/
+      working_directory: rs$rust_version
     language_ids:
       atcoder: 3504
       yukicoder: rust
@@ -196,10 +194,10 @@ languages:
     compile:
       bin: hs/target/{Pascal}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: hs/
+      working_directory: hs
     run:
       command: [$bin]
-      working_directory: hs/
+      working_directory: hs
     language_ids:
       atcoder: 3014
       yukicoder: haskell
@@ -207,19 +205,19 @@ languages:
     src: py/{kebab}.py
     run:
       command: [./venv/bin/python3, $src]
-      working_directory: py/
+      working_directory: py
     language_ids:
-      atcoder: 3023
-      yukicoder: python3
+      atcoder: 3023      # "Python3 (x.x.x)"
+      yukicoder: python3 # "Python3 (x.x.x + numpy x.x.x)"
   java:
     src: java/src/main/java/{Pascal}.java
     compile:
       bin: java/build/classes/java/main/{Pascal}.class
-      command: [javac, -d, ./build/classes/java/main/, $src]
-      working_directory: java/
+      command: [javac, -d, ./build/classes/java/main, $src]
+      working_directory: java
     run:
-      command: [java, -classpath, ./build/classes/java/main/, '{Pascal}']
-      working_directory: java/
+      command: [java, -classpath, ./build/classes/java/main, '{Pascal}']
+      working_directory: java
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 2
@@ -234,25 +232,25 @@ languages:
   #   compile:
   #     bin: cs/{Pascal}/bin/Release/{Pascal}.exe
   #     command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
-  #     working_directory: cs/
+  #     working_directory: cs
   #   run:
   #     command: [$bin]
-  #     working_directory: cs/
+  #     working_directory: cs
   #   language_ids:
-  #     atcoder: 3006
-  #     yukicoder: csharp
+  #     atcoder: 3006     # "C# (Mono x.x.x.x)"
+  #     yukicoder: csharp # "C# (csc x.x.x.x)"
   c#:
     src: cs/{Pascal}/{Pascal}.cs
     compile:
       bin: cs/{Pascal}/bin/Release/{Pascal}.exe
       command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
-      working_directory: cs/
+      working_directory: cs
     run:
       command: [mono, $bin]
-      working_directory: cs/
+      working_directory: cs
     language_ids:
-      atcoder: 3006
-      yukicoder: csharp_mono
+      atcoder: 3006          # "C# (Mono x.x.x.x)"
+      yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)"
 ```
 
 ## Test file

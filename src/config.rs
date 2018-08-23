@@ -29,7 +29,7 @@ pub(crate) fn init(
     let config = format!(
         r#"---
 service: atcoder
-contest: arc001
+contest: arc100
 language: c++
 
 # console:
@@ -40,7 +40,7 @@ session:
   timeout: 10
   cookies: {session_cookies}
 
-shell: {shell}
+shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
 
 testfiles:
   directory: snowchains/$service/$contest/
@@ -50,6 +50,7 @@ testfiles:
     timelimit: 2000
     match: {default_match}
     entries:
+      # AtCoder
       - in:
           entry: /\Ain/([a-z0-9_\-]+)\.txt\z/
           match_group: 1
@@ -57,6 +58,7 @@ testfiles:
           entry: /\Aout/([a-z0-9_\-]+)\.txt\z/
           match_group: 1
         sort: [dictionary]
+      # HackerRank
       - in:
           entry: /\Ainput/input([0-9]+)\.txt\z/
           match_group: 1
@@ -64,6 +66,7 @@ testfiles:
           entry: /\Aoutput/output([0-9]+)\.txt\z/
           match_group: 1
         sort: [number]
+      # yukicoder
       - in:
           entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
           match_group: 1
@@ -76,22 +79,21 @@ services:
   atcoder:
     # language: c++
     variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra
       rust_version: 1.15.1
       java_class: Main
   hackerrank:
+    # language: c++
     variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
       rust_version: 1.21.0
       java_class: Main
   yukicoder:
+    # language: c++
     variables:
-      cxx_flags: =std=c++14 -O2 -Wall -Wextra
-      rust_version: 1.22.1
+      rust_version: 1.28.0
       java_class: Main
   other:
+    # language: c++
     variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra
       rust_version: stable
 
 interactive:
@@ -99,51 +101,63 @@ interactive:
     src: py/{{kebab}}-tester.py
     run:
       command: python3 -- $src $*
-      working_directory: py/
+      working_directory: py
   haskell:
     src: hs/src/{{Pascal}}Tester.hs
     compile:
       bin: hs/target/{{Pascal}}Tester
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: hs/
+      working_directory: hs
     run:
       command: $bin $*
-      working_directory: hs/
+      working_directory: hs
 
 languages:
   c++:
-    src: cc/{{kebab}}.cc
-    compile:
-      bin: cc/build/{{kebab}}{exe}
-      command: g++ $cxx_flags -o $bin $src
-      working_directory: cc/
+    src: cpp/{{kebab}}.cpp     # source file to test and to submit
+    compile:                 # optional
+      bin: cpp/build/{{kebab}}
+      command: [g++, -std=c++14, -Wall, -Wextra, -g, -fsanitize=undefined, -D_GLIBCXX_DEBUG, -o, $bin, $src]
+      working_directory: cpp # default: "."
     run:
       command: [$bin]
-      working_directory: cc/
-    language_ids:
-      atcoder: 3003
-      yukicoder: cpp14
+      working_directory: cpp # default: "."
+    language_ids:            # optional
+      atcoder: 3003          # "C++14 (GCC x.x.x)"
+      yukicoder: cpp14       # "C++14 (gcc x.x.x)"
   rust:
     src: rs$rust_version/src/bin/{{kebab}}.rs
     compile:
       bin: rs$rust_version/target/release/{{kebab}}{exe}
       command: [rustc, +$rust_version, -o, $bin, $src]
-      working_directory: rs$rust_version/
+      working_directory: rs$rust_version
     run:
       command: [$bin]
-      working_directory: rs$rust_version/
+      working_directory: rs$rust_version
     language_ids:
       atcoder: 3504
       yukicoder: rust
+  go:
+    src: go/{{kebab}}.go
+    compile:
+      bin: go/{{kebab}}{exe}
+      command: [go, build, -o, $bin, $src]
+      working_directory: go
+    run:
+      command: [$bin]
+      working_directory: go
+    language_ids:
+      atcoder: 3013
+      yukicoder: go
   haskell:
     src: hs/src/{{Pascal}}.hs
     compile:
       bin: hs/target/{{Pascal}}{exe}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: hs/
+      working_directory: hs
     run:
       command: [$bin]
-      working_directory: hs/
+      working_directory: hs
     language_ids:
       atcoder: 3014
       yukicoder: haskell
@@ -151,7 +165,7 @@ languages:
     src: bash/{{kebab}}.bash
     run:
       command: [bash, $src]
-      working_directory: bash/
+      working_directory: bash
     language_ids:
       atcoder: 3001
       yukicoder: sh
@@ -159,19 +173,19 @@ languages:
     src: py/{{kebab}}.py
     run:
       command: [./venv/bin/python3, $src]
-      working_directory: py/
+      working_directory: py
     language_ids:
-      atcoder: 3023
-      yukicoder: python3
+      atcoder: 3023      # "Python3 (3.x.x)"
+      yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x)"
   java:
     src: java/src/main/java/{{Pascal}}.java
     compile:
       bin: java/build/classes/java/main/{{Pascal}}.class
-      command: [javac, -d, ./build/classes/java/main/, $src]
-      working_directory: java/
+      command: [javac, -d, ./build/classes/java/main, $src]
+      working_directory: java
     run:
-      command: [java, -classpath, ./build/classes/java/main/, '{{Pascal}}']
-      working_directory: java/
+      command: [java, -classpath, ./build/classes/java/main, '{{Pascal}}']
+      working_directory: java
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       match_group: 2
@@ -185,11 +199,11 @@ languages:
     src: scala/src/main/scala/{{Pascal}}.scala
     compile:
       bin: scala/target/scala-2.12/classes/{{Pascal}}.class
-      command: [scalac, -optimise, -d, ./target/scala-2.12/classes/, $src]
-      working_directory: scala/
+      command: [scalac, -optimise, -d, ./target/scala-2.12/classes, $src]
+      working_directory: scala
     run:
-      command: [scala, -classpath, ./target/scala-2.12/classes/, '{{Pascal}}']
-      working_directory: scala/
+      command: [scala, -classpath, ./target/scala-2.12/classes, '{{Pascal}}']
+      working_directory: scala
     replace:
       regex: /^\s*object\s+([A-Z][a-zA-Z0-9_]*).*$/
       match_group: 1
@@ -204,7 +218,7 @@ languages:
     src: txt/{{snake}}.txt
     run:
       command: [cat, $src]
-      working_directory: txt/
+      working_directory: txt
     language_ids:
       atcoder: 3027
       yukicoder: text
@@ -227,26 +241,26 @@ languages:
     compile:
       bin: cs/{Pascal}/bin/Release/{Pascal}.exe
       command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
-      working_directory: cs/
+      working_directory: cs
     run:
       command: [$bin]
-      working_directory: cs/
+      working_directory: cs
     language_ids:
-      atcoder: 3006
-      yukicoder: csharp"#
+      atcoder: 3006     # "C# (Mono x.x.x.x)"
+      yukicoder: csharp # "C# (csc x.x.x.x)""#
         } else {
             r#"  c#:
     src: cs/{Pascal}/{Pascal}.cs
     compile:
       bin: cs/{Pascal}/bin/Release/{Pascal}.exe
       command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
-      working_directory: cs/
+      working_directory: cs
     run:
       command: [mono, $bin]
-      working_directory: cs/
+      working_directory: cs
     language_ids:
-      atcoder: 3006
-      yukicoder: csharp_mono"#
+      atcoder: 3006          # "C# (Mono x.x.x.x)"
+      yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)""#
         }
     );
     let path = directory.join(CONFIG_FILE_NAME);

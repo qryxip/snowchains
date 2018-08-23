@@ -132,6 +132,7 @@ impl JudgingCommand {
 
     /// Returns a `Child` which stdin & stdout & stderr are piped.
     pub fn spawn_piped(&self) -> JudgeResult<Child> {
+        // TODO
         self.0
             .build_checking_wd()?
             .stdin(Stdio::piped())
