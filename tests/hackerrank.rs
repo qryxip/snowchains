@@ -9,8 +9,10 @@ extern crate tempdir;
 #[allow(dead_code)]
 mod common;
 
-use snowchains::app::Prop;
+use snowchains::app::App;
 use snowchains::ServiceName;
+
+use std::io;
 
 #[test]
 #[ignore]
@@ -42,12 +44,13 @@ fn it_downloads_testcases_from_master() {
     common::test_in_tempdir(
         "it_downloads_test_cases_from_master",
         credentials,
-        |prop| -> Result<(), failure::Error> {
+        |app| -> Result<(), failure::Error> {
             static CONTEST: &str = "master";
             static PROBLEMS: &[&str] = &["solve-me-first", "simple-array-sum"];
-            download(prop, CONTEST, PROBLEMS)?;
+            let wd = app.working_dir.clone();
+            download(app, CONTEST, PROBLEMS)?;
             for problem in PROBLEMS {
-                common::confirm_zip_exists(prop, CONTEST, problem)?;
+                common::confirm_zip_exists(&wd, CONTEST, problem)?;
             }
             Ok(())
         },
@@ -62,19 +65,24 @@ fn it_downloads_testcases_from_hourrank_20() {
     common::test_in_tempdir(
         "it_downloads_test_cases_from_hourrank_20",
         credentials,
-        |prop| -> Result<(), failure::Error> {
+        |app| -> Result<(), failure::Error> {
             static CONTEST: &str = "hourrank-20";
             static PROBLEM: &str = "hot-and-cold";
-            download(prop, CONTEST, &[PROBLEM])?;
-            common::confirm_zip_exists(prop, CONTEST, PROBLEM).map_err(Into::into)
+            let wd = app.working_dir.clone();
+            download(app, CONTEST, &[PROBLEM])?;
+            common::confirm_zip_exists(&wd, CONTEST, PROBLEM).map_err(Into::into)
         },
     );
 }
 
-fn login(prop: &Prop) -> snowchains::Result<()> {
-    common::login(prop, ServiceName::Hackerrank)
+fn login(app: App<io::Empty, io::Sink, io::Sink>) -> snowchains::Result<()> {
+    common::login(app, ServiceName::Hackerrank)
 }
 
-fn download(prop: &Prop, contest: &str, problems: &[&str]) -> snowchains::Result<()> {
-    common::download(prop, ServiceName::Hackerrank, contest, problems)
+fn download(
+    app: App<io::Empty, io::Sink, io::Sink>,
+    contest: &str,
+    problems: &[&str],
+) -> snowchains::Result<()> {
+    common::download(app, ServiceName::Hackerrank, contest, problems)
 }

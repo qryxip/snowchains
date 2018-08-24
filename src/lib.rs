@@ -1,5 +1,3 @@
-#![recursion_limit = "1024"]
-
 #[macro_use]
 extern crate failure;
 #[macro_use]
@@ -59,7 +57,7 @@ extern crate tempdir;
 mod macros;
 
 pub mod app;
-pub mod palette;
+pub mod console;
 pub mod path;
 pub mod service;
 pub mod util;

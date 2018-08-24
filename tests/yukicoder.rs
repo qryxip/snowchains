@@ -9,8 +9,11 @@ extern crate tempdir;
 #[allow(dead_code)]
 mod common;
 
-use snowchains::app::Prop;
+use snowchains::app::App;
+use snowchains::path::AbsPath;
 use snowchains::ServiceName;
+
+use std::io;
 
 #[test]
 #[ignore]
@@ -42,23 +45,28 @@ fn it_downloads_testcases() {
     common::test_in_tempdir(
         "it_downloads_test_cases_from_master",
         credentials,
-        |prop| -> Result<(), failure::Error> {
+        |app| -> Result<(), failure::Error> {
             static CONTEST: &str = "no";
-            download(prop, CONTEST, &["1", "2", "3"])?;
-            confirm_num_cases(prop, CONTEST, &[("1", 3), ("2", 4), ("3", 3)]);
+            let wd = app.working_dir.clone();
+            download(app, CONTEST, &["1", "2", "3"])?;
+            confirm_num_cases(&wd, CONTEST, &[("1", 3), ("2", 4), ("3", 3)]);
             Ok(())
         },
     );
 }
 
-fn login(prop: &Prop) -> snowchains::Result<()> {
-    common::login(prop, ServiceName::Yukicoder)
+fn login(app: App<io::Empty, io::Sink, io::Sink>) -> snowchains::Result<()> {
+    common::login(app, ServiceName::Yukicoder)
 }
 
-fn download(prop: &Prop, contest: &str, problems: &[&str]) -> snowchains::Result<()> {
-    common::download(prop, ServiceName::Yukicoder, contest, problems)
+fn download(
+    app: App<io::Empty, io::Sink, io::Sink>,
+    contest: &str,
+    problems: &[&str],
+) -> snowchains::Result<()> {
+    common::download(app, ServiceName::Yukicoder, contest, problems)
 }
 
-fn confirm_num_cases(prop: &Prop, contest: &str, pairs: &[(&str, usize)]) {
-    common::confirm_num_cases(prop, ServiceName::Yukicoder, contest, pairs)
+fn confirm_num_cases(wd: AbsPath, contest: &str, pairs: &[(&str, usize)]) {
+    common::confirm_num_cases(wd, ServiceName::Yukicoder, contest, pairs)
 }

@@ -1,7 +1,7 @@
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
+use console::{self, Palette};
 use errors::{FileIoError, FileIoErrorCause, FileIoErrorKind, SuiteFileError, SuiteFileResult};
-use palette::Palette;
 use path::{AbsPath, AbsPathBuf};
 use template::Template;
 use util::{self, ScalarOrArray};
@@ -15,7 +15,8 @@ use {serde_json, serde_yaml, toml};
 
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
-use std::fmt::{self, Write as _Write};
+use std::fmt::{self, Write as _FmtWrite};
+use std::io::Write;
 use std::iter::FromIterator as _FromIterator;
 use std::path::Path;
 use std::str::FromStr;
@@ -28,10 +29,11 @@ pub(crate) fn append(
     path: &SuiteFilePath,
     input: &str,
     output: Option<&str>,
+    stdout: console::Stdout<impl Write>,
 ) -> SuiteFileResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.append(input, output)?;
-    suite.save(path, false)
+    suite.save(path, stdout)
 }
 
 /// Extension of a test suite file.
@@ -167,8 +169,7 @@ impl<'a> SuiteFilePathsTemplate<'a> {
                         Some(Ok((stem, ext)))
                     }
                     Err(e) => Some(Err::<_, io::Error>(e)),
-                })
-                .collect::<io::Result<Vec<_>>>()?;
+                }).collect::<io::Result<Vec<_>>>()?;
             filenames.sort_by_key(|(s, _)| s.clone());
             filenames.sort_by_key(|&(_, e)| e);
             filenames
@@ -279,7 +280,9 @@ impl ZipEntries {
         let mut pairs = hashmap!();
         for i in 0..zip.len() {
             let (filename, content) = {
-                let file = zip.by_index(i).map_err(|e| FileIoError::read_zip(path, e))?;
+                let file = zip
+                    .by_index(i)
+                    .map_err(|e| FileIoError::read_zip(path, e))?;
                 let filename = file.name().to_owned();
                 let content = util::string_from_read(file, 0)
                     .map_err(|e| FileIoError::read_zip(path, e.into()))?;
@@ -318,8 +321,7 @@ impl ZipEntries {
                 } else {
                     None
                 }
-            })
-            .collect::<Vec<_>>();
+            }).collect::<Vec<_>>();
         for sorting in &self.sort {
             match sorting {
                 ZipEntrySorting::Dictionary => cases.sort_by(|(s1, _, _), (s2, _, _)| s1.cmp(s2)),
@@ -340,8 +342,7 @@ impl ZipEntries {
                 input: Arc::new(input),
                 expected: Arc::new(ExpectedStdout::new(Some(&output), output_match)),
                 timelimit,
-            })
-            .collect();
+            }).collect();
         Ok(cases)
     }
 }
@@ -415,7 +416,11 @@ impl TestSuite {
     }
 
     /// Serializes `self` and save it to given path.
-    pub fn save(&self, path: &SuiteFilePath, prints_num_cases: bool) -> SuiteFileResult<()> {
+    pub fn save(
+        &self,
+        path: &SuiteFilePath,
+        mut stdout: console::Stdout<impl Write>,
+    ) -> SuiteFileResult<()> {
         let (path, extension) = (&path.joined, path.extension);
         let serialized = match extension {
             SerializableExtension::Json => serde_json::to_string(self)?,
@@ -425,19 +430,20 @@ impl TestSuite {
             }
         };
         ::fs::write(path.as_ref(), serialized.as_bytes())?;
-        print!("Saved to {}", path.display());
-        if prints_num_cases {
-            let msg = match self {
-                TestSuite::Simple(s) => match s.cases.len() {
-                    0 => Palette::Warning.paint(" (no sample case extracted)"),
-                    1 => Palette::Success.paint(" (1 sample case extracted)"),
-                    n => Palette::Success.paint(format!(" ({} sample cases extracted)", n)),
-                },
-                TestSuite::Interactive(_) => Palette::Success.paint(" (interactive problem)"),
-                TestSuite::Unsubmittable => Palette::Success.paint(" (unsubmittable problem)"),
-            };
-            println!("{}", msg);
-        }
+        write!(stdout, "Saved to {}", path.display())?;
+        match self {
+            TestSuite::Simple(s) => match s.cases.len() {
+                0 => writeln!(stdout.plain(Palette::Warning), " (no test case)"),
+                1 => writeln!(stdout.plain(Palette::Success), " (1 test case)"),
+                n => writeln!(stdout.plain(Palette::Success), " ({} test cases)", n),
+            },
+            TestSuite::Interactive(_) => {
+                writeln!(stdout.plain(Palette::Success), " (interactive problem)")
+            }
+            TestSuite::Unsubmittable => {
+                writeln!(stdout.plain(Palette::Success), " (unsubmittable problem)")
+            }
+        }?;
         Ok(())
     }
 
@@ -517,8 +523,7 @@ impl SimpleSuite {
                     expected,
                     timelimit,
                 }
-            })
-            .collect::<Vec<_>>()
+            }).collect::<Vec<_>>()
     }
 
     fn append(&mut self, input: &str, output: Option<&str>) {
@@ -541,8 +546,7 @@ impl Serialize for SimpleSuite {
                 .map(|(i, o)| SimpleCaseRaw {
                     input: single_string(i.as_ref().clone()),
                     output: o.as_ref().map(|o| single_string(o.as_ref().clone())),
-                })
-                .collect()
+                }).collect()
         };
         SimpleSuiteRaw {
             timelimit: self.timelimit,
@@ -574,8 +578,7 @@ impl<'de> Deserialize<'de> for SimpleSuite {
                     let input = to_string(&case.input);
                     let output = case.output.as_ref().map(to_string);
                     (input, output)
-                })
-                .collect(),
+                }).collect(),
             raw_cases: Some(raw.cases),
         })
     }
@@ -740,8 +743,8 @@ impl SimpleCase {
         relative_error: f64,
     ) -> Self {
         let output_match = Match::Float {
-            absolute_error: absolute_error,
-            relative_error: relative_error,
+            absolute_error,
+            relative_error,
         };
         let expected = Arc::new(ExpectedStdout::new(Some(expected), output_match));
         Self {

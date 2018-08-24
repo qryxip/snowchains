@@ -1,11 +1,13 @@
+use console::{ConsoleOut, Palette, Printer};
 use errors::{JudgeError, JudgeResult};
-use palette::Palette;
 use path::AbsPathBuf;
 
+use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
-use std::fmt::Write;
-use std::io;
+use std::fmt::Write as _FmtWrite;
+use std::io::{self, Read, Write};
 use std::process::{Child, Command, Stdio};
+use std::time::Instant;
 
 /// Compilation command.
 #[cfg_attr(test, derive(Debug))]
@@ -32,44 +34,88 @@ impl CompilationCommand {
     }
 
     /// Executes the command.
-    pub fn execute(&self) -> JudgeResult<()> {
+    pub fn run(&self, out: &mut ConsoleOut<impl Write, impl Write>) -> JudgeResult<()> {
+        fn read_from_pipe(pipe: &mut impl Read) -> io::Result<String> {
+            let mut outcome = "".to_owned();
+            pipe.read_to_string(&mut outcome)?;
+            Ok(outcome)
+        }
+
         if !self.src.exists() {
-            let msg = format!("Warning: {} not found", self.src.display());
-            eprintln!("{}", Palette::Warning.bold().paint(msg));
+            writeln!(
+                out.stderr().bold(Palette::Warning),
+                "Warning: {} not found",
+                self.src.display()
+            )?;
+            out.stderr().flush()?;
         }
         if self.src.exists() && self.bin.exists() {
             if self.src.metadata()?.modified()? < self.bin.metadata()?.modified()? {
-                println!("{} is up to date.", self.bin.display());
+                writeln!(out.stdout(), "{} is up to date.", self.bin.display())?;
+                out.stdout().flush()?;
                 return Ok(());
             }
         } else if let Some(parent) = self.bin.parent() {
             if !parent.exists() {
                 ::fs::create_dir_all(&parent)?;
-                println!("Created {}", parent.display());
+                writeln!(out.stdout(), "Created {}", parent.display())?;
+                out.stdout().flush()?;
             }
         }
-        println!(
-            "{} {}\n{}   {}",
-            Palette::CommandInfo.bold().paint("Compilation Command:"),
-            self.inner.display_args(),
-            Palette::CommandInfo.bold().paint("Working directory:"),
-            self.inner.working_dir.display(),
-        );
-        let status = self
-            .inner
-            .build_checking_wd()?
-            .stdin(Stdio::null())
-            .status()
-            .map_err(|e| JudgeError::Command(self.inner.arg0.clone(), e))?;
+        {
+            let mut stdout = out.stdout();
+            write!(stdout.bold(Palette::CommandInfo), "Compilation Command:")?;
+            writeln!(stdout, " {}", self.inner.display_args())?;
+            write!(stdout.bold(Palette::CommandInfo), "Working directory:")?;
+            writeln!(stdout, "   {}", self.inner.working_dir.display())?;
+            stdout.flush()?;
+        }
+
+        let mut proc = self.inner.build_checking_wd()?;
+        proc.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let start = Instant::now();
+        let mut proc = proc.spawn().map_err(self.map_err())?;
+        let status = proc.wait().map_err(self.map_err())?;
+        let elapsed = Instant::now() - start;
+        let code = match status.code() {
+            Some(code) => Cow::from(code.to_string()),
+            None => Cow::from("<no exit code>"),
+        };
+        writeln!(out.stdout(), "Status code: {}", code)?;
+        writeln!(out.stdout(), "Time       : {:?}", elapsed)?;
+        out.stdout().flush()?;
+
+        let build_stdout = read_from_pipe(proc.stdout.as_mut().unwrap()).map_err(self.map_err())?;
+        let build_stderr = read_from_pipe(proc.stderr.as_mut().unwrap()).map_err(self.map_err())?;
+        for (title, s) in &[("stdout:", build_stdout), ("stderr:", build_stderr)] {
+            if !s.is_empty() {
+                let mut stdout = out.stdout();
+                writeln!(stdout.bold(Palette::Title), "{}", title)?;
+                writeln!(stdout, "{}", s)?;
+                stdout.flush()?;
+            }
+        }
+
         if status.success() {
             if !self.bin.exists() {
-                let msg = format!("Warning: {} not created", self.bin.display());
-                eprintln!("{}", Palette::Warning.paint(msg));
+                let mut stderr = out.stderr();
+                writeln!(
+                    stderr.plain(Palette::Warning),
+                    "Warning: {} not created",
+                    self.bin.display()
+                )?;
+                stderr.flush()?;
             }
             Ok(())
         } else {
             Err(JudgeError::Compile(status))
         }
+    }
+
+    fn map_err<'a>(&'a self) -> impl Fn(io::Error) -> JudgeError + 'a {
+        move |err| JudgeError::Command(self.inner.arg0.clone(), err)
     }
 }
 
@@ -105,20 +151,22 @@ impl JudgingCommand {
     /// Working directory: /path/to/working/dir/
     /// Test files:        /path/to/testfiles/{a.json, a.yaml}
     /// """
-    pub fn print_info(&self, testfiles_matched: &str) {
-        println!(
-            "{}           {}\n{} {}\n{}        {}",
-            Palette::CommandInfo.bold().paint("Command:"),
-            self.0.display_args(),
-            Palette::CommandInfo.bold().paint("Working directory:"),
-            self.0.working_dir.display(),
-            Palette::CommandInfo.bold().paint("Test files:"),
-            testfiles_matched,
-        );
+    pub fn write_info(
+        &self,
+        mut printer: Printer<impl Write>,
+        testfiles_matched: &str,
+    ) -> io::Result<()> {
+        write!(printer.bold(Palette::CommandInfo), "Command:")?;
+        writeln!(printer, "           {}", self.0.display_args())?;
+        write!(printer.bold(Palette::CommandInfo), "Working directory:")?;
+        writeln!(printer, " {}", self.0.working_dir.display())?;
+        write!(printer.bold(Palette::CommandInfo), "Test files:")?;
+        writeln!(printer, "        {}", testfiles_matched)
     }
 
     /// Returns a `Child` which stdin & stdout & stderr are piped.
     pub fn spawn_piped(&self) -> JudgeResult<Child> {
+        // TODO
         self.0
             .build_checking_wd()?
             .stdin(Stdio::piped())

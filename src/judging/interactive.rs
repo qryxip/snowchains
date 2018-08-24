@@ -1,6 +1,6 @@
+use console::{Palette, Printer};
 use errors::JudgeResult;
-use judging::{JudgingCommand, JudgingOutput, MillisRoundedUp};
-use palette::Palette;
+use judging::{JudgingCommand, MillisRoundedUp, Outcome};
 use testsuite::InteractiveCase;
 use util;
 
@@ -12,11 +12,11 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Tests for `case` and `solver` and returns one `InteractiveOutput`.
+/// Tests for `case` and `solver` and returns one `InteractiveOutcome`.
 pub(super) fn judge(
     case: &InteractiveCase,
     solver: &Arc<JudgingCommand>,
-) -> JudgeResult<InteractiveOutput> {
+) -> JudgeResult<InteractiveOutcome> {
     let (cout_tx, cout_rx) = mpsc::channel();
     let (result_tx, result_rx) = mpsc::channel();
     let solver_cloned = solver.clone();
@@ -29,16 +29,23 @@ pub(super) fn judge(
         let result = result_rx.recv_timeout(timelimit + Duration::from_millis(50));
         let couts = cout_rx.try_iter().collect::<Vec<_>>();
         match result {
-            Err(_) => Ok(InteractiveOutput::exceeded(timelimit, couts)),
+            Err(_) => Ok(InteractiveOutcome::exceeded(timelimit, couts)),
             Ok(result) => {
                 let (s, t, e1, e2) = result?;
-                Ok(InteractiveOutput::new(Some(timelimit), t, s, couts, e1, e2))
+                Ok(InteractiveOutcome::new(
+                    Some(timelimit),
+                    t,
+                    s,
+                    couts,
+                    e1,
+                    e2,
+                ))
             }
         }
     } else {
         let result = result_rx.recv()?;
         let couts = cout_rx.try_iter().collect::<Vec<_>>();
-        result.map(|(s, t, e1, e2)| InteractiveOutput::new(None, t, s, couts, e1, e2))
+        result.map(|(s, t, e1, e2)| InteractiveOutcome::new(None, t, s, couts, e1, e2))
     }
 }
 
@@ -167,43 +174,43 @@ impl<'a> InteractiveProcess<'a> {
     }
 }
 
-pub(super) struct InteractiveOutput {
-    kind: InteractiveOutputKind,
+pub(super) struct InteractiveOutcome {
+    kind: InteractiveOutcomeKind,
     elapsed: Duration,
     console_outs: Vec<InteractiveConsoleOut>,
     solver_stderr: String,
     tester_stderr: String,
 }
 
-impl fmt::Display for InteractiveOutput {
+impl fmt::Display for InteractiveOutcome {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.kind {
-            InteractiveOutputKind::Success => {
+            InteractiveOutcomeKind::Success => {
                 write!(f, "Success ({}ms)", self.elapsed.millis_rounded_up())
             }
-            InteractiveOutputKind::Failure => {
+            InteractiveOutcomeKind::Failure => {
                 write!(f, "Failure ({}ms)", self.elapsed.millis_rounded_up())
             }
         }
     }
 }
 
-impl JudgingOutput for InteractiveOutput {
+impl Outcome for InteractiveOutcome {
     fn failure(&self) -> bool {
         match self.kind {
-            InteractiveOutputKind::Success => false,
+            InteractiveOutcomeKind::Success => false,
             _ => true,
         }
     }
 
     fn palette(&self) -> Palette {
         match self.kind {
-            InteractiveOutputKind::Success => Palette::Success,
-            InteractiveOutputKind::Failure => Palette::Warning,
+            InteractiveOutcomeKind::Success => Palette::Success,
+            InteractiveOutcomeKind::Failure => Palette::Warning,
         }
     }
 
-    fn eprint_details(&self) {
+    fn print_details(&self, mut printer: Printer<impl Write>) -> io::Result<()> {
         let max_length = |f: for<'a> fn(&'a InteractiveConsoleOut) -> bool| -> usize {
             self.console_outs
                 .iter()
@@ -217,28 +224,39 @@ impl JudgingOutput for InteractiveOutput {
             && self.tester_stderr.is_empty()
             && self.console_outs.is_empty()
         {
-            return eprintln!("{}", Palette::Title.bold().paint("EMPTY"));
+            return printer.bold(Palette::Warning).write_all(b"EMPTY\n");
         }
         let tester_len = max_length(InteractiveConsoleOut::is_tester_s);
         let solver_len = max_length(InteractiveConsoleOut::is_solver_s);
         for cout in &self.console_outs {
-            cout.eprint_aligned(tester_len, solver_len);
+            cout.print_aligned(printer.reborrow(), tester_len, solver_len)?;
         }
         if !self.solver_stderr.is_empty() || !self.tester_stderr.is_empty() {
-            eprintln!("");
+            writeln!(printer)?;
         }
         if !self.solver_stderr.is_empty() {
-            eprintln!("{}", Palette::Title.bold().paint("Solver stderr:"));
-            util::eprintln_trimming_trailing_newline(&self.solver_stderr);
+            printer
+                .bold(Palette::Title)
+                .write_all(b"Solver stderr:\n")?;
+            write!(printer, "{}", self.solver_stderr)?;
+            if !self.solver_stderr.ends_with('\n') {
+                writeln!(printer.bold(Palette::Warning), "<noeol>")?;
+            }
         }
         if !self.tester_stderr.is_empty() {
-            eprintln!("{}", Palette::Title.bold().paint("Tester stderr:"));
-            util::eprintln_trimming_trailing_newline(&self.tester_stderr);
+            printer
+                .bold(Palette::Title)
+                .write_all(b"Tester stderr:\n")?;
+            write!(printer, "{}", self.tester_stderr)?;
+            if !self.tester_stderr.ends_with('\n') {
+                writeln!(printer.bold(Palette::Warning), "<noeol>")?;
+            }
         }
+        Ok(())
     }
 }
 
-impl InteractiveOutput {
+impl InteractiveOutcome {
     fn new(
         timelimit: Option<Duration>,
         elapsed: Duration,
@@ -248,9 +266,9 @@ impl InteractiveOutput {
         tester_stderr: String,
     ) -> Self {
         let kind = if succeeded && (timelimit.is_none() || timelimit.unwrap() >= elapsed) {
-            InteractiveOutputKind::Success
+            InteractiveOutcomeKind::Success
         } else {
-            InteractiveOutputKind::Failure
+            InteractiveOutcomeKind::Failure
         };
         Self {
             kind,
@@ -263,7 +281,7 @@ impl InteractiveOutput {
 
     fn exceeded(timelimit: Duration, console_outs: Vec<InteractiveConsoleOut>) -> Self {
         Self {
-            kind: InteractiveOutputKind::Failure,
+            kind: InteractiveOutcomeKind::Failure,
             elapsed: timelimit,
             console_outs,
             solver_stderr: "".to_owned(),
@@ -272,7 +290,7 @@ impl InteractiveOutput {
     }
 }
 
-enum InteractiveOutputKind {
+enum InteractiveOutcomeKind {
     Success,
     Failure,
 }
@@ -320,13 +338,12 @@ impl InteractiveConsoleOut {
         }
     }
 
-    fn eprint_aligned(&self, tester_length: usize, solver_length: usize) {
-        fn eprint_spaces(n: usize) {
-            for _ in 0..n {
-                eprint!(" ");
-            }
-        }
-
+    fn print_aligned(
+        &self,
+        mut printer: Printer<impl Write>,
+        tester_length: usize,
+        solver_length: usize,
+    ) -> io::Result<()> {
         #[cfg_attr(rustfmt, rustfmt_skip)]
         let (kind, palette, elapsed) = match self {
             InteractiveConsoleOut::SolverStdout(_, t) => {
@@ -363,19 +380,17 @@ impl InteractiveConsoleOut {
         let elapsed = elapsed.millis_rounded_up();
         let content = self.content();
         let length = content.chars().count();
-        eprint!("{}", palette.paint(format!("{:<15}", kind)));
-        eprint!("│");
+        write!(printer.plain(palette), "{:<15}│", kind)?;
         if self.is_solver_s() {
-            eprint_spaces(tester_length);
-            eprint!("│");
-            eprint!("{}", palette.paint(content));
-            eprint_spaces(solver_length - length);
+            printer.write_spaces(tester_length)?;
+            write!(printer.plain(palette), "│{}", content)?;
+            printer.write_spaces(solver_length - length)?;
         } else {
-            eprint!("{}", palette.paint(content));
-            eprint_spaces(tester_length - length);
-            eprint!("│");
-            eprint_spaces(solver_length);
+            write!(printer.plain(palette), "{}", content)?;
+            printer.write_spaces(tester_length - length)?;
+            write!(printer, "│")?;
+            printer.write_spaces(solver_length)?;
         }
-        eprintln!("│{:>4}ms", elapsed);
+        writeln!(printer, "│{:>4}ms", elapsed)
     }
 }

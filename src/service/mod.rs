@@ -7,11 +7,10 @@ pub(crate) mod yukicoder;
 pub(self) mod downloader;
 
 use config::Config;
+use console::Console;
 use errors::SessionResult;
-use palette::Palette;
 use path::{AbsPath, AbsPathBuf};
 use replacer::CodeReplacer;
-use service::downloader::ZipDownloader;
 use service::session::{HttpSession, UrlBase};
 use template::{Template, TemplateBuilder};
 use testsuite::SerializableExtension;
@@ -21,42 +20,16 @@ use itertools::Itertools as _Itertools;
 use reqwest::header::{Headers, UserAgent};
 use reqwest::{self, RedirectPolicy, Response};
 use select::document::Document;
-use tokio_core::reactor::Core;
 use url::Host;
-use {rpassword, rprompt};
 
 use std::collections::HashMap;
+use std::fmt;
+use std::io::{self, BufRead, Write};
 use std::ops::Deref;
 use std::rc::Rc;
 use std::time::Duration;
-use std::{fmt, io};
 
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
-
-pub(self) fn ask_yes_or_no(mes: &str, default: bool) -> io::Result<bool> {
-    let prompt = format!("{}{} ", mes, if default { "(Y/n)" } else { "(y/N)" });
-    loop {
-        match &rprompt::prompt_reply_stderr(&prompt)? {
-            s if s.is_empty() => break Ok(default),
-            s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
-            s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
-            _ => eprintln!("Answer \"y\", \"yes\", \"n\", \"no\", or \"\"."),
-        }
-    }
-}
-
-/// Asks username and password.
-pub(self) fn ask_credentials(username_prompt: &str) -> io::Result<(String, String)> {
-    let username = rprompt::prompt_reply_stderr(username_prompt)?;
-    let password = rpassword::prompt_password_stderr("Password: ").or_else(|e| match e.kind() {
-        io::ErrorKind::BrokenPipe => {
-            eprintln!("{}", Palette::Warning.paint("broken pipe"));
-            rprompt::prompt_reply_stderr("Password (not hidden): ")
-        }
-        _ => Err(e),
-    })?;
-    Ok((username, password))
-}
 
 pub(self) trait TryIntoDocument {
     fn try_into_document(self) -> reqwest::Result<Document>;
@@ -92,15 +65,6 @@ pub enum UserNameAndPassword {
 }
 
 impl UserNameAndPassword {
-    pub(self) fn or_ask(&self, username_prompt: &str) -> io::Result<(Rc<String>, Rc<String>)> {
-        if let UserNameAndPassword::Some(username, password) = self {
-            Ok((username.clone(), password.clone()))
-        } else {
-            let (username, password) = ask_credentials(username_prompt)?;
-            Ok((Rc::new(username), Rc::new(password)))
-        }
-    }
-
     pub(self) fn is_some(&self) -> bool {
         match self {
             UserNameAndPassword::None => false,
@@ -137,38 +101,21 @@ impl SessionConfig {
     }
 }
 
-pub(crate) struct SessionProp {
+pub(crate) struct SessionProp<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> {
+    pub console: &'a mut Console<I, O, E>,
     pub domain: Option<&'static str>,
     pub cookies_path: AbsPathBuf,
     pub timeout: Option<Duration>,
     pub credentials: Credentials,
 }
 
-impl SessionProp {
-    pub(self) fn start_session(&self) -> SessionResult<HttpSession> {
+impl<'a, I: BufRead, O: Write, E: Write> SessionProp<'a, I, O, E> {
+    pub(self) fn start_session(self) -> SessionResult<HttpSession<'a, I, O, E>> {
         let client = reqwest_client(self.timeout)?;
         let base = self
             .domain
             .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
-        HttpSession::new(client, base, self.cookies_path.clone())
-    }
-
-    pub(self) fn zip_downloader(&self) -> SessionResult<ZipDownloader> {
-        let core = Core::new()?;
-        let mut builder = reqwest::unstable::async::Client::builder();
-        if let Some(timeout) = self.timeout {
-            builder.timeout(timeout);
-        }
-        let client = builder
-            .redirect(RedirectPolicy::none())
-            .referer(false)
-            .default_headers({
-                let mut headers = Headers::new();
-                headers.set(UserAgent::new(USER_AGENT));
-                headers
-            })
-            .build(&core.handle())?;
-        Ok(ZipDownloader::new(client, core))
+        HttpSession::new(self.console, client, base, self.cookies_path.clone())
     }
 }
 
@@ -183,8 +130,7 @@ pub(self) fn reqwest_client(
             let mut headers = Headers::new();
             headers.set(UserAgent::new(USER_AGENT));
             headers
-        })
-        .build()
+        }).build()
 }
 
 pub(crate) struct DownloadProp<C: Contest> {
@@ -193,16 +139,10 @@ pub(crate) struct DownloadProp<C: Contest> {
     pub download_dir: AbsPathBuf,
     pub extension: SerializableExtension,
     pub open_browser: bool,
-    pub suppress_download_bars: bool,
 }
 
 impl DownloadProp<String> {
-    pub fn new(
-        config: &Config,
-        open_browser: bool,
-        suppress_download_bars: bool,
-        problems: Vec<String>,
-    ) -> ::Result<Self> {
+    pub fn new(config: &Config, open_browser: bool, problems: Vec<String>) -> ::Result<Self> {
         let download_dir = config.testfiles_dir().expand("")?;
         Ok(Self {
             contest: config.contest().to_owned(),
@@ -214,7 +154,6 @@ impl DownloadProp<String> {
             download_dir,
             extension: config.extension_on_scrape(),
             open_browser,
-            suppress_download_bars,
         })
     }
 
@@ -225,7 +164,6 @@ impl DownloadProp<String> {
             download_dir: self.download_dir,
             extension: self.extension,
             open_browser: self.open_browser,
-            suppress_download_bars: self.suppress_download_bars,
         }
     }
 }
@@ -359,11 +297,12 @@ pub(self) trait PrintTargets {
     fn contest(&self) -> &Self::Contest;
     fn problems(&self) -> Option<&[String]>;
 
-    fn print_targets(&self) {
-        print!("Targets: {}/", self.contest());
+    fn write_targets(&self, mut wrt: impl Write) -> io::Result<()> {
+        write!(wrt, "Targets: {}/", self.contest())?;
         match self.problems() {
-            None => println!("*"),
-            Some(problems) => println!("{{{}}}", problems.iter().join(", ")),
-        }
+            None => writeln!(wrt, "*"),
+            Some(problems) => writeln!(wrt, "{{{}}}", problems.iter().join(", ")),
+        }?;
+        writeln!(wrt)
     }
 }

@@ -1,6 +1,6 @@
 use command::{CompilationCommand, JudgingCommand};
+use console::{self, ConsoleOut, Palette, Printer};
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
-use palette::{ColorRange, Palette};
 use path::{AbsPath, AbsPathBuf};
 use replacer::{CodeReplacer, CodeReplacerConf};
 use service::SessionConfig;
@@ -9,11 +9,11 @@ use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplat
 use {yaml, ServiceName};
 
 use serde_yaml;
-use unicode_width::UnicodeWidthStr as _UnicodeWidthStr;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
+use std::io::{self, Write};
 use std::ops::Deref as _Deref;
 use std::str;
 use std::time::Duration;
@@ -21,20 +21,26 @@ use std::time::Duration;
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
-pub(crate) fn init(directory: AbsPath, session_cookies: &str) -> FileIoResult<()> {
+pub(crate) fn init(
+    mut printer: Printer<impl Write>,
+    directory: AbsPath,
+    session_cookies: &str,
+) -> FileIoResult<()> {
     let config = format!(
         r#"---
 service: atcoder
-contest: arc001
+contest: arc100
 language: c++
 
-color_range: {color_range}
+# console:
+#   color: 256color
+#   cjk: true
 
 session:
   timeout: 10
   cookies: {session_cookies}
 
-shell: {shell}
+shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
 
 testfiles:
   directory: snowchains/$service/$contest/
@@ -44,6 +50,7 @@ testfiles:
     timelimit: 2000
     match: {default_match}
     entries:
+      # AtCoder
       - in:
           entry: /\Ain/([a-z0-9_\-]+)\.txt\z/
           match_group: 1
@@ -51,6 +58,7 @@ testfiles:
           entry: /\Aout/([a-z0-9_\-]+)\.txt\z/
           match_group: 1
         sort: [dictionary]
+      # HackerRank
       - in:
           entry: /\Ainput/input([0-9]+)\.txt\z/
           match_group: 1
@@ -58,6 +66,7 @@ testfiles:
           entry: /\Aoutput/output([0-9]+)\.txt\z/
           match_group: 1
         sort: [number]
+      # yukicoder
       - in:
           entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
           match_group: 1
@@ -70,22 +79,21 @@ services:
   atcoder:
     # language: c++
     variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra
       rust_version: 1.15.1
       java_class: Main
   hackerrank:
+    # language: c++
     variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra -lm
       rust_version: 1.21.0
       java_class: Main
   yukicoder:
+    # language: c++
     variables:
-      cxx_flags: =std=c++14 -O2 -Wall -Wextra
-      rust_version: 1.22.1
+      rust_version: 1.28.0
       java_class: Main
   other:
+    # language: c++
     variables:
-      cxx_flags: -std=c++14 -O2 -Wall -Wextra
       rust_version: stable
 
 interactive:
@@ -93,51 +101,63 @@ interactive:
     src: py/{{kebab}}-tester.py
     run:
       command: python3 -- $src $*
-      working_directory: py/
+      working_directory: py
   haskell:
     src: hs/src/{{Pascal}}Tester.hs
     compile:
       bin: hs/target/{{Pascal}}Tester
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: hs/
+      working_directory: hs
     run:
       command: $bin $*
-      working_directory: hs/
+      working_directory: hs
 
 languages:
   c++:
-    src: cc/{{kebab}}.cc
-    compile:
-      bin: cc/build/{{kebab}}{exe}
-      command: g++ $cxx_flags -o $bin $src
-      working_directory: cc/
+    src: cpp/{{kebab}}.cpp     # source file to test and to submit
+    compile:                 # optional
+      bin: cpp/build/{{kebab}}
+      command: [g++, -std=c++14, -Wall, -Wextra, -g, -fsanitize=undefined, -D_GLIBCXX_DEBUG, -o, $bin, $src]
+      working_directory: cpp # default: "."
     run:
       command: [$bin]
-      working_directory: cc/
-    language_ids:
-      atcoder: 3003
-      yukicoder: cpp14
+      working_directory: cpp # default: "."
+    language_ids:            # optional
+      atcoder: 3003          # "C++14 (GCC x.x.x)"
+      yukicoder: cpp14       # "C++14 (gcc x.x.x)"
   rust:
     src: rs$rust_version/src/bin/{{kebab}}.rs
     compile:
       bin: rs$rust_version/target/release/{{kebab}}{exe}
       command: [rustc, +$rust_version, -o, $bin, $src]
-      working_directory: rs$rust_version/
+      working_directory: rs$rust_version
     run:
       command: [$bin]
-      working_directory: rs$rust_version/
+      working_directory: rs$rust_version
     language_ids:
       atcoder: 3504
       yukicoder: rust
+  go:
+    src: go/{{kebab}}.go
+    compile:
+      bin: go/{{kebab}}{exe}
+      command: [go, build, -o, $bin, $src]
+      working_directory: go
+    run:
+      command: [$bin]
+      working_directory: go
+    language_ids:
+      atcoder: 3013
+      yukicoder: go
   haskell:
     src: hs/src/{{Pascal}}.hs
     compile:
       bin: hs/target/{{Pascal}}{exe}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: hs/
+      working_directory: hs
     run:
       command: [$bin]
-      working_directory: hs/
+      working_directory: hs
     language_ids:
       atcoder: 3014
       yukicoder: haskell
@@ -145,7 +165,7 @@ languages:
     src: bash/{{kebab}}.bash
     run:
       command: [bash, $src]
-      working_directory: bash/
+      working_directory: bash
     language_ids:
       atcoder: 3001
       yukicoder: sh
@@ -153,19 +173,19 @@ languages:
     src: py/{{kebab}}.py
     run:
       command: [./venv/bin/python3, $src]
-      working_directory: py/
+      working_directory: py
     language_ids:
-      atcoder: 3023
-      yukicoder: python3
+      atcoder: 3023      # "Python3 (3.x.x)"
+      yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x)"
   java:
     src: java/src/main/java/{{Pascal}}.java
     compile:
       bin: java/build/classes/java/main/{{Pascal}}.class
-      command: [javac, -d, ./build/classes/java/main/, $src]
-      working_directory: java/
+      command: [javac, -d, ./build/classes/java/main, $src]
+      working_directory: java
     run:
-      command: [java, -classpath, ./build/classes/java/main/, '{{Pascal}}']
-      working_directory: java/
+      command: [java, -classpath, ./build/classes/java/main, '{{Pascal}}']
+      working_directory: java
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       match_group: 2
@@ -179,11 +199,11 @@ languages:
     src: scala/src/main/scala/{{Pascal}}.scala
     compile:
       bin: scala/target/scala-2.12/classes/{{Pascal}}.class
-      command: [scalac, -optimise, -d, ./target/scala-2.12/classes/, $src]
-      working_directory: scala/
+      command: [scalac, -optimise, -d, ./target/scala-2.12/classes, $src]
+      working_directory: scala
     run:
-      command: [scala, -classpath, ./target/scala-2.12/classes/, '{{Pascal}}']
-      working_directory: scala/
+      command: [scala, -classpath, ./target/scala-2.12/classes, '{{Pascal}}']
+      working_directory: scala
     replace:
       regex: /^\s*object\s+([A-Z][a-zA-Z0-9_]*).*$/
       match_group: 1
@@ -198,12 +218,11 @@ languages:
     src: txt/{{snake}}.txt
     run:
       command: [cat, $src]
-      working_directory: txt/
+      working_directory: txt
     language_ids:
       atcoder: 3027
       yukicoder: text
 "#,
-        color_range = ColorRange::default(),
         session_cookies = yaml::escape_string(session_cookies),
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
@@ -222,54 +241,61 @@ languages:
     compile:
       bin: cs/{Pascal}/bin/Release/{Pascal}.exe
       command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
-      working_directory: cs/
+      working_directory: cs
     run:
       command: [$bin]
-      working_directory: cs/
+      working_directory: cs
     language_ids:
-      atcoder: 3006
-      yukicoder: csharp"#
+      atcoder: 3006     # "C# (Mono x.x.x.x)"
+      yukicoder: csharp # "C# (csc x.x.x.x)""#
         } else {
             r#"  c#:
     src: cs/{Pascal}/{Pascal}.cs
     compile:
       bin: cs/{Pascal}/bin/Release/{Pascal}.exe
       command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
-      working_directory: cs/
+      working_directory: cs
     run:
       command: [mono, $bin]
-      working_directory: cs/
+      working_directory: cs
     language_ids:
-      atcoder: 3006
-      yukicoder: csharp_mono"#
+      atcoder: 3006          # "C# (Mono x.x.x.x)"
+      yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)""#
         }
     );
     let path = directory.join(CONFIG_FILE_NAME);
     ::fs::write(&path, config.as_bytes())?;
-    println!("Wrote to {}", path.display());
+    writeln!(printer, "Wrote to {}", path.display())?;
+    printer.flush()?;
     Ok(())
 }
 
 /// Changes attributes.
 pub(crate) fn switch(
+    mut out: ConsoleOut<impl Write, impl Write>,
     directory: AbsPath,
     service: Option<ServiceName>,
     contest: Option<String>,
     language: Option<String>,
 ) -> FileIoResult<()> {
-    fn print_change(left_width: usize, prev: &Option<String>, new: &Option<String>) {
+    fn print_change(
+        mut stdout: console::Stdout<impl Write>,
+        left_width: usize,
+        prev: &Option<String>,
+        new: &Option<String>,
+    ) -> io::Result<()> {
         let prev = prev.as_ref().map(String::as_str).unwrap_or("~");
         let new = new.as_ref().map(String::as_str).unwrap_or("~");
-        print!("{}", prev);
-        (0..left_width - prev.len()).for_each(|_| print!(" "));
-        println!(" -> {}", new);
+        write!(stdout, "{}", prev)?;
+        (0..left_width - prev.len()).try_for_each(|_| write!(stdout, " "))?;
+        writeln!(stdout, " -> {}", new)
     }
 
     let path = ::fs::find_filepath(directory, CONFIG_FILE_NAME)?;
     let mut old_yaml = ::fs::read_to_string(&path)?;
     let old_config = serde_yaml::from_str::<Config>(&old_yaml)
         .map_err(|err| FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err))?;
-    println!("Loaded {}", path.display());
+    writeln!(out.stdout(), "Loaded {}", path.display())?;
 
     let mut m = hashmap!();
     if let Some(service) = service {
@@ -296,9 +322,9 @@ pub(crate) fn switch(
         .and_then(|new_yaml| {
             let new_config = serde_yaml::from_str(&new_yaml)?;
             Ok((new_yaml, new_config))
-        })
-        .or_else(|warning| {
-            eprintln!("{}", Palette::Warning.paint(warning.to_string()));
+        }).or_else::<FileIoError, _>(|warning| {
+            writeln!(out.stderr().plain(Palette::Warning), "{}", warning)?;
+            out.stderr().flush()?;
             let mut new_config = serde_yaml::from_str::<Config>(&old_yaml).map_err(|err| {
                 FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
             })?;
@@ -316,19 +342,23 @@ pub(crate) fn switch(
     let c2 = Some(format!("{:?}", new_config.contest));
     let l1 = old_config.language.as_ref().map(|l| format!("{:?}", l));
     let l2 = new_config.language.as_ref().map(|l| format!("{:?}", l));
+    let mut stdout = out.stdout();
     let w = [
-        s1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
-        c1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
-        l1.as_ref().map(|s| s.width_cjk()).unwrap_or(1),
-    ].iter()
+        s1.as_ref().map(|s| stdout.width(s)).unwrap_or(1),
+        c1.as_ref().map(|s| stdout.width(s)).unwrap_or(1),
+        l1.as_ref().map(|s| stdout.width(s)).unwrap_or(1),
+    ]
+        .iter()
         .cloned()
         .max()
         .unwrap();
-    print_change(w, &s1, &s2);
-    print_change(w, &c1, &c2);
-    print_change(w, &l1, &l2);
+    print_change(stdout.reborrow(), w, &s1, &s2)?;
+    print_change(stdout.reborrow(), w, &c1, &c2)?;
+    print_change(stdout.reborrow(), w, &l1, &l2)?;
     ::fs::write(&path, new_yaml.as_bytes())?;
-    println!("Saved.");
+
+    writeln!(stdout, "Saved.")?;
+    stdout.flush()?;
     Ok(())
 }
 
@@ -339,7 +369,8 @@ pub(crate) struct Config {
     service: ServiceName,
     contest: String,
     language: Option<String>,
-    color_range: ColorRange,
+    #[serde(default)]
+    console: console::Conf,
     session: SessionConfig,
     shell: Vec<TemplateBuilder<OsString>>,
     testfiles: TestFiles,
@@ -353,23 +384,22 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    pub fn load_setting_color_range(
+    pub fn load(
+        mut out: ConsoleOut<impl Write, impl Write>,
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
         dir: AbsPath,
     ) -> FileIoResult<Self> {
         let path = ::fs::find_filepath(dir, CONFIG_FILE_NAME)?;
-        let mut config = serde_yaml::from_reader::<_, Self>(::fs::open(&path)?)
-            .map_err(|err| FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err))?;
+        let mut config = serde_yaml::from_reader::<_, Self>(::fs::open(&path)?).map_err(|err| {
+            FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
+        })?;
         config.base_dir = path.parent().unwrap();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
-        config.color_range.set_globally();
-        println!(
-            "Loaded {} (color_range: {})",
-            path.display(),
-            config.color_range
-        );
+        let mut stdout = out.stdout();
+        writeln!(stdout, "Loaded {}", path.display())?;
+        stdout.flush()?;
         Ok(config)
     }
 
@@ -381,6 +411,10 @@ impl Config {
     /// Gets `contest`.
     pub fn contest(&self) -> &str {
         &self.contest
+    }
+
+    pub fn console(&self) -> &console::Conf {
+        &self.console
     }
 
     /// Gets `session.timeout`.
@@ -499,8 +533,7 @@ impl Config {
                     &compile.working_directory,
                     &lang.src,
                     &compile.bin,
-                )
-                .insert_strings(&self.vars_for_langs(None))
+                ).insert_strings(&self.vars_for_langs(None))
         })
     }
 
@@ -513,8 +546,7 @@ impl Config {
                 &lang.run.working_directory,
                 &lang.src,
                 lang.compile.as_ref().map(|c| &c.bin),
-            )
-            .insert_strings(&self.vars_for_langs(None))
+            ).insert_strings(&self.vars_for_langs(None))
     }
 
     fn lang_name<'a>(&'a self, name: Option<&'a str>) -> LoadConfigResult<&'a str> {
@@ -524,7 +556,7 @@ impl Config {
                 .and_then(|s| s.language.as_ref())
                 .map(String::as_str)
         }).or_else(|| self.language.as_ref().map(String::as_str))
-            .ok_or_else(|| LoadConfigError::PropertyNotSet("language"))
+        .ok_or_else(|| LoadConfigError::PropertyNotSet("language"))
     }
 
     fn vars_for_langs(&self, service: impl Into<Option<ServiceName>>) -> HashMap<&str, &str> {

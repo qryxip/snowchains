@@ -1,5 +1,5 @@
+use console::{self, Console, Palette};
 use errors::{FileIoError, FileIoErrorKind, SessionError, SessionResult, StartSessionError};
-use palette::Palette;
 use path::AbsPathBuf;
 use service::USER_AGENT;
 
@@ -17,50 +17,94 @@ use {bincode, webbrowser};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom, Write as _IoWrite};
+use std::io::{self, BufRead, Read, Seek, SeekFrom, Write};
 
-pub(super) trait GetPost {
-    fn session(&mut self) -> &mut HttpSession;
+pub(super) trait HasSession<'a> {
+    type Stdin: BufRead + 'a;
+    type Stdout: Write + 'a;
+    type Stderr: Write + 'a;
 
-    fn get(&mut self, url: &str) -> self::Request {
+    fn session<'b>(
+        &'b mut self,
+    ) -> &'b mut HttpSession<'a, Self::Stdin, Self::Stdout, Self::Stderr>
+    where
+        'a: 'b;
+
+    fn console<'b>(&'b mut self) -> &'b mut Console<Self::Stdin, Self::Stdout, Self::Stderr>
+    where
+        'a: 'b,
+    {
+        &mut self.session().console
+    }
+
+    fn get<'b>(
+        &'b mut self,
+        url: &str,
+    ) -> self::Request<'b, 'a, Self::Stdin, Self::Stdout, Self::Stderr>
+    where
+        'a: 'b,
+    {
         self.session().get(url)
     }
 
-    fn post(&mut self, url: &str) -> self::Request {
+    fn post<'b>(
+        &'b mut self,
+        url: &str,
+    ) -> self::Request<'b, 'a, Self::Stdin, Self::Stdout, Self::Stderr>
+    where
+        'a: 'b,
+    {
         self.session().post(url)
+    }
+
+    fn stdout<'b>(&'b mut self) -> console::Stdout<'b, Self::Stdout>
+    where
+        'a: 'b,
+    {
+        self.console().stdout()
+    }
+
+    fn stderr<'b>(&'b mut self) -> console::Stderr<'b, Self::Stderr>
+    where
+        'a: 'b,
+    {
+        self.console().stderr()
     }
 }
 
 /// A wrapper of `reqwest::Client`.
 #[derive(Debug)]
-pub(crate) struct HttpSession {
+pub(crate) struct HttpSession<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> {
+    console: &'a mut Console<I, O, E>,
     client: reqwest::Client,
     robots_txts: HashMap<String, String>,
     base: Option<UrlBase>,
     jar: Option<AutosavedCookieJar>,
 }
 
-impl HttpSession {
+impl<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> HttpSession<'a, I, O, E> {
     pub fn new(
+        console: &'a mut Console<I, O, E>,
         client: reqwest::Client,
         base: impl Into<Option<UrlBase>>,
         cookies_path: impl Into<Option<AbsPathBuf>>,
     ) -> SessionResult<Self> {
-        let start = || -> SessionResult<HttpSession> {
+        let start = move || -> SessionResult<Self> {
             let base = base.into();
             let host = base.as_ref().map(|base| base.host.clone());
             let jar = match cookies_path.into() {
                 Some(path) => Some(AutosavedCookieJar::new(path)?),
                 None => None,
             };
-            let mut sess = Self {
+            let mut this = Self {
+                console,
                 client,
                 robots_txts: hashmap!(),
                 base,
                 jar,
             };
             if let Some(host) = host {
-                let mut res = sess
+                let mut res = this
                     .get("/robots.txt")
                     .acceptable(&[200, 301, 302, 404])
                     .send()?;
@@ -70,23 +114,23 @@ impl HttpSession {
                         .get::<Location>()
                         .map(|location| (*location).to_owned());
                     if let Some(location) = location {
-                        res = sess
+                        res = this
                             .get(&location)
                             .acceptable(&[200, 301, 302, 404])
                             .send()?;
                     } else {
-                        return Ok(sess);
+                        return Ok(this);
                     }
                 }
                 match res.status().as_u16() {
                     200 => {
-                        sess.robots_txts.insert(host.to_string(), res.text()?);
+                        this.robots_txts.insert(host.to_string(), res.text()?);
                     }
                     404 => (),
                     _ => unreachable!(),
                 }
             }
-            Ok(sess)
+            Ok(this)
         };
         start().context(StartSessionError).map_err(Into::into)
     }
@@ -121,7 +165,7 @@ impl HttpSession {
 
     /// If `url` starts with '/' and the base host is present, returns
     /// http(s)://<host><url>.
-    pub fn resolve_url<'a>(&self, url: &'a str) -> SessionResult<Url> {
+    pub fn resolve_url(&self, url: &str) -> SessionResult<Url> {
         match self.base.as_ref() {
             Some(base) => base.with(url),
             None => Url::parse(url).map_err(|e| SessionError::ParseUrl(url.to_owned(), e)),
@@ -130,9 +174,11 @@ impl HttpSession {
 
     /// Opens `url`, which is relative or absolute, with default browser
     /// printing a message.
-    pub fn open_in_browser(&self, url: &str) -> SessionResult<()> {
+    pub fn open_in_browser(&mut self, url: &str) -> SessionResult<()> {
         let url = self.resolve_url(url)?;
-        println!("Opening {} in default browser...", url);
+        let mut stdout = self.console.stdout();
+        writeln!(stdout, "Opening {} in default browser...", url)?;
+        stdout.flush()?;
         let status = webbrowser::open(url.as_str())?.status;
         if status.success() {
             Ok(())
@@ -141,15 +187,20 @@ impl HttpSession {
         }
     }
 
-    pub fn get(&mut self, url: &str) -> self::Request {
+    pub fn get<'b>(&'b mut self, url: &str) -> self::Request<'b, 'a, I, O, E> {
         self.request(url, Method::Get, vec![StatusCode::Ok])
     }
 
-    pub fn post(&mut self, url: &str) -> self::Request {
+    pub fn post<'b>(&'b mut self, url: &str) -> self::Request<'b, 'a, I, O, E> {
         self.request(url, Method::Post, vec![StatusCode::Found])
     }
 
-    fn request(&mut self, url: &str, method: Method, acceptable: Vec<StatusCode>) -> self::Request {
+    fn request<'b>(
+        &'b mut self,
+        url: &str,
+        method: Method,
+        acceptable: Vec<StatusCode>,
+    ) -> self::Request<'b, 'a, I, O, E> {
         self::Request {
             inner: self.try_request(url, method),
             session: self,
@@ -181,13 +232,13 @@ impl HttpSession {
     }
 }
 
-pub(crate) struct Request<'a> {
-    session: &'a mut HttpSession,
+pub(crate) struct Request<'a, 'b: 'a, I: BufRead + 'b, O: Write + 'b, E: Write + 'b> {
+    session: &'a mut HttpSession<'b, I, O, E>,
     inner: SessionResult<reqwest::RequestBuilder>,
     acceptable: Vec<StatusCode>,
 }
 
-impl<'a> Request<'a> {
+impl<'a, 'b, I: BufRead, O: Write, E: Write> Request<'a, 'b, I, O, E> {
     pub fn raw_header(
         mut self,
         name: impl Into<Cow<'static, str>>,
@@ -211,12 +262,18 @@ impl<'a> Request<'a> {
 
     pub fn send(self) -> SessionResult<Response> {
         let req = self.inner?.build()?;
-        req.echo_method();
-        let res = self.session.client.execute(req).map_err(|err| {
-            println!();
-            err
-        })?;
-        res.echo_status(&self.acceptable);
+        let mut stdout = self.session.console.stdout();
+        let client = &self.session.client;
+        req.echo_method(stdout.reborrow())?;
+        let res = match client.execute(req) {
+            Ok(res) => Ok(res),
+            Err(err) => {
+                writeln!(stdout)?;
+                stdout.flush()?;
+                Err(err)
+            }
+        }?;
+        res.echo_status(&self.acceptable, stdout)?;
         if let Some(jar) = self.session.jar.as_mut() {
             jar.update(&res)?;
         }
@@ -254,17 +311,15 @@ impl<'a> Request<'a> {
 }
 
 trait EchoMethod {
-    fn echo_method(&self);
+    fn echo_method(&self, stdout: console::Stdout<impl Write>) -> io::Result<()>;
 }
 
 impl EchoMethod for reqwest::Request {
-    fn echo_method(&self) {
-        print!(
-            "{} {} ... ",
-            Palette::Plain.bold().paint(self.method().to_string()),
-            Palette::Url.paint(self.url().to_string()),
-        );
-        io::stdout().flush().unwrap();
+    fn echo_method(&self, mut stdout: console::Stdout<impl Write>) -> io::Result<()> {
+        write!(stdout.bold(None), "{}", self.method())?;
+        write!(stdout.plain(Palette::Url), " {}", self.url())?;
+        write!(stdout, " ... ")?;
+        stdout.flush()
     }
 }
 
@@ -272,18 +327,27 @@ trait ResponseExt
 where
     Self: Sized,
 {
-    fn echo_status(&self, expected_statuses: &[StatusCode]);
+    fn echo_status(
+        &self,
+        expected_statuses: &[StatusCode],
+        stdout: console::Stdout<impl Write>,
+    ) -> io::Result<()>;
     fn filter_by_status(self, expected: Vec<StatusCode>) -> SessionResult<Self>;
 }
 
 impl ResponseExt for Response {
-    fn echo_status(&self, expected_statuses: &[StatusCode]) {
+    fn echo_status(
+        &self,
+        expected_statuses: &[StatusCode],
+        mut stdout: console::Stdout<impl Write>,
+    ) -> io::Result<()> {
         let palette = if expected_statuses.contains(&self.status()) {
             Palette::Success
         } else {
             Palette::Fatal
         };
-        println!("{}", palette.bold().paint(self.status().to_string()));
+        writeln!(stdout.bold(palette), "{}", self.status())?;
+        stdout.flush()
     }
 
     fn filter_by_status(self, expected: Vec<StatusCode>) -> SessionResult<Self> {
@@ -407,6 +471,7 @@ impl AutosavedCookieJar {
 
 #[cfg(test)]
 mod tests {
+    use console::Console;
     use errors::SessionError;
     use path::AbsPathBuf;
     use service;
@@ -440,7 +505,8 @@ mod tests {
         let result = panic::catch_unwind(|| {
             let client = service::reqwest_client(None).unwrap();
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
-            let mut sess = HttpSession::new(client, Some(base), None).unwrap();
+            let mut null = Console::null();
+            let mut sess = HttpSession::new(&mut null, client, Some(base), None).unwrap();
             let res = sess.get("/").send().unwrap();
             assert!(res.headers().get::<reqwest::header::SetCookie>().is_some());
             sess.get("/nonexisting").acceptable(&[404]).send().unwrap();
@@ -461,10 +527,11 @@ mod tests {
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
         let path = AbsPathBuf::new_or_panic(tempdir.path().join("cookies"));
         let client = service::reqwest_client(None).unwrap();
-        HttpSession::new(client.clone(), None, path.clone()).unwrap();
-        HttpSession::new(client.clone(), None, path.clone()).unwrap();
-        let _session = HttpSession::new(client.clone(), None, path.clone()).unwrap();
-        let err = HttpSession::new(client, None, path.clone()).unwrap_err();
+        let (mut null1, mut null2) = (Console::null(), Console::null());
+        HttpSession::new(&mut null1, client.clone(), None, path.clone()).unwrap();
+        HttpSession::new(&mut null1, client.clone(), None, path.clone()).unwrap();
+        let _session = HttpSession::new(&mut null1, client.clone(), None, path.clone()).unwrap();
+        let err = HttpSession::new(&mut null2, client, None, path.clone()).unwrap_err();
         if let SessionError::Start(ref ctx) = err {
             if ctx.cause().is_some() {
                 return;

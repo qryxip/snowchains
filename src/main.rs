@@ -4,19 +4,32 @@ extern crate env_logger;
 extern crate failure;
 extern crate structopt;
 
-use snowchains::app::{Opt, Prop};
-use snowchains::palette::Palette;
+use snowchains::app::{App, Opt};
+use snowchains::console::{Console, Palette};
+use snowchains::path::AbsPathBuf;
+use snowchains::service::Credentials;
 
 use failure::Fail;
 use structopt::StructOpt as _StructOpt;
 
+use std::env;
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::process;
 
 fn main() {
     env_logger::init();
-    if let Err(err) = Prop::new().and_then(|prop| Opt::from_args().run(&prop)) {
-        eprintln!();
-        for (i, cause) in err.causes().enumerate() {
+    let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
+    let console = Console::new(
+        BufReader::new(stdin.lock()),
+        BufWriter::new(stdout.lock()),
+        BufWriter::new(stderr.lock()),
+    );
+    let (mut console, result) = run(console);
+    if let Err(err) = result {
+        console.stdout().flush().unwrap();
+        let mut stderr = console.stderr();
+        writeln!(stderr).unwrap();
+        for (i, cause) in (&err as &Fail).iter_chain().enumerate() {
             let head = if i == 0 && err.cause().is_none() {
                 "Error: "
             } else if i == 0 {
@@ -24,17 +37,35 @@ fn main() {
             } else {
                 "Caused by: "
             };
-            eprint!("{}", Palette::Fatal.bold().paint(head));
+            write!(stderr.bold(Palette::Fatal), "{}", head).unwrap();
             for (i, line) in cause.to_string().lines().enumerate() {
                 if i > 0 {
-                    (0..head.len()).for_each(|_| eprint!(" "));
+                    stderr.write_spaces(head.len()).unwrap();
                 }
-                eprintln!("{}", line);
+                writeln!(stderr, "{}", line).unwrap();
             }
         }
         if let Some(backtrace) = err.backtrace() {
-            eprintln!("{:?}", backtrace);
+            writeln!(stderr, "{:?}", backtrace).unwrap();
         }
-        process::exit(1)
+        stderr.flush().unwrap();
+        process::exit(1);
     }
+}
+
+fn run<I: BufRead, O: Write, E: Write>(
+    console: Console<I, O, E>,
+) -> (Console<I, O, E>, snowchains::Result<()>) {
+    let working_dir = match env::current_dir() {
+        Ok(wd) => AbsPathBuf::new_or_panic(wd),
+        Err(err) => return (console, Err(snowchains::Error::Getcwd(err))),
+    };
+    let mut app = App {
+        working_dir,
+        cookies_on_init: "~/.local/share/snowchains/$service".into(),
+        credentials: Credentials::default(),
+        console,
+    };
+    let result = app.run(Opt::from_args());
+    (app.console, result)
 }

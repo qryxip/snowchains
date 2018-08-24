@@ -17,12 +17,11 @@ environment:
     HACKERRANK_PASSWORD:
       secure: YCYQSV4TkGO8oHAkURbWzb6P57lzjE7NxUxy/c1XA2E=
     YUKICODER_REVEL_SESSION:
-      secure: sksF+M1iSjQz5yXEHW2g/D84ZKeYNEiCErnsCgHheDqkIZbfnh4mW4OQ73ao6FHzUE+ywx2ySHQDCYg/zirzeucnM3rnE4ngkx71pJgD5rE27JVP3Sknmks04WVUUED6gWlwlscNIONWAsCiPS0hY2Y/YHuQYC/alYEih0k7+RkDdkL9+gfvxFolwX9w/1izTNPpEyinJh5u/4D+I4c+9O4CgXp7GAhz02xKTQYdUO2NZFfWXSG9I4f5Eo0GNtg2j6+piSqdBAihvlkZrHS+qOiIt3nnKicxhfU+XdGdszY=
+      secure: YPYeDuLlqHZfeHudRI8JKjfMhYSsEhczqrzq4ssdIg8y64KjL1Xm2GaVrFEiUF/arR/pg5oCZ4kGjY7Wr+Rlx5Z/lMTpSYC8lxM41XCdLJkPVWk1tUxxZsRMeo5kTfwl73E7JTfGK4WS/iCs+lpnaD+XZuwM58eU+5lke1Juuy217Lrhql7TnBWa7U+rCn8muycZ5s/2jXqzpsjTgeWccugYFt8d+oS5YpopsbYjVV2hSKUs2OZi6k1kZRoNyYgslDfLX4B150pkIbJUZvAdd8HYw2jNJ5iegFM+9fwgP+o=
 
 install:
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:RUSTUP_HOST}/rustup-init.exe"
   - rustup-init.exe -y --default-toolchain %RUSTUP_TOOLCHAIN% --default-host %RUSTUP_HOST% --no-modify-path
-  - del rustup-init.exe
   - set PATH=C:\Users\appveyor\.cargo\bin;%PATH%
   - rustc -vV
   - cargo -vV
@@ -31,8 +30,8 @@ build: false
 
 test_script:
   - set PATH=C:\msys64\usr\bin;%PATH%
-  - sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET"
-  - sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET -- --ignored --skip it_submits"
+  - sh -c "[ -z \"${ATCODER_USERNAME}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET"
+  - sh -c "[ -z \"${ATCODER_USERNAME}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET -- --ignored --skip it_submits"
 
 before_deploy:
   - cargo build --release
@@ -52,9 +51,6 @@ deploy:
       secure: khL++opdJh5x79PMMTkOJXPXi8D+ijp0os5Bi02rA4DSApOmuF1VuZWpIzyDZ8pi
     on:
       appveyor_repo_tag: true
-
-artifacts:
-  - path: '*.exe'
 
 cache:
   - '%HOME%\.cargo\git'

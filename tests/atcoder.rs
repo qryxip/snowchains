@@ -11,11 +11,12 @@ extern crate tempdir;
 
 mod common;
 
-use snowchains::app::{Opt, Prop};
-use snowchains::palette::ColorChoice;
+use snowchains::app::{App, Opt};
+use snowchains::console::ColorChoice;
 use snowchains::ServiceName;
 
 use std::fs::File;
+use std::io;
 use std::path::Path;
 
 #[test]
@@ -37,11 +38,11 @@ fn it_raises_an_when_login_fails() {
     common::test_in_tempdir("it_raises_an_when_login_fails", credentials, login);
 }
 
-fn login(prop: &Prop) -> snowchains::Result<()> {
-    Opt::Login {
+fn login(mut app: App<io::Empty, io::Sink, io::Sink>) -> snowchains::Result<()> {
+    app.run(Opt::Login {
         color_choice: ColorChoice::Never,
         service: ServiceName::Atcoder,
-    }.run(prop)
+    })
 }
 
 #[test]
@@ -52,15 +53,15 @@ fn it_scrapes_samples_from_practice() {
     common::test_in_tempdir(
         "it_scrapes_samples_from_practice",
         credentials,
-        |prop| -> snowchains::Result<()> {
-            Opt::Download {
+        |mut app| -> snowchains::Result<()> {
+            app.run(Opt::Download {
                 open_browser: false,
                 service: Some(ServiceName::Atcoder),
                 contest: Some("practice".to_owned()),
                 problems: vec![],
                 color_choice: ColorChoice::Never,
-            }.run(&prop)?;
-            let download_dir = prop
+            })?;
+            let download_dir = app
                 .working_dir
                 .join("snowchains")
                 .join("atcoder")
@@ -80,15 +81,15 @@ fn it_scrapes_samples_from_arc058() {
     common::test_in_tempdir(
         "it_scrapes_samples_from_arc058",
         credentials,
-        |prop| -> snowchains::Result<()> {
-            Opt::Download {
+        |mut app| -> snowchains::Result<()> {
+            app.run(Opt::Download {
                 open_browser: false,
                 service: Some(ServiceName::Atcoder),
                 contest: Some("arc058".to_owned()),
                 problems: vec![],
                 color_choice: ColorChoice::Never,
-            }.run(&prop)?;
-            let download_dir = prop
+            })?;
+            let download_dir = app
                 .working_dir
                 .join("snowchains")
                 .join("atcoder")
@@ -140,7 +141,7 @@ fn it_submits_to_practice_a() {
     common::test_in_tempdir(
         "it_submits_to_practice_a",
         credentials,
-        |prop| -> Result<(), failure::Error> {
+        |mut app| -> Result<(), failure::Error> {
             static CODE: &[u8] = br#"#!/usr/bin/env python3
 
 
@@ -152,9 +153,9 @@ def main():
 if __name__ == '__main__':
     main()
 "#;
-            std::fs::create_dir(&prop.working_dir.join("py"))?;
-            std::fs::write(&prop.working_dir.join("py").join("a.py"), CODE)?;
-            Opt::Submit {
+            std::fs::create_dir(&app.working_dir.join("py"))?;
+            std::fs::write(&app.working_dir.join("py").join("a.py"), CODE)?;
+            app.run(Opt::Submit {
                 open_browser: false,
                 skip_judging: true,
                 skip_checking_duplication: false,
@@ -163,8 +164,7 @@ if __name__ == '__main__':
                 contest: Some("practice".to_owned()),
                 color_choice: ColorChoice::Never,
                 problem: "a".to_owned(),
-            }.run(&prop)
-                .map_err(Into::into)
+            }).map_err(Into::into)
         },
     );
 }

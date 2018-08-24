@@ -1,6 +1,6 @@
+use console::Palette;
 use errors::{ServiceError, ServiceResult, SubmitError};
-use palette::Palette;
-use service::session::{GetPost, HttpSession};
+use service::session::{HasSession, HttpSession};
 use service::{
     Contest, DownloadProp, RestoreProp, SessionProp, SubmitProp,
     TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
@@ -15,23 +15,30 @@ use select::document::Document;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
 
 use std::collections::{BTreeMap, HashMap};
+use std::io::{BufRead, Write};
+use std::rc::Rc;
 use std::time::Duration;
 use std::{fmt, vec};
 
 /// Logins to "beta.atcoder.jp".
-pub(crate) fn login(sess_prop: &SessionProp) -> ServiceResult<()> {
+pub(crate) fn login(
+    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+) -> ServiceResult<()> {
     Atcoder::start(sess_prop)?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
-pub(crate) fn participate(contest_name: &str, sess_prop: &SessionProp) -> ServiceResult<()> {
+pub(crate) fn participate(
+    contest_name: &str,
+    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+) -> ServiceResult<()> {
     Atcoder::start(sess_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
 pub(crate) fn download(
-    sess_prop: &SessionProp,
+    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
     let download_prop = download_prop.parse_contest().lowerize_problems();
@@ -40,7 +47,7 @@ pub(crate) fn download(
 
 /// Downloads submitted source codes.
 pub(crate) fn restore(
-    sess_prop: &SessionProp,
+    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
     restore_prop: RestoreProp<String>,
 ) -> ServiceResult<()> {
     let restore_prop = restore_prop.parse_contest().upperize_problems();
@@ -49,29 +56,37 @@ pub(crate) fn restore(
 
 /// Submits a source code.
 pub(crate) fn submit(
-    sess_prop: &SessionProp,
+    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
     submit_prop: SubmitProp<String>,
 ) -> ServiceResult<()> {
     Atcoder::start(sess_prop)?.submit(&submit_prop.parse_contest())
 }
 
-pub(self) struct Atcoder {
-    session: HttpSession,
+pub(self) struct Atcoder<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> {
+    session: HttpSession<'a, I, O, E>,
     credentials: UserNameAndPassword,
 }
 
-impl GetPost for Atcoder {
-    fn session(&mut self) -> &mut HttpSession {
+impl<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> HasSession<'a> for Atcoder<'a, I, O, E> {
+    type Stdin = I;
+    type Stdout = O;
+    type Stderr = E;
+
+    fn session<'b>(&'b mut self) -> &'b mut HttpSession<'a, I, O, E>
+    where
+        'a: 'b,
+    {
         &mut self.session
     }
 }
 
-impl Atcoder {
-    fn start(sess_prop: &SessionProp) -> ServiceResult<Self> {
+impl<'a, I: BufRead, O: Write, E: Write> Atcoder<'a, I, O, E> {
+    fn start(sess_prop: SessionProp<'a, I, O, E>) -> ServiceResult<Self> {
+        let credentials = sess_prop.credentials.atcoder.clone();
         let session = sess_prop.start_session()?;
         Ok(Self {
             session,
-            credentials: sess_prop.credentials.atcoder.clone(),
+            credentials,
         })
     }
 
@@ -80,32 +95,41 @@ impl Atcoder {
             let res = self.get("/settings").acceptable(&[200, 302]).send()?;
             if res.status() == StatusCode::Ok {
                 if eprints_message_if_already_logged_in {
-                    eprintln!("Already logged in.");
+                    writeln!(self.stderr(), "Already logged in.")?;
+                    self.stderr().flush()?;
                 }
                 return Ok(());
             }
         }
 
         while !self.try_logging_in()? {
-            eprintln!("Failed to login. Try again.");
+            writeln!(self.stderr(), "Failed to login. Try again.")?;
+            self.stderr().flush()?;
             self.session.clear_cookies()?;
         }
         Ok(())
     }
 
     fn try_logging_in(&mut self) -> ServiceResult<bool> {
-        let csrf_token = self.get("/login").recv_html()?.extract_csrf_token()?;
-        let (username, password) = self.credentials.or_ask("Username: ")?;
+        let token = self.get("/login").recv_html()?.extract_csrf_token()?;
+        let (username, password) = match self.credentials.clone() {
+            UserNameAndPassword::Some(username, password) => (username.clone(), password.clone()),
+            UserNameAndPassword::None => (
+                Rc::new(self.console().prompt_reply_stderr("Username: ")?),
+                Rc::new(self.console().prompt_password_stderr("Password: ")?),
+            ),
+        };
         let payload = hashmap!(
             "username" => username.as_str(),
             "password" => password.as_str(),
-            "csrf_token" => csrf_token.as_str(),
+            "csrf_token" => token.as_str(),
         );
         self.post("/login").send_form(&payload)?;
         let res = self.get("/settings").acceptable(&[200, 302]).send()?;
         let success = res.status() == StatusCode::Ok;
         if success {
-            println!("Successfully logged in.");
+            writeln!(self.stdout(), "Successfully logged in.")?;
+            self.stdout().flush()?;
         } else if self.credentials.is_some() {
             return Err(ServiceError::WrongCredentialsOnTest);
         }
@@ -134,7 +158,10 @@ impl Atcoder {
         contest: &AtcoderContest,
         explicit: bool,
     ) -> ServiceResult<()> {
-        let res = self.get(&contest.url_top()).acceptable(&[200, 302]).send()?;
+        let res = self
+            .get(&contest.url_top())
+            .acceptable(&[200, 302])
+            .send()?;
         if res.status() == StatusCode::Found {
             return Err(ServiceError::ContestNotFound(contest.to_string()));
         }
@@ -173,24 +200,23 @@ impl Atcoder {
             .map(|(name, url)| (name.to_lowercase(), url))
             .filter(|(name, _)| {
                 problems.is_none() || problems.as_ref().unwrap().iter().any(|s| s == name)
-            })
-            .map(|(name, url)| -> ServiceResult<_> {
+            }).map(|(name, url)| -> ServiceResult<_> {
                 let suite = self.get(&url).recv_html()?.extract_as_suite(contest)?;
                 let path = SuiteFilePath::new(download_dir, &name, *extension);
                 Ok((url, suite, path, name))
-            })
-            .collect::<ServiceResult<Vec<_>>>()?;
+            }).collect::<ServiceResult<Vec<_>>>()?;
         let mut not_found = match problems.as_ref() {
             None => vec![],
             Some(problems) => problems.iter().collect(),
         };
         for (_, suite, path, name) in &outputs {
-            suite.save(path, true)?;
+            suite.save(path, self.stdout())?;
             not_found.remove_item_(&name);
         }
+        self.stdout().flush()?;
         if !not_found.is_empty() {
-            let msg = format!("Not found: {:?}", not_found);
-            eprintln!("{}", Palette::Warning.paint(msg));
+            writeln!(self.stderr(), "Not found: {:?}", not_found)?;
+            self.stderr().flush()?;
         }
         if *open_browser {
             self.session
@@ -235,19 +261,29 @@ impl Atcoder {
             if problems.is_some() && !problems.as_ref().unwrap().iter().any(|p| p == &task_name) {
                 continue;
             }
-            let code = self.get(&detail_url).recv_html()?.extract_submitted_code()?;
+            let code = self
+                .get(&detail_url)
+                .recv_html()?
+                .extract_submitted_code()?;
             let lang_id = first_page.extract_lang_id(&lang_name)?;
             if let Some(path_template) = src_paths.get(lang_id.as_str()) {
                 let path = path_template.expand(&task_name.to_lowercase())?;
                 let code = match replacers.get(lang_id.as_str()) {
-                    Some(replacer) => replacer.replace_from_submission_to_local(&task_name, &code)?,
+                    Some(replacer) => {
+                        replacer.replace_from_submission_to_local(&task_name, &code)?
+                    }
                     None => code,
                 };
                 ::fs::write(&path, code.as_bytes())?;
                 results.push((task_name, lang_name, lang_id, path));
             } else {
-                let msg = format!("Ignoring {:?} (id: {})", lang_name, lang_id);
-                eprintln!("{}", Palette::Warning.paint(msg));
+                writeln!(
+                    self.stderr().bold(Palette::Warning),
+                    "Ignoring {:?} (id: {})",
+                    lang_name,
+                    lang_id
+                )?;
+                self.stderr().flush()?;
             }
         }
         let mut not_found = match problems.as_ref() {
@@ -255,24 +291,24 @@ impl Atcoder {
             Some(problems) => problems.iter().collect(),
         };
         for (task_name, lang_name, lang_id, path) in &results {
-            println!(
+            writeln!(
+                self.stdout(),
                 "{} - {:?} (id: {}): Saved to {}",
                 task_name,
                 lang_name,
                 lang_id,
                 path.display()
-            );
+            )?;
             not_found.remove_item_(&task_name);
         }
         if !not_found.is_empty() {
-            let msg = format!("Not found: {:?}", not_found);
-            eprintln!("{}", Palette::Warning.paint(msg));
+            let mut stderr = self.stderr();
+            writeln!(stderr.plain(Palette::Warning), "Not found: {:?}", not_found)?;
+            stderr.flush()?;
         }
-        println!(
-            "Saved {} file{}.",
-            results.len(),
-            if results.len() > 1 { "s" } else { "" }
-        );
+        let mut stdout = self.stdout();
+        writeln!(stdout, "Saved {}.", plural!(results.len(), "file", "files"))?;
+        stdout.flush()?;
         Ok(())
     }
 
@@ -288,8 +324,8 @@ impl Atcoder {
             skip_checking_if_accepted,
         } = prop;
         let tasks_page = self.fetch_tasks_page(&contest)?;
-        let checks_if_accepted = !skip_checking_if_accepted && *contest != AtcoderContest::Practice
-            && {
+        let checks_if_accepted =
+            !skip_checking_if_accepted && *contest != AtcoderContest::Practice && {
                 let duration = tasks_page.extract_contest_duration()?;
                 let status = duration.check_current_status(contest.to_string());
                 status.raise_if_not_begun()?;
@@ -297,11 +333,11 @@ impl Atcoder {
             };
         for (name, url) in tasks_page.extract_task_urls_with_names()? {
             if name.to_uppercase() == problem.to_uppercase() {
-                #[cfg_attr(rustfmt, rustfmt_skip)]
                 let task_screen_name = {
                     lazy_static! {
-                        static ref SCREEN_NAME: Regex = Regex::new(
-                            r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$").unwrap();
+                        static ref SCREEN_NAME: Regex =
+                            Regex::new(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$")
+                                .unwrap();
                     }
                     if let Some(caps) = SCREEN_NAME.captures(&url) {
                         caps[1].to_owned()
@@ -310,14 +346,11 @@ impl Atcoder {
                     }
                 };
                 if checks_if_accepted {
-                    let (submissions, num_pages) = self
+                    let (mut submissions, num_pages) = self
                         .get(&contest.url_submissions_me(1))
                         .recv_html()?
                         .extract_submissions()?;
-                    if submissions
-                        .into_iter()
-                        .any(|s| s.task_screen_name == task_screen_name && s.is_ac)
-                    {
+                    if submissions.any(|s| s.task_screen_name == task_screen_name && s.is_ac) {
                         return Err(ServiceError::AlreadyAccepted);
                     }
                     for i in 2..=num_pages {
@@ -837,8 +870,7 @@ impl Extract for Document {
                         let href = a.attr("href")?.to_owned();
                         info!("Extracting submissions: Found tr>td>a[href={:?}]", href);
                         Some(href)
-                    })
-                    .next()?;
+                    }).next()?;
                 submissions.push(Submission {
                     task_name,
                     task_screen_name,
@@ -884,9 +916,10 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
+    use console::Console;
     use errors::SessionResult;
     use service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
-    use service::session::{GetPost as _GetPost, HttpSession, UrlBase};
+    use service::session::{HasSession as _HasSession, HttpSession, UrlBase};
     use service::{self, UserNameAndPassword};
     use testsuite::TestSuite;
 
@@ -894,13 +927,15 @@ mod tests {
     use url::Host;
 
     use std::borrow::Borrow;
+    use std::io::{BufRead, Write};
     use std::time::Duration;
 
     #[test]
     #[ignore]
     fn it_extracts_task_urls_from_arc001() {
         let _ = env_logger::try_init();
-        let mut atcoder = start().unwrap();
+        let mut console = Console::null();
+        let mut atcoder = start(&mut console).unwrap();
         let page = atcoder
             .fetch_tasks_page(&AtcoderContest::new("arc001"))
             .unwrap();
@@ -924,7 +959,8 @@ mod tests {
     #[ignore]
     fn it_extracts_a_timelimit_from_apg4b_b() {
         let _ = env_logger::try_init();
-        let mut atcoder = start().unwrap();
+        let mut console = Console::null();
+        let mut atcoder = start(&mut console).unwrap();
         let page = atcoder
             .get("/contests/apg4b/tasks/APG4b_b")
             .recv_html()
@@ -1201,7 +1237,8 @@ mod tests {
     }
 
     fn test_sample_extraction(contest: &str, expected: &[(&str, &str, u64, &[(&str, &str)])]) {
-        let mut atcoder = start().unwrap();
+        let mut console = Console::null();
+        let mut atcoder = start(&mut console).unwrap();
         let contest = AtcoderContest::new(contest);
         let page = atcoder.fetch_tasks_page(&contest).unwrap();
         let urls_and_names = page.extract_task_urls_with_names().unwrap();
@@ -1253,16 +1290,19 @@ mod tests {
              }\n\
              ";
         let _ = env_logger::try_init();
-        let mut atcoder = start().unwrap();
+        let mut console = Console::null();
+        let mut atcoder = start(&mut console).unwrap();
         let page = atcoder.get(URL).recv_html().unwrap();
         let code = page.extract_submitted_code().unwrap();
         assert_eq!(EXPECTED_CODE, code);
     }
 
-    fn start() -> SessionResult<Atcoder> {
+    fn start<I: BufRead, O: Write, E: Write>(
+        console: &mut Console<I, O, E>,
+    ) -> SessionResult<Atcoder<I, O, E>> {
         let client = service::reqwest_client(Duration::from_secs(10))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
-        let session = HttpSession::new(client, base, None)?;
+        let session = HttpSession::new(console, client, base, None)?;
         Ok(Atcoder {
             session,
             credentials: UserNameAndPassword::None,
