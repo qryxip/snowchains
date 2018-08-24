@@ -30,8 +30,8 @@ build: false
 
 test_script:
   - set PATH=C:\msys64\usr\bin;%PATH%
-  - sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET"
-  - sh -c "[ -z \"${SECRET}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET -- --ignored --skip it_submits"
+  - sh -c "[ -z \"${ATCODER_USERNAME}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET"
+  - sh -c "[ -z \"${ATCODER_USERNAME}\" ] && TEST_TARGET=lib || TEST_TARGET=all; cargo test --$TEST_TARGET -- --ignored --skip it_submits"
 
 before_deploy:
   - cargo build --release
