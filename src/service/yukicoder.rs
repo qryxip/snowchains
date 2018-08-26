@@ -407,36 +407,58 @@ impl Extract for Document {
     }
 
     fn extract_samples(&self) -> ServiceResult<TestSuite> {
-        // TODO:
-        // - https://yukicoder.me/problems/no/188
-        // - https://yukicoder.me/problems/no/192
+        #[derive(Clone, Copy)]
+        enum ProblemKind {
+            Regular,
+            Special,
+            Reactive,
+        }
+
         let extract = || {
             lazy_static! {
-                static ref TIMELIMIT: Regex = Regex::new(
+                static ref R: Regex = Regex::new(
                     "\\A / 実行時間制限 : 1ケース (\\d)\\.(\\d{3})秒 / メモリ制限 : \\d+ MB / \
-                     通常問題\n\t*\\z"
+                     (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z"
                 ).unwrap();
             }
-            let timelimit = self
+            let text = self
                 .find(Attr("id", "content").child(Name("p")).child(Text))
-                .filter_map(|t| {
-                    TIMELIMIT.captures(&t.text()).map(|cs| {
-                        let (s, m) = (cs[1].parse::<u64>().unwrap(), cs[2].parse::<u64>().unwrap());
-                        Duration::from_millis(1000 * s + m)
-                    })
-                }).next()?;
-            let mut samples = vec![];
-            let predicate = Attr("id", "content")
-                .child(Name("div").and(Class("block")))
-                .child(Name("div").and(Class("sample")))
-                .child(Name("div").and(Class("paragraph")));
-            for paragraph in self.find(predicate) {
-                let pres = paragraph.find(Name("pre").child(Text)).collect::<Vec<_>>();
-                ensure_opt!(pres.len() == 2);
-                samples.push((pres[0].text(), pres[1].text()));
+                .map(|text| text.text())
+                .nth(1)?;
+            let caps = R.captures(&text)?;
+            let timelimit = {
+                let s = caps[1].parse::<u64>().unwrap();
+                let m = caps[2].parse::<u64>().unwrap();
+                Duration::from_millis(1000 * s + m)
+            };
+            let kind = match &caps[3] {
+                "通常" => ProblemKind::Regular,
+                "スペシャルジャッジ" => ProblemKind::Special,
+                "リアクティブ" => ProblemKind::Reactive,
+                _ => return None,
+            };
+            match kind {
+                ProblemKind::Regular | ProblemKind::Special => {
+                    let mut samples = vec![];
+                    let pred = Attr("id", "content")
+                        .child(Name("div").and(Class("block")))
+                        .child(Name("div").and(Class("sample")))
+                        .child(Name("div").and(Class("paragraph")));
+                    for paragraph in self.find(pred) {
+                        let pres = paragraph.find(Name("pre").child(Text)).collect::<Vec<_>>();
+                        ensure_opt!(pres.len() == 2);
+                        let input = pres[0].text();
+                        let output = match kind {
+                            ProblemKind::Regular => Some(pres[1].text()),
+                            ProblemKind::Special => None,
+                            ProblemKind::Reactive => unreachable!(),
+                        };
+                        samples.push((input, output));
+                    }
+                    Some(TestSuite::simple(timelimit, None, None, samples))
+                }
+                ProblemKind::Reactive => Some(TestSuite::interactive(timelimit)),
             }
-            ensure_opt!(!samples.is_empty());
-            Some(TestSuite::simple(timelimit, None, None, samples))
         };
         extract().ok_or(ServiceError::Scrape)
     }
@@ -505,28 +527,72 @@ mod tests {
     #[ignore]
     fn it_extracts_samples_from_problem1() {
         let _ = env_logger::try_init();
-        let expected = TestSuite::simple(
-            Duration::from_secs(5),
-            None,
-            None,
-            vec![
-                ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
-                ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
-                (
-                    "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
-                     3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
-                     8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
-                     8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
-                    "-1\n",
-                ),
-            ],
+        test_extracting_samples(
+            "/problems/no/1",
+            TestSuite::simple(
+                Duration::from_secs(5),
+                None,
+                None,
+                vec![
+                    ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
+                    ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
+                    (
+                        "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
+                         3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
+                         8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
+                         8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
+                        "-1\n",
+                    ),
+                ],
+            ),
         );
-        let samples = {
-            let mut null = Console::null();
-            let mut yukicoder = start(&mut null).unwrap();
-            let document = yukicoder.get("/problems/no/1").recv_html().unwrap();
-            document.extract_samples().unwrap()
-        };
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_samples_from_problem188() {
+        let _ = env_logger::try_init();
+        test_extracting_samples(
+            "/problems/no/188",
+            TestSuite::simple(
+                Duration::from_secs(1),
+                None,
+                None,
+                Vec::<(&'static str, Option<&'static str>)>::new(),
+            ),
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_samples_from_problem192() {
+        let _ = env_logger::try_init();
+        test_extracting_samples(
+            "/problems/no/192",
+            TestSuite::simple(
+                Duration::from_secs(2),
+                None,
+                None,
+                vec![("101\n", None), ("1000\n", None)],
+            ),
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_samples_from_problem246() {
+        let _ = env_logger::try_init();
+        test_extracting_samples(
+            "/problems/no/246",
+            TestSuite::interactive(Duration::from_secs(2)),
+        );
+    }
+
+    fn test_extracting_samples(url: &str, expected: TestSuite) {
+        let mut null = Console::null();
+        let mut yukicoder = start(&mut null).unwrap();
+        let document = yukicoder.get(url).recv_html().unwrap();
+        let samples = document.extract_samples().unwrap();
         assert_eq!(expected, samples);
     }
 

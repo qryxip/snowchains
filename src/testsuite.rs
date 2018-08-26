@@ -376,7 +376,12 @@ pub(crate) enum TestSuite {
 
 impl TestSuite {
     /// Constructs a `TestSuite::Simple` with `timelimit` and `samples`.
-    pub fn simple<T: Into<Option<Duration>>, S: Into<String>, I: IntoIterator<Item = (S, S)>>(
+    pub fn simple<
+        T: Into<Option<Duration>>,
+        S: Into<String>,
+        O: Into<Option<S>>,
+        I: IntoIterator<Item = (S, O)>,
+    >(
         timelimit: T,
         absolute_error: Option<f64>,
         relative_error: Option<f64>,
@@ -482,7 +487,7 @@ pub(crate) struct SimpleSuite {
 }
 
 impl SimpleSuite {
-    fn from_samples<S: Into<String>, I: IntoIterator<Item = (S, S)>>(
+    fn from_samples<S: Into<String>, O: Into<Option<S>>, I: IntoIterator<Item = (S, O)>>(
         timelimit: Option<Duration>,
         absolute_error: Option<f64>,
         relative_error: Option<f64>,
@@ -501,7 +506,7 @@ impl SimpleSuite {
             output_match,
             cases: samples
                 .into_iter()
-                .map(|(i, o)| (Arc::new(i.into()), Some(Arc::new(o.into()))))
+                .map(|(i, o)| (Arc::new(i.into()), o.into().map(|o| Arc::new(o.into()))))
                 .collect(),
             raw_cases: None,
         }
