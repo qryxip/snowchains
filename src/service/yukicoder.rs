@@ -187,7 +187,6 @@ impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
                     .get(&format!("/contests/{}", contest))
                     .recv_html()?
                     .extract_problems()?;
-                let mut outputs = vec![];
                 for (name, href) in target_problems {
                     if problems.is_none() || problems.as_ref().unwrap().contains(&name) {
                         let name = name.to_lowercase();
