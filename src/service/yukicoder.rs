@@ -352,8 +352,8 @@ impl Contest for YukicoderContest {
 #[derive(Clone, Debug)]
 enum Username {
     None,
-    // /public/img/anony.png
-    Anonymous,
+    // /public/img/anony.png (for now)
+    Yukicoder(String),
     // https://avatars2.githubusercontent.com/...
     Github(String),
     // ?
@@ -363,8 +363,8 @@ enum Username {
 impl Username {
     fn name(&self) -> Option<&str> {
         match self {
-            Username::None | Username::Anonymous => None,
-            Username::Github(s) | Username::ProbablyTwitter(s) => Some(&s),
+            Username::None => None,
+            Username::Yukicoder(s) | Username::Github(s) | Username::ProbablyTwitter(s) => Some(&s),
         }
     }
 }
@@ -373,7 +373,7 @@ impl fmt::Display for Username {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Username::None => write!(f, "<not logged in>"),
-            Username::Anonymous => write!(f, "<anonymous>"),
+            Username::Yukicoder(s) => write!(f, "{} (yukicoder)", s),
             Username::Github(s) => write!(f, "{} (GitHub)", s),
             Username::ProbablyTwitter(s) => write!(f, "{} (probably Twitter)", s),
         }
@@ -396,7 +396,7 @@ impl Extract for Document {
             let img = a.find(Name("img")).next()?;
             let src = img.attr("src")?;
             Some(if src == "/public/img/anony.png" {
-                Username::Anonymous
+                Username::Yukicoder(name)
             } else if src.starts_with("https://avatars2.githubusercontent.com") {
                 Username::Github(name)
             } else {
