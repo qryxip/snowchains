@@ -1,5 +1,5 @@
 use command::{CompilationCommand, JudgingCommand};
-use console::{self, ConsoleOut, Palette, Printer};
+use console::{self, ConsoleWrite, Palette};
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
 use path::{AbsPath, AbsPathBuf};
 use replacer::{CodeReplacer, CodeReplacerConf};
@@ -22,7 +22,7 @@ static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
 pub(crate) fn init(
-    mut printer: Printer<impl Write>,
+    mut stdout: impl ConsoleWrite,
     directory: AbsPath,
     session_cookies: &str,
 ) -> FileIoResult<()> {
@@ -265,21 +265,21 @@ languages:
     );
     let path = directory.join(CONFIG_FILE_NAME);
     ::fs::write(&path, config.as_bytes())?;
-    writeln!(printer, "Wrote to {}", path.display())?;
-    printer.flush()?;
+    writeln!(stdout, "Wrote to {}", path.display())?;
+    stdout.flush()?;
     Ok(())
 }
 
 /// Changes attributes.
 pub(crate) fn switch(
-    mut out: ConsoleOut<impl Write, impl Write>,
+    (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
     directory: AbsPath,
     service: Option<ServiceName>,
     contest: Option<String>,
     language: Option<String>,
 ) -> FileIoResult<()> {
     fn print_change(
-        mut stdout: console::Stdout<impl Write>,
+        mut stdout: impl ConsoleWrite,
         left_width: usize,
         prev: &Option<String>,
         new: &Option<String>,
@@ -295,7 +295,7 @@ pub(crate) fn switch(
     let mut old_yaml = ::fs::read_to_string(&path)?;
     let old_config = serde_yaml::from_str::<Config>(&old_yaml)
         .map_err(|err| FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err))?;
-    writeln!(out.stdout(), "Loaded {}", path.display())?;
+    writeln!(stdout, "Loaded {}", path.display())?;
 
     let mut m = hashmap!();
     if let Some(service) = service {
@@ -323,8 +323,8 @@ pub(crate) fn switch(
             let new_config = serde_yaml::from_str(&new_yaml)?;
             Ok((new_yaml, new_config))
         }).or_else::<FileIoError, _>(|warning| {
-            writeln!(out.stderr().plain(Palette::Warning), "{}", warning)?;
-            out.stderr().flush()?;
+            writeln!(stderr.plain(Palette::Warning), "{}", warning)?;
+            stderr.flush()?;
             let mut new_config = serde_yaml::from_str::<Config>(&old_yaml).map_err(|err| {
                 FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
             })?;
@@ -342,7 +342,6 @@ pub(crate) fn switch(
     let c2 = Some(format!("{:?}", new_config.contest));
     let l1 = old_config.language.as_ref().map(|l| format!("{:?}", l));
     let l2 = new_config.language.as_ref().map(|l| format!("{:?}", l));
-    let mut stdout = out.stdout();
     let w = [
         s1.as_ref().map(|s| stdout.width(s)).unwrap_or(1),
         c1.as_ref().map(|s| stdout.width(s)).unwrap_or(1),
@@ -352,9 +351,9 @@ pub(crate) fn switch(
         .cloned()
         .max()
         .unwrap();
-    print_change(stdout.reborrow(), w, &s1, &s2)?;
-    print_change(stdout.reborrow(), w, &c1, &c2)?;
-    print_change(stdout.reborrow(), w, &l1, &l2)?;
+    print_change(&mut stdout, w, &s1, &s2)?;
+    print_change(&mut stdout, w, &c1, &c2)?;
+    print_change(&mut stdout, w, &l1, &l2)?;
     ::fs::write(&path, new_yaml.as_bytes())?;
 
     writeln!(stdout, "Saved.")?;
@@ -385,7 +384,7 @@ pub(crate) struct Config {
 
 impl Config {
     pub fn load(
-        mut out: ConsoleOut<impl Write, impl Write>,
+        mut stdout: impl ConsoleWrite,
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
         dir: AbsPath,
@@ -397,7 +396,6 @@ impl Config {
         config.base_dir = path.parent().unwrap();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
-        let mut stdout = out.stdout();
         writeln!(stdout, "Loaded {}", path.display())?;
         stdout.flush()?;
         Ok(config)

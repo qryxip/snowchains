@@ -1,5 +1,5 @@
 use config::{self, Config};
-use console::{self, ColorChoice, Console};
+use console::{self, ColorChoice, ConsoleReadWrite};
 use errors::ExpandTemplateResult;
 use judging::{self, JudgeProp};
 use path::AbsPathBuf;
@@ -10,7 +10,7 @@ use testsuite::{self, SerializableExtension, SuiteFilePath};
 use ServiceName;
 
 use std::borrow::Cow;
-use std::io::{BufRead, Write};
+use std::io::Write as _Write;
 use std::path::PathBuf;
 
 #[derive(Debug, StructOpt)]
@@ -404,14 +404,14 @@ pub enum Opt {
     },
 }
 
-pub struct App<I: BufRead, O: Write, E: Write> {
+pub struct App<RW: ConsoleReadWrite> {
     pub working_dir: AbsPathBuf,
     pub cookies_on_init: Cow<'static, str>,
     pub credentials: Credentials,
-    pub console: Console<I, O, E>,
+    pub console: RW,
 }
 
-impl<I: BufRead, O: Write, E: Write> App<I, O, E> {
+impl<RW: ConsoleReadWrite> App<RW> {
     pub fn run(&mut self, opt: Opt) -> ::Result<()> {
         info!("Opt = {:?}", opt);
         let working_dir = self.working_dir.clone();
@@ -434,7 +434,13 @@ impl<I: BufRead, O: Write, E: Write> App<I, O, E> {
             } => {
                 self.console
                     .fill_palettes(color_choice, &console::Conf::default())?;
-                config::switch(self.console.out(), &working_dir, service, contest, language)?;
+                config::switch(
+                    self.console.stdout_and_stderr(),
+                    &working_dir,
+                    service,
+                    contest,
+                    language,
+                )?;
             }
             Opt::Login {
                 color_choice,
@@ -442,7 +448,7 @@ impl<I: BufRead, O: Write, E: Write> App<I, O, E> {
             } => {
                 self.console
                     .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.out(), service, None, &working_dir)?;
+                let config = Config::load(self.console.stdout(), service, None, &working_dir)?;
                 self.console.fill_palettes(color_choice, config.console())?;
                 let sess_prop = self.sess_prop(&config)?;
                 match service {
@@ -459,8 +465,12 @@ impl<I: BufRead, O: Write, E: Write> App<I, O, E> {
             } => {
                 self.console
                     .fill_palettes(color_choice, &console::Conf::default())?;
-                let config =
-                    Config::load(self.console.out(), service, contest.clone(), &working_dir)?;
+                let config = Config::load(
+                    self.console.stdout(),
+                    service,
+                    contest.clone(),
+                    &working_dir,
+                )?;
                 self.console.fill_palettes(color_choice, config.console())?;
                 let sess_prop = self.sess_prop(&config)?;
                 match service {
@@ -477,7 +487,7 @@ impl<I: BufRead, O: Write, E: Write> App<I, O, E> {
             } => {
                 self.console
                     .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.out(), service, contest, &working_dir)?;
+                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
                 self.console.fill_palettes(color_choice, config.console())?;
                 let sess_prop = self.sess_prop(&config)?;
                 let download_prop = DownloadProp::new(&config, open_browser, problems)?;
@@ -496,7 +506,7 @@ impl<I: BufRead, O: Write, E: Write> App<I, O, E> {
             } => {
                 self.console
                     .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.out(), service, contest, &working_dir)?;
+                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
                 self.console.fill_palettes(color_choice, config.console())?;
                 let sess_prop = self.sess_prop(&config)?;
                 let restore_prop = RestoreProp::new(&config, problems)?;
@@ -516,7 +526,7 @@ impl<I: BufRead, O: Write, E: Write> App<I, O, E> {
             } => {
                 self.console
                     .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.out(), service, contest, &working_dir)?;
+                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
                 self.console.fill_palettes(color_choice, config.console())?;
                 let dir = config.testfiles_dir().expand("")?;
                 let path = SuiteFilePath::new(&dir, &problem, extension);
@@ -533,9 +543,14 @@ impl<I: BufRead, O: Write, E: Write> App<I, O, E> {
                 self.console
                     .fill_palettes(color_choice, &console::Conf::default())?;
                 let language = language.as_ref().map(String::as_str);
-                let config = Config::load(self.console.out(), service, contest, &working_dir)?;
+                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
                 self.console.fill_palettes(color_choice, config.console())?;
-                let judge_prop = JudgeProp::new(self.console.out(), &config, &problem, language)?;
+                let judge_prop = JudgeProp::new(
+                    self.console.stdout_and_stderr(),
+                    &config,
+                    &problem,
+                    language,
+                )?;
                 judging::judge(judge_prop)?;
             }
             Opt::Submit {
@@ -551,11 +566,11 @@ impl<I: BufRead, O: Write, E: Write> App<I, O, E> {
                 self.console
                     .fill_palettes(color_choice, &console::Conf::default())?;
                 let language = language.as_ref().map(String::as_str);
-                let config = Config::load(self.console.out(), service, contest, &working_dir)?;
+                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
                 self.console.fill_palettes(color_choice, config.console())?;
                 if !skip_judging {
                     judging::judge(JudgeProp::new(
-                        self.console.out(),
+                        self.console.stdout_and_stderr(),
                         &config,
                         &problem,
                         language,
@@ -580,7 +595,7 @@ impl<I: BufRead, O: Write, E: Write> App<I, O, E> {
         Ok(())
     }
 
-    fn sess_prop(&mut self, config: &Config) -> ExpandTemplateResult<SessionProp<I, O, E>> {
+    fn sess_prop(&mut self, config: &Config) -> ExpandTemplateResult<SessionProp<&mut RW>> {
         let cookies_path = config.session_cookies().expand("")?;
         Ok(SessionProp {
             console: &mut self.console,

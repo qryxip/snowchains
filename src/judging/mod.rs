@@ -3,7 +3,7 @@ mod simple;
 
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
-use console::{ConsoleOut, Palette, Printer};
+use console::{ConsoleWrite, Palette};
 use errors::{JudgeError, JudgeResult};
 use testsuite::{TestCase, TestCases};
 
@@ -18,50 +18,46 @@ use std::time::Duration;
 /// # Errors
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
-pub(crate) fn judge(mut prop: JudgeProp<impl Write, impl Write>) -> JudgeResult<()> {
+pub(crate) fn judge(mut prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> JudgeResult<()> {
     fn judge_all<C: TestCase, O: Outcome>(
-        mut cout: ConsoleOut<impl Write, impl Write>,
+        (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
         cases: Vec<C>,
         solver: &Arc<JudgingCommand>,
         judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<O>,
     ) -> JudgeResult<()> {
         let num_cases = cases.len();
-        writeln!(
-            cout.stdout(),
-            "Running {}...",
-            plural!(num_cases, "test", "tests")
-        )?;
-        cout.stdout().flush()?;
+        writeln!(stdout, "Running {}...", plural!(num_cases, "test", "tests"))?;
+        stdout.flush()?;
 
         let filenames = cases.iter().map(|c| c.name()).collect::<Vec<_>>();
-        let filename_max_width = filenames.iter().map(|s| cout.width(s)).max().unwrap_or(0);
+        let filename_max_width = filenames.iter().map(|s| stdout.width(s)).max().unwrap_or(0);
         let outcomes = cases
             .into_iter()
             .zip(&filenames)
             .enumerate()
             .map(|(i, (case, filename))| {
                 let outcome = judge(&case, solver)?;
-                outcome.print_title(cout.stdout(), i, num_cases, filename, filename_max_width)?;
-                cout.stdout().flush()?;
+                outcome.print_title(&mut stdout, i, num_cases, filename, filename_max_width)?;
+                stdout.flush()?;
                 Ok(outcome)
             }).collect::<JudgeResult<Vec<_>>>()?;
 
         let num_failures = outcomes.iter().filter(|o| o.failure()).count();
         if num_failures == 0 {
             writeln!(
-                cout.stdout(),
+                stdout,
                 "All of the {} passed.",
                 plural!(num_cases, "test", "tests")
             )?;
-            cout.stdout().flush()?;
+            stdout.flush()?;
             Ok(())
         } else {
             for (i, (outcome, filename)) in outcomes.iter().zip(&filenames).enumerate() {
-                writeln!(cout.stderr())?;
-                outcome.print_title(cout.stderr(), i, num_cases, filename, filename_max_width)?;
-                outcome.print_details(cout.stderr())?;
+                writeln!(stderr)?;
+                outcome.print_title(&mut stderr, i, num_cases, filename, filename_max_width)?;
+                outcome.print_details(&mut stderr)?;
             }
-            cout.stderr().flush()?;
+            stderr.flush()?;
             Err(JudgeError::TestFailure(num_failures, num_cases))
         }
     }
@@ -72,25 +68,26 @@ pub(crate) fn judge(mut prop: JudgeProp<impl Write, impl Write>) -> JudgeResult<
     let solver_compilation = prop.solver_compilation;
     let tester_compilations = prop.tester_compilations;
     if let Some(solver_compilation) = solver_compilation {
-        solver_compilation.run(&mut prop.out)?;
-        writeln!(prop.out.stdout())?;
-        prop.out.stdout().flush()?;
+        solver_compilation.run((&mut prop.stdout, &mut prop.stderr))?;
+        writeln!(prop.stdout)?;
+        prop.stdout.flush()?;
     }
     for tester_compilation in tester_compilations {
-        tester_compilation.run(&mut prop.out)?;
-        writeln!(prop.out.stdout())?;
-        prop.out.stdout().flush()?;
+        tester_compilation.run((&mut prop.stdout, &mut prop.stderr))?;
+        writeln!(prop.stdout)?;
+        prop.stdout.flush()?;
     }
-    solver.write_info(prop.out.stdout(), &case_paths)?;
-    let (out, solver) = (prop.out, Arc::new(solver));
+    solver.write_info(&mut prop.stdout, &case_paths)?;
+    let (out, solver) = ((prop.stdout, prop.stderr), Arc::new(solver));
     match cases {
         TestCases::Simple(cases) => judge_all(out, cases, &solver, simple::judge),
         TestCases::Interactive(cases) => judge_all(out, cases, &solver, interactive::judge),
     }
 }
 
-pub(crate) struct JudgeProp<'a, O: Write + 'a, E: Write + 'a> {
-    out: ConsoleOut<'a, O, E>,
+pub(crate) struct JudgeProp<O: ConsoleWrite, E: ConsoleWrite> {
+    stdout: O,
+    stderr: E,
     cases: TestCases,
     case_paths: String,
     solver: JudgingCommand,
@@ -98,9 +95,9 @@ pub(crate) struct JudgeProp<'a, O: Write + 'a, E: Write + 'a> {
     tester_compilations: HashSet<Arc<CompilationCommand>>,
 }
 
-impl<'a, O: Write, E: Write> JudgeProp<'a, O, E> {
+impl<O: ConsoleWrite, E: ConsoleWrite> JudgeProp<O, E> {
     pub fn new(
-        out: ConsoleOut<'a, O, E>,
+        (stdout, stderr): (O, E),
         config: &Config,
         problem: &str,
         language: Option<&str>,
@@ -113,7 +110,8 @@ impl<'a, O: Write, E: Write> JudgeProp<'a, O, E> {
         };
 
         Ok(Self {
-            out,
+            stdout,
+            stderr,
             tester_compilations: cases.interactive_tester_compilations(),
             cases,
             case_paths: paths,
@@ -126,21 +124,21 @@ impl<'a, O: Write, E: Write> JudgeProp<'a, O, E> {
 pub(self) trait Outcome: fmt::Display {
     fn failure(&self) -> bool;
     fn palette(&self) -> Palette;
-    fn print_details(&self, printer: Printer<impl Write>) -> io::Result<()>;
+    fn print_details(&self, printer: impl ConsoleWrite) -> io::Result<()>;
 
     fn print_title(
         &self,
-        mut printer: Printer<impl Write>,
+        mut out: impl ConsoleWrite,
         i: usize,
         n: usize,
         name: &str,
         name_width: usize,
     ) -> io::Result<()> {
         (0..format!("{}", n).len() - format!("{}", i + 1).len())
-            .try_for_each(|_| write!(printer, " "))?;
-        write!(printer.bold(None), "{}/{} ({})", i + 1, n, name)?;
-        (0..name_width - printer.width(name) + 1).try_for_each(|_| write!(printer, " "))?;
-        writeln!(printer.bold(self.palette()), "{}", self)
+            .try_for_each(|_| write!(out, " "))?;
+        write!(out.bold(None), "{}/{} ({})", i + 1, n, name)?;
+        (0..name_width - out.width(name) + 1).try_for_each(|_| write!(out, " "))?;
+        writeln!(out.bold(self.palette()), "{}", self)
     }
 }
 

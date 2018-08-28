@@ -10,6 +10,7 @@ extern crate tempdir;
 mod common;
 
 use snowchains::app::App;
+use snowchains::console::Console;
 use snowchains::path::AbsPath;
 use snowchains::ServiceName;
 
@@ -55,12 +56,12 @@ fn it_downloads_testcases() {
     );
 }
 
-fn login(app: App<io::Empty, io::Sink, io::Sink>) -> snowchains::Result<()> {
+fn login(app: App<Console<io::Empty, io::Sink, io::Sink>>) -> snowchains::Result<()> {
     common::login(app, ServiceName::Yukicoder)
 }
 
 fn download(
-    app: App<io::Empty, io::Sink, io::Sink>,
+    app: App<Console<io::Empty, io::Sink, io::Sink>>,
     contest: &str,
     problems: &[&str],
 ) -> snowchains::Result<()> {

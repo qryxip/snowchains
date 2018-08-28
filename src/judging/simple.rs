@@ -1,5 +1,5 @@
 use command::JudgingCommand;
-use console::{Palette, Printer};
+use console::{ConsoleWrite, Palette};
 use errors::JudgeResult;
 use judging::{MillisRoundedUp, Outcome};
 use testsuite::{ExpectedStdout, SimpleCase};
@@ -193,10 +193,10 @@ impl Outcome for SimpleOutcome {
         }
     }
 
-    fn print_details(&self, mut printer: Printer<impl Write>) -> io::Result<()> {
+    fn print_details(&self, mut printer: impl ConsoleWrite) -> io::Result<()> {
         const THRESHOLD_TO_OMIT: usize = 1024;
 
-        fn print_size(mut printer: Printer<impl Write>, num_bytes: usize) -> io::Result<()> {
+        fn print_size(mut printer: impl ConsoleWrite, num_bytes: usize) -> io::Result<()> {
             let mut printer = printer.bold(Palette::Warning);
             if num_bytes > 10 * 1024 * 1024 {
                 writeln!(printer, "OMITTED ({}MB)", num_bytes / (1024 * 1024))
@@ -208,7 +208,7 @@ impl Outcome for SimpleOutcome {
         }
 
         fn print_section(
-            mut printer: Printer<impl Write>,
+            mut printer: impl ConsoleWrite,
             head: &'static str,
             content: &str,
         ) -> io::Result<()> {
@@ -228,7 +228,7 @@ impl Outcome for SimpleOutcome {
         }
 
         fn print_section_unless_empty(
-            mut printer: Printer<impl Write>,
+            mut printer: impl ConsoleWrite,
             head: &'static str,
             content: &str,
         ) -> io::Result<()> {
@@ -246,7 +246,7 @@ impl Outcome for SimpleOutcome {
         }
 
         fn print_expected_sectioon_unless_empty(
-            mut printer: Printer<impl Write>,
+            mut printer: impl ConsoleWrite,
             content: &ExpectedStdout,
         ) -> io::Result<()> {
             match content {
@@ -299,15 +299,15 @@ impl Outcome for SimpleOutcome {
                 stderr: actual_stderr,
                 ..
             } => {
-                print_section(printer.reborrow(), "input", input)?;
-                print_section(printer.reborrow(), "stdout", actual_stdout)?;
-                print_section_unless_empty(printer.reborrow(), "stderr", actual_stderr)
+                print_section(&mut printer, "input", input)?;
+                print_section(&mut printer, "stdout", actual_stdout)?;
+                print_section_unless_empty(&mut printer, "stderr", actual_stderr)
             }
             SimpleOutcome::TimelimitExceeded {
                 input, expected, ..
             } => {
-                print_section(printer.reborrow(), "input", input)?;
-                print_expected_sectioon_unless_empty(printer.reborrow(), expected)
+                print_section(&mut printer, "input", input)?;
+                print_expected_sectioon_unless_empty(&mut printer, expected)
             }
             SimpleOutcome::WrongAnswer {
                 input,
@@ -316,10 +316,10 @@ impl Outcome for SimpleOutcome {
                 stderr: actual_stderr,
                 ..
             } => {
-                print_section(printer.reborrow(), "input", input)?;
-                print_expected_sectioon_unless_empty(printer.reborrow(), expected)?;
-                print_section(printer.reborrow(), "stdout", actual_stdout)?;
-                print_section_unless_empty(printer.reborrow(), "stderr", actual_stderr)
+                print_section(&mut printer, "input", input)?;
+                print_expected_sectioon_unless_empty(&mut printer, expected)?;
+                print_section(&mut printer, "stdout", actual_stdout)?;
+                print_section_unless_empty(&mut printer, "stderr", actual_stderr)
             }
             SimpleOutcome::RuntimeError {
                 input,
@@ -328,10 +328,10 @@ impl Outcome for SimpleOutcome {
                 stderr: actual_stderr,
                 ..
             } => {
-                print_section(printer.reborrow(), "input", input)?;
-                print_expected_sectioon_unless_empty(printer.reborrow(), expected)?;
-                print_section_unless_empty(printer.reborrow(), "stdout", actual_stdout)?;
-                print_section(printer.reborrow(), "printer", actual_stderr)
+                print_section(&mut printer, "input", input)?;
+                print_expected_sectioon_unless_empty(&mut printer, expected)?;
+                print_section_unless_empty(&mut printer, "stdout", actual_stdout)?;
+                print_section(&mut printer, "printer", actual_stderr)
             }
         }
     }

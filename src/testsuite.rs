@@ -1,6 +1,6 @@
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
-use console::{self, Palette};
+use console::{ConsoleWrite, Palette};
 use errors::{FileIoError, FileIoErrorCause, FileIoErrorKind, SuiteFileError, SuiteFileResult};
 use path::{AbsPath, AbsPathBuf};
 use template::Template;
@@ -29,7 +29,7 @@ pub(crate) fn append(
     path: &SuiteFilePath,
     input: &str,
     output: Option<&str>,
-    stdout: console::Stdout<impl Write>,
+    stdout: impl ConsoleWrite,
 ) -> SuiteFileResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.append(input, output)?;
@@ -376,7 +376,12 @@ pub(crate) enum TestSuite {
 
 impl TestSuite {
     /// Constructs a `TestSuite::Simple` with `timelimit` and `samples`.
-    pub fn simple<T: Into<Option<Duration>>, S: Into<String>, I: IntoIterator<Item = (S, S)>>(
+    pub fn simple<
+        T: Into<Option<Duration>>,
+        S: Into<String>,
+        O: Into<Option<S>>,
+        I: IntoIterator<Item = (S, O)>,
+    >(
         timelimit: T,
         absolute_error: Option<f64>,
         relative_error: Option<f64>,
@@ -416,11 +421,7 @@ impl TestSuite {
     }
 
     /// Serializes `self` and save it to given path.
-    pub fn save(
-        &self,
-        path: &SuiteFilePath,
-        mut stdout: console::Stdout<impl Write>,
-    ) -> SuiteFileResult<()> {
+    pub fn save(&self, path: &SuiteFilePath, mut stdout: impl ConsoleWrite) -> SuiteFileResult<()> {
         let (path, extension) = (&path.joined, path.extension);
         let serialized = match extension {
             SerializableExtension::Json => serde_json::to_string(self)?,
@@ -482,7 +483,7 @@ pub(crate) struct SimpleSuite {
 }
 
 impl SimpleSuite {
-    fn from_samples<S: Into<String>, I: IntoIterator<Item = (S, S)>>(
+    fn from_samples<S: Into<String>, O: Into<Option<S>>, I: IntoIterator<Item = (S, O)>>(
         timelimit: Option<Duration>,
         absolute_error: Option<f64>,
         relative_error: Option<f64>,
@@ -501,7 +502,7 @@ impl SimpleSuite {
             output_match,
             cases: samples
                 .into_iter()
-                .map(|(i, o)| (Arc::new(i.into()), Some(Arc::new(o.into()))))
+                .map(|(i, o)| (Arc::new(i.into()), o.into().map(|o| Arc::new(o.into()))))
                 .collect(),
             raw_cases: None,
         }

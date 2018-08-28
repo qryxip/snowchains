@@ -1,8 +1,8 @@
-use console::Palette;
+use console::{ConsoleReadWrite, ConsoleWrite as _ConsoleWrite, Palette, Printer};
 use errors::{ServiceError, ServiceResult, SubmitError};
-use service::session::{HasSession, HttpSession};
+use service::session::HttpSession;
 use service::{
-    Contest, DownloadProp, RestoreProp, SessionProp, SubmitProp,
+    Contest, DownloadProp, RestoreProp, Service, SessionProp, SubmitProp,
     TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
 use testsuite::{SuiteFilePath, TestSuite};
@@ -15,22 +15,20 @@ use select::document::Document;
 use select::predicate::{And, Attr, Class, Name, Predicate, Text};
 
 use std::collections::{BTreeMap, HashMap};
-use std::io::{BufRead, Write};
+use std::io::Write as _Write;
 use std::rc::Rc;
 use std::time::Duration;
 use std::{fmt, vec};
 
 /// Logins to "beta.atcoder.jp".
-pub(crate) fn login(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
-) -> ServiceResult<()> {
+pub(crate) fn login(sess_prop: SessionProp<impl ConsoleReadWrite>) -> ServiceResult<()> {
     Atcoder::start(sess_prop)?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
 pub(crate) fn participate(
     contest_name: &str,
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+    sess_prop: SessionProp<impl ConsoleReadWrite>,
 ) -> ServiceResult<()> {
     Atcoder::start(sess_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
 }
@@ -38,7 +36,7 @@ pub(crate) fn participate(
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
 pub(crate) fn download(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+    sess_prop: SessionProp<impl ConsoleReadWrite>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
     let download_prop = download_prop.parse_contest().lowerize_problems();
@@ -47,7 +45,7 @@ pub(crate) fn download(
 
 /// Downloads submitted source codes.
 pub(crate) fn restore(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+    sess_prop: SessionProp<impl ConsoleReadWrite>,
     restore_prop: RestoreProp<String>,
 ) -> ServiceResult<()> {
     let restore_prop = restore_prop.parse_contest().upperize_problems();
@@ -56,35 +54,36 @@ pub(crate) fn restore(
 
 /// Submits a source code.
 pub(crate) fn submit(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+    sess_prop: SessionProp<impl ConsoleReadWrite>,
     submit_prop: SubmitProp<String>,
 ) -> ServiceResult<()> {
     Atcoder::start(sess_prop)?.submit(&submit_prop.parse_contest())
 }
 
-pub(self) struct Atcoder<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> {
-    session: HttpSession<'a, I, O, E>,
+pub(self) struct Atcoder<RW: ConsoleReadWrite> {
+    console: RW,
+    session: HttpSession,
     credentials: UserNameAndPassword,
 }
 
-impl<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> HasSession<'a> for Atcoder<'a, I, O, E> {
-    type Stdin = I;
-    type Stdout = O;
-    type Stderr = E;
+impl<RW: ConsoleReadWrite> Service for Atcoder<RW> {
+    type Console = RW;
 
-    fn session<'b>(&'b mut self) -> &'b mut HttpSession<'a, I, O, E>
-    where
-        'a: 'b,
-    {
-        &mut self.session
+    fn session_and_stdout(&mut self) -> (&mut HttpSession, Printer<&mut RW::Stdout>) {
+        (&mut self.session, self.console.stdout())
+    }
+
+    fn console(&mut self) -> &mut RW {
+        &mut self.console
     }
 }
 
-impl<'a, I: BufRead, O: Write, E: Write> Atcoder<'a, I, O, E> {
-    fn start(sess_prop: SessionProp<'a, I, O, E>) -> ServiceResult<Self> {
+impl<RW: ConsoleReadWrite> Atcoder<RW> {
+    fn start(mut sess_prop: SessionProp<RW>) -> ServiceResult<Self> {
         let credentials = sess_prop.credentials.atcoder.clone();
         let session = sess_prop.start_session()?;
         Ok(Self {
+            console: sess_prop.console,
             session,
             credentials,
         })
@@ -219,10 +218,9 @@ impl<'a, I: BufRead, O: Write, E: Write> Atcoder<'a, I, O, E> {
             self.stderr().flush()?;
         }
         if *open_browser {
-            self.session
-                .open_in_browser(&contest.url_submissions_me(1))?;
+            self.open_in_browser(&contest.url_submissions_me(1))?;
             for (url, _, _, _) in &outputs {
-                self.session.open_in_browser(url)?;
+                self.open_in_browser(url)?;
             }
         }
         Ok(())
@@ -382,8 +380,7 @@ impl<'a, I: BufRead, O: Write, E: Write> Atcoder<'a, I, O, E> {
                 );
                 self.post(&url).send_form(&payload)?;
                 if *open_browser {
-                    self.session
-                        .open_in_browser(&contest.url_submissions_me(1))?;
+                    self.open_in_browser(&contest.url_submissions_me(1))?;
                 }
                 return Ok(());
             }
@@ -916,26 +913,25 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use console::Console;
+    use console::{Console, ConsoleReadWrite};
     use errors::SessionResult;
     use service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
-    use service::session::{HasSession as _HasSession, HttpSession, UrlBase};
-    use service::{self, UserNameAndPassword};
+    use service::session::{HttpSession, UrlBase};
+    use service::{self, Service as _Service, UserNameAndPassword};
     use testsuite::TestSuite;
 
     use env_logger;
     use url::Host;
 
     use std::borrow::Borrow;
-    use std::io::{BufRead, Write};
+    use std::io;
     use std::time::Duration;
 
     #[test]
     #[ignore]
     fn it_extracts_task_urls_from_arc001() {
         let _ = env_logger::try_init();
-        let mut console = Console::null();
-        let mut atcoder = start(&mut console).unwrap();
+        let mut atcoder = start().unwrap();
         let page = atcoder
             .fetch_tasks_page(&AtcoderContest::new("arc001"))
             .unwrap();
@@ -959,8 +955,7 @@ mod tests {
     #[ignore]
     fn it_extracts_a_timelimit_from_apg4b_b() {
         let _ = env_logger::try_init();
-        let mut console = Console::null();
-        let mut atcoder = start(&mut console).unwrap();
+        let mut atcoder = start().unwrap();
         let page = atcoder
             .get("/contests/apg4b/tasks/APG4b_b")
             .recv_html()
@@ -1237,8 +1232,7 @@ mod tests {
     }
 
     fn test_sample_extraction(contest: &str, expected: &[(&str, &str, u64, &[(&str, &str)])]) {
-        let mut console = Console::null();
-        let mut atcoder = start(&mut console).unwrap();
+        let mut atcoder = start().unwrap();
         let contest = AtcoderContest::new(contest);
         let page = atcoder.fetch_tasks_page(&contest).unwrap();
         let urls_and_names = page.extract_task_urls_with_names().unwrap();
@@ -1290,20 +1284,19 @@ mod tests {
              }\n\
              ";
         let _ = env_logger::try_init();
-        let mut console = Console::null();
-        let mut atcoder = start(&mut console).unwrap();
+        let mut atcoder = start().unwrap();
         let page = atcoder.get(URL).recv_html().unwrap();
         let code = page.extract_submitted_code().unwrap();
         assert_eq!(EXPECTED_CODE, code);
     }
 
-    fn start<I: BufRead, O: Write, E: Write>(
-        console: &mut Console<I, O, E>,
-    ) -> SessionResult<Atcoder<I, O, E>> {
+    fn start() -> SessionResult<Atcoder<impl ConsoleReadWrite>> {
         let client = service::reqwest_client(Duration::from_secs(10))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
-        let session = HttpSession::new(console, client, base, None)?;
+        let mut console = Console::null();
+        let session = HttpSession::new(console.stdout(), client, base, None)?;
         Ok(Atcoder {
+            console,
             session,
             credentials: UserNameAndPassword::None,
         })

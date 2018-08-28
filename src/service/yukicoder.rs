@@ -1,10 +1,10 @@
-use console::Palette;
+use console::{ConsoleReadWrite, ConsoleWrite as _ConsoleWrite, Palette, Printer};
 use errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
 use service::downloader::ZipDownloader;
-use service::session::{HasSession, HttpSession};
+use service::session::HttpSession;
 use service::{
-    Contest, DownloadProp, PrintTargets as _PrintTargets, RevelSession, SessionProp, SubmitProp,
-    TryIntoDocument as _TryIntoDocument,
+    Contest, DownloadProp, PrintTargets as _PrintTargets, RevelSession, Service, SessionProp,
+    SubmitProp, TryIntoDocument as _TryIntoDocument,
 };
 use testsuite::{SuiteFilePath, TestSuite};
 
@@ -17,17 +17,15 @@ use select::predicate::{Attr, Class, Name, Predicate as _Predicate, Text};
 
 use std::borrow::Cow;
 use std::fmt;
-use std::io::{BufRead, Write};
+use std::io::Write as _Write;
 use std::time::Duration;
 
-pub(crate) fn login(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
-) -> ServiceResult<()> {
+pub(crate) fn login(sess_prop: SessionProp<impl ConsoleReadWrite>) -> ServiceResult<()> {
     Yukicoder::new(sess_prop)?.login(true)
 }
 
 pub(crate) fn download(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
     let download_prop = download_prop.parse_contest();
@@ -37,37 +35,38 @@ pub(crate) fn download(
 }
 
 pub(crate) fn submit(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+    sess_prop: SessionProp<impl ConsoleReadWrite>,
     submit_prop: SubmitProp<String>,
 ) -> ServiceResult<()> {
     let submit_prop = submit_prop.parse_contest();
     Yukicoder::new(sess_prop)?.submit(&submit_prop)
 }
 
-struct Yukicoder<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> {
-    session: HttpSession<'a, I, O, E>,
+struct Yukicoder<RW: ConsoleReadWrite> {
+    console: RW,
+    session: HttpSession,
     username: Username,
     credential: RevelSession,
 }
 
-impl<'a, I: BufRead, O: Write, E: Write> HasSession<'a> for Yukicoder<'a, I, O, E> {
-    type Stdin = I;
-    type Stdout = O;
-    type Stderr = E;
+impl<RW: ConsoleReadWrite> Service for Yukicoder<RW> {
+    type Console = RW;
 
-    fn session<'b>(&'b mut self) -> &'b mut HttpSession<'a, I, O, E>
-    where
-        'a: 'b,
-    {
-        &mut self.session
+    fn session_and_stdout(&mut self) -> (&mut HttpSession, Printer<&mut RW::Stdout>) {
+        (&mut self.session, self.console.stdout())
+    }
+
+    fn console(&mut self) -> &mut RW {
+        &mut self.console
     }
 }
 
-impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
-    fn new(sess_prop: SessionProp<'a, I, O, E>) -> SessionResult<Self> {
+impl<RW: ConsoleReadWrite> Yukicoder<RW> {
+    fn new(mut sess_prop: SessionProp<RW>) -> SessionResult<Self> {
         let credential = sess_prop.credentials.yukicoder.clone();
         let session = sess_prop.start_session()?;
         Ok(Self {
+            console: sess_prop.console,
             session,
             username: Username::None,
             credential,
@@ -187,7 +186,6 @@ impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
                     .get(&format!("/contests/{}", contest))
                     .recv_html()?
                     .extract_problems()?;
-                let mut outputs = vec![];
                 for (name, href) in target_problems {
                     if problems.is_none() || problems.as_ref().unwrap().contains(&name) {
                         let name = name.to_lowercase();
@@ -208,7 +206,7 @@ impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
             static URL_SUF: &str = "/testcase.zip";
             let cookie = self.session.cookies_to_header();
             ZipDownloader {
-                out: self.stdout().inner(),
+                out: self.stdout().inner_writer(),
                 url_pref: URL_PREF,
                 url_suf: URL_SUF,
                 download_dir,
@@ -219,7 +217,7 @@ impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
         }
         if *open_browser {
             for (url, _, _) in &outputs {
-                self.session.open_in_browser(url)?;
+                self.open_in_browser(url)?;
             }
         }
         Ok(())
@@ -287,7 +285,7 @@ impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
                 writeln!(self.stdout(), "Success: {}", location)?;
                 self.stdout().flush()?;
                 if *open_browser {
-                    self.session.open_in_browser(location.as_str())?;
+                    self.open_in_browser(location.as_str())?;
                 }
                 return Ok(());
             }
@@ -305,10 +303,9 @@ impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
             no: u64,
         }
 
-        let (session, username) = (&mut self.session, &self.username);
-        if let Some(username) = username.name() {
+        if let Some(username) = self.username.name().map(ToOwned::to_owned) {
             let url = format!("/api/v1/solved/name/{}", username);
-            let solved_nos = session
+            let solved_nos = self
                 .get(&url)
                 .send()?
                 .json::<Vec<Problem>>()?
@@ -353,8 +350,8 @@ impl Contest for YukicoderContest {
 #[derive(Clone, Debug)]
 enum Username {
     None,
-    // /public/img/anony.png
-    Anonymous,
+    // /public/img/anony.png (for now)
+    Yukicoder(String),
     // https://avatars2.githubusercontent.com/...
     Github(String),
     // ?
@@ -364,8 +361,8 @@ enum Username {
 impl Username {
     fn name(&self) -> Option<&str> {
         match self {
-            Username::None | Username::Anonymous => None,
-            Username::Github(s) | Username::ProbablyTwitter(s) => Some(&s),
+            Username::None => None,
+            Username::Yukicoder(s) | Username::Github(s) | Username::ProbablyTwitter(s) => Some(&s),
         }
     }
 }
@@ -374,7 +371,7 @@ impl fmt::Display for Username {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Username::None => write!(f, "<not logged in>"),
-            Username::Anonymous => write!(f, "<anonymous>"),
+            Username::Yukicoder(s) => write!(f, "{} (yukicoder)", s),
             Username::Github(s) => write!(f, "{} (GitHub)", s),
             Username::ProbablyTwitter(s) => write!(f, "{} (probably Twitter)", s),
         }
@@ -397,7 +394,7 @@ impl Extract for Document {
             let img = a.find(Name("img")).next()?;
             let src = img.attr("src")?;
             Some(if src == "/public/img/anony.png" {
-                Username::Anonymous
+                Username::Yukicoder(name)
             } else if src.starts_with("https://avatars2.githubusercontent.com") {
                 Username::Github(name)
             } else {
@@ -408,36 +405,58 @@ impl Extract for Document {
     }
 
     fn extract_samples(&self) -> ServiceResult<TestSuite> {
-        // TODO:
-        // - https://yukicoder.me/problems/no/188
-        // - https://yukicoder.me/problems/no/192
+        #[derive(Clone, Copy)]
+        enum ProblemKind {
+            Regular,
+            Special,
+            Reactive,
+        }
+
         let extract = || {
             lazy_static! {
-                static ref TIMELIMIT: Regex = Regex::new(
+                static ref R: Regex = Regex::new(
                     "\\A / 実行時間制限 : 1ケース (\\d)\\.(\\d{3})秒 / メモリ制限 : \\d+ MB / \
-                     通常問題\n\t*\\z"
+                     (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z"
                 ).unwrap();
             }
-            let timelimit = self
+            let text = self
                 .find(Attr("id", "content").child(Name("p")).child(Text))
-                .filter_map(|t| {
-                    TIMELIMIT.captures(&t.text()).map(|cs| {
-                        let (s, m) = (cs[1].parse::<u64>().unwrap(), cs[2].parse::<u64>().unwrap());
-                        Duration::from_millis(1000 * s + m)
-                    })
-                }).next()?;
-            let mut samples = vec![];
-            let predicate = Attr("id", "content")
-                .child(Name("div").and(Class("block")))
-                .child(Name("div").and(Class("sample")))
-                .child(Name("div").and(Class("paragraph")));
-            for paragraph in self.find(predicate) {
-                let pres = paragraph.find(Name("pre").child(Text)).collect::<Vec<_>>();
-                ensure_opt!(pres.len() == 2);
-                samples.push((pres[0].text(), pres[1].text()));
+                .map(|text| text.text())
+                .nth(1)?;
+            let caps = R.captures(&text)?;
+            let timelimit = {
+                let s = caps[1].parse::<u64>().unwrap();
+                let m = caps[2].parse::<u64>().unwrap();
+                Duration::from_millis(1000 * s + m)
+            };
+            let kind = match &caps[3] {
+                "通常" => ProblemKind::Regular,
+                "スペシャルジャッジ" => ProblemKind::Special,
+                "リアクティブ" => ProblemKind::Reactive,
+                _ => return None,
+            };
+            match kind {
+                ProblemKind::Regular | ProblemKind::Special => {
+                    let mut samples = vec![];
+                    let pred = Attr("id", "content")
+                        .child(Name("div").and(Class("block")))
+                        .child(Name("div").and(Class("sample")))
+                        .child(Name("div").and(Class("paragraph")));
+                    for paragraph in self.find(pred) {
+                        let pres = paragraph.find(Name("pre").child(Text)).collect::<Vec<_>>();
+                        ensure_opt!(pres.len() == 2);
+                        let input = pres[0].text();
+                        let output = match kind {
+                            ProblemKind::Regular => Some(pres[1].text()),
+                            ProblemKind::Special => None,
+                            ProblemKind::Reactive => unreachable!(),
+                        };
+                        samples.push((input, output));
+                    }
+                    Some(TestSuite::simple(timelimit, None, None, samples))
+                }
+                ProblemKind::Reactive => Some(TestSuite::interactive(timelimit)),
             }
-            ensure_opt!(!samples.is_empty());
-            Some(TestSuite::simple(timelimit, None, None, samples))
         };
         extract().ok_or(ServiceError::Scrape)
     }
@@ -488,46 +507,89 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use console::Console;
+    use console::{Console, ConsoleReadWrite};
     use errors::SessionResult;
-    use service::session::{HasSession as _HasSession, HttpSession, UrlBase};
+    use service::session::{HttpSession, UrlBase};
     use service::yukicoder::{Extract as _Extract, Username, Yukicoder};
-    use service::{self, RevelSession};
+    use service::{self, RevelSession, Service as _Service};
     use testsuite::TestSuite;
 
     use env_logger;
     use url::Host;
 
     use std::borrow::Borrow;
-    use std::io::{BufRead, Write};
+    use std::io;
     use std::time::Duration;
 
     #[test]
     #[ignore]
     fn it_extracts_samples_from_problem1() {
         let _ = env_logger::try_init();
-        let expected = TestSuite::simple(
-            Duration::from_secs(5),
-            None,
-            None,
-            vec![
-                ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
-                ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
-                (
-                    "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
-                     3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
-                     8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
-                     8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
-                    "-1\n",
-                ),
-            ],
+        test_extracting_samples(
+            "/problems/no/1",
+            TestSuite::simple(
+                Duration::from_secs(5),
+                None,
+                None,
+                vec![
+                    ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
+                    ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
+                    (
+                        "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
+                         3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
+                         8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
+                         8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
+                        "-1\n",
+                    ),
+                ],
+            ),
         );
-        let samples = {
-            let mut null = Console::null();
-            let mut yukicoder = start(&mut null).unwrap();
-            let document = yukicoder.get("/problems/no/1").recv_html().unwrap();
-            document.extract_samples().unwrap()
-        };
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_samples_from_problem188() {
+        let _ = env_logger::try_init();
+        test_extracting_samples(
+            "/problems/no/188",
+            TestSuite::simple(
+                Duration::from_secs(1),
+                None,
+                None,
+                Vec::<(&'static str, Option<&'static str>)>::new(),
+            ),
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_samples_from_problem192() {
+        let _ = env_logger::try_init();
+        test_extracting_samples(
+            "/problems/no/192",
+            TestSuite::simple(
+                Duration::from_secs(2),
+                None,
+                None,
+                vec![("101\n", None), ("1000\n", None)],
+            ),
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn it_extracts_samples_from_problem246() {
+        let _ = env_logger::try_init();
+        test_extracting_samples(
+            "/problems/no/246",
+            TestSuite::interactive(Duration::from_secs(2)),
+        );
+    }
+
+    fn test_extracting_samples(url: &str, expected: TestSuite) {
+        let mut yukicoder = start().unwrap();
+        let document = yukicoder.get(url).recv_html().unwrap();
+        let samples = document.extract_samples().unwrap();
         assert_eq!(expected, samples);
     }
 
@@ -544,8 +606,7 @@ mod tests {
         ];
         let _ = env_logger::try_init();
         let problems = {
-            let mut null = Console::null();
-            let mut yukicoder = start(&mut null).unwrap();
+            let mut yukicoder = start().unwrap();
             let document = yukicoder.get("/contests/100").recv_html().unwrap();
             document.extract_problems().unwrap()
         };
@@ -559,13 +620,13 @@ mod tests {
             .collect()
     }
 
-    fn start<I: BufRead, O: Write, E: Write>(
-        console: &mut Console<I, O, E>,
-    ) -> SessionResult<Yukicoder<I, O, E>> {
+    fn start() -> SessionResult<Yukicoder<impl ConsoleReadWrite>> {
         let client = service::reqwest_client(Duration::from_secs(10))?;
         let base = UrlBase::new(Host::Domain("yukicoder.me"), true, None);
-        let session = HttpSession::new(console, client, base, None)?;
+        let mut console = Console::null();
+        let session = HttpSession::new(console.stdout(), client, base, None)?;
         Ok(Yukicoder {
+            console,
             session,
             username: Username::None,
             credential: RevelSession::None,

@@ -1,4 +1,4 @@
-use console::{Palette, Printer};
+use console::{ConsoleWrite, Palette};
 use errors::JudgeResult;
 use judging::{JudgingCommand, MillisRoundedUp, Outcome};
 use testsuite::InteractiveCase;
@@ -210,7 +210,7 @@ impl Outcome for InteractiveOutcome {
         }
     }
 
-    fn print_details(&self, mut printer: Printer<impl Write>) -> io::Result<()> {
+    fn print_details(&self, mut printer: impl ConsoleWrite) -> io::Result<()> {
         let max_length = |f: for<'a> fn(&'a InteractiveConsoleOut) -> bool| -> usize {
             self.console_outs
                 .iter()
@@ -229,7 +229,7 @@ impl Outcome for InteractiveOutcome {
         let tester_len = max_length(InteractiveConsoleOut::is_tester_s);
         let solver_len = max_length(InteractiveConsoleOut::is_solver_s);
         for cout in &self.console_outs {
-            cout.print_aligned(printer.reborrow(), tester_len, solver_len)?;
+            cout.print_aligned(&mut printer, tester_len, solver_len)?;
         }
         if !self.solver_stderr.is_empty() || !self.tester_stderr.is_empty() {
             writeln!(printer)?;
@@ -340,7 +340,7 @@ impl InteractiveConsoleOut {
 
     fn print_aligned(
         &self,
-        mut printer: Printer<impl Write>,
+        mut printer: impl ConsoleWrite,
         tester_length: usize,
         solver_length: usize,
     ) -> io::Result<()> {

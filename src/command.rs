@@ -1,11 +1,11 @@
-use console::{ConsoleOut, Palette, Printer};
+use console::{ConsoleWrite, Palette};
 use errors::{JudgeError, JudgeResult};
 use path::AbsPathBuf;
 
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _FmtWrite;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Write as _IoWrite};
 use std::process::{Child, Command, Stdio};
 use std::time::Instant;
 
@@ -34,7 +34,10 @@ impl CompilationCommand {
     }
 
     /// Executes the command.
-    pub fn run(&self, out: &mut ConsoleOut<impl Write, impl Write>) -> JudgeResult<()> {
+    pub fn run(
+        &self,
+        (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
+    ) -> JudgeResult<()> {
         fn read_from_pipe(pipe: &mut impl Read) -> io::Result<String> {
             let mut outcome = "".to_owned();
             pipe.read_to_string(&mut outcome)?;
@@ -43,33 +46,31 @@ impl CompilationCommand {
 
         if !self.src.exists() {
             writeln!(
-                out.stderr().bold(Palette::Warning),
+                stderr.bold(Palette::Warning),
                 "Warning: {} not found",
                 self.src.display()
             )?;
-            out.stderr().flush()?;
+            stderr.flush()?;
         }
         if self.src.exists() && self.bin.exists() {
             if self.src.metadata()?.modified()? < self.bin.metadata()?.modified()? {
-                writeln!(out.stdout(), "{} is up to date.", self.bin.display())?;
-                out.stdout().flush()?;
+                writeln!(stdout, "{} is up to date.", self.bin.display())?;
+                stdout.flush()?;
                 return Ok(());
             }
         } else if let Some(parent) = self.bin.parent() {
             if !parent.exists() {
                 ::fs::create_dir_all(&parent)?;
-                writeln!(out.stdout(), "Created {}", parent.display())?;
-                out.stdout().flush()?;
+                writeln!(stdout, "Created {}", parent.display())?;
+                stdout.flush()?;
             }
         }
-        {
-            let mut stdout = out.stdout();
-            write!(stdout.bold(Palette::CommandInfo), "Compilation Command:")?;
-            writeln!(stdout, " {}", self.inner.display_args())?;
-            write!(stdout.bold(Palette::CommandInfo), "Working directory:")?;
-            writeln!(stdout, "   {}", self.inner.working_dir.display())?;
-            stdout.flush()?;
-        }
+
+        write!(stdout.bold(Palette::CommandInfo), "Compilation Command:")?;
+        writeln!(stdout, " {}", self.inner.display_args())?;
+        write!(stdout.bold(Palette::CommandInfo), "Working directory:")?;
+        writeln!(stdout, "   {}", self.inner.working_dir.display())?;
+        stdout.flush()?;
 
         let mut proc = self.inner.build_checking_wd()?;
         proc.stdin(Stdio::null())
@@ -83,15 +84,14 @@ impl CompilationCommand {
             Some(code) => Cow::from(code.to_string()),
             None => Cow::from("<no exit code>"),
         };
-        writeln!(out.stdout(), "Status code: {}", code)?;
-        writeln!(out.stdout(), "Time       : {:?}", elapsed)?;
-        out.stdout().flush()?;
+        writeln!(stdout, "Status code: {}", code)?;
+        writeln!(stdout, "Time       : {:?}", elapsed)?;
+        stdout.flush()?;
 
         let build_stdout = read_from_pipe(proc.stdout.as_mut().unwrap()).map_err(self.map_err())?;
         let build_stderr = read_from_pipe(proc.stderr.as_mut().unwrap()).map_err(self.map_err())?;
         for (title, s) in &[("stdout:", build_stdout), ("stderr:", build_stderr)] {
             if !s.is_empty() {
-                let mut stdout = out.stdout();
                 writeln!(stdout.bold(Palette::Title), "{}", title)?;
                 writeln!(stdout, "{}", s)?;
                 stdout.flush()?;
@@ -100,7 +100,6 @@ impl CompilationCommand {
 
         if status.success() {
             if !self.bin.exists() {
-                let mut stderr = out.stderr();
                 writeln!(
                     stderr.plain(Palette::Warning),
                     "Warning: {} not created",
@@ -153,7 +152,7 @@ impl JudgingCommand {
     /// """
     pub fn write_info(
         &self,
-        mut printer: Printer<impl Write>,
+        mut printer: impl ConsoleWrite,
         testfiles_matched: &str,
     ) -> io::Result<()> {
         write!(printer.bold(Palette::CommandInfo), "Command:")?;
