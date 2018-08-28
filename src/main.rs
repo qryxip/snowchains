@@ -5,7 +5,7 @@ extern crate failure;
 extern crate structopt;
 
 use snowchains::app::{App, Opt};
-use snowchains::console::{Console, Palette};
+use snowchains::console::{Console, ConsoleReadWrite, ConsoleWrite as _ConsoleWrite, Palette};
 use snowchains::path::AbsPathBuf;
 use snowchains::service::Credentials;
 
@@ -13,19 +13,18 @@ use failure::Fail;
 use structopt::StructOpt as _StructOpt;
 
 use std::env;
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::io::{self, BufReader, BufWriter, Write as _Write};
 use std::process;
 
 fn main() {
     env_logger::init();
     let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
-    let console = Console::new(
+    let mut console = Console::new(
         BufReader::new(stdin.lock()),
         BufWriter::new(stdout.lock()),
         BufWriter::new(stderr.lock()),
     );
-    let (mut console, result) = run(console);
-    if let Err(err) = result {
+    if let Err(err) = run(&mut console) {
         console.stdout().flush().unwrap();
         let mut stderr = console.stderr();
         writeln!(stderr).unwrap();
@@ -53,19 +52,15 @@ fn main() {
     }
 }
 
-fn run<I: BufRead, O: Write, E: Write>(
-    console: Console<I, O, E>,
-) -> (Console<I, O, E>, snowchains::Result<()>) {
-    let working_dir = match env::current_dir() {
-        Ok(wd) => AbsPathBuf::new_or_panic(wd),
-        Err(err) => return (console, Err(snowchains::Error::Getcwd(err))),
-    };
+fn run(console: impl ConsoleReadWrite) -> snowchains::Result<()> {
+    let working_dir = env::current_dir()
+        .map(AbsPathBuf::new_or_panic)
+        .map_err(snowchains::Error::Getcwd)?;
     let mut app = App {
         working_dir,
         cookies_on_init: "~/.local/share/snowchains/$service".into(),
         credentials: Credentials::default(),
         console,
     };
-    let result = app.run(Opt::from_args());
-    (app.console, result)
+    app.run(Opt::from_args())
 }

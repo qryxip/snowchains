@@ -1,9 +1,9 @@
-use console::{self, Palette};
+use console::{ConsoleReadWrite, ConsoleWrite, Palette, Printer};
 use errors::{ServiceError, ServiceResult, SessionResult};
 use service::downloader::ZipDownloader;
-use service::session::{HasSession, HttpSession};
+use service::session::HttpSession;
 use service::{
-    Contest, DownloadProp, PrintTargets as _PrintTargets, SessionProp,
+    Contest, DownloadProp, PrintTargets as _PrintTargets, Service, SessionProp,
     TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
 use testsuite::{SuiteFilePath, TestSuite};
@@ -16,19 +16,17 @@ use serde::{self, Deserialize, Deserializer};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write as _Write};
 use std::rc::Rc;
 use std::time::Duration;
 use std::{self, fmt};
 
-pub(crate) fn login(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
-) -> ServiceResult<()> {
+pub(crate) fn login(sess_prop: SessionProp<impl ConsoleReadWrite>) -> ServiceResult<()> {
     Hackerrank::start(sess_prop)?.login(LoginOption::Explicit)
 }
 
 pub(crate) fn download(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
     let download_prop = download_prop.parse_contest();
@@ -37,29 +35,30 @@ pub(crate) fn download(
     Hackerrank::start(sess_prop)?.download(&download_prop, timeout)
 }
 
-struct Hackerrank<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> {
-    session: HttpSession<'a, I, O, E>,
+struct Hackerrank<RW: ConsoleReadWrite> {
+    console: RW,
+    session: HttpSession,
     credentials: UserNameAndPassword,
 }
 
-impl<'a, I: BufRead, O: Write, E: Write> HasSession<'a> for Hackerrank<'a, I, O, E> {
-    type Stdin = I;
-    type Stdout = O;
-    type Stderr = E;
+impl<RW: ConsoleReadWrite> Service for Hackerrank<RW> {
+    type Console = RW;
 
-    fn session<'b>(&'b mut self) -> &'b mut HttpSession<'a, I, O, E>
-    where
-        'a: 'b,
-    {
-        &mut self.session
+    fn session_and_stdout(&mut self) -> (&mut HttpSession, Printer<&mut RW::Stdout>) {
+        (&mut self.session, self.console.stdout())
+    }
+
+    fn console(&mut self) -> &mut RW {
+        &mut self.console
     }
 }
 
-impl<'a, I: BufRead, O: Write, E: Write> Hackerrank<'a, I, O, E> {
-    fn start(sess_prop: SessionProp<'a, I, O, E>) -> SessionResult<Self> {
+impl<RW: ConsoleReadWrite> Hackerrank<RW> {
+    fn start(mut sess_prop: SessionProp<RW>) -> SessionResult<Self> {
         let credentials = sess_prop.credentials.hackerrank.clone();
         let session = sess_prop.start_session()?;
         Ok(Hackerrank {
+            console: sess_prop.console,
             session,
             credentials,
         })
@@ -139,7 +138,7 @@ impl<'a, I: BufRead, O: Write, E: Write> Hackerrank<'a, I, O, E> {
         timeout: Option<Duration>,
     ) -> ServiceResult<()> {
         fn warn_unless_empty(
-            mut stderr: console::Stderr<impl Write>,
+            mut stderr: impl ConsoleWrite,
             problems: &[impl AsRef<str>],
             verb: &str,
         ) -> io::Result<()> {
@@ -280,7 +279,7 @@ impl<'a, I: BufRead, O: Write, E: Write> Hackerrank<'a, I, O, E> {
         }
         if *open_browser {
             for url in browser_urls {
-                self.session.open_in_browser(&url)?;
+                self.open_in_browser(&url)?;
             }
         }
         Ok(())
@@ -390,17 +389,17 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use console::Console;
+    use console::{Console, ConsoleReadWrite};
     use errors::SessionResult;
     use service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
-    use service::session::{HasSession as _HasSession, HttpSession, UrlBase};
-    use service::{self, UserNameAndPassword};
+    use service::session::{HttpSession, UrlBase};
+    use service::{self, Service as _Service, UserNameAndPassword};
     use testsuite::TestSuite;
 
     use select::document::Document;
     use url::Host;
 
-    use std::io::{BufRead, Write};
+    use std::io;
     use std::time::Duration;
 
     #[test]
@@ -417,8 +416,7 @@ mod tests {
             ],
         );
         let actual = {
-            let mut null = Console::null();
-            let mut hackerrank = start(&mut null).unwrap();
+            let mut hackerrank = start().unwrap();
             let json = hackerrank
                 .get("/rest/contests/hourrank-20/challenges/hot-and-cold")
                 .recv_json::<ProblemQueryResponse>()
@@ -429,13 +427,13 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    fn start<I: BufRead, O: Write, E: Write>(
-        console: &mut Console<I, O, E>,
-    ) -> SessionResult<Hackerrank<I, O, E>> {
+    fn start() -> SessionResult<Hackerrank<impl ConsoleReadWrite>> {
         let client = service::reqwest_client(Duration::from_secs(10))?;
         let base = UrlBase::new(Host::Domain("www.hackerrank.com"), true, None);
-        let session = HttpSession::new(console, client, base, None)?;
+        let mut console = Console::null();
+        let session = HttpSession::new(console.stdout(), client, base, None)?;
         Ok(Hackerrank {
+            console,
             session,
             credentials: UserNameAndPassword::None,
         })

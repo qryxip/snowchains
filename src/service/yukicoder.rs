@@ -1,10 +1,10 @@
-use console::Palette;
+use console::{ConsoleReadWrite, ConsoleWrite as _ConsoleWrite, Palette, Printer};
 use errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
 use service::downloader::ZipDownloader;
-use service::session::{HasSession, HttpSession};
+use service::session::HttpSession;
 use service::{
-    Contest, DownloadProp, PrintTargets as _PrintTargets, RevelSession, SessionProp, SubmitProp,
-    TryIntoDocument as _TryIntoDocument,
+    Contest, DownloadProp, PrintTargets as _PrintTargets, RevelSession, Service, SessionProp,
+    SubmitProp, TryIntoDocument as _TryIntoDocument,
 };
 use testsuite::{SuiteFilePath, TestSuite};
 
@@ -17,17 +17,15 @@ use select::predicate::{Attr, Class, Name, Predicate as _Predicate, Text};
 
 use std::borrow::Cow;
 use std::fmt;
-use std::io::{BufRead, Write};
+use std::io::Write as _Write;
 use std::time::Duration;
 
-pub(crate) fn login(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
-) -> ServiceResult<()> {
+pub(crate) fn login(sess_prop: SessionProp<impl ConsoleReadWrite>) -> ServiceResult<()> {
     Yukicoder::new(sess_prop)?.login(true)
 }
 
 pub(crate) fn download(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
     let download_prop = download_prop.parse_contest();
@@ -37,37 +35,38 @@ pub(crate) fn download(
 }
 
 pub(crate) fn submit(
-    sess_prop: SessionProp<impl BufRead, impl Write, impl Write>,
+    sess_prop: SessionProp<impl ConsoleReadWrite>,
     submit_prop: SubmitProp<String>,
 ) -> ServiceResult<()> {
     let submit_prop = submit_prop.parse_contest();
     Yukicoder::new(sess_prop)?.submit(&submit_prop)
 }
 
-struct Yukicoder<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> {
-    session: HttpSession<'a, I, O, E>,
+struct Yukicoder<RW: ConsoleReadWrite> {
+    console: RW,
+    session: HttpSession,
     username: Username,
     credential: RevelSession,
 }
 
-impl<'a, I: BufRead, O: Write, E: Write> HasSession<'a> for Yukicoder<'a, I, O, E> {
-    type Stdin = I;
-    type Stdout = O;
-    type Stderr = E;
+impl<RW: ConsoleReadWrite> Service for Yukicoder<RW> {
+    type Console = RW;
 
-    fn session<'b>(&'b mut self) -> &'b mut HttpSession<'a, I, O, E>
-    where
-        'a: 'b,
-    {
-        &mut self.session
+    fn session_and_stdout(&mut self) -> (&mut HttpSession, Printer<&mut RW::Stdout>) {
+        (&mut self.session, self.console.stdout())
+    }
+
+    fn console(&mut self) -> &mut RW {
+        &mut self.console
     }
 }
 
-impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
-    fn new(sess_prop: SessionProp<'a, I, O, E>) -> SessionResult<Self> {
+impl<RW: ConsoleReadWrite> Yukicoder<RW> {
+    fn new(mut sess_prop: SessionProp<RW>) -> SessionResult<Self> {
         let credential = sess_prop.credentials.yukicoder.clone();
         let session = sess_prop.start_session()?;
         Ok(Self {
+            console: sess_prop.console,
             session,
             username: Username::None,
             credential,
@@ -207,7 +206,7 @@ impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
             static URL_SUF: &str = "/testcase.zip";
             let cookie = self.session.cookies_to_header();
             ZipDownloader {
-                out: self.stdout().inner(),
+                out: self.stdout().inner_writer(),
                 url_pref: URL_PREF,
                 url_suf: URL_SUF,
                 download_dir,
@@ -218,7 +217,7 @@ impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
         }
         if *open_browser {
             for (url, _, _) in &outputs {
-                self.session.open_in_browser(url)?;
+                self.open_in_browser(url)?;
             }
         }
         Ok(())
@@ -286,7 +285,7 @@ impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
                 writeln!(self.stdout(), "Success: {}", location)?;
                 self.stdout().flush()?;
                 if *open_browser {
-                    self.session.open_in_browser(location.as_str())?;
+                    self.open_in_browser(location.as_str())?;
                 }
                 return Ok(());
             }
@@ -304,10 +303,9 @@ impl<'a, I: BufRead, O: Write, E: Write> Yukicoder<'a, I, O, E> {
             no: u64,
         }
 
-        let (session, username) = (&mut self.session, &self.username);
-        if let Some(username) = username.name() {
+        if let Some(username) = self.username.name().map(ToOwned::to_owned) {
             let url = format!("/api/v1/solved/name/{}", username);
-            let solved_nos = session
+            let solved_nos = self
                 .get(&url)
                 .send()?
                 .json::<Vec<Problem>>()?
@@ -509,18 +507,18 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use console::Console;
+    use console::{Console, ConsoleReadWrite};
     use errors::SessionResult;
-    use service::session::{HasSession as _HasSession, HttpSession, UrlBase};
+    use service::session::{HttpSession, UrlBase};
     use service::yukicoder::{Extract as _Extract, Username, Yukicoder};
-    use service::{self, RevelSession};
+    use service::{self, RevelSession, Service as _Service};
     use testsuite::TestSuite;
 
     use env_logger;
     use url::Host;
 
     use std::borrow::Borrow;
-    use std::io::{BufRead, Write};
+    use std::io;
     use std::time::Duration;
 
     #[test]
@@ -589,8 +587,7 @@ mod tests {
     }
 
     fn test_extracting_samples(url: &str, expected: TestSuite) {
-        let mut null = Console::null();
-        let mut yukicoder = start(&mut null).unwrap();
+        let mut yukicoder = start().unwrap();
         let document = yukicoder.get(url).recv_html().unwrap();
         let samples = document.extract_samples().unwrap();
         assert_eq!(expected, samples);
@@ -609,8 +606,7 @@ mod tests {
         ];
         let _ = env_logger::try_init();
         let problems = {
-            let mut null = Console::null();
-            let mut yukicoder = start(&mut null).unwrap();
+            let mut yukicoder = start().unwrap();
             let document = yukicoder.get("/contests/100").recv_html().unwrap();
             document.extract_problems().unwrap()
         };
@@ -624,13 +620,13 @@ mod tests {
             .collect()
     }
 
-    fn start<I: BufRead, O: Write, E: Write>(
-        console: &mut Console<I, O, E>,
-    ) -> SessionResult<Yukicoder<I, O, E>> {
+    fn start() -> SessionResult<Yukicoder<impl ConsoleReadWrite>> {
         let client = service::reqwest_client(Duration::from_secs(10))?;
         let base = UrlBase::new(Host::Domain("yukicoder.me"), true, None);
-        let session = HttpSession::new(console, client, base, None)?;
+        let mut console = Console::null();
+        let session = HttpSession::new(console.stdout(), client, base, None)?;
         Ok(Yukicoder {
+            console,
             session,
             username: Username::None,
             credential: RevelSession::None,

@@ -1,6 +1,6 @@
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
-use console::{self, Palette};
+use console::{ConsoleWrite, Palette};
 use errors::{FileIoError, FileIoErrorCause, FileIoErrorKind, SuiteFileError, SuiteFileResult};
 use path::{AbsPath, AbsPathBuf};
 use template::Template;
@@ -29,7 +29,7 @@ pub(crate) fn append(
     path: &SuiteFilePath,
     input: &str,
     output: Option<&str>,
-    stdout: console::Stdout<impl Write>,
+    stdout: impl ConsoleWrite,
 ) -> SuiteFileResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.append(input, output)?;
@@ -421,11 +421,7 @@ impl TestSuite {
     }
 
     /// Serializes `self` and save it to given path.
-    pub fn save(
-        &self,
-        path: &SuiteFilePath,
-        mut stdout: console::Stdout<impl Write>,
-    ) -> SuiteFileResult<()> {
+    pub fn save(&self, path: &SuiteFilePath, mut stdout: impl ConsoleWrite) -> SuiteFileResult<()> {
         let (path, extension) = (&path.joined, path.extension);
         let serialized = match extension {
             SerializableExtension::Json => serde_json::to_string(self)?,

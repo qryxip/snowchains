@@ -25,7 +25,7 @@ use std::{env, io, panic};
 pub fn test_in_tempdir<E: Into<failure::Error>>(
     tempdir_prefix: &str,
     credentials: Credentials,
-    f: impl FnOnce(App<io::Empty, io::Sink, io::Sink>) -> Result<(), E> + UnwindSafe,
+    f: impl FnOnce(App<Console<io::Empty, io::Sink, io::Sink>>) -> Result<(), E> + UnwindSafe,
 ) {
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
     let tempdir_path = tempdir.path().to_owned();
@@ -78,7 +78,7 @@ pub fn dummy_credentials() -> Credentials {
 }
 
 pub fn login(
-    mut app: App<io::Empty, io::Sink, io::Sink>,
+    mut app: App<Console<io::Empty, io::Sink, io::Sink>>,
     service: ServiceName,
 ) -> snowchains::Result<()> {
     app.run(Opt::Login {
@@ -88,7 +88,7 @@ pub fn login(
 }
 
 pub fn download(
-    mut app: App<io::Empty, io::Sink, io::Sink>,
+    mut app: App<Console<io::Empty, io::Sink, io::Sink>>,
     service: ServiceName,
     contest: &str,
     problems: &[&str],

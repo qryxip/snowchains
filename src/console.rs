@@ -11,11 +11,12 @@ use ansi_term;
 use term::{Terminal as _Terminal, TerminfoTerminal};
 
 use std::io::{self, BufRead, Write};
+use std::rc::Rc;
 use std::str::FromStr;
 use std::{self, env, fmt};
 
 #[derive(Default, Serialize, Deserialize)]
-pub(crate) struct Conf {
+pub struct Conf {
     #[serde(default)]
     color: ColorRange,
     #[serde(default = "cjk_default")]
@@ -129,12 +130,131 @@ impl fmt::Display for ColorChoice {
     }
 }
 
+pub trait ConsoleReadWrite {
+    type Stdin: BufRead;
+    type Stdout: Write;
+    type Stderr: Write;
+
+    fn by_mutable(&mut self) -> &mut Console<Self::Stdin, Self::Stdout, Self::Stderr>;
+
+    fn stdout_and_stderr(&mut self) -> (Printer<&mut Self::Stdout>, Printer<&mut Self::Stderr>) {
+        let this = self.by_mutable();
+        let stdout = Printer {
+            wrt: &mut this.stdout,
+            colours: this.colours.clone(),
+            cjk: this.cjk,
+            style: Style::default(),
+        };
+        let stderr = Printer {
+            wrt: &mut this.stderr,
+            colours: this.colours.clone(),
+            cjk: this.cjk,
+            style: Style::default(),
+        };
+        (stdout, stderr)
+    }
+
+    fn stdout(&mut self) -> Printer<&mut Self::Stdout> {
+        let this = self.by_mutable();
+        Printer {
+            wrt: &mut this.stdout,
+            colours: this.colours.clone(),
+            cjk: this.cjk,
+            style: Style::default(),
+        }
+    }
+
+    fn stderr(&mut self) -> Printer<&mut Self::Stderr> {
+        let this = self.by_mutable();
+        Printer {
+            wrt: &mut this.stderr,
+            colours: this.colours.clone(),
+            cjk: this.cjk,
+            style: Style::default(),
+        }
+    }
+
+    fn fill_palettes(&mut self, choice: ColorChoice, conf: &Conf) -> io::Result<()> {
+        let this = self.by_mutable();
+        let enabled = match (this.enabled, choice) {
+            (Some(p), _) => p,
+            (None, ColorChoice::Never) => false,
+            (None, ColorChoice::Auto) => this.fill_palettes_on_auto(),
+            (None, ColorChoice::Always) => this.fill_palettes_on_always()?,
+        };
+        this.enabled = Some(enabled);
+        if enabled {
+            this.colours = Rc::new(conf.colours());
+        }
+        Ok(())
+    }
+
+    fn ask_yes_or_no(&mut self, mes: &str, default: bool) -> io::Result<bool> {
+        let prompt = format!("{}{} ", mes, if default { "(Y/n)" } else { "(y/N)" });
+        loop {
+            match &self.prompt_reply_stderr(&prompt)? {
+                s if s.is_empty() => break Ok(default),
+                s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
+                s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
+                _ => self
+                    .by_mutable()
+                    .stderr()
+                    .plain(Palette::Warning)
+                    .write_all(b"Answer \"y\", \"yes\", \"n\", \"no\", or \"\".")?,
+            }
+        }
+    }
+
+    fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
+        let this = self.by_mutable();
+        this.prompt_stderr(prompt)?;
+        let mut reply = "".to_owned();
+        this.stdin.read_line(&mut reply)?;
+        if reply.ends_with("\r\n") {
+            reply.pop();
+            reply.pop();
+            Ok(reply)
+        } else if reply.ends_with('\n') {
+            reply.pop();
+            Ok(reply)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "unexpected end of file",
+            ))
+        }
+    }
+
+    fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
+        let this = self.by_mutable();
+        if cfg!(windows) && env::var_os("MSYSTEM").is_some() {
+            this.stderr()
+                .plain(Palette::Warning)
+                .write_all(b"$MSYSTEM is present. The input won't be hidden.\n")?;
+            this.prompt_reply_stderr(prompt)
+        } else {
+            this.prompt_stderr(prompt)?;
+            rpassword::read_password_with_reader(Some(&mut this.stdin))
+        }
+    }
+}
+
+impl<'a, RW: ConsoleReadWrite> ConsoleReadWrite for &'a mut RW {
+    type Stdin = RW::Stdin;
+    type Stdout = RW::Stdout;
+    type Stderr = RW::Stderr;
+
+    fn by_mutable(&mut self) -> &mut Console<RW::Stdin, RW::Stdout, RW::Stderr> {
+        (**self).by_mutable()
+    }
+}
+
 #[derive(Debug)]
 pub struct Console<I: BufRead, O: Write, E: Write> {
     stdin: I,
     stdout: O,
     stderr: E,
-    colours: [Option<Colour>; 10],
+    colours: Rc<[Option<Colour>; 10]>,
     cjk: bool,
     enabled: Option<bool>,
 }
@@ -145,9 +265,9 @@ impl Console<io::Empty, io::Sink, io::Sink> {
             stdin: io::empty(),
             stdout: io::sink(),
             stderr: io::sink(),
-            colours: [None; 10],
-            cjk: false,
-            enabled: None,
+            colours: Rc::default(),
+            cjk: bool::default(),
+            enabled: Some(false),
         }
     }
 }
@@ -158,51 +278,10 @@ impl<I: BufRead, O: Write, E: Write> Console<I, O, E> {
             stdin,
             stdout,
             stderr,
-            colours: [None; 10],
+            colours: Rc::new([None; 10]),
             cjk: cjk_default(),
             enabled: None,
         }
-    }
-
-    pub(crate) fn out(&mut self) -> ConsoleOut<O, E> {
-        ConsoleOut {
-            stdout: &mut self.stdout,
-            stderr: &mut self.stderr,
-            colours: &self.colours,
-            cjk: self.cjk,
-        }
-    }
-
-    pub fn stdout(&mut self) -> self::Stdout<O> {
-        Stdout {
-            wrt: &mut self.stdout,
-            colours: &self.colours,
-            cjk: self.cjk,
-            style: Style::default(),
-        }
-    }
-
-    pub fn stderr(&mut self) -> self::Stderr<E> {
-        Stderr {
-            wrt: &mut self.stderr,
-            colours: &self.colours,
-            cjk: self.cjk,
-            style: Style::default(),
-        }
-    }
-
-    pub(crate) fn fill_palettes(&mut self, choice: ColorChoice, conf: &Conf) -> io::Result<()> {
-        let enabled = match (self.enabled, choice) {
-            (Some(p), _) => p,
-            (None, ColorChoice::Never) => false,
-            (None, ColorChoice::Auto) => self.fill_palettes_on_auto(),
-            (None, ColorChoice::Always) => self.fill_palettes_on_always()?,
-        };
-        self.enabled = Some(enabled);
-        if enabled {
-            self.colours = conf.colours();
-        }
-        Ok(())
     }
 
     #[cfg(not(windows))]
@@ -237,163 +316,107 @@ impl<I: BufRead, O: Write, E: Write> Console<I, O, E> {
         Ok(true)
     }
 
-    pub(crate) fn ask_yes_or_no(&mut self, mes: &str, default: bool) -> io::Result<bool> {
-        let prompt = format!("{}{} ", mes, if default { "(Y/n)" } else { "(y/N)" });
-        loop {
-            match &self.prompt_reply_stderr(&prompt)? {
-                s if s.is_empty() => break Ok(default),
-                s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
-                s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
-                _ => self
-                    .stderr()
-                    .plain(Palette::Warning)
-                    .write_all(b"Answer \"y\", \"yes\", \"n\", \"no\", or \"\".")?,
-            }
-        }
-    }
-
-    pub(crate) fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        self.prompt_stderr(prompt)?;
-        let mut reply = "".to_owned();
-        self.stdin.read_line(&mut reply)?;
-        if reply.ends_with("\r\n") {
-            reply.pop();
-            reply.pop();
-            Ok(reply)
-        } else if reply.ends_with('\n') {
-            reply.pop();
-            Ok(reply)
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "unexpected end of file",
-            ))
-        }
-    }
-
-    pub(crate) fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        if cfg!(windows) && env::var_os("MSYSTEM").is_some() {
-            self.stderr()
-                .plain(Palette::Warning)
-                .write_all(b"$MSYSTEM is present. The input won't be hidden.\n")?;
-            self.prompt_reply_stderr(prompt)
-        } else {
-            self.prompt_stderr(prompt)?;
-            rpassword::read_password_with_reader(Some(&mut self.stdin))
-        }
-    }
-
     fn prompt_stderr(&mut self, prompt: &str) -> io::Result<()> {
         self.stderr.write_all(prompt.as_bytes())?;
         self.stderr.flush()
     }
 }
 
-pub(crate) struct ConsoleOut<'a, O: Write + 'a, E: Write + 'a> {
-    stdout: &'a mut O,
-    stderr: &'a mut E,
-    colours: &'a [Option<Colour>; 10],
-    cjk: bool,
+impl<I: BufRead, O: Write, E: Write> ConsoleReadWrite for Console<I, O, E> {
+    type Stdin = I;
+    type Stdout = O;
+    type Stderr = E;
+
+    fn by_mutable(&mut self) -> &mut Console<I, O, E> {
+        self
+    }
 }
 
-impl<'a, O: Write + 'a, E: Write + 'a> ConsoleOut<'a, O, E> {
-    pub(crate) fn stdout<'b>(&'b mut self) -> Stdout<'b, O>
-    where
-        'a: 'b,
-    {
-        Stdout {
-            wrt: &mut self.stdout,
-            colours: &self.colours,
-            cjk: self.cjk,
-            style: Style::default(),
+pub trait ConsoleWrite: Write {
+    type Inner: Write;
+
+    fn by_immutable(&self) -> &Printer<Self::Inner>;
+
+    fn by_mutable(&mut self) -> &mut Printer<Self::Inner>;
+
+    fn inner_writer(&mut self) -> &mut Self::Inner {
+        &mut self.by_mutable().wrt
+    }
+
+    fn plain(&mut self, palette: Palette) -> Printer<&mut Self::Inner> {
+        let this = self.by_mutable();
+        let foreground = palette.pick_fg_colour(&this.colours);
+        Printer {
+            wrt: &mut this.wrt,
+            colours: this.colours.clone(),
+            cjk: this.cjk,
+            style: Style {
+                foreground,
+                ..this.style
+            },
         }
     }
 
-    pub(crate) fn stderr<'b>(&'b mut self) -> Stderr<'b, E>
-    where
-        'a: 'b,
-    {
-        Stderr {
-            wrt: &mut self.stderr,
-            colours: &self.colours,
-            cjk: self.cjk,
-            style: Style::default(),
+    fn bold(&mut self, palette: impl Into<Option<Palette>>) -> Printer<&mut Self::Inner> {
+        let this = self.by_mutable();
+        let foreground = palette.into().and_then(|p| p.pick_fg_colour(&this.colours));
+        Printer {
+            wrt: &mut this.wrt,
+            colours: this.colours.clone(),
+            cjk: this.cjk,
+            style: Style {
+                foreground,
+                is_bold: true,
+                ..this.style
+            },
         }
     }
 
-    pub(crate) fn width(&self, s: &str) -> usize {
-        if self.cjk {
+    fn width(&self, s: &str) -> usize {
+        if self.by_immutable().cjk {
             s.width_cjk()
         } else {
             s.width()
         }
     }
+
+    fn write_spaces(&mut self, n: usize) -> io::Result<()> {
+        (0..n).try_for_each(|_| self.inner_writer().write_all(b" "))
+    }
 }
 
-pub(crate) type Stdout<'a, W> = Printer<'a, W>;
-pub(crate) type Stderr<'a, W> = Printer<'a, W>;
+impl<'a, C: ConsoleWrite> ConsoleWrite for &'a mut C {
+    type Inner = C::Inner;
 
-pub struct Printer<'a, W: Write + 'a> {
-    wrt: &'a mut W,
-    colours: &'a [Option<Colour>; 10],
+    fn by_immutable(&self) -> &Printer<Self::Inner> {
+        (**self).by_immutable()
+    }
+
+    fn by_mutable(&mut self) -> &mut Printer<Self::Inner> {
+        (**self).by_mutable()
+    }
+}
+
+pub struct Printer<W: Write> {
+    wrt: W,
+    colours: Rc<[Option<Colour>; 10]>,
     cjk: bool,
     style: Style,
 }
 
-impl<'a, W: Write + 'a> Printer<'a, W> {
-    pub(crate) fn inner(&mut self) -> &mut W {
-        &mut self.wrt
-    }
-
-    pub(crate) fn reborrow(&mut self) -> Printer<W> {
-        Printer {
-            wrt: &mut self.wrt,
-            colours: &self.colours,
-            cjk: self.cjk,
-            style: self.style,
+#[cfg(test)]
+impl Printer<io::Sink> {
+    pub(crate) fn null() -> Self {
+        Self {
+            wrt: io::sink(),
+            colours: Rc::default(),
+            cjk: bool::default(),
+            style: Style::default(),
         }
-    }
-
-    pub(crate) fn plain(&mut self, palette: Palette) -> Printer<W> {
-        Printer {
-            wrt: &mut self.wrt,
-            colours: &self.colours,
-            cjk: self.cjk,
-            style: Style {
-                foreground: palette.pick_fg_colour(self.colours),
-                ..self.style
-            },
-        }
-    }
-
-    pub fn bold(&mut self, palette: impl Into<Option<Palette>>) -> Printer<W> {
-        let foreground = palette.into().and_then(|p| p.pick_fg_colour(self.colours));
-        Printer {
-            wrt: &mut self.wrt,
-            colours: &self.colours,
-            cjk: self.cjk,
-            style: Style {
-                foreground,
-                is_bold: true,
-                ..self.style
-            },
-        }
-    }
-
-    pub(crate) fn width(&self, s: &str) -> usize {
-        if self.cjk {
-            s.width_cjk()
-        } else {
-            s.width()
-        }
-    }
-
-    pub fn write_spaces(&mut self, n: usize) -> io::Result<()> {
-        (0..n).try_for_each(|_| self.wrt.write_all(b" "))
     }
 }
 
-impl<'a, W: Write + 'a> Write for Printer<'a, W> {
+impl<W: Write> Write for Printer<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.write_all(buf).map(|()| buf.len())
     }
@@ -406,6 +429,18 @@ impl<'a, W: Write + 'a> Write for Printer<'a, W> {
 
     fn flush(&mut self) -> io::Result<()> {
         self.wrt.flush()
+    }
+}
+
+impl<W: Write> ConsoleWrite for Printer<W> {
+    type Inner = W;
+
+    fn by_immutable(&self) -> &Printer<W> {
+        self
+    }
+
+    fn by_mutable(&mut self) -> &mut Self {
+        self
     }
 }
 

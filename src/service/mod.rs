@@ -7,7 +7,7 @@ pub(crate) mod yukicoder;
 pub(self) mod downloader;
 
 use config::Config;
-use console::Console;
+use console::{ConsoleReadWrite, Printer};
 use errors::SessionResult;
 use path::{AbsPath, AbsPathBuf};
 use replacer::CodeReplacer;
@@ -24,12 +24,54 @@ use url::Host;
 
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
 use std::ops::Deref;
 use std::rc::Rc;
 use std::time::Duration;
 
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
+
+pub(self) trait Service {
+    type Console: ConsoleReadWrite;
+
+    fn session_and_stdout(
+        &mut self,
+    ) -> (
+        &mut HttpSession,
+        Printer<&mut <Self::Console as ConsoleReadWrite>::Stdout>,
+    );
+
+    fn console(&mut self) -> &mut Self::Console;
+
+    fn stdout(&mut self) -> Printer<&mut <Self::Console as ConsoleReadWrite>::Stdout> {
+        self.console().stdout()
+    }
+
+    fn stderr(&mut self) -> Printer<&mut <Self::Console as ConsoleReadWrite>::Stderr> {
+        self.console().stderr()
+    }
+
+    fn get(
+        &mut self,
+        url: &str,
+    ) -> session::Request<Printer<&mut <Self::Console as ConsoleReadWrite>::Stdout>> {
+        let (session, stdout) = self.session_and_stdout();
+        session.get(url, stdout)
+    }
+
+    fn post(
+        &mut self,
+        url: &str,
+    ) -> session::Request<Printer<&mut <Self::Console as ConsoleReadWrite>::Stdout>> {
+        let (session, stdout) = self.session_and_stdout();
+        session.post(url, stdout)
+    }
+
+    fn open_in_browser(&mut self, url: &str) -> SessionResult<()> {
+        let (session, stdout) = self.session_and_stdout();
+        session.open_in_browser(url, stdout)
+    }
+}
 
 pub(self) trait TryIntoDocument {
     fn try_into_document(self) -> reqwest::Result<Document>;
@@ -101,21 +143,26 @@ impl SessionConfig {
     }
 }
 
-pub(crate) struct SessionProp<'a, I: BufRead + 'a, O: Write + 'a, E: Write + 'a> {
-    pub console: &'a mut Console<I, O, E>,
+pub(crate) struct SessionProp<RW: ConsoleReadWrite> {
+    pub console: RW,
     pub domain: Option<&'static str>,
     pub cookies_path: AbsPathBuf,
     pub timeout: Option<Duration>,
     pub credentials: Credentials,
 }
 
-impl<'a, I: BufRead, O: Write, E: Write> SessionProp<'a, I, O, E> {
-    pub(self) fn start_session(self) -> SessionResult<HttpSession<'a, I, O, E>> {
+impl<RW: ConsoleReadWrite> SessionProp<RW> {
+    pub(self) fn start_session(&mut self) -> SessionResult<HttpSession> {
         let client = reqwest_client(self.timeout)?;
         let base = self
             .domain
             .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
-        HttpSession::new(self.console, client, base, self.cookies_path.clone())
+        HttpSession::new(
+            self.console.stdout(),
+            client,
+            base,
+            self.cookies_path.clone(),
+        )
     }
 }
 
