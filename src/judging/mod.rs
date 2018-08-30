@@ -18,7 +18,7 @@ use std::time::Duration;
 /// # Errors
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
-pub(crate) fn judge(mut prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> JudgeResult<()> {
+pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> JudgeResult<()> {
     fn judge_all<C: TestCase, O: Outcome>(
         (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
         cases: Vec<C>,
@@ -62,23 +62,28 @@ pub(crate) fn judge(mut prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -
         }
     }
 
-    let cases = prop.cases;
-    let case_paths = prop.case_paths;
-    let solver = prop.solver;
-    let solver_compilation = prop.solver_compilation;
-    let tester_compilations = prop.tester_compilations;
+    let JudgeProp {
+        mut stdout,
+        mut stderr,
+        cases,
+        case_paths,
+        solver,
+        solver_compilation,
+        tester_compilations,
+        force_compile,
+    } = prop;
     if let Some(solver_compilation) = solver_compilation {
-        solver_compilation.run((&mut prop.stdout, &mut prop.stderr))?;
-        writeln!(prop.stdout)?;
-        prop.stdout.flush()?;
+        solver_compilation.run((&mut stdout, &mut stderr), force_compile)?;
+        writeln!(stdout)?;
+        stdout.flush()?;
     }
     for tester_compilation in tester_compilations {
-        tester_compilation.run((&mut prop.stdout, &mut prop.stderr))?;
-        writeln!(prop.stdout)?;
-        prop.stdout.flush()?;
+        tester_compilation.run((&mut stdout, &mut stderr), force_compile)?;
+        writeln!(stdout)?;
+        stdout.flush()?;
     }
-    solver.write_info(&mut prop.stdout, &case_paths)?;
-    let (out, solver) = ((prop.stdout, prop.stderr), Arc::new(solver));
+    solver.write_info(&mut stdout, &case_paths)?;
+    let (out, solver) = ((stdout, stderr), Arc::new(solver));
     match cases {
         TestCases::Simple(cases) => judge_all(out, cases, &solver, simple::judge),
         TestCases::Interactive(cases) => judge_all(out, cases, &solver, interactive::judge),
@@ -93,6 +98,7 @@ pub(crate) struct JudgeProp<O: ConsoleWrite, E: ConsoleWrite> {
     solver: JudgingCommand,
     solver_compilation: Option<CompilationCommand>,
     tester_compilations: HashSet<Arc<CompilationCommand>>,
+    force_compile: bool,
 }
 
 impl<O: ConsoleWrite, E: ConsoleWrite> JudgeProp<O, E> {
@@ -101,6 +107,7 @@ impl<O: ConsoleWrite, E: ConsoleWrite> JudgeProp<O, E> {
         config: &Config,
         problem: &str,
         language: Option<&str>,
+        force_compile: bool,
     ) -> ::Result<Self> {
         let (cases, paths) = config.suite_paths().load_merging(config, problem)?;
         let solver = config.solver(language)?.expand(&problem)?;
@@ -117,6 +124,7 @@ impl<O: ConsoleWrite, E: ConsoleWrite> JudgeProp<O, E> {
             case_paths: paths,
             solver,
             solver_compilation,
+            force_compile,
         })
     }
 }

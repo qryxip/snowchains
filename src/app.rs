@@ -302,6 +302,8 @@ pub enum Opt {
         raw(display_order = "8", aliases = r#"&["j"]"#)
     )]
     Judge {
+        #[structopt(long = "force-compile", help = "Force to compile")]
+        force_compile: bool,
         #[structopt(
             short = "s",
             long = "service",
@@ -355,7 +357,18 @@ pub enum Opt {
             help = "Opens the pages with your default browser"
         )]
         open_browser: bool,
-        #[structopt(short = "j", long = "skip-judging", help = "Skips judging")]
+        #[structopt(
+            long = "force-compile",
+            help = "Force to compile",
+            raw(conflicts_with = "\"skip_judging\"")
+        )]
+        force_compile: bool,
+        #[structopt(
+            short = "j",
+            long = "skip-judging",
+            help = "Skips judging",
+            raw(conflicts_with = "\"force_compile\"")
+        )]
         skip_judging: bool,
         #[structopt(
             short = "d",
@@ -534,6 +547,7 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 testsuite::append(&path, &input, output, self.console.stdout())?;
             }
             Opt::Judge {
+                force_compile,
                 service,
                 contest,
                 language,
@@ -550,11 +564,13 @@ impl<RW: ConsoleReadWrite> App<RW> {
                     &config,
                     &problem,
                     language,
+                    force_compile,
                 )?;
                 judging::judge(judge_prop)?;
             }
             Opt::Submit {
                 open_browser,
+                force_compile,
                 skip_judging,
                 skip_checking_duplication,
                 language,
@@ -574,6 +590,7 @@ impl<RW: ConsoleReadWrite> App<RW> {
                         &config,
                         &problem,
                         language,
+                        force_compile,
                     )?)?;
                     writeln!(self.console.stdout())?;
                 }

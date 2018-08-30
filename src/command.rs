@@ -37,6 +37,7 @@ impl CompilationCommand {
     pub fn run(
         &self,
         (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
+        force_compile: bool,
     ) -> JudgeResult<()> {
         if !self.src.exists() {
             writeln!(
@@ -47,7 +48,9 @@ impl CompilationCommand {
             stderr.flush()?;
         }
         if self.src.exists() && self.bin.exists() {
-            if self.src.metadata()?.modified()? < self.bin.metadata()?.modified()? {
+            if !force_compile
+                && self.src.metadata()?.modified()? < self.bin.metadata()?.modified()?
+            {
                 writeln!(stdout, "{} is up to date.", self.bin.display())?;
                 stdout.flush()?;
                 return Ok(());
