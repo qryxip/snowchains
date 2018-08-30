@@ -5,7 +5,7 @@ use path::AbsPathBuf;
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _FmtWrite;
-use std::io::{self, Read, Write as _IoWrite};
+use std::io::{self, Write as _IoWrite};
 use std::process::{Child, Command, Stdio};
 use std::time::Instant;
 
@@ -38,12 +38,6 @@ impl CompilationCommand {
         &self,
         (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
     ) -> JudgeResult<()> {
-        fn read_from_pipe(pipe: &mut impl Read) -> io::Result<String> {
-            let mut outcome = "".to_owned();
-            pipe.read_to_string(&mut outcome)?;
-            Ok(outcome)
-        }
-
         if !self.src.exists() {
             writeln!(
                 stderr.bold(Palette::Warning),
@@ -69,34 +63,28 @@ impl CompilationCommand {
         write!(stdout.bold(Palette::CommandInfo), "Compilation Command:")?;
         writeln!(stdout, " {}", self.inner.display_args())?;
         write!(stdout.bold(Palette::CommandInfo), "Working directory:")?;
-        writeln!(stdout, "   {}", self.inner.working_dir.display())?;
+        writeln!(stdout, "   {}\n", self.inner.working_dir.display())?;
         stdout.flush()?;
 
         let mut proc = self.inner.build_checking_wd()?;
         proc.stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(stdout.process_redirection())
+            .stderr(stderr.process_redirection());
         let start = Instant::now();
-        let mut proc = proc.spawn().map_err(self.map_err())?;
-        let status = proc.wait().map_err(self.map_err())?;
+        let status = proc.status().map_err(self.map_err())?;
         let elapsed = Instant::now() - start;
-        let code = match status.code() {
-            Some(code) => Cow::from(code.to_string()),
-            None => Cow::from("<no exit code>"),
-        };
-        writeln!(stdout, "Status code: {}", code)?;
-        writeln!(stdout, "Time       : {:?}", elapsed)?;
         stdout.flush()?;
-
-        let build_stdout = read_from_pipe(proc.stdout.as_mut().unwrap()).map_err(self.map_err())?;
-        let build_stderr = read_from_pipe(proc.stderr.as_mut().unwrap()).map_err(self.map_err())?;
-        for (title, s) in &[("stdout:", build_stdout), ("stderr:", build_stderr)] {
-            if !s.is_empty() {
-                writeln!(stdout.bold(Palette::Title), "{}", title)?;
-                writeln!(stdout, "{}", s)?;
-                stdout.flush()?;
-            }
-        }
+        stderr.flush()?;
+        let (code, palette) = match status.code() {
+            Some(0) => (Cow::from("0"), Palette::Success),
+            Some(code) => (Cow::from(code.to_string()), Palette::Fatal),
+            None => (Cow::from("<no exit code>"), Palette::Warning),
+        };
+        write!(stdout.bold(Palette::CommandInfo), "Status code:")?;
+        writeln!(stdout.bold(palette), " {}", code)?;
+        write!(stdout.bold(Palette::CommandInfo), "Time:")?;
+        writeln!(stdout.bold(None), "        {:?}", elapsed)?;
+        stdout.flush()?;
 
         if status.success() {
             if !self.bin.exists() {

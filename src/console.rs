@@ -10,10 +10,10 @@ use ansi_term;
 #[cfg(not(windows))]
 use term::{Terminal as _Terminal, TerminfoTerminal};
 
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, StderrLock, StdinLock, StdoutLock, Write};
 use std::rc::Rc;
 use std::str::FromStr;
-use std::{self, env, fmt};
+use std::{self, env, fmt, process};
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct Conf {
@@ -135,56 +135,48 @@ pub trait ConsoleReadWrite {
     type Stdout: Write;
     type Stderr: Write;
 
-    fn by_mutable(&mut self) -> &mut Console<Self::Stdin, Self::Stdout, Self::Stderr>;
+    fn process_redirection() -> process::Stdio;
+
+    fn inner(&mut self) -> &mut ConsoleInner<Self::Stdin, Self::Stdout, Self::Stderr>;
 
     fn stdout_and_stderr(&mut self) -> (Printer<&mut Self::Stdout>, Printer<&mut Self::Stderr>) {
-        let this = self.by_mutable();
+        let inner = self.inner();
         let stdout = Printer {
-            wrt: &mut this.stdout,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
+            wrt: &mut inner.stdout,
+            colours: inner.colours.clone(),
+            cjk: inner.cjk,
             style: Style::default(),
+            process_redirection: Self::process_redirection,
         };
         let stderr = Printer {
-            wrt: &mut this.stderr,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
+            wrt: &mut inner.stderr,
+            colours: inner.colours.clone(),
+            cjk: inner.cjk,
             style: Style::default(),
+            process_redirection: Self::process_redirection,
         };
         (stdout, stderr)
     }
 
     fn stdout(&mut self) -> Printer<&mut Self::Stdout> {
-        let this = self.by_mutable();
-        Printer {
-            wrt: &mut this.stdout,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
-            style: Style::default(),
-        }
+        self.stdout_and_stderr().0
     }
 
     fn stderr(&mut self) -> Printer<&mut Self::Stderr> {
-        let this = self.by_mutable();
-        Printer {
-            wrt: &mut this.stderr,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
-            style: Style::default(),
-        }
+        self.stdout_and_stderr().1
     }
 
     fn fill_palettes(&mut self, choice: ColorChoice, conf: &Conf) -> io::Result<()> {
-        let this = self.by_mutable();
-        let enabled = match (this.enabled, choice) {
+        let inner = self.inner();
+        let enabled = match (inner.enabled, choice) {
             (Some(p), _) => p,
             (None, ColorChoice::Never) => false,
-            (None, ColorChoice::Auto) => this.fill_palettes_on_auto(),
-            (None, ColorChoice::Always) => this.fill_palettes_on_always()?,
+            (None, ColorChoice::Auto) => inner.fill_palettes_on_auto(),
+            (None, ColorChoice::Always) => inner.fill_palettes_on_always()?,
         };
-        this.enabled = Some(enabled);
+        inner.enabled = Some(enabled);
         if enabled {
-            this.colours = Rc::new(conf.colours());
+            inner.colours = Rc::new(conf.colours());
         }
         Ok(())
     }
@@ -197,7 +189,6 @@ pub trait ConsoleReadWrite {
                 s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
                 s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
                 _ => self
-                    .by_mutable()
                     .stderr()
                     .plain(Palette::Warning)
                     .write_all(b"Answer \"y\", \"yes\", \"n\", \"no\", or \"\".")?,
@@ -206,10 +197,10 @@ pub trait ConsoleReadWrite {
     }
 
     fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        let this = self.by_mutable();
-        this.prompt_stderr(prompt)?;
+        let inner = self.inner();
+        inner.prompt_stderr(prompt)?;
         let mut reply = "".to_owned();
-        this.stdin.read_line(&mut reply)?;
+        inner.stdin.read_line(&mut reply)?;
         if reply.ends_with("\r\n") {
             reply.pop();
             reply.pop();
@@ -226,15 +217,15 @@ pub trait ConsoleReadWrite {
     }
 
     fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        let this = self.by_mutable();
         if cfg!(windows) && env::var_os("MSYSTEM").is_some() {
-            this.stderr()
+            self.stderr()
                 .plain(Palette::Warning)
                 .write_all(b"$MSYSTEM is present. The input won't be hidden.\n")?;
-            this.prompt_reply_stderr(prompt)
+            self.prompt_reply_stderr(prompt)
         } else {
-            this.prompt_stderr(prompt)?;
-            rpassword::read_password_with_reader(Some(&mut this.stdin))
+            let inner = self.inner();
+            inner.prompt_stderr(prompt)?;
+            rpassword::read_password_with_reader(Some(&mut inner.stdin))
         }
     }
 }
@@ -244,13 +235,93 @@ impl<'a, RW: ConsoleReadWrite> ConsoleReadWrite for &'a mut RW {
     type Stdout = RW::Stdout;
     type Stderr = RW::Stderr;
 
-    fn by_mutable(&mut self) -> &mut Console<RW::Stdin, RW::Stdout, RW::Stderr> {
-        (**self).by_mutable()
+    fn process_redirection() -> process::Stdio {
+        RW::process_redirection()
+    }
+
+    fn inner(&mut self) -> &mut ConsoleInner<RW::Stdin, RW::Stdout, RW::Stderr> {
+        (**self).inner()
+    }
+}
+
+pub struct Console<'a> {
+    inner: ConsoleInner<
+        BufReader<StdinLock<'a>>,
+        BufWriter<StdoutLock<'a>>,
+        BufWriter<StderrLock<'a>>,
+    >,
+}
+
+impl<'a> Console<'a> {
+    pub fn new(stdin: StdinLock<'a>, stdout: StdoutLock<'a>, stderr: StderrLock<'a>) -> Self {
+        Self {
+            inner: ConsoleInner {
+                stdin: BufReader::new(stdin),
+                stdout: BufWriter::new(stdout),
+                stderr: BufWriter::new(stderr),
+                colours: Rc::new([None; 10]),
+                cjk: cjk_default(),
+                enabled: None,
+            },
+        }
+    }
+}
+
+impl<'a> ConsoleReadWrite for Console<'a> {
+    type Stdin = BufReader<StdinLock<'a>>;
+    type Stdout = BufWriter<StdoutLock<'a>>;
+    type Stderr = BufWriter<StderrLock<'a>>;
+
+    fn process_redirection() -> process::Stdio {
+        process::Stdio::inherit()
+    }
+
+    fn inner(&mut self) -> &mut ConsoleInner<Self::Stdin, Self::Stdout, Self::Stderr> {
+        &mut self.inner
+    }
+}
+
+pub struct NullConsole {
+    inner: ConsoleInner<io::Empty, io::Sink, io::Sink>,
+}
+
+impl NullConsole {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for NullConsole {
+    fn default() -> Self {
+        Self {
+            inner: ConsoleInner {
+                stdin: io::empty(),
+                stdout: io::sink(),
+                stderr: io::sink(),
+                colours: Rc::default(),
+                cjk: bool::default(),
+                enabled: Some(false),
+            },
+        }
+    }
+}
+
+impl ConsoleReadWrite for NullConsole {
+    type Stdin = io::Empty;
+    type Stdout = io::Sink;
+    type Stderr = io::Sink;
+
+    fn process_redirection() -> process::Stdio {
+        process::Stdio::null()
+    }
+
+    fn inner(&mut self) -> &mut ConsoleInner<io::Empty, io::Sink, io::Sink> {
+        &mut self.inner
     }
 }
 
 #[derive(Debug)]
-pub struct Console<I: BufRead, O: Write, E: Write> {
+pub struct ConsoleInner<I: BufRead, O: Write, E: Write> {
     stdin: I,
     stdout: O,
     stderr: E,
@@ -259,20 +330,7 @@ pub struct Console<I: BufRead, O: Write, E: Write> {
     enabled: Option<bool>,
 }
 
-impl Console<io::Empty, io::Sink, io::Sink> {
-    pub fn null() -> Self {
-        Self {
-            stdin: io::empty(),
-            stdout: io::sink(),
-            stderr: io::sink(),
-            colours: Rc::default(),
-            cjk: bool::default(),
-            enabled: Some(false),
-        }
-    }
-}
-
-impl<I: BufRead, O: Write, E: Write> Console<I, O, E> {
+impl<I: BufRead, O: Write, E: Write> ConsoleInner<I, O, E> {
     pub fn new(stdin: I, stdout: O, stderr: E) -> Self {
         Self {
             stdin,
@@ -322,16 +380,6 @@ impl<I: BufRead, O: Write, E: Write> Console<I, O, E> {
     }
 }
 
-impl<I: BufRead, O: Write, E: Write> ConsoleReadWrite for Console<I, O, E> {
-    type Stdin = I;
-    type Stdout = O;
-    type Stderr = E;
-
-    fn by_mutable(&mut self) -> &mut Console<I, O, E> {
-        self
-    }
-}
-
 pub trait ConsoleWrite: Write {
     type Inner: Write;
 
@@ -354,6 +402,7 @@ pub trait ConsoleWrite: Write {
                 foreground,
                 ..this.style
             },
+            process_redirection: this.process_redirection,
         }
     }
 
@@ -369,7 +418,12 @@ pub trait ConsoleWrite: Write {
                 is_bold: true,
                 ..this.style
             },
+            process_redirection: this.process_redirection,
         }
+    }
+
+    fn process_redirection(&self) -> process::Stdio {
+        (self.by_immutable().process_redirection)()
     }
 
     fn width(&self, s: &str) -> usize {
@@ -402,6 +456,7 @@ pub struct Printer<W: Write> {
     colours: Rc<[Option<Colour>; 10]>,
     cjk: bool,
     style: Style,
+    process_redirection: fn() -> process::Stdio,
 }
 
 #[cfg(test)]
@@ -412,6 +467,7 @@ impl Printer<io::Sink> {
             colours: Rc::default(),
             cjk: bool::default(),
             style: Style::default(),
+            process_redirection: process::Stdio::null,
         }
     }
 }

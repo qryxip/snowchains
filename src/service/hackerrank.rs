@@ -389,7 +389,7 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use console::{Console, ConsoleReadWrite};
+    use console::{ConsoleReadWrite, NullConsole};
     use errors::SessionResult;
     use service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
     use service::session::{HttpSession, UrlBase};
@@ -399,7 +399,6 @@ mod tests {
     use select::document::Document;
     use url::Host;
 
-    use std::io;
     use std::time::Duration;
 
     #[test]
@@ -430,7 +429,7 @@ mod tests {
     fn start() -> SessionResult<Hackerrank<impl ConsoleReadWrite>> {
         let client = service::reqwest_client(Duration::from_secs(10))?;
         let base = UrlBase::new(Host::Domain("www.hackerrank.com"), true, None);
-        let mut console = Console::null();
+        let mut console = NullConsole::new();
         let session = HttpSession::new(console.stdout(), client, base, None)?;
         Ok(Hackerrank {
             console,

@@ -10,11 +10,9 @@ extern crate tempdir;
 mod common;
 
 use snowchains::app::App;
-use snowchains::console::Console;
+use snowchains::console::NullConsole;
 use snowchains::path::AbsPath;
 use snowchains::ServiceName;
-
-use std::io;
 
 #[test]
 #[ignore]
@@ -56,15 +54,11 @@ fn it_downloads_testcases() {
     );
 }
 
-fn login(app: App<Console<io::Empty, io::Sink, io::Sink>>) -> snowchains::Result<()> {
+fn login(app: App<NullConsole>) -> snowchains::Result<()> {
     common::login(app, ServiceName::Yukicoder)
 }
 
-fn download(
-    app: App<Console<io::Empty, io::Sink, io::Sink>>,
-    contest: &str,
-    problems: &[&str],
-) -> snowchains::Result<()> {
+fn download(app: App<NullConsole>, contest: &str, problems: &[&str]) -> snowchains::Result<()> {
     common::download(app, ServiceName::Yukicoder, contest, problems)
 }
 
