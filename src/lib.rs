@@ -41,6 +41,12 @@ extern crate webbrowser;
 extern crate yaml_rust;
 extern crate zip;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+extern crate libc;
+
+#[cfg(windows)]
+extern crate winapi;
+
 #[cfg(not(windows))]
 extern crate term;
 

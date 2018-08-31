@@ -22,7 +22,7 @@ use std::path::PathBuf;
              \n    snowchains <d|download> [FLAGS] [OPTIONS]\
              \n    snowchains <r|restore> [OPTIONS]\
              \n    snowchains <a|append> [OPTIONS] <problem> <extension> <input> [output]\
-             \n    snowchains <j|judge> [OPTIONS] <problem>\
+             \n    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>\
              \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>"
 )]
 pub enum Opt {
@@ -298,7 +298,7 @@ pub enum Opt {
     #[structopt(
         name = "judge",
         about = "Tests a binary or script",
-        usage = "snowchains <j|judge> [OPTIONS] <problem>",
+        usage = "snowchains <j|judge> [FLAGS] [OPTIONS] <problem>",
         raw(display_order = "8", aliases = r#"&["j"]"#)
     )]
     Judge {

@@ -2,10 +2,17 @@ use Never;
 
 use ansi_term::{Colour, Style};
 use rpassword;
-use unicode_width::UnicodeWidthStr as _UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar as _UnicodeWidthChar, UnicodeWidthStr as _UnicodeWidthStr};
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use libc;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::mem;
 
 #[cfg(windows)]
-use ansi_term;
+use std::mem;
+#[cfg(windows)]
+use {ansi_term, winapi};
 
 #[cfg(not(windows))]
 use term::{Terminal as _Terminal, TerminfoTerminal};
@@ -21,10 +28,6 @@ pub struct Conf {
     color: ColorRange,
     #[serde(default = "cjk_default")]
     cjk: bool,
-}
-
-fn cjk_default() -> bool {
-    true
 }
 
 impl Conf {
@@ -137,6 +140,10 @@ pub trait ConsoleReadWrite {
 
     fn process_redirection() -> process::Stdio;
 
+    fn stdout_columns() -> Option<usize>;
+
+    fn stderr_columns() -> Option<usize>;
+
     fn inner(&mut self) -> &mut ConsoleInner<Self::Stdin, Self::Stdout, Self::Stderr>;
 
     fn stdout_and_stderr(&mut self) -> (Printer<&mut Self::Stdout>, Printer<&mut Self::Stderr>) {
@@ -147,6 +154,7 @@ pub trait ConsoleReadWrite {
             cjk: inner.cjk,
             style: Style::default(),
             process_redirection: Self::process_redirection,
+            columns: Self::stdout_columns,
         };
         let stderr = Printer {
             wrt: &mut inner.stderr,
@@ -154,6 +162,7 @@ pub trait ConsoleReadWrite {
             cjk: inner.cjk,
             style: Style::default(),
             process_redirection: Self::process_redirection,
+            columns: Self::stderr_columns,
         };
         (stdout, stderr)
     }
@@ -239,6 +248,14 @@ impl<'a, RW: ConsoleReadWrite> ConsoleReadWrite for &'a mut RW {
         RW::process_redirection()
     }
 
+    fn stdout_columns() -> Option<usize> {
+        RW::stdout_columns()
+    }
+
+    fn stderr_columns() -> Option<usize> {
+        RW::stderr_columns()
+    }
+
     fn inner(&mut self) -> &mut ConsoleInner<RW::Stdin, RW::Stdout, RW::Stderr> {
         (**self).inner()
     }
@@ -274,6 +291,14 @@ impl<'a> ConsoleReadWrite for Console<'a> {
 
     fn process_redirection() -> process::Stdio {
         process::Stdio::inherit()
+    }
+
+    fn stdout_columns() -> Option<usize> {
+        stdout_columns()
+    }
+
+    fn stderr_columns() -> Option<usize> {
+        stderr_columns()
     }
 
     fn inner(&mut self) -> &mut ConsoleInner<Self::Stdin, Self::Stdout, Self::Stderr> {
@@ -313,6 +338,14 @@ impl ConsoleReadWrite for NullConsole {
 
     fn process_redirection() -> process::Stdio {
         process::Stdio::null()
+    }
+
+    fn stdout_columns() -> Option<usize> {
+        None
+    }
+
+    fn stderr_columns() -> Option<usize> {
+        None
     }
 
     fn inner(&mut self) -> &mut ConsoleInner<io::Empty, io::Sink, io::Sink> {
@@ -403,6 +436,7 @@ pub trait ConsoleWrite: Write {
                 ..this.style
             },
             process_redirection: this.process_redirection,
+            columns: this.columns,
         }
     }
 
@@ -419,6 +453,7 @@ pub trait ConsoleWrite: Write {
                 ..this.style
             },
             process_redirection: this.process_redirection,
+            columns: this.columns,
         }
     }
 
@@ -426,11 +461,23 @@ pub trait ConsoleWrite: Write {
         (self.by_immutable().process_redirection)()
     }
 
+    fn columns(&self) -> Option<usize> {
+        (self.by_immutable().columns)()
+    }
+
     fn width(&self, s: &str) -> usize {
         if self.by_immutable().cjk {
             s.width_cjk()
         } else {
             s.width()
+        }
+    }
+
+    fn char_width_or_zero(&self, c: char) -> usize {
+        if self.by_immutable().cjk {
+            c.width_cjk().unwrap_or(0)
+        } else {
+            c.width().unwrap_or(0)
         }
     }
 
@@ -457,6 +504,7 @@ pub struct Printer<W: Write> {
     cjk: bool,
     style: Style,
     process_redirection: fn() -> process::Stdio,
+    columns: fn() -> Option<usize>,
 }
 
 #[cfg(test)]
@@ -468,6 +516,7 @@ impl Printer<io::Sink> {
             cjk: bool::default(),
             style: Style::default(),
             process_redirection: process::Stdio::null,
+            columns: || None,
         }
     }
 }
@@ -529,4 +578,61 @@ impl Palette {
             Palette::TesterStderr => colours[9],
         }
     }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn stdout_columns() -> Option<usize> {
+    unsafe { columns_with_libc(libc::STDOUT_FILENO) }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn stderr_columns() -> Option<usize> {
+    unsafe { columns_with_libc(libc::STDERR_FILENO) }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+unsafe fn columns_with_libc(fd: libc::c_int) -> Option<usize> {
+    let mut winsize = mem::zeroed::<libc::winsize>();
+    if libc::ioctl(fd, libc::TIOCGWINSZ, &mut winsize) != 0 || winsize.ws_col <= 0 {
+        None
+    } else {
+        Some(winsize.ws_col as usize)
+    }
+}
+
+#[cfg(windows)]
+fn stdout_columns() -> Option<usize> {
+    unsafe { columns_with_winapi(winapi::um::winbase::STD_OUTPUT_HANDLE) }
+}
+
+#[cfg(windows)]
+fn stderr_columns() -> Option<usize> {
+    unsafe { columns_with_winapi(winapi::um::winbase::STD_ERROR_HANDLE) }
+}
+
+#[cfg(windows)]
+unsafe fn columns_with_winapi(h: winapi::shared::minwindef::DWORD) -> Option<usize> {
+    use winapi::um::processenv::GetStdHandle;
+    use winapi::um::wincon::{GetConsoleScreenBufferInfo, CONSOLE_SCREEN_BUFFER_INFO};
+    let h = GetStdHandle(h);
+    let mut info = mem::zeroed::<CONSOLE_SCREEN_BUFFER_INFO>();
+    if GetConsoleScreenBufferInfo(h, &mut info) == 0 {
+        None
+    } else {
+        Some((info.srWindow.Right - info.srWindow.Left) as usize)
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn stdout_columns() -> Option<usize> {
+    None
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn stderr_columns() -> Option<usize> {
+    None
+}
+
+fn cjk_default() -> bool {
+    true
 }

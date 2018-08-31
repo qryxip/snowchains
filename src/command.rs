@@ -2,6 +2,8 @@ use console::{ConsoleWrite, Palette};
 use errors::{JudgeError, JudgeResult};
 use path::AbsPathBuf;
 
+use itertools::Itertools as _Itertools;
+
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _FmtWrite;
@@ -63,11 +65,18 @@ impl CompilationCommand {
             }
         }
 
-        write!(stdout.bold(Palette::CommandInfo), "Compilation Command:")?;
-        writeln!(stdout, " {}", self.inner.display_args())?;
-        write!(stdout.bold(Palette::CommandInfo), "Working directory:")?;
-        writeln!(stdout, "   {}\n", self.inner.working_dir.display())?;
+        let args = self.inner.format_args();
+        write_info(&mut stdout, "Compilation Command:", &args)?;
+        let wd = self.inner.working_dir.display().to_string();
+        write_info(&mut stdout, "Working directory:  ", &[&wd])?;
+        writeln!(stdout)?;
         stdout.flush()?;
+
+        // write!(stdout.bold(Palette::CommandInfo), "Compilation Command:")?;
+        // writeln!(stdout, " {}", self.inner.display_args())?;
+        // write!(stdout.bold(Palette::CommandInfo), "Working directory:")?;
+        // writeln!(stdout, "   {}\n", self.inner.working_dir.display())?;
+        // stdout.flush()?;
 
         let mut proc = self.inner.build_checking_wd()?;
         proc.stdin(Stdio::null())
@@ -76,8 +85,6 @@ impl CompilationCommand {
         let start = Instant::now();
         let status = proc.status().map_err(self.map_err())?;
         let elapsed = Instant::now() - start;
-        stdout.flush()?;
-        stderr.flush()?;
         let (code, palette) = match status.code() {
             Some(0) => (Cow::from("0"), Palette::Success),
             Some(code) => (Cow::from(code.to_string()), Palette::Fatal),
@@ -143,15 +150,14 @@ impl JudgingCommand {
     /// """
     pub fn write_info(
         &self,
-        mut printer: impl ConsoleWrite,
+        mut out: impl ConsoleWrite,
         testfiles_matched: &str,
     ) -> io::Result<()> {
-        write!(printer.bold(Palette::CommandInfo), "Command:")?;
-        writeln!(printer, "           {}", self.0.display_args())?;
-        write!(printer.bold(Palette::CommandInfo), "Working directory:")?;
-        writeln!(printer, " {}", self.0.working_dir.display())?;
-        write!(printer.bold(Palette::CommandInfo), "Test files:")?;
-        writeln!(printer, "        {}", testfiles_matched)
+        let args = self.0.format_args();
+        let wd = self.0.working_dir.display().to_string();
+        write_info(&mut out, "Command:          ", &args)?;
+        write_info(&mut out, "Working directory:", &[&wd])?;
+        write_info(&mut out, "Test files:       ", &[testfiles_matched])
     }
 
     /// Returns a `Child` which stdin & stdout & stderr are piped.
@@ -190,12 +196,12 @@ impl Inner {
         }
     }
 
-    fn display_args(&self) -> String {
-        let arg0 = format!("{:?}", self.arg0);
-        self.rest_args.iter().fold(arg0, |mut s, arg| {
-            write!(s, " {:?}", arg).unwrap();
-            s
-        })
+    fn format_args(&self) -> Vec<String> {
+        let mut r = vec![format!("{:?}", self.arg0)];
+        for arg in &self.rest_args {
+            r.push(format!("{:?}", arg));
+        }
+        r
     }
 
     fn build_checking_wd(&self) -> io::Result<Command> {
@@ -212,5 +218,45 @@ impl Inner {
                 ),
             ))
         }
+    }
+}
+
+fn write_info(mut out: impl ConsoleWrite, title: &str, rest: &[impl AsRef<str>]) -> io::Result<()> {
+    write!(out.bold(Palette::CommandInfo), "{} ", title)?;
+    if let Some(w) = out.columns() {
+        let o = out.width(title) + 1;
+        let mut x = 0;
+        macro_rules! next_line {
+            () => {
+                writeln!(out)?;
+                out.write_spaces(o)?;
+                x = 0;
+            };
+        }
+        for s in rest.iter().map(AsRef::as_ref) {
+            let l = out.width(s);
+            if o + x + l > w && x > 0 {
+                next_line!();
+            }
+            if o + l > w && x == 0 {
+                for c in s.chars() {
+                    let l = out.char_width_or_zero(c);
+                    if o + x + l > w {
+                        next_line!();
+                    }
+                    write!(out, "{}", c)?;
+                    x += l;
+                }
+            } else if x == 0 {
+                write!(out, "{}", s)?;
+                x += l;
+            } else {
+                write!(out, " {}", s)?;
+                x += l + 1;
+            }
+        }
+        writeln!(out)
+    } else {
+        writeln!(out, "{}", rest.iter().map(AsRef::as_ref).format(" "))
     }
 }

@@ -34,7 +34,7 @@ serde = "1.0.75"
 serde_derive = "1.0.75"
 serde_json = "1.0.26"
 serde_urlencoded = "0.5.3"
-serde_yaml = "0.8.1"
+serde_yaml = "0.8.2"
 structopt = "0.2.10"
 tokio-core = "0.1.17"
 toml = "0.4.6"
@@ -43,6 +43,12 @@ url = "1.7.1"
 webbrowser = "0.3.1"
 yaml-rust = "0.4.0"
 zip = "0.4.2"
+
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+libc = "0.2.43"
+
+[target.'cfg(windows)'.dependencies]
+winapi = "0.3.5"
 
 [target.'cfg(not(windows))'.dependencies]
 term = "0.5.1"
