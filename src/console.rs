@@ -31,43 +31,43 @@ pub struct Conf {
 }
 
 impl Conf {
-    fn colours(&self) -> [Option<Colour>; 10] {
+    fn colours(&self) -> [Colour; 10] {
         match self.color {
             ColorRange::_8 => [
-                Some(Colour::Green),
-                Some(Colour::Yellow),
-                Some(Colour::Red),
-                Some(Colour::Cyan),
-                Some(Colour::Purple),
-                Some(Colour::Cyan),
-                Some(Colour::Cyan),
-                Some(Colour::Purple),
-                Some(Colour::Green),
-                Some(Colour::Cyan),
+                Colour::Green,
+                Colour::Yellow,
+                Colour::Red,
+                Colour::Cyan,
+                Colour::Purple,
+                Colour::Cyan,
+                Colour::Cyan,
+                Colour::Purple,
+                Colour::Green,
+                Colour::Cyan,
             ],
             ColorRange::_16 => [
-                Some(Colour::Fixed(10)),
-                Some(Colour::Fixed(11)),
-                Some(Colour::Fixed(9)),
-                Some(Colour::Fixed(14)),
-                Some(Colour::Fixed(13)),
-                Some(Colour::Fixed(14)),
-                Some(Colour::Fixed(14)),
-                Some(Colour::Fixed(13)),
-                Some(Colour::Fixed(10)),
-                Some(Colour::Fixed(14)),
+                Colour::Fixed(10),
+                Colour::Fixed(11),
+                Colour::Fixed(9),
+                Colour::Fixed(14),
+                Colour::Fixed(13),
+                Colour::Fixed(14),
+                Colour::Fixed(14),
+                Colour::Fixed(13),
+                Colour::Fixed(10),
+                Colour::Fixed(14),
             ],
             ColorRange::_256 => [
-                Some(Colour::Fixed(118)),
-                Some(Colour::Fixed(190)),
-                Some(Colour::Fixed(196)),
-                Some(Colour::Fixed(123)),
-                Some(Colour::Fixed(99)),
-                Some(Colour::Fixed(50)),
-                Some(Colour::Fixed(50)),
-                Some(Colour::Fixed(198)),
-                Some(Colour::Fixed(118)),
-                Some(Colour::Fixed(99)),
+                Colour::Fixed(118),
+                Colour::Fixed(190),
+                Colour::Fixed(196),
+                Colour::Fixed(123),
+                Colour::Fixed(99),
+                Colour::Fixed(50),
+                Colour::Fixed(50),
+                Colour::Fixed(198),
+                Colour::Fixed(118),
+                Colour::Fixed(99),
             ],
         }
     }
@@ -185,7 +185,7 @@ pub trait ConsoleReadWrite {
         };
         inner.enabled = Some(enabled);
         if enabled {
-            inner.colours = Rc::new(conf.colours());
+            inner.colours = Some(Rc::new(conf.colours()));
         }
         Ok(())
     }
@@ -276,7 +276,7 @@ impl<'a> Console<'a> {
                 stdin: BufReader::new(stdin),
                 stdout: BufWriter::new(stdout),
                 stderr: BufWriter::new(stderr),
-                colours: Rc::new([None; 10]),
+                colours: None,
                 cjk: cjk_default(),
                 enabled: None,
             },
@@ -323,7 +323,7 @@ impl Default for NullConsole {
                 stdin: io::empty(),
                 stdout: io::sink(),
                 stderr: io::sink(),
-                colours: Rc::default(),
+                colours: None,
                 cjk: bool::default(),
                 enabled: Some(false),
             },
@@ -358,7 +358,7 @@ pub struct ConsoleInner<I: BufRead, O: Write, E: Write> {
     stdin: I,
     stdout: O,
     stderr: E,
-    colours: Rc<[Option<Colour>; 10]>,
+    colours: Option<Rc<[Colour; 10]>>,
     cjk: bool,
     enabled: Option<bool>,
 }
@@ -369,7 +369,7 @@ impl<I: BufRead, O: Write, E: Write> ConsoleInner<I, O, E> {
             stdin,
             stdout,
             stderr,
-            colours: Rc::new([None; 10]),
+            colours: None,
             cjk: cjk_default(),
             enabled: None,
         }
@@ -426,7 +426,7 @@ pub trait ConsoleWrite: Write {
 
     fn plain(&mut self, palette: Palette) -> Printer<&mut Self::Inner> {
         let this = self.by_mutable();
-        let foreground = palette.pick_fg_colour(&this.colours);
+        let foreground = this.colours.as_ref().map(|cs| palette.pick_fg_colour(cs));
         Printer {
             wrt: &mut this.wrt,
             colours: this.colours.clone(),
@@ -442,14 +442,17 @@ pub trait ConsoleWrite: Write {
 
     fn bold(&mut self, palette: impl Into<Option<Palette>>) -> Printer<&mut Self::Inner> {
         let this = self.by_mutable();
-        let foreground = palette.into().and_then(|p| p.pick_fg_colour(&this.colours));
+        let (foreground, is_bold) = match (palette.into(), this.colours.as_ref()) {
+            (Some(p), Some(cs)) => (Some(p.pick_fg_colour(&cs)), true),
+            _ => (None, false),
+        };
         Printer {
             wrt: &mut this.wrt,
             colours: this.colours.clone(),
             cjk: this.cjk,
             style: Style {
                 foreground,
-                is_bold: true,
+                is_bold,
                 ..this.style
             },
             process_redirection: this.process_redirection,
@@ -500,7 +503,7 @@ impl<'a, C: ConsoleWrite> ConsoleWrite for &'a mut C {
 
 pub struct Printer<W: Write> {
     wrt: W,
-    colours: Rc<[Option<Colour>; 10]>,
+    colours: Option<Rc<[Colour; 10]>>,
     cjk: bool,
     style: Style,
     process_redirection: fn() -> process::Stdio,
@@ -512,7 +515,7 @@ impl Printer<io::Sink> {
     pub(crate) fn null() -> Self {
         Self {
             wrt: io::sink(),
-            colours: Rc::default(),
+            colours: None,
             cjk: bool::default(),
             style: Style::default(),
             process_redirection: process::Stdio::null,
@@ -564,7 +567,7 @@ pub enum Palette {
 }
 
 impl Palette {
-    fn pick_fg_colour(self, colours: &[Option<Colour>; 10]) -> Option<Colour> {
+    fn pick_fg_colour(self, colours: &[Colour; 10]) -> Colour {
         match self {
             Palette::Success => colours[0],
             Palette::Warning => colours[1],
