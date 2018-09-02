@@ -14,6 +14,7 @@ extern crate serde_json;
 extern crate structopt;
 
 extern crate ansi_term;
+extern crate atty;
 extern crate bincode;
 extern crate chrono;
 extern crate combine;
@@ -33,6 +34,7 @@ extern crate select;
 extern crate serde;
 extern crate serde_urlencoded;
 extern crate serde_yaml;
+extern crate term;
 extern crate tokio_core;
 extern crate toml;
 extern crate unicode_width;
@@ -46,9 +48,6 @@ extern crate libc;
 
 #[cfg(windows)]
 extern crate winapi;
-
-#[cfg(not(windows))]
-extern crate term;
 
 #[cfg(test)]
 #[macro_use]

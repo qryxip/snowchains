@@ -1,26 +1,23 @@
 use Never;
 
 use ansi_term::{Colour, Style};
-use rpassword;
+use term::{Terminal as _Terminal, TerminfoTerminal};
 use unicode_width::{UnicodeWidthChar as _UnicodeWidthChar, UnicodeWidthStr as _UnicodeWidthStr};
+use {atty, rpassword};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use libc;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::mem;
 
-#[cfg(windows)]
-use std::mem;
 #[cfg(windows)]
 use {ansi_term, winapi};
-
-#[cfg(not(windows))]
-use term::{Terminal as _Terminal, TerminfoTerminal};
 
 use std::io::{self, BufRead, BufReader, BufWriter, StderrLock, StdinLock, StdoutLock, Write};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::{self, env, fmt, process};
+
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+use std::mem;
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct Conf {
@@ -150,7 +147,7 @@ pub trait ConsoleReadWrite {
         let inner = self.inner();
         let stdout = Printer {
             wrt: &mut inner.stdout,
-            colours: inner.colours.clone(),
+            colours: inner.stdout_colours.clone(),
             cjk: inner.cjk,
             style: Style::default(),
             process_redirection: Self::process_redirection,
@@ -158,7 +155,7 @@ pub trait ConsoleReadWrite {
         };
         let stderr = Printer {
             wrt: &mut inner.stderr,
-            colours: inner.colours.clone(),
+            colours: inner.stderr_colours.clone(),
             cjk: inner.cjk,
             style: Style::default(),
             process_redirection: Self::process_redirection,
@@ -177,15 +174,20 @@ pub trait ConsoleReadWrite {
 
     fn fill_palettes(&mut self, choice: ColorChoice, conf: &Conf) -> io::Result<()> {
         let inner = self.inner();
-        let enabled = match (inner.enabled, choice) {
-            (Some(p), _) => p,
-            (None, ColorChoice::Never) => false,
-            (None, ColorChoice::Auto) => inner.fill_palettes_on_auto(),
-            (None, ColorChoice::Always) => inner.fill_palettes_on_always()?,
-        };
-        inner.enabled = Some(enabled);
-        if enabled {
-            inner.colours = Some(Rc::new(conf.colours()));
+        let p1 = inner.stdout_colours.is_some();
+        let p2 = inner.stderr_colours.is_some();
+        if !(p1 && p2) {
+            let (p3, p4) = match choice {
+                ColorChoice::Never => (false, false),
+                ColorChoice::Auto => try_enable_on_auto(),
+                ColorChoice::Always => try_enable_on_always(),
+            };
+            if p1 || p3 {
+                inner.stdout_colours = Some(Rc::new(conf.colours()));
+            }
+            if p2 || p4 {
+                inner.stderr_colours = Some(Rc::new(conf.colours()));
+            }
         }
         Ok(())
     }
@@ -276,7 +278,8 @@ impl<'a> Console<'a> {
                 stdin: BufReader::new(stdin),
                 stdout: BufWriter::new(stdout),
                 stderr: BufWriter::new(stderr),
-                colours: None,
+                stdout_colours: None,
+                stderr_colours: None,
                 cjk: cjk_default(),
                 enabled: None,
             },
@@ -323,7 +326,8 @@ impl Default for NullConsole {
                 stdin: io::empty(),
                 stdout: io::sink(),
                 stderr: io::sink(),
-                colours: None,
+                stdout_colours: None,
+                stderr_colours: None,
                 cjk: bool::default(),
                 enabled: Some(false),
             },
@@ -358,7 +362,8 @@ pub struct ConsoleInner<I: BufRead, O: Write, E: Write> {
     stdin: I,
     stdout: O,
     stderr: E,
-    colours: Option<Rc<[Colour; 10]>>,
+    stdout_colours: Option<Rc<[Colour; 10]>>,
+    stderr_colours: Option<Rc<[Colour; 10]>>,
     cjk: bool,
     enabled: Option<bool>,
 }
@@ -369,42 +374,11 @@ impl<I: BufRead, O: Write, E: Write> ConsoleInner<I, O, E> {
             stdin,
             stdout,
             stderr,
-            colours: None,
+            stdout_colours: None,
+            stderr_colours: None,
             cjk: cjk_default(),
             enabled: None,
         }
-    }
-
-    #[cfg(not(windows))]
-    fn fill_palettes_on_auto(&mut self) -> bool {
-        TerminfoTerminal::new(io::sink()).map_or(false, |t| t.supports_color())
-    }
-
-    #[cfg(windows)]
-    fn fill_palettes_on_auto(&mut self) -> bool {
-        env::var_os("MSYSTEM").is_some() || ansi_term::enable_ansi_support().is_ok()
-    }
-
-    #[cfg(not(windows))]
-    fn fill_palettes_on_always(&mut self) -> io::Result<bool> {
-        Ok(true)
-    }
-
-    #[cfg(windows)]
-    fn fill_palettes_on_always(&mut self) -> io::Result<bool> {
-        if let Err(code) = ansi_term::enable_ansi_support() {
-            if env::var_os("MSYSTEM").is_none() {
-                writeln!(
-                    self.stderr,
-                    "Failed to enable VIRTUAL_TERMINAL_PROCESSING (error code: {})\n\
-                     Run with \"-C auto\" or \"-C never\".\n",
-                    code
-                )?;
-                self.stderr.flush()?;
-                return Ok(false);
-            }
-        }
-        Ok(true)
     }
 
     fn prompt_stderr(&mut self, prompt: &str) -> io::Result<()> {
@@ -581,6 +555,41 @@ impl Palette {
             Palette::TesterStderr => colours[9],
         }
     }
+}
+
+#[cfg(not(windows))]
+fn try_enable_on_auto() -> (bool, bool) {
+    filter_tty(detect_with_env())
+}
+
+#[cfg(windows)]
+fn try_enable_on_auto() -> (bool, bool) {
+    filter_tty(
+        ansi_term::enable_ansi_support().is_ok()
+            || env::var("MSYSTEM").is_ok() && detect_with_env(),
+    )
+}
+
+fn detect_with_env() -> bool {
+    TerminfoTerminal::new(io::sink()).map_or(false, |t| t.supports_color())
+}
+
+fn filter_tty(p: bool) -> (bool, bool) {
+    (
+        p && atty::is(atty::Stream::Stdout),
+        p && atty::is(atty::Stream::Stderr),
+    )
+}
+
+#[cfg(not(windows))]
+fn try_enable_on_always() -> (bool, bool) {
+    (true, true)
+}
+
+#[cfg(windows)]
+fn try_enable_on_always() -> (bool, bool) {
+    let _ = ansi_term::enable_ansi_support();
+    (true, true)
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]

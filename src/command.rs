@@ -6,8 +6,7 @@ use itertools::Itertools as _Itertools;
 
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
-use std::fmt::Write as _FmtWrite;
-use std::io::{self, Write as _IoWrite};
+use std::io::{self, Write as _Write};
 use std::process::{Child, Command, Stdio};
 use std::time::Instant;
 
