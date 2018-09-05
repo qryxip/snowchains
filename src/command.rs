@@ -127,18 +127,6 @@ impl JudgingCommand {
         JudgingCommand(Inner::new(args, working_dir))
     }
 
-    #[cfg(test)]
-    pub fn from_args<S: AsRef<OsStr>>(arg0: S, rest_args: &[S], working_dir: AbsPathBuf) -> Self {
-        JudgingCommand(Inner {
-            arg0: arg0.as_ref().to_owned(),
-            rest_args: rest_args
-                .iter()
-                .map(|arg| arg.as_ref().to_owned())
-                .collect(),
-            working_dir,
-        })
-    }
-
     /// Prints the arguments and working directory.
     ///
     /// Format:

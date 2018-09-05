@@ -1,5 +1,6 @@
 mod interactive;
 mod simple;
+mod text;
 
 use command::{CompilationCommand, JudgingCommand};
 use config::Config;
@@ -145,7 +146,7 @@ pub(self) trait Outcome: fmt::Display {
         (0..format!("{}", n).len() - format!("{}", i + 1).len())
             .try_for_each(|_| write!(out, " "))?;
         write!(out.bold(None), "{}/{} ({})", i + 1, n, name)?;
-        (0..name_width - out.width(name) + 1).try_for_each(|_| write!(out, " "))?;
+        (0..=name_width - out.width(name)).try_for_each(|_| write!(out, " "))?;
         writeln!(out.bold(self.palette()), "{}", self)
     }
 }

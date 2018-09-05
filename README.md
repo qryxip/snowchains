@@ -267,7 +267,7 @@ languages:
 ---
 type: simple    # "simple" or "interactive"
 timelimit: 2000 # Optional
-match: exact    # "exact", "lines", or "float". Default: "lines" if the platform is Windows, otherwise "exact"
+match: exact    # "exact" or "float"
 
 # Possible types of "in" and "out":
 # * Integer

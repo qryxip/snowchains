@@ -19,6 +19,7 @@ extern crate bincode;
 extern crate chrono;
 extern crate combine;
 extern crate cookie;
+extern crate diff;
 extern crate dirs;
 extern crate fs2;
 extern crate futures;

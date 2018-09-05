@@ -724,41 +724,16 @@ impl TestCase for SimpleCase {
 }
 
 impl SimpleCase {
-    #[cfg(test)]
-    pub fn default_matching(input: &str, expected: &str, timelimit: Duration) -> Self {
-        let expected = Arc::new(ExpectedStdout::new(Some(expected), Match::default()));
-        Self {
-            name: Arc::default(),
-            input: Arc::new(input.to_owned()),
-            expected,
-            timelimit: Some(timelimit),
-        }
+    pub fn input(&self) -> Arc<String> {
+        self.input.clone()
     }
 
-    #[cfg(test)]
-    pub fn float_matching(
-        input: &str,
-        expected: &str,
-        timelimit: Duration,
-        absolute_error: f64,
-        relative_error: f64,
-    ) -> Self {
-        let output_match = Match::Float {
-            absolute_error,
-            relative_error,
-        };
-        let expected = Arc::new(ExpectedStdout::new(Some(expected), output_match));
-        Self {
-            name: Arc::default(),
-            input: Arc::new(input.to_owned()),
-            expected,
-            timelimit: Some(timelimit),
-        }
+    pub fn expected(&self) -> Arc<ExpectedStdout> {
+        self.expected.clone()
     }
 
-    pub fn values(&self) -> (Arc<String>, Arc<ExpectedStdout>, Option<Duration>) {
-        let timelimit = self.timelimit;
-        (self.input.clone(), self.expected.clone(), timelimit)
+    pub fn timelimit(&self) -> Option<Duration> {
+        self.timelimit
     }
 }
 
@@ -767,7 +742,6 @@ impl SimpleCase {
 pub(crate) enum ExpectedStdout {
     AcceptAny,
     Exact(String),
-    Lines(String),
     Float {
         lines: String,
         absolute_error: f64,
@@ -780,7 +754,6 @@ impl ExpectedStdout {
         match (text, output_match) {
             (None, _) => ExpectedStdout::AcceptAny,
             (Some(s), Match::Exact) => ExpectedStdout::Exact(s.to_owned()),
-            (Some(s), Match::Lines) => ExpectedStdout::Lines(s.to_owned()),
             (
                 Some(s),
                 Match::Float {
@@ -801,11 +774,10 @@ impl ExpectedStdout {
 #[serde(rename_all = "lowercase")]
 enum Match {
     Exact,
-    Lines,
     Float {
-        #[serde(default = "nan", skip_serializing_if = "is_nan")]
+        #[serde(default = "nan")]
         relative_error: f64,
-        #[serde(default = "nan", skip_serializing_if = "is_nan")]
+        #[serde(default = "nan")]
         absolute_error: f64,
     },
 }
@@ -814,18 +786,7 @@ fn nan() -> f64 {
     f64::NAN
 }
 
-#[cfg_attr(feature = "cargo-clippy", allow(trivially_copy_pass_by_ref))]
-fn is_nan(v: &f64) -> bool {
-    v.is_nan()
-}
-
 impl Default for Match {
-    #[cfg(windows)]
-    fn default() -> Self {
-        Match::Lines
-    }
-
-    #[cfg(not(windows))]
     fn default() -> Self {
         Match::Exact
     }

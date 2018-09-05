@@ -1,42 +1,54 @@
 use command::JudgingCommand;
 use console::{ConsoleWrite, Palette};
 use errors::JudgeResult;
+use judging::text::{Line, PrintAligned, Text, Width, Word};
 use judging::{MillisRoundedUp, Outcome};
 use testsuite::{ExpectedStdout, SimpleCase};
 use util;
 
-use std::io::{self, Write};
+use diff;
+
+use std::io::{self, Write as _Write};
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{self, fmt, thread};
+use std::{self, cmp, fmt, thread};
 
-/// Tests for `case` and `solver` and returns one `SimpleOutput`.
 pub(super) fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutcome> {
     let (tx, rx) = std::sync::mpsc::channel();
     {
-        let (case, solver) = (case.clone(), solver.clone());
+        let (solver, input) = (solver.clone(), case.input());
         thread::spawn(move || {
-            let _ = tx.send(run(&case, &solver));
+            let _ = tx.send(run_command(&solver, &input));
         });
     }
-    if let (input, expected, Some(timelimit)) = case.values() {
-        rx.recv_timeout(timelimit + Duration::from_millis(50))
-            .unwrap_or_else(|_| {
-                Ok(SimpleOutcome::TimelimitExceeded {
-                    timelimit,
-                    input,
-                    expected,
-                })
-            })
+    let tle = |timelimit: Duration| SimpleOutcome::TimelimitExceeded {
+        timelimit,
+        input: Text::exact(&case.input()),
+        expected: match case.expected().as_ref() {
+            ExpectedStdout::AcceptAny { .. } => None,
+            ExpectedStdout::Exact(expected) => Some(Text::exact(expected)),
+            ExpectedStdout::Float {
+                lines: expected, ..
+            } => Some(Text::float(expected, None)),
+        },
+    };
+    let outcome;
+    if let Some(timelimit) = case.timelimit() {
+        match rx.recv_timeout(timelimit + Duration::from_millis(50)) {
+            Ok(o) => outcome = o?,
+            Err(_) => return Ok(tle(timelimit)),
+        }
+        if outcome.elapsed > timelimit {
+            return Ok(tle(timelimit));
+        }
     } else {
-        rx.recv().unwrap()
+        outcome = rx.recv().unwrap()?;
     }
+    Ok(outcome.compare(&case.expected()))
 }
 
-fn run(case: &SimpleCase, solver: &JudgingCommand) -> JudgeResult<SimpleOutcome> {
-    let (input, expected, timelimit) = case.values();
-
+fn run_command(solver: &JudgingCommand, input: &Arc<String>) -> JudgeResult<CommandOutcome> {
     let mut solver = solver.spawn_piped()?;
     let start = Instant::now();
     solver.stdin.as_mut().unwrap().write_all(input.as_bytes())?;
@@ -45,76 +57,67 @@ fn run(case: &SimpleCase, solver: &JudgingCommand) -> JudgeResult<SimpleOutcome>
     let elapsed = start.elapsed();
     let stdout = Arc::new(util::string_from_read(solver.stdout.unwrap(), 1024)?);
     let stderr = Arc::new(util::string_from_read(solver.stderr.unwrap(), 1024)?);
-
-    if timelimit.is_some() && elapsed > timelimit.unwrap() {
-        Ok(SimpleOutcome::TimelimitExceeded {
-            timelimit: timelimit.unwrap(),
-            input,
-            expected,
-        })
-    } else if status.success() && is_match(&expected, &stdout) {
-        Ok(SimpleOutcome::Accepted {
-            elapsed,
-            input,
-            stdout,
-            stderr,
-        })
-    } else if status.success() {
-        Ok(SimpleOutcome::WrongAnswer {
-            elapsed,
-            input,
-            expected,
-            stdout,
-            stderr,
-        })
-    } else {
-        Ok(SimpleOutcome::RuntimeError {
-            elapsed,
-            input,
-            expected,
-            stdout,
-            stderr,
-            status,
-        })
-    }
+    Ok(CommandOutcome {
+        status,
+        elapsed,
+        input: input.clone(),
+        stdout,
+        stderr,
+    })
 }
 
-fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
-    fn check<F: FnMut(f64, f64) -> bool>(expected: &str, actual: &str, mut on_float: F) -> bool {
-        expected.split_whitespace().count() == actual.split_whitespace().count() && expected
-            .split_whitespace()
-            .zip(actual.split_whitespace())
-            .all(|(e, a)| {
-                if let (Ok(e), Ok(a)) = (e.parse::<f64>(), a.parse::<f64>()) {
-                    on_float(e, a)
-                } else {
-                    e == a
-                }
-            })
-    }
+struct CommandOutcome {
+    status: ExitStatus,
+    elapsed: Duration,
+    input: Arc<String>,
+    stdout: Arc<String>,
+    stderr: Arc<String>,
+}
 
-    match expected {
-        ExpectedStdout::AcceptAny => true,
-        ExpectedStdout::Exact(s) => s == stdout,
-        ExpectedStdout::Lines(ls) => {
-            let stdout = stdout.lines().collect::<Vec<_>>();
-            ls.lines().count() == stdout.len()
-                && ls.lines().zip(stdout.iter()).all(|(l, &r)| l == r)
-        }
-        ExpectedStdout::Float {
-            lines,
-            absolute_error,
-            relative_error,
-        } => {
-            let stdout = stdout.lines().collect::<Vec<_>>();
-            lines.lines().count() == stdout.len() && lines.lines().zip(stdout.iter()).all(
-                |(e, a)| {
-                    check(e, a, |e, a| {
-                        let (d, r) = (*absolute_error, *relative_error);
-                        (a - e).abs() <= d || ((a - e) / e).abs() <= r // Doesn't care NaN
-                    })
-                },
-            )
+impl CommandOutcome {
+    fn compare(&self, expected: &ExpectedStdout) -> SimpleOutcome {
+        let (status, elapsed) = (self.status, self.elapsed);
+        let input = Text::exact(&self.input);
+        let stderr = Text::exact(&self.stderr);
+        let (stdout, expected) = match expected {
+            ExpectedStdout::AcceptAny => (Text::exact(&self.stdout), None),
+            ExpectedStdout::Exact(expected) => {
+                (Text::exact(&self.stdout), Some(Text::exact(expected)))
+            }
+            ExpectedStdout::Float {
+                lines,
+                absolute_error,
+                relative_error,
+            } => {
+                let errors = Some((*absolute_error, *relative_error));
+                let expected = Text::float(lines, errors);
+                let stdout = Text::float(&self.stdout, None);
+                (stdout, Some(expected))
+            }
+        };
+        if !status.success() {
+            SimpleOutcome::RuntimeError {
+                elapsed,
+                input,
+                expected,
+                stdout,
+                stderr,
+                status,
+            }
+        } else if expected.is_some() && *expected.as_ref().unwrap() != stdout {
+            SimpleOutcome::WrongAnswer {
+                elapsed,
+                input,
+                diff: TextDiff::new(expected.as_ref().unwrap(), &stdout),
+                stderr,
+            }
+        } else {
+            SimpleOutcome::Accepted {
+                elapsed,
+                input,
+                stdout,
+                stderr,
+            }
         }
     }
 }
@@ -122,31 +125,29 @@ fn is_match(expected: &ExpectedStdout, stdout: &str) -> bool {
 /// Test result.
 #[cfg_attr(test, derive(Debug))]
 pub(super) enum SimpleOutcome {
-    // Each string may be empty.
     Accepted {
         elapsed: Duration,
-        input: Arc<String>,
-        stdout: Arc<String>,
-        stderr: Arc<String>,
+        input: Text,
+        stdout: Text,
+        stderr: Text,
     },
     TimelimitExceeded {
         timelimit: Duration,
-        input: Arc<String>,
-        expected: Arc<ExpectedStdout>,
+        expected: Option<Text>,
+        input: Text,
     },
     WrongAnswer {
         elapsed: Duration,
-        input: Arc<String>,
-        expected: Arc<ExpectedStdout>,
-        stdout: Arc<String>,
-        stderr: Arc<String>,
+        input: Text,
+        diff: TextDiff,
+        stderr: Text,
     },
     RuntimeError {
         elapsed: Duration,
-        input: Arc<String>,
-        expected: Arc<ExpectedStdout>,
-        stdout: Arc<String>,
-        stderr: Arc<String>,
+        input: Text,
+        expected: Option<Text>,
+        stdout: Text,
+        stderr: Text,
         status: ExitStatus,
     },
 }
@@ -193,435 +194,271 @@ impl Outcome for SimpleOutcome {
         }
     }
 
-    fn print_details(&self, mut printer: impl ConsoleWrite) -> io::Result<()> {
-        const THRESHOLD_TO_OMIT: usize = 1024;
-
-        fn print_size(mut printer: impl ConsoleWrite, num_bytes: usize) -> io::Result<()> {
-            let mut printer = printer.bold(Palette::Warning);
-            if num_bytes > 10 * 1024 * 1024 {
-                writeln!(printer, "OMITTED ({}MB)", num_bytes / (1024 * 1024))
-            } else if num_bytes > 10 * 1024 {
-                writeln!(printer, "OMITTED ({}KB)", num_bytes / 1024)
+    fn print_details(&self, mut out: impl ConsoleWrite) -> io::Result<()> {
+        fn print_section(mut out: impl ConsoleWrite, title: &str, text: &Text) -> io::Result<()> {
+            writeln!(out.bold(Palette::Title), "{}", title)?;
+            if text.is_empty() {
+                writeln!(out.bold(Palette::Warning), "EMPTY")
             } else {
-                writeln!(printer, "OMITTED ({}B)", num_bytes)
+                text.print_all(out)
             }
         }
 
-        fn print_section(
-            mut printer: impl ConsoleWrite,
-            head: &'static str,
-            content: &str,
+        fn print_section_unless_empty<'a>(
+            mut out: impl ConsoleWrite,
+            title: &str,
+            text: impl Into<Option<&'a Text>>,
         ) -> io::Result<()> {
-            writeln!(printer.bold(Palette::Title), "{}:", head)?;
-            let num_bytes = content.as_bytes().len();
-            if num_bytes == 0 {
-                writeln!(printer.bold(Palette::Warning), "EMPTY")?;
-            } else if num_bytes > THRESHOLD_TO_OMIT {
-                print_size(printer, num_bytes)?;
-            } else {
-                write!(printer, "{}", content)?;
-                if !content.ends_with('\n') {
-                    writeln!(printer.bold(Palette::Warning), "<noeol>")?;
+            if let Some(text) = text.into() {
+                if !text.is_empty() {
+                    writeln!(out.bold(Palette::Title), "{}", title)?;
+                    text.print_all(out)?;
                 }
             }
             Ok(())
         }
 
-        fn print_section_unless_empty(
-            mut printer: impl ConsoleWrite,
-            head: &'static str,
-            content: &str,
-        ) -> io::Result<()> {
-            writeln!(printer.bold(Palette::Title), "{}:", head)?;
-            let num_bytes = content.as_bytes().len();
-            if num_bytes > THRESHOLD_TO_OMIT {
-                print_size(printer, num_bytes)?;
-            } else if num_bytes > 0 {
-                write!(printer, "{}", content)?;
-                if !content.ends_with('\n') {
-                    writeln!(printer.bold(Palette::Warning), "<noeol>")?;
-                }
-            }
-            Ok(())
-        }
-
-        fn print_expected_sectioon_unless_empty(
-            mut printer: impl ConsoleWrite,
-            content: &ExpectedStdout,
-        ) -> io::Result<()> {
-            match content {
-                ExpectedStdout::AcceptAny => {}
-                ExpectedStdout::Exact(content) => {
-                    print_section(printer, "expected", content)?;
-                }
-                ExpectedStdout::Lines(lines) => {
-                    writeln!(printer.bold(Palette::Title), "expected:")?;
-                    for l in lines.lines() {
-                        writeln!(printer, "{}", l)?;
-                    }
-                }
-                ExpectedStdout::Float {
-                    lines,
-                    absolute_error,
-                    relative_error,
-                } => {
-                    writeln!(
-                        printer.bold(Palette::Title),
-                        "expected (absolute: {}, relative: {}):",
-                        absolute_error,
-                        relative_error
-                    )?;
-                    for l in lines.lines() {
-                        if l.split_whitespace().any(|t| t.parse::<f64>().is_ok()) {
-                            for (i, t) in l.split_whitespace().enumerate() {
-                                match t.parse::<f64>() {
-                                    Ok(v) if i == 0 => {
-                                        writeln!(printer.plain(Palette::CommandInfo), "{}", v)
-                                    }
-                                    Ok(v) => writeln!(printer.plain(Palette::CommandInfo), "{}", v),
-                                    Err(_) if i == 0 => writeln!(printer, "{}", t),
-                                    Err(_) => writeln!(printer, " {}", t),
-                                }?;
-                            }
-                        } else {
-                            writeln!(printer, "{}", l)?;
-                        }
-                    }
-                }
-            }
-            Ok(())
+        fn print_diff(mut out: impl ConsoleWrite, title: &str, diff: &TextDiff) -> io::Result<()> {
+            writeln!(out.bold(Palette::Title), "{}", title)?;
+            diff.print(out)
         }
 
         match self {
             SimpleOutcome::Accepted {
                 input,
-                stdout: actual_stdout,
-                stderr: actual_stderr,
+                stdout,
+                stderr,
                 ..
             } => {
-                print_section(&mut printer, "input", input)?;
-                print_section(&mut printer, "stdout", actual_stdout)?;
-                print_section_unless_empty(&mut printer, "stderr", actual_stderr)
+                print_section(&mut out, "input:", input)?;
+                print_section(&mut out, "stdout:", stdout)?;
+                print_section_unless_empty(&mut out, "stderr:", stderr)
             }
             SimpleOutcome::TimelimitExceeded {
                 input, expected, ..
             } => {
-                print_section(&mut printer, "input", input)?;
-                print_expected_sectioon_unless_empty(&mut printer, expected)
+                print_section(&mut out, "input:", input)?;
+                print_section_unless_empty(&mut out, "expected:", expected.as_ref())
             }
             SimpleOutcome::WrongAnswer {
                 input,
-                expected,
-                stdout: actual_stdout,
-                stderr: actual_stderr,
+                diff,
+                stderr,
                 ..
             } => {
-                print_section(&mut printer, "input", input)?;
-                print_expected_sectioon_unless_empty(&mut printer, expected)?;
-                print_section(&mut printer, "stdout", actual_stdout)?;
-                print_section_unless_empty(&mut printer, "stderr", actual_stderr)
+                print_section(&mut out, "input:", input)?;
+                print_diff(&mut out, "diff:", diff)?;
+                print_section_unless_empty(&mut out, "stderr:", stderr)
             }
             SimpleOutcome::RuntimeError {
                 input,
                 expected,
-                stdout: actual_stdout,
-                stderr: actual_stderr,
+                stdout,
+                stderr,
                 ..
             } => {
-                print_section(&mut printer, "input", input)?;
-                print_expected_sectioon_unless_empty(&mut printer, expected)?;
-                print_section_unless_empty(&mut printer, "stdout", actual_stdout)?;
-                print_section(&mut printer, "printer", actual_stderr)
+                print_section(&mut out, "input:", input)?;
+                print_section_unless_empty(&mut out, "expected:", expected.as_ref())?;
+                print_section_unless_empty(&mut out, "stdout:", stdout)?;
+                print_section(&mut out, "stderr:", stderr)
             }
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use command::JudgingCommand;
-    use errors::{JudgeError, JudgeResult};
-    use judging::simple::SimpleOutcome;
-    use path::AbsPathBuf;
-    use testsuite::SimpleCase;
+#[cfg_attr(test, derive(Debug))]
+pub(super) enum TextDiff {
+    SameNumLines {
+        lines: Vec<(LineDiffDetialed, LineDiffDetialed)>,
+    },
+    Lines {
+        lines: Vec<(LineDiff, LineDiff)>,
+    },
+}
 
-    use env_logger;
-    use tempdir::TempDir;
-
-    use std::process::{Command, Stdio};
-    use std::sync::{mpsc, Arc};
-    use std::time::Duration;
-    use std::{env, io, thread};
-
-    #[test]
-    #[ignore]
-    fn it_judges_for_atcoder_practice_a() {
-        static IN1: &str = "1\n2 3\ntest\n";
-        static OUT1: &str = "6 test\n";
-        static IN2: &str = "72\n128 256\nmyonmyon\n";
-        static OUT2: &str = "456 myonmyon\n";
-        let _ = env_logger::try_init();
-        let correct_command = bash("read a; read b c; read s; echo `expr $a + $b + $c` $s");
-        let wrong_command = bash("echo yee");
-        let error_command = bash("echo error message 1>&2 && exit 1");
-        for (case_in, case_out) in vec![(IN1, OUT1), (IN2, OUT2)] {
-            match judge_default_matching(case_in, case_out, 500, &correct_command).unwrap() {
-                SimpleOutcome::Accepted {
-                    input,
-                    stdout,
-                    stderr,
-                    ..
-                } => {
-                    assert_eq!(case_in, input.as_str());
-                    assert_eq!(case_out, stdout.as_str());
-                    assert_eq!("", stderr.as_str());
+impl TextDiff {
+    fn new(left: &Text, right: &Text) -> Self {
+        if left.lines().len() == right.lines().len() {
+            let mut lines = vec![];
+            for (left, right) in left.lines().iter().zip(right.lines()) {
+                let (mut l_diffs, mut r_diffs) = (vec![], vec![]);
+                for diff in diff::slice(left.words(), right.words()) {
+                    match diff {
+                        diff::Result::Left(l) => l_diffs.push(Diff::NotCommon(l.clone())),
+                        diff::Result::Right(r) => r_diffs.push(Diff::NotCommon(r.clone())),
+                        diff::Result::Both(l, r) => {
+                            l_diffs.push(Diff::Common(l.clone()));
+                            r_diffs.push(Diff::Common(r.clone()));
+                        }
+                    }
                 }
-                o => panic!("{:?}", o),
+                lines.push((Line::new(l_diffs), Line::new(r_diffs)));
             }
-            match judge_default_matching(case_in, case_out, 500, &wrong_command).unwrap() {
-                SimpleOutcome::WrongAnswer {
-                    input,
-                    stdout,
-                    stderr,
-                    ..
-                } => {
-                    assert_eq!(case_in, input.as_str());
-                    assert_eq!("yee\n", stdout.as_str());
-                    assert_eq!("", stderr.as_str());
-                }
-                o => panic!("{:?}", o),
-            }
-            match judge_default_matching(case_in, case_out, 500, &error_command).unwrap() {
-                SimpleOutcome::RuntimeError {
-                    input,
-                    stdout,
-                    stderr,
-                    status,
-                    ..
-                } => {
-                    assert_eq!(case_in, input.as_str());
-                    assert_eq!("", stdout.as_str());
-                    assert_eq!("error message\n", stderr.as_str());
-                    assert_eq!(Some(1), status.code());
-                }
-                o => panic!("{:?}", o),
-            }
-        }
-    }
-
-    #[cfg(not(windows))]
-    #[test]
-    #[ignore]
-    fn it_judges_for_atcoder_tricky_b() {
-        // Fastest code!
-        // https://beta.atcoder.jp/contests/tricky/submissions?f.Language=&f.Status=AC&f.Task=tricky_2&orderBy=time_consumption
-        // https://beta.atcoder.jp/contests/language-test-201603/submissions?f.Language=&f.Status=AC&f.Task=tricky_2&orderBy=time_consumption
-        static CODE: &str = r#"
-#![cfg_attr(feature = "cargo-clippy", allow(redundant_field_names, many_single_char_names))]
-
-use std::fmt;
-use std::io::{self, BufWriter, Read, Write as _Write};
-use std::str::{self, FromStr};
-
-fn main() {
-    let abcs = {
-        let mut sc = InputScanOnce::new(io::stdin(), 1024 * 1024);
-        let n = sc.next();
-        sc.trios::<i64, i64, i64>(n)
-    };
-    let mut out = BufWriter::new(io::stdout());
-    for (a, b, c) in abcs {
-        if a == 0 && b == 0 && c == 0 {
-            writeln!(out, "3").unwrap();
-        } else if a == 0 && b == 0 {
-            writeln!(out, "0").unwrap();
-        } else if a == 0 {
-            writeln!(out, "1 {}", (-c as f64) / (b as f64)).unwrap();
+            TextDiff::SameNumLines { lines }
         } else {
-            let (a, b, c) = (a as f64, b as f64, c as f64);
-            let d = b.powi(2) - 4.0 * c * a;
-            if d < 0.0 {
-                writeln!(out, "0").unwrap();
-            } else if d == 0.0 {
-                let x = -b / (2.0 * a);
-                writeln!(out, "1 {}", x).unwrap();
-            } else {
-                let d_sqrt = d.sqrt();
-                let x1 = if b >= 0.0 {
-                    (-b - d_sqrt) / (2.0 * a)
-                } else {
-                    (-b + d_sqrt) / (2.0 * a)
-                };
-                let x2 = c / (a * x1);
-                if x1 < x2 {
-                    writeln!(out, "2 {} {}", x1, x2).unwrap();
-                } else {
-                    writeln!(out, "2 {} {}", x2, x1).unwrap();
+            #[derive(Default)]
+            struct St {
+                lines: Vec<(LineDiff, LineDiff)>,
+                l_diffs: Vec<Line<Word>>,
+                r_diffs: Vec<Line<Word>>,
+            }
+
+            impl St {
+                fn clean_up(&mut self) {
+                    let (l_diffs_len, r_diffs_len) = (self.l_diffs.len(), self.r_diffs.len());
+                    for i in 0..cmp::min(l_diffs_len, r_diffs_len) {
+                        let left = Diff::NotCommon(self.l_diffs[i].clone());
+                        let right = Diff::NotCommon(self.r_diffs[i].clone());
+                        self.lines.push((left, right));
+                    }
+                    let empty = Diff::NotCommon(Line::default());
+                    if l_diffs_len < r_diffs_len {
+                        for i in l_diffs_len..r_diffs_len {
+                            let right = Diff::NotCommon(self.r_diffs[i].clone());
+                            self.lines.push((empty.clone(), right));
+                        }
+                    } else {
+                        for i in r_diffs_len..l_diffs_len {
+                            let left = Diff::NotCommon(self.l_diffs[i].clone());
+                            self.lines.push((left, empty.clone()));
+                        }
+                    }
+                    self.l_diffs.clear();
+                    self.r_diffs.clear();
                 }
             }
-        }
-    }
-    out.flush().unwrap();
-}
 
-struct InputScanOnce {
-    buf: Vec<u8>,
-    pos: usize,
-}
-
-impl InputScanOnce {
-    fn new<R: Read>(mut reader: R, estimated: usize) -> Self {
-        let mut buf = Vec::with_capacity(estimated);
-        io::copy(&mut reader, &mut buf).unwrap();
-        InputScanOnce { buf: buf, pos: 0 }
-    }
-
-    #[inline]
-    fn next<T: FromStr>(&mut self) -> T
-    where
-        T::Err: fmt::Debug,
-    {
-        let mut start = None;
-        loop {
-            match (self.buf[self.pos], start.is_some()) {
-                (b' ', true) | (b'\n', true) => break,
-                (_, true) | (b' ', false) | (b'\n', false) => self.pos += 1,
-                (_, false) => start = Some(self.pos),
-            }
-        }
-        let target = &self.buf[start.unwrap()..self.pos];
-        unsafe { str::from_utf8_unchecked(target) }.parse().unwrap()
-    }
-
-    fn trios<T1: FromStr, T2: FromStr, T3: FromStr>(&mut self, n: usize) -> Vec<(T1, T2, T3)>
-    where
-        T1::Err: fmt::Debug,
-        T2::Err: fmt::Debug,
-        T3::Err: fmt::Debug,
-    {
-        (0..n)
-            .map(|_| (self.next(), self.next(), self.next()))
-            .collect()
-    }
-}
-"#;
-        static IN: &str = "3\n1 -3 2\n-10 30 -20\n100 -300 200\n";
-        static OUT: &str = "2 1.000 2.000\n2 1.000 2.000\n2 1.000 2.000\n";
-        let _ = env_logger::try_init();
-        let tempdir = TempDir::new("it_judges_for_atcoder_tricky_b").unwrap();
-        let wd = AbsPathBuf::new_or_panic(tempdir.path());
-        let src = wd.join("a.rs");
-        let bin = wd.join("a");
-        ::fs::write(&src, CODE.as_bytes()).unwrap();
-        let status = Command::new("rustc")
-            .arg(src.as_ref())
-            .arg("-o")
-            .arg(bin.as_ref())
-            .current_dir(&wd)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .unwrap();
-        assert!(status.success());
-        let command = Arc::new(JudgingCommand::from_args(bin.as_ref(), &[], wd));
-        match judge_float_matching(IN, OUT, 500, 1e-9f64, &command).unwrap() {
-            SimpleOutcome::Accepted { .. } => tempdir.close().unwrap(),
-            o => panic!("{:?}", o),
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn it_timeouts() {
-        let _ = env_logger::try_init();
-        let command = bash("sleep 1");
-        match judge_default_matching("input\n", "", 200, &command).unwrap() {
-            SimpleOutcome::TimelimitExceeded {
-                timelimit, input, ..
-            } => {
-                assert_eq!(Duration::from_millis(200), timelimit);
-                assert_eq!("input\n", input.as_str());
-            }
-            o => panic!("{:?}", o),
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn it_denies_non_utf8_answers() {
-        let _ = env_logger::try_init();
-        let command = bash(r"echo $'\xc3\x28'");
-        match judge_default_matching("", "", 500, &command).unwrap_err() {
-            JudgeError::Io(ref e) if e.kind() == io::ErrorKind::InvalidData => {}
-            e => panic!("{:?}", e),
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn it_denies_nonexisting_commands() {
-        let _ = env_logger::try_init();
-        let cwd = env::current_dir().map(AbsPathBuf::new_or_panic).unwrap();
-        let command = Arc::new(JudgingCommand::from_args("nonexisting", &[], cwd));
-        match judge_default_matching("", "", 500, &command).unwrap_err() {
-            JudgeError::Command(..) => {}
-            e => panic!("{:?}", e),
-        }
-    }
-
-    fn judge_default_matching(
-        input: &str,
-        output: &str,
-        timelimit: u64,
-        command: &Arc<JudgingCommand>,
-    ) -> JudgeResult<SimpleOutcome> {
-        let timelimit = Duration::from_millis(timelimit);
-        let case = SimpleCase::default_matching(input, output, timelimit);
-        judge(&case, timelimit * 2, command)
-    }
-
-    fn judge_float_matching(
-        input: &str,
-        output: &str,
-        timelimit: u64,
-        error: f64,
-        command: &Arc<JudgingCommand>,
-    ) -> JudgeResult<SimpleOutcome> {
-        let timelimit = Duration::from_millis(timelimit);
-        let case = SimpleCase::float_matching(input, output, timelimit, error, error);
-        judge(&case, timelimit * 2, command)
-    }
-
-    fn judge(
-        case: &SimpleCase,
-        timeout: Duration,
-        command: &Arc<JudgingCommand>,
-    ) -> JudgeResult<SimpleOutcome> {
-        let (case, command) = (case.clone(), command.clone());
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || loop {
-            match super::judge(&case, &command) {
-                Err(JudgeError::Io(ref e)) if e.kind() == io::ErrorKind::BrokenPipe => {}
-                Err(err) => {
-                    tx.send(Err(err)).unwrap();
-                    break;
-                }
-                Ok(output) => {
-                    tx.send(Ok(output)).unwrap();
-                    break;
+            let mut st = St::default();
+            for diff in diff::slice(left.lines(), right.lines()) {
+                match diff {
+                    diff::Result::Left(l) => st.l_diffs.push(l.clone()),
+                    diff::Result::Right(r) => st.r_diffs.push(r.clone()),
+                    diff::Result::Both(l, r) => {
+                        st.clean_up();
+                        st.lines
+                            .push((Diff::Common(l.clone()), Diff::Common(r.clone())));
+                    }
                 }
             }
-        });
-        rx.recv_timeout(timeout).unwrap()
+            st.clean_up();
+            TextDiff::Lines { lines: st.lines }
+        }
     }
 
-    fn bash(code: &str) -> Arc<JudgingCommand> {
-        #[cfg(windows)]
-        static BASH: &str = r"C:\msys64\usr\bin\bash.exe";
-        #[cfg(not(windows))]
-        static BASH: &str = "/bin/bash";
-        let cwd = env::current_dir().map(AbsPathBuf::new_or_panic).unwrap();
-        Arc::new(JudgingCommand::from_args(BASH, &["-c", code], cwd))
+    fn print(&self, out: impl ConsoleWrite) -> io::Result<()> {
+        fn print(
+            lines: &[(impl PrintAligned, impl PrintAligned)],
+            mut out: impl ConsoleWrite,
+        ) -> io::Result<()> {
+            let (l_max_width, r_max_width) = {
+                let (mut l_max_width, mut r_max_width) = (0, 0);
+                for (l, r) in lines {
+                    l_max_width = cmp::max(l_max_width, l.width(out.str_width_fn()));
+                    r_max_width = cmp::max(r_max_width, r.width(out.str_width_fn()));
+                }
+                (l_max_width, r_max_width)
+            };
+            let (wl, wr) = (cmp::max(l_max_width, 8), cmp::max(r_max_width, 6));
+            out.write_all("│".as_bytes())?;
+            out.bold(Palette::Title).write_all(b"expected")?;
+            out.write_spaces(wl - 8)?;
+            out.write_all("│".as_bytes())?;
+            out.bold(Palette::Title).write_all(b"stdout")?;
+            out.write_spaces(wr - 6)?;
+            out.write_all("│\n".as_bytes())?;
+            for (l, r) in lines {
+                out.write_all("│".as_bytes())?;
+                l.print_aligned(&mut out, wl)?;
+                out.write_all("│".as_bytes())?;
+                r.print_aligned(&mut out, wr)?;
+                out.write_all("│\n".as_bytes())?;
+            }
+            Ok(())
+        }
+
+        match self {
+            TextDiff::SameNumLines { lines } => print(lines, out),
+            TextDiff::Lines { lines } => print(lines, out),
+        }
+    }
+}
+
+#[cfg_attr(test, derive(Debug))]
+#[derive(Clone)]
+pub(super) enum Diff<T> {
+    Common(T),
+    NotCommon(T),
+}
+
+impl<T: Width> Width for Diff<T> {
+    fn width(&self, f: fn(&str) -> usize) -> usize {
+        match self {
+            Diff::Common(x) => x.width(f),
+            Diff::NotCommon(x) => x.width(f),
+        }
+    }
+}
+
+type LineDiffDetialed = Line<Diff<Word>>;
+type LineDiff = Diff<Line<Word>>;
+
+impl PrintAligned for LineDiffDetialed {
+    fn print_aligned<W: ConsoleWrite>(&self, mut out: W, min_width: usize) -> io::Result<()> {
+        for word_diff in self.words() {
+            match word_diff {
+                Diff::Common(w) => w.print_as_common(&mut out),
+                Diff::NotCommon(w) => w.print_as_difference(&mut out),
+            }?;
+        }
+        let width = self.width(out.str_width_fn());
+        out.write_spaces(cmp::max(width, min_width) - width)
+    }
+}
+
+impl PrintAligned for LineDiff {
+    fn print_aligned<W: ConsoleWrite>(&self, mut out: W, min_width: usize) -> io::Result<()> {
+        let (l, f): (_, fn(&Word, &mut W) -> io::Result<()>) = match self {
+            Diff::Common(l) => (l, |w, out| w.print_as_common(out)),
+            Diff::NotCommon(l) => (l, |w, out| w.print_as_difference(out)),
+        };
+        l.words().iter().try_for_each(|w| f(w, &mut out))?;
+        let width = l.width(out.str_width_fn());
+        out.write_spaces(cmp::max(width, min_width) - width)
+    }
+}
+
+impl Text {
+    fn float(s: &str, errors: Option<(f64, f64)>) -> Self {
+        if let Some((absolute_error, relative_error)) = errors {
+            let on_plain = |string: String| match string.parse::<f64>() {
+                Ok(value) => Word::FloatLeft {
+                    value,
+                    string: Arc::new(string),
+                    absolute_error,
+                    relative_error,
+                },
+                Err(_) => Word::Plain(Arc::new(string)),
+            };
+            Self::new(s, on_plain)
+        } else {
+            fn on_plain(string: String) -> Word {
+                let string = Arc::new(string);
+                match string.parse::<f64>() {
+                    Ok(value) => Word::FloatRight { value, string },
+                    Err(_) => Word::Plain(string),
+                }
+            }
+            Self::new(s, on_plain)
+        }
+    }
+
+    fn print_all(&self, mut out: impl ConsoleWrite) -> io::Result<()> {
+        for line in self.lines() {
+            for word in line.words() {
+                word.print_as_common(&mut out)?;
+            }
+            writeln!(out)?;
+        }
+        Ok(())
     }
 }

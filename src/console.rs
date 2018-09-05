@@ -2,7 +2,7 @@ use Never;
 
 use ansi_term::{Colour, Style};
 use term::{Terminal as _Terminal, TerminfoTerminal};
-use unicode_width::{UnicodeWidthChar as _UnicodeWidthChar, UnicodeWidthStr as _UnicodeWidthStr};
+use unicode_width::{UnicodeWidthChar as _UnicodeWidthChar, UnicodeWidthStr};
 use {atty, rpassword};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -399,39 +399,16 @@ pub trait ConsoleWrite: Write {
     }
 
     fn plain(&mut self, palette: Palette) -> Printer<&mut Self::Inner> {
-        let this = self.by_mutable();
-        let foreground = this.colours.as_ref().map(|cs| palette.pick_fg_colour(cs));
-        Printer {
-            wrt: &mut this.wrt,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
-            style: Style {
-                foreground,
-                ..this.style
-            },
-            process_redirection: this.process_redirection,
-            columns: this.columns,
-        }
+        self.by_mutable().apply(palette, None, |_| ())
     }
 
     fn bold(&mut self, palette: impl Into<Option<Palette>>) -> Printer<&mut Self::Inner> {
-        let this = self.by_mutable();
-        let (foreground, is_bold) = match (palette.into(), this.colours.as_ref()) {
-            (Some(p), Some(cs)) => (Some(p.pick_fg_colour(&cs)), true),
-            _ => (None, false),
-        };
-        Printer {
-            wrt: &mut this.wrt,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
-            style: Style {
-                foreground,
-                is_bold,
-                ..this.style
-            },
-            process_redirection: this.process_redirection,
-            columns: this.columns,
-        }
+        self.by_mutable().apply(palette, None, |s| s.is_bold = true)
+    }
+
+    fn underline(&mut self, palette: impl Into<Option<Palette>>) -> Printer<&mut Self::Inner> {
+        self.by_mutable()
+            .apply(palette, None, |s| s.is_underline = true)
     }
 
     fn process_redirection(&self) -> process::Stdio {
@@ -443,11 +420,7 @@ pub trait ConsoleWrite: Write {
     }
 
     fn width(&self, s: &str) -> usize {
-        if self.by_immutable().cjk {
-            s.width_cjk()
-        } else {
-            s.width()
-        }
+        self.str_width_fn()(s)
     }
 
     fn char_width_or_zero(&self, c: char) -> usize {
@@ -458,8 +431,23 @@ pub trait ConsoleWrite: Write {
         }
     }
 
+    fn str_width_fn(&self) -> fn(&str) -> usize {
+        if self.by_immutable().cjk {
+            <str as UnicodeWidthStr>::width_cjk
+        } else {
+            <str as UnicodeWidthStr>::width
+        }
+    }
+
     fn write_spaces(&mut self, n: usize) -> io::Result<()> {
         (0..n).try_for_each(|_| self.inner_writer().write_all(b" "))
+    }
+
+    fn fill_bg(&mut self, n: usize, bg: Palette) -> io::Result<()> {
+        let this = self.by_mutable().apply(None, bg, |_| ());
+        write!(this.wrt, "{}", this.style.prefix())?;
+        (0..n).try_for_each(|_| this.wrt.write_all(b" "))?;
+        write!(this.wrt, "{}", this.style.suffix())
     }
 }
 
@@ -494,6 +482,40 @@ impl Printer<io::Sink> {
             style: Style::default(),
             process_redirection: process::Stdio::null,
             columns: || None,
+        }
+    }
+}
+
+impl<W: Write> Printer<W> {
+    fn apply(
+        &mut self,
+        fg: impl Into<Option<Palette>>,
+        bg: impl Into<Option<Palette>>,
+        modify_style: fn(&mut Style),
+    ) -> Printer<&mut W> {
+        let (fg, bg, attr) = match (fg.into(), bg.into(), self.colours.as_ref()) {
+            (fg, bg, Some(cs)) => {
+                let fg = fg.map(|fg| fg.pick_fg_colour(&cs));
+                let bg = bg.map(|bg| bg.pick_fg_colour(&cs));
+                (fg, bg, true)
+            }
+            _ => (None, None, false),
+        };
+        let mut style = Style {
+            foreground: fg.or(self.style.foreground),
+            background: bg.or(self.style.background),
+            ..self.style
+        };
+        if attr {
+            modify_style(&mut style);
+        }
+        Printer {
+            wrt: &mut self.wrt,
+            colours: self.colours.clone(),
+            cjk: self.cjk,
+            style,
+            process_redirection: self.process_redirection,
+            columns: self.columns,
         }
     }
 }
@@ -605,7 +627,7 @@ fn stderr_columns() -> Option<usize> {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 unsafe fn columns_with_libc(fd: libc::c_int) -> Option<usize> {
     let mut winsize = mem::zeroed::<libc::winsize>();
-    if libc::ioctl(fd, libc::TIOCGWINSZ, &mut winsize) != 0 || winsize.ws_col <= 0 {
+    if libc::ioctl(fd, libc::TIOCGWINSZ, &mut winsize) != 0 || winsize.ws_col == 0 {
         None
     } else {
         Some(winsize.ws_col as usize)

@@ -156,6 +156,7 @@ if __name__ == '__main__':
             std::fs::write(&app.working_dir.join("py").join("a.py"), CODE)?;
             app.run(Opt::Submit {
                 open_browser: false,
+                force_compile: false,
                 skip_judging: true,
                 skip_checking_duplication: false,
                 language: Some("python3".to_owned()),
