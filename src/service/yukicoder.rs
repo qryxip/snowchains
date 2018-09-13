@@ -420,7 +420,7 @@ impl Extract for Document {
                 ).unwrap();
             }
             let text = self
-                .find(Attr("id", "content").child(Name("p")).child(Text))
+                .find(Attr("id", "content").child(Name("div")).child(Text))
                 .map(|text| text.text())
                 .nth(1)?;
             let caps = R.captures(&text)?;
