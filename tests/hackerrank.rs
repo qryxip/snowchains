@@ -10,10 +10,8 @@ extern crate tempdir;
 mod common;
 
 use snowchains::app::App;
-use snowchains::console::Console;
+use snowchains::console::NullConsole;
 use snowchains::ServiceName;
-
-use std::io;
 
 #[test]
 #[ignore]
@@ -76,14 +74,10 @@ fn it_downloads_testcases_from_hourrank_20() {
     );
 }
 
-fn login(app: App<Console<io::Empty, io::Sink, io::Sink>>) -> snowchains::Result<()> {
+fn login(app: App<NullConsole>) -> snowchains::Result<()> {
     common::login(app, ServiceName::Hackerrank)
 }
 
-fn download(
-    app: App<Console<io::Empty, io::Sink, io::Sink>>,
-    contest: &str,
-    problems: &[&str],
-) -> snowchains::Result<()> {
+fn download(app: App<NullConsole>, contest: &str, problems: &[&str]) -> snowchains::Result<()> {
     common::download(app, ServiceName::Hackerrank, contest, problems)
 }

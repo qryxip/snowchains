@@ -1,5 +1,5 @@
 newline_style = "Unix"
 wrap_comments = true
-required_version = "0.99.2"
+required_version = "0.99.4"
 unstable_features = true
 error_on_unformatted = true

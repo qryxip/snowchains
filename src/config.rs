@@ -48,7 +48,7 @@ testfiles:
   scrape: yaml
   zip:
     timelimit: 2000
-    match: {default_match}
+    match: exact
     entries:
       # AtCoder
       - in:
@@ -229,7 +229,6 @@ languages:
         } else {
             "[/bin/sh, -c]"
         },
-        default_match = if cfg!(windows) { "lines" } else { "exact" },
         exe = if cfg!(target_os = "windows") {
             ".exe"
         } else {

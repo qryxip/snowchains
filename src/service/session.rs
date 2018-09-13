@@ -421,7 +421,7 @@ impl AutosavedCookieJar {
 
 #[cfg(test)]
 mod tests {
-    use console::{Console, ConsoleReadWrite as _ConsoleReadWrite, Printer};
+    use console::Printer;
     use errors::SessionError;
     use path::AbsPathBuf;
     use service;

@@ -7,7 +7,7 @@ extern crate serde_yaml;
 extern crate tempdir;
 
 use snowchains::app::{App, Opt};
-use snowchains::console::{ColorChoice, Console};
+use snowchains::console::{ColorChoice, NullConsole};
 use snowchains::path::{AbsPath, AbsPathBuf};
 use snowchains::service::{Credentials, RevelSession, UserNameAndPassword};
 use snowchains::ServiceName;
@@ -25,7 +25,7 @@ use std::{env, io, panic};
 pub fn test_in_tempdir<E: Into<failure::Error>>(
     tempdir_prefix: &str,
     credentials: Credentials,
-    f: impl FnOnce(App<Console<io::Empty, io::Sink, io::Sink>>) -> Result<(), E> + UnwindSafe,
+    f: impl FnOnce(App<NullConsole>) -> Result<(), E> + UnwindSafe,
 ) {
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
     let tempdir_path = tempdir.path().to_owned();
@@ -34,7 +34,7 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
             working_dir: AbsPathBuf::new_or_panic(tempdir_path),
             cookies_on_init: Cow::from("$service"),
             credentials,
-            console: Console::null(),
+            console: NullConsole::new(),
         };
         app.run(Opt::Init {
             color_choice: ColorChoice::Never,
@@ -77,10 +77,7 @@ pub fn dummy_credentials() -> Credentials {
     }
 }
 
-pub fn login(
-    mut app: App<Console<io::Empty, io::Sink, io::Sink>>,
-    service: ServiceName,
-) -> snowchains::Result<()> {
+pub fn login(mut app: App<NullConsole>, service: ServiceName) -> snowchains::Result<()> {
     app.run(Opt::Login {
         color_choice: ColorChoice::Never,
         service,
@@ -88,7 +85,7 @@ pub fn login(
 }
 
 pub fn download(
-    mut app: App<Console<io::Empty, io::Sink, io::Sink>>,
+    mut app: App<NullConsole>,
     service: ServiceName,
     contest: &str,
     problems: &[&str],

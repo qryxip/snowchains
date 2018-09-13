@@ -913,7 +913,7 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use console::{Console, ConsoleReadWrite};
+    use console::{ConsoleReadWrite, NullConsole};
     use errors::SessionResult;
     use service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
     use service::session::{HttpSession, UrlBase};
@@ -924,7 +924,6 @@ mod tests {
     use url::Host;
 
     use std::borrow::Borrow;
-    use std::io;
     use std::time::Duration;
 
     #[test]
@@ -1293,7 +1292,7 @@ mod tests {
     fn start() -> SessionResult<Atcoder<impl ConsoleReadWrite>> {
         let client = service::reqwest_client(Duration::from_secs(10))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
-        let mut console = Console::null();
+        let mut console = NullConsole::new();
         let session = HttpSession::new(console.stdout(), client, base, None)?;
         Ok(Atcoder {
             console,

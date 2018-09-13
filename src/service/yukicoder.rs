@@ -420,7 +420,7 @@ impl Extract for Document {
                 ).unwrap();
             }
             let text = self
-                .find(Attr("id", "content").child(Name("p")).child(Text))
+                .find(Attr("id", "content").child(Name("div")).child(Text))
                 .map(|text| text.text())
                 .nth(1)?;
             let caps = R.captures(&text)?;
@@ -507,7 +507,7 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use console::{Console, ConsoleReadWrite};
+    use console::{ConsoleReadWrite, NullConsole};
     use errors::SessionResult;
     use service::session::{HttpSession, UrlBase};
     use service::yukicoder::{Extract as _Extract, Username, Yukicoder};
@@ -518,7 +518,6 @@ mod tests {
     use url::Host;
 
     use std::borrow::Borrow;
-    use std::io;
     use std::time::Duration;
 
     #[test]
@@ -623,7 +622,7 @@ mod tests {
     fn start() -> SessionResult<Yukicoder<impl ConsoleReadWrite>> {
         let client = service::reqwest_client(Duration::from_secs(10))?;
         let base = UrlBase::new(Host::Domain("yukicoder.me"), true, None);
-        let mut console = Console::null();
+        let mut console = NullConsole::new();
         let session = HttpSession::new(console.stdout(), client, base, None)?;
         Ok(Yukicoder {
             console,

@@ -13,17 +13,13 @@ use failure::Fail;
 use structopt::StructOpt as _StructOpt;
 
 use std::env;
-use std::io::{self, BufReader, BufWriter, Write as _Write};
+use std::io::{self, Write as _Write};
 use std::process;
 
 fn main() {
     env_logger::init();
     let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
-    let mut console = Console::new(
-        BufReader::new(stdin.lock()),
-        BufWriter::new(stdout.lock()),
-        BufWriter::new(stderr.lock()),
-    );
+    let mut console = Console::new(stdin.lock(), stdout.lock(), stderr.lock());
     if let Err(err) = run(&mut console) {
         console.stdout().flush().unwrap();
         let mut stderr = console.stderr();

@@ -1,19 +1,23 @@
 use Never;
 
 use ansi_term::{Colour, Style};
-use rpassword;
-use unicode_width::UnicodeWidthStr as _UnicodeWidthStr;
+use term::{Terminal as _Terminal, TerminfoTerminal};
+use unicode_width::{UnicodeWidthChar as _UnicodeWidthChar, UnicodeWidthStr};
+use {atty, rpassword};
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use libc;
 
 #[cfg(windows)]
-use ansi_term;
+use {ansi_term, winapi};
 
-#[cfg(not(windows))]
-use term::{Terminal as _Terminal, TerminfoTerminal};
-
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, StderrLock, StdinLock, StdoutLock, Write};
 use std::rc::Rc;
 use std::str::FromStr;
-use std::{self, env, fmt};
+use std::{self, env, fmt, process};
+
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+use std::mem;
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct Conf {
@@ -23,48 +27,35 @@ pub struct Conf {
     cjk: bool,
 }
 
-fn cjk_default() -> bool {
-    true
-}
-
 impl Conf {
-    fn colours(&self) -> [Option<Colour>; 10] {
+    fn colours(&self) -> [Colour; 7] {
         match self.color {
             ColorRange::_8 => [
-                Some(Colour::Green),
-                Some(Colour::Yellow),
-                Some(Colour::Red),
-                Some(Colour::Cyan),
-                Some(Colour::Purple),
-                Some(Colour::Cyan),
-                Some(Colour::Cyan),
-                Some(Colour::Purple),
-                Some(Colour::Green),
-                Some(Colour::Cyan),
+                Colour::Green,
+                Colour::Yellow,
+                Colour::Red,
+                Colour::Cyan,
+                Colour::Purple,
+                Colour::Cyan,
+                Colour::Cyan,
             ],
             ColorRange::_16 => [
-                Some(Colour::Fixed(10)),
-                Some(Colour::Fixed(11)),
-                Some(Colour::Fixed(9)),
-                Some(Colour::Fixed(14)),
-                Some(Colour::Fixed(13)),
-                Some(Colour::Fixed(14)),
-                Some(Colour::Fixed(14)),
-                Some(Colour::Fixed(13)),
-                Some(Colour::Fixed(10)),
-                Some(Colour::Fixed(14)),
+                Colour::Fixed(10),
+                Colour::Fixed(11),
+                Colour::Fixed(9),
+                Colour::Fixed(14),
+                Colour::Fixed(13),
+                Colour::Fixed(14),
+                Colour::Fixed(14),
             ],
             ColorRange::_256 => [
-                Some(Colour::Fixed(118)),
-                Some(Colour::Fixed(190)),
-                Some(Colour::Fixed(196)),
-                Some(Colour::Fixed(123)),
-                Some(Colour::Fixed(99)),
-                Some(Colour::Fixed(50)),
-                Some(Colour::Fixed(50)),
-                Some(Colour::Fixed(198)),
-                Some(Colour::Fixed(118)),
-                Some(Colour::Fixed(99)),
+                Colour::Fixed(118),
+                Colour::Fixed(190),
+                Colour::Fixed(196),
+                Colour::Fixed(123),
+                Colour::Fixed(99),
+                Colour::Fixed(50),
+                Colour::Fixed(50),
             ],
         }
     }
@@ -135,56 +126,59 @@ pub trait ConsoleReadWrite {
     type Stdout: Write;
     type Stderr: Write;
 
-    fn by_mutable(&mut self) -> &mut Console<Self::Stdin, Self::Stdout, Self::Stderr>;
+    fn process_redirection() -> process::Stdio;
+
+    fn stdout_columns() -> Option<usize>;
+
+    fn stderr_columns() -> Option<usize>;
+
+    fn inner(&mut self) -> &mut ConsoleInner<Self::Stdin, Self::Stdout, Self::Stderr>;
 
     fn stdout_and_stderr(&mut self) -> (Printer<&mut Self::Stdout>, Printer<&mut Self::Stderr>) {
-        let this = self.by_mutable();
+        let inner = self.inner();
         let stdout = Printer {
-            wrt: &mut this.stdout,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
+            wrt: &mut inner.stdout,
+            colours: inner.stdout_colours.clone(),
+            cjk: inner.cjk,
             style: Style::default(),
+            process_redirection: Self::process_redirection,
+            columns: Self::stdout_columns,
         };
         let stderr = Printer {
-            wrt: &mut this.stderr,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
+            wrt: &mut inner.stderr,
+            colours: inner.stderr_colours.clone(),
+            cjk: inner.cjk,
             style: Style::default(),
+            process_redirection: Self::process_redirection,
+            columns: Self::stderr_columns,
         };
         (stdout, stderr)
     }
 
     fn stdout(&mut self) -> Printer<&mut Self::Stdout> {
-        let this = self.by_mutable();
-        Printer {
-            wrt: &mut this.stdout,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
-            style: Style::default(),
-        }
+        self.stdout_and_stderr().0
     }
 
     fn stderr(&mut self) -> Printer<&mut Self::Stderr> {
-        let this = self.by_mutable();
-        Printer {
-            wrt: &mut this.stderr,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
-            style: Style::default(),
-        }
+        self.stdout_and_stderr().1
     }
 
     fn fill_palettes(&mut self, choice: ColorChoice, conf: &Conf) -> io::Result<()> {
-        let this = self.by_mutable();
-        let enabled = match (this.enabled, choice) {
-            (Some(p), _) => p,
-            (None, ColorChoice::Never) => false,
-            (None, ColorChoice::Auto) => this.fill_palettes_on_auto(),
-            (None, ColorChoice::Always) => this.fill_palettes_on_always()?,
-        };
-        this.enabled = Some(enabled);
-        if enabled {
-            this.colours = Rc::new(conf.colours());
+        let inner = self.inner();
+        let p1 = inner.stdout_colours.is_some();
+        let p2 = inner.stderr_colours.is_some();
+        if !(p1 && p2) {
+            let (p3, p4) = match choice {
+                ColorChoice::Never => (false, false),
+                ColorChoice::Auto => try_enable_on_auto(),
+                ColorChoice::Always => try_enable_on_always(),
+            };
+            if p1 || p3 {
+                inner.stdout_colours = Some(Rc::new(conf.colours()));
+            }
+            if p2 || p4 {
+                inner.stderr_colours = Some(Rc::new(conf.colours()));
+            }
         }
         Ok(())
     }
@@ -197,7 +191,6 @@ pub trait ConsoleReadWrite {
                 s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
                 s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
                 _ => self
-                    .by_mutable()
                     .stderr()
                     .plain(Palette::Warning)
                     .write_all(b"Answer \"y\", \"yes\", \"n\", \"no\", or \"\".")?,
@@ -206,10 +199,10 @@ pub trait ConsoleReadWrite {
     }
 
     fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        let this = self.by_mutable();
-        this.prompt_stderr(prompt)?;
+        let inner = self.inner();
+        inner.prompt_stderr(prompt)?;
         let mut reply = "".to_owned();
-        this.stdin.read_line(&mut reply)?;
+        inner.stdin.read_line(&mut reply)?;
         if reply.ends_with("\r\n") {
             reply.pop();
             reply.pop();
@@ -226,15 +219,15 @@ pub trait ConsoleReadWrite {
     }
 
     fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        let this = self.by_mutable();
         if cfg!(windows) && env::var_os("MSYSTEM").is_some() {
-            this.stderr()
+            self.stderr()
                 .plain(Palette::Warning)
                 .write_all(b"$MSYSTEM is present. The input won't be hidden.\n")?;
-            this.prompt_reply_stderr(prompt)
+            self.prompt_reply_stderr(prompt)
         } else {
-            this.prompt_stderr(prompt)?;
-            rpassword::read_password_with_reader(Some(&mut this.stdin))
+            let inner = self.inner();
+            inner.prompt_stderr(prompt)?;
+            rpassword::read_password_with_reader(Some(&mut inner.stdin))
         }
     }
 }
@@ -244,91 +237,144 @@ impl<'a, RW: ConsoleReadWrite> ConsoleReadWrite for &'a mut RW {
     type Stdout = RW::Stdout;
     type Stderr = RW::Stderr;
 
-    fn by_mutable(&mut self) -> &mut Console<RW::Stdin, RW::Stdout, RW::Stderr> {
-        (**self).by_mutable()
+    fn process_redirection() -> process::Stdio {
+        RW::process_redirection()
+    }
+
+    fn stdout_columns() -> Option<usize> {
+        RW::stdout_columns()
+    }
+
+    fn stderr_columns() -> Option<usize> {
+        RW::stderr_columns()
+    }
+
+    fn inner(&mut self) -> &mut ConsoleInner<RW::Stdin, RW::Stdout, RW::Stderr> {
+        (**self).inner()
     }
 }
 
-#[derive(Debug)]
-pub struct Console<I: BufRead, O: Write, E: Write> {
-    stdin: I,
-    stdout: O,
-    stderr: E,
-    colours: Rc<[Option<Colour>; 10]>,
-    cjk: bool,
-    enabled: Option<bool>,
+pub struct Console<'a> {
+    inner: ConsoleInner<
+        BufReader<StdinLock<'a>>,
+        BufWriter<StdoutLock<'a>>,
+        BufWriter<StderrLock<'a>>,
+    >,
 }
 
-impl Console<io::Empty, io::Sink, io::Sink> {
-    pub fn null() -> Self {
+impl<'a> Console<'a> {
+    pub fn new(stdin: StdinLock<'a>, stdout: StdoutLock<'a>, stderr: StderrLock<'a>) -> Self {
         Self {
-            stdin: io::empty(),
-            stdout: io::sink(),
-            stderr: io::sink(),
-            colours: Rc::default(),
-            cjk: bool::default(),
-            enabled: Some(false),
+            inner: ConsoleInner {
+                stdin: BufReader::new(stdin),
+                stdout: BufWriter::new(stdout),
+                stderr: BufWriter::new(stderr),
+                stdout_colours: None,
+                stderr_colours: None,
+                cjk: cjk_default(),
+                enabled: None,
+            },
         }
     }
 }
 
-impl<I: BufRead, O: Write, E: Write> Console<I, O, E> {
+impl<'a> ConsoleReadWrite for Console<'a> {
+    type Stdin = BufReader<StdinLock<'a>>;
+    type Stdout = BufWriter<StdoutLock<'a>>;
+    type Stderr = BufWriter<StderrLock<'a>>;
+
+    fn process_redirection() -> process::Stdio {
+        process::Stdio::inherit()
+    }
+
+    fn stdout_columns() -> Option<usize> {
+        stdout_columns()
+    }
+
+    fn stderr_columns() -> Option<usize> {
+        stderr_columns()
+    }
+
+    fn inner(&mut self) -> &mut ConsoleInner<Self::Stdin, Self::Stdout, Self::Stderr> {
+        &mut self.inner
+    }
+}
+
+pub struct NullConsole {
+    inner: ConsoleInner<io::Empty, io::Sink, io::Sink>,
+}
+
+impl NullConsole {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for NullConsole {
+    fn default() -> Self {
+        Self {
+            inner: ConsoleInner {
+                stdin: io::empty(),
+                stdout: io::sink(),
+                stderr: io::sink(),
+                stdout_colours: None,
+                stderr_colours: None,
+                cjk: bool::default(),
+                enabled: Some(false),
+            },
+        }
+    }
+}
+
+impl ConsoleReadWrite for NullConsole {
+    type Stdin = io::Empty;
+    type Stdout = io::Sink;
+    type Stderr = io::Sink;
+
+    fn process_redirection() -> process::Stdio {
+        process::Stdio::null()
+    }
+
+    fn stdout_columns() -> Option<usize> {
+        None
+    }
+
+    fn stderr_columns() -> Option<usize> {
+        None
+    }
+
+    fn inner(&mut self) -> &mut ConsoleInner<io::Empty, io::Sink, io::Sink> {
+        &mut self.inner
+    }
+}
+
+#[derive(Debug)]
+pub struct ConsoleInner<I: BufRead, O: Write, E: Write> {
+    stdin: I,
+    stdout: O,
+    stderr: E,
+    stdout_colours: Option<Rc<[Colour; 7]>>,
+    stderr_colours: Option<Rc<[Colour; 7]>>,
+    cjk: bool,
+    enabled: Option<bool>,
+}
+
+impl<I: BufRead, O: Write, E: Write> ConsoleInner<I, O, E> {
     pub fn new(stdin: I, stdout: O, stderr: E) -> Self {
         Self {
             stdin,
             stdout,
             stderr,
-            colours: Rc::new([None; 10]),
+            stdout_colours: None,
+            stderr_colours: None,
             cjk: cjk_default(),
             enabled: None,
         }
     }
 
-    #[cfg(not(windows))]
-    fn fill_palettes_on_auto(&mut self) -> bool {
-        TerminfoTerminal::new(io::sink()).map_or(false, |t| t.supports_color())
-    }
-
-    #[cfg(windows)]
-    fn fill_palettes_on_auto(&mut self) -> bool {
-        env::var_os("MSYSTEM").is_some() || ansi_term::enable_ansi_support().is_ok()
-    }
-
-    #[cfg(not(windows))]
-    fn fill_palettes_on_always(&mut self) -> io::Result<bool> {
-        Ok(true)
-    }
-
-    #[cfg(windows)]
-    fn fill_palettes_on_always(&mut self) -> io::Result<bool> {
-        if let Err(code) = ansi_term::enable_ansi_support() {
-            if env::var_os("MSYSTEM").is_none() {
-                writeln!(
-                    self.stderr,
-                    "Failed to enable VIRTUAL_TERMINAL_PROCESSING (error code: {})\n\
-                     Run with \"-C auto\" or \"-C never\".\n",
-                    code
-                )?;
-                self.stderr.flush()?;
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-
     fn prompt_stderr(&mut self, prompt: &str) -> io::Result<()> {
         self.stderr.write_all(prompt.as_bytes())?;
         self.stderr.flush()
-    }
-}
-
-impl<I: BufRead, O: Write, E: Write> ConsoleReadWrite for Console<I, O, E> {
-    type Stdin = I;
-    type Stdout = O;
-    type Stderr = E;
-
-    fn by_mutable(&mut self) -> &mut Console<I, O, E> {
-        self
     }
 }
 
@@ -344,44 +390,55 @@ pub trait ConsoleWrite: Write {
     }
 
     fn plain(&mut self, palette: Palette) -> Printer<&mut Self::Inner> {
-        let this = self.by_mutable();
-        let foreground = palette.pick_fg_colour(&this.colours);
-        Printer {
-            wrt: &mut this.wrt,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
-            style: Style {
-                foreground,
-                ..this.style
-            },
-        }
+        self.by_mutable().apply(palette, None, |_| ())
     }
 
     fn bold(&mut self, palette: impl Into<Option<Palette>>) -> Printer<&mut Self::Inner> {
-        let this = self.by_mutable();
-        let foreground = palette.into().and_then(|p| p.pick_fg_colour(&this.colours));
-        Printer {
-            wrt: &mut this.wrt,
-            colours: this.colours.clone(),
-            cjk: this.cjk,
-            style: Style {
-                foreground,
-                is_bold: true,
-                ..this.style
-            },
-        }
+        self.by_mutable().apply(palette, None, |s| s.is_bold = true)
+    }
+
+    fn underline(&mut self, palette: impl Into<Option<Palette>>) -> Printer<&mut Self::Inner> {
+        self.by_mutable()
+            .apply(palette, None, |s| s.is_underline = true)
+    }
+
+    fn process_redirection(&self) -> process::Stdio {
+        (self.by_immutable().process_redirection)()
+    }
+
+    fn columns(&self) -> Option<usize> {
+        (self.by_immutable().columns)()
     }
 
     fn width(&self, s: &str) -> usize {
+        self.str_width_fn()(s)
+    }
+
+    fn char_width_or_zero(&self, c: char) -> usize {
         if self.by_immutable().cjk {
-            s.width_cjk()
+            c.width_cjk().unwrap_or(0)
         } else {
-            s.width()
+            c.width().unwrap_or(0)
+        }
+    }
+
+    fn str_width_fn(&self) -> fn(&str) -> usize {
+        if self.by_immutable().cjk {
+            <str as UnicodeWidthStr>::width_cjk
+        } else {
+            <str as UnicodeWidthStr>::width
         }
     }
 
     fn write_spaces(&mut self, n: usize) -> io::Result<()> {
         (0..n).try_for_each(|_| self.inner_writer().write_all(b" "))
+    }
+
+    fn fill_bg(&mut self, n: usize, bg: Palette) -> io::Result<()> {
+        let this = self.by_mutable().apply(None, bg, |_| ());
+        write!(this.wrt, "{}", this.style.prefix())?;
+        (0..n).try_for_each(|_| this.wrt.write_all(b" "))?;
+        write!(this.wrt, "{}", this.style.suffix())
     }
 }
 
@@ -399,9 +456,11 @@ impl<'a, C: ConsoleWrite> ConsoleWrite for &'a mut C {
 
 pub struct Printer<W: Write> {
     wrt: W,
-    colours: Rc<[Option<Colour>; 10]>,
+    colours: Option<Rc<[Colour; 7]>>,
     cjk: bool,
     style: Style,
+    process_redirection: fn() -> process::Stdio,
+    columns: fn() -> Option<usize>,
 }
 
 #[cfg(test)]
@@ -409,9 +468,45 @@ impl Printer<io::Sink> {
     pub(crate) fn null() -> Self {
         Self {
             wrt: io::sink(),
-            colours: Rc::default(),
+            colours: None,
             cjk: bool::default(),
             style: Style::default(),
+            process_redirection: process::Stdio::null,
+            columns: || None,
+        }
+    }
+}
+
+impl<W: Write> Printer<W> {
+    fn apply(
+        &mut self,
+        fg: impl Into<Option<Palette>>,
+        bg: impl Into<Option<Palette>>,
+        modify_style: fn(&mut Style),
+    ) -> Printer<&mut W> {
+        let (fg, bg, attr) = match (fg.into(), bg.into(), self.colours.as_ref()) {
+            (fg, bg, Some(cs)) => {
+                let fg = fg.map(|fg| fg.pick_fg_colour(&cs));
+                let bg = bg.map(|bg| bg.pick_fg_colour(&cs));
+                (fg, bg, true)
+            }
+            _ => (None, None, false),
+        };
+        let mut style = Style {
+            foreground: fg.or(self.style.foreground),
+            background: bg.or(self.style.background),
+            ..self.style
+        };
+        if attr {
+            modify_style(&mut style);
+        }
+        Printer {
+            wrt: &mut self.wrt,
+            colours: self.colours.clone(),
+            cjk: self.cjk,
+            style,
+            process_redirection: self.process_redirection,
+            columns: self.columns,
         }
     }
 }
@@ -452,14 +547,11 @@ pub enum Palette {
     Url,
     Title,
     CommandInfo,
-    SolverStdout,
-    SolverStderr,
-    TesterStdout,
-    TesterStderr,
+    Number,
 }
 
 impl Palette {
-    fn pick_fg_colour(self, colours: &[Option<Colour>; 10]) -> Option<Colour> {
+    fn pick_fg_colour(self, colours: &[Colour; 7]) -> Colour {
         match self {
             Palette::Success => colours[0],
             Palette::Warning => colours[1],
@@ -467,10 +559,99 @@ impl Palette {
             Palette::Url => colours[3],
             Palette::Title => colours[4],
             Palette::CommandInfo => colours[5],
-            Palette::SolverStdout => colours[6],
-            Palette::SolverStderr => colours[7],
-            Palette::TesterStdout => colours[8],
-            Palette::TesterStderr => colours[9],
+            Palette::Number => colours[6],
         }
     }
+}
+
+#[cfg(not(windows))]
+fn try_enable_on_auto() -> (bool, bool) {
+    filter_tty(detect_with_env())
+}
+
+#[cfg(windows)]
+fn try_enable_on_auto() -> (bool, bool) {
+    filter_tty(
+        ansi_term::enable_ansi_support().is_ok()
+            || env::var("MSYSTEM").is_ok() && detect_with_env(),
+    )
+}
+
+fn detect_with_env() -> bool {
+    TerminfoTerminal::new(io::sink()).map_or(false, |t| t.supports_color())
+}
+
+fn filter_tty(p: bool) -> (bool, bool) {
+    (
+        p && atty::is(atty::Stream::Stdout),
+        p && atty::is(atty::Stream::Stderr),
+    )
+}
+
+#[cfg(not(windows))]
+fn try_enable_on_always() -> (bool, bool) {
+    (true, true)
+}
+
+#[cfg(windows)]
+fn try_enable_on_always() -> (bool, bool) {
+    let _ = ansi_term::enable_ansi_support();
+    (true, true)
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn stdout_columns() -> Option<usize> {
+    unsafe { columns_with_libc(libc::STDOUT_FILENO) }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn stderr_columns() -> Option<usize> {
+    unsafe { columns_with_libc(libc::STDERR_FILENO) }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+unsafe fn columns_with_libc(fd: libc::c_int) -> Option<usize> {
+    let mut winsize = mem::zeroed::<libc::winsize>();
+    if libc::ioctl(fd, libc::TIOCGWINSZ, &mut winsize) != 0 || winsize.ws_col == 0 {
+        None
+    } else {
+        Some(winsize.ws_col as usize)
+    }
+}
+
+#[cfg(windows)]
+fn stdout_columns() -> Option<usize> {
+    unsafe { columns_with_winapi(winapi::um::winbase::STD_OUTPUT_HANDLE) }
+}
+
+#[cfg(windows)]
+fn stderr_columns() -> Option<usize> {
+    unsafe { columns_with_winapi(winapi::um::winbase::STD_ERROR_HANDLE) }
+}
+
+#[cfg(windows)]
+unsafe fn columns_with_winapi(h: winapi::shared::minwindef::DWORD) -> Option<usize> {
+    use winapi::um::processenv::GetStdHandle;
+    use winapi::um::wincon::{GetConsoleScreenBufferInfo, CONSOLE_SCREEN_BUFFER_INFO};
+    let h = GetStdHandle(h);
+    let mut info = mem::zeroed::<CONSOLE_SCREEN_BUFFER_INFO>();
+    if GetConsoleScreenBufferInfo(h, &mut info) == 0 {
+        None
+    } else {
+        Some((info.srWindow.Right - info.srWindow.Left) as usize)
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn stdout_columns() -> Option<usize> {
+    None
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn stderr_columns() -> Option<usize> {
+    None
+}
+
+fn cjk_default() -> bool {
+    true
 }

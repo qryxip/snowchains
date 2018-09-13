@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate failure;
 #[macro_use]
+extern crate futures;
+#[macro_use]
 extern crate lazy_static;
 #[macro_use]
 extern crate log;
@@ -14,13 +16,14 @@ extern crate serde_json;
 extern crate structopt;
 
 extern crate ansi_term;
+extern crate atty;
 extern crate bincode;
 extern crate chrono;
 extern crate combine;
 extern crate cookie;
+extern crate diff;
 extern crate dirs;
 extern crate fs2;
-extern crate futures;
 extern crate heck;
 extern crate itertools;
 extern crate pbr;
@@ -33,7 +36,10 @@ extern crate select;
 extern crate serde;
 extern crate serde_urlencoded;
 extern crate serde_yaml;
+extern crate term;
+extern crate tokio;
 extern crate tokio_core;
+extern crate tokio_process;
 extern crate toml;
 extern crate unicode_width;
 extern crate url;
@@ -41,8 +47,11 @@ extern crate webbrowser;
 extern crate yaml_rust;
 extern crate zip;
 
-#[cfg(not(windows))]
-extern crate term;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+extern crate libc;
+
+#[cfg(windows)]
+extern crate winapi;
 
 #[cfg(test)]
 #[macro_use]

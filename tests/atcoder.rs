@@ -12,11 +12,10 @@ extern crate tempdir;
 mod common;
 
 use snowchains::app::{App, Opt};
-use snowchains::console::{ColorChoice, Console};
+use snowchains::console::{ColorChoice, NullConsole};
 use snowchains::ServiceName;
 
 use std::fs::File;
-use std::io;
 use std::path::Path;
 
 #[test]
@@ -38,7 +37,7 @@ fn it_raises_an_when_login_fails() {
     common::test_in_tempdir("it_raises_an_when_login_fails", credentials, login);
 }
 
-fn login(mut app: App<Console<io::Empty, io::Sink, io::Sink>>) -> snowchains::Result<()> {
+fn login(mut app: App<NullConsole>) -> snowchains::Result<()> {
     app.run(Opt::Login {
         color_choice: ColorChoice::Never,
         service: ServiceName::Atcoder,
@@ -157,6 +156,7 @@ if __name__ == '__main__':
             std::fs::write(&app.working_dir.join("py").join("a.py"), CODE)?;
             app.run(Opt::Submit {
                 open_browser: false,
+                force_compile: false,
                 skip_judging: true,
                 skip_checking_duplication: false,
                 language: Some("python3".to_owned()),

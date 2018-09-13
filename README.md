@@ -14,10 +14,10 @@ Tools for online programming contests.
 
 |                         | Target                                       | "contest" attribute | Scrape samples  | Download system tests | Submit          |
 | :---------------------- | :------------------------------------------- | :------------------ | :-------------: | :-------------------: | :-------------: |
-| AtCoder Beta            | `beta.atcoder.jp/contests/{}`                | `*`                 | ✓               | ⨉                     | ✓               |
-| HackerRank (Problems)   | `www.hackerrank.com/challenges/{}`           | `"master"`          | ✓               | ✓                     | Not implemented |
+| AtCoder Beta            | `beta.atcoder.jp/contests/{}`                | `.*`                | ✓               | ⨉                     | ✓               |
+| HackerRank (Problems)   | `www.hackerrank.com/challenges/{}`           | `master`            | ✓               | ✓                     | Not implemented |
 | HackerRank (Contests)   | `www.hackerrank.com/contests/{}/challenges/` | `(?!master)`        | ✓               | ✓                     | Not implemented |
-| yukicoder (Problems)    | `yukicoder.me/problems/no/{}`                | `"no"`              | ✓               | ✓                     | ✓               |
+| yukicoder (Problems)    | `yukicoder.me/problems/no/{}`                | `no`                | ✓               | ✓                     | ✓               |
 | yukicoder (Contests)    | `yukicoder.me/contests/{}`                   | `(?!no)`            | ✓               | ✓                     | ✓               |
 
 ## Instrallation
@@ -44,8 +44,8 @@ $ snowchains <i|init> ./
 $ snowchains <w|switch> [-s <service>] [-c <contest>] [-l <language>]                       # e.g. "-s atcoder -c arc100 -l c++"
 $ snowchains <d|download> [-b|--open-browser] [-s <service>] [-c <contest>] [-p <problems>] # Does not ask username and password unless they are needed
 $ $EDITOR ./snowchains/<service>/<contest>/<problem>.yaml                                   # Add more test cases
-$ snowchains <j|judge> [-s <service>] [-c <contest>] [-l <language>] <problem>
-$ snowchains <s|submit> [-b|--open-browser] [-j|--skip-judging] [-d|--skip-checking-duplication] \
+$ snowchains <j|judge> [--force-compile] [-s <service>] [-c <contest>] [-l <language>] <problem>
+$ snowchains <s|submit> [-b|--open-browser] [--force-compile] [-j|--skip-judging] [-d|--skip-checking-duplication] \
                         [-s <service>] [-c <contest>] [-l <language>] <problem>
 ```
 
@@ -267,7 +267,7 @@ languages:
 ---
 type: simple    # "simple" or "interactive"
 timelimit: 2000 # Optional
-match: exact    # "exact", "lines", or "float". Default: "lines" if the platform is Windows, otherwise "exact"
+match: exact    # "exact" or "float"
 
 # Possible types of "in" and "out":
 # * Integer
