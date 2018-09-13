@@ -4,66 +4,161 @@ use errors::JudgeResult;
 use judging::text::{Line, PrintAligned, Text, Width, Word};
 use judging::{MillisRoundedUp, Outcome};
 use testsuite::{ExpectedStdout, SimpleCase};
-use util;
 
 use diff;
+use futures::{task, Async, Future, Poll};
+use tokio::io::{AsyncRead, AsyncWrite as _AsyncWrite};
+use tokio::runtime::Runtime;
+use tokio_process;
 
 use std::io::{self, Write as _Write};
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{self, cmp, fmt, thread};
+use std::{cmp, fmt, mem};
 
 pub(super) fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutcome> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    {
-        let (solver, input) = (solver.clone(), case.input());
-        thread::spawn(move || {
-            let _ = tx.send(run_command(&solver, &input));
-        });
-    }
-    let tle = |timelimit: Duration| SimpleOutcome::TimelimitExceeded {
-        timelimit,
-        input: Text::exact(&case.input()),
-        expected: match case.expected().as_ref() {
-            ExpectedStdout::AcceptAny { .. } => None,
-            ExpectedStdout::Exact(expected) => Some(Text::exact(expected)),
-            ExpectedStdout::Float {
-                lines: expected, ..
-            } => Some(Text::float(expected, None)),
-        },
-    };
-    let outcome;
-    if let Some(timelimit) = case.timelimit() {
-        match rx.recv_timeout(timelimit + Duration::from_millis(50)) {
-            Ok(o) => outcome = o?,
-            Err(_) => return Ok(tle(timelimit)),
+    let mut runtime = Runtime::new()?;
+    let process = solver.spawn_async_piped()?;
+    let start = Instant::now();
+    let result = runtime.block_on(RunCommand {
+        process,
+        input: case.input(),
+        state: State::Writing(0),
+        stdout: Vec::with_capacity(2048),
+        stderr: Vec::with_capacity(2048),
+        start,
+        deadline: case.timelimit().map(|t| start + t),
+    });
+    let _ = runtime.shutdown_on_idle().wait();
+    match result {
+        Err(ref err) if err.kind() == io::ErrorKind::TimedOut => {
+            Ok(SimpleOutcome::TimelimitExceeded {
+                timelimit: case.timelimit().unwrap_or_default(),
+                input: Text::exact(&case.input()),
+                expected: match case.expected().as_ref() {
+                    ExpectedStdout::AcceptAny { .. } => None,
+                    ExpectedStdout::Exact(expected) => Some(Text::exact(expected)),
+                    ExpectedStdout::Float {
+                        lines: expected, ..
+                    } => Some(Text::float(expected, None)),
+                },
+            })
         }
-        if outcome.elapsed > timelimit {
-            return Ok(tle(timelimit));
-        }
-    } else {
-        outcome = rx.recv().unwrap()?;
+        Err(err) => Err(err.into()),
+        Ok(outcome) => Ok(outcome.compare(&case.expected())),
     }
-    Ok(outcome.compare(&case.expected()))
 }
 
-fn run_command(solver: &JudgingCommand, input: &Arc<String>) -> JudgeResult<CommandOutcome> {
-    let mut solver = solver.spawn_piped()?;
-    let start = Instant::now();
-    solver.stdin.as_mut().unwrap().write_all(input.as_bytes())?;
+struct RunCommand {
+    process: tokio_process::Child,
+    input: Arc<String>,
+    state: State,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    start: Instant,
+    deadline: Option<Instant>,
+}
 
-    let status = solver.wait()?;
-    let elapsed = start.elapsed();
-    let stdout = Arc::new(util::string_from_read(solver.stdout.unwrap(), 1024)?);
-    let stderr = Arc::new(util::string_from_read(solver.stderr.unwrap(), 1024)?);
-    Ok(CommandOutcome {
-        status,
-        elapsed,
-        input: input.clone(),
-        stdout,
-        stderr,
-    })
+impl Future for RunCommand {
+    type Item = CommandOutcome;
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Poll<CommandOutcome, io::Error> {
+        fn string_from_utf8(s: Vec<u8>) -> io::Result<String> {
+            String::from_utf8(s).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "stream did not contain valid UTF-8",
+                )
+            })
+        }
+
+        match self.state {
+            State::Writing(num_wrote) => {
+                task::current().notify();
+                let stdin = self.process.stdin().as_mut().unwrap();
+                let input = &self.input.as_bytes()[num_wrote..];
+                let num_wrote = num_wrote + try_ready!(stdin.poll_write(input));
+                self.state = if num_wrote == self.input.len() {
+                    State::ShuttingDownStdin
+                } else {
+                    State::Writing(num_wrote)
+                };
+                Ok(Async::NotReady)
+            }
+            State::ShuttingDownStdin => {
+                task::current().notify();
+                try_ready!(self.process.stdin().as_mut().unwrap().shutdown());
+                self.process.stdin().take(); // sends EOF by dropping `stdin`
+                self.state = State::PollingStatus;
+                Ok(Async::NotReady)
+            }
+            State::PollingStatus => {
+                task::current().notify();
+                let now = Instant::now();
+                if self.deadline.is_some() && self.deadline.unwrap() < now {
+                    self.process.kill()?;
+                    return Err(io::Error::from(io::ErrorKind::TimedOut));
+                }
+                let (status, time) = (try_ready!(self.process.poll()), now - self.start);
+                self.state = State::PollingStdout(status, time);
+                Ok(Async::NotReady)
+            }
+            State::PollingStdout(status, time) => {
+                task::current().notify();
+                try_ready!(self.poll_output(
+                    |this| this.process.stdout().as_mut().unwrap(),
+                    |this| &mut this.stdout,
+                ));
+                self.state = State::PollingStderr(status, time);
+                Ok(Async::NotReady)
+            }
+            State::PollingStderr(status, time) => {
+                task::current().notify();
+                try_ready!(self.poll_output(
+                    |this| this.process.stderr().as_mut().unwrap(),
+                    |this| &mut this.stderr,
+                ));
+                let stdout = string_from_utf8(mem::replace(&mut self.stdout, vec![]))?;
+                let stderr = string_from_utf8(mem::replace(&mut self.stderr, vec![]))?;
+                Ok(Async::Ready(CommandOutcome {
+                    status,
+                    elapsed: time,
+                    input: self.input.clone(),
+                    stdout: Arc::new(stdout),
+                    stderr: Arc::new(stderr),
+                }))
+            }
+        }
+    }
+}
+
+impl RunCommand {
+    fn poll_output<R: AsyncRead>(
+        &mut self,
+        pipe: fn(&mut Self) -> &mut R,
+        buf: fn(&mut Self) -> &mut Vec<u8>,
+    ) -> Poll<(), io::Error> {
+        let mut temp_buf = unsafe { mem::uninitialized::<[u8; 1024]>() };
+        match try_ready!(pipe(self).poll_read(&mut temp_buf)) {
+            0 => Ok(Async::Ready(())),
+            n => {
+                buf(self).extend_from_slice(&temp_buf[..n]);
+                task::current().notify();
+                Ok(Async::NotReady)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum State {
+    Writing(usize),
+    ShuttingDownStdin,
+    PollingStatus,
+    PollingStdout(ExitStatus, Duration),
+    PollingStderr(ExitStatus, Duration),
 }
 
 struct CommandOutcome {
