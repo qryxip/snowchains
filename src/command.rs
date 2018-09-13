@@ -3,11 +3,12 @@ use errors::{JudgeError, JudgeResult};
 use path::AbsPathBuf;
 
 use itertools::Itertools as _Itertools;
+use tokio_process::{self, CommandExt as _CommandExt};
 
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Write as _Write};
-use std::process::{Child, Command, Stdio};
+use std::process::{self, Command, Stdio};
 use std::time::Instant;
 
 /// Compilation command.
@@ -70,12 +71,6 @@ impl CompilationCommand {
         write_info(&mut stdout, "Working directory:  ", &[&wd])?;
         writeln!(stdout)?;
         stdout.flush()?;
-
-        // write!(stdout.bold(Palette::CommandInfo), "Compilation Command:")?;
-        // writeln!(stdout, " {}", self.inner.display_args())?;
-        // write!(stdout.bold(Palette::CommandInfo), "Working directory:")?;
-        // writeln!(stdout, "   {}\n", self.inner.working_dir.display())?;
-        // stdout.flush()?;
 
         let mut proc = self.inner.build_checking_wd()?;
         proc.stdin(Stdio::null())
@@ -148,14 +143,23 @@ impl JudgingCommand {
     }
 
     /// Returns a `Child` which stdin & stdout & stderr are piped.
-    pub fn spawn_piped(&self) -> JudgeResult<Child> {
-        // TODO
+    pub fn spawn_piped(&self) -> JudgeResult<process::Child> {
         self.0
             .build_checking_wd()?
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
+            .map_err(|e| JudgeError::Command(self.0.arg0.clone(), e))
+    }
+
+    pub fn spawn_async_piped(&self) -> JudgeResult<tokio_process::Child> {
+        self.0
+            .build_checking_wd()?
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn_async()
             .map_err(|e| JudgeError::Command(self.0.arg0.clone(), e))
     }
 }

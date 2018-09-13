@@ -28,7 +28,7 @@ pub struct Conf {
 }
 
 impl Conf {
-    fn colours(&self) -> [Colour; 10] {
+    fn colours(&self) -> [Colour; 7] {
         match self.color {
             ColorRange::_8 => [
                 Colour::Green,
@@ -37,9 +37,6 @@ impl Conf {
                 Colour::Cyan,
                 Colour::Purple,
                 Colour::Cyan,
-                Colour::Cyan,
-                Colour::Purple,
-                Colour::Green,
                 Colour::Cyan,
             ],
             ColorRange::_16 => [
@@ -50,9 +47,6 @@ impl Conf {
                 Colour::Fixed(13),
                 Colour::Fixed(14),
                 Colour::Fixed(14),
-                Colour::Fixed(13),
-                Colour::Fixed(10),
-                Colour::Fixed(14),
             ],
             ColorRange::_256 => [
                 Colour::Fixed(118),
@@ -62,9 +56,6 @@ impl Conf {
                 Colour::Fixed(99),
                 Colour::Fixed(50),
                 Colour::Fixed(50),
-                Colour::Fixed(198),
-                Colour::Fixed(118),
-                Colour::Fixed(99),
             ],
         }
     }
@@ -362,8 +353,8 @@ pub struct ConsoleInner<I: BufRead, O: Write, E: Write> {
     stdin: I,
     stdout: O,
     stderr: E,
-    stdout_colours: Option<Rc<[Colour; 10]>>,
-    stderr_colours: Option<Rc<[Colour; 10]>>,
+    stdout_colours: Option<Rc<[Colour; 7]>>,
+    stderr_colours: Option<Rc<[Colour; 7]>>,
     cjk: bool,
     enabled: Option<bool>,
 }
@@ -465,7 +456,7 @@ impl<'a, C: ConsoleWrite> ConsoleWrite for &'a mut C {
 
 pub struct Printer<W: Write> {
     wrt: W,
-    colours: Option<Rc<[Colour; 10]>>,
+    colours: Option<Rc<[Colour; 7]>>,
     cjk: bool,
     style: Style,
     process_redirection: fn() -> process::Stdio,
@@ -556,14 +547,11 @@ pub enum Palette {
     Url,
     Title,
     CommandInfo,
-    SolverStdout,
-    SolverStderr,
-    TesterStdout,
-    TesterStderr,
+    Number,
 }
 
 impl Palette {
-    fn pick_fg_colour(self, colours: &[Colour; 10]) -> Colour {
+    fn pick_fg_colour(self, colours: &[Colour; 7]) -> Colour {
         match self {
             Palette::Success => colours[0],
             Palette::Warning => colours[1],
@@ -571,10 +559,7 @@ impl Palette {
             Palette::Url => colours[3],
             Palette::Title => colours[4],
             Palette::CommandInfo => colours[5],
-            Palette::SolverStdout => colours[6],
-            Palette::SolverStderr => colours[7],
-            Palette::TesterStdout => colours[8],
-            Palette::TesterStderr => colours[9],
+            Palette::Number => colours[6],
         }
     }
 }

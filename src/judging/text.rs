@@ -163,7 +163,7 @@ impl Word {
             Word::LeadingOrTrailingU0020(n) => out.fill_bg(*n, Palette::Warning),
             Word::Escaped(s) => out.bold(Palette::Warning).write_all(s.as_bytes()),
             Word::FloatLeft { string, .. } | Word::FloatRight { string, .. } => {
-                out.bold(Palette::SolverStdout).write_all(string.as_bytes())
+                out.bold(Palette::Number).write_all(string.as_bytes())
             }
             Word::Lf => Ok(()),
             Word::Noeol => out.bold(Palette::Warning).write_all(b"<noeol>"),
