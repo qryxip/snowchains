@@ -11,7 +11,7 @@ mod common;
 
 use snowchains::app::App;
 use snowchains::console::NullConsole;
-use snowchains::ServiceName;
+use snowchains::service::ServiceName;
 
 #[test]
 #[ignore]

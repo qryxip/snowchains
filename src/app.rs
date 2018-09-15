@@ -4,10 +4,10 @@ use errors::ExpandTemplateResult;
 use judging::{self, JudgeProp};
 use path::AbsPathBuf;
 use service::{
-    atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp,
+    atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, ServiceName,
+    SessionProp, SubmitProp,
 };
 use testsuite::{self, SerializableExtension, SuiteFilePath};
-use ServiceName;
 
 use std::borrow::Cow;
 use std::io::Write as _Write;

@@ -13,7 +13,7 @@ mod common;
 
 use snowchains::app::{App, Opt};
 use snowchains::console::{ColorChoice, NullConsole};
-use snowchains::ServiceName;
+use snowchains::service::ServiceName;
 
 use std::fs::File;
 use std::path::Path;

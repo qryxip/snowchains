@@ -14,7 +14,7 @@ use replacer::CodeReplacer;
 use service::session::{HttpSession, UrlBase};
 use template::{Template, TemplateBuilder};
 use testsuite::SerializableExtension;
-use {util, ServiceName};
+use {util, Never};
 
 use itertools::Itertools as _Itertools;
 use reqwest::header::{Headers, UserAgent};
@@ -23,11 +23,67 @@ use select::document::Document;
 use url::Host;
 
 use std::collections::HashMap;
-use std::fmt;
 use std::io::{self, Write};
 use std::ops::Deref;
 use std::rc::Rc;
+use std::str::FromStr;
 use std::time::Duration;
+use std::{self, fmt};
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceName {
+    Atcoder,
+    Hackerrank,
+    Yukicoder,
+    Other,
+}
+
+impl Default for ServiceName {
+    fn default() -> Self {
+        ServiceName::Other
+    }
+}
+
+impl fmt::Display for ServiceName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.to_str())
+    }
+}
+
+impl FromStr for ServiceName {
+    type Err = Never;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Never> {
+        match s {
+            s if s.eq_ignore_ascii_case("atcoder") => Ok(ServiceName::Atcoder),
+            s if s.eq_ignore_ascii_case("hackerrank") => Ok(ServiceName::Hackerrank),
+            s if s.eq_ignore_ascii_case("yukicoder") => Ok(ServiceName::Yukicoder),
+            s if s.eq_ignore_ascii_case("other") => Ok(ServiceName::Other),
+            _ => Err(Never),
+        }
+    }
+}
+
+impl ServiceName {
+    pub fn to_str(self) -> &'static str {
+        match self {
+            ServiceName::Atcoder => "atcoder",
+            ServiceName::Hackerrank => "hackerrank",
+            ServiceName::Yukicoder => "yukicoder",
+            ServiceName::Other => "other",
+        }
+    }
+
+    pub(crate) fn domain(self) -> Option<&'static str> {
+        match self {
+            ServiceName::Atcoder => Some("beta.atcoder.jp"),
+            ServiceName::Hackerrank => Some("www.hackerrank.com"),
+            ServiceName::Yukicoder => Some("yukicoder.me"),
+            ServiceName::Other => None,
+        }
+    }
+}
 
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
 

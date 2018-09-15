@@ -3,10 +3,10 @@ use console::{self, ConsoleWrite, Palette};
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
 use path::{AbsPath, AbsPathBuf};
 use replacer::{CodeReplacer, CodeReplacerConf};
-use service::SessionConfig;
+use service::{ServiceName, SessionConfig};
 use template::{Template, TemplateBuilder};
 use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipConfig};
-use {yaml, ServiceName};
+use yaml;
 
 use serde_yaml;
 
