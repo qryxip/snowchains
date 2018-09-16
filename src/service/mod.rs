@@ -17,7 +17,7 @@ use testsuite::SerializableExtension;
 use {util, Never};
 
 use itertools::Itertools as _Itertools;
-use reqwest::header::{Headers, UserAgent};
+use reqwest::header::{self, HeaderMap};
 use reqwest::{self, RedirectPolicy, Response};
 use select::document::Document;
 use url::Host;
@@ -230,8 +230,8 @@ pub(self) fn reqwest_client(
         .timeout(timeout)
         .referer(false)
         .default_headers({
-            let mut headers = Headers::new();
-            headers.set(UserAgent::new(USER_AGENT));
+            let mut headers = HeaderMap::new();
+            headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());
             headers
         }).build()
 }

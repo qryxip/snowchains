@@ -28,9 +28,7 @@ fn it_logins() {
 
 #[test]
 #[ignore]
-#[should_panic(
-    expected = "called `Result::unwrap()` on an `Err` value: Service(WrongCredentialsOnTest)"
-)]
+#[should_panic(expected = "called `Result::unwrap()` on an `Err` value: Service(LoginOnTest)")]
 fn it_raises_an_when_login_fails() {
     let _ = env_logger::try_init();
     let credentials = common::dummy_credentials();

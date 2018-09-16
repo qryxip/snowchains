@@ -66,10 +66,10 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
 
     fn login(&mut self, option: LoginOption) -> ServiceResult<()> {
         let mut res = self.get("/login").acceptable(&[200, 302]).send()?;
-        if res.status() == StatusCode::Found && option == LoginOption::Explicit {
+        if res.status() == StatusCode::FOUND && option == LoginOption::Explicit {
             writeln!(self.stderr(), "Already signed in.")?;
             self.stderr().flush()?;
-        } else if res.status() == StatusCode::Ok {
+        } else if res.status() == StatusCode::OK {
             let (mut username, mut password, on_test) = {
                 match self.credentials.clone() {
                     UserNameAndPassword::Some(username, password) => {
@@ -94,7 +94,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
                     break self.stdout().flush()?;
                 }
                 if on_test {
-                    return Err(ServiceError::WrongCredentialsOnTest);
+                    return Err(ServiceError::LoginOnTest);
                 }
                 username = Rc::new(self.console().prompt_reply_stderr("Username: ")?);
                 password = Rc::new(self.console().prompt_password_stderr("Password: ")?);
@@ -121,7 +121,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
         let csrf_token = response.try_into_document()?.extract_csrf_token()?;
         let status = self
             .post("/auth/login")
-            .raw_header("X-CSRF-Token", csrf_token)
+            .x_csrf_token(&csrf_token)
             .acceptable(&[200])
             .send_json(&json!({
                 "login": username,
@@ -266,7 +266,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
                     }).collect::<Vec<_>>();
             };
             static URL_SUF: &str = "/download_testcases";
-            let cookie = self.session.cookies_to_header();
+            let cookie = self.session.cookies_to_header_value()?;
             ZipDownloader {
                 out: io::sink(),
                 url_pref: &url_pref,
@@ -274,7 +274,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
                 download_dir,
                 names: &names,
                 timeout,
-                cookie: cookie.as_ref(),
+                cookie,
             }.download()?;
         }
         if *open_browser {

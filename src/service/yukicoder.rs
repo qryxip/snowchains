@@ -10,8 +10,7 @@ use testsuite::{SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
 use regex::Regex;
-use reqwest::header::Location;
-use reqwest::{multipart, StatusCode};
+use reqwest::{header, multipart, StatusCode};
 use select::document::Document;
 use select::predicate::{Attr, Class, Name, Predicate as _Predicate, Text};
 
@@ -76,7 +75,7 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
     fn login(&mut self, assure: bool) -> ServiceResult<()> {
         if let RevelSession::Some(revel_session) = self.credential.clone() {
             if !self.confirm_revel_session(revel_session.as_ref().clone())? {
-                return Err(ServiceError::WrongCredentialsOnTest);
+                return Err(ServiceError::LoginOnTest);
             }
         }
         self.fetch_username()?;
@@ -158,7 +157,7 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
                         None => true,
                         Some(t) => !t.text().contains("非表示"),
                     };
-                    if status == StatusCode::NotFound {
+                    if status == StatusCode::NOT_FOUND {
                         not_found.push(problem);
                     } else if !public {
                         not_public.push(problem);
@@ -204,7 +203,7 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
         if !nos.is_empty() {
             static URL_PREF: &str = "https://yukicoder.me/problems/no/";
             static URL_SUF: &str = "/testcase.zip";
-            let cookie = self.session.cookies_to_header();
+            let cookie = self.session.cookies_to_header_value()?;
             ZipDownloader {
                 out: self.stdout().inner_writer(),
                 url_pref: URL_PREF,
@@ -212,7 +211,7 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
                 download_dir,
                 names: &nos,
                 timeout,
-                cookie: cookie.as_ref(),
+                cookie,
             }.download()?;
         }
         if *open_browser {
@@ -273,9 +272,9 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
             .text("submit", "提出する");
         let url = document.extract_url_from_submit_page()?;
         let res = self.post(&url).send_multipart(form)?;
-        let location = match res.headers().get::<Location>() {
+        let location = match res.headers().get(header::LOCATION) {
             None => None,
-            Some(location) => Some(self.session.resolve_url(&location)?),
+            Some(location) => Some(self.session.resolve_url(location.to_str()?)?),
         };
         if let Some(location) = location.as_ref() {
             if location

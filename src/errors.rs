@@ -2,6 +2,7 @@ use chrono::{self, DateTime, Local};
 use failure::{Context, Fail};
 use itertools::Itertools as _Itertools;
 use path::AbsPathBuf;
+use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use reqwest::{self, StatusCode};
 use template::Tokens;
 use url::{self, Url};
@@ -84,6 +85,7 @@ pub enum ServiceError {
     Submit(SubmitError),
     ChronoParse(StdErrorWithDisplayChain<chrono::ParseError>),
     Reqwest(StdErrorWithDisplayChain<reqwest::Error>),
+    ToStr(StdErrorWithDisplayChain<reqwest::header::ToStrError>),
     SerdeUrlencodedSer(StdErrorWithDisplayChain<serde_urlencoded::ser::Error>),
     Zip(StdErrorWithDisplayChain<ZipError>),
     Io(StdErrorWithDisplayChain<io::Error>),
@@ -93,7 +95,7 @@ pub enum ServiceError {
     PleaseSpecifyProblems,
     Scrape,
     UnexpectedRedirection(String),
-    WrongCredentialsOnTest,
+    LoginOnTest,
 }
 
 impl fmt::Display for ServiceError {
@@ -107,6 +109,7 @@ impl fmt::Display for ServiceError {
             ServiceError::Submit(e) => write!(f, "{}", e),
             ServiceError::ChronoParse(e) => write!(f, "{}", e),
             ServiceError::Reqwest(e) => write!(f, "{}", e),
+            ServiceError::ToStr(e) => write!(f, "{}", e),
             ServiceError::SerdeUrlencodedSer(e) => write!(f, "{}", e),
             ServiceError::Zip(e) => write!(f, "{}", e),
             ServiceError::Io(e) => write!(f, "{}", e),
@@ -119,7 +122,7 @@ impl fmt::Display for ServiceError {
             ServiceError::PleaseSpecifyProblems => write!(f, "Please specify problems"),
             ServiceError::Scrape => write!(f, "Failed to scrape"),
             ServiceError::UnexpectedRedirection(u) => write!(f, "Unexpected redirection to {}", u),
-            ServiceError::WrongCredentialsOnTest => write!(f, "Wrong credentials"),
+            ServiceError::LoginOnTest => write!(f, "Failed to login"),
         }
     }
 }
@@ -134,6 +137,7 @@ derive_from!(
     ServiceError::FileIo             <- FileIoError,
     ServiceError::ChronoParse        <- chrono::ParseError,
     ServiceError::Reqwest            <- reqwest::Error,
+    ServiceError::ToStr              <- reqwest::header::ToStrError,
     ServiceError::SerdeUrlencodedSer <- serde_urlencoded::ser::Error,
     ServiceError::Zip                <- ZipError,
     ServiceError::Io                 <- io::Error,
@@ -149,6 +153,7 @@ impl Fail for ServiceError {
             ServiceError::FileIo(e) => e.cause(),
             ServiceError::ChronoParse(e) => e.cause(),
             ServiceError::Reqwest(e) => e.cause(),
+            ServiceError::ToStr(e) => e.cause(),
             ServiceError::SerdeUrlencodedSer(e) => e.cause(),
             ServiceError::Zip(e) => e.cause(),
             ServiceError::Io(e) => e.cause(),
@@ -188,11 +193,13 @@ pub enum SessionError {
     FileIo(FileIoError),
     Bincode(StdErrorWithDisplayChain<bincode::Error>),
     Reqwest(StdErrorWithDisplayChain<reqwest::Error>),
+    InvalidHeaderValue(StdErrorWithDisplayChain<InvalidHeaderValue>),
+    ToStr(StdErrorWithDisplayChain<reqwest::header::ToStrError>),
     Io(StdErrorWithDisplayChain<io::Error>),
     Start(Context<StartSessionError>),
     ParseUrl(String, url::ParseError),
     ParseCookieFromPath(String, AbsPathBuf, cookie::ParseError),
-    ParseCookieFromUrl(String, Url, cookie::ParseError),
+    ParseCookieFromUrl(HeaderValue, Url),
     HeaderMissing(&'static str),
     ForbiddenByRobotsTxt,
     UnexpectedStatusCode(Vec<StatusCode>, StatusCode),
@@ -201,11 +208,13 @@ pub enum SessionError {
 
 #[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
 derive_from!(
-    SessionError::FileIo    <- FileIoError,
-    SessionError::Bincode   <- bincode::Error,
-    SessionError::Reqwest   <- reqwest::Error,
-    SessionError::Io        <- io::Error,
-    SessionError::Start     <- Context<StartSessionError>,
+    SessionError::FileIo             <- FileIoError,
+    SessionError::Bincode            <- bincode::Error,
+    SessionError::Reqwest            <- reqwest::Error,
+    SessionError::InvalidHeaderValue <- InvalidHeaderValue,
+    SessionError::ToStr              <- reqwest::header::ToStrError,
+    SessionError::Io                 <- io::Error,
+    SessionError::Start              <- Context<StartSessionError>,
 );
 
 impl fmt::Display for SessionError {
@@ -214,13 +223,15 @@ impl fmt::Display for SessionError {
             SessionError::FileIo(e) => write!(f, "{}", e),
             SessionError::Bincode(e) => write!(f, "{}", e),
             SessionError::Reqwest(e) => write!(f, "{}", e),
+            SessionError::InvalidHeaderValue(e) => write!(f, "{}", e),
+            SessionError::ToStr(e) => write!(f, "{}", e),
             SessionError::Io(e) => write!(f, "{}", e),
             SessionError::Start(e) => write!(f, "{}", e),
             SessionError::ParseUrl(s, _) => write!(f, "Failed to parse {:?}", s),
             SessionError::ParseCookieFromPath(s, p, _) => {
                 write!(f, "Failed to parse {:?} in {}", s, p.display())
             }
-            SessionError::ParseCookieFromUrl(s, u, _) => {
+            SessionError::ParseCookieFromUrl(s, u) => {
                 write!(f, "Failed to parse {:?} from {}", s, u)
             }
             SessionError::HeaderMissing(s) => {
@@ -254,11 +265,12 @@ impl Fail for SessionError {
             SessionError::FileIo(e) => e.cause(),
             SessionError::Bincode(e) => e.cause(),
             SessionError::Reqwest(e) => e.cause(),
+            SessionError::InvalidHeaderValue(e) => e.cause(),
+            SessionError::ToStr(e) => e.cause(),
             SessionError::Io(e) => e.cause(),
             SessionError::Start(e) => e.cause(),
             SessionError::ParseUrl(_, e) => Some(e),
-            SessionError::ParseCookieFromPath(_, _, e)
-            | SessionError::ParseCookieFromUrl(_, _, e) => Some(e),
+            SessionError::ParseCookieFromPath(_, _, e) => Some(e),
             _ => None,
         }
     }

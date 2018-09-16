@@ -92,7 +92,7 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
     fn login_if_not(&mut self, eprints_message_if_already_logged_in: bool) -> ServiceResult<()> {
         if self.session.has_cookie() {
             let res = self.get("/settings").acceptable(&[200, 302]).send()?;
-            if res.status() == StatusCode::Ok {
+            if res.status() == StatusCode::OK {
                 if eprints_message_if_already_logged_in {
                     writeln!(self.stderr(), "Already logged in.")?;
                     self.stderr().flush()?;
@@ -125,12 +125,12 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
         );
         self.post("/login").send_form(&payload)?;
         let res = self.get("/settings").acceptable(&[200, 302]).send()?;
-        let success = res.status() == StatusCode::Ok;
+        let success = res.status() == StatusCode::OK;
         if success {
             writeln!(self.stdout(), "Successfully logged in.")?;
             self.stdout().flush()?;
         } else if self.credentials.is_some() {
-            return Err(ServiceError::WrongCredentialsOnTest);
+            return Err(ServiceError::LoginOnTest);
         }
         Ok(success)
     }
@@ -144,7 +144,7 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
             .get(&contest.url_tasks())
             .acceptable(&[200, 302, 404])
             .send()?;
-        if res.status() == StatusCode::Ok {
+        if res.status() == StatusCode::OK {
             Ok(res.try_into_document()?)
         } else {
             self.register_if_active_or_explicit(contest, false)?;
@@ -161,7 +161,7 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
             .get(&contest.url_top())
             .acceptable(&[200, 302])
             .send()?;
-        if res.status() == StatusCode::Found {
+        if res.status() == StatusCode::FOUND {
             return Err(ServiceError::ContestNotFound(contest.to_string()));
         }
         let page = res.try_into_document()?;
