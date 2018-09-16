@@ -4,7 +4,7 @@ use console::{ConsoleWrite, Palette};
 use errors::{FileIoError, FileIoErrorCause, FileIoErrorKind, SuiteFileError, SuiteFileResult};
 use path::{AbsPath, AbsPathBuf};
 use template::Template;
-use util::{self, ScalarOrArray};
+use util;
 use yaml;
 
 use itertools::Itertools as _Itertools;
@@ -15,14 +15,14 @@ use {serde_json, serde_yaml, toml};
 
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
-use std::fmt::{self, Write as _FmtWrite};
-use std::io::Write;
+use std::io::{self, Write as _Write};
 use std::iter::FromIterator as _FromIterator;
+use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{self, f64, io, vec};
+use std::{self, f64, fmt, vec};
 
 /// Appends `input` and `output` to a test suite read from `path`.
 pub(crate) fn append(
@@ -337,11 +337,14 @@ impl ZipEntries {
         }
         let cases = cases
             .into_iter()
-            .map(|(name, input, output)| SimpleCase {
-                name: Arc::new(format!("{}:{}", filename, name)),
-                input: Arc::new(input),
-                expected: Arc::new(ExpectedStdout::new(Some(&output), output_match)),
-                timelimit,
+            .map(|(name, input, output)| {
+                let (input, expected) = process_pair(&input, Some(&output), output_match);
+                SimpleCase {
+                    name: Arc::new(format!("{}:{}", filename, name)),
+                    input,
+                    expected: Arc::new(expected),
+                    timelimit,
+                }
             }).collect();
         Ok(cases)
     }
@@ -479,7 +482,6 @@ pub(crate) struct SimpleSuite {
     timelimit: Option<Duration>,
     output_match: Match,
     cases: Vec<(Arc<String>, Option<Arc<String>>)>,
-    raw_cases: Option<Vec<SimpleCaseRaw>>,
 }
 
 impl SimpleSuite {
@@ -493,6 +495,7 @@ impl SimpleSuite {
             Match::default()
         } else {
             Match::Float {
+                add_eols_to_cases: true,
                 relative_error: relative_error.unwrap_or(f64::NAN),
                 absolute_error: absolute_error.unwrap_or(f64::NAN),
             }
@@ -504,7 +507,6 @@ impl SimpleSuite {
                 .into_iter()
                 .map(|(i, o)| (Arc::new(i.into()), o.into().map(|o| Arc::new(o.into()))))
                 .collect(),
-            raw_cases: None,
         }
     }
 
@@ -514,14 +516,14 @@ impl SimpleSuite {
         self.cases
             .into_iter()
             .enumerate()
-            .map(move |(i, (input, out))| {
-                let out = out.as_ref().map(|s| s.as_str());
-                let expected = Arc::new(ExpectedStdout::new(out, output_match));
+            .map(move |(i, (input, output))| {
+                let output = output.as_ref().map(|s| s.as_str());
+                let (input, expected) = process_pair(&input, output, output_match);
                 let name = Arc::new(format!("{}[{}]", filename, i));
                 SimpleCase {
                     name,
                     input,
-                    expected,
+                    expected: Arc::new(expected),
                     timelimit,
                 }
             }).collect::<Vec<_>>()
@@ -536,19 +538,13 @@ impl SimpleSuite {
 
 impl Serialize for SimpleSuite {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-        fn single_string(s: String) -> ScalarOrArray<NonArrayValue> {
-            ScalarOrArray::Scalar(NonArrayValue::String(s))
-        }
-        let cases = if let Some(raw_cases) = &self.raw_cases {
-            raw_cases.clone()
-        } else {
-            self.cases
-                .iter()
-                .map(|(i, o)| SimpleCaseRaw {
-                    input: single_string(i.as_ref().clone()),
-                    output: o.as_ref().map(|o| single_string(o.as_ref().clone())),
-                }).collect()
-        };
+        let cases = self
+            .cases
+            .iter()
+            .map(|(input, output)| SimpleCaseRaw {
+                input: input.deref().clone(),
+                output: output.as_ref().map(|o| o.deref().clone()),
+            }).collect();
         SimpleSuiteRaw {
             timelimit: self.timelimit,
             output_match: self.output_match,
@@ -559,28 +555,15 @@ impl Serialize for SimpleSuite {
 
 impl<'de> Deserialize<'de> for SimpleSuite {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        fn to_string(x: &ScalarOrArray<NonArrayValue>) -> Arc<String> {
-            Arc::new(match x {
-                ScalarOrArray::Scalar(x) => x.to_string(),
-                ScalarOrArray::Array(xs) => xs.iter().fold("".to_owned(), |mut r, x| {
-                    write!(r, "{}", x).unwrap();
-                    r
-                }),
-            })
-        }
         let raw = SimpleSuiteRaw::deserialize(deserializer)?;
         Ok(Self {
             timelimit: raw.timelimit,
             output_match: raw.output_match,
             cases: raw
                 .cases
-                .iter()
-                .map(|case| {
-                    let input = to_string(&case.input);
-                    let output = case.output.as_ref().map(to_string);
-                    (input, output)
-                }).collect(),
-            raw_cases: Some(raw.cases),
+                .into_iter()
+                .map(|case| (Arc::new(case.input), case.output.map(Arc::new)))
+                .collect(),
         })
     }
 }
@@ -602,29 +585,9 @@ struct SimpleSuiteRaw {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SimpleCaseRaw {
     #[serde(rename = "in")]
-    input: ScalarOrArray<NonArrayValue>,
+    input: String,
     #[serde(rename = "out", skip_serializing_if = "Option::is_none")]
-    output: Option<ScalarOrArray<NonArrayValue>>,
-}
-
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-enum NonArrayValue {
-    Integer(i64),
-    Float(f64),
-    String(String),
-}
-
-impl fmt::Display for NonArrayValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            NonArrayValue::Integer(n) => writeln!(f, "{}", n),
-            NonArrayValue::Float(v) => writeln!(f, "{}", v),
-            NonArrayValue::String(s) if s.ends_with('\n') => write!(f, "{}", s),
-            NonArrayValue::String(s) => writeln!(f, "{}", s),
-        }
-    }
+    output: Option<String>,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -707,8 +670,6 @@ pub(crate) trait TestCase {
 }
 
 /// Pair of `input` and `expected`.
-///
-/// `expected` is empty IFF omitted.
 #[derive(Clone)]
 pub(crate) struct SimpleCase {
     name: Arc<String>,
@@ -737,6 +698,50 @@ impl SimpleCase {
     }
 }
 
+fn process_pair(
+    input: &str,
+    output: Option<&str>,
+    output_match: Match,
+) -> (Arc<String>, ExpectedStdout) {
+    fn add_eols(ss: &mut [&mut String]) {
+        for s in ss {
+            if !s.ends_with('\n') {
+                s.push('\n');
+            }
+        }
+    }
+
+    match (output, output_match) {
+        (None, _) => (Arc::new(input.to_owned()), ExpectedStdout::AcceptAny),
+        (Some(output), Match::Exact { add_eols_to_cases }) => {
+            let (mut input, mut output) = (input.to_owned(), output.to_owned());
+            if add_eols_to_cases {
+                add_eols(&mut [&mut input, &mut output]);
+            }
+            (Arc::new(input), ExpectedStdout::Exact(output))
+        }
+        (
+            Some(output),
+            Match::Float {
+                add_eols_to_cases,
+                absolute_error,
+                relative_error,
+            },
+        ) => {
+            let (mut input, mut string) = (input.to_owned(), output.to_owned());
+            if add_eols_to_cases {
+                add_eols(&mut [&mut input, &mut string]);
+            }
+            let expected = ExpectedStdout::Float {
+                lines: string,
+                absolute_error,
+                relative_error,
+            };
+            (Arc::new(input), expected)
+        }
+    }
+}
+
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) enum ExpectedStdout {
@@ -749,32 +754,15 @@ pub(crate) enum ExpectedStdout {
     },
 }
 
-impl ExpectedStdout {
-    fn new(text: Option<&str>, output_match: Match) -> Self {
-        match (text, output_match) {
-            (None, _) => ExpectedStdout::AcceptAny,
-            (Some(s), Match::Exact) => ExpectedStdout::Exact(s.to_owned()),
-            (
-                Some(s),
-                Match::Float {
-                    absolute_error,
-                    relative_error,
-                },
-            ) => ExpectedStdout::Float {
-                lines: s.to_owned(),
-                absolute_error,
-                relative_error,
-            },
-        }
-    }
-}
-
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum Match {
-    Exact,
+    Exact {
+        add_eols_to_cases: bool,
+    },
     Float {
+        add_eols_to_cases: bool,
         #[serde(default = "nan")]
         relative_error: f64,
         #[serde(default = "nan")]
@@ -788,7 +776,9 @@ fn nan() -> f64 {
 
 impl Default for Match {
     fn default() -> Self {
-        Match::Exact
+        Match::Exact {
+            add_eols_to_cases: true,
+        }
     }
 }
 

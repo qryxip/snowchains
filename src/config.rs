@@ -48,7 +48,9 @@ testfiles:
   scrape: yaml
   zip:
     timelimit: 2000
-    match: exact
+    match:
+      exact:
+        add_eols_to_cases: false
     entries:
       # AtCoder
       - in:
@@ -98,19 +100,19 @@ services:
 
 interactive:
   python3:
-    src: py/{{kebab}}-tester.py
+    src: testers/py/test-{{kebab}}.py
     run:
       command: python3 -- $src $*
-      working_directory: py
+      working_directory: testers/py
   haskell:
-    src: hs/src/{{Pascal}}Tester.hs
+    src: testers/hs/src/Test{{Pascal}}.hs
     compile:
-      bin: hs/target/{{Pascal}}Tester
+      bin: testers/hs/target/Test{{Pascal}}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: hs
+      working_directory: testers/hs
     run:
       command: $bin $*
-      working_directory: hs
+      working_directory: testers/hs
 
 languages:
   c++:
