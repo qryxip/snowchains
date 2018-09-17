@@ -351,8 +351,7 @@ pub enum SuiteFileError {
     SerdeYaml(StdErrorWithDisplayChain<serde_yaml::Error>),
     TomlSer(StdErrorWithDisplayChain<toml::ser::Error>),
     Io(io::Error),
-    DirNotExist(AbsPathBuf),
-    NoFile(AbsPathBuf),
+    NoFile(String),
     DifferentTypesOfSuites,
     SuiteIsNotSimple,
     Unsubmittable(String),
@@ -370,15 +369,10 @@ impl fmt::Display for SuiteFileError {
             SuiteFileError::SerdeJson(_)
             | SuiteFileError::SerdeYaml(_)
             | SuiteFileError::TomlSer(_) => write!(f, "Failed to serialize"),
-            SuiteFileError::DirNotExist(d) => write!(
+            SuiteFileError::NoFile(s) => write!(
                 f,
-                "{:?} does not exist. Execute \"download\" command first",
-                d
-            ),
-            SuiteFileError::NoFile(d) => write!(
-                f,
-                "No test suite file in {:?}. Execute \"download\" command first",
-                d
+                "None of {} exists. Execute \"download\" command first",
+                s
             ),
             SuiteFileError::DifferentTypesOfSuites => write!(f, "Different types of suites"),
             SuiteFileError::SuiteIsNotSimple => write!(f, "Target suite is not \"simple\" type"),
@@ -637,9 +631,7 @@ impl fmt::Display for FileIoError {
             ),
             FileIoErrorKind::Lock => write!(f, "Failed to lock {}", path),
             FileIoErrorKind::CreateDirAll => write!(f, "Failed to create {}", path),
-            FileIoErrorKind::ReadDir | FileIoErrorKind::Read => {
-                write!(f, "Failed to read {}", path)
-            }
+            FileIoErrorKind::Read => write!(f, "Failed to read {}", path),
             FileIoErrorKind::Write => write!(f, "Failed to write to {}", path),
             FileIoErrorKind::Deserialize => write!(f, "Failed to deserialize data from {}", path),
             FileIoErrorKind::HomeDirNotFound => write!(f, "Home directory not found"),
@@ -674,7 +666,6 @@ pub(crate) enum FileIoErrorKind {
     OpenInReadWrite,
     Lock,
     CreateDirAll,
-    ReadDir,
     Read,
     Write,
     Deserialize,

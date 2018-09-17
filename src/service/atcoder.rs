@@ -5,7 +5,7 @@ use service::{
     Contest, DownloadProp, RestoreProp, Service, SessionProp, SubmitProp,
     TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
-use testsuite::{SuiteFilePath, TestSuite};
+use testsuite::TestSuite;
 use util::std_unstable::RemoveItem_ as _RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
@@ -187,10 +187,8 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
         let DownloadProp {
             contest,
             problems,
-            download_dir,
-            extension,
+            destinations,
             open_browser,
-            ..
         } = prop;
         let outputs = self
             .fetch_tasks_page(contest)?
@@ -201,7 +199,7 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
                 problems.is_none() || problems.as_ref().unwrap().iter().any(|s| s == name)
             }).map(|(name, url)| -> ServiceResult<_> {
                 let suite = self.get(&url).recv_html()?.extract_as_suite(contest)?;
-                let path = SuiteFilePath::new(download_dir, &name, *extension);
+                let path = destinations.scraping(&name)?;
                 Ok((url, suite, path, name))
             }).collect::<ServiceResult<Vec<_>>>()?;
         let mut not_found = match problems.as_ref() {

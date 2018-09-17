@@ -4,16 +4,12 @@ use path::{AbsPath, AbsPathBuf};
 use fs2::FileExt as _FileExt;
 
 use std;
-use std::fs::{File, OpenOptions, ReadDir};
+use std::fs::{File, OpenOptions};
 use std::io::Write as _Write;
 
 pub(crate) fn create_dir_all(dir: AbsPath) -> FileIoResult<()> {
     std::fs::create_dir_all(dir)
         .map_err(|err| FileIoError::new(FileIoErrorKind::CreateDirAll, dir).with(err))
-}
-
-pub(crate) fn read_dir(dir: AbsPath) -> FileIoResult<ReadDir> {
-    std::fs::read_dir(dir).map_err(|err| FileIoError::new(FileIoErrorKind::ReadDir, dir).with(err))
 }
 
 pub(crate) fn write(path: AbsPath, contents: &[u8]) -> FileIoResult<()> {

@@ -5,7 +5,10 @@ use path::{AbsPath, AbsPathBuf};
 use replacer::{CodeReplacer, CodeReplacerConf};
 use service::{ServiceName, SessionConfig};
 use template::{Template, TemplateBuilder};
-use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipConfig};
+use testsuite::{
+    DownloadDestinations, SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate,
+    ZipConfig,
+};
 use yaml;
 
 use serde_yaml;
@@ -43,7 +46,7 @@ session:
 shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
 
 testfiles:
-  directory: snowchains/$service/$contest/
+  path: snowchains/$service/$contest/{{snake}}.$extension
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
   zip:
@@ -426,25 +429,30 @@ impl Config {
         self.session.cookies(&self.base_dir, self.service)
     }
 
-    /// Gets `testfiles/directory` as a `Template`.
-    pub fn testfiles_dir(&self) -> Template<AbsPathBuf> {
-        self.testfiles
-            .directory
+    pub fn download_destinations(
+        &self,
+        ext: Option<SerializableExtension>,
+    ) -> DownloadDestinations {
+        let template = self
+            .testfiles
+            .path
             .build(&self.base_dir)
             .insert_string("service", self.service.to_str())
-            .insert_string("contest", &self.contest)
+            .insert_string("contest", &self.contest);
+        let ext = ext.unwrap_or(self.testfiles.scrape);
+        DownloadDestinations::new(template, ext)
     }
 
     pub fn suite_paths(&self) -> SuiteFilePathsTemplate {
-        let dir = self.testfiles_dir();
+        let path = self
+            .testfiles
+            .path
+            .build(&self.base_dir)
+            .insert_string("service", self.service.to_str())
+            .insert_string("contest", &self.contest);
         let exts = &self.testfiles.forall;
         let zip = &self.testfiles.zip;
-        SuiteFilePathsTemplate::new(dir, exts, zip)
-    }
-
-    /// Gets `testfiles.scrape`.
-    pub fn extension_on_scrape(&self) -> SerializableExtension {
-        self.testfiles.scrape
+        SuiteFilePathsTemplate::new(path, exts, zip)
     }
 
     pub fn src_paths(&self) -> HashMap<&str, Template<AbsPathBuf>> {
@@ -587,7 +595,7 @@ fn find_language<'a>(
 
 #[derive(Serialize, Deserialize)]
 struct TestFiles {
-    directory: TemplateBuilder<AbsPathBuf>,
+    path: TemplateBuilder<AbsPathBuf>,
     forall: BTreeSet<SuiteFileExtension>,
     scrape: SerializableExtension,
     zip: ZipConfig,

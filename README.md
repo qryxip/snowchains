@@ -69,7 +69,7 @@ session:
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
 
 testfiles:
-  directory: snowchains/$service/$contest/
+  path: snowchains/$service/$contest/{snake}.$extension
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
   zip:

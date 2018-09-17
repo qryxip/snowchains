@@ -105,6 +105,7 @@ impl TemplateBuilder<JudgingCommand> {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct Template<T: Target> {
     inner: T::Inner,
     base_dir: T::BaseDir,
@@ -265,9 +266,14 @@ impl FromStr for Tokens {
         use combine::char::{alpha_num, char, letter, spaces, string};
         use combine::{choice, eof, many, many1, satisfy, try};
 
+        fn escape<'a>(
+            from: &'static str,
+            to: &'static str,
+        ) -> impl Parser<Input = &'a str, Output = Token> {
+            string(from).map(move |_| Token::Text(to.to_owned()))
+        }
+
         let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Text);
-        let escaped =
-            |f: &'static str, t: &'static str| string(f).map(move |_| Token::Text(t.to_owned()));
         let problem = char('{')
             .with(spaces())
             .with(many(letter()))
@@ -281,9 +287,9 @@ impl FromStr for Tokens {
             ))).map(|(h, t): (_, String)| Token::Var(format!("{}{}", h, t)));
         many(choice((
             plain,
-            try(escaped("$$", "$")),
-            try(escaped("{{", "{")),
-            try(escaped("}}", "}")),
+            try(escape("$$", "$")),
+            try(escape("{{", "{")),
+            try(escape("}}", "}")),
             problem,
             var,
         ))).skip(eof())

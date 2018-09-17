@@ -2,6 +2,7 @@ extern crate snowchains;
 
 extern crate env_logger;
 extern crate failure;
+extern crate heck;
 extern crate serde;
 extern crate serde_yaml;
 extern crate tempdir;
@@ -12,6 +13,8 @@ mod common;
 use snowchains::app::App;
 use snowchains::console::NullConsole;
 use snowchains::service::ServiceName;
+
+use heck::SnakeCase as _SnakeCase;
 
 #[test]
 #[ignore]
@@ -47,7 +50,7 @@ fn it_downloads_testcases_from_master() {
             let wd = app.working_dir.clone();
             download(app, CONTEST, PROBLEMS)?;
             for problem in PROBLEMS {
-                common::confirm_zip_exists(&wd, CONTEST, problem)?;
+                common::confirm_zip_exists(&wd, CONTEST, &problem.to_snake_case())?;
             }
             Ok(())
         },
@@ -67,7 +70,7 @@ fn it_downloads_testcases_from_hourrank_20() {
             static PROBLEM: &str = "hot-and-cold";
             let wd = app.working_dir.clone();
             download(app, CONTEST, &[PROBLEM])?;
-            common::confirm_zip_exists(&wd, CONTEST, PROBLEM).map_err(Into::into)
+            common::confirm_zip_exists(&wd, CONTEST, &PROBLEM.to_snake_case()).map_err(Into::into)
         },
     );
 }

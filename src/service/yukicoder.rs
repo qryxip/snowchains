@@ -132,15 +132,14 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
         let DownloadProp {
             contest,
             problems,
-            download_dir,
-            extension,
+            destinations,
             open_browser,
         } = download_prop;
         self.login(false)?;
         let scrape =
             |document: &Document, problem: &str| -> ServiceResult<(TestSuite, SuiteFilePath)> {
                 let suite = document.extract_samples()?;
-                let path = SuiteFilePath::new(download_dir, problem, *extension);
+                let path = destinations.scraping(problem)?;
                 Ok((suite, path))
             };
         let (mut outputs, mut nos) = (vec![], vec![]);
@@ -208,7 +207,7 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
                 out: self.stdout().inner_writer(),
                 url_pref: URL_PREF,
                 url_suf: URL_SUF,
-                download_dir,
+                destinations,
                 names: &nos,
                 timeout,
                 cookie,

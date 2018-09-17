@@ -6,7 +6,7 @@ use service::{
     Contest, DownloadProp, PrintTargets as _PrintTargets, Service, SessionProp,
     TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
-use testsuite::{SuiteFilePath, TestSuite};
+use testsuite::TestSuite;
 
 use itertools::Itertools as _Itertools;
 use reqwest::{Response, StatusCode};
@@ -163,8 +163,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
         let DownloadProp {
             contest,
             problems,
-            download_dir,
-            extension,
+            destinations,
             open_browser,
         } = download_prop;
         let problems = problems.as_ref();
@@ -229,7 +228,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
                     .or_insert_with(|| vec![problem]);
             } else if let Some(body_html) = model.body_html {
                 let suite = Document::from(body_html.as_str()).extract_samples()?;
-                let path = SuiteFilePath::new(download_dir, &model.slug, *extension);
+                let path = destinations.scraping(&model.slug)?;
                 scraped.push((suite, path));
             } else if !model.can_be_viewed {
                 cannot_view.push(model.slug);
@@ -271,7 +270,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
                 out: io::sink(),
                 url_pref: &url_pref,
                 url_suf: URL_SUF,
-                download_dir,
+                destinations,
                 names: &names,
                 timeout,
                 cookie,

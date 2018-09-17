@@ -1,6 +1,9 @@
-use errors::{FileIoResult, ServiceError, ServiceResult, SessionError, SessionResult};
+use errors::{
+    ExpandTemplateResult, FileIoResult, ServiceError, ServiceResult, SessionError, SessionResult,
+};
 use path::{AbsPath, AbsPathBuf};
 use service;
+use testsuite::DownloadDestinations;
 
 use futures::sync::oneshot;
 use futures::{self, future, task, Async, Future, Poll, Stream};
@@ -22,7 +25,7 @@ pub(super) struct ZipDownloader<'a, W: io::Write, S: AsRef<str> + 'a> {
     pub out: W,
     pub url_pref: &'a str,
     pub url_suf: &'static str,
-    pub download_dir: AbsPath<'a>,
+    pub destinations: &'a DownloadDestinations,
     pub names: &'a [S],
     pub timeout: Option<Duration>,
     pub cookie: Option<HeaderValue>,
@@ -35,19 +38,26 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
             names: self.names.iter().map(|s| s.as_ref().to_owned()).collect(),
             suf: self.url_suf,
         };
-        let paths = Paths {
-            dir: self.download_dir.to_owned(),
-            names: self.names.iter().map(|s| s.as_ref().to_owned()).collect(),
-        };
+        let paths = self
+            .names
+            .iter()
+            .map(|name| self.destinations.zip(name.as_ref()))
+            .collect::<ExpandTemplateResult<Vec<_>>>()?;
         let timeout = self.timeout;
         let cookie = self.cookie;
-        writeln!(
-            self.out,
-            "URLS: {}\nTo:   {}",
-            urls,
-            self.download_dir.display(),
-        )?;
+
+        for path in &paths {
+            if let Some(dir) = path.parent() {
+                ::fs::create_dir_all(&dir)?;
+            }
+        }
+
+        writeln!(self.out, "{} to:", urls)?;
+        for path in &paths {
+            writeln!(self.out, "{}", path.display())?;
+        }
         self.out.flush()?;
+
         let (header_result_tx, header_result_rx) = oneshot::channel();
         let (mut pb_tx, pb_rx) = futures::sync::mpsc::channel(self.names.len());
         let thread = thread::spawn(move || -> ServiceResult<()> {
@@ -140,21 +150,6 @@ impl fmt::Display for Urls {
             write!(f, "{{{}}}", self.names.iter().format(", "))
         }?;
         write!(f, "{}", self.suf)
-    }
-}
-
-struct Paths {
-    dir: AbsPathBuf,
-    names: Vec<String>,
-}
-
-impl Paths {
-    fn iter(&self) -> impl Iterator<Item = AbsPathBuf> {
-        self.names
-            .iter()
-            .map(|s| self.dir.join(format!("{}.zip", s)))
-            .collect::<Vec<_>>()
-            .into_iter()
     }
 }
 

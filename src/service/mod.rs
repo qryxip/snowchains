@@ -13,7 +13,7 @@ use path::{AbsPath, AbsPathBuf};
 use replacer::CodeReplacer;
 use service::session::{HttpSession, UrlBase};
 use template::{Template, TemplateBuilder};
-use testsuite::SerializableExtension;
+use testsuite::DownloadDestinations;
 use {util, Never};
 
 use itertools::Itertools as _Itertools;
@@ -239,14 +239,13 @@ pub(self) fn reqwest_client(
 pub(crate) struct DownloadProp<C: Contest> {
     pub contest: C,
     pub problems: Option<Vec<String>>,
-    pub download_dir: AbsPathBuf,
-    pub extension: SerializableExtension,
+    pub destinations: DownloadDestinations,
     pub open_browser: bool,
 }
 
 impl DownloadProp<String> {
     pub fn new(config: &Config, open_browser: bool, problems: Vec<String>) -> ::Result<Self> {
-        let download_dir = config.testfiles_dir().expand("")?;
+        let destinations = config.download_destinations(None);
         Ok(Self {
             contest: config.contest().to_owned(),
             problems: if problems.is_empty() {
@@ -254,8 +253,7 @@ impl DownloadProp<String> {
             } else {
                 Some(problems)
             },
-            download_dir,
-            extension: config.extension_on_scrape(),
+            destinations,
             open_browser,
         })
     }
@@ -264,8 +262,7 @@ impl DownloadProp<String> {
         DownloadProp {
             contest: C::from_string(self.contest),
             problems: self.problems,
-            download_dir: self.download_dir,
-            extension: self.extension,
+            destinations: self.destinations,
             open_browser: self.open_browser,
         }
     }
