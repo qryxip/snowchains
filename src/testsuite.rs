@@ -1,9 +1,8 @@
 use command::{CompilationCommand, JudgingCommand};
-use config::Config;
 use console::{ConsoleWrite, Palette};
 use errors::{
-    ExpandTemplateResult, FileIoError, FileIoErrorCause, FileIoErrorKind, SuiteFileError,
-    SuiteFileResult,
+    ExpandTemplateResult, FileIoError, FileIoErrorCause, FileIoErrorKind, LoadConfigError,
+    SuiteFileError, SuiteFileResult,
 };
 use path::{AbsPath, AbsPathBuf};
 use template::Template;
@@ -15,7 +14,7 @@ use zip::ZipArchive;
 use {serde_json, serde_yaml, toml};
 
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::io::{self, Write as _Write};
 use std::iter::FromIterator as _FromIterator;
 use std::ops::Deref;
@@ -127,30 +126,32 @@ impl fmt::Display for SuiteFileExtension {
     }
 }
 
-pub(crate) struct SuiteFilePathsTemplate<'a> {
-    path: Template<AbsPathBuf>,
+pub(crate) struct TestCaseLoader<'a> {
+    template: Template<AbsPathBuf>,
     extensions: &'a BTreeSet<SuiteFileExtension>,
-    zip: &'a ZipConfig,
+    zip_conf: &'a ZipConfig,
+    tester_compilacions: HashMap<String, Template<CompilationCommand>>,
+    tester_commands: HashMap<String, Template<JudgingCommand>>,
 }
 
-impl<'a> SuiteFilePathsTemplate<'a> {
+impl<'a> TestCaseLoader<'a> {
     pub fn new(
-        path: Template<AbsPathBuf>,
+        template: Template<AbsPathBuf>,
         extensions: &'a BTreeSet<SuiteFileExtension>,
-        zip: &'a ZipConfig,
+        zip_conf: &'a ZipConfig,
+        tester_compilacions: HashMap<String, Template<CompilationCommand>>,
+        tester_commands: HashMap<String, Template<JudgingCommand>>,
     ) -> Self {
         Self {
-            path,
+            template,
             extensions,
-            zip,
+            zip_conf,
+            tester_compilacions,
+            tester_commands,
         }
     }
 
-    pub fn load_merging(
-        &self,
-        config: &Config,
-        problem: &str,
-    ) -> SuiteFileResult<(TestCases, String)> {
+    pub fn load_merging(&self, problem: &str) -> SuiteFileResult<(TestCases, String)> {
         fn format_paths(paths: &[impl AsRef<str>]) -> String {
             let mut pref_common = "".to_owned();
             let mut suf_common_rev = vec![];
@@ -208,7 +209,7 @@ impl<'a> SuiteFilePathsTemplate<'a> {
             .extensions
             .iter()
             .map(|ext| {
-                self.path
+                self.template
                     .clone()
                     .insert_string("extension", ext.to_string())
                     .expand(problem)
@@ -234,9 +235,14 @@ impl<'a> SuiteFilePathsTemplate<'a> {
             if let Some(extension) = extension.serializable() {
                 let path = SuiteFilePath { path, extension };
                 match TestSuite::load(&path)? {
-                    TestSuite::Simple(suite) => simple_cases.extend(suite.with_filename(&filename)),
+                    TestSuite::Simple(suite) => simple_cases.extend(suite.cases_named(&filename)),
                     TestSuite::Interactive(suite) => {
-                        interactive_cases.extend(suite.cases(&config, &filename, problem)?);
+                        interactive_cases.extend(suite.cases_named(
+                            &self.tester_compilacions,
+                            &self.tester_commands,
+                            &filename,
+                            problem,
+                        )?);
                     }
                     TestSuite::Unsubmittable => {
                         return Err(SuiteFileError::Unsubmittable(problem.to_owned()))
@@ -244,7 +250,7 @@ impl<'a> SuiteFilePathsTemplate<'a> {
                 }
                 filepaths.push(path.path.display().to_string());
             } else {
-                let cases = self.zip.load(&path, &filename)?;
+                let cases = self.zip_conf.load(&path, &filename)?;
                 if !cases.is_empty() {
                     simple_cases.extend(cases);
                     filepaths.push(path.display().to_string());
@@ -460,31 +466,6 @@ pub(crate) enum TestSuite {
 }
 
 impl TestSuite {
-    /// Constructs a `TestSuite::Simple` with `timelimit` and `samples`.
-    pub fn simple<
-        T: Into<Option<Duration>>,
-        S: Into<String>,
-        O: Into<Option<S>>,
-        I: IntoIterator<Item = (S, O)>,
-    >(
-        timelimit: T,
-        absolute_error: Option<f64>,
-        relative_error: Option<f64>,
-        samples: I,
-    ) -> Self {
-        TestSuite::Simple(SimpleSuite::from_samples(
-            timelimit.into(),
-            absolute_error,
-            relative_error,
-            samples,
-        ))
-    }
-
-    /// Constructs a `TestSuite::Interactive` with `timelimit`.
-    pub fn interactive(timelimit: Duration) -> Self {
-        TestSuite::Interactive(InteractiveSuite::empty(Some(timelimit)))
-    }
-
     fn load(path: &SuiteFilePath) -> SuiteFileResult<Self> {
         fn chain_err<E: Into<FileIoErrorCause>>(err: E, path: &Path) -> FileIoError {
             FileIoError::new(FileIoErrorKind::Deserialize, path).with(err)
@@ -544,6 +525,18 @@ impl TestSuite {
     }
 }
 
+impl From<SimpleSuite> for TestSuite {
+    fn from(from: SimpleSuite) -> Self {
+        TestSuite::Simple(from)
+    }
+}
+
+impl From<InteractiveSuite> for TestSuite {
+    fn from(from: InteractiveSuite) -> Self {
+        TestSuite::Interactive(from)
+    }
+}
+
 trait WrapInIoError {
     type Problem;
     fn wrap_in_io_error(self) -> io::Result<Self::Problem>;
@@ -567,32 +560,27 @@ pub(crate) struct SimpleSuite {
 }
 
 impl SimpleSuite {
-    fn from_samples<S: Into<String>, O: Into<Option<S>>, I: IntoIterator<Item = (S, O)>>(
-        timelimit: Option<Duration>,
-        absolute_error: Option<f64>,
-        relative_error: Option<f64>,
-        samples: I,
-    ) -> Self {
-        let output_match = if absolute_error.is_none() && relative_error.is_none() {
-            Match::default()
-        } else {
-            Match::Float {
-                add_eols_to_cases: true,
-                relative_error: relative_error.unwrap_or(f64::NAN),
-                absolute_error: absolute_error.unwrap_or(f64::NAN),
-            }
-        };
+    pub fn new(timelimit: impl Into<Option<Duration>>) -> Self {
         Self {
-            timelimit,
-            output_match,
-            cases: samples
-                .into_iter()
-                .map(|(i, o)| (Arc::new(i.into()), o.into().map(|o| Arc::new(o.into()))))
-                .collect(),
+            timelimit: timelimit.into(),
+            output_match: Match::default(),
+            cases: vec![],
         }
     }
 
-    fn with_filename(self, filename: &str) -> Vec<SimpleCase> {
+    pub fn cases<S: Into<String>, O: Into<Option<S>>, I: IntoIterator<Item = (S, O)>>(
+        mut self,
+        cases: I,
+    ) -> Self {
+        self.cases.extend(
+            cases
+                .into_iter()
+                .map(|(i, o)| (Arc::new(i.into()), o.into().map(|o| Arc::new(o.into())))),
+        );
+        self
+    }
+
+    fn cases_named(self, filename: &str) -> Vec<SimpleCase> {
         let timelimit = self.timelimit;
         let output_match = self.output_match;
         self.cases
@@ -623,11 +611,11 @@ impl Serialize for SimpleSuite {
         let cases = self
             .cases
             .iter()
-            .map(|(input, output)| SimpleCaseRaw {
+            .map(|(input, output)| SimpleCaseSchema {
                 input: input.deref().clone(),
                 output: output.as_ref().map(|o| o.deref().clone()),
             }).collect();
-        SimpleSuiteRaw {
+        SimpleSuiteSchema {
             timelimit: self.timelimit,
             output_match: self.output_match,
             cases,
@@ -637,7 +625,7 @@ impl Serialize for SimpleSuite {
 
 impl<'de> Deserialize<'de> for SimpleSuite {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        let raw = SimpleSuiteRaw::deserialize(deserializer)?;
+        let raw = SimpleSuiteSchema::deserialize(deserializer)?;
         Ok(Self {
             timelimit: raw.timelimit,
             output_match: raw.output_match,
@@ -651,7 +639,7 @@ impl<'de> Deserialize<'de> for SimpleSuite {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct SimpleSuiteRaw {
+struct SimpleSuiteSchema {
     #[serde(
         serialize_with = "util::ser::millis",
         deserialize_with = "util::de::millis",
@@ -660,12 +648,12 @@ struct SimpleSuiteRaw {
     timelimit: Option<Duration>,
     #[serde(rename = "match", default)]
     output_match: Match,
-    cases: Vec<SimpleCaseRaw>,
+    cases: Vec<SimpleCaseSchema>,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct SimpleCaseRaw {
+struct SimpleCaseSchema {
     #[serde(rename = "in")]
     input: String,
     #[serde(rename = "out", skip_serializing_if = "Option::is_none")]
@@ -686,35 +674,45 @@ pub(crate) struct InteractiveSuite {
 }
 
 impl InteractiveSuite {
-    fn empty(timelimit: Option<Duration>) -> Self {
+    pub fn new(timelimit: impl Into<Option<Duration>>) -> Self {
         Self {
-            timelimit,
+            timelimit: timelimit.into(),
             tester: None,
             each_args: vec![],
         }
     }
 
-    fn cases(
+    fn cases_named(
         &self,
-        config: &Config,
+        tester_compilations: &HashMap<String, Template<CompilationCommand>>,
+        tester_commands: &HashMap<String, Template<JudgingCommand>>,
         filename: &str,
         problem: &str,
     ) -> SuiteFileResult<vec::IntoIter<InteractiveCase>> {
         let mut cases = Vec::with_capacity(self.each_args.len());
         for (i, args) in self.each_args.iter().enumerate() {
-            let lang = self.tester.as_ref().map(String::as_str);
+            let lang = self
+                .tester
+                .as_ref()
+                .ok_or_else(|| LoadConfigError::LanguageNotSpecified)?;
             let mut m = hashmap!("*".to_owned() => args.join(" "));
             for (i, arg) in args.iter().enumerate() {
                 m.insert((i + 1).to_string(), arg.clone());
             }
-            let tester = config
-                .interactive_tester(lang)?
+            let tester_compilation = match tester_compilations
+                .get(lang)
+                .map(|t| t.clone().expand(&problem))
+            {
+                None => Ok(None),
+                Some(Err(err)) => Err(err),
+                Some(Ok(comp)) => Ok(Some(Arc::new(comp))),
+            }?;
+            let tester = tester_commands
+                .get(lang)
+                .map(|template| template.clone().clone())
+                .ok_or_else(|| LoadConfigError::NoSuchLanguage(lang.to_owned()))?
                 .insert_strings(&m)
                 .expand(&problem)?;
-            let tester_compilation = match config.interactive_tester_compilation(lang)? {
-                Some(compilation) => Some(Arc::new(compilation.expand(&problem)?)),
-                None => None,
-            };
             cases.push(InteractiveCase {
                 name: Arc::new(format!("{}[{}]", filename, i)),
                 tester: Arc::new(tester),

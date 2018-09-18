@@ -59,7 +59,7 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
                 outcome.print_details(&mut stderr)?;
             }
             stderr.flush()?;
-            Err(JudgeError::TestFailure(num_failures, num_cases))
+            Err(JudgeError::TestFailed(num_failures, num_cases))
         }
     }
 
@@ -67,7 +67,7 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
         mut stdout,
         mut stderr,
         cases,
-        case_paths,
+        case_paths_formatted,
         solver,
         solver_compilation,
         tester_compilations,
@@ -83,7 +83,7 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
         writeln!(stdout)?;
         stdout.flush()?;
     }
-    solver.write_info(&mut stdout, &case_paths)?;
+    solver.write_info(&mut stdout, &case_paths_formatted)?;
     let (out, solver) = ((stdout, stderr), Arc::new(solver));
     match cases {
         TestCases::Simple(cases) => judge_all(out, cases, &solver, simple::judge),
@@ -95,7 +95,7 @@ pub(crate) struct JudgeProp<O: ConsoleWrite, E: ConsoleWrite> {
     stdout: O,
     stderr: E,
     cases: TestCases,
-    case_paths: String,
+    case_paths_formatted: String,
     solver: JudgingCommand,
     solver_compilation: Option<CompilationCommand>,
     tester_compilations: HashSet<Arc<CompilationCommand>>,
@@ -110,7 +110,7 @@ impl<O: ConsoleWrite, E: ConsoleWrite> JudgeProp<O, E> {
         language: Option<&str>,
         force_compile: bool,
     ) -> ::Result<Self> {
-        let (cases, paths) = config.suite_paths().load_merging(config, problem)?;
+        let (cases, paths_formatted) = config.testcase_loader().load_merging(problem)?;
         let solver = config.solver(language)?.expand(&problem)?;
         let solver_compilation = match config.solver_compilation(language)? {
             Some(compilation) => Some(compilation.expand(&problem)?),
@@ -122,7 +122,7 @@ impl<O: ConsoleWrite, E: ConsoleWrite> JudgeProp<O, E> {
             stderr,
             tester_compilations: cases.interactive_tester_compilations(),
             cases,
-            case_paths: paths,
+            case_paths_formatted: paths_formatted,
             solver,
             solver_compilation,
             force_compile,

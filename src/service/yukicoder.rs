@@ -6,7 +6,7 @@ use service::{
     Contest, DownloadProp, PrintTargets as _PrintTargets, RevelSession, Service, SessionProp,
     SubmitProp, TryIntoDocument as _TryIntoDocument,
 };
-use testsuite::{SuiteFilePath, TestSuite};
+use testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
 use regex::Regex;
@@ -451,9 +451,9 @@ impl Extract for Document {
                         };
                         samples.push((input, output));
                     }
-                    Some(TestSuite::simple(timelimit, None, None, samples))
+                    Some(SimpleSuite::new(timelimit).cases(samples).into())
                 }
-                ProblemKind::Reactive => Some(TestSuite::interactive(timelimit)),
+                ProblemKind::Reactive => Some(InteractiveSuite::new(timelimit).into()),
             }
         };
         extract().ok_or(ServiceError::Scrape)
@@ -510,7 +510,7 @@ mod tests {
     use service::session::{HttpSession, UrlBase};
     use service::yukicoder::{Extract as _Extract, Username, Yukicoder};
     use service::{self, RevelSession, Service as _Service};
-    use testsuite::TestSuite;
+    use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 
     use env_logger;
     use url::Host;
@@ -524,22 +524,17 @@ mod tests {
         let _ = env_logger::try_init();
         test_extracting_samples(
             "/problems/no/1",
-            TestSuite::simple(
-                Duration::from_secs(5),
-                None,
-                None,
-                vec![
-                    ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
-                    ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
-                    (
-                        "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
-                         3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
-                         8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
-                         8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
-                        "-1\n",
-                    ),
-                ],
-            ),
+            SimpleSuite::new(Duration::from_secs(5)).cases(vec![
+                ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
+                ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
+                (
+                    "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
+                     3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
+                     8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
+                     8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
+                    "-1\n",
+                ),
+            ]),
         );
     }
 
@@ -547,15 +542,7 @@ mod tests {
     #[ignore]
     fn it_extracts_samples_from_problem188() {
         let _ = env_logger::try_init();
-        test_extracting_samples(
-            "/problems/no/188",
-            TestSuite::simple(
-                Duration::from_secs(1),
-                None,
-                None,
-                Vec::<(&'static str, Option<&'static str>)>::new(),
-            ),
-        );
+        test_extracting_samples("/problems/no/188", SimpleSuite::new(Duration::from_secs(1)));
     }
 
     #[test]
@@ -564,12 +551,7 @@ mod tests {
         let _ = env_logger::try_init();
         test_extracting_samples(
             "/problems/no/192",
-            TestSuite::simple(
-                Duration::from_secs(2),
-                None,
-                None,
-                vec![("101\n", None), ("1000\n", None)],
-            ),
+            SimpleSuite::new(Duration::from_secs(2)).cases(vec![("101\n", None), ("1000\n", None)]),
         );
     }
 
@@ -579,15 +561,15 @@ mod tests {
         let _ = env_logger::try_init();
         test_extracting_samples(
             "/problems/no/246",
-            TestSuite::interactive(Duration::from_secs(2)),
+            InteractiveSuite::new(Duration::from_secs(2)),
         );
     }
 
-    fn test_extracting_samples(url: &str, expected: TestSuite) {
+    fn test_extracting_samples(url: &str, expected: impl Into<TestSuite>) {
         let mut yukicoder = start().unwrap();
         let document = yukicoder.get(url).recv_html().unwrap();
         let samples = document.extract_samples().unwrap();
-        assert_eq!(expected, samples);
+        assert_eq!(expected.into(), samples);
     }
 
     #[test]

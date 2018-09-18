@@ -290,7 +290,7 @@ pub enum JudgeError {
     Recv(RecvError),
     Command(OsString, io::Error),
     Compile(ExitStatus),
-    TestFailure(usize, usize),
+    TestFailed(usize, usize),
 }
 
 #[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
@@ -318,7 +318,7 @@ impl fmt::Display for JudgeError {
                     "without code".to_owned()
                 }
             ),
-            JudgeError::TestFailure(n, d) => write!(
+            JudgeError::TestFailed(n, d) => write!(
                 f,
                 "{}/{} Test{} failed",
                 n,

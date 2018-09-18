@@ -6,7 +6,7 @@ use service::{
     Contest, DownloadProp, PrintTargets as _PrintTargets, Service, SessionProp,
     TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
-use testsuite::TestSuite;
+use testsuite::{SimpleSuite, TestSuite};
 
 use itertools::Itertools as _Itertools;
 use reqwest::{Response, StatusCode};
@@ -382,7 +382,7 @@ impl Extract for Document {
             return Err(ServiceError::Scrape);
         }
         let samples = inputs.into_iter().zip(outputs);
-        Ok(TestSuite::simple(None, None, None, samples))
+        Ok(SimpleSuite::new(None).cases(samples).into())
     }
 }
 
@@ -393,7 +393,7 @@ mod tests {
     use service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
     use service::session::{HttpSession, UrlBase};
     use service::{self, Service as _Service, UserNameAndPassword};
-    use testsuite::TestSuite;
+    use testsuite::{SimpleSuite, TestSuite};
 
     use select::document::Document;
     use url::Host;
@@ -403,16 +403,11 @@ mod tests {
     #[test]
     #[ignore]
     fn it_scrapes_samples() {
-        let expected = TestSuite::simple(
-            None,
-            None,
-            None,
-            vec![
-                ("50 40 70 60", "YES"),
-                ("55 66 66 77", "YES"),
-                ("80 80 40 40", "NO"),
-            ],
-        );
+        let expected = TestSuite::from(SimpleSuite::new(None).cases(vec![
+            ("50 40 70 60", "YES"),
+            ("55 66 66 77", "YES"),
+            ("80 80 40 40", "NO"),
+        ]));
         let actual = {
             let mut hackerrank = start().unwrap();
             let json = hackerrank

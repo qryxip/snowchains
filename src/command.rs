@@ -130,16 +130,12 @@ impl JudgingCommand {
     /// Working directory: /path/to/working/dir/
     /// Test files:        /path/to/testfiles/{a.json, a.yaml}
     /// """
-    pub fn write_info(
-        &self,
-        mut out: impl ConsoleWrite,
-        testfiles_matched: &str,
-    ) -> io::Result<()> {
+    pub fn write_info(&self, mut out: impl ConsoleWrite, paths_formatted: &str) -> io::Result<()> {
         let args = self.0.format_args();
         let wd = self.0.working_dir.display().to_string();
         write_info(&mut out, "Command:          ", &args)?;
         write_info(&mut out, "Working directory:", &[&wd])?;
-        write_info(&mut out, "Test files:       ", &[testfiles_matched])
+        write_info(&mut out, "Test files:       ", &[paths_formatted])
     }
 
     pub fn spawn_async_piped(&self) -> JudgeResult<tokio_process::Child> {

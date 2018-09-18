@@ -5,7 +5,7 @@ use service::{
     Contest, DownloadProp, RestoreProp, Service, SessionProp, SubmitProp,
     TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
-use testsuite::TestSuite;
+use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 use util::std_unstable::RemoveItem_ as _RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
@@ -776,13 +776,12 @@ impl Extract for Document {
             return Ok(TestSuite::Unsubmittable);
         }
         match extract_samples(self, contest) {
-            Some(Samples::Simple(samples)) => Ok(TestSuite::simple(timelimit, None, None, samples)),
-            Some(Samples::Interactive) => Ok(TestSuite::interactive(timelimit)),
             None => {
                 warn!("Extracting sample cases: Could not extract sample cases");
-                let empty = Vec::<(&'static str, &'static str)>::new();
-                Ok(TestSuite::simple(timelimit, None, None, empty))
+                Ok(SimpleSuite::new(timelimit).into())
             }
+            Some(Samples::Simple(samples)) => Ok(SimpleSuite::new(timelimit).cases(samples).into()),
+            Some(Samples::Interactive) => Ok(InteractiveSuite::new(timelimit).into()),
         }
     }
 
@@ -916,12 +915,11 @@ mod tests {
     use service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
     use service::session::{HttpSession, UrlBase};
     use service::{self, Service as _Service, UserNameAndPassword};
-    use testsuite::TestSuite;
+    use testsuite::{SimpleSuite, TestSuite};
 
     use env_logger;
     use url::Host;
 
-    use std::borrow::Borrow;
     use std::time::Duration;
 
     #[test]
@@ -1242,18 +1240,12 @@ mod tests {
             assert_eq!(expected_url, actual_url);
             let problem_page = atcoder.get(&actual_url).recv_html().unwrap();
             let expected_timelimit = Duration::from_millis(*expected_timelimit);
-            let expected_suite =
-                TestSuite::simple(expected_timelimit, None, None, own_pairs(expected_samples));
+            let expected_suite = TestSuite::from(
+                SimpleSuite::new(expected_timelimit).cases(expected_samples.iter().cloned()),
+            );
             let actual_suite = problem_page.extract_as_suite(&contest).unwrap();
             assert_eq!(expected_suite, actual_suite);
         }
-    }
-
-    fn own_pairs<O: Borrow<B>, B: ToOwned<Owned = O> + ?Sized>(pairs: &[(&B, &B)]) -> Vec<(O, O)> {
-        pairs
-            .iter()
-            .map(|(l, r)| ((*l).to_owned(), (*r).to_owned()))
-            .collect()
     }
 
     #[test]

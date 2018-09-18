@@ -6,8 +6,7 @@ use replacer::{CodeReplacer, CodeReplacerConf};
 use service::{ServiceName, SessionConfig};
 use template::{Template, TemplateBuilder};
 use testsuite::{
-    DownloadDestinations, SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate,
-    ZipConfig,
+    DownloadDestinations, SerializableExtension, SuiteFileExtension, TestCaseLoader, ZipConfig,
 };
 use yaml;
 
@@ -443,16 +442,20 @@ impl Config {
         DownloadDestinations::new(template, ext)
     }
 
-    pub fn suite_paths(&self) -> SuiteFilePathsTemplate {
+    pub fn testcase_loader(&self) -> TestCaseLoader {
         let path = self
             .testfiles
             .path
             .build(&self.base_dir)
             .insert_string("service", self.service.to_str())
             .insert_string("contest", &self.contest);
-        let exts = &self.testfiles.forall;
-        let zip = &self.testfiles.zip;
-        SuiteFilePathsTemplate::new(path, exts, zip)
+        TestCaseLoader::new(
+            path,
+            &self.testfiles.forall,
+            &self.testfiles.zip,
+            self.interactive_tester_compilations(),
+            self.interactive_testers(),
+        )
     }
 
     pub fn src_paths(&self) -> HashMap<&str, Template<AbsPathBuf>> {
@@ -509,25 +512,23 @@ impl Config {
         Ok(self.compilation_command(lang))
     }
 
-    pub fn interactive_tester_compilation(
-        &self,
-        lang: Option<&str>,
-    ) -> LoadConfigResult<Option<Template<CompilationCommand>>> {
-        let lang = find_language(&self.interactive, lang)?;
-        Ok(self.compilation_command(lang))
-    }
-
     pub fn solver(&self, lang: Option<&str>) -> LoadConfigResult<Template<JudgingCommand>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         Ok(self.judge_command(lang))
     }
 
-    pub fn interactive_tester(
-        &self,
-        lang: Option<&str>,
-    ) -> LoadConfigResult<Template<JudgingCommand>> {
-        let lang = find_language(&self.interactive, lang)?;
-        Ok(self.judge_command(lang))
+    fn interactive_tester_compilations(&self) -> HashMap<String, Template<CompilationCommand>> {
+        self.interactive
+            .iter()
+            .filter_map(|(name, conf)| self.compilation_command(conf).map(|t| (name.to_owned(), t)))
+            .collect()
+    }
+
+    fn interactive_testers(&self) -> HashMap<String, Template<JudgingCommand>> {
+        self.interactive
+            .iter()
+            .map(|(name, conf)| (name.clone(), self.judge_command(&conf)))
+            .collect()
     }
 
     fn compilation_command(&self, lang: &Language) -> Option<Template<CompilationCommand>> {

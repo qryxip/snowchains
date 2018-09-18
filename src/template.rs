@@ -105,7 +105,6 @@ impl TemplateBuilder<JudgingCommand> {
     }
 }
 
-#[derive(Clone)]
 pub(crate) struct Template<T: Target> {
     inner: T::Inner,
     base_dir: T::BaseDir,
@@ -208,6 +207,22 @@ impl<
             .collect::<ExpandTemplateResult<Vec<_>>>()?
         };
         Ok((args, wd, src, bin))
+    }
+}
+
+impl<T: Target> Clone for Template<T>
+where
+    T::Inner: Clone,
+    T::BaseDir: Clone,
+    T::CommandAdditional: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            base_dir: self.base_dir.clone(),
+            command_additional: self.command_additional.clone(),
+            strings: self.strings.clone(),
+        }
     }
 }
 
@@ -482,6 +497,7 @@ pub(crate) enum CommandTemplateInner {
     Args(Vec<Tokens>),
 }
 
+#[derive(Clone)]
 pub(crate) struct CommandAdditionalInfo {
     shell: Vec<Tokens>,
     working_dir: Tokens,
