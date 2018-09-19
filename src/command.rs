@@ -84,9 +84,11 @@ impl CompilationCommand {
             Some(code) => (Cow::from(code.to_string()), Palette::Fatal),
             None => (Cow::from("<no exit code>"), Palette::Warning),
         };
-        write!(stdout.bold(Palette::CommandInfo), "Status code:")?;
+        write!(stdout.bold(Palette::Info), "Status code")?;
+        write!(stdout.plain(Palette::Info), ":")?;
         writeln!(stdout.bold(palette), " {}", code)?;
-        write!(stdout.bold(Palette::CommandInfo), "Time:")?;
+        write!(stdout.bold(Palette::Info), "Time")?;
+        write!(stdout.plain(Palette::Info), ":")?;
         writeln!(stdout.bold(None), "        {:?}", elapsed)?;
         stdout.flush()?;
 
@@ -198,7 +200,7 @@ impl Inner {
 }
 
 fn write_info(mut out: impl ConsoleWrite, title: &str, rest: &[impl AsRef<str>]) -> io::Result<()> {
-    write!(out.bold(Palette::CommandInfo), "{} ", title)?;
+    write!(out.bold(Palette::Info), "{} ", title)?;
     if let Some(w) = out.columns() {
         let o = out.width(title) + 1;
         let mut x = 0;

@@ -7,7 +7,7 @@ pub(crate) mod yukicoder;
 pub(self) mod downloader;
 
 use config::Config;
-use console::{ConsoleReadWrite, Printer};
+use console::{ConsoleReadWrite, ConsoleWrite, Palette, Printer};
 use errors::SessionResult;
 use path::{AbsPath, AbsPathBuf};
 use replacer::CodeReplacer;
@@ -16,7 +16,7 @@ use template::{Template, TemplateBuilder};
 use testsuite::DownloadDestinations;
 use {util, Never};
 
-use itertools::Itertools as _Itertools;
+use heck::KebabCase as _KebabCase;
 use reqwest::header::{self, HeaderMap};
 use reqwest::{self, RedirectPolicy, Response};
 use select::document::Document;
@@ -28,7 +28,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Duration;
-use std::{self, fmt};
+use std::{self, fmt, slice};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -258,10 +258,15 @@ impl DownloadProp<String> {
         })
     }
 
-    pub(self) fn parse_contest<C: Contest>(self) -> DownloadProp<C> {
+    pub(self) fn convert_contest_and_problems<C: Contest>(
+        self,
+        conversion: ProblemNameConversion,
+    ) -> DownloadProp<C> {
         DownloadProp {
             contest: C::from_string(self.contest),
-            problems: self.problems,
+            problems: self
+                .problems
+                .map(|ps| ps.into_iter().map(|p| conversion.convert(&p)).collect()),
             destinations: self.destinations,
             open_browser: self.open_browser,
         }
@@ -277,17 +282,6 @@ impl<C: Contest> PrintTargets for DownloadProp<C> {
 
     fn problems(&self) -> Option<&[String]> {
         self.problems.as_ref().map(Deref::deref)
-    }
-}
-
-impl<C: Contest> DownloadProp<C> {
-    pub(self) fn lowerize_problems(self) -> Self {
-        Self {
-            problems: self
-                .problems
-                .map(|ps| ps.into_iter().map(|p| p.to_lowercase()).collect()),
-            ..self
-        }
     }
 }
 
@@ -313,24 +307,30 @@ impl<'a> RestoreProp<'a, String> {
         })
     }
 
-    pub(self) fn parse_contest<C: Contest>(self) -> RestoreProp<'a, C> {
+    pub(self) fn convert_contest_and_problems<C: Contest>(
+        self,
+        conversion: ProblemNameConversion,
+    ) -> RestoreProp<'a, C> {
         RestoreProp {
             contest: C::from_string(self.contest),
-            problems: self.problems,
+            problems: self
+                .problems
+                .map(|ps| ps.into_iter().map(|p| conversion.convert(&p)).collect()),
             src_paths: self.src_paths,
             replacers: self.replacers,
         }
     }
 }
 
-impl<'a, C: Contest> RestoreProp<'a, C> {
-    pub(self) fn upperize_problems(self) -> Self {
-        Self {
-            problems: self
-                .problems
-                .map(|ps| ps.into_iter().map(|p| p.to_uppercase()).collect()),
-            ..self
-        }
+impl<'a, C: Contest> PrintTargets for RestoreProp<'a, C> {
+    type Contest = C;
+
+    fn contest(&self) -> &Self::Contest {
+        &self.contest
+    }
+
+    fn problems(&self) -> Option<&[String]> {
+        self.problems.as_ref().map(Deref::deref)
     }
 }
 
@@ -368,16 +368,31 @@ impl SubmitProp<String> {
         })
     }
 
-    pub(self) fn parse_contest<C: Contest>(self) -> SubmitProp<C> {
+    pub(self) fn convert_contest_and_problem<C: Contest>(
+        self,
+        conversion: ProblemNameConversion,
+    ) -> SubmitProp<C> {
         SubmitProp {
             contest: C::from_string(self.contest),
-            problem: self.problem,
+            problem: conversion.convert(&self.problem),
             lang_id: self.lang_id,
             src_path: self.src_path,
             replacer: self.replacer,
             open_browser: self.open_browser,
             skip_checking_if_accepted: self.skip_checking_if_accepted,
         }
+    }
+}
+
+impl<C: Contest> PrintTargets for SubmitProp<C> {
+    type Contest = C;
+
+    fn contest(&self) -> &Self::Contest {
+        &self.contest
+    }
+
+    fn problems(&self) -> Option<&[String]> {
+        Some(slice::from_ref(&self.problem))
     }
 }
 
@@ -391,18 +406,53 @@ impl Contest for String {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(self) enum ProblemNameConversion {
+    Upper,
+    Kebab,
+}
+
+impl ProblemNameConversion {
+    fn convert(self, s: &str) -> String {
+        match self {
+            ProblemNameConversion::Upper => s.to_uppercase(),
+            ProblemNameConversion::Kebab => s.to_kebab_case(),
+        }
+    }
+}
+
 pub(self) trait PrintTargets {
     type Contest: Contest;
 
     fn contest(&self) -> &Self::Contest;
     fn problems(&self) -> Option<&[String]>;
 
-    fn write_targets(&self, mut wrt: impl Write) -> io::Result<()> {
-        write!(wrt, "Targets: {}/", self.contest())?;
+    fn print_targets(&self, mut out: impl ConsoleWrite) -> io::Result<()> {
         match self.problems() {
-            None => writeln!(wrt, "*"),
-            Some(problems) => writeln!(wrt, "{{{}}}", problems.iter().join(", ")),
-        }?;
-        writeln!(wrt)
+            None => {
+                write!(out.bold(Palette::Info), "Targets")?;
+                write!(out.plain(Palette::Info), ":")?;
+                write!(out, " {}/", self.contest())?;
+                writeln!(out.bold(None), "*")
+            }
+            Some([problem]) => {
+                write!(out.bold(Palette::Info), "Target")?;
+                write!(out.plain(Palette::Info), ":")?;
+                write!(out, " {}/", self.contest())?;
+                writeln!(out.bold(None), "{}", problem)
+            }
+            Some(problems) => {
+                write!(out.bold(Palette::Info), "Targets")?;
+                write!(out.plain(Palette::Info), ":")?;
+                write!(out, " {}/{{", self.contest())?;
+                for (i, problem) in problems.iter().enumerate() {
+                    if i > 0 {
+                        write!(out, ", ")?;
+                    }
+                    write!(out.bold(None), "{}", problem)?;
+                }
+                writeln!(out, "}}")
+            }
+        }
     }
 }

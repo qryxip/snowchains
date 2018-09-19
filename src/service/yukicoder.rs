@@ -3,8 +3,8 @@ use errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
 use service::downloader::ZipDownloader;
 use service::session::HttpSession;
 use service::{
-    Contest, DownloadProp, PrintTargets as _PrintTargets, RevelSession, Service, SessionProp,
-    SubmitProp, TryIntoDocument as _TryIntoDocument,
+    Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, RevelSession,
+    Service, SessionProp, SubmitProp, TryIntoDocument as _TryIntoDocument,
 };
 use testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
@@ -14,7 +14,6 @@ use reqwest::{header, multipart, StatusCode};
 use select::document::Document;
 use select::predicate::{Attr, Class, Name, Predicate as _Predicate, Text};
 
-use std::borrow::Cow;
 use std::fmt;
 use std::io::Write as _Write;
 use std::time::Duration;
@@ -27,17 +26,18 @@ pub(crate) fn download(
     mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
-    let download_prop = download_prop.parse_contest();
-    download_prop.write_targets(sess_prop.console.stdout())?;
+    let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
+    download_prop.print_targets(sess_prop.console.stdout())?;
     let timeout = sess_prop.timeout;
     Yukicoder::new(sess_prop)?.download(&download_prop, timeout)
 }
 
 pub(crate) fn submit(
-    sess_prop: SessionProp<impl ConsoleReadWrite>,
+    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     submit_prop: SubmitProp<String>,
 ) -> ServiceResult<()> {
-    let submit_prop = submit_prop.parse_contest();
+    let submit_prop = submit_prop.convert_contest_and_problem(ProblemNameConversion::Upper);
+    submit_prop.print_targets(sess_prop.console.stdout())?;
     Yukicoder::new(sess_prop)?.submit(&submit_prop)
 }
 
@@ -161,8 +161,9 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
                     } else if !public {
                         not_public.push(problem);
                     } else {
-                        outputs.push(scrape(&document, problem).map(|(s, p)| (url, s, p))?);
-                        nos.push(Cow::from(problem.as_str()));
+                        let (suite, path) = scrape(&document, problem)?;
+                        outputs.push((url, problem.clone(), suite, path));
+                        nos.push(problem.clone());
                     }
                 }
                 let mut stderr = self.stderr();
@@ -186,17 +187,17 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
                     .extract_problems()?;
                 for (name, href) in target_problems {
                     if problems.is_none() || problems.as_ref().unwrap().contains(&name) {
-                        let name = name.to_lowercase();
                         let document = self.get(&href).recv_html()?;
-                        outputs.push(scrape(&document, &name).map(|(s, p)| (href, s, p))?);
-                        nos.push(Cow::from(name));
+                        let (suite, path) = scrape(&document, &name)?;
+                        outputs.push((href, name.clone(), suite, path));
+                        nos.push(name);
                     }
                 }
             }
         }
         let nos = self.filter_solved(&nos)?;
-        for (_, suite, path) in &outputs {
-            suite.save(path, self.stdout())?;
+        for (_, name, suite, path) in &outputs {
+            suite.save(&name, path, self.stdout())?;
         }
         self.stdout().flush()?;
         if !nos.is_empty() {
@@ -214,7 +215,7 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
             }.download()?;
         }
         if *open_browser {
-            for (url, _, _) in &outputs {
+            for (url, _, _, _) in &outputs {
                 self.open_in_browser(url)?;
             }
         }

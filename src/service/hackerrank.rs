@@ -3,8 +3,8 @@ use errors::{ServiceError, ServiceResult, SessionResult};
 use service::downloader::ZipDownloader;
 use service::session::HttpSession;
 use service::{
-    Contest, DownloadProp, PrintTargets as _PrintTargets, Service, SessionProp,
-    TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
+    Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, Service,
+    SessionProp, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
 use testsuite::{SimpleSuite, TestSuite};
 
@@ -29,8 +29,8 @@ pub(crate) fn download(
     mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
-    let download_prop = download_prop.parse_contest();
-    download_prop.write_targets(sess_prop.console.stdout())?;
+    let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Kebab);
+    download_prop.print_targets(sess_prop.console.stdout())?;
     let timeout = sess_prop.timeout;
     Hackerrank::start(sess_prop)?.download(&download_prop, timeout)
 }
@@ -229,7 +229,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
             } else if let Some(body_html) = model.body_html {
                 let suite = Document::from(body_html.as_str()).extract_samples()?;
                 let path = destinations.scraping(&model.slug)?;
-                scraped.push((suite, path));
+                scraped.push((model.slug, suite, path));
             } else if !model.can_be_viewed {
                 cannot_view.push(model.slug);
             } else {
@@ -239,8 +239,8 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
 
         warn_unless_empty(self.stderr(), &cannot_view, "cannot be viewed")?;
 
-        for (suite, path) in scraped {
-            suite.save(&path, self.stdout())?;
+        for (name, suite, path) in scraped {
+            suite.save(&name, &path, self.stdout())?;
         }
         self.stdout().flush()?;
 

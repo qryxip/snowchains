@@ -546,7 +546,7 @@ pub enum Palette {
     Fatal,
     Url,
     Title,
-    CommandInfo,
+    Info,
     Number,
 }
 
@@ -558,7 +558,7 @@ impl Palette {
             Palette::Fatal => colours[2],
             Palette::Url => colours[3],
             Palette::Title => colours[4],
-            Palette::CommandInfo => colours[5],
+            Palette::Info => colours[5],
             Palette::Number => colours[6],
         }
     }

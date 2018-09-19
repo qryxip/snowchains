@@ -26,6 +26,7 @@ use std::{self, f64, fmt, str, vec};
 
 /// Appends `input` and `output` to a test suite read from `path`.
 pub(crate) fn append(
+    name: &str,
     path: &SuiteFilePath,
     input: &str,
     output: Option<&str>,
@@ -33,7 +34,7 @@ pub(crate) fn append(
 ) -> SuiteFileResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.append(input, output)?;
-    suite.save(path, stdout)
+    suite.save(name, path, stdout)
 }
 
 /// Extension of a test suite file.
@@ -487,7 +488,12 @@ impl TestSuite {
     }
 
     /// Serializes `self` and save it to given path.
-    pub fn save(&self, path: &SuiteFilePath, mut stdout: impl ConsoleWrite) -> SuiteFileResult<()> {
+    pub fn save(
+        &self,
+        name: &str,
+        path: &SuiteFilePath,
+        mut out: impl ConsoleWrite,
+    ) -> SuiteFileResult<()> {
         let (path, extension) = (&path.path, path.extension);
         let serialized = match extension {
             SerializableExtension::Json => serde_json::to_string(self)?,
@@ -497,18 +503,19 @@ impl TestSuite {
             }
         };
         ::fs::write(path, serialized.as_bytes())?;
-        write!(stdout, "Saved to {}", path.display())?;
+        write!(out.bold(None), "{}", name)?;
+        write!(out, ": Saved to {}", path.display())?;
         match self {
             TestSuite::Simple(s) => match s.cases.len() {
-                0 => writeln!(stdout.plain(Palette::Warning), " (no test case)"),
-                1 => writeln!(stdout.plain(Palette::Success), " (1 test case)"),
-                n => writeln!(stdout.plain(Palette::Success), " ({} test cases)", n),
+                0 => writeln!(out.plain(Palette::Warning), " (no test case)"),
+                1 => writeln!(out.plain(Palette::Success), " (1 test case)"),
+                n => writeln!(out.plain(Palette::Success), " ({} test cases)", n),
             },
             TestSuite::Interactive(_) => {
-                writeln!(stdout.plain(Palette::Success), " (interactive problem)")
+                writeln!(out.plain(Palette::Success), " (interactive problem)")
             }
             TestSuite::Unsubmittable => {
-                writeln!(stdout.plain(Palette::Success), " (unsubmittable problem)")
+                writeln!(out.plain(Palette::Success), " (unsubmittable problem)")
             }
         }?;
         Ok(())

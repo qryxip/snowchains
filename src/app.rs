@@ -545,7 +545,7 @@ impl<RW: ConsoleReadWrite> App<RW> {
                     .download_destinations(Some(extension))
                     .scraping(&problem)?;
                 let output = output.as_ref().map(String::as_str);
-                testsuite::append(&path, &input, output, self.console.stdout())?;
+                testsuite::append(&problem, &path, &input, output, self.console.stdout())?;
             }
             Opt::Judge {
                 force_compile,

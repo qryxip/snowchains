@@ -2,8 +2,8 @@ use console::{ConsoleReadWrite, ConsoleWrite as _ConsoleWrite, Palette, Printer}
 use errors::{ServiceError, ServiceResult, SubmitError};
 use service::session::HttpSession;
 use service::{
-    Contest, DownloadProp, RestoreProp, Service, SessionProp, SubmitProp,
-    TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
+    Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProp,
+    Service, SessionProp, SubmitProp, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
 use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 use util::std_unstable::RemoveItem_ as _RemoveItem_;
@@ -36,28 +36,32 @@ pub(crate) fn participate(
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
 pub(crate) fn download(
-    sess_prop: SessionProp<impl ConsoleReadWrite>,
+    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
-    let download_prop = download_prop.parse_contest().lowerize_problems();
+    let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
+    download_prop.print_targets(sess_prop.console.stdout())?;
     Atcoder::start(sess_prop)?.download(&download_prop)
 }
 
 /// Downloads submitted source codes.
 pub(crate) fn restore(
-    sess_prop: SessionProp<impl ConsoleReadWrite>,
+    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     restore_prop: RestoreProp<String>,
 ) -> ServiceResult<()> {
-    let restore_prop = restore_prop.parse_contest().upperize_problems();
+    let restore_prop = restore_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
+    restore_prop.print_targets(sess_prop.console.stdout())?;
     Atcoder::start(sess_prop)?.restore(&restore_prop)
 }
 
 /// Submits a source code.
 pub(crate) fn submit(
-    sess_prop: SessionProp<impl ConsoleReadWrite>,
+    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     submit_prop: SubmitProp<String>,
 ) -> ServiceResult<()> {
-    Atcoder::start(sess_prop)?.submit(&submit_prop.parse_contest())
+    let submit_prop = submit_prop.convert_contest_and_problem(ProblemNameConversion::Upper);
+    submit_prop.print_targets(sess_prop.console.stdout())?;
+    Atcoder::start(sess_prop)?.submit(&submit_prop)
 }
 
 pub(self) struct Atcoder<RW: ConsoleReadWrite> {
@@ -194,20 +198,20 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
             .fetch_tasks_page(contest)?
             .extract_task_urls_with_names()?
             .into_iter()
-            .map(|(name, url)| (name.to_lowercase(), url))
-            .filter(|(name, _)| {
-                problems.is_none() || problems.as_ref().unwrap().iter().any(|s| s == name)
+            .filter(|(name, _)| match problems.as_ref() {
+                None => true,
+                Some(problems) => problems.iter().any(|p| p == name),
             }).map(|(name, url)| -> ServiceResult<_> {
                 let suite = self.get(&url).recv_html()?.extract_as_suite(contest)?;
                 let path = destinations.scraping(&name)?;
-                Ok((url, suite, path, name))
+                Ok((url, name, suite, path))
             }).collect::<ServiceResult<Vec<_>>>()?;
         let mut not_found = match problems.as_ref() {
             None => vec![],
             Some(problems) => problems.iter().collect(),
         };
-        for (_, suite, path, name) in &outputs {
-            suite.save(path, self.stdout())?;
+        for (_, name, suite, path) in &outputs {
+            suite.save(&name, path, self.stdout())?;
             not_found.remove_item_(&name);
         }
         self.stdout().flush()?;
@@ -328,7 +332,7 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
                 status.is_active()
             };
         for (name, url) in tasks_page.extract_task_urls_with_names()? {
-            if name.to_uppercase() == problem.to_uppercase() {
+            if &name == problem {
                 let task_screen_name = {
                     lazy_static! {
                         static ref SCREEN_NAME: Regex =
