@@ -9,6 +9,7 @@ use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 use util::std_unstable::RemoveItem_ as _RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
+use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::StatusCode;
 use select::document::Document;
@@ -334,11 +335,8 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
         for (name, url) in tasks_page.extract_task_urls_with_names()? {
             if &name == problem {
                 let task_screen_name = {
-                    lazy_static! {
-                        static ref SCREEN_NAME: Regex =
-                            Regex::new(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$")
-                                .unwrap();
-                    }
+                    static SCREEN_NAME: Lazy<Regex> =
+                        lazy_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$");
                     if let Some(caps) = SCREEN_NAME.captures(&url) {
                         caps[1].to_owned()
                     } else {
@@ -404,9 +402,7 @@ enum AtcoderContest {
 
 impl AtcoderContest {
     fn new(s: &str) -> Self {
-        lazy_static! {
-            static ref NAME: Regex = Regex::new(r"\A\s*([a-zA-Z_]+)(\d{3})\s*\z").unwrap();
-        }
+        static NAME: Lazy<Regex> = lazy_regex!(r"\A\s*([a-zA-Z_]+)(\d{3})\s*\z");
         if let Some(caps) = NAME.captures(s) {
             let name = caps[1].to_lowercase();
             let number = caps[2].parse::<u32>().unwrap_or(0);
@@ -581,14 +577,10 @@ impl Extract for Document {
         }
 
         fn extract_samples(this: &Document, contest: &AtcoderContest) -> Option<Samples> {
-            lazy_static! {
-                static ref IN_JA: Regex =
-                    Regex::new(r"\A[\s\n]*入力例\s*(\d{1,3})+[.\n]*\z").unwrap();
-                static ref OUT_JA: Regex =
-                    Regex::new(r"\A[\s\n]*出力例\s*(\d{1,3})+[.\n]*\z").unwrap();
-                static ref IN_EN: Regex = Regex::new(r"\ASample Input\s?(\d{1,3}).*\z").unwrap();
-                static ref OUT_EN: Regex = Regex::new(r"\ASample Output\s?(\d{1,3}).*\z").unwrap();
-            }
+            static IN_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*入力例\s*(\d{1,3})+[.\n]*\z");
+            static OUT_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*出力例\s*(\d{1,3})+[.\n]*\z");
+            static IN_EN: Lazy<Regex> = lazy_regex!(r"\ASample Input\s?(\d{1,3}).*\z");
+            static OUT_EN: Lazy<Regex> = lazy_regex!(r"\ASample Output\s?(\d{1,3}).*\z");
             // Current style (Japanese)
             let predicate1 = Attr("id", "task-statement")
                 .child(And(Name("span"), Class("lang")))
@@ -752,9 +744,7 @@ impl Extract for Document {
         }
 
         fn extract_timelimit(this: &Document) -> Option<Duration> {
-            lazy_static! {
-                static ref TIMELIMIT: Regex = Regex::new(r"\A\D*(\d+)\s*(m)?sec.*\z").unwrap();
-            }
+            static TIMELIMIT: Lazy<Regex> = lazy_regex!(r"\A\D*(\d+)\s*(m)?sec.*\z");
             let predicate = Attr("id", "main-container")
                 .child(And(Name("div"), Class("row")))
                 .child(And(Name("div"), Class("col-sm-12")))
@@ -835,11 +825,9 @@ impl Extract for Document {
             for tr in self.find(predicate) {
                 info!("Extracting submissions: Found #main-container>[[omitted]]>tr>");
                 let (task_name, task_screen_name) = {
-                    lazy_static! {
-                        static ref SCREEN_NAME: Regex = Regex::new(r"\A(\w+).*\z").unwrap();
-                        static ref TASK_SCREEN_NAME: Regex =
-                            Regex::new(r"\A/contests/[\w-]+/tasks/([\w-]+)\z").unwrap();
-                    }
+                    static SCREEN_NAME: Lazy<Regex> = lazy_regex!(r"\A(\w+).*\z");
+                    static TASK_SCREEN_NAME: Lazy<Regex> =
+                        lazy_regex!(r"\A/contests/[\w-]+/tasks/([\w-]+)\z");
                     let a = tr.find(Name("td").child(Name("a"))).nth(0)?;
                     let task_full_name = a.find(Text).next()?.text();
                     let task_name = SCREEN_NAME.captures(&task_full_name)?[1].to_owned();

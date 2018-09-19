@@ -31,3 +31,9 @@ macro_rules! derive_from {
         )*
     };
 }
+
+macro_rules! lazy_regex {
+    ($expr:expr) => {
+        sync_lazy!(::regex::Regex::new($expr).unwrap())
+    };
+}

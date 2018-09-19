@@ -9,6 +9,7 @@ use service::{
 use testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::{header, multipart, StatusCode};
 use select::document::Document;
@@ -252,10 +253,8 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
         };
         url += "/submit";
         let no = {
-            lazy_static! {
-                static ref NO: Regex =
-                    Regex::new(r"\A(https://yukicoder\.me)?/problems/no/(\d+)/submit\z").unwrap();
-            }
+            static NO: Lazy<Regex> =
+                lazy_regex!(r"\A(https://yukicoder\.me)?/problems/no/(\d+)/submit\z");
             NO.captures(&url).map(|caps| caps[2].to_owned())
         };
         if let Some(no) = no {
@@ -412,12 +411,10 @@ impl Extract for Document {
         }
 
         let extract = || {
-            lazy_static! {
-                static ref R: Regex = Regex::new(
-                    "\\A / 実行時間制限 : 1ケース (\\d)\\.(\\d{3})秒 / メモリ制限 : \\d+ MB / \
-                     (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z"
-                ).unwrap();
-            }
+            static R: Lazy<Regex> = lazy_regex!(
+                "\\A / 実行時間制限 : 1ケース (\\d)\\.(\\d{3})秒 / メモリ制限 : \\d+ MB / \
+                 (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z"
+            );
             let text = self
                 .find(Attr("id", "content").child(Name("div")).child(Text))
                 .map(|text| text.text())
