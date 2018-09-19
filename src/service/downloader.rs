@@ -9,8 +9,8 @@ use futures::sync::oneshot;
 use futures::{self, future, task, Async, Future, Poll, Stream};
 use itertools::Itertools as _Itertools;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
+use reqwest::async::Decoder;
 use reqwest::header::{self, HeaderMap, HeaderValue};
-use reqwest::unstable::async::Decoder;
 use reqwest::{self, RedirectPolicy, StatusCode};
 use tokio_core;
 use url::Url;
@@ -61,11 +61,7 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
         let (header_result_tx, header_result_rx) = oneshot::channel();
         let (mut pb_tx, pb_rx) = futures::sync::mpsc::channel(self.names.len());
         let thread = thread::spawn(move || -> ServiceResult<()> {
-            let mut builder = reqwest::unstable::async::Client::builder();
-            if let Some(timeout) = timeout {
-                builder.timeout(timeout);
-            }
-            let client = builder
+            let builder = reqwest::async::Client::builder()
                 .redirect(RedirectPolicy::none())
                 .referer(false)
                 .default_headers({
@@ -75,7 +71,11 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
                         headers.insert(header::COOKIE, cookie);
                     }
                     headers
-                }).build()?;
+                });
+            let client = match timeout {
+                None => builder,
+                Some(timeout) => builder.timeout(timeout),
+            }.build()?;
             let works = urls
                 .try_to_urls()?
                 .into_iter()
@@ -154,11 +154,12 @@ impl fmt::Display for Urls {
 }
 
 fn receive_header(
-    client: &reqwest::unstable::async::Client,
+    client: &reqwest::async::Client,
     url: Url,
-) -> impl Future<Item = reqwest::unstable::async::Response, Error = SessionError> {
-    let mut req = client.get(url);
-    req.send()
+) -> impl Future<Item = reqwest::async::Response, Error = SessionError> {
+    client
+        .get(url)
+        .send()
         .map_err(SessionError::from)
         .and_then(|resp| match resp.status() {
             StatusCode::OK => Ok(resp),
@@ -178,7 +179,7 @@ struct DownloadBody {
 
 impl DownloadBody {
     fn new(
-        response: reqwest::unstable::async::Response,
+        response: reqwest::async::Response,
         path: AbsPath,
         mut progress_bar: ProgressBar<Pipe>,
     ) -> FileIoResult<Self> {

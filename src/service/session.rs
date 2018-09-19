@@ -168,7 +168,7 @@ impl HttpSession {
         self.assert_not_forbidden_by_robots_txt(&url)?;
         let mut req = self.client.request(method, url.as_str());
         if let Some(jar) = self.jar.as_ref() {
-            req.header(header::COOKIE, jar.to_header_value()?);
+            req = req.header(header::COOKIE, jar.to_header_value()?);
         }
         Ok(req)
     }
@@ -195,11 +195,11 @@ pub(crate) struct Request<'a, O: ConsoleWrite> {
 }
 
 impl<'a, O: ConsoleWrite> Request<'a, O> {
-    pub fn x_csrf_token(mut self, token: &str) -> Self {
-        if let Ok(inner) = self.inner.as_mut() {
-            inner.header("X-CSRF-Token", token);
+    pub fn x_csrf_token(self, token: &str) -> Self {
+        Self {
+            inner: self.inner.map(|inner| inner.header("X-CSRF-Token", token)),
+            ..self
         }
-        self
     }
 
     /// Panics:
@@ -233,25 +233,25 @@ impl<'a, O: ConsoleWrite> Request<'a, O> {
         res.filter_by_status(self.acceptable)
     }
 
-    pub fn send_form(mut self, form: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
-        if let Ok(inner) = self.inner.as_mut() {
-            inner.form(form);
-        }
-        self.send()
+    pub fn send_form(self, form: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
+        Self {
+            inner: self.inner.map(|inner| inner.form(form)),
+            ..self
+        }.send()
     }
 
-    pub fn send_json(mut self, json: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
-        if let Ok(inner) = self.inner.as_mut() {
-            inner.json(json);
-        }
-        self.send()
+    pub fn send_json(self, json: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
+        Self {
+            inner: self.inner.map(|inner| inner.json(json)),
+            ..self
+        }.send()
     }
 
-    pub fn send_multipart(mut self, multipart: multipart::Form) -> SessionResult<Response> {
-        if let Ok(inner) = self.inner.as_mut() {
-            inner.multipart(multipart);
-        }
-        self.send()
+    pub fn send_multipart(self, multipart: multipart::Form) -> SessionResult<Response> {
+        Self {
+            inner: self.inner.map(|inner| inner.multipart(multipart)),
+            ..self
+        }.send()
     }
 
     pub fn recv_html(self) -> SessionResult<Document> {
