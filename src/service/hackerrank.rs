@@ -11,7 +11,7 @@ use testsuite::{SimpleSuite, TestSuite};
 use itertools::Itertools as _Itertools;
 use reqwest::{Response, StatusCode};
 use select::document::Document;
-use select::predicate::{Attr, Class, Name, Predicate, Text};
+use select::predicate::{Attr, Predicate, Text};
 use serde::{self, Deserialize, Deserializer};
 
 use std::borrow::Cow;
@@ -368,16 +368,14 @@ impl Extract for Document {
         fn extract_item(this: &Document, predicate: impl Predicate) -> Vec<String> {
             this.find(predicate)
                 .map(|pre| {
-                    pre.find(Name("span").and(Class("err")).child(Text))
+                    pre.find(selector!(span.err).child(Text))
                         .map(|text| text.text())
                         .join("")
                 }).collect()
         }
 
-        let in_pred = Class("challenge_sample_input").descendant(Name("pre"));
-        let out_pred = Class("challenge_sample_output").descendant(Name("pre"));
-        let inputs = extract_item(self, in_pred);
-        let outputs = extract_item(self, out_pred);
+        let inputs = extract_item(self, selector!(.challenge_sample_input>>pre));
+        let outputs = extract_item(self, selector!(.challenge_sample_output>>pre));
         if inputs.len() != outputs.len() || inputs.is_empty() {
             return Err(ServiceError::Scrape);
         }
