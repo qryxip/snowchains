@@ -3,10 +3,12 @@ use console::{self, ConsoleWrite, Palette};
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
 use path::{AbsPath, AbsPathBuf};
 use replacer::{CodeReplacer, CodeReplacerConf};
-use service::SessionConfig;
+use service::{ServiceName, SessionConfig};
 use template::{Template, TemplateBuilder};
-use testsuite::{SerializableExtension, SuiteFileExtension, SuiteFilePathsTemplate, ZipConfig};
-use {yaml, ServiceName};
+use testsuite::{
+    DownloadDestinations, SerializableExtension, SuiteFileExtension, TestCaseLoader, ZipConfig,
+};
+use yaml;
 
 use serde_yaml;
 
@@ -43,12 +45,14 @@ session:
 shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
 
 testfiles:
-  directory: snowchains/$service/$contest/
+  path: snowchains/$service/$contest/{{snake}}.$extension
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
   zip:
     timelimit: 2000
-    match: exact
+    match:
+      exact:
+        add_eols_to_cases: false
     entries:
       # AtCoder
       - in:
@@ -98,19 +102,19 @@ services:
 
 interactive:
   python3:
-    src: py/{{kebab}}-tester.py
+    src: testers/py/test-{{kebab}}.py
     run:
       command: python3 -- $src $*
-      working_directory: py
+      working_directory: testers/py
   haskell:
-    src: hs/src/{{Pascal}}Tester.hs
+    src: testers/hs/src/Test{{Pascal}}.hs
     compile:
-      bin: hs/target/{{Pascal}}Tester
+      bin: testers/hs/target/Test{{Pascal}}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: hs
+      working_directory: testers/hs
     run:
       command: $bin $*
-      working_directory: hs
+      working_directory: testers/hs
 
 languages:
   c++:
@@ -424,25 +428,34 @@ impl Config {
         self.session.cookies(&self.base_dir, self.service)
     }
 
-    /// Gets `testfiles/directory` as a `Template`.
-    pub fn testfiles_dir(&self) -> Template<AbsPathBuf> {
-        self.testfiles
-            .directory
+    pub fn download_destinations(
+        &self,
+        ext: Option<SerializableExtension>,
+    ) -> DownloadDestinations {
+        let template = self
+            .testfiles
+            .path
             .build(&self.base_dir)
             .insert_string("service", self.service.to_str())
-            .insert_string("contest", &self.contest)
+            .insert_string("contest", &self.contest);
+        let ext = ext.unwrap_or(self.testfiles.scrape);
+        DownloadDestinations::new(template, ext)
     }
 
-    pub fn suite_paths(&self) -> SuiteFilePathsTemplate {
-        let dir = self.testfiles_dir();
-        let exts = &self.testfiles.forall;
-        let zip = &self.testfiles.zip;
-        SuiteFilePathsTemplate::new(dir, exts, zip)
-    }
-
-    /// Gets `testfiles.scrape`.
-    pub fn extension_on_scrape(&self) -> SerializableExtension {
-        self.testfiles.scrape
+    pub fn testcase_loader(&self) -> TestCaseLoader {
+        let path = self
+            .testfiles
+            .path
+            .build(&self.base_dir)
+            .insert_string("service", self.service.to_str())
+            .insert_string("contest", &self.contest);
+        TestCaseLoader::new(
+            path,
+            &self.testfiles.forall,
+            &self.testfiles.zip,
+            self.interactive_tester_compilations(),
+            self.interactive_testers(),
+        )
     }
 
     pub fn src_paths(&self) -> HashMap<&str, Template<AbsPathBuf>> {
@@ -499,25 +512,23 @@ impl Config {
         Ok(self.compilation_command(lang))
     }
 
-    pub fn interactive_tester_compilation(
-        &self,
-        lang: Option<&str>,
-    ) -> LoadConfigResult<Option<Template<CompilationCommand>>> {
-        let lang = find_language(&self.interactive, lang)?;
-        Ok(self.compilation_command(lang))
-    }
-
     pub fn solver(&self, lang: Option<&str>) -> LoadConfigResult<Template<JudgingCommand>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         Ok(self.judge_command(lang))
     }
 
-    pub fn interactive_tester(
-        &self,
-        lang: Option<&str>,
-    ) -> LoadConfigResult<Template<JudgingCommand>> {
-        let lang = find_language(&self.interactive, lang)?;
-        Ok(self.judge_command(lang))
+    fn interactive_tester_compilations(&self) -> HashMap<String, Template<CompilationCommand>> {
+        self.interactive
+            .iter()
+            .filter_map(|(name, conf)| self.compilation_command(conf).map(|t| (name.to_owned(), t)))
+            .collect()
+    }
+
+    fn interactive_testers(&self) -> HashMap<String, Template<JudgingCommand>> {
+        self.interactive
+            .iter()
+            .map(|(name, conf)| (name.clone(), self.judge_command(&conf)))
+            .collect()
     }
 
     fn compilation_command(&self, lang: &Language) -> Option<Template<CompilationCommand>> {
@@ -585,7 +596,7 @@ fn find_language<'a>(
 
 #[derive(Serialize, Deserialize)]
 struct TestFiles {
-    directory: TemplateBuilder<AbsPathBuf>,
+    path: TemplateBuilder<AbsPathBuf>,
     forall: BTreeSet<SuiteFileExtension>,
     scrape: SerializableExtension,
     zip: ZipConfig,

@@ -9,8 +9,7 @@ extern crate tempdir;
 use snowchains::app::{App, Opt};
 use snowchains::console::{ColorChoice, NullConsole};
 use snowchains::path::{AbsPath, AbsPathBuf};
-use snowchains::service::{Credentials, RevelSession, UserNameAndPassword};
-use snowchains::ServiceName;
+use snowchains::service::{Credentials, RevelSession, ServiceName, UserNameAndPassword};
 
 use serde::{de, Deserialize, Deserializer};
 use tempdir::TempDir;

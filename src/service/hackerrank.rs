@@ -3,15 +3,15 @@ use errors::{ServiceError, ServiceResult, SessionResult};
 use service::downloader::ZipDownloader;
 use service::session::HttpSession;
 use service::{
-    Contest, DownloadProp, PrintTargets as _PrintTargets, Service, SessionProp,
-    TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
+    Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, Service,
+    SessionProp, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
-use testsuite::{SuiteFilePath, TestSuite};
+use testsuite::{SimpleSuite, TestSuite};
 
 use itertools::Itertools as _Itertools;
 use reqwest::{Response, StatusCode};
 use select::document::Document;
-use select::predicate::{Attr, Class, Name, Predicate, Text};
+use select::predicate::{Attr, Predicate, Text};
 use serde::{self, Deserialize, Deserializer};
 
 use std::borrow::Cow;
@@ -29,8 +29,8 @@ pub(crate) fn download(
     mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
-    let download_prop = download_prop.parse_contest();
-    download_prop.write_targets(sess_prop.console.stdout())?;
+    let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Kebab);
+    download_prop.print_targets(sess_prop.console.stdout())?;
     let timeout = sess_prop.timeout;
     Hackerrank::start(sess_prop)?.download(&download_prop, timeout)
 }
@@ -66,10 +66,10 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
 
     fn login(&mut self, option: LoginOption) -> ServiceResult<()> {
         let mut res = self.get("/login").acceptable(&[200, 302]).send()?;
-        if res.status() == StatusCode::Found && option == LoginOption::Explicit {
+        if res.status() == StatusCode::FOUND && option == LoginOption::Explicit {
             writeln!(self.stderr(), "Already signed in.")?;
             self.stderr().flush()?;
-        } else if res.status() == StatusCode::Ok {
+        } else if res.status() == StatusCode::OK {
             let (mut username, mut password, on_test) = {
                 match self.credentials.clone() {
                     UserNameAndPassword::Some(username, password) => {
@@ -94,7 +94,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
                     break self.stdout().flush()?;
                 }
                 if on_test {
-                    return Err(ServiceError::WrongCredentialsOnTest);
+                    return Err(ServiceError::LoginOnTest);
                 }
                 username = Rc::new(self.console().prompt_reply_stderr("Username: ")?);
                 password = Rc::new(self.console().prompt_password_stderr("Password: ")?);
@@ -121,7 +121,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
         let csrf_token = response.try_into_document()?.extract_csrf_token()?;
         let status = self
             .post("/auth/login")
-            .raw_header("X-CSRF-Token", csrf_token)
+            .x_csrf_token(&csrf_token)
             .acceptable(&[200])
             .send_json(&json!({
                 "login": username,
@@ -163,8 +163,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
         let DownloadProp {
             contest,
             problems,
-            download_dir,
-            extension,
+            destinations,
             open_browser,
         } = download_prop;
         let problems = problems.as_ref();
@@ -229,8 +228,8 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
                     .or_insert_with(|| vec![problem]);
             } else if let Some(body_html) = model.body_html {
                 let suite = Document::from(body_html.as_str()).extract_samples()?;
-                let path = SuiteFilePath::new(download_dir, &model.slug, *extension);
-                scraped.push((suite, path));
+                let path = destinations.scraping(&model.slug)?;
+                scraped.push((model.slug, suite, path));
             } else if !model.can_be_viewed {
                 cannot_view.push(model.slug);
             } else {
@@ -240,8 +239,8 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
 
         warn_unless_empty(self.stderr(), &cannot_view, "cannot be viewed")?;
 
-        for (suite, path) in scraped {
-            suite.save(&path, self.stdout())?;
+        for (name, suite, path) in scraped {
+            suite.save(&name, &path, self.stdout())?;
         }
         self.stdout().flush()?;
 
@@ -266,15 +265,15 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
                     }).collect::<Vec<_>>();
             };
             static URL_SUF: &str = "/download_testcases";
-            let cookie = self.session.cookies_to_header();
+            let cookie = self.session.cookies_to_header_value()?;
             ZipDownloader {
                 out: io::sink(),
                 url_pref: &url_pref,
                 url_suf: URL_SUF,
-                download_dir,
+                destinations,
                 names: &names,
                 timeout,
-                cookie: cookie.as_ref(),
+                cookie,
             }.download()?;
         }
         if *open_browser {
@@ -369,21 +368,19 @@ impl Extract for Document {
         fn extract_item(this: &Document, predicate: impl Predicate) -> Vec<String> {
             this.find(predicate)
                 .map(|pre| {
-                    pre.find(Name("span").and(Class("err")).child(Text))
+                    pre.find(selector!(span.err).child(Text))
                         .map(|text| text.text())
                         .join("")
                 }).collect()
         }
 
-        let in_pred = Class("challenge_sample_input").descendant(Name("pre"));
-        let out_pred = Class("challenge_sample_output").descendant(Name("pre"));
-        let inputs = extract_item(self, in_pred);
-        let outputs = extract_item(self, out_pred);
+        let inputs = extract_item(self, selector!(.challenge_sample_input>>pre));
+        let outputs = extract_item(self, selector!(.challenge_sample_output>>pre));
         if inputs.len() != outputs.len() || inputs.is_empty() {
             return Err(ServiceError::Scrape);
         }
         let samples = inputs.into_iter().zip(outputs);
-        Ok(TestSuite::simple(None, None, None, samples))
+        Ok(SimpleSuite::new(None).cases(samples).into())
     }
 }
 
@@ -394,7 +391,7 @@ mod tests {
     use service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
     use service::session::{HttpSession, UrlBase};
     use service::{self, Service as _Service, UserNameAndPassword};
-    use testsuite::TestSuite;
+    use testsuite::{SimpleSuite, TestSuite};
 
     use select::document::Document;
     use url::Host;
@@ -404,16 +401,11 @@ mod tests {
     #[test]
     #[ignore]
     fn it_scrapes_samples() {
-        let expected = TestSuite::simple(
-            None,
-            None,
-            None,
-            vec![
-                ("50 40 70 60", "YES"),
-                ("55 66 66 77", "YES"),
-                ("80 80 40 40", "NO"),
-            ],
-        );
+        let expected = TestSuite::from(SimpleSuite::new(None).cases(vec![
+            ("50 40 70 60", "YES"),
+            ("55 66 66 77", "YES"),
+            ("80 80 40 40", "NO"),
+        ]));
         let actual = {
             let mut hackerrank = start().unwrap();
             let json = hackerrank

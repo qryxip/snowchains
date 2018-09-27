@@ -4,10 +4,10 @@ use errors::ExpandTemplateResult;
 use judging::{self, JudgeProp};
 use path::AbsPathBuf;
 use service::{
-    atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, SessionProp, SubmitProp,
+    atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, ServiceName,
+    SessionProp, SubmitProp,
 };
-use testsuite::{self, SerializableExtension, SuiteFilePath};
-use ServiceName;
+use testsuite::{self, SerializableExtension};
 
 use std::borrow::Cow;
 use std::io::Write as _Write;
@@ -541,10 +541,11 @@ impl<RW: ConsoleReadWrite> App<RW> {
                     .fill_palettes(color_choice, &console::Conf::default())?;
                 let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
                 self.console.fill_palettes(color_choice, config.console())?;
-                let dir = config.testfiles_dir().expand("")?;
-                let path = SuiteFilePath::new(&dir, &problem, extension);
+                let path = config
+                    .download_destinations(Some(extension))
+                    .scraping(&problem)?;
                 let output = output.as_ref().map(String::as_str);
-                testsuite::append(&path, &input, output, self.console.stdout())?;
+                testsuite::append(&problem, &path, &input, output, self.console.stdout())?;
             }
             Opt::Judge {
                 force_compile,

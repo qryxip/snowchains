@@ -69,12 +69,14 @@ session:
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
 
 testfiles:
-  directory: snowchains/$service/$contest/
+  path: snowchains/$service/$contest/{snake}.$extension
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
   zip:
     timelimit: 2000
-    match: exact
+    match:
+      exact:
+        add_eols_to_cases: false
     entries:
       # AtCoder
       - in:
@@ -124,19 +126,19 @@ services:
 
 interactive:
   python3:
-    src: py/{kebab}-tester.py
+    src: testers/py/test-{{kebab}}.py
     run:
       command: python3 -- $src $*
-      working_directory: py
+      working_directory: testers/py
   haskell:
-    src: hs/src/{Pascal}Tester.hs
+    src: testers/hs/src/Test{{Pascal}}.hs
     compile:
-      bin: hs/target/{Pascal}Tester
+      bin: testers/hs/target/Test{{Pascal}}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: hs
+      working_directory: testers/hs
     run:
       command: $bin $*
-      working_directory: hs
+      working_directory: testers/hs
 
 # test files: <testsuite>/<problem>.[json|toml|yaml|yml|zip]
 # source:     <<src> % <problem>>
@@ -207,8 +209,8 @@ languages:
       command: [./venv/bin/python3, $src]
       working_directory: py
     language_ids:
-      atcoder: 3023      # "Python3 (x.x.x)"
-      yukicoder: python3 # "Python3 (x.x.x + numpy x.x.x)"
+      atcoder: 3023      # "Python3 (3.x.x)"
+      yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x)"
   java:
     src: java/src/main/java/{Pascal}.java
     compile:
@@ -267,13 +269,10 @@ languages:
 ---
 type: simple    # "simple" or "interactive"
 timelimit: 2000 # Optional
-match: exact    # "exact" or "float"
+match:          # "exact" or "float"
+  exact:
+    add_eols_to_cases: true
 
-# Possible types of "in" and "out":
-# * Integer
-# * Float
-# * String (a '\n' is appended automatically if missing)
-# * Array of [Integer|Float|String] (in TOML, arrays cannot contain different types of data)
 cases:
   - in: |
       1
@@ -300,6 +299,7 @@ type: simple
 timelimit: 2000
 match:
   float:
+    add_eols_to_cases: true
     absolute_error: 1E-9
     relative_error: 1E-9
 
@@ -333,7 +333,6 @@ each_args:
 ```
 
 ```python
-#!/usr/bin/env python3
 import re
 import sys
 
@@ -403,45 +402,4 @@ main = do
   words <$> getLine >>= \case
     ["!", a] -> judge a
     _        -> error "answer me"
-```
-
-## Editor Integrations
-
-### Rust (Cargo) + Emacs
-
-```lisp
-(require 'cargo)
-(require 'term-run)
-
-(defun my-rust-run ()
-  (interactive)
-  (let ((file-path (buffer-file-name)))
-    (cond ((string-match (format "^.*/%s/src/bin/\\(.+\\)\\.rs$" my-rust--snowchains-crate) file-path)
-           (let ((buffer (get-buffer "*snowchains*")))
-             (when buffer
-               (with-current-buffer buffer
-                 (erase-buffer))))
-           (let ((problem-name (match-string 1 file-path)))
-             (term-run "snowchains" "*snowchains*" "submit" problem-name "-l" "rust")))
-          ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
-           (cargo-process-run-bin (match-string 1 file-path)))
-          (t
-           (cargo-process-run)))))
-
-(defun my-rust-test ()
-  (interactive)
-  (let ((file-path (buffer-file-name)))
-    (cond ((string-match (format "^.*/%s/src/bin/\\(.+\\)\\.rs$" my-rust--snowchains-crate) file-path)
-           (let ((buffer (get-buffer "*snowchains*")))
-             (when buffer
-               (with-current-buffer buffer
-                 (erase-buffer))))
-           (let ((problem-name (match-string 1 file-path)))
-             (term-run "snowchains" "*snowchains*" "judge" problem-name "-l" "rust")))
-          ((string-match "^.*/src/bin/\\(.+\\)\\.rs$" file-path)
-           (cargo-process--start "Test Bin" (concat "test --bin " (match-string 1 file-path))))
-          (t
-           (cargo-process-test)))))
-
-(defconst my-rust--snowchains-crate "contest/rs")
 ```

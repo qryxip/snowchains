@@ -3,19 +3,18 @@ use errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
 use service::downloader::ZipDownloader;
 use service::session::HttpSession;
 use service::{
-    Contest, DownloadProp, PrintTargets as _PrintTargets, RevelSession, Service, SessionProp,
-    SubmitProp, TryIntoDocument as _TryIntoDocument,
+    Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, RevelSession,
+    Service, SessionProp, SubmitProp, TryIntoDocument as _TryIntoDocument,
 };
-use testsuite::{SuiteFilePath, TestSuite};
+use testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
+use once_cell::sync::Lazy;
 use regex::Regex;
-use reqwest::header::Location;
-use reqwest::{multipart, StatusCode};
+use reqwest::{header, multipart, StatusCode};
 use select::document::Document;
-use select::predicate::{Attr, Class, Name, Predicate as _Predicate, Text};
+use select::predicate::{Attr, Predicate as _Predicate, Text};
 
-use std::borrow::Cow;
 use std::fmt;
 use std::io::Write as _Write;
 use std::time::Duration;
@@ -28,17 +27,18 @@ pub(crate) fn download(
     mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
-    let download_prop = download_prop.parse_contest();
-    download_prop.write_targets(sess_prop.console.stdout())?;
+    let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
+    download_prop.print_targets(sess_prop.console.stdout())?;
     let timeout = sess_prop.timeout;
     Yukicoder::new(sess_prop)?.download(&download_prop, timeout)
 }
 
 pub(crate) fn submit(
-    sess_prop: SessionProp<impl ConsoleReadWrite>,
+    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
     submit_prop: SubmitProp<String>,
 ) -> ServiceResult<()> {
-    let submit_prop = submit_prop.parse_contest();
+    let submit_prop = submit_prop.convert_contest_and_problem(ProblemNameConversion::Upper);
+    submit_prop.print_targets(sess_prop.console.stdout())?;
     Yukicoder::new(sess_prop)?.submit(&submit_prop)
 }
 
@@ -76,7 +76,7 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
     fn login(&mut self, assure: bool) -> ServiceResult<()> {
         if let RevelSession::Some(revel_session) = self.credential.clone() {
             if !self.confirm_revel_session(revel_session.as_ref().clone())? {
-                return Err(ServiceError::WrongCredentialsOnTest);
+                return Err(ServiceError::LoginOnTest);
             }
         }
         self.fetch_username()?;
@@ -133,15 +133,14 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
         let DownloadProp {
             contest,
             problems,
-            download_dir,
-            extension,
+            destinations,
             open_browser,
         } = download_prop;
         self.login(false)?;
         let scrape =
             |document: &Document, problem: &str| -> ServiceResult<(TestSuite, SuiteFilePath)> {
                 let suite = document.extract_samples()?;
-                let path = SuiteFilePath::new(download_dir, problem, *extension);
+                let path = destinations.scraping(problem)?;
                 Ok((suite, path))
             };
         let (mut outputs, mut nos) = (vec![], vec![]);
@@ -154,17 +153,18 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
                     let res = self.get(&url).acceptable(&[200, 404]).send()?;
                     let status = res.status();
                     let document = res.try_into_document()?;
-                    let public = match document.find(Attr("id", "content").child(Text)).next() {
-                        None => true,
-                        Some(t) => !t.text().contains("非表示"),
-                    };
-                    if status == StatusCode::NotFound {
+                    let public = document
+                        .find(selector!(#content).child(Text))
+                        .next()
+                        .map_or(true, |t| !t.text().contains("非表示"));
+                    if status == StatusCode::NOT_FOUND {
                         not_found.push(problem);
                     } else if !public {
                         not_public.push(problem);
                     } else {
-                        outputs.push(scrape(&document, problem).map(|(s, p)| (url, s, p))?);
-                        nos.push(Cow::from(problem.as_str()));
+                        let (suite, path) = scrape(&document, problem)?;
+                        outputs.push((url, problem.clone(), suite, path));
+                        nos.push(problem.clone());
                     }
                 }
                 let mut stderr = self.stderr();
@@ -188,35 +188,35 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
                     .extract_problems()?;
                 for (name, href) in target_problems {
                     if problems.is_none() || problems.as_ref().unwrap().contains(&name) {
-                        let name = name.to_lowercase();
                         let document = self.get(&href).recv_html()?;
-                        outputs.push(scrape(&document, &name).map(|(s, p)| (href, s, p))?);
-                        nos.push(Cow::from(name));
+                        let (suite, path) = scrape(&document, &name)?;
+                        outputs.push((href, name.clone(), suite, path));
+                        nos.push(name);
                     }
                 }
             }
         }
         let nos = self.filter_solved(&nos)?;
-        for (_, suite, path) in &outputs {
-            suite.save(path, self.stdout())?;
+        for (_, name, suite, path) in &outputs {
+            suite.save(&name, path, self.stdout())?;
         }
         self.stdout().flush()?;
         if !nos.is_empty() {
             static URL_PREF: &str = "https://yukicoder.me/problems/no/";
             static URL_SUF: &str = "/testcase.zip";
-            let cookie = self.session.cookies_to_header();
+            let cookie = self.session.cookies_to_header_value()?;
             ZipDownloader {
                 out: self.stdout().inner_writer(),
                 url_pref: URL_PREF,
                 url_suf: URL_SUF,
-                download_dir,
+                destinations,
                 names: &nos,
                 timeout,
-                cookie: cookie.as_ref(),
+                cookie,
             }.download()?;
         }
         if *open_browser {
-            for (url, _, _) in &outputs {
+            for (url, _, _, _) in &outputs {
                 self.open_in_browser(url)?;
             }
         }
@@ -253,10 +253,8 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
         };
         url += "/submit";
         let no = {
-            lazy_static! {
-                static ref NO: Regex =
-                    Regex::new(r"\A(https://yukicoder\.me)?/problems/no/(\d+)/submit\z").unwrap();
-            }
+            static NO: Lazy<Regex> =
+                lazy_regex!(r"\A(https://yukicoder\.me)?/problems/no/(\d+)/submit\z");
             NO.captures(&url).map(|caps| caps[2].to_owned())
         };
         if let Some(no) = no {
@@ -273,9 +271,9 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
             .text("submit", "提出する");
         let url = document.extract_url_from_submit_page()?;
         let res = self.post(&url).send_multipart(form)?;
-        let location = match res.headers().get::<Location>() {
+        let location = match res.headers().get(header::LOCATION) {
             None => None,
-            Some(location) => Some(self.session.resolve_url(&location)?),
+            Some(location) => Some(self.session.resolve_url(location.to_str()?)?),
         };
         if let Some(location) = location.as_ref() {
             if location
@@ -389,10 +387,9 @@ trait Extract {
 impl Extract for Document {
     fn extract_username(&self) -> Username {
         let extract = || {
-            let a = self.find(Attr("id", "usermenu").child(Name("a"))).next()?;
+            let a = self.find(selector!(#usermenu>a)).next()?;
             let name = a.find(Text).next()?.text();
-            let img = a.find(Name("img")).next()?;
-            let src = img.attr("src")?;
+            let src = a.find(selector!(img)).next()?.attr("src")?;
             Some(if src == "/public/img/anony.png" {
                 Username::Yukicoder(name)
             } else if src.starts_with("https://avatars2.githubusercontent.com") {
@@ -413,14 +410,12 @@ impl Extract for Document {
         }
 
         let extract = || {
-            lazy_static! {
-                static ref R: Regex = Regex::new(
-                    "\\A / 実行時間制限 : 1ケース (\\d)\\.(\\d{3})秒 / メモリ制限 : \\d+ MB / \
-                     (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z"
-                ).unwrap();
-            }
+            static R: Lazy<Regex> = lazy_regex!(
+                "\\A / 実行時間制限 : 1ケース (\\d)\\.(\\d{3})秒 / メモリ制限 : \\d+ MB / \
+                 (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z"
+            );
             let text = self
-                .find(Attr("id", "content").child(Name("div")).child(Text))
+                .find(selector!(#content>div).child(Text))
                 .map(|text| text.text())
                 .nth(1)?;
             let caps = R.captures(&text)?;
@@ -438,12 +433,12 @@ impl Extract for Document {
             match kind {
                 ProblemKind::Regular | ProblemKind::Special => {
                     let mut samples = vec![];
-                    let pred = Attr("id", "content")
-                        .child(Name("div").and(Class("block")))
-                        .child(Name("div").and(Class("sample")))
-                        .child(Name("div").and(Class("paragraph")));
-                    for paragraph in self.find(pred) {
-                        let pres = paragraph.find(Name("pre").child(Text)).collect::<Vec<_>>();
+                    for paragraph in
+                        self.find(selector!(#content>div.block>div.sample>div.paragraph))
+                    {
+                        let pres = paragraph
+                            .find(selector!(pre).child(Text))
+                            .collect::<Vec<_>>();
                         ensure_opt!(pres.len() == 2);
                         let input = pres[0].text();
                         let output = match kind {
@@ -453,9 +448,9 @@ impl Extract for Document {
                         };
                         samples.push((input, output));
                     }
-                    Some(TestSuite::simple(timelimit, None, None, samples))
+                    Some(SimpleSuite::new(timelimit).cases(samples).into())
                 }
-                ProblemKind::Reactive => Some(TestSuite::interactive(timelimit)),
+                ProblemKind::Reactive => Some(InteractiveSuite::new(timelimit).into()),
             }
         };
         extract().ok_or(ServiceError::Scrape)
@@ -464,17 +459,12 @@ impl Extract for Document {
     fn extract_problems(&self) -> ServiceResult<Vec<(String, String)>> {
         let extract = || {
             let mut problems = vec![];
-            let predicate = Attr("id", "content")
-                .child(Name("div").and(Class("left")))
-                .child(Name("table").and(Class("table")))
-                .child(Name("tbody"))
-                .child(Name("tr"));
-            for tr in self.find(predicate) {
-                let name = tr.find(Name("td")).nth(0)?.text();
+            for tr in self.find(selector!(#content>div.left>table.table>tbody>tr)) {
+                let name = tr.find(selector!(td)).nth(0)?.text();
                 let href = tr
-                    .find(Name("td"))
+                    .find(selector!(td))
                     .nth(2)?
-                    .find(Name("a"))
+                    .find(selector!(a))
                     .next()?
                     .attr("href")?
                     .to_owned();
@@ -490,15 +480,15 @@ impl Extract for Document {
     }
 
     fn extract_csrf_token_from_submit_page(&self) -> ServiceResult<String> {
-        self.find(Attr("id", "submit_form").child(Name("input")))
-            .filter(|input| input.attr("name") == Some("csrf_token"))
-            .filter_map(|input| input.attr("value").map(ToOwned::to_owned))
-            .next()
-            .ok_or(ServiceError::Scrape)
+        self.find(
+            selector!(#submit_form>input).child(selector!(input).and(Attr("name", "csrf_token"))),
+        ).filter_map(|input| input.attr("value").map(ToOwned::to_owned))
+        .next()
+        .ok_or(ServiceError::Scrape)
     }
 
     fn extract_url_from_submit_page(&self) -> ServiceResult<String> {
-        self.find(Attr("id", "submit_form"))
+        self.find(selector!(submit_form))
             .filter_map(|form| form.attr("action").map(ToOwned::to_owned))
             .next()
             .ok_or(ServiceError::Scrape)
@@ -512,7 +502,7 @@ mod tests {
     use service::session::{HttpSession, UrlBase};
     use service::yukicoder::{Extract as _Extract, Username, Yukicoder};
     use service::{self, RevelSession, Service as _Service};
-    use testsuite::TestSuite;
+    use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 
     use env_logger;
     use url::Host;
@@ -526,22 +516,17 @@ mod tests {
         let _ = env_logger::try_init();
         test_extracting_samples(
             "/problems/no/1",
-            TestSuite::simple(
-                Duration::from_secs(5),
-                None,
-                None,
-                vec![
-                    ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
-                    ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
-                    (
-                        "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
-                         3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
-                         8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
-                         8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
-                        "-1\n",
-                    ),
-                ],
-            ),
+            SimpleSuite::new(Duration::from_secs(5)).cases(vec![
+                ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
+                ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
+                (
+                    "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
+                     3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
+                     8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
+                     8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
+                    "-1\n",
+                ),
+            ]),
         );
     }
 
@@ -549,15 +534,7 @@ mod tests {
     #[ignore]
     fn it_extracts_samples_from_problem188() {
         let _ = env_logger::try_init();
-        test_extracting_samples(
-            "/problems/no/188",
-            TestSuite::simple(
-                Duration::from_secs(1),
-                None,
-                None,
-                Vec::<(&'static str, Option<&'static str>)>::new(),
-            ),
-        );
+        test_extracting_samples("/problems/no/188", SimpleSuite::new(Duration::from_secs(1)));
     }
 
     #[test]
@@ -566,12 +543,7 @@ mod tests {
         let _ = env_logger::try_init();
         test_extracting_samples(
             "/problems/no/192",
-            TestSuite::simple(
-                Duration::from_secs(2),
-                None,
-                None,
-                vec![("101\n", None), ("1000\n", None)],
-            ),
+            SimpleSuite::new(Duration::from_secs(2)).cases(vec![("101\n", None), ("1000\n", None)]),
         );
     }
 
@@ -581,15 +553,15 @@ mod tests {
         let _ = env_logger::try_init();
         test_extracting_samples(
             "/problems/no/246",
-            TestSuite::interactive(Duration::from_secs(2)),
+            InteractiveSuite::new(Duration::from_secs(2)),
         );
     }
 
-    fn test_extracting_samples(url: &str, expected: TestSuite) {
+    fn test_extracting_samples(url: &str, expected: impl Into<TestSuite>) {
         let mut yukicoder = start().unwrap();
         let document = yukicoder.get(url).recv_html().unwrap();
         let samples = document.extract_samples().unwrap();
-        assert_eq!(expected, samples);
+        assert_eq!(expected.into(), samples);
     }
 
     #[test]

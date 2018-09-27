@@ -13,7 +13,7 @@ mod common;
 
 use snowchains::app::{App, Opt};
 use snowchains::console::{ColorChoice, NullConsole};
-use snowchains::ServiceName;
+use snowchains::service::ServiceName;
 
 use std::fs::File;
 use std::path::Path;
@@ -28,9 +28,7 @@ fn it_logins() {
 
 #[test]
 #[ignore]
-#[should_panic(
-    expected = "called `Result::unwrap()` on an `Err` value: Service(WrongCredentialsOnTest)"
-)]
+#[should_panic(expected = "called `Result::unwrap()` on an `Err` value: Service(LoginOnTest)")]
 fn it_raises_an_when_login_fails() {
     let _ = env_logger::try_init();
     let credentials = common::dummy_credentials();

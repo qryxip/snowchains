@@ -210,6 +210,22 @@ impl<
     }
 }
 
+impl<T: Target> Clone for Template<T>
+where
+    T::Inner: Clone,
+    T::BaseDir: Clone,
+    T::CommandAdditional: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            base_dir: self.base_dir.clone(),
+            command_additional: self.command_additional.clone(),
+            strings: self.strings.clone(),
+        }
+    }
+}
+
 pub(crate) trait Target {
     type Inner: Clone + Serialize + DeserializeOwned;
     type BaseDir;
@@ -265,9 +281,14 @@ impl FromStr for Tokens {
         use combine::char::{alpha_num, char, letter, spaces, string};
         use combine::{choice, eof, many, many1, satisfy, try};
 
+        fn escape<'a>(
+            from: &'static str,
+            to: &'static str,
+        ) -> impl Parser<Input = &'a str, Output = Token> {
+            string(from).map(move |_| Token::Text(to.to_owned()))
+        }
+
         let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Text);
-        let escaped =
-            |f: &'static str, t: &'static str| string(f).map(move |_| Token::Text(t.to_owned()));
         let problem = char('{')
             .with(spaces())
             .with(many(letter()))
@@ -281,9 +302,9 @@ impl FromStr for Tokens {
             ))).map(|(h, t): (_, String)| Token::Var(format!("{}{}", h, t)));
         many(choice((
             plain,
-            try(escaped("$$", "$")),
-            try(escaped("{{", "{")),
-            try(escaped("}}", "}")),
+            try(escape("$$", "$")),
+            try(escape("{{", "{")),
+            try(escape("}}", "}")),
             problem,
             var,
         ))).skip(eof())
@@ -476,6 +497,7 @@ pub(crate) enum CommandTemplateInner {
     Args(Vec<Tokens>),
 }
 
+#[derive(Clone)]
 pub(crate) struct CommandAdditionalInfo {
     shell: Vec<Tokens>,
     working_dir: Tokens,

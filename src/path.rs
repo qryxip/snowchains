@@ -26,10 +26,6 @@ impl AbsPathBuf {
         self.0.pop()
     }
 
-    pub(crate) fn with_extension(&self, extension: impl AsRef<OsStr>) -> Self {
-        AbsPathBuf(self.0.with_extension(extension))
-    }
-
     pub(crate) fn parent(&self) -> Option<Self> {
         self.0.parent().map(ToOwned::to_owned).map(AbsPathBuf)
     }

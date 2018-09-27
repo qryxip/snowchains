@@ -5,7 +5,7 @@ use service::USER_AGENT;
 
 use cookie::{self, CookieJar};
 use failure::ResultExt as _ResultExt;
-use reqwest::header::{self, Headers, Location, SetCookie};
+use reqwest::header::{self, HeaderValue, InvalidHeaderValue};
 use reqwest::{self, multipart, Method, Response, StatusCode};
 use robots_txt::{Robots, SimpleMatcher};
 use select::document::Document;
@@ -14,8 +14,10 @@ use serde::Serialize;
 use url::{Host, Url};
 use {bincode, webbrowser};
 
+use std;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt::Write as _FmtWrite;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
@@ -53,25 +55,24 @@ impl HttpSession {
                     .get("/robots.txt", &mut stdout)
                     .acceptable(&[200, 301, 302, 404])
                     .send()?;
-                while [301, 302].contains(&res.status().as_u16()) {
-                    let location = res
-                        .headers()
-                        .get::<Location>()
-                        .map(|location| (*location).to_owned());
-                    if let Some(location) = location {
+                while [301, 302, 404].contains(&res.status().as_u16()) {
+                    if let Some(location) =
+                        res.headers().get(header::LOCATION).map(ToOwned::to_owned)
+                    {
+                        let location = location.to_str()?;
                         res = this
-                            .get(&location, &mut stdout)
+                            .get(location, &mut stdout)
                             .acceptable(&[200, 301, 302, 404])
                             .send()?;
                     } else {
                         return Ok(this);
                     }
                 }
-                match res.status().as_u16() {
-                    200 => {
+                match res.status() {
+                    StatusCode::OK => {
                         this.robots_txts.insert(host.to_string(), res.text()?);
                     }
-                    404 => (),
+                    StatusCode::NOT_FOUND => (),
                     _ => unreachable!(),
                 }
             }
@@ -88,8 +89,12 @@ impl HttpSession {
         }
     }
 
-    pub fn cookies_to_header(&self) -> Option<header::Cookie> {
-        self.jar.as_ref().map(AutosavedCookieJar::to_header)
+    pub fn cookies_to_header_value(&self) -> SessionResult<Option<HeaderValue>> {
+        match self.jar.as_ref().map(AutosavedCookieJar::to_header_value) {
+            None => Ok(None),
+            Some(Ok(v)) => Ok(Some(v)),
+            Some(Err(e)) => Err(e.into()),
+        }
     }
 
     pub fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> SessionResult<()> {
@@ -136,11 +141,11 @@ impl HttpSession {
     }
 
     pub fn get<O: ConsoleWrite>(&mut self, url: &str, stdout: O) -> self::Request<O> {
-        self.request(url, Method::Get, vec![StatusCode::Ok], stdout)
+        self.request(url, Method::GET, vec![StatusCode::OK], stdout)
     }
 
     pub fn post<O: ConsoleWrite>(&mut self, url: &str, stdout: O) -> self::Request<O> {
-        self.request(url, Method::Post, vec![StatusCode::Found], stdout)
+        self.request(url, Method::POST, vec![StatusCode::FOUND], stdout)
     }
 
     fn request<O: ConsoleWrite>(
@@ -163,7 +168,7 @@ impl HttpSession {
         self.assert_not_forbidden_by_robots_txt(&url)?;
         let mut req = self.client.request(method, url.as_str());
         if let Some(jar) = self.jar.as_ref() {
-            req.header(jar.to_header());
+            req = req.header(header::COOKIE, jar.to_header_value()?);
         }
         Ok(req)
     }
@@ -190,24 +195,22 @@ pub(crate) struct Request<'a, O: ConsoleWrite> {
 }
 
 impl<'a, O: ConsoleWrite> Request<'a, O> {
-    pub fn raw_header(
-        mut self,
-        name: impl Into<Cow<'static, str>>,
-        value: impl Into<header::Raw>,
-    ) -> Self {
-        if let Ok(inner) = self.inner.as_mut() {
-            let mut headers = Headers::new();
-            headers.set_raw(name, value);
-            inner.headers(headers);
+    pub fn x_csrf_token(self, token: &str) -> Self {
+        Self {
+            inner: self.inner.map(|inner| inner.header("X-CSRF-Token", token)),
+            ..self
         }
-        self
     }
 
-    pub fn acceptable(self, statuses: &[u16]) -> Self {
+    /// Panics:
+    ///
+    /// Panics if `statuses` contains `n` such that `n < 100 || 600 <= n`.
+    pub fn acceptable(self, statuses: &'static [u16]) -> Self {
         let acceptable = statuses
             .iter()
-            .map(|&n| StatusCode::try_from(n).unwrap_or_else(|_| StatusCode::Unregistered(n)))
-            .collect();
+            .map(|&n| StatusCode::from_u16(n))
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
         Self { acceptable, ..self }
     }
 
@@ -230,25 +233,25 @@ impl<'a, O: ConsoleWrite> Request<'a, O> {
         res.filter_by_status(self.acceptable)
     }
 
-    pub fn send_form(mut self, form: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
-        if let Ok(inner) = self.inner.as_mut() {
-            inner.form(form);
-        }
-        self.send()
+    pub fn send_form(self, form: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
+        Self {
+            inner: self.inner.map(|inner| inner.form(form)),
+            ..self
+        }.send()
     }
 
-    pub fn send_json(mut self, json: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
-        if let Ok(inner) = self.inner.as_mut() {
-            inner.json(json);
-        }
-        self.send()
+    pub fn send_json(self, json: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
+        Self {
+            inner: self.inner.map(|inner| inner.json(json)),
+            ..self
+        }.send()
     }
 
-    pub fn send_multipart(mut self, multipart: multipart::Form) -> SessionResult<Response> {
-        if let Ok(inner) = self.inner.as_mut() {
-            inner.multipart(multipart);
-        }
-        self.send()
+    pub fn send_multipart(self, multipart: multipart::Form) -> SessionResult<Response> {
+        Self {
+            inner: self.inner.map(|inner| inner.multipart(multipart)),
+            ..self
+        }.send()
     }
 
     pub fn recv_html(self) -> SessionResult<Document> {
@@ -375,13 +378,15 @@ impl AutosavedCookieJar {
         Ok(Self { file, path, inner })
     }
 
-    fn to_header(&self) -> header::Cookie {
-        self.inner
-            .iter()
-            .fold(header::Cookie::new(), |mut header, cookie| {
-                header.append(cookie.name().to_owned(), cookie.value().to_owned());
-                header
-            })
+    fn to_header_value(&self) -> std::result::Result<HeaderValue, InvalidHeaderValue> {
+        let s = self.inner.iter().fold("".to_owned(), |mut s, cookie| {
+            if !s.is_empty() {
+                s.push_str(";");
+            }
+            write!(s, "{}={}", cookie.name(), cookie.value()).unwrap();
+            s
+        });
+        HeaderValue::from_str(&s)
     }
 
     fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> SessionResult<()> {
@@ -390,15 +395,17 @@ impl AutosavedCookieJar {
     }
 
     fn update(&mut self, response: &Response) -> SessionResult<()> {
-        if let Some(setcookie) = response.headers().get::<SetCookie>() {
-            for cookie in setcookie.iter() {
-                let cookie = cookie.to_owned();
-                let cookie = cookie::Cookie::parse(cookie.clone()).map_err(|e| {
-                    SessionError::ParseCookieFromUrl(cookie, response.url().to_owned(), e)
-                })?;
-                self.inner.add(cookie);
-            }
-            self.save()?;
+        fn parse_setcookie(setcookie: &HeaderValue) -> Option<cookie::Cookie<'static>> {
+            let setcookie = setcookie.to_str().ok()?;
+            let cookie = cookie::Cookie::parse(setcookie).ok()?;
+            Some(cookie.into_owned())
+        }
+
+        for setcookie in response.headers().get_all(header::SET_COOKIE) {
+            let cookie = parse_setcookie(setcookie).ok_or_else(|| {
+                SessionError::ParseCookieFromUrl(setcookie.to_owned(), response.url().to_owned())
+            })?;
+            self.inner.add(cookie);
         }
         Ok(())
     }
@@ -427,11 +434,12 @@ mod tests {
     use service;
     use service::session::{HttpSession, UrlBase};
 
+    use env_logger;
     use failure::Fail as _Fail;
     use nickel::{self, Nickel};
+    use reqwest::header;
     use tempdir::TempDir;
     use url::Host;
-    use {env_logger, reqwest};
 
     use std::net::Ipv4Addr;
     use std::panic;
@@ -458,7 +466,7 @@ mod tests {
             let mut null = Printer::null();
             let mut sess = HttpSession::new(&mut null, client, Some(base), None).unwrap();
             let res = sess.get("/", &mut null).send().unwrap();
-            assert!(res.headers().get::<reqwest::header::SetCookie>().is_some());
+            assert!(res.headers().get(header::SET_COOKIE).is_some());
             sess.get("/nonexisting", &mut null)
                 .acceptable(&[404])
                 .send()

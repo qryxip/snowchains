@@ -12,7 +12,7 @@ mod common;
 use snowchains::app::App;
 use snowchains::console::NullConsole;
 use snowchains::path::AbsPath;
-use snowchains::ServiceName;
+use snowchains::service::ServiceName;
 
 #[test]
 #[ignore]
@@ -24,13 +24,11 @@ fn it_logins() {
 
 #[test]
 #[ignore]
-#[should_panic(
-    expected = "called `Result::unwrap()` on an `Err` value: Service(WrongCredentialsOnTest)"
-)]
+#[should_panic(expected = "called `Result::unwrap()` on an `Err` value: Service(LoginOnTest)")]
 fn it_raises_an_error_when_login_fails() {
     let _ = env_logger::try_init();
     common::test_in_tempdir(
-        "it_raises_an_error_if_the_credentials_is_wrong",
+        "it_raises_an_error_if_when_login_fails",
         common::dummy_credentials(),
         login,
     );

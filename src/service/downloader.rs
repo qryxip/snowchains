@@ -1,15 +1,18 @@
-use errors::{FileIoResult, ServiceError, ServiceResult, SessionError, SessionResult};
+use errors::{
+    ExpandTemplateResult, FileIoResult, ServiceError, ServiceResult, SessionError, SessionResult,
+};
 use path::{AbsPath, AbsPathBuf};
 use service;
+use testsuite::DownloadDestinations;
 
 use futures::sync::oneshot;
 use futures::{self, future, task, Async, Future, Poll, Stream};
 use itertools::Itertools as _Itertools;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
-use reqwest::header::{self, ContentLength, Headers, UserAgent};
-use reqwest::unstable::async::Decoder;
+use reqwest::async::Decoder;
+use reqwest::header::{self, HeaderMap, HeaderValue};
 use reqwest::{self, RedirectPolicy, StatusCode};
-use tokio_core::reactor::Core;
+use tokio_core;
 use url::Url;
 use zip::ZipArchive;
 
@@ -22,10 +25,10 @@ pub(super) struct ZipDownloader<'a, W: io::Write, S: AsRef<str> + 'a> {
     pub out: W,
     pub url_pref: &'a str,
     pub url_suf: &'static str,
-    pub download_dir: AbsPath<'a>,
+    pub destinations: &'a DownloadDestinations,
     pub names: &'a [S],
     pub timeout: Option<Duration>,
-    pub cookie: Option<&'a header::Cookie>,
+    pub cookie: Option<HeaderValue>,
 }
 
 impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
@@ -35,39 +38,49 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
             names: self.names.iter().map(|s| s.as_ref().to_owned()).collect(),
             suf: self.url_suf,
         };
-        let paths = Paths {
-            dir: self.download_dir.to_owned(),
-            names: self.names.iter().map(|s| s.as_ref().to_owned()).collect(),
-        };
+        let paths = self
+            .names
+            .iter()
+            .map(|name| self.destinations.zip(name.as_ref()))
+            .collect::<ExpandTemplateResult<Vec<_>>>()?;
         let timeout = self.timeout;
-        let cookie = self.cookie.cloned();
-        writeln!(
-            self.out,
-            "URLS: {}\nTo:   {}",
-            urls,
-            self.download_dir.display(),
-        )?;
+        let cookie = self.cookie;
+
+        for path in &paths {
+            if let Some(dir) = path.parent() {
+                ::fs::create_dir_all(&dir)?;
+            }
+        }
+
+        writeln!(self.out, "{} to:", urls)?;
+        for path in &paths {
+            writeln!(self.out, "{}", path.display())?;
+        }
         self.out.flush()?;
+
         let (header_result_tx, header_result_rx) = oneshot::channel();
         let (mut pb_tx, pb_rx) = futures::sync::mpsc::channel(self.names.len());
         let thread = thread::spawn(move || -> ServiceResult<()> {
-            let mut core = Core::new()?;
-            let mut builder = reqwest::unstable::async::Client::builder();
-            if let Some(timeout) = timeout {
-                builder.timeout(timeout);
-            }
-            let client = builder
+            let builder = reqwest::async::Client::builder()
                 .redirect(RedirectPolicy::none())
                 .referer(false)
                 .default_headers({
-                    let mut headers = Headers::new();
-                    headers.set(UserAgent::new(service::USER_AGENT));
+                    let mut headers = HeaderMap::new();
+                    headers.insert(header::USER_AGENT, service::USER_AGENT.parse().unwrap());
+                    if let Some(cookie) = cookie {
+                        headers.insert(header::COOKIE, cookie);
+                    }
                     headers
-                }).build(&core.handle())?;
+                });
+            let client = match timeout {
+                None => builder,
+                Some(timeout) => builder.timeout(timeout),
+            }.build()?;
             let works = urls
                 .try_to_urls()?
                 .into_iter()
-                .map(|url| receive_header(&client, url, cookie.clone()));
+                .map(|url| receive_header(&client, url));
+            let mut core = tokio_core::reactor::Core::new()?;
             let resps = match core.run(future::join_all(works)) {
                 Ok(resps) => {
                     header_result_tx.send(Ok(resps.len())).unwrap();
@@ -140,35 +153,17 @@ impl fmt::Display for Urls {
     }
 }
 
-struct Paths {
-    dir: AbsPathBuf,
-    names: Vec<String>,
-}
-
-impl Paths {
-    fn iter(&self) -> impl Iterator<Item = AbsPathBuf> {
-        self.names
-            .iter()
-            .map(|s| self.dir.join(format!("{}.zip", s)))
-            .collect::<Vec<_>>()
-            .into_iter()
-    }
-}
-
 fn receive_header(
-    client: &reqwest::unstable::async::Client,
+    client: &reqwest::async::Client,
     url: Url,
-    cookie: Option<header::Cookie>,
-) -> impl Future<Item = reqwest::unstable::async::Response, Error = SessionError> {
-    let mut req = client.get(url);
-    if let Some(cookie) = cookie {
-        req.header(cookie);
-    }
-    req.send()
+) -> impl Future<Item = reqwest::async::Response, Error = SessionError> {
+    client
+        .get(url)
+        .send()
         .map_err(SessionError::from)
         .and_then(|resp| match resp.status() {
-            StatusCode::Ok => Ok(resp),
-            s => Err(SessionError::UnexpectedStatusCode(vec![StatusCode::Ok], s)),
+            StatusCode::OK => Ok(resp),
+            s => Err(SessionError::UnexpectedStatusCode(vec![StatusCode::OK], s)),
         })
 }
 
@@ -184,15 +179,19 @@ struct DownloadBody {
 
 impl DownloadBody {
     fn new(
-        response: reqwest::unstable::async::Response,
+        response: reqwest::async::Response,
         path: AbsPath,
         mut progress_bar: ProgressBar<Pipe>,
     ) -> FileIoResult<Self> {
         const ALT_CAPACITY: usize = 30 * 1024 * 1024;
-        let len = response.headers().get::<ContentLength>().map(|l| **l);
-        let cap = len.map(|n| n as usize).unwrap_or(ALT_CAPACITY);
+        let len = response
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<usize>().ok());
+        let cap = len.unwrap_or(ALT_CAPACITY);
         let file = BufWriter::with_capacity(cap, ::fs::create_file_and_dirs(path)?);
-        progress_bar.total = len.unwrap_or(0);
+        progress_bar.total = len.map(|n| n as u64).unwrap_or(0);
         progress_bar.set_units(Units::Bytes);
         Ok(Self {
             size_unknown: len.is_none(),
