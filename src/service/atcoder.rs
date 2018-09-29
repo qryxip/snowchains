@@ -675,7 +675,7 @@ impl Extract for Document {
                 }
             }
 
-            for (input, output) in samples.iter_mut() {
+            for (input, output) in &mut samples {
                 for s in &mut [input, output] {
                     if !s.ends_with('\n') {
                         s.push('\n');

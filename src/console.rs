@@ -402,6 +402,10 @@ pub trait ConsoleWrite: Write {
             .apply(palette, None, |s| s.is_underline = true)
     }
 
+    fn supports_color(&self) -> bool {
+        self.by_immutable().colours.is_some()
+    }
+
     fn process_redirection(&self) -> process::Stdio {
         (self.by_immutable().process_redirection)()
     }
