@@ -1,6 +1,6 @@
 use command::JudgingCommand;
 use console::{ConsoleWrite, Palette};
-use errors::JudgeResult;
+use errors::JudgeError;
 use judging::text::{Line, PrintAligned, Text, Width, Word};
 use judging::{MillisRoundedUp, Outcome};
 use testsuite::{ExpectedStdout, SimpleCase};
@@ -8,45 +8,72 @@ use testsuite::{ExpectedStdout, SimpleCase};
 use diff;
 use futures::{task, Async, Future, Poll};
 use tokio::io::{AsyncRead, AsyncWrite as _AsyncWrite};
-use tokio::runtime::Runtime;
 use tokio_process;
 
 use std::io::{self, Write as _Write};
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{cmp, fmt, mem};
+use std::{self, cmp, fmt, mem};
 
-pub(super) fn judge(case: &SimpleCase, solver: &Arc<JudgingCommand>) -> JudgeResult<SimpleOutcome> {
-    let mut runtime = Runtime::new()?;
-    let process = solver.spawn_async_piped()?;
-    let start = Instant::now();
-    let result = runtime.block_on(RunCommand {
-        process,
+pub(super) fn judge(
+    case: &SimpleCase,
+    solver: &Arc<JudgingCommand>,
+) -> impl Future<Item = SimpleOutcome, Error = JudgeError> {
+    // https://github.com/rust-lang/rust/issues/54427
+    Judge {
         input: case.input(),
-        state: State::Writing(0),
-        stdout: Vec::with_capacity(2048),
-        stderr: Vec::with_capacity(2048),
-        start,
-        deadline: case.timelimit().map(|t| start + t),
-    });
-    let _ = runtime.shutdown_on_idle().wait();
-    match result {
-        Err(ref err) if err.kind() == io::ErrorKind::TimedOut => {
-            Ok(SimpleOutcome::TimelimitExceeded {
-                timelimit: case.timelimit().unwrap_or_default(),
-                input: Text::exact(&case.input()),
-                expected: match case.expected().as_ref() {
-                    ExpectedStdout::AcceptAny { .. } => None,
-                    ExpectedStdout::Exact(expected) => Some(Text::exact(expected)),
-                    ExpectedStdout::Float {
-                        lines: expected, ..
-                    } => Some(Text::float(expected, None)),
-                },
-            })
+        expected: case.expected(),
+        timelimit: case.timelimit(),
+        solver: solver.clone(),
+        process: None,
+    }
+}
+
+struct Judge {
+    input: Arc<String>,
+    expected: Arc<ExpectedStdout>,
+    timelimit: Option<Duration>,
+    solver: Arc<JudgingCommand>,
+    process: Option<RunCommand>,
+}
+
+impl Future for Judge {
+    type Item = SimpleOutcome;
+    type Error = JudgeError;
+
+    fn poll(&mut self) -> Poll<SimpleOutcome, JudgeError> {
+        if self.process.is_none() {
+            let solver = self.solver.spawn_async_piped()?;
+            let start = Instant::now();
+            self.process = Some(RunCommand {
+                process: solver,
+                input: self.input.clone(),
+                state: State::Writing(0),
+                stdout: Vec::with_capacity(2048),
+                stderr: Vec::with_capacity(2048),
+                start,
+                deadline: self.timelimit.map(|t| start + t),
+            });
+            task::current().notify();
+            Ok(Async::NotReady)
+        } else {
+            let result = try_ready!(self.process.as_mut().unwrap().poll());
+            Ok(Async::Ready(match result {
+                Err(timelimit) => SimpleOutcomeInner::TimelimitExceeded {
+                    timelimit,
+                    input: Text::exact(&self.input),
+                    expected: match self.expected.as_ref() {
+                        ExpectedStdout::AcceptAny { .. } => None,
+                        ExpectedStdout::Exact(expected) => Some(Text::exact(&expected)),
+                        ExpectedStdout::Float {
+                            lines: expected, ..
+                        } => Some(Text::float(expected, None)),
+                    },
+                }.into(),
+                Ok(outcome) => outcome.compare(&self.expected),
+            }))
         }
-        Err(err) => Err(err.into()),
-        Ok(outcome) => Ok(outcome.compare(&case.expected())),
     }
 }
 
@@ -61,10 +88,10 @@ struct RunCommand {
 }
 
 impl Future for RunCommand {
-    type Item = CommandOutcome;
+    type Item = std::result::Result<CommandOutcome, Duration>;
     type Error = io::Error;
 
-    fn poll(&mut self) -> Poll<CommandOutcome, io::Error> {
+    fn poll(&mut self) -> Poll<std::result::Result<CommandOutcome, Duration>, io::Error> {
         fn string_from_utf8(s: Vec<u8>) -> io::Result<String> {
             String::from_utf8(s).map_err(|_| {
                 io::Error::new(
@@ -79,13 +106,23 @@ impl Future for RunCommand {
                 task::current().notify();
                 let stdin = self.process.stdin().as_mut().unwrap();
                 let input = &self.input.as_bytes()[num_wrote..];
-                let num_wrote = num_wrote + try_ready!(stdin.poll_write(input));
-                self.state = if num_wrote == self.input.len() {
-                    State::ShuttingDownStdin
-                } else {
-                    State::Writing(num_wrote)
-                };
-                Ok(Async::NotReady)
+                match stdin.poll_write(input) {
+                    Err(ref err) if err.kind() == io::ErrorKind::BrokenPipe => {
+                        self.state = State::PollingStatus;
+                        Ok(Async::NotReady)
+                    }
+                    Err(err) => Err(err),
+                    Ok(Async::NotReady) => Ok(Async::NotReady),
+                    Ok(Async::Ready(n)) => {
+                        let num_wrote = num_wrote + n;
+                        self.state = if num_wrote == self.input.len() {
+                            State::ShuttingDownStdin
+                        } else {
+                            State::Writing(num_wrote)
+                        };
+                        Ok(Async::NotReady)
+                    }
+                }
             }
             State::ShuttingDownStdin => {
                 task::current().notify();
@@ -99,7 +136,7 @@ impl Future for RunCommand {
                 let now = Instant::now();
                 if self.deadline.is_some() && self.deadline.unwrap() < now {
                     self.process.kill()?;
-                    return Err(io::Error::from(io::ErrorKind::TimedOut));
+                    return Ok(Async::Ready(Err(self.deadline.unwrap() - self.start)));
                 }
                 let (status, time) = (try_ready!(self.process.poll()), now - self.start);
                 self.state = State::PollingStdout(status, time);
@@ -122,13 +159,13 @@ impl Future for RunCommand {
                 ));
                 let stdout = string_from_utf8(mem::replace(&mut self.stdout, vec![]))?;
                 let stderr = string_from_utf8(mem::replace(&mut self.stderr, vec![]))?;
-                Ok(Async::Ready(CommandOutcome {
+                Ok(Async::Ready(Ok(CommandOutcome {
                     status,
                     elapsed: time,
                     input: self.input.clone(),
                     stdout: Arc::new(stdout),
                     stderr: Arc::new(stderr),
-                }))
+                })))
             }
         }
     }
@@ -191,7 +228,7 @@ impl CommandOutcome {
             }
         };
         if !status.success() {
-            SimpleOutcome::RuntimeError {
+            SimpleOutcomeInner::RuntimeError {
                 elapsed,
                 input,
                 expected,
@@ -200,68 +237,44 @@ impl CommandOutcome {
                 status,
             }
         } else if expected.is_some() && *expected.as_ref().unwrap() != stdout {
-            SimpleOutcome::WrongAnswer {
+            SimpleOutcomeInner::WrongAnswer {
                 elapsed,
                 input,
                 diff: TextDiff::new(expected.as_ref().unwrap(), &stdout),
                 stderr,
             }
         } else {
-            SimpleOutcome::Accepted {
+            SimpleOutcomeInner::Accepted {
                 elapsed,
                 input,
                 stdout,
                 stderr,
             }
-        }
+        }.into()
     }
 }
 
 /// Test result.
 #[cfg_attr(test, derive(Debug))]
-pub(super) enum SimpleOutcome {
-    Accepted {
-        elapsed: Duration,
-        input: Text,
-        stdout: Text,
-        stderr: Text,
-    },
-    TimelimitExceeded {
-        timelimit: Duration,
-        expected: Option<Text>,
-        input: Text,
-    },
-    WrongAnswer {
-        elapsed: Duration,
-        input: Text,
-        diff: TextDiff,
-        stderr: Text,
-    },
-    RuntimeError {
-        elapsed: Duration,
-        input: Text,
-        expected: Option<Text>,
-        stdout: Text,
-        stderr: Text,
-        status: ExitStatus,
-    },
+pub(super) struct SimpleOutcome {
+    inner: SimpleOutcomeInner,
 }
 
 impl fmt::Display for SimpleOutcome {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            SimpleOutcome::Accepted { elapsed, .. } => {
+        match self.inner {
+            SimpleOutcomeInner::Accepted { elapsed, .. } => {
                 write!(f, "Accepted ({}ms)", elapsed.millis_rounded_up())
             }
-            SimpleOutcome::TimelimitExceeded { timelimit, .. } => write!(
+            SimpleOutcomeInner::TimelimitExceeded { timelimit, .. } => write!(
                 f,
                 "Time Limit Exceeded ({}ms)",
                 timelimit.millis_rounded_up()
             ),
-            SimpleOutcome::WrongAnswer { elapsed, .. } => {
+            SimpleOutcomeInner::WrongAnswer { elapsed, .. } => {
                 write!(f, "Wrong Answer ({}ms)", elapsed.millis_rounded_up())
             }
-            SimpleOutcome::RuntimeError {
+            SimpleOutcomeInner::RuntimeError {
                 elapsed, status, ..
             } => {
                 let elapsed = elapsed.millis_rounded_up();
@@ -273,17 +286,17 @@ impl fmt::Display for SimpleOutcome {
 
 impl Outcome for SimpleOutcome {
     fn failure(&self) -> bool {
-        match self {
-            SimpleOutcome::Accepted { .. } => false,
+        match self.inner {
+            SimpleOutcomeInner::Accepted { .. } => false,
             _ => true,
         }
     }
 
     fn palette(&self) -> Palette {
-        match self {
-            SimpleOutcome::Accepted { .. } => Palette::Success,
-            SimpleOutcome::TimelimitExceeded { .. } => Palette::Fatal,
-            SimpleOutcome::WrongAnswer { .. } | SimpleOutcome::RuntimeError { .. } => {
+        match self.inner {
+            SimpleOutcomeInner::Accepted { .. } => Palette::Success,
+            SimpleOutcomeInner::TimelimitExceeded { .. } => Palette::Fatal,
+            SimpleOutcomeInner::WrongAnswer { .. } | SimpleOutcomeInner::RuntimeError { .. } => {
                 Palette::Warning
             }
         }
@@ -318,8 +331,8 @@ impl Outcome for SimpleOutcome {
             diff.print(out)
         }
 
-        match self {
-            SimpleOutcome::Accepted {
+        match &self.inner {
+            SimpleOutcomeInner::Accepted {
                 input,
                 stdout,
                 stderr,
@@ -329,13 +342,13 @@ impl Outcome for SimpleOutcome {
                 print_section(&mut out, "stdout:", stdout)?;
                 print_section_unless_empty(&mut out, "stderr:", stderr)
             }
-            SimpleOutcome::TimelimitExceeded {
+            SimpleOutcomeInner::TimelimitExceeded {
                 input, expected, ..
             } => {
                 print_section(&mut out, "input:", input)?;
                 print_section_unless_empty(&mut out, "expected:", expected.as_ref())
             }
-            SimpleOutcome::WrongAnswer {
+            SimpleOutcomeInner::WrongAnswer {
                 input,
                 diff,
                 stderr,
@@ -345,7 +358,7 @@ impl Outcome for SimpleOutcome {
                 print_diff(&mut out, "diff:", diff)?;
                 print_section_unless_empty(&mut out, "stderr:", stderr)
             }
-            SimpleOutcome::RuntimeError {
+            SimpleOutcomeInner::RuntimeError {
                 input,
                 expected,
                 stdout,
@@ -359,6 +372,41 @@ impl Outcome for SimpleOutcome {
             }
         }
     }
+}
+
+impl From<SimpleOutcomeInner> for SimpleOutcome {
+    fn from(inner: SimpleOutcomeInner) -> Self {
+        Self { inner }
+    }
+}
+
+#[cfg_attr(test, derive(Debug))]
+enum SimpleOutcomeInner {
+    Accepted {
+        elapsed: Duration,
+        input: Text,
+        stdout: Text,
+        stderr: Text,
+    },
+    TimelimitExceeded {
+        timelimit: Duration,
+        expected: Option<Text>,
+        input: Text,
+    },
+    WrongAnswer {
+        elapsed: Duration,
+        input: Text,
+        diff: TextDiff,
+        stderr: Text,
+    },
+    RuntimeError {
+        elapsed: Duration,
+        input: Text,
+        expected: Option<Text>,
+        stdout: Text,
+        stderr: Text,
+        status: ExitStatus,
+    },
 }
 
 #[cfg_attr(test, derive(Debug))]

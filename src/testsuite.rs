@@ -330,15 +330,21 @@ pub(crate) struct ZipConfig {
     timelimit: Option<Duration>,
     #[serde(rename = "match")]
     output_match: Match,
+    modify: Modify,
     entries: Vec<ZipEntries>,
 }
 
 impl ZipConfig {
     fn load(&self, path: AbsPath, filename: &str) -> SuiteFileResult<Vec<SimpleCase>> {
-        let (timelimit, output_match) = (self.timelimit, self.output_match);
         let mut cases = vec![];
         for entry in &self.entries {
-            cases.extend(entry.load(path, filename, timelimit, output_match)?);
+            cases.extend(entry.load(
+                path,
+                filename,
+                self.timelimit,
+                self.output_match,
+                self.modify,
+            )?);
         }
         Ok(cases)
     }
@@ -360,6 +366,7 @@ impl ZipEntries {
         filename: &str,
         timelimit: Option<Duration>,
         output_match: Match,
+        modify: Modify,
     ) -> SuiteFileResult<Vec<SimpleCase>> {
         if !path.exists() {
             return Ok(vec![]);
@@ -427,7 +434,7 @@ impl ZipEntries {
         let cases = cases
             .into_iter()
             .map(|(name, input, output)| {
-                let (input, expected) = process_pair(&input, Some(&output), output_match);
+                let (input, expected) = process_pair(&input, Some(&output), output_match, modify);
                 SimpleCase {
                     name: Arc::new(format!("{}:{}", filename, name)),
                     input,
@@ -563,6 +570,7 @@ impl<T, E: 'static + std::error::Error + Send + Sync> WrapInIoError for std::res
 pub(crate) struct SimpleSuite {
     timelimit: Option<Duration>,
     output_match: Match,
+    modify: Modify,
     cases: Vec<(Arc<String>, Option<Arc<String>>)>,
 }
 
@@ -570,8 +578,7 @@ impl SimpleSuite {
     pub fn new(timelimit: impl Into<Option<Duration>>) -> Self {
         Self {
             timelimit: timelimit.into(),
-            output_match: Match::default(),
-            cases: vec![],
+            ..Self::default()
         }
     }
 
@@ -588,14 +595,13 @@ impl SimpleSuite {
     }
 
     fn cases_named(self, filename: &str) -> Vec<SimpleCase> {
-        let timelimit = self.timelimit;
-        let output_match = self.output_match;
+        let (output_match, modify, timelimit) = (self.output_match, self.modify, self.timelimit);
         self.cases
             .into_iter()
             .enumerate()
             .map(move |(i, (input, output))| {
                 let output = output.as_ref().map(|s| s.as_str());
-                let (input, expected) = process_pair(&input, output, output_match);
+                let (input, expected) = process_pair(&input, output, output_match, modify);
                 let name = Arc::new(format!("{}[{}]", filename, i));
                 SimpleCase {
                     name,
@@ -625,6 +631,7 @@ impl Serialize for SimpleSuite {
         SimpleSuiteSchema {
             timelimit: self.timelimit,
             output_match: self.output_match,
+            modify: self.modify,
             cases,
         }.serialize(serializer)
     }
@@ -636,6 +643,7 @@ impl<'de> Deserialize<'de> for SimpleSuite {
         Ok(Self {
             timelimit: raw.timelimit,
             output_match: raw.output_match,
+            modify: raw.modify,
             cases: raw
                 .cases
                 .into_iter()
@@ -655,6 +663,7 @@ struct SimpleSuiteSchema {
     timelimit: Option<Duration>,
     #[serde(rename = "match", default)]
     output_match: Match,
+    modify: Modify,
     cases: Vec<SimpleCaseSchema>,
 }
 
@@ -789,6 +798,7 @@ fn process_pair(
     input: &str,
     output: Option<&str>,
     output_match: Match,
+    modify: Modify,
 ) -> (Arc<String>, ExpectedStdout) {
     fn add_eols(ss: &mut [&mut String]) {
         for s in ss {
@@ -798,26 +808,37 @@ fn process_pair(
         }
     }
 
+    fn convert_crlf_to_lf(ss: &mut [&mut String]) {
+        for s in ss {
+            **s = s.replace("\r\n", "\n");
+        }
+    }
+
     match (output, output_match) {
         (None, _) => (Arc::new(input.to_owned()), ExpectedStdout::AcceptAny),
-        (Some(output), Match::Exact { add_eols_to_cases }) => {
+        (Some(output), Match::Exact) => {
             let (mut input, mut output) = (input.to_owned(), output.to_owned());
-            if add_eols_to_cases {
+            if modify.add_eol {
                 add_eols(&mut [&mut input, &mut output]);
+            }
+            if modify.crlf_to_lf {
+                convert_crlf_to_lf(&mut [&mut input, &mut output]);
             }
             (Arc::new(input), ExpectedStdout::Exact(output))
         }
         (
             Some(output),
             Match::Float {
-                add_eols_to_cases,
                 absolute_error,
                 relative_error,
             },
         ) => {
             let (mut input, mut string) = (input.to_owned(), output.to_owned());
-            if add_eols_to_cases {
+            if modify.add_eol {
                 add_eols(&mut [&mut input, &mut string]);
+            }
+            if modify.crlf_to_lf {
+                convert_crlf_to_lf(&mut [&mut input, &mut string]);
             }
             let expected = ExpectedStdout::Float {
                 lines: string,
@@ -845,11 +866,8 @@ pub(crate) enum ExpectedStdout {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum Match {
-    Exact {
-        add_eols_to_cases: bool,
-    },
+    Exact,
     Float {
-        add_eols_to_cases: bool,
         #[serde(default = "nan")]
         relative_error: f64,
         #[serde(default = "nan")]
@@ -863,14 +881,28 @@ fn nan() -> f64 {
 
 impl Default for Match {
     fn default() -> Self {
-        Match::Exact {
-            add_eols_to_cases: true,
+        Match::Exact
+    }
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+struct Modify {
+    add_eol: bool,
+    crlf_to_lf: bool,
+}
+
+impl Default for Modify {
+    fn default() -> Self {
+        Modify {
+            add_eol: false,
+            crlf_to_lf: false,
         }
     }
 }
 
-#[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Clone)]
 pub(crate) struct InteractiveCase {
     name: Arc<String>,
     timelimit: Option<Duration>,

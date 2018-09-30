@@ -44,7 +44,7 @@ $ snowchains <i|init> ./
 $ snowchains <w|switch> [-s <service>] [-c <contest>] [-l <language>]                       # e.g. "-s atcoder -c arc100 -l c++"
 $ snowchains <d|download> [-b|--open-browser] [-s <service>] [-c <contest>] [-p <problems>] # Does not ask username and password unless they are needed
 $ $EDITOR ./snowchains/<service>/<contest>/<problem>.yaml                                   # Add more test cases
-$ snowchains <j|judge> [--force-compile] [-s <service>] [-c <contest>] [-l <language>] <problem>
+$ snowchains <j|judge> [--force-compile] [-s <service>] [-c <contest>] [-l <language>] [-j <jobs>] <problem>
 $ snowchains <s|submit> [-b|--open-browser] [--force-compile] [-j|--skip-judging] [-d|--skip-checking-duplication] \
                         [-s <service>] [-c <contest>] [-l <language>] <problem>
 ```
@@ -69,14 +69,16 @@ session:
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
 
 testfiles:
+  jobs: 4
   path: snowchains/$service/$contest/{snake}.$extension
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
   zip:
     timelimit: 2000
-    match:
-      exact:
-        add_eols_to_cases: false
+    match: exact
+    modify:
+      add_eol: false
+      crlf_to_lf: true
     entries:
       # AtCoder
       - in:
@@ -267,11 +269,12 @@ languages:
 
 ```yaml
 ---
-type: simple    # "simple" or "interactive"
-timelimit: 2000 # Optional
-match:          # "exact" or "float"
-  exact:
-    add_eols_to_cases: true
+type: simple        # "simple" or "interactive"
+timelimit: 2000     # optional
+match: exact        # "exact" or "float"
+modify:             # modifies `cases/{in, out}`
+  add_eol: false    # add a missing "\n"
+  crlf_to_lf: false # converts CRLF to LF
 
 cases:
   - in: |

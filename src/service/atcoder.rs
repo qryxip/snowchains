@@ -675,7 +675,7 @@ impl Extract for Document {
                 }
             }
 
-            for (input, output) in samples.iter_mut() {
+            for (input, output) in &mut samples {
                 for s in &mut [input, output] {
                     if !s.ends_with('\n') {
                         s.push('\n');
@@ -813,7 +813,7 @@ impl Extract for Document {
                     status == "AC"
                 };
                 let detail_url = tr
-                    .find(selector!(td>.text-center>a))
+                    .find(selector!(> td.text-center>a))
                     .flat_map(|a| -> Option<String> {
                         let text = a.find(Text).next()?.text();
                         if text != "詳細" && text != "Detail" {
@@ -1234,7 +1234,7 @@ mod tests {
     }
 
     fn start() -> SessionResult<Atcoder<impl ConsoleReadWrite>> {
-        let client = service::reqwest_client(Duration::from_secs(10))?;
+        let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
         let mut console = NullConsole::new();
         let session = HttpSession::new(console.stdout(), client, base, None)?;

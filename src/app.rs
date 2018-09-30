@@ -9,9 +9,12 @@ use service::{
 };
 use testsuite::{self, SerializableExtension};
 
+use std;
 use std::borrow::Cow;
 use std::io::Write as _Write;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -329,6 +332,14 @@ pub enum Opt {
         )]
         language: Option<String>,
         #[structopt(
+            short = "j",
+            long = "jobs",
+            name = "number",
+            help = "Number of jobs",
+            raw(display_order = "4"),
+        )]
+        jobs: Option<NonZeroUsizeFromStr>,
+        #[structopt(
             short = "C",
             long = "color",
             name = "WHEN",
@@ -336,7 +347,7 @@ pub enum Opt {
                 help = "ColorChoice::clap_help()",
                 default_value = "ColorChoice::clap_default_value()",
                 possible_values = "ColorChoice::clap_possible_values()",
-                display_order = "4"
+                display_order = "5"
             )
         )]
         color_choice: ColorChoice,
@@ -364,7 +375,6 @@ pub enum Opt {
         )]
         force_compile: bool,
         #[structopt(
-            short = "j",
             long = "skip-judging",
             help = "Skips judging",
             raw(conflicts_with = "\"force_compile\"")
@@ -401,6 +411,14 @@ pub enum Opt {
         )]
         language: Option<String>,
         #[structopt(
+            short = "j",
+            long = "jobs",
+            name = "number",
+            help = "Number of jobs",
+            raw(conflicts_with = "\"skip_judging\"", display_order = "4")
+        )]
+        jobs: Option<NonZeroUsizeFromStr>,
+        #[structopt(
             short = "C",
             long = "color",
             name = "WHEN",
@@ -408,7 +426,7 @@ pub enum Opt {
                 help = "ColorChoice::clap_help()",
                 default_value = "ColorChoice::clap_default_value()",
                 possible_values = "ColorChoice::clap_possible_values()",
-                display_order = "4"
+                display_order = "5"
             )
         )]
         color_choice: ColorChoice,
@@ -552,6 +570,7 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 service,
                 contest,
                 language,
+                jobs,
                 color_choice,
                 problem,
             } => {
@@ -566,6 +585,7 @@ impl<RW: ConsoleReadWrite> App<RW> {
                     &problem,
                     language,
                     force_compile,
+                    jobs.map(|jobs| jobs.0),
                 )?;
                 judging::judge(judge_prop)?;
             }
@@ -577,6 +597,7 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 language,
                 service,
                 contest,
+                jobs,
                 color_choice,
                 problem,
             } => {
@@ -592,6 +613,7 @@ impl<RW: ConsoleReadWrite> App<RW> {
                         &problem,
                         language,
                         force_compile,
+                        jobs.map(|jobs| jobs.0),
                     )?)?;
                     writeln!(self.console.stdout())?;
                 }
@@ -622,5 +644,18 @@ impl<RW: ConsoleReadWrite> App<RW> {
             timeout: config.session_timeout(),
             credentials: self.credentials.clone(),
         })
+    }
+}
+
+#[derive(Debug)]
+pub struct NonZeroUsizeFromStr(NonZeroUsize);
+
+impl FromStr for NonZeroUsizeFromStr {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
+        let n = s.parse::<usize>().map_err(|e| e.to_string())?;
+        let n = NonZeroUsize::new(n).ok_or_else(|| "must be non-zero".to_owned())?;
+        Ok(NonZeroUsizeFromStr(n))
     }
 }

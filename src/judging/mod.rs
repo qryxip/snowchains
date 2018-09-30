@@ -8,9 +8,13 @@ use console::{ConsoleWrite, Palette};
 use errors::{JudgeError, JudgeResult};
 use testsuite::{TestCase, TestCases};
 
+use futures::{self, Future, Sink as _Sink, Stream as _Stream};
+use tokio::runtime::Runtime;
+
 use std::collections::HashSet;
 use std::fmt;
 use std::io::{self, Write};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,31 +24,84 @@ use std::time::Duration;
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
 pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> JudgeResult<()> {
-    fn judge_all<C: TestCase, O: Outcome>(
+    fn judge_all<
+        C: TestCase,
+        O: Outcome + Send + 'static,
+        F: Future<Item = O, Error = JudgeError> + Send + 'static,
+    >(
         (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
+        jobs: NonZeroUsize,
         cases: Vec<C>,
         solver: &Arc<JudgingCommand>,
-        judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<O>,
+        judge: fn(&C, &Arc<JudgingCommand>) -> F,
     ) -> JudgeResult<()> {
         let num_cases = cases.len();
         writeln!(stdout, "Running {}...", plural!(num_cases, "test", "tests"))?;
         stdout.flush()?;
 
-        let filenames = cases.iter().map(|c| c.name()).collect::<Vec<_>>();
-        let filename_max_width = filenames.iter().map(|s| stdout.width(s)).max().unwrap_or(0);
-        let outcomes = cases
-            .into_iter()
-            .zip(&filenames)
-            .enumerate()
-            .map(|(i, (case, filename))| {
-                let outcome = judge(&case, solver)?;
-                outcome.print_title(&mut stdout, i, num_cases, filename, filename_max_width)?;
-                stdout.flush()?;
-                Ok(outcome)
-            }).collect::<JudgeResult<Vec<_>>>()?;
+        let names = cases.iter().map(|c| c.name()).collect::<Vec<_>>();
+        let name_max_width = names.iter().map(|s| stdout.width(s)).max().unwrap_or(0);
 
-        let num_failures = outcomes.iter().filter(|o| o.failure()).count();
+        let mut cases = names
+            .into_iter()
+            .zip(cases)
+            .enumerate()
+            .map(|(i, (name, case))| (i, name, case));
+
+        let (tx, rx) = futures::sync::mpsc::channel(num_cases);
+        let mut runtime = Runtime::new()?;
+        for _ in 0..jobs.get() {
+            spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge);
+        }
+        write!(stderr, "0/{} test finished (0 failure)", num_cases)?;
+        if !stderr.supports_color() {
+            writeln!(stderr)?;
+        }
+        stderr.flush()?;
+        let (mut num_finished, mut num_failures) = (0, 0);
+        let mut outcomes = rx
+            .take(num_cases as u64)
+            .then::<_, JudgeResult<_>>(|r| {
+                let (i, name, r) = r.unwrap();
+                let outcome = r?;
+                num_finished += 1;
+                if outcome.failure() {
+                    num_failures += 1;
+                }
+                if stderr.supports_color() {
+                    stderr.inner_writer().write_all(b"\x1b[0G\x1b[2K")?;
+                }
+                let palette = match num_failures {
+                    0 => Palette::Success,
+                    _ => Palette::Fatal,
+                };
+                write!(
+                    stderr.plain(palette),
+                    "{}/{} {} finished ({})",
+                    num_finished,
+                    num_cases,
+                    if num_finished > 1 { "tests" } else { "test" },
+                    plural!(num_failures, "failure", "failures"),
+                )?;
+                if !stderr.supports_color() {
+                    writeln!(stderr)?;
+                }
+                stderr.flush()?;
+                spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge);
+                Ok((i, name, outcome))
+            }).collect()
+            .wait()?;
+        if stderr.supports_color() {
+            writeln!(stderr)?;
+            stderr.flush()?;
+        }
+        outcomes.sort_by_key(|(i, _, _)| *i);
+        let _ = runtime.shutdown_on_idle().wait();
+
         if num_failures == 0 {
+            for (i, name, outcome) in outcomes {
+                outcome.print_title(&mut stdout, i, num_cases, &name, name_max_width)?;
+            }
             writeln!(
                 stdout,
                 "All of the {} passed.",
@@ -53,19 +110,39 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
             stdout.flush()?;
             Ok(())
         } else {
-            for (i, (outcome, filename)) in outcomes.iter().zip(&filenames).enumerate() {
-                writeln!(stderr)?;
-                outcome.print_title(&mut stderr, i, num_cases, filename, filename_max_width)?;
-                outcome.print_details(&mut stderr)?;
+            for (i, name, outcome) in outcomes {
+                writeln!(stdout)?;
+                outcome.print_title(&mut stdout, i, num_cases, &name, name_max_width)?;
+                outcome.print_details(&mut stdout)?;
             }
-            stderr.flush()?;
+            stdout.flush()?;
             Err(JudgeError::TestFailed(num_failures, num_cases))
+        }
+    }
+
+    fn spawn_head<
+        C: TestCase,
+        O: Outcome + Send + 'static,
+        F: Future<Item = O, Error = JudgeError> + Send + 'static,
+    >(
+        mut cases: impl Iterator<Item = (usize, Arc<String>, C)>,
+        runtime: &mut Runtime,
+        tx: futures::sync::mpsc::Sender<(usize, Arc<String>, JudgeResult<O>)>,
+        solver: &Arc<JudgingCommand>,
+        judge: fn(&C, &Arc<JudgingCommand>) -> F,
+    ) {
+        if let Some((i, name, case)) = cases.next() {
+            runtime.spawn(judge(&case, solver).then(move |r| {
+                let _ = tx.send((i, name, r)).wait(); // `rx` may be dropped
+                Ok(())
+            }));
         }
     }
 
     let JudgeProp {
         mut stdout,
         mut stderr,
+        jobs,
         cases,
         case_paths_formatted,
         solver,
@@ -86,14 +163,15 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
     solver.write_info(&mut stdout, &case_paths_formatted)?;
     let (out, solver) = ((stdout, stderr), Arc::new(solver));
     match cases {
-        TestCases::Simple(cases) => judge_all(out, cases, &solver, simple::judge),
-        TestCases::Interactive(cases) => judge_all(out, cases, &solver, interactive::judge),
+        TestCases::Simple(cases) => judge_all(out, jobs, cases, &solver, simple::judge),
+        TestCases::Interactive(cases) => judge_all(out, jobs, cases, &solver, interactive::judge),
     }
 }
 
 pub(crate) struct JudgeProp<O: ConsoleWrite, E: ConsoleWrite> {
     stdout: O,
     stderr: E,
+    jobs: NonZeroUsize,
     cases: TestCases,
     case_paths_formatted: String,
     solver: JudgingCommand,
@@ -109,6 +187,7 @@ impl<O: ConsoleWrite, E: ConsoleWrite> JudgeProp<O, E> {
         problem: &str,
         language: Option<&str>,
         force_compile: bool,
+        jobs: Option<NonZeroUsize>,
     ) -> ::Result<Self> {
         let (cases, paths_formatted) = config.testcase_loader().load_merging(problem)?;
         let solver = config.solver(language)?.expand(&problem)?;
@@ -120,6 +199,7 @@ impl<O: ConsoleWrite, E: ConsoleWrite> JudgeProp<O, E> {
         Ok(Self {
             stdout,
             stderr,
+            jobs: jobs.unwrap_or_else(|| config.judge_jobs()),
             tester_compilations: cases.interactive_tester_compilations(),
             cases,
             case_paths_formatted: paths_formatted,
