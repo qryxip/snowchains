@@ -157,9 +157,10 @@ if __name__ == '__main__':
                 force_compile: false,
                 skip_judging: true,
                 skip_checking_duplication: false,
-                language: Some("python3".to_owned()),
                 service: Some(ServiceName::Atcoder),
                 contest: Some("practice".to_owned()),
+                language: Some("python3".to_owned()),
+                jobs: None,
                 color_choice: ColorChoice::Never,
                 problem: "a".to_owned(),
             }).map_err(Into::into)

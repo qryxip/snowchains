@@ -16,6 +16,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::io::{self, Write};
+use std::num::NonZeroUsize;
 use std::ops::Deref as _Deref;
 use std::str;
 use std::time::Duration;
@@ -44,7 +45,8 @@ session:
 
 shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
 
-testfiles:
+judge:
+  jobs: 4
   path: snowchains/$service/$contest/{{snake}}.$extension
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
@@ -376,7 +378,7 @@ pub(crate) struct Config {
     console: console::Conf,
     session: SessionConfig,
     shell: Vec<TemplateBuilder<OsString>>,
-    testfiles: TestFiles,
+    judge: Judge,
     #[serde(default)]
     services: BTreeMap<ServiceName, ServiceConfig>,
     #[serde(default)]
@@ -429,31 +431,35 @@ impl Config {
         self.session.cookies(&self.base_dir, self.service)
     }
 
+    pub fn judge_jobs(&self) -> NonZeroUsize {
+        self.judge.jobs
+    }
+
     pub fn download_destinations(
         &self,
         ext: Option<SerializableExtension>,
     ) -> DownloadDestinations {
         let template = self
-            .testfiles
+            .judge
             .path
             .build(&self.base_dir)
             .insert_string("service", self.service.to_str())
             .insert_string("contest", &self.contest);
-        let ext = ext.unwrap_or(self.testfiles.scrape);
+        let ext = ext.unwrap_or(self.judge.scrape);
         DownloadDestinations::new(template, ext)
     }
 
     pub fn testcase_loader(&self) -> TestCaseLoader {
         let path = self
-            .testfiles
+            .judge
             .path
             .build(&self.base_dir)
             .insert_string("service", self.service.to_str())
             .insert_string("contest", &self.contest);
         TestCaseLoader::new(
             path,
-            &self.testfiles.forall,
-            &self.testfiles.zip,
+            &self.judge.forall,
+            &self.judge.zip,
             self.interactive_tester_compilations(),
             self.interactive_testers(),
         )
@@ -596,7 +602,8 @@ fn find_language<'a>(
 }
 
 #[derive(Serialize, Deserialize)]
-struct TestFiles {
+struct Judge {
+    jobs: NonZeroUsize,
     path: TemplateBuilder<AbsPathBuf>,
     forall: BTreeSet<SuiteFileExtension>,
     scrape: SerializableExtension,

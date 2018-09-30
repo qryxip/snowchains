@@ -44,7 +44,7 @@ $ snowchains <i|init> ./
 $ snowchains <w|switch> [-s <service>] [-c <contest>] [-l <language>]                       # e.g. "-s atcoder -c arc100 -l c++"
 $ snowchains <d|download> [-b|--open-browser] [-s <service>] [-c <contest>] [-p <problems>] # Does not ask username and password unless they are needed
 $ $EDITOR ./snowchains/<service>/<contest>/<problem>.yaml                                   # Add more test cases
-$ snowchains <j|judge> [--force-compile] [-s <service>] [-c <contest>] [-l <language>] <problem>
+$ snowchains <j|judge> [--force-compile] [-s <service>] [-c <contest>] [-l <language>] [-j <jobs>] <problem>
 $ snowchains <s|submit> [-b|--open-browser] [--force-compile] [-j|--skip-judging] [-d|--skip-checking-duplication] \
                         [-s <service>] [-c <contest>] [-l <language>] <problem>
 ```
@@ -69,6 +69,7 @@ session:
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
 
 testfiles:
+  jobs: 4
   path: snowchains/$service/$contest/{snake}.$extension
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml

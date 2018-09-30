@@ -14,6 +14,7 @@ use tokio::runtime::Runtime;
 use std::collections::HashSet;
 use std::fmt;
 use std::io::{self, Write};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,6 +30,7 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
         F: Future<Item = O, Error = JudgeError> + Send + 'static,
     >(
         (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
+        jobs: NonZeroUsize,
         cases: Vec<C>,
         solver: &Arc<JudgingCommand>,
         judge: fn(&C, &Arc<JudgingCommand>) -> F,
@@ -40,14 +42,16 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
         let names = cases.iter().map(|c| c.name()).collect::<Vec<_>>();
         let name_max_width = names.iter().map(|s| stdout.width(s)).max().unwrap_or(0);
 
+        let mut cases = names
+            .into_iter()
+            .zip(cases)
+            .enumerate()
+            .map(|(i, (name, case))| (i, name, case));
+
         let (tx, rx) = futures::sync::mpsc::channel(num_cases);
         let mut runtime = Runtime::new()?;
-        for (i, (case, name)) in cases.into_iter().zip(names).enumerate() {
-            let tx = tx.clone();
-            runtime.spawn(judge(&case, solver).then(move |r| {
-                let _ = tx.send((i, name, r)).wait(); // `rx` may be dropped
-                Ok(())
-            }));
+        for _ in 0..jobs.get() {
+            spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge);
         }
         write!(stderr, "0/{} test finished (0 failure)", num_cases)?;
         if !stderr.supports_color() {
@@ -83,6 +87,7 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
                     writeln!(stderr)?;
                 }
                 stderr.flush()?;
+                spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge);
                 Ok((i, name, outcome))
             }).collect()
             .wait()?;
@@ -115,9 +120,29 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
         }
     }
 
+    fn spawn_head<
+        C: TestCase,
+        O: Outcome + Send + 'static,
+        F: Future<Item = O, Error = JudgeError> + Send + 'static,
+    >(
+        mut cases: impl Iterator<Item = (usize, Arc<String>, C)>,
+        runtime: &mut Runtime,
+        tx: futures::sync::mpsc::Sender<(usize, Arc<String>, JudgeResult<O>)>,
+        solver: &Arc<JudgingCommand>,
+        judge: fn(&C, &Arc<JudgingCommand>) -> F,
+    ) {
+        if let Some((i, name, case)) = cases.next() {
+            runtime.spawn(judge(&case, solver).then(move |r| {
+                let _ = tx.send((i, name, r)).wait(); // `rx` may be dropped
+                Ok(())
+            }));
+        }
+    }
+
     let JudgeProp {
         mut stdout,
         mut stderr,
+        jobs,
         cases,
         case_paths_formatted,
         solver,
@@ -138,14 +163,15 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
     solver.write_info(&mut stdout, &case_paths_formatted)?;
     let (out, solver) = ((stdout, stderr), Arc::new(solver));
     match cases {
-        TestCases::Simple(cases) => judge_all(out, cases, &solver, simple::judge),
-        TestCases::Interactive(cases) => judge_all(out, cases, &solver, interactive::judge),
+        TestCases::Simple(cases) => judge_all(out, jobs, cases, &solver, simple::judge),
+        TestCases::Interactive(cases) => judge_all(out, jobs, cases, &solver, interactive::judge),
     }
 }
 
 pub(crate) struct JudgeProp<O: ConsoleWrite, E: ConsoleWrite> {
     stdout: O,
     stderr: E,
+    jobs: NonZeroUsize,
     cases: TestCases,
     case_paths_formatted: String,
     solver: JudgingCommand,
@@ -161,6 +187,7 @@ impl<O: ConsoleWrite, E: ConsoleWrite> JudgeProp<O, E> {
         problem: &str,
         language: Option<&str>,
         force_compile: bool,
+        jobs: Option<NonZeroUsize>,
     ) -> ::Result<Self> {
         let (cases, paths_formatted) = config.testcase_loader().load_merging(problem)?;
         let solver = config.solver(language)?.expand(&problem)?;
@@ -172,6 +199,7 @@ impl<O: ConsoleWrite, E: ConsoleWrite> JudgeProp<O, E> {
         Ok(Self {
             stdout,
             stderr,
+            jobs: jobs.unwrap_or_else(|| config.judge_jobs()),
             tester_compilations: cases.interactive_tester_compilations(),
             cases,
             case_paths_formatted: paths_formatted,
