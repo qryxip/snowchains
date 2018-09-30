@@ -813,7 +813,7 @@ impl Extract for Document {
                     status == "AC"
                 };
                 let detail_url = tr
-                    .find(selector!(td>.text-center>a))
+                    .find(selector!(> td.text-center>a))
                     .flat_map(|a| -> Option<String> {
                         let text = a.find(Text).next()?.text();
                         if text != "詳細" && text != "Detail" {

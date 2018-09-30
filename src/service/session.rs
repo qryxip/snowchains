@@ -407,7 +407,7 @@ impl AutosavedCookieJar {
             })?;
             self.inner.add(cookie);
         }
-        Ok(())
+        self.save()
     }
 
     fn save(&mut self) -> SessionResult<()> {
