@@ -1234,7 +1234,7 @@ mod tests {
     }
 
     fn start() -> SessionResult<Atcoder<impl ConsoleReadWrite>> {
-        let client = service::reqwest_client(Duration::from_secs(10))?;
+        let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
         let mut console = NullConsole::new();
         let session = HttpSession::new(console.stdout(), client, base, None)?;

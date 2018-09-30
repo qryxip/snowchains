@@ -40,7 +40,7 @@ language: c++
 #   cjk: true
 
 session:
-  timeout: 10
+  timeout: 60
   cookies: {session_cookies}
 
 shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
