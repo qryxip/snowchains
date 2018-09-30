@@ -45,7 +45,7 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
         for (i, (case, name)) in cases.into_iter().zip(names).enumerate() {
             let tx = tx.clone();
             runtime.spawn(judge(&case, solver).then(move |r| {
-                tx.send((i, name, r)).wait().unwrap();
+                let _ = tx.send((i, name, r)).wait(); // `rx` may be dropped
                 Ok(())
             }));
         }

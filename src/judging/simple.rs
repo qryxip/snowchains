@@ -106,13 +106,23 @@ impl Future for RunCommand {
                 task::current().notify();
                 let stdin = self.process.stdin().as_mut().unwrap();
                 let input = &self.input.as_bytes()[num_wrote..];
-                let num_wrote = num_wrote + try_ready!(stdin.poll_write(input));
-                self.state = if num_wrote == self.input.len() {
-                    State::ShuttingDownStdin
-                } else {
-                    State::Writing(num_wrote)
-                };
-                Ok(Async::NotReady)
+                match stdin.poll_write(input) {
+                    Err(ref err) if err.kind() == io::ErrorKind::BrokenPipe => {
+                        self.state = State::PollingStatus;
+                        Ok(Async::NotReady)
+                    }
+                    Err(err) => Err(err),
+                    Ok(Async::NotReady) => Ok(Async::NotReady),
+                    Ok(Async::Ready(n)) => {
+                        let num_wrote = num_wrote + n;
+                        self.state = if num_wrote == self.input.len() {
+                            State::ShuttingDownStdin
+                        } else {
+                            State::Writing(num_wrote)
+                        };
+                        Ok(Async::NotReady)
+                    }
+                }
             }
             State::ShuttingDownStdin => {
                 task::current().notify();
