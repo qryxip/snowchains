@@ -74,9 +74,10 @@ testfiles:
   scrape: yaml
   zip:
     timelimit: 2000
-    match:
-      exact:
-        add_eols_to_cases: false
+    match: exact
+    modify:
+      add_eol: false
+      crlf_to_lf: true
     entries:
       # AtCoder
       - in:
@@ -267,11 +268,12 @@ languages:
 
 ```yaml
 ---
-type: simple    # "simple" or "interactive"
-timelimit: 2000 # Optional
-match:          # "exact" or "float"
-  exact:
-    add_eols_to_cases: true
+type: simple        # "simple" or "interactive"
+timelimit: 2000     # optional
+match: exact        # "exact" or "float"
+modify:             # modifies `cases/{in, out}`
+  add_eol: false    # add a missing "\n"
+  crlf_to_lf: false # converts CRLF to LF
 
 cases:
   - in: |

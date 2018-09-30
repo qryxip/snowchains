@@ -50,9 +50,10 @@ testfiles:
   scrape: yaml
   zip:
     timelimit: 2000
-    match:
-      exact:
-        add_eols_to_cases: false
+    match: exact
+    modify:
+      add_eol: false
+      crlf_to_lf: true
     entries:
       # AtCoder
       - in:
