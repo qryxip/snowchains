@@ -6,7 +6,7 @@ use command::JudgingCommand;
 use config::Config;
 use console::{ConsoleWrite, Palette};
 use errors::{JudgeError, JudgeResult, SuiteFileResult};
-use testsuite::{TestCase, TestCases};
+use testsuite::{SimpleCase, TestCase, TestCases};
 
 use futures::{self, Future, Sink as _Sink, Stream as _Stream};
 use tokio::runtime::Runtime;
@@ -42,6 +42,18 @@ pub(crate) fn timelimit_millis(config: &Config, problem: &str, nth: usize) -> Ju
     match cases {
         TestCases::Simple(cases) => get_timelimit_millis(&cases, nth, |t| t.timelimit()),
         TestCases::Interactive(cases) => get_timelimit_millis(&cases, nth, |t| t.timelimit()),
+    }
+}
+
+pub(crate) fn input(config: &Config, problem: &str, nth: usize) -> JudgeResult<Arc<String>> {
+    let (cases, _) = config.testcase_loader().load_merging(problem)?;
+    match &cases {
+        TestCases::Simple(cases) => cases
+            .get(nth)
+            .map(SimpleCase::input)
+            .ok_or_else(|| JudgeError::IndexOutOfBounds(cases.len(), nth)),
+        TestCases::Interactive(cases) if nth < cases.len() => Ok(Arc::new("".to_owned())),
+        TestCases::Interactive(cases) => Err(JudgeError::IndexOutOfBounds(cases.len(), nth)),
     }
 }
 

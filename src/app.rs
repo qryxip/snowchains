@@ -1,5 +1,5 @@
 use config::{self, Config};
-use console::{self, ColorChoice, ConsoleReadWrite, Printer};
+use console::{self, ColorChoice, ConsoleReadWrite, ConsoleWrite as _ConsoleWrite, Printer};
 use errors::ExpandTemplateResult;
 use judging::{self, JudgeParams};
 use path::AbsPathBuf;
@@ -28,7 +28,9 @@ use std::path::PathBuf;
              \n    snowchains <a|append> [OPTIONS] <problem> <extension> <input> [output]\
              \n    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>\
              \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>\
-             \n    snowchains show path [FLAGS] [OPTIONS] <problem> <extension>"
+             \n    snowchains show path [FLAGS] [OPTIONS] <problem> <extension>\
+             \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
+             \n    snowchains show in [OPTIONS] <problem> <nth>"
 )]
 pub enum Opt {
     #[structopt(
@@ -223,7 +225,9 @@ pub enum Opt {
     #[structopt(
         about = "Shows information",
         name = "show",
-        usage = "snowchains show path [FLAGS] [OPTIONS] <problem> <extension>",
+        usage = "snowchains show path [FLAGS] [OPTIONS] <problem> <extension>\
+                 \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
+                 \n    snowchains show in [OPTIONS] <problem> <nth>",
         raw(display_order = "10"),
     )]
     Show(Show),
@@ -231,7 +235,11 @@ pub enum Opt {
 
 #[derive(Debug, StructOpt)]
 pub enum Show {
-    #[structopt(about = "Number of test cases", name = "num-cases")]
+    #[structopt(
+        about = "Number of test cases",
+        name = "num-cases",
+        raw(display_order = "1"),
+    )]
     NumCases {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
         service: Option<ServiceName>,
@@ -240,8 +248,29 @@ pub enum Show {
         #[structopt(raw(problem = ""))]
         problem: String,
     },
-    #[structopt(about = "Timelimit", name = "timelimit-millis")]
+
+    #[structopt(
+        about = "Timelimit",
+        name = "timelimit-millis",
+        raw(display_order = "2"),
+    )]
     TimelimitMillis {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+        #[structopt(raw(nth = ""))]
+        nth: usize,
+    },
+
+    #[structopt(
+        about = "\"in\" value",
+        name = "in",
+        raw(display_order = "3"),
+    )]
+    In {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
         service: Option<ServiceName>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -571,7 +600,7 @@ impl<RW: ConsoleReadWrite> App<RW> {
             }) => {
                 let config = Config::load(Printer::null(), service, contest, &working_dir)?;
                 let num_cases = judging::num_cases(&config, &problem)?;
-                write!(self.console.stdout(), "{}", num_cases)?;
+                write!(self.console.stdout().inner_writer(), "{}", num_cases)?;
                 self.console.stdout().flush()?;
             }
             Opt::Show(Show::TimelimitMillis {
@@ -582,7 +611,18 @@ impl<RW: ConsoleReadWrite> App<RW> {
             }) => {
                 let config = Config::load(Printer::null(), service, contest, &working_dir)?;
                 let timelimit = judging::timelimit_millis(&config, &problem, nth)?;
-                write!(self.console.stdout(), "{}", timelimit)?;
+                write!(self.console.stdout().inner_writer(), "{}", timelimit)?;
+                self.console.stdout().flush()?;
+            }
+            Opt::Show(Show::In {
+                service,
+                contest,
+                problem,
+                nth,
+            }) => {
+                let config = Config::load(Printer::null(), service, contest, &working_dir)?;
+                let input = judging::input(&config, &problem, nth)?;
+                write!(self.console.stdout().inner_writer(), "{}", input)?;
                 self.console.stdout().flush()?;
             }
         }
