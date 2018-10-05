@@ -25,6 +25,26 @@ pub(crate) fn num_cases(config: &Config, problem: &str) -> SuiteFileResult<usize
     })
 }
 
+pub(crate) fn timelimit_millis(config: &Config, problem: &str, nth: usize) -> JudgeResult<u64> {
+    fn get_timelimit_millis<C>(
+        cases: &[C],
+        nth: usize,
+        f: fn(&C) -> Option<Duration>,
+    ) -> JudgeResult<u64> {
+        cases
+            .get(nth)
+            .and_then(f)
+            .map(|t| 1000 * t.as_secs() + u64::from(t.subsec_millis()))
+            .ok_or_else(|| JudgeError::IndexOutOfBounds(cases.len(), nth))
+    }
+
+    let (cases, _) = config.testcase_loader().load_merging(problem)?;
+    match cases {
+        TestCases::Simple(cases) => get_timelimit_millis(&cases, nth, |t| t.timelimit()),
+        TestCases::Interactive(cases) => get_timelimit_millis(&cases, nth, |t| t.timelimit()),
+    }
+}
+
 /// Executes the tests.
 ///
 /// # Errors

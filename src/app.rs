@@ -240,6 +240,17 @@ pub enum Show {
         #[structopt(raw(problem = ""))]
         problem: String,
     },
+    #[structopt(about = "Timelimit", name = "timelimit-millis")]
+    TimelimitMillis {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+        #[structopt(raw(nth = ""))]
+        nth: usize,
+    },
 }
 
 static SERVICE_VALUES: &[&str] = &["atcoder", "hackerrank", "yukicoder", "other"];
@@ -257,6 +268,7 @@ trait ArgExt {
     fn jobs(self, order: usize) -> Self;
     fn color_choice(self, order: usize) -> Self;
     fn problem(self) -> Self;
+    fn nth(self) -> Self;
     fn extension(self, values: &'static [&'static str]) -> Self;
     fn service(self, values: &'static [&'static str], kind: Kind) -> Self;
     fn contest(self, kind: Kind) -> Self;
@@ -313,6 +325,10 @@ impl ArgExt for Arg<'static, 'static> {
 
     fn problem(self) -> Self {
         self.help("Problem name")
+    }
+
+    fn nth(self) -> Self {
+        self.help("0-based index")
     }
 
     fn extension(self, values: &'static [&'static str]) -> Self {
@@ -556,6 +572,17 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 let config = Config::load(Printer::null(), service, contest, &working_dir)?;
                 let num_cases = judging::num_cases(&config, &problem)?;
                 write!(self.console.stdout(), "{}", num_cases)?;
+                self.console.stdout().flush()?;
+            }
+            Opt::Show(Show::TimelimitMillis {
+                service,
+                contest,
+                problem,
+                nth,
+            }) => {
+                let config = Config::load(Printer::null(), service, contest, &working_dir)?;
+                let timelimit = judging::timelimit_millis(&config, &problem, nth)?;
+                write!(self.console.stdout(), "{}", timelimit)?;
                 self.console.stdout().flush()?;
             }
         }

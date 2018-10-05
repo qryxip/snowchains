@@ -13,7 +13,6 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::string::FromUtf8Error;
-use std::sync::mpsc::RecvError;
 use std::{self, fmt, io};
 
 pub type Result<T> = std::result::Result<T, self::Error>;
@@ -289,7 +288,7 @@ pub enum JudgeError {
     ExpandTemplate(ExpandTemplateError),
     FileIo(FileIoError),
     Io(io::Error),
-    Recv(RecvError),
+    IndexOutOfBounds(usize, usize),
     Command(OsString, io::Error),
     Compile(ExitStatus),
     TestFailed(usize, usize),
@@ -302,7 +301,6 @@ derive_from!(
     JudgeError::ExpandTemplate <- ExpandTemplateError,
     JudgeError::FileIo         <- FileIoError,
     JudgeError::Io             <- io::Error,
-    JudgeError::Recv           <- RecvError,
 );
 
 impl fmt::Display for JudgeError {
@@ -313,7 +311,9 @@ impl fmt::Display for JudgeError {
             JudgeError::ExpandTemplate(e) => write!(f, "{}", e),
             JudgeError::FileIo(e) => write!(f, "{}", e),
             JudgeError::Io(_) => write!(f, "An IO error occurred"),
-            JudgeError::Recv(e) => write!(f, "{}", e),
+            JudgeError::IndexOutOfBounds(l, i) => {
+                write!(f, "The length is {} but the index is {}", l, i)
+            }
             JudgeError::Command(c, _) => write!(f, "Failed to execute: {:?}", c),
             JudgeError::Compile(s) => write!(
                 f,
