@@ -84,20 +84,6 @@ pub enum ColorChoice {
     Always,
 }
 
-impl ColorChoice {
-    pub(crate) fn clap_help() -> &'static str {
-        "Use colors"
-    }
-
-    pub(crate) fn clap_default_value() -> &'static str {
-        "auto"
-    }
-
-    pub(crate) fn clap_possible_values() -> &'static [&'static str] {
-        &["never", "auto", "always"]
-    }
-}
-
 impl FromStr for ColorChoice {
     type Err = Never;
 
@@ -467,7 +453,6 @@ pub struct Printer<W: Write> {
     columns: fn() -> Option<usize>,
 }
 
-#[cfg(test)]
 impl Printer<io::Sink> {
     pub(crate) fn null() -> Self {
         Self {

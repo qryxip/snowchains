@@ -2,28 +2,35 @@ mod interactive;
 mod simple;
 mod text;
 
-use command::{CompilationCommand, JudgingCommand};
+use command::JudgingCommand;
 use config::Config;
 use console::{ConsoleWrite, Palette};
-use errors::{JudgeError, JudgeResult};
+use errors::{JudgeError, JudgeResult, SuiteFileResult};
 use testsuite::{TestCase, TestCases};
 
 use futures::{self, Future, Sink as _Sink, Stream as _Stream};
 use tokio::runtime::Runtime;
 
-use std::collections::HashSet;
 use std::fmt;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub(crate) fn num_cases(config: &Config, problem: &str) -> SuiteFileResult<usize> {
+    let (cases, _) = config.testcase_loader().load_merging(problem)?;
+    Ok(match cases {
+        TestCases::Simple(cases) => cases.len(),
+        TestCases::Interactive(cases) => cases.len(),
+    })
+}
+
 /// Executes the tests.
 ///
 /// # Errors
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
-pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> JudgeResult<()> {
+pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -> JudgeResult<()> {
     fn judge_all<
         C: TestCase,
         O: Outcome + Send + 'static,
@@ -36,9 +43,6 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
         judge: fn(&C, &Arc<JudgingCommand>) -> F,
     ) -> JudgeResult<()> {
         let num_cases = cases.len();
-        writeln!(stdout, "Running {}...", plural!(num_cases, "test", "tests"))?;
-        stdout.flush()?;
-
         let names = cases.iter().map(|c| c.name()).collect::<Vec<_>>();
         let name_max_width = names.iter().map(|s| stdout.width(s)).max().unwrap_or(0);
 
@@ -139,17 +143,25 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
         }
     }
 
-    let JudgeProp {
+    let JudgeParams {
         mut stdout,
         mut stderr,
-        jobs,
-        cases,
-        case_paths_formatted,
-        solver,
-        solver_compilation,
-        tester_compilations,
+        config,
+        problem,
+        language,
         force_compile,
-    } = prop;
+        jobs,
+    } = params;
+
+    let (cases, paths_formatted) = config.testcase_loader().load_merging(problem)?;
+    let jobs = jobs.unwrap_or_else(|| config.judge_jobs());
+    let tester_compilations = cases.interactive_tester_compilations();
+    let solver = config.solver(language)?.expand(&problem)?;
+    let solver_compilation = match config.solver_compilation(language)? {
+        Some(compilation) => Some(compilation.expand(&problem)?),
+        None => None,
+    };
+
     if let Some(solver_compilation) = solver_compilation {
         solver_compilation.run((&mut stdout, &mut stderr), force_compile)?;
         writeln!(stdout)?;
@@ -160,7 +172,10 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
         writeln!(stdout)?;
         stdout.flush()?;
     }
-    solver.write_info(&mut stdout, &case_paths_formatted)?;
+
+    solver.write_info(&mut stdout, &paths_formatted)?;
+    stdout.flush()?;
+
     let (out, solver) = ((stdout, stderr), Arc::new(solver));
     match cases {
         TestCases::Simple(cases) => judge_all(out, jobs, cases, &solver, simple::judge),
@@ -168,46 +183,14 @@ pub(crate) fn judge(prop: JudgeProp<impl ConsoleWrite, impl ConsoleWrite>) -> Ju
     }
 }
 
-pub(crate) struct JudgeProp<O: ConsoleWrite, E: ConsoleWrite> {
-    stdout: O,
-    stderr: E,
-    jobs: NonZeroUsize,
-    cases: TestCases,
-    case_paths_formatted: String,
-    solver: JudgingCommand,
-    solver_compilation: Option<CompilationCommand>,
-    tester_compilations: HashSet<Arc<CompilationCommand>>,
-    force_compile: bool,
-}
-
-impl<O: ConsoleWrite, E: ConsoleWrite> JudgeProp<O, E> {
-    pub fn new(
-        (stdout, stderr): (O, E),
-        config: &Config,
-        problem: &str,
-        language: Option<&str>,
-        force_compile: bool,
-        jobs: Option<NonZeroUsize>,
-    ) -> ::Result<Self> {
-        let (cases, paths_formatted) = config.testcase_loader().load_merging(problem)?;
-        let solver = config.solver(language)?.expand(&problem)?;
-        let solver_compilation = match config.solver_compilation(language)? {
-            Some(compilation) => Some(compilation.expand(&problem)?),
-            None => None,
-        };
-
-        Ok(Self {
-            stdout,
-            stderr,
-            jobs: jobs.unwrap_or_else(|| config.judge_jobs()),
-            tester_compilations: cases.interactive_tester_compilations(),
-            cases,
-            case_paths_formatted: paths_formatted,
-            solver,
-            solver_compilation,
-            force_compile,
-        })
-    }
+pub(crate) struct JudgeParams<'a, O: ConsoleWrite, E: ConsoleWrite> {
+    pub stdout: O,
+    pub stderr: E,
+    pub config: &'a Config,
+    pub problem: &'a str,
+    pub language: Option<&'a str>,
+    pub force_compile: bool,
+    pub jobs: Option<NonZeroUsize>,
 }
 
 pub(self) trait Outcome: fmt::Display {

@@ -285,6 +285,8 @@ pub(crate) type JudgeResult<T> = std::result::Result<T, JudgeError>;
 #[derive(Debug)]
 pub enum JudgeError {
     SuiteFile(SuiteFileError),
+    LoadConfig(LoadConfigError),
+    ExpandTemplate(ExpandTemplateError),
     FileIo(FileIoError),
     Io(io::Error),
     Recv(RecvError),
@@ -295,16 +297,20 @@ pub enum JudgeError {
 
 #[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
 derive_from!(
-    JudgeError::SuiteFile <- SuiteFileError,
-    JudgeError::FileIo    <- FileIoError,
-    JudgeError::Io        <- io::Error,
-    JudgeError::Recv      <- RecvError,
+    JudgeError::SuiteFile      <- SuiteFileError,
+    JudgeError::LoadConfig     <- LoadConfigError,
+    JudgeError::ExpandTemplate <- ExpandTemplateError,
+    JudgeError::FileIo         <- FileIoError,
+    JudgeError::Io             <- io::Error,
+    JudgeError::Recv           <- RecvError,
 );
 
 impl fmt::Display for JudgeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             JudgeError::SuiteFile(e) => write!(f, "{}", e),
+            JudgeError::LoadConfig(e) => write!(f, "{}", e),
+            JudgeError::ExpandTemplate(e) => write!(f, "{}", e),
             JudgeError::FileIo(e) => write!(f, "{}", e),
             JudgeError::Io(_) => write!(f, "An IO error occurred"),
             JudgeError::Recv(e) => write!(f, "{}", e),
@@ -333,6 +339,8 @@ impl Fail for JudgeError {
     fn cause(&self) -> Option<&dyn Fail> {
         match self {
             JudgeError::SuiteFile(e) => e.cause(),
+            JudgeError::LoadConfig(e) => e.cause(),
+            JudgeError::ExpandTemplate(e) => e.cause(),
             JudgeError::FileIo(e) => e.cause(),
             JudgeError::Io(e) => Some(e),
             _ => None,

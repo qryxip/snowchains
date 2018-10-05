@@ -107,7 +107,7 @@ interactive:
   python3:
     src: testers/py/test-{{kebab}}.py
     run:
-      command: python3 -- $src $*
+      command: {venv_python3} -- $src $*
       working_directory: testers/py
   haskell:
     src: testers/hs/src/Test{{Pascal}}.hs
@@ -123,7 +123,7 @@ languages:
   c++:
     src: cpp/{{kebab}}.cpp     # source file to test and to submit
     compile:                 # optional
-      bin: cpp/build/{{kebab}}
+      bin: cpp/build/{{kebab}}{exe}
       command: [g++, -std=c++14, -Wall, -Wextra, -g, -fsanitize=undefined, -D_GLIBCXX_DEBUG, -o, $bin, $src]
       working_directory: cpp # default: "."
     run:
@@ -179,7 +179,7 @@ languages:
   python3:
     src: py/{{kebab}}.py
     run:
-      command: [./venv/bin/python3, $src]
+      command: [{venv_python3}, $src]
       working_directory: py
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
@@ -240,6 +240,11 @@ languages:
             ".exe"
         } else {
             ""
+        },
+        venv_python3 = if cfg!(windows) {
+            "./venv/Scripts/python.exe"
+        } else {
+            "./venv/bin/python3"
         },
         csharp = if cfg!(target_os = "windows") {
             r#"  c#:

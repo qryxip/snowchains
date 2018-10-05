@@ -78,9 +78,9 @@ impl FromStr for SerializableExtension {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum SuiteFileExtension {
+pub enum SuiteFileExtension {
     Json,
     Toml,
     Yaml,
@@ -101,16 +101,16 @@ impl SuiteFileExtension {
 }
 
 impl FromStr for SuiteFileExtension {
-    type Err = ();
+    type Err = String;
 
-    fn from_str(s: &str) -> std::result::Result<Self, ()> {
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
         match s {
             "json" => Ok(SuiteFileExtension::Json),
             "toml" => Ok(SuiteFileExtension::Toml),
             "yaml" => Ok(SuiteFileExtension::Yaml),
             "yml" => Ok(SuiteFileExtension::Yml),
             "zip" => Ok(SuiteFileExtension::Zip),
-            _ => Err(()),
+            _ => Err(format!("Unsupported extension: {:?}", s)),
         }
     }
 }
