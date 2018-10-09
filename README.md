@@ -269,7 +269,7 @@ languages:
 
 ```yaml
 ---
-type: simple        # "simple" or "interactive"
+type: simple        # "simple" "interactive", or "unsubmittable"
 timelimit: 2000     # optional
 match: exact        # "exact" or "float"
 modify:             # modifies `cases/{in, out}`

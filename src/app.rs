@@ -28,9 +28,10 @@ use std::path::PathBuf;
              \n    snowchains <a|append> [OPTIONS] <problem> <extension> <input> [output]\
              \n    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>\
              \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>\
-             \n    snowchains show path [FLAGS] [OPTIONS] <problem> <extension>\
+             \n    snowchains show num-cases [OPTIONS] <problem> <extension>\
              \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
-             \n    snowchains show in [OPTIONS] <problem> <nth>"
+             \n    snowchains show in [OPTIONS] <problem> <nth>\
+             \n    snowchains show accepts [OPTIONS] <problem> <nth>"
 )]
 pub enum Opt {
     #[structopt(
@@ -223,11 +224,12 @@ pub enum Opt {
     },
 
     #[structopt(
-        about = "Shows information",
+        about = "Prints information",
         name = "show",
-        usage = "snowchains show path [FLAGS] [OPTIONS] <problem> <extension>\
+        usage = "snowchains show num-cases [OPTIONS] <problem> <extension>\
                  \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
-                 \n    snowchains show in [OPTIONS] <problem> <nth>",
+                 \n    snowchains show in [OPTIONS] <problem> <nth>\
+                 \n    snowchains show accepts [OPTIONS] <problem> <nth>",
         raw(display_order = "10"),
     )]
     Show(Show),
@@ -236,7 +238,7 @@ pub enum Opt {
 #[derive(Debug, StructOpt)]
 pub enum Show {
     #[structopt(
-        about = "Number of test cases",
+        about = "Prints number of test cases (without EOL)",
         name = "num-cases",
         raw(display_order = "1"),
     )]
@@ -250,7 +252,7 @@ pub enum Show {
     },
 
     #[structopt(
-        about = "Timelimit",
+        about = "Prints timelimit (without EOL)",
         name = "timelimit-millis",
         raw(display_order = "2"),
     )]
@@ -266,7 +268,7 @@ pub enum Show {
     },
 
     #[structopt(
-        about = "\"in\" value",
+        about = "Prints \"in\" value",
         name = "in",
         raw(display_order = "3"),
     )]
@@ -275,6 +277,24 @@ pub enum Show {
         service: Option<ServiceName>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+        #[structopt(raw(nth = ""))]
+        nth: usize,
+    },
+
+    #[structopt(
+        about = "Tests a value from stdin",
+        name = "accepts",
+        raw(display_order = "4"),
+    )]
+    Accepts {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(color_choice = "3"))]
+        color_choice: ColorChoice,
         #[structopt(raw(problem = ""))]
         problem: String,
         #[structopt(raw(nth = ""))]
@@ -425,13 +445,8 @@ impl<RW: ConsoleReadWrite> App<RW> {
             } => {
                 self.console
                     .fill_palettes(color_choice, &console::Conf::default())?;
-                config::switch(
-                    self.console.stdout_and_stderr(),
-                    &working_dir,
-                    service,
-                    contest,
-                    language,
-                )?;
+                let (_, stdout, stderr) = self.console.all();
+                config::switch(stdout, stderr, &working_dir, service, contest, language)?;
             }
             Opt::Login {
                 color_choice,
@@ -538,7 +553,7 @@ impl<RW: ConsoleReadWrite> App<RW> {
                     .fill_palettes(color_choice, &console::Conf::default())?;
                 let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
                 self.console.fill_palettes(color_choice, config.console())?;
-                let (stdout, stderr) = self.console.stdout_and_stderr();
+                let (_, stdout, stderr) = self.console.all();
                 judging::judge(JudgeParams {
                     stdout,
                     stderr,
@@ -567,7 +582,7 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
                 self.console.fill_palettes(color_choice, config.console())?;
                 if !skip_judging {
-                    let (mut stdout, stderr) = self.console.stdout_and_stderr();
+                    let (_, mut stdout, stderr) = self.console.all();
                     judging::judge(JudgeParams {
                         stdout: &mut stdout,
                         stderr,
@@ -624,6 +639,20 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 let input = judging::input(&config, &problem, nth)?;
                 write!(self.console.stdout().inner_writer(), "{}", input)?;
                 self.console.stdout().flush()?;
+            }
+            Opt::Show(Show::Accepts {
+                service,
+                contest,
+                color_choice,
+                problem,
+                nth,
+            }) => {
+                self.console
+                    .fill_palettes(color_choice, &console::Conf::default())?;
+                let config = Config::load(Printer::null(), service, contest, &working_dir)?;
+                self.console.fill_palettes(color_choice, config.console())?;
+                let (stdin, _, stderr) = self.console.all();
+                judging::accepts(&config, &problem, nth, stdin, stderr)?;
             }
         }
         Ok(())

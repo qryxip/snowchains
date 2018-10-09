@@ -11,7 +11,9 @@ use libc;
 #[cfg(windows)]
 use {ansi_term, winapi};
 
-use std::io::{self, BufRead, BufReader, BufWriter, StderrLock, StdinLock, StdoutLock, Write};
+use std::io::{
+    self, BufRead, BufWriter, Stderr, StderrLock, Stdin, StdinLock, Stdout, StdoutLock, Write,
+};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::{self, env, fmt, process};
@@ -120,8 +122,15 @@ pub trait ConsoleReadWrite {
 
     fn inner(&mut self) -> &mut ConsoleInner<Self::Stdin, Self::Stdout, Self::Stderr>;
 
-    fn stdout_and_stderr(&mut self) -> (Printer<&mut Self::Stdout>, Printer<&mut Self::Stderr>) {
+    fn all(
+        &mut self,
+    ) -> (
+        &mut Self::Stdin,
+        Printer<&mut Self::Stdout>,
+        Printer<&mut Self::Stderr>,
+    ) {
         let inner = self.inner();
+        let stdin = &mut inner.stdin;
         let stdout = Printer {
             wrt: &mut inner.stdout,
             colours: inner.stdout_colours.clone(),
@@ -138,15 +147,15 @@ pub trait ConsoleReadWrite {
             process_redirection: Self::process_redirection,
             columns: Self::stderr_columns,
         };
-        (stdout, stderr)
+        (stdin, stdout, stderr)
     }
 
     fn stdout(&mut self) -> Printer<&mut Self::Stdout> {
-        self.stdout_and_stderr().0
+        self.all().1
     }
 
     fn stderr(&mut self) -> Printer<&mut Self::Stderr> {
-        self.stdout_and_stderr().1
+        self.all().2
     }
 
     fn fill_palettes(&mut self, choice: ColorChoice, conf: &Conf) -> io::Result<()> {
@@ -241,20 +250,16 @@ impl<'a, RW: ConsoleReadWrite> ConsoleReadWrite for &'a mut RW {
 }
 
 pub struct Console<'a> {
-    inner: ConsoleInner<
-        BufReader<StdinLock<'a>>,
-        BufWriter<StdoutLock<'a>>,
-        BufWriter<StderrLock<'a>>,
-    >,
+    inner: ConsoleInner<StdinLock<'a>, BufWriter<StdoutLock<'a>>, BufWriter<StderrLock<'a>>>,
 }
 
 impl<'a> Console<'a> {
-    pub fn new(stdin: StdinLock<'a>, stdout: StdoutLock<'a>, stderr: StderrLock<'a>) -> Self {
+    pub fn new(stdin: &'a Stdin, stdout: &'a Stdout, stderr: &'a Stderr) -> Self {
         Self {
             inner: ConsoleInner {
-                stdin: BufReader::new(stdin),
-                stdout: BufWriter::new(stdout),
-                stderr: BufWriter::new(stderr),
+                stdin: stdin.lock(),
+                stdout: BufWriter::new(stdout.lock()),
+                stderr: BufWriter::new(stderr.lock()),
                 stdout_colours: None,
                 stderr_colours: None,
                 cjk: cjk_default(),
@@ -265,7 +270,7 @@ impl<'a> Console<'a> {
 }
 
 impl<'a> ConsoleReadWrite for Console<'a> {
-    type Stdin = BufReader<StdinLock<'a>>;
+    type Stdin = StdinLock<'a>;
     type Stdout = BufWriter<StdoutLock<'a>>;
     type Stderr = BufWriter<StderrLock<'a>>;
 

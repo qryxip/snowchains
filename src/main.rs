@@ -19,7 +19,7 @@ use std::process;
 fn main() {
     env_logger::init();
     let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
-    let mut console = Console::new(stdin.lock(), stdout.lock(), stderr.lock());
+    let mut console = Console::new(&stdin, &stdout, &stderr);
     if let Err(err) = run(&mut console) {
         console.stdout().flush().unwrap();
         let mut stderr = console.stderr();

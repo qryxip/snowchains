@@ -1,10 +1,10 @@
 use console::{ConsoleWrite, Palette};
-use errors::JudgeError;
+use errors::JudgeResult;
 use judging::text::{Line, Text, Width as _Width, Word};
 use judging::{JudgingCommand, MillisRoundedUp, Outcome};
 use testsuite::InteractiveCase;
 
-use futures::{stream, task, Async, Future, Poll, Stream};
+use futures::{task, Async, Future, Poll, Stream};
 use tokio::io::{AsyncRead, AsyncWrite as _AsyncWrite};
 use tokio_process;
 
@@ -16,58 +16,28 @@ use std::{cmp, fmt, mem, slice, str};
 pub(super) fn judge(
     case: &InteractiveCase,
     solver: &Arc<JudgingCommand>,
-) -> impl Future<Item = InteractiveOutcome, Error = JudgeError> {
-    // https://github.com/rust-lang/rust/issues/54427
-    Judge {
-        timelimit: case.timelimit(),
-        tester_command: case.tester(),
-        solver_command: solver.clone(),
-        interaction: None,
-    }
-}
-
-struct Judge {
-    timelimit: Option<Duration>,
-    tester_command: Arc<JudgingCommand>,
-    solver_command: Arc<JudgingCommand>,
-    interaction: Option<stream::Collect<Interaction>>,
-}
-
-impl Future for Judge {
-    type Item = InteractiveOutcome;
-    type Error = JudgeError;
-
-    fn poll(&mut self) -> Poll<InteractiveOutcome, JudgeError> {
-        if self.interaction.is_none() {
-            let tester = self.tester_command.spawn_async_piped()?;
-            let solver = self.solver_command.spawn_async_piped()?;
-            let start = Instant::now();
-            self.interaction = Some(
-                Interaction {
-                    tester,
-                    solver,
-                    tester_finished: false,
-                    solver_finished: false,
-                    tester_stdin_buf: Cursor::new(vec![]),
-                    solver_stdin_buf: Cursor::new(vec![]),
-                    tester_stdout_buf: Some(vec![]),
-                    solver_stdout_buf: Some(vec![]),
-                    tester_stderr_buf: Some(vec![]),
-                    solver_stderr_buf: Some(vec![]),
-                    exceeded: false,
-                    start,
-                    deadline: self.timelimit.map(|t| start + t),
-                }.collect(),
-            );
-            task::current().notify();
-            Ok(Async::NotReady)
-        } else {
-            let outputs = try_ready!(self.interaction.as_mut().unwrap().poll());
-            Ok(Async::Ready(InteractiveOutcome {
-                outputs: NonEmptyVec::new(outputs),
-            }))
-        }
-    }
+) -> JudgeResult<impl Future<Item = InteractiveOutcome, Error = io::Error>> {
+    let tester = case.tester().spawn_async_piped()?;
+    let solver = solver.spawn_async_piped()?;
+    let start = Instant::now();
+    let stream = Interaction {
+        tester,
+        solver,
+        tester_finished: false,
+        solver_finished: false,
+        tester_stdin_buf: Cursor::new(vec![]),
+        solver_stdin_buf: Cursor::new(vec![]),
+        tester_stdout_buf: Some(vec![]),
+        solver_stdout_buf: Some(vec![]),
+        tester_stderr_buf: Some(vec![]),
+        solver_stderr_buf: Some(vec![]),
+        exceeded: false,
+        start,
+        deadline: case.timelimit().map(|t| start + t),
+    }.collect();
+    Ok(stream.map(|outputs| InteractiveOutcome {
+        outputs: NonEmptyVec::new(outputs),
+    }))
 }
 
 struct Interaction {

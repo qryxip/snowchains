@@ -12,7 +12,7 @@ use futures::{self, Future, Sink as _Sink, Stream as _Stream};
 use tokio::runtime::Runtime;
 
 use std::fmt;
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
@@ -57,6 +57,34 @@ pub(crate) fn input(config: &Config, problem: &str, nth: usize) -> JudgeResult<A
     }
 }
 
+pub(crate) fn accepts(
+    config: &Config,
+    problem: &str,
+    nth: usize,
+    mut stdin: impl BufRead,
+    mut stderr: impl ConsoleWrite,
+) -> JudgeResult<()> {
+    let (cases, _) = config.testcase_loader().load_merging(problem)?;
+    match cases {
+        TestCases::Simple(cases) => {
+            let case = cases
+                .get(nth)
+                .ok_or_else(|| JudgeError::IndexOutOfBounds(cases.len(), nth))?;
+            let mut output = "".to_owned();
+            stdin.read_to_string(&mut output)?;
+            let outcome = simple::accepts(&case, &output);
+            if outcome.failure() {
+                outcome.print_details(&mut stderr)?;
+                stderr.flush()?;
+                Err(JudgeError::TestFailed(1, 1))
+            } else {
+                Ok(())
+            }
+        }
+        TestCases::Interactive(_) => Err(JudgeError::ExpectedSimple),
+    }
+}
+
 /// Executes the tests.
 ///
 /// # Errors
@@ -66,13 +94,13 @@ pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -
     fn judge_all<
         C: TestCase,
         O: Outcome + Send + 'static,
-        F: Future<Item = O, Error = JudgeError> + Send + 'static,
+        F: Future<Item = O, Error = io::Error> + Send + 'static,
     >(
         (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
         jobs: NonZeroUsize,
         cases: Vec<C>,
         solver: &Arc<JudgingCommand>,
-        judge: fn(&C, &Arc<JudgingCommand>) -> F,
+        judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<F>,
     ) -> JudgeResult<()> {
         let num_cases = cases.len();
         let names = cases.iter().map(|c| c.name()).collect::<Vec<_>>();
@@ -87,7 +115,7 @@ pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -
         let (tx, rx) = futures::sync::mpsc::channel(num_cases);
         let mut runtime = Runtime::new()?;
         for _ in 0..jobs.get() {
-            spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge);
+            spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge)?;
         }
         write!(stderr, "0/{} test finished (0 failure)", num_cases)?;
         if !stderr.supports_color() {
@@ -123,7 +151,7 @@ pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -
                     writeln!(stderr)?;
                 }
                 stderr.flush()?;
-                spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge);
+                spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge)?;
                 Ok((i, name, outcome))
             }).collect()
             .wait()?;
@@ -159,20 +187,21 @@ pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -
     fn spawn_head<
         C: TestCase,
         O: Outcome + Send + 'static,
-        F: Future<Item = O, Error = JudgeError> + Send + 'static,
+        F: Future<Item = O, Error = io::Error> + Send + 'static,
     >(
         mut cases: impl Iterator<Item = (usize, Arc<String>, C)>,
         runtime: &mut Runtime,
-        tx: futures::sync::mpsc::Sender<(usize, Arc<String>, JudgeResult<O>)>,
+        tx: futures::sync::mpsc::Sender<(usize, Arc<String>, io::Result<O>)>,
         solver: &Arc<JudgingCommand>,
-        judge: fn(&C, &Arc<JudgingCommand>) -> F,
-    ) {
+        judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<F>,
+    ) -> JudgeResult<()> {
         if let Some((i, name, case)) = cases.next() {
-            runtime.spawn(judge(&case, solver).then(move |r| {
+            runtime.spawn(judge(&case, solver)?.then(move |r| {
                 let _ = tx.send((i, name, r)).wait(); // `rx` may be dropped
                 Ok(())
             }));
         }
+        Ok(())
     }
 
     let JudgeParams {

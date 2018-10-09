@@ -283,7 +283,8 @@ languages:
 
 /// Changes attributes.
 pub(crate) fn switch(
-    (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
+    mut stdout: impl ConsoleWrite,
+    mut stderr: impl ConsoleWrite,
     directory: AbsPath,
     service: Option<ServiceName>,
     contest: Option<String>,

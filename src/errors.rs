@@ -289,6 +289,7 @@ pub enum JudgeError {
     FileIo(FileIoError),
     Io(io::Error),
     IndexOutOfBounds(usize, usize),
+    ExpectedSimple,
     Command(OsString, io::Error),
     Compile(ExitStatus),
     TestFailed(usize, usize),
@@ -314,6 +315,7 @@ impl fmt::Display for JudgeError {
             JudgeError::IndexOutOfBounds(l, i) => {
                 write!(f, "The length is {} but the index is {}", l, i)
             }
+            JudgeError::ExpectedSimple => write!(f, "Expected \"simple\" case"),
             JudgeError::Command(c, _) => write!(f, "Failed to execute: {:?}", c),
             JudgeError::Compile(s) => write!(
                 f,
