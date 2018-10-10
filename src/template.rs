@@ -279,7 +279,7 @@ impl FromStr for Tokens {
 
     fn from_str(input: &str) -> ParseTemplateResult<Self> {
         use combine::char::{alpha_num, char, letter, spaces, string};
-        use combine::{choice, eof, many, many1, satisfy, try};
+        use combine::{attempt, choice, eof, many, many1, satisfy};
 
         fn escape<'a>(
             from: &'static str,
@@ -302,9 +302,9 @@ impl FromStr for Tokens {
             ))).map(|(h, t): (_, String)| Token::Var(format!("{}{}", h, t)));
         many(choice((
             plain,
-            try(escape("$$", "$")),
-            try(escape("{{", "{")),
-            try(escape("}}", "}")),
+            attempt(escape("$$", "$")),
+            attempt(escape("{{", "{")),
+            attempt(escape("}}", "}")),
             problem,
             var,
         ))).skip(eof())

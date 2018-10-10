@@ -24,6 +24,17 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{self, f64, fmt, str, vec};
 
+pub(crate) fn modify_timelimit(
+    stdout: impl ConsoleWrite,
+    name: &str,
+    path: &SuiteFilePath,
+    timelimit: Option<Duration>,
+) -> SuiteFileResult<()> {
+    let mut suite = TestSuite::load(path)?;
+    suite.modify_timelimit(&path.path, timelimit)?;
+    suite.save(name, path, stdout)
+}
+
 /// Appends `input` and `output` to a test suite read from `path`.
 pub(crate) fn append(
     name: &str,
@@ -526,6 +537,26 @@ impl TestSuite {
             }
         }?;
         Ok(())
+    }
+
+    fn modify_timelimit(
+        &mut self,
+        path: &Path,
+        timelimit: Option<Duration>,
+    ) -> SuiteFileResult<()> {
+        match self {
+            TestSuite::Simple(suite) => {
+                suite.timelimit = timelimit;
+                Ok(())
+            }
+            TestSuite::Interactive(suite) => {
+                suite.timelimit = timelimit;
+                Ok(())
+            }
+            TestSuite::Unsubmittable => {
+                Err(SuiteFileError::Unsubmittable(path.display().to_string()))
+            }
+        }
     }
 
     fn append(&mut self, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
