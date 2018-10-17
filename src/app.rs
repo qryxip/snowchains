@@ -561,7 +561,7 @@ impl<T: Term> App<T> {
                 let config = Config::load(service, contest, &working_dir)?;
                 self.term.setup(color_choice, config.console());
                 let sess_prop = self.sess_prop(&config)?;
-                let download_prop = DownloadProp::new(&config, open_browser, problems)?;
+                let download_prop = DownloadProp::try_new(&config, open_browser, problems)?;
                 match config.service() {
                     ServiceName::Atcoder => atcoder::download(sess_prop, download_prop),
                     ServiceName::Hackerrank => hackerrank::download(sess_prop, download_prop),
@@ -578,7 +578,7 @@ impl<T: Term> App<T> {
                 let config = Config::load(service, contest, &working_dir)?;
                 self.term.setup(color_choice, config.console());
                 let sess_prop = self.sess_prop(&config)?;
-                let restore_prop = RestoreProp::new(&config, problems)?;
+                let restore_prop = RestoreProp::try_new(&config, problems)?;
                 match config.service() {
                     ServiceName::Atcoder => atcoder::restore(sess_prop, restore_prop)?,
                     _ => return Err(::Error::Unimplemented),
@@ -652,7 +652,7 @@ impl<T: Term> App<T> {
                     writeln!(stdout)?;
                 }
                 let sess_prop = self.sess_prop(&config)?;
-                let submit_prop = SubmitProp::new(
+                let submit_prop = SubmitProp::try_new(
                     &config,
                     problem.clone(),
                     language,

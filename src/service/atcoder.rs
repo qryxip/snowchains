@@ -24,7 +24,7 @@ use std::{fmt, vec};
 
 /// Logins to "beta.atcoder.jp".
 pub(crate) fn login(sess_prop: SessionProp<impl Term>) -> ServiceResult<()> {
-    Atcoder::start(sess_prop)?.login_if_not(true)
+    Atcoder::try_new(sess_prop)?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
@@ -32,7 +32,7 @@ pub(crate) fn participate(
     contest_name: &str,
     sess_prop: SessionProp<impl Term>,
 ) -> ServiceResult<()> {
-    Atcoder::start(sess_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
+    Atcoder::try_new(sess_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
@@ -43,7 +43,7 @@ pub(crate) fn download(
 ) -> ServiceResult<()> {
     let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
     download_prop.print_targets(sess_prop.term.stdout())?;
-    Atcoder::start(sess_prop)?.download(&download_prop)
+    Atcoder::try_new(sess_prop)?.download(&download_prop)
 }
 
 /// Downloads submitted source codes.
@@ -53,7 +53,7 @@ pub(crate) fn restore(
 ) -> ServiceResult<()> {
     let restore_prop = restore_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
     restore_prop.print_targets(sess_prop.term.stdout())?;
-    Atcoder::start(sess_prop)?.restore(&restore_prop)
+    Atcoder::try_new(sess_prop)?.restore(&restore_prop)
 }
 
 /// Submits a source code.
@@ -63,7 +63,7 @@ pub(crate) fn submit(
 ) -> ServiceResult<()> {
     let submit_prop = submit_prop.convert_contest_and_problem(ProblemNameConversion::Upper);
     submit_prop.print_targets(sess_prop.term.stdout())?;
-    Atcoder::start(sess_prop)?.submit(&submit_prop)
+    Atcoder::try_new(sess_prop)?.submit(&submit_prop)
 }
 
 pub(self) struct Atcoder<T: Term> {
@@ -81,7 +81,7 @@ impl<T: Term> Service for Atcoder<T> {
 }
 
 impl<T: Term> Atcoder<T> {
-    fn start(mut sess_prop: SessionProp<T>) -> ServiceResult<Self> {
+    fn try_new(mut sess_prop: SessionProp<T>) -> ServiceResult<Self> {
         let credentials = sess_prop.credentials.atcoder.clone();
         let session = sess_prop.start_session()?;
         Ok(Self {
@@ -1231,7 +1231,7 @@ mod tests {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
         let mut term = TermImpl::null();
-        let session = HttpSession::new(term.stdout(), client, base, None)?;
+        let session = HttpSession::try_new(term.stdout(), client, base, None)?;
         Ok(Atcoder {
             term,
             session,

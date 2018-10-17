@@ -22,7 +22,7 @@ use std::time::Duration;
 use std::{self, fmt};
 
 pub(crate) fn login(sess_prop: SessionProp<impl Term>) -> ServiceResult<()> {
-    Hackerrank::start(sess_prop)?.login(LoginOption::Explicit)
+    Hackerrank::try_new(sess_prop)?.login(LoginOption::Explicit)
 }
 
 pub(crate) fn download(
@@ -32,7 +32,7 @@ pub(crate) fn download(
     let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Kebab);
     download_prop.print_targets(sess_prop.term.stdout())?;
     let timeout = sess_prop.timeout;
-    Hackerrank::start(sess_prop)?.download(&download_prop, timeout)
+    Hackerrank::try_new(sess_prop)?.download(&download_prop, timeout)
 }
 
 struct Hackerrank<T: Term> {
@@ -50,7 +50,7 @@ impl<T: Term> Service for Hackerrank<T> {
 }
 
 impl<T: Term> Hackerrank<T> {
-    fn start(mut sess_prop: SessionProp<T>) -> SessionResult<Self> {
+    fn try_new(mut sess_prop: SessionProp<T>) -> SessionResult<Self> {
         let credentials = sess_prop.credentials.hackerrank.clone();
         let session = sess_prop.start_session()?;
         Ok(Hackerrank {
@@ -414,7 +414,7 @@ mod tests {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("www.hackerrank.com"), true, None);
         let mut term = TermImpl::null();
-        let session = HttpSession::new(term.stdout(), client, base, None)?;
+        let session = HttpSession::try_new(term.stdout(), client, base, None)?;
         Ok(Hackerrank {
             term,
             session,

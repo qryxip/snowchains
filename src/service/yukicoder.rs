@@ -20,7 +20,7 @@ use std::io::Write as _Write;
 use std::time::Duration;
 
 pub(crate) fn login(sess_prop: SessionProp<impl Term>) -> ServiceResult<()> {
-    Yukicoder::new(sess_prop)?.login(true)
+    Yukicoder::try_new(sess_prop)?.login(true)
 }
 
 pub(crate) fn download(
@@ -30,7 +30,7 @@ pub(crate) fn download(
     let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
     download_prop.print_targets(sess_prop.term.stdout())?;
     let timeout = sess_prop.timeout;
-    Yukicoder::new(sess_prop)?.download(&download_prop, timeout)
+    Yukicoder::try_new(sess_prop)?.download(&download_prop, timeout)
 }
 
 pub(crate) fn submit(
@@ -39,7 +39,7 @@ pub(crate) fn submit(
 ) -> ServiceResult<()> {
     let submit_prop = submit_prop.convert_contest_and_problem(ProblemNameConversion::Upper);
     submit_prop.print_targets(sess_prop.term.stdout())?;
-    Yukicoder::new(sess_prop)?.submit(&submit_prop)
+    Yukicoder::try_new(sess_prop)?.submit(&submit_prop)
 }
 
 struct Yukicoder<T: Term> {
@@ -58,7 +58,7 @@ impl<T: Term> Service for Yukicoder<T> {
 }
 
 impl<T: Term> Yukicoder<T> {
-    fn new(mut sess_prop: SessionProp<T>) -> SessionResult<Self> {
+    fn try_new(mut sess_prop: SessionProp<T>) -> SessionResult<Self> {
         let credential = sess_prop.credentials.yukicoder.clone();
         let session = sess_prop.start_session()?;
         Ok(Self {
@@ -587,7 +587,7 @@ mod tests {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("yukicoder.me"), true, None);
         let mut term = TermImpl::null();
-        let session = HttpSession::new(term.stdout(), client, base, None)?;
+        let session = HttpSession::try_new(term.stdout(), client, base, None)?;
         Ok(Yukicoder {
             term,
             session,

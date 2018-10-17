@@ -31,7 +31,7 @@ pub(crate) struct HttpSession {
 }
 
 impl HttpSession {
-    pub fn new(
+    pub fn try_new(
         mut stdout: impl WriteAnsi,
         client: reqwest::Client,
         base: impl Into<Option<UrlBase>>,
@@ -41,7 +41,7 @@ impl HttpSession {
             let base = base.into();
             let host = base.as_ref().map(|base| base.host.clone());
             let jar = match cookies_path.into() {
-                Some(path) => Some(AutosavedCookieJar::new(path)?),
+                Some(path) => Some(AutosavedCookieJar::try_new(path)?),
                 None => None,
             };
             let mut this = Self {
@@ -348,7 +348,7 @@ struct AutosavedCookieJar {
 }
 
 impl AutosavedCookieJar {
-    fn new(path: impl Into<AbsPathBuf>) -> SessionResult<Self> {
+    fn try_new(path: impl Into<AbsPathBuf>) -> SessionResult<Self> {
         let path = path.into();
         let exists = path.exists();
         let mut file = ::fs::create_and_lock(&path)?;
@@ -463,7 +463,7 @@ mod tests {
             let client = service::reqwest_client(None).unwrap();
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
             let mut wtr = Ansi::new(Cursor::new(Vec::<u8>::new()));
-            let mut sess = HttpSession::new(&mut wtr, client, Some(base), None).unwrap();
+            let mut sess = HttpSession::try_new(&mut wtr, client, Some(base), None).unwrap();
             let res = sess.get("/", &mut wtr).send().unwrap();
             assert!(res.headers().get(header::SET_COOKIE).is_some());
             sess.get("/nonexisting", &mut wtr)
@@ -507,10 +507,10 @@ mod tests {
         let path = AbsPathBuf::new_or_panic(tempdir.path().join("cookies"));
         let client = service::reqwest_client(None).unwrap();
         let mut wtr = Ansi::new(io::sink());
-        HttpSession::new(&mut wtr, client.clone(), None, path.clone()).unwrap();
-        HttpSession::new(&mut wtr, client.clone(), None, path.clone()).unwrap();
-        let _session = HttpSession::new(&mut wtr, client.clone(), None, path.clone()).unwrap();
-        let err = HttpSession::new(&mut wtr, client, None, path.clone()).unwrap_err();
+        HttpSession::try_new(&mut wtr, client.clone(), None, path.clone()).unwrap();
+        HttpSession::try_new(&mut wtr, client.clone(), None, path.clone()).unwrap();
+        let _session = HttpSession::try_new(&mut wtr, client.clone(), None, path.clone()).unwrap();
+        let err = HttpSession::try_new(&mut wtr, client, None, path.clone()).unwrap_err();
         if let SessionError::Start(ref ctx) = err {
             if ctx.cause().is_some() {
                 return tempdir.close().unwrap();

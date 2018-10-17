@@ -199,7 +199,7 @@ impl<T: Term> SessionProp<T> {
         let base = self
             .domain
             .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
-        HttpSession::new(self.term.stdout(), client, base, self.cookies_path.clone())
+        HttpSession::try_new(self.term.stdout(), client, base, self.cookies_path.clone())
     }
 }
 
@@ -225,7 +225,7 @@ pub(crate) struct DownloadProp<C: Contest> {
 }
 
 impl DownloadProp<String> {
-    pub fn new(config: &Config, open_browser: bool, problems: Vec<String>) -> ::Result<Self> {
+    pub fn try_new(config: &Config, open_browser: bool, problems: Vec<String>) -> ::Result<Self> {
         let destinations = config.download_destinations(None);
         Ok(Self {
             contest: config.contest().to_owned(),
@@ -274,7 +274,7 @@ pub(crate) struct RestoreProp<'a, C: Contest> {
 }
 
 impl<'a> RestoreProp<'a, String> {
-    pub fn new(config: &'a Config, problems: Vec<String>) -> ::Result<Self> {
+    pub fn try_new(config: &'a Config, problems: Vec<String>) -> ::Result<Self> {
         let replacers = config.code_replacers_on_atcoder()?;
         Ok(Self {
             contest: config.contest().to_owned(),
@@ -326,7 +326,7 @@ pub(crate) struct SubmitProp<C: Contest> {
 }
 
 impl SubmitProp<String> {
-    pub fn new(
+    pub fn try_new(
         config: &Config,
         problem: String,
         language: Option<&str>,
