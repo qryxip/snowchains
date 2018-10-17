@@ -4,18 +4,18 @@ mod text;
 
 use command::JudgingCommand;
 use config::Config;
-use console::{ConsoleWrite, Palette};
 use errors::{JudgeError, JudgeResult, SuiteFileResult};
+use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use testsuite::{SimpleCase, TestCase, TestCases};
 
 use futures::{self, Future, Sink as _Sink, Stream as _Stream};
 use tokio::runtime::Runtime;
 
-use std::fmt;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
+use std::{cmp, fmt};
 
 pub(crate) fn num_cases(config: &Config, problem: &str) -> SuiteFileResult<usize> {
     let (cases, _) = config.testcase_loader().load_merging(problem)?;
@@ -62,7 +62,7 @@ pub(crate) fn accepts(
     problem: &str,
     nth: usize,
     mut stdin: impl BufRead,
-    mut stderr: impl ConsoleWrite,
+    mut stderr: impl TermOut,
 ) -> JudgeResult<()> {
     let (cases, _) = config.testcase_loader().load_merging(problem)?;
     match cases {
@@ -90,13 +90,13 @@ pub(crate) fn accepts(
 /// # Errors
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
-pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -> JudgeResult<()> {
+pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeResult<()> {
     fn judge_all<
         C: TestCase,
         O: Outcome + Send + 'static,
         F: Future<Item = O, Error = io::Error> + Send + 'static,
     >(
-        (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
+        (mut stdout, mut stderr): (impl TermOut, impl TermOut),
         jobs: NonZeroUsize,
         cases: Vec<C>,
         solver: &Arc<JudgingCommand>,
@@ -104,7 +104,7 @@ pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -
     ) -> JudgeResult<()> {
         let num_cases = cases.len();
         let names = cases.iter().map(|c| c.name()).collect::<Vec<_>>();
-        let name_max_width = names.iter().map(|s| stdout.width(s)).max().unwrap_or(0);
+        let name_max_width = names.iter().map(|s| stdout.str_width(s)).max().unwrap_or(0);
 
         let mut cases = names
             .into_iter()
@@ -133,20 +133,22 @@ pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -
                     num_failures += 1;
                 }
                 if stderr.supports_color() {
-                    stderr.inner_writer().write_all(b"\x1b[0G\x1b[2K")?;
+                    stderr.write_str("\x1b[0G\x1b[2K")?;
                 }
-                let palette = match num_failures {
-                    0 => Palette::Success,
-                    _ => Palette::Fatal,
+                let color = match num_failures {
+                    0 => 10,
+                    _ => 9,
                 };
-                write!(
-                    stderr.plain(palette),
-                    "{}/{} {} finished ({})",
-                    num_finished,
-                    num_cases,
-                    if num_finished > 1 { "tests" } else { "test" },
-                    plural!(num_failures, "failure", "failures"),
-                )?;
+                stderr.with_reset(|o| {
+                    write!(
+                        o.fg(color)?,
+                        "{}/{} {} finished ({})",
+                        num_finished,
+                        num_cases,
+                        if num_finished > 1 { "tests" } else { "test" },
+                        plural!(num_failures, "failure", "failures"),
+                    )
+                })?;
                 if !stderr.supports_color() {
                     writeln!(stderr)?;
                 }
@@ -164,7 +166,7 @@ pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -
 
         if num_failures == 0 {
             for (i, name, outcome) in outcomes {
-                outcome.print_title(&mut stdout, i, num_cases, &name, name_max_width)?;
+                outcome.print_title(&mut stdout, i + 1, num_cases, &name, name_max_width)?;
             }
             writeln!(
                 stdout,
@@ -176,7 +178,7 @@ pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -
         } else {
             for (i, name, outcome) in outcomes {
                 writeln!(stdout)?;
-                outcome.print_title(&mut stdout, i, num_cases, &name, name_max_width)?;
+                outcome.print_title(&mut stdout, i + 1, num_cases, &name, 0)?;
                 outcome.print_details(&mut stdout)?;
             }
             stdout.flush()?;
@@ -226,12 +228,10 @@ pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -
     if let Some(solver_compilation) = solver_compilation {
         solver_compilation.run((&mut stdout, &mut stderr), force_compile)?;
         writeln!(stdout)?;
-        stdout.flush()?;
     }
     for tester_compilation in tester_compilations {
         tester_compilation.run((&mut stdout, &mut stderr), force_compile)?;
         writeln!(stdout)?;
-        stdout.flush()?;
     }
 
     solver.write_info(&mut stdout, &paths_formatted)?;
@@ -244,7 +244,7 @@ pub(crate) fn judge(params: JudgeParams<impl ConsoleWrite, impl ConsoleWrite>) -
     }
 }
 
-pub(crate) struct JudgeParams<'a, O: ConsoleWrite, E: ConsoleWrite> {
+pub(crate) struct JudgeParams<'a, O: TermOut, E: TermOut> {
     pub stdout: O,
     pub stderr: E,
     pub config: &'a Config,
@@ -256,22 +256,22 @@ pub(crate) struct JudgeParams<'a, O: ConsoleWrite, E: ConsoleWrite> {
 
 pub(self) trait Outcome: fmt::Display {
     fn failure(&self) -> bool;
-    fn palette(&self) -> Palette;
-    fn print_details(&self, printer: impl ConsoleWrite) -> io::Result<()>;
+    fn color(&self) -> u8;
+    fn print_details(&self, out: impl TermOut) -> io::Result<()>;
 
     fn print_title(
         &self,
-        mut out: impl ConsoleWrite,
-        i: usize,
-        n: usize,
+        mut out: impl TermOut,
+        i: impl DisplayableNum,
+        n: impl DisplayableNum,
         name: &str,
         name_width: usize,
     ) -> io::Result<()> {
-        (0..format!("{}", n).len() - format!("{}", i + 1).len())
-            .try_for_each(|_| write!(out, " "))?;
-        write!(out.bold(None), "{}/{} ({})", i + 1, n, name)?;
-        (0..=name_width - out.width(name)).try_for_each(|_| write!(out, " "))?;
-        writeln!(out.bold(self.palette()), "{}", self)
+        out.write_spaces(n.num_digits() - i.num_digits())?;
+        out.with_reset(|o| write!(o.bold()?, "{}/{} ({})", i, n, name))?;
+        let l = out.str_width(name);
+        out.write_spaces(cmp::max(name_width, l) - l + 1)?;
+        out.with_reset(|o| writeln!(o.fg(self.color())?, "{}", self))
     }
 }
 
@@ -283,5 +283,20 @@ pub(self) trait MillisRoundedUp {
 impl MillisRoundedUp for Duration {
     fn millis_rounded_up(self) -> u64 {
         (1_000_000_000 * self.as_secs() + u64::from(self.subsec_nanos()) + 999_999) / 1_000_000
+    }
+}
+
+trait DisplayableNum: fmt::Display + Copy {
+    fn num_digits(self) -> usize;
+}
+
+impl DisplayableNum for usize {
+    fn num_digits(mut self) -> usize {
+        let mut r = 1;
+        while self > 9 {
+            self /= 10;
+            r += 1;
+        }
+        r
     }
 }

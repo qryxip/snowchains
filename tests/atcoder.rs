@@ -12,10 +12,11 @@ extern crate tempdir;
 mod common;
 
 use snowchains::app::{App, Opt};
-use snowchains::console::{ColorChoice, NullConsole};
 use snowchains::service::ServiceName;
+use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
 use std::fs::File;
+use std::io;
 use std::path::Path;
 
 #[test]
@@ -35,9 +36,9 @@ fn it_raises_an_when_login_fails() {
     common::test_in_tempdir("it_raises_an_when_login_fails", credentials, login);
 }
 
-fn login(mut app: App<NullConsole>) -> snowchains::Result<()> {
+fn login(mut app: App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> snowchains::Result<()> {
     app.run(Opt::Login {
-        color_choice: ColorChoice::Never,
+        color_choice: AnsiColorChoice::Never,
         service: ServiceName::Atcoder,
     })
 }
@@ -56,7 +57,7 @@ fn it_scrapes_samples_from_practice() {
                 service: Some(ServiceName::Atcoder),
                 contest: Some("practice".to_owned()),
                 problems: vec![],
-                color_choice: ColorChoice::Never,
+                color_choice: AnsiColorChoice::Never,
             })?;
             let download_dir = app
                 .working_dir
@@ -84,7 +85,7 @@ fn it_scrapes_samples_from_arc058() {
                 service: Some(ServiceName::Atcoder),
                 contest: Some("arc058".to_owned()),
                 problems: vec![],
-                color_choice: ColorChoice::Never,
+                color_choice: AnsiColorChoice::Never,
             })?;
             let download_dir = app
                 .working_dir
@@ -161,7 +162,7 @@ if __name__ == '__main__':
                 contest: Some("practice".to_owned()),
                 language: Some("python3".to_owned()),
                 jobs: None,
-                color_choice: ColorChoice::Never,
+                color_choice: AnsiColorChoice::Never,
                 problem: "a".to_owned(),
             }).map_err(Into::into)
         },

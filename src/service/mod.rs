@@ -7,12 +7,12 @@ pub(crate) mod yukicoder;
 pub(self) mod downloader;
 
 use config::Config;
-use console::{ConsoleReadWrite, ConsoleWrite, Palette, Printer};
 use errors::SessionResult;
 use path::{AbsPath, AbsPathBuf};
 use replacer::CodeReplacer;
 use service::session::{HttpSession, UrlBase};
 use template::{Template, TemplateBuilder};
+use terminal::{Term, WriteAnsi};
 use testsuite::DownloadDestinations;
 use {util, Never};
 
@@ -23,12 +23,11 @@ use select::document::Document;
 use url::Host;
 
 use std::collections::HashMap;
-use std::io::{self, Write};
 use std::ops::Deref;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Duration;
-use std::{self, fmt, slice};
+use std::{self, fmt, io, slice};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -88,44 +87,31 @@ impl ServiceName {
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
 
 pub(self) trait Service {
-    type Console: ConsoleReadWrite;
+    type Term: Term;
 
-    fn session_and_stdout(
-        &mut self,
-    ) -> (
-        &mut HttpSession,
-        Printer<&mut <Self::Console as ConsoleReadWrite>::Stdout>,
-    );
+    fn session_and_term(&mut self) -> (&mut HttpSession, &mut Self::Term);
 
-    fn console(&mut self) -> &mut Self::Console;
-
-    fn stdout(&mut self) -> Printer<&mut <Self::Console as ConsoleReadWrite>::Stdout> {
-        self.console().stdout()
+    fn stdout(&mut self) -> &mut <Self::Term as Term>::Stdout {
+        self.session_and_term().1.stdout()
     }
 
-    fn stderr(&mut self) -> Printer<&mut <Self::Console as ConsoleReadWrite>::Stderr> {
-        self.console().stderr()
+    fn stderr(&mut self) -> &mut <Self::Term as Term>::Stderr {
+        self.session_and_term().1.stderr()
     }
 
-    fn get(
-        &mut self,
-        url: &str,
-    ) -> session::Request<Printer<&mut <Self::Console as ConsoleReadWrite>::Stdout>> {
-        let (session, stdout) = self.session_and_stdout();
-        session.get(url, stdout)
+    fn get(&mut self, url: &str) -> session::Request<&mut <Self::Term as Term>::Stdout> {
+        let (sess, term) = self.session_and_term();
+        sess.get(url, term.stdout())
     }
 
-    fn post(
-        &mut self,
-        url: &str,
-    ) -> session::Request<Printer<&mut <Self::Console as ConsoleReadWrite>::Stdout>> {
-        let (session, stdout) = self.session_and_stdout();
-        session.post(url, stdout)
+    fn post(&mut self, url: &str) -> session::Request<&mut <Self::Term as Term>::Stdout> {
+        let (sess, term) = self.session_and_term();
+        sess.post(url, term.stdout())
     }
 
     fn open_in_browser(&mut self, url: &str) -> SessionResult<()> {
-        let (session, stdout) = self.session_and_stdout();
-        session.open_in_browser(url, stdout)
+        let (sess, term) = self.session_and_term();
+        sess.open_in_browser(url, term.stdout())
     }
 }
 
@@ -199,26 +185,21 @@ impl SessionConfig {
     }
 }
 
-pub(crate) struct SessionProp<RW: ConsoleReadWrite> {
-    pub console: RW,
+pub(crate) struct SessionProp<T: Term> {
+    pub term: T,
     pub domain: Option<&'static str>,
     pub cookies_path: AbsPathBuf,
     pub timeout: Option<Duration>,
     pub credentials: Credentials,
 }
 
-impl<RW: ConsoleReadWrite> SessionProp<RW> {
+impl<T: Term> SessionProp<T> {
     pub(self) fn start_session(&mut self) -> SessionResult<HttpSession> {
         let client = reqwest_client(self.timeout)?;
         let base = self
             .domain
             .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
-        HttpSession::new(
-            self.console.stdout(),
-            client,
-            base,
-            self.cookies_path.clone(),
-        )
+        HttpSession::new(self.term.stdout(), client, base, self.cookies_path.clone())
     }
 }
 
@@ -427,32 +408,39 @@ pub(self) trait PrintTargets {
     fn contest(&self) -> &Self::Contest;
     fn problems(&self) -> Option<&[String]>;
 
-    fn print_targets(&self, mut out: impl ConsoleWrite) -> io::Result<()> {
+    fn print_targets(&self, mut out: impl WriteAnsi) -> io::Result<()> {
+        fn print_common(
+            mut out: impl WriteAnsi,
+            multi: bool,
+            contest: impl fmt::Display,
+        ) -> io::Result<()> {
+            let s = if multi { "Targets" } else { "Target" };
+            out.with_reset(|o| o.fg(13)?.bold()?.write_str(s))?;
+            out.with_reset(|o| o.fg(13)?.write_str(":"))?;
+            write!(out, " {}/", contest)
+        }
+
         match self.problems() {
             None => {
-                write!(out.bold(Palette::Info), "Targets")?;
-                write!(out.plain(Palette::Info), ":")?;
-                write!(out, " {}/", self.contest())?;
-                writeln!(out.bold(None), "*")
+                print_common(&mut out, true, self.contest())?;
+                out.with_reset(|o| o.bold()?.write_str("*"))?;
             }
             Some([problem]) => {
-                write!(out.bold(Palette::Info), "Target")?;
-                write!(out.plain(Palette::Info), ":")?;
-                write!(out, " {}/", self.contest())?;
-                writeln!(out.bold(None), "{}", problem)
+                print_common(&mut out, false, self.contest())?;
+                out.with_reset(|o| o.bold()?.write_str(problem))?;
             }
             Some(problems) => {
-                write!(out.bold(Palette::Info), "Targets")?;
-                write!(out.plain(Palette::Info), ":")?;
-                write!(out, " {}/{{", self.contest())?;
+                print_common(&mut out, true, self.contest())?;
+                out.write_str("{")?;
                 for (i, problem) in problems.iter().enumerate() {
                     if i > 0 {
-                        write!(out, ", ")?;
+                        out.write_all(b", ")?;
                     }
-                    write!(out.bold(None), "{}", problem)?;
+                    out.with_reset(|o| o.bold()?.write_str(problem))?;
                 }
-                writeln!(out, "}}")
+                out.write_str("}")?;
             }
         }
+        writeln!(out)
     }
 }

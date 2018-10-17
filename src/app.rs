@@ -1,5 +1,4 @@
 use config::{self, Config};
-use console::{self, ColorChoice, ConsoleReadWrite, ConsoleWrite as _ConsoleWrite, Printer};
 use errors::ExpandTemplateResult;
 use judging::{self, JudgeParams};
 use path::AbsPathBuf;
@@ -7,6 +6,7 @@ use service::{
     atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, ServiceName,
     SessionProp, SubmitProp,
 };
+use terminal::{AnsiColorChoice, Term};
 use testsuite::{self, SerializableExtension};
 
 use once_cell::sync::Lazy;
@@ -46,7 +46,7 @@ pub enum Opt {
     )]
     Init {
         #[structopt(raw(color_choice = "1"))]
-        color_choice: ColorChoice,
+        _color_choice: AnsiColorChoice,
         #[structopt(
             help = "Directory to create a \"snowchains.yaml\"",
             default_value = ".",
@@ -71,7 +71,7 @@ pub enum Opt {
         #[structopt(raw(language = "3"))]
         language: Option<String>,
         #[structopt(raw(color_choice = "4"))]
-        color_choice: ColorChoice,
+        color_choice: AnsiColorChoice,
     },
 
     #[structopt(
@@ -82,7 +82,7 @@ pub enum Opt {
     )]
     Login {
         #[structopt(raw(color_choice = "1"))]
-        color_choice: ColorChoice,
+        color_choice: AnsiColorChoice,
         #[structopt(raw(service = r#"&["atcoder", "hackerrank", "yukicoder"], Kind::Arg"#))]
         service: ServiceName,
     },
@@ -95,7 +95,7 @@ pub enum Opt {
     )]
     Participate {
         #[structopt(raw(color_choice = "1"))]
-        color_choice: ColorChoice,
+        color_choice: AnsiColorChoice,
         #[structopt(raw(service = r#"&["atcoder"], Kind::Arg"#))]
         service: ServiceName,
         #[structopt(raw(contest = "Kind::Arg"))]
@@ -118,7 +118,7 @@ pub enum Opt {
         #[structopt(raw(problems = "3"))]
         problems: Vec<String>,
         #[structopt(raw(color_choice = "4"))]
-        color_choice: ColorChoice,
+        color_choice: AnsiColorChoice,
     },
 
     #[structopt(
@@ -135,7 +135,7 @@ pub enum Opt {
         #[structopt(raw(problems = "3"))]
         problems: Vec<String>,
         #[structopt(raw(color_choice = "4"))]
-        color_choice: ColorChoice,
+        color_choice: AnsiColorChoice,
     },
 
     #[structopt(
@@ -150,7 +150,7 @@ pub enum Opt {
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(color_choice = "3"))]
-        color_choice: ColorChoice,
+        color_choice: AnsiColorChoice,
         #[structopt(raw(problem = ""))]
         problem: String,
         #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
@@ -182,7 +182,7 @@ pub enum Opt {
         )]
         jobs: Option<NonZeroUsize>,
         #[structopt(raw(color_choice = "4"))]
-        color_choice: ColorChoice,
+        color_choice: AnsiColorChoice,
         #[structopt(raw(problem = ""))]
         problem: String,
     },
@@ -222,7 +222,7 @@ pub enum Opt {
         )]
         jobs: Option<NonZeroUsize>,
         #[structopt(raw(color_choice = "5"))]
-        color_choice: ColorChoice,
+        color_choice: AnsiColorChoice,
         #[structopt(raw(problem = ""))]
         problem: String,
     },
@@ -306,7 +306,7 @@ pub enum Show {
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(color_choice = "3"))]
-        color_choice: ColorChoice,
+        color_choice: AnsiColorChoice,
         #[structopt(raw(problem = ""))]
         problem: String,
         #[structopt(raw(nth = ""))]
@@ -327,7 +327,7 @@ pub enum Modify {
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(color_choice = "3"))]
-        color_choice: ColorChoice,
+        color_choice: AnsiColorChoice,
         #[structopt(raw(problem = ""))]
         problem: String,
         #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
@@ -490,27 +490,22 @@ fn parse_timelimit(s: &str) -> std::result::Result<Duration, &'static str> {
     })
 }
 
-pub struct App<RW: ConsoleReadWrite> {
+pub struct App<T: Term> {
     pub working_dir: AbsPathBuf,
     pub cookies_on_init: Cow<'static, str>,
     pub credentials: Credentials,
-    pub console: RW,
+    pub term: T,
 }
 
-impl<RW: ConsoleReadWrite> App<RW> {
+impl<T: Term> App<T> {
     pub fn run(&mut self, opt: Opt) -> ::Result<()> {
         info!("Opt = {:?}", opt);
         let working_dir = self.working_dir.clone();
         let cookies_on_init = self.cookies_on_init.clone();
         match opt {
-            Opt::Init {
-                color_choice,
-                directory,
-            } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
+            Opt::Init { directory, .. } => {
                 let wd = working_dir.join(&directory);
-                config::init(self.console.stdout(), &wd, &cookies_on_init)?;
+                config::init(self.term.stdout(), &wd, &cookies_on_init)?;
             }
             Opt::Switch {
                 service,
@@ -518,19 +513,23 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 language,
                 color_choice,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let (_, stdout, stderr) = self.console.all();
-                config::switch(stdout, stderr, &working_dir, service, contest, language)?;
+                let (_, stdout, stderr) = self.term.split_mut();
+                config::switch(
+                    stdout,
+                    stderr,
+                    color_choice,
+                    &working_dir,
+                    service,
+                    contest,
+                    language,
+                )?;
             }
             Opt::Login {
                 color_choice,
                 service,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.stdout(), service, None, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, None, &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 let sess_prop = self.sess_prop(&config)?;
                 match service {
                     ServiceName::Atcoder => atcoder::login(sess_prop),
@@ -544,15 +543,8 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 service,
                 contest,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(
-                    self.console.stdout(),
-                    service,
-                    contest.clone(),
-                    &working_dir,
-                )?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, contest.clone(), &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 let sess_prop = self.sess_prop(&config)?;
                 match service {
                     ServiceName::Atcoder => atcoder::participate(&contest, sess_prop),
@@ -566,10 +558,8 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 problems,
                 color_choice,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 let sess_prop = self.sess_prop(&config)?;
                 let download_prop = DownloadProp::new(&config, open_browser, problems)?;
                 match config.service() {
@@ -585,10 +575,8 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 problems,
                 color_choice,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 let sess_prop = self.sess_prop(&config)?;
                 let restore_prop = RestoreProp::new(&config, problems)?;
                 match config.service() {
@@ -605,15 +593,13 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 input,
                 output,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 let path = config
                     .download_destinations(Some(extension))
                     .scraping(&problem)?;
                 let output = output.as_ref().map(String::as_str);
-                testsuite::append(&problem, &path, &input, output, self.console.stdout())?;
+                testsuite::append(&problem, &path, &input, output, self.term.stdout())?;
             }
             Opt::Judge {
                 force_compile,
@@ -624,11 +610,9 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 color_choice,
                 problem,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
-                let (_, stdout, stderr) = self.console.all();
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
+                let (_, stdout, stderr) = self.term.split_mut();
                 judging::judge(JudgeParams {
                     stdout,
                     stderr,
@@ -651,13 +635,11 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 color_choice,
                 problem,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
                 let language = language.as_ref().map(String::as_str);
-                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 if !skip_judging {
-                    let (_, mut stdout, stderr) = self.console.all();
+                    let (_, mut stdout, stderr) = self.term.split_mut();
                     judging::judge(JudgeParams {
                         stdout: &mut stdout,
                         stderr,
@@ -688,10 +670,10 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 contest,
                 problem,
             }) => {
-                let config = Config::load(Printer::null(), service, contest, &working_dir)?;
+                let config = Config::load(service, contest, &working_dir)?;
                 let num_cases = judging::num_cases(&config, &problem)?;
-                write!(self.console.stdout().inner_writer(), "{}", num_cases)?;
-                self.console.stdout().flush()?;
+                write!(self.term.stdout(), "{}", num_cases)?;
+                self.term.stdout().flush()?;
             }
             Opt::Show(Show::TimelimitMillis {
                 service,
@@ -699,10 +681,10 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 problem,
                 nth,
             }) => {
-                let config = Config::load(Printer::null(), service, contest, &working_dir)?;
+                let config = Config::load(service, contest, &working_dir)?;
                 let timelimit = judging::timelimit_millis(&config, &problem, nth)?;
-                write!(self.console.stdout().inner_writer(), "{}", timelimit)?;
-                self.console.stdout().flush()?;
+                write!(self.term.stdout(), "{}", timelimit)?;
+                self.term.stdout().flush()?;
             }
             Opt::Show(Show::In {
                 service,
@@ -710,10 +692,10 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 problem,
                 nth,
             }) => {
-                let config = Config::load(Printer::null(), service, contest, &working_dir)?;
+                let config = Config::load(service, contest, &working_dir)?;
                 let input = judging::input(&config, &problem, nth)?;
-                write!(self.console.stdout().inner_writer(), "{}", input)?;
-                self.console.stdout().flush()?;
+                write!(self.term.stdout(), "{}", input)?;
+                self.term.stdout().flush()?;
             }
             Opt::Show(Show::Accepts {
                 service,
@@ -722,11 +704,9 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 problem,
                 nth,
             }) => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(Printer::null(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
-                let (stdin, _, stderr) = self.console.all();
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
+                let (stdin, _, stderr) = self.term.split_mut();
                 judging::accepts(&config, &problem, nth, stdin, stderr)?;
             }
             Opt::Modify(Modify::Timelimit {
@@ -737,23 +717,21 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 extension,
                 timelimit,
             }) => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(Printer::null(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 let path = config
                     .download_destinations(Some(extension))
                     .scraping(&problem)?;
-                testsuite::modify_timelimit(self.console.stdout(), &problem, &path, timelimit)?;
+                testsuite::modify_timelimit(self.term.stdout(), &problem, &path, timelimit)?;
             }
         }
         Ok(())
     }
 
-    fn sess_prop(&mut self, config: &Config) -> ExpandTemplateResult<SessionProp<&mut RW>> {
+    fn sess_prop(&mut self, config: &Config) -> ExpandTemplateResult<SessionProp<&mut T>> {
         let cookies_path = config.session_cookies().expand("")?;
         Ok(SessionProp {
-            console: &mut self.console,
+            term: &mut self.term,
             domain: config.service().domain(),
             cookies_path,
             timeout: config.session_timeout(),

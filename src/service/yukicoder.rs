@@ -1,4 +1,3 @@
-use console::{ConsoleReadWrite, ConsoleWrite as _ConsoleWrite, Palette, Printer};
 use errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
 use service::downloader::ZipDownloader;
 use service::session::HttpSession;
@@ -6,6 +5,7 @@ use service::{
     Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, RevelSession,
     Service, SessionProp, SubmitProp, TryIntoDocument as _TryIntoDocument,
 };
+use terminal::{Term, WriteAnsi as _WriteAnsi};
 use testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
@@ -19,54 +19,50 @@ use std::fmt;
 use std::io::Write as _Write;
 use std::time::Duration;
 
-pub(crate) fn login(sess_prop: SessionProp<impl ConsoleReadWrite>) -> ServiceResult<()> {
+pub(crate) fn login(sess_prop: SessionProp<impl Term>) -> ServiceResult<()> {
     Yukicoder::new(sess_prop)?.login(true)
 }
 
 pub(crate) fn download(
-    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
+    mut sess_prop: SessionProp<impl Term>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
     let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
-    download_prop.print_targets(sess_prop.console.stdout())?;
+    download_prop.print_targets(sess_prop.term.stdout())?;
     let timeout = sess_prop.timeout;
     Yukicoder::new(sess_prop)?.download(&download_prop, timeout)
 }
 
 pub(crate) fn submit(
-    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
+    mut sess_prop: SessionProp<impl Term>,
     submit_prop: SubmitProp<String>,
 ) -> ServiceResult<()> {
     let submit_prop = submit_prop.convert_contest_and_problem(ProblemNameConversion::Upper);
-    submit_prop.print_targets(sess_prop.console.stdout())?;
+    submit_prop.print_targets(sess_prop.term.stdout())?;
     Yukicoder::new(sess_prop)?.submit(&submit_prop)
 }
 
-struct Yukicoder<RW: ConsoleReadWrite> {
-    console: RW,
+struct Yukicoder<T: Term> {
+    term: T,
     session: HttpSession,
     username: Username,
     credential: RevelSession,
 }
 
-impl<RW: ConsoleReadWrite> Service for Yukicoder<RW> {
-    type Console = RW;
+impl<T: Term> Service for Yukicoder<T> {
+    type Term = T;
 
-    fn session_and_stdout(&mut self) -> (&mut HttpSession, Printer<&mut RW::Stdout>) {
-        (&mut self.session, self.console.stdout())
-    }
-
-    fn console(&mut self) -> &mut RW {
-        &mut self.console
+    fn session_and_term(&mut self) -> (&mut HttpSession, &mut T) {
+        (&mut self.session, &mut self.term)
     }
 }
 
-impl<RW: ConsoleReadWrite> Yukicoder<RW> {
-    fn new(mut sess_prop: SessionProp<RW>) -> SessionResult<Self> {
+impl<T: Term> Yukicoder<T> {
+    fn new(mut sess_prop: SessionProp<T>) -> SessionResult<Self> {
         let credential = sess_prop.credentials.yukicoder.clone();
         let session = sess_prop.start_session()?;
         Ok(Self {
-            console: sess_prop.console,
+            term: sess_prop.term,
             session,
             username: Username::None,
             credential,
@@ -84,7 +80,7 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
             let mut first = true;
             loop {
                 if first {
-                    if !assure && !self.console().ask_yes_or_no("Login? ", true)? {
+                    if !assure && !self.term.ask_yes_or_no("Login? ", true)? {
                         break;
                     }
                     writeln!(
@@ -97,7 +93,7 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
                     self.stdout().flush()?;
                     first = false;
                 }
-                let revel_session = self.console().prompt_password_stderr("REVEL_SESSION: ")?;
+                let revel_session = self.term.prompt_password_stderr("REVEL_SESSION: ")?;
                 if self.confirm_revel_session(revel_session)? {
                     break;
                 } else {
@@ -169,15 +165,11 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
                 }
                 let mut stderr = self.stderr();
                 if !not_found.is_empty() {
-                    writeln!(stderr.plain(Palette::Warning), "Not found: {:?}", not_found)?;
+                    stderr.with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
                     stderr.flush()?;
                 }
                 if !not_public.is_empty() {
-                    writeln!(
-                        stderr.plain(Palette::Warning),
-                        "Not public: {:?}",
-                        not_found
-                    )?;
+                    stderr.with_reset(|o| writeln!(o.fg(11)?, "Not public: {:?}", not_public))?;
                     stderr.flush()?;
                 }
             }
@@ -206,7 +198,7 @@ impl<RW: ConsoleReadWrite> Yukicoder<RW> {
             static URL_SUF: &str = "/testcase.zip";
             let cookie = self.session.cookies_to_header_value()?;
             ZipDownloader {
-                out: self.stdout().inner_writer(),
+                out: self.stdout(),
                 url_pref: URL_PREF,
                 url_suf: URL_SUF,
                 destinations,
@@ -497,11 +489,11 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use console::{ConsoleReadWrite, NullConsole};
     use errors::SessionResult;
     use service::session::{HttpSession, UrlBase};
     use service::yukicoder::{Extract as _Extract, Username, Yukicoder};
     use service::{self, RevelSession, Service as _Service};
+    use terminal::{Term, TermImpl};
     use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 
     use env_logger;
@@ -591,13 +583,13 @@ mod tests {
             .collect()
     }
 
-    fn start() -> SessionResult<Yukicoder<impl ConsoleReadWrite>> {
+    fn start() -> SessionResult<Yukicoder<impl Term>> {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("yukicoder.me"), true, None);
-        let mut console = NullConsole::new();
-        let session = HttpSession::new(console.stdout(), client, base, None)?;
+        let mut term = TermImpl::null();
+        let session = HttpSession::new(term.stdout(), client, base, None)?;
         Ok(Yukicoder {
-            console,
+            term,
             session,
             username: Username::None,
             credential: RevelSession::None,

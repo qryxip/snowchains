@@ -1,15 +1,15 @@
 use command::JudgingCommand;
-use console::{ConsoleWrite, Palette};
 use errors::JudgeResult;
 use judging::text::{Line, PrintAligned, Text, Width, Word};
 use judging::{MillisRoundedUp, Outcome};
+use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use testsuite::{ExpectedStdout, SimpleCase};
 
 use futures::{task, Async, Future, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 use {diff, tokio_process};
 
-use std::io::{self, Write as _Write};
+use std::io;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -344,42 +344,43 @@ impl Outcome for SimpleOutcome {
         }
     }
 
-    fn palette(&self) -> Palette {
+    fn color(&self) -> u8 {
         match self.inner {
-            SimpleOutcomeInner::Accepted { .. } => Palette::Success,
-            SimpleOutcomeInner::TimelimitExceeded { .. } => Palette::Fatal,
-            SimpleOutcomeInner::WrongAnswer { .. } | SimpleOutcomeInner::RuntimeError { .. } => {
-                Palette::Warning
-            }
+            SimpleOutcomeInner::Accepted { .. } => 10,
+            SimpleOutcomeInner::TimelimitExceeded { .. } => 9,
+            SimpleOutcomeInner::WrongAnswer { .. } | SimpleOutcomeInner::RuntimeError { .. } => 11,
         }
     }
 
-    fn print_details(&self, mut out: impl ConsoleWrite) -> io::Result<()> {
-        fn print_section(mut out: impl ConsoleWrite, title: &str, text: &Text) -> io::Result<()> {
-            writeln!(out.bold(Palette::Title), "{}", title)?;
+    fn print_details(&self, mut out: impl TermOut) -> io::Result<()> {
+        fn print_section(mut out: impl TermOut, title: &str, text: &Text) -> io::Result<()> {
+            out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+            out.write_str("\n")?;
             if text.is_empty() {
-                writeln!(out.bold(Palette::Warning), "EMPTY")
+                out.with_reset(|o| o.fg(11)?.bold()?.write_str("EMPTY\n"))
             } else {
                 text.print_all(out)
             }
         }
 
         fn print_section_unless_empty<'a>(
-            mut out: impl ConsoleWrite,
+            mut out: impl TermOut,
             title: &str,
             text: impl Into<Option<&'a Text>>,
         ) -> io::Result<()> {
             if let Some(text) = text.into() {
                 if !text.is_empty() {
-                    writeln!(out.bold(Palette::Title), "{}", title)?;
+                    out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+                    out.write_str("\n")?;
                     text.print_all(out)?;
                 }
             }
             Ok(())
         }
 
-        fn print_diff(mut out: impl ConsoleWrite, title: &str, diff: &TextDiff) -> io::Result<()> {
-            writeln!(out.bold(Palette::Title), "{}", title)?;
+        fn print_diff(mut out: impl TermOut, title: &str, diff: &TextDiff) -> io::Result<()> {
+            out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+            out.write_str("\n")?;
             diff.print(out)
         }
 
@@ -540,10 +541,10 @@ impl TextDiff {
         }
     }
 
-    fn print(&self, out: impl ConsoleWrite) -> io::Result<()> {
+    fn print(&self, out: impl TermOut) -> io::Result<()> {
         fn print(
             lines: &[(impl PrintAligned, impl PrintAligned)],
-            mut out: impl ConsoleWrite,
+            mut out: impl TermOut,
         ) -> io::Result<()> {
             let (l_max_width, r_max_width) = {
                 let (mut l_max_width, mut r_max_width) = (0, 0);
@@ -554,19 +555,19 @@ impl TextDiff {
                 (l_max_width, r_max_width)
             };
             let (wl, wr) = (cmp::max(l_max_width, 8), cmp::max(r_max_width, 6));
-            out.write_all("│".as_bytes())?;
-            out.bold(Palette::Title).write_all(b"expected")?;
+            out.write_str("│")?;
+            out.with_reset(|o| o.fg(13)?.bold()?.write_str("expected"))?;
             out.write_spaces(wl - 8)?;
-            out.write_all("│".as_bytes())?;
-            out.bold(Palette::Title).write_all(b"stdout")?;
+            out.write_str("│")?;
+            out.with_reset(|o| o.fg(13)?.bold()?.write_str("stdout"))?;
             out.write_spaces(wr - 6)?;
-            out.write_all("│\n".as_bytes())?;
+            out.write_str("│\n")?;
             for (l, r) in lines {
-                out.write_all("│".as_bytes())?;
+                out.write_str("│")?;
                 l.print_aligned(&mut out, wl)?;
-                out.write_all("│".as_bytes())?;
+                out.write_str("│")?;
                 r.print_aligned(&mut out, wr)?;
-                out.write_all("│\n".as_bytes())?;
+                out.write_str("│\n")?;
             }
             Ok(())
         }
@@ -598,7 +599,7 @@ type LineDiffDetialed = Line<Diff<Word>>;
 type LineDiff = Diff<Line<Word>>;
 
 impl PrintAligned for LineDiffDetialed {
-    fn print_aligned<W: ConsoleWrite>(&self, mut out: W, min_width: usize) -> io::Result<()> {
+    fn print_aligned<W: TermOut>(&self, mut out: W, min_width: usize) -> io::Result<()> {
         for word_diff in self.words() {
             match word_diff {
                 Diff::Common(w) => w.print_as_common(&mut out),
@@ -611,7 +612,7 @@ impl PrintAligned for LineDiffDetialed {
 }
 
 impl PrintAligned for LineDiff {
-    fn print_aligned<W: ConsoleWrite>(&self, mut out: W, min_width: usize) -> io::Result<()> {
+    fn print_aligned<W: TermOut>(&self, mut out: W, min_width: usize) -> io::Result<()> {
         let (l, f): (_, fn(&Word, &mut W) -> io::Result<()>) = match self {
             Diff::Common(l) => (l, |w, out| w.print_as_common(out)),
             Diff::NotCommon(l) => (l, |w, out| w.print_as_difference(out)),
@@ -647,7 +648,7 @@ impl Text {
         }
     }
 
-    fn print_all(&self, mut out: impl ConsoleWrite) -> io::Result<()> {
+    fn print_all(&self, mut out: impl TermOut) -> io::Result<()> {
         for line in self.lines() {
             for word in line.words() {
                 word.print_as_common(&mut out)?;

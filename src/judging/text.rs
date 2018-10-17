@@ -1,18 +1,17 @@
-use console::{ConsoleWrite, Palette};
+use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 
 use combine::Parser;
 
-use std::cmp;
-use std::fmt::Write as _FmtWrite;
-use std::io::{self, Write as _IoWrite};
+use std::fmt::Write as _Write;
 use std::sync::Arc;
+use std::{cmp, io};
 
 pub(super) trait Width {
     fn width(&self, f: fn(&str) -> usize) -> usize;
 }
 
 pub(super) trait PrintAligned: Width {
-    fn print_aligned<W: ConsoleWrite>(&self, out: W, min_width: usize) -> io::Result<()>;
+    fn print_aligned<W: TermOut>(&self, out: W, min_width: usize) -> io::Result<()>;
 }
 
 #[cfg_attr(test, derive(Debug))]
@@ -156,32 +155,34 @@ pub(super) enum Word {
 }
 
 impl Word {
-    pub fn print_as_common(&self, mut out: impl ConsoleWrite) -> io::Result<()> {
+    pub fn print_as_common(&self, mut out: impl TermOut) -> io::Result<()> {
         match self {
-            Word::Plain(s) => out.write_all(s.as_bytes()),
+            Word::Plain(s) => out.write_str(s.as_str()),
             Word::U0020(n) => out.write_spaces(*n),
-            Word::LeadingOrTrailingU0020(n) => out.fill_bg(*n, Palette::Warning),
-            Word::Escaped(s) => out.bold(Palette::Warning).write_all(s.as_bytes()),
+            Word::LeadingOrTrailingU0020(n) => out.with_reset(|o| o.bg(11)?.write_spaces(*n)),
+            Word::Escaped(s) => out.with_reset(|o| o.fg(11)?.bold()?.write_str(s.as_str())),
             Word::FloatLeft { string, .. } | Word::FloatRight { string, .. } => {
-                out.bold(Palette::Number).write_all(string.as_bytes())
+                out.with_reset(|o| o.fg(6)?.bold()?.write_str(string.as_str()))
             }
             Word::Lf => Ok(()),
-            Word::Noeol => out.bold(Palette::Warning).write_all(b"<noeol>"),
+            Word::Noeol => out.with_reset(|o| o.fg(11)?.bold()?.write_str("<noeol>")),
         }
     }
 
-    pub fn print_as_difference(&self, mut out: impl ConsoleWrite) -> io::Result<()> {
-        let mut out = out.underline(Palette::Fatal);
+    pub fn print_as_difference(&self, mut out: impl TermOut) -> io::Result<()> {
         match self {
-            Word::Plain(s) => out.write_all(s.as_bytes()),
-            Word::U0020(n) => (0..*n).try_for_each(|_| out.write_all(b" ")),
-            Word::LeadingOrTrailingU0020(n) => out.fill_bg(*n, Palette::Warning),
-            Word::Escaped(s) => out.bold(None).write_all(s.as_bytes()),
-            Word::FloatLeft { string, .. } | Word::FloatRight { string, .. } => {
-                out.bold(None).write_all(string.as_bytes())
+            Word::Plain(s) => out.with_reset(|o| o.fg(9)?.underline()?.write_str(s.as_str())),
+            Word::U0020(n) => out.with_reset(|o| o.fg(9)?.underline()?.write_spaces(*n)),
+            Word::LeadingOrTrailingU0020(n) => {
+                out.with_reset(|o| o.fg(9)?.bg(11)?.underline()?.write_spaces(*n))
+            }
+            Word::Escaped(s)
+            | Word::FloatLeft { string: s, .. }
+            | Word::FloatRight { string: s, .. } => {
+                out.with_reset(|o| o.fg(9)?.bold()?.underline()?.write_str(s.as_str()))
             }
             Word::Lf => Ok(()),
-            Word::Noeol => out.bold(None).write_all(b"<noeol>"),
+            Word::Noeol => out.with_reset(|o| o.fg(9)?.bold()?.underline()?.write_str("<noeol>")),
         }
     }
 }

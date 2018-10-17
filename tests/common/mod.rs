@@ -7,9 +7,9 @@ extern crate serde_yaml;
 extern crate tempdir;
 
 use snowchains::app::{App, Opt};
-use snowchains::console::{ColorChoice, NullConsole};
 use snowchains::path::{AbsPath, AbsPathBuf};
 use snowchains::service::{Credentials, RevelSession, ServiceName, UserNameAndPassword};
+use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
 use serde::{de, Deserialize, Deserializer};
 use tempdir::TempDir;
@@ -24,7 +24,7 @@ use std::{env, io, panic};
 pub fn test_in_tempdir<E: Into<failure::Error>>(
     tempdir_prefix: &str,
     credentials: Credentials,
-    f: impl FnOnce(App<NullConsole>) -> Result<(), E> + UnwindSafe,
+    f: impl FnOnce(App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> Result<(), E> + UnwindSafe,
 ) {
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
     let tempdir_path = tempdir.path().to_owned();
@@ -33,10 +33,10 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
             working_dir: AbsPathBuf::new_or_panic(tempdir_path),
             cookies_on_init: Cow::from("$service"),
             credentials,
-            console: NullConsole::new(),
+            term: TermImpl::null(),
         };
         app.run(Opt::Init {
-            color_choice: ColorChoice::Never,
+            _color_choice: AnsiColorChoice::Never,
             directory: PathBuf::from("."),
         })?;
         f(app).map_err(Into::into)
@@ -76,15 +76,18 @@ pub fn dummy_credentials() -> Credentials {
     }
 }
 
-pub fn login(mut app: App<NullConsole>, service: ServiceName) -> snowchains::Result<()> {
+pub fn login(
+    mut app: App<TermImpl<io::Empty, io::Sink, io::Sink>>,
+    service: ServiceName,
+) -> snowchains::Result<()> {
     app.run(Opt::Login {
-        color_choice: ColorChoice::Never,
+        color_choice: AnsiColorChoice::Never,
         service,
     })
 }
 
 pub fn download(
-    mut app: App<NullConsole>,
+    mut app: App<TermImpl<io::Empty, io::Sink, io::Sink>>,
     service: ServiceName,
     contest: &str,
     problems: &[&str],
@@ -94,7 +97,7 @@ pub fn download(
         service: Some(service),
         contest: Some(contest.to_owned()),
         problems: problems.iter().map(|&s| s.to_owned()).collect(),
-        color_choice: ColorChoice::Never,
+        color_choice: AnsiColorChoice::Never,
     })
 }
 

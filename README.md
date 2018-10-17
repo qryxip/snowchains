@@ -58,9 +58,8 @@ service: atcoder # "atcoder", "hackerrank", "yukicoder", "other"
 contest: arc100
 language: c++    # Priorities: <command line argument>, `service._.language`, `language`
 
-# console:
-#   color: 256color # "8color", "16color", "256color"
-#   cjk: true
+console:
+  cjk: false
 
 session:
   timeout: 10

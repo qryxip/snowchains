@@ -5,58 +5,59 @@ extern crate failure;
 extern crate structopt;
 
 use snowchains::app::{App, Opt};
-use snowchains::console::{Console, ConsoleReadWrite, ConsoleWrite as _ConsoleWrite, Palette};
 use snowchains::path::AbsPathBuf;
 use snowchains::service::Credentials;
+use snowchains::terminal::{Term, TermImpl, WriteAnsi as _WriteAnsi, WriteSpaces as _WriteSpaces};
 
 use failure::Fail;
 use structopt::StructOpt as _StructOpt;
 
-use std::env;
 use std::io::{self, Write as _Write};
-use std::process;
+use std::{env, process};
 
-fn main() {
+fn main() -> io::Result<()> {
     env_logger::init();
+    let opt = Opt::from_args();
     let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
-    let mut console = Console::new(&stdin, &stdout, &stderr);
-    if let Err(err) = run(&mut console) {
-        console.stdout().flush().unwrap();
-        let mut stderr = console.stderr();
-        writeln!(stderr).unwrap();
+    let mut term = TermImpl::new(&stdin, &stdout, &stderr);
+    if let Err(err) = run(opt, &mut term) {
+        term.stdout().flush()?;
+        let mut stderr = term.stderr();
+        writeln!(stderr)?;
         for (i, cause) in (&err as &Fail).iter_chain().enumerate() {
             let head = if i == 0 && err.cause().is_none() {
-                "Error: "
+                "error: "
             } else if i == 0 {
-                "    Error: "
+                "    error: "
             } else {
-                "Caused by: "
+                "caused by: "
             };
-            write!(stderr.bold(Palette::Fatal), "{}", head).unwrap();
+            stderr.with_reset(|o| o.fg(9)?.bold()?.write_str(head))?;
             for (i, line) in cause.to_string().lines().enumerate() {
                 if i > 0 {
-                    stderr.write_spaces(head.len()).unwrap();
+                    stderr.write_spaces(head.len())?;
                 }
-                writeln!(stderr, "{}", line).unwrap();
+                writeln!(stderr, "{}", line)?;
             }
         }
         if let Some(backtrace) = err.backtrace() {
-            writeln!(stderr, "{:?}", backtrace).unwrap();
+            writeln!(stderr, "{:?}", backtrace)?;
         }
-        stderr.flush().unwrap();
-        process::exit(1);
+        stderr.flush()?;
+        process::exit(1)
+    } else {
+        Ok(())
     }
 }
 
-fn run(console: impl ConsoleReadWrite) -> snowchains::Result<()> {
+fn run(opt: Opt, term: impl Term) -> snowchains::Result<()> {
     let working_dir = env::current_dir()
         .map(AbsPathBuf::new_or_panic)
         .map_err(snowchains::Error::Getcwd)?;
-    let mut app = App {
+    App {
         working_dir,
         cookies_on_init: "~/.local/share/snowchains/$service".into(),
         credentials: Credentials::default(),
-        console,
-    };
-    app.run(Opt::from_args())
+        term,
+    }.run(opt)
 }

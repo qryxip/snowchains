@@ -1,11 +1,11 @@
 use command::{CompilationCommand, JudgingCommand};
-use console::{ConsoleWrite, Palette};
 use errors::{
     ExpandTemplateResult, FileIoError, FileIoErrorCause, FileIoErrorKind, LoadConfigError,
     SuiteFileError, SuiteFileResult,
 };
 use path::{AbsPath, AbsPathBuf};
 use template::Template;
+use terminal::WriteAnsi;
 use {util, yaml};
 
 use regex::Regex;
@@ -15,17 +15,16 @@ use {serde_json, serde_yaml, toml};
 
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::io::{self, Write as _Write};
 use std::iter::FromIterator as _FromIterator;
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{self, f64, fmt, str, vec};
+use std::{self, f64, fmt, io, str, vec};
 
 pub(crate) fn modify_timelimit(
-    stdout: impl ConsoleWrite,
+    stdout: impl WriteAnsi,
     name: &str,
     path: &SuiteFilePath,
     timelimit: Option<Duration>,
@@ -41,7 +40,7 @@ pub(crate) fn append(
     path: &SuiteFilePath,
     input: &str,
     output: Option<&str>,
-    stdout: impl ConsoleWrite,
+    stdout: impl WriteAnsi,
 ) -> SuiteFileResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.append(input, output)?;
@@ -510,7 +509,7 @@ impl TestSuite {
         &self,
         name: &str,
         path: &SuiteFilePath,
-        mut out: impl ConsoleWrite,
+        mut out: impl WriteAnsi,
     ) -> SuiteFileResult<()> {
         let (path, extension) = (&path.path, path.extension);
         let serialized = match extension {
@@ -521,22 +520,21 @@ impl TestSuite {
             }
         };
         ::fs::write(path, serialized.as_bytes())?;
-        write!(out.bold(None), "{}", name)?;
-        write!(out, ": Saved to {}", path.display())?;
+        out.with_reset(|o| o.bold()?.write_str(name))?;
+        write!(out, ": Saved to {} ", path.display())?;
         match self {
             TestSuite::Simple(s) => match s.cases.len() {
-                0 => writeln!(out.plain(Palette::Warning), " (no test case)"),
-                1 => writeln!(out.plain(Palette::Success), " (1 test case)"),
-                n => writeln!(out.plain(Palette::Success), " ({} test cases)", n),
+                0 => out.with_reset(|o| o.fg(11)?.write_str("(no test case)\n")),
+                1 => out.with_reset(|o| o.fg(10)?.write_str("(1 test case)\n")),
+                n => out.with_reset(|o| writeln!(o.fg(10)?, "({} test cases)", n)),
             },
             TestSuite::Interactive(_) => {
-                writeln!(out.plain(Palette::Success), " (interactive problem)")
+                out.with_reset(|o| o.fg(10)?.write_str("(interactive problem)\n"))
             }
             TestSuite::Unsubmittable => {
-                writeln!(out.plain(Palette::Success), " (unsubmittable problem)")
+                out.with_reset(|o| o.fg(10)?.write_str("(unsubmittable problem)\n"))
             }
-        }?;
-        Ok(())
+        }.map_err(Into::into)
     }
 
     fn modify_timelimit(

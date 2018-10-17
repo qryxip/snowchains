@@ -1,4 +1,3 @@
-use console::{ConsoleReadWrite, ConsoleWrite, Palette, Printer};
 use errors::{ServiceError, ServiceResult, SessionResult};
 use service::downloader::ZipDownloader;
 use service::session::HttpSession;
@@ -6,6 +5,7 @@ use service::{
     Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, Service,
     SessionProp, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
+use terminal::{Term, WriteAnsi};
 use testsuite::{SimpleSuite, TestSuite};
 
 use itertools::Itertools as _Itertools;
@@ -21,44 +21,40 @@ use std::rc::Rc;
 use std::time::Duration;
 use std::{self, fmt};
 
-pub(crate) fn login(sess_prop: SessionProp<impl ConsoleReadWrite>) -> ServiceResult<()> {
+pub(crate) fn login(sess_prop: SessionProp<impl Term>) -> ServiceResult<()> {
     Hackerrank::start(sess_prop)?.login(LoginOption::Explicit)
 }
 
 pub(crate) fn download(
-    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
+    mut sess_prop: SessionProp<impl Term>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
     let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Kebab);
-    download_prop.print_targets(sess_prop.console.stdout())?;
+    download_prop.print_targets(sess_prop.term.stdout())?;
     let timeout = sess_prop.timeout;
     Hackerrank::start(sess_prop)?.download(&download_prop, timeout)
 }
 
-struct Hackerrank<RW: ConsoleReadWrite> {
-    console: RW,
+struct Hackerrank<T: Term> {
+    term: T,
     session: HttpSession,
     credentials: UserNameAndPassword,
 }
 
-impl<RW: ConsoleReadWrite> Service for Hackerrank<RW> {
-    type Console = RW;
+impl<T: Term> Service for Hackerrank<T> {
+    type Term = T;
 
-    fn session_and_stdout(&mut self) -> (&mut HttpSession, Printer<&mut RW::Stdout>) {
-        (&mut self.session, self.console.stdout())
-    }
-
-    fn console(&mut self) -> &mut RW {
-        &mut self.console
+    fn session_and_term(&mut self) -> (&mut HttpSession, &mut T) {
+        (&mut self.session, &mut self.term)
     }
 }
 
-impl<RW: ConsoleReadWrite> Hackerrank<RW> {
-    fn start(mut sess_prop: SessionProp<RW>) -> SessionResult<Self> {
+impl<T: Term> Hackerrank<T> {
+    fn start(mut sess_prop: SessionProp<T>) -> SessionResult<Self> {
         let credentials = sess_prop.credentials.hackerrank.clone();
         let session = sess_prop.start_session()?;
         Ok(Hackerrank {
-            console: sess_prop.console,
+            term: sess_prop.term,
             session,
             credentials,
         })
@@ -76,15 +72,15 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
                         (username.clone(), password.clone(), true)
                     }
                     UserNameAndPassword::None => (
-                        Rc::new(self.console().prompt_reply_stderr("Username: ")?),
-                        Rc::new(self.console().prompt_password_stderr("Password: ")?),
+                        Rc::new(self.term.prompt_reply_stderr("Username: ")?),
+                        Rc::new(self.term.prompt_password_stderr("Password: ")?),
                         false,
                     ),
                 }
             };
             if option == LoginOption::NotNecessary
                 && !on_test
-                && !self.console().ask_yes_or_no("Login? ", false)?
+                && !self.term.ask_yes_or_no("Login? ", false)?
             {
                 return Ok(());
             }
@@ -96,8 +92,8 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
                 if on_test {
                     return Err(ServiceError::LoginOnTest);
                 }
-                username = Rc::new(self.console().prompt_reply_stderr("Username: ")?);
-                password = Rc::new(self.console().prompt_password_stderr("Password: ")?);
+                username = Rc::new(self.term.prompt_reply_stderr("Username: ")?);
+                password = Rc::new(self.term.prompt_password_stderr("Password: ")?);
                 writeln!(self.stderr(), "Failed to login. Try again.")?;
                 self.stderr().flush()?;
                 self.session.clear_cookies()?;
@@ -138,7 +134,7 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
         timeout: Option<Duration>,
     ) -> ServiceResult<()> {
         fn warn_unless_empty(
-            mut stderr: impl ConsoleWrite,
+            mut stderr: impl WriteAnsi,
             problems: &[impl AsRef<str>],
             verb: &str,
         ) -> io::Result<()> {
@@ -148,13 +144,9 @@ impl<RW: ConsoleReadWrite> Hackerrank<RW> {
                     .iter()
                     .map(|problem| format!("{:?}", problem.as_ref()))
                     .format(", ");
-                writeln!(
-                    stderr.plain(Palette::Warning),
-                    "Following problem{} {}: {}",
-                    suf,
-                    verb,
-                    problems
-                )?;
+                stderr.with_reset(|o| {
+                    writeln!(o.fg(11)?, "Following problem{} {}: {}", suf, verb, problems)
+                })?;
                 stderr.flush()?;
             }
             Ok(())
@@ -386,11 +378,11 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use console::{ConsoleReadWrite, NullConsole};
     use errors::SessionResult;
     use service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
     use service::session::{HttpSession, UrlBase};
     use service::{self, Service as _Service, UserNameAndPassword};
+    use terminal::{Term, TermImpl};
     use testsuite::{SimpleSuite, TestSuite};
 
     use select::document::Document;
@@ -418,13 +410,13 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    fn start() -> SessionResult<Hackerrank<impl ConsoleReadWrite>> {
+    fn start() -> SessionResult<Hackerrank<impl Term>> {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("www.hackerrank.com"), true, None);
-        let mut console = NullConsole::new();
-        let session = HttpSession::new(console.stdout(), client, base, None)?;
+        let mut term = TermImpl::null();
+        let session = HttpSession::new(term.stdout(), client, base, None)?;
         Ok(Hackerrank {
-            console,
+            term,
             session,
             credentials: UserNameAndPassword::None,
         })

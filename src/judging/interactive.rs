@@ -1,7 +1,7 @@
-use console::{ConsoleWrite, Palette};
 use errors::JudgeResult;
 use judging::text::{Line, Text, Width as _Width, Word};
 use judging::{JudgingCommand, MillisRoundedUp, Outcome};
+use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use testsuite::InteractiveCase;
 
 use futures::{task, Async, Future, Poll, Stream};
@@ -316,47 +316,41 @@ impl Outcome for InteractiveOutcome {
         !self.success()
     }
 
-    fn palette(&self) -> Palette {
+    fn color(&self) -> u8 {
         if self.success() {
-            Palette::Success
+            10
         } else {
-            Palette::Fatal
+            9
         }
     }
 
-    fn print_details(&self, mut out: impl ConsoleWrite) -> io::Result<()> {
+    fn print_details(&self, mut out: impl TermOut) -> io::Result<()> {
         fn print_str_left_aligned(
-            mut out: impl ConsoleWrite,
+            mut out: impl TermOut,
+            color: Option<u8>,
             s: &str,
             width: usize,
         ) -> io::Result<()> {
-            write!(out, "{}", s)?;
-            let str_width = out.width(s);
+            out.with_reset(|o| {
+                if let Some(color) = color {
+                    o.fg(color)?;
+                }
+                o.bold()?.write_str(s)
+            })?;
+            let str_width = out.str_width(s);
             out.write_spaces(cmp::max(width, str_width) - str_width)
         }
 
         fn print_line_left_aligned(
-            mut out: impl ConsoleWrite,
-            palette: Option<Palette>,
+            mut out: impl TermOut,
             line: &Line<Word>,
             width: usize,
         ) -> io::Result<()> {
-            fn print(
-                mut out: impl ConsoleWrite,
-                line: &Line<Word>,
-                width: usize,
-            ) -> io::Result<()> {
-                for word in line.words() {
-                    word.print_as_common(&mut out)?;
-                }
-                let line_width = line.width(out.str_width_fn());
-                out.write_spaces(cmp::max(width, line_width) - line_width)
+            for word in line.words() {
+                word.print_as_common(&mut out)?;
             }
-
-            match palette {
-                None => print(out, line, width),
-                Some(palette) => print(out.plain(palette), line, width),
-            }
+            let line_width = line.width(out.str_width_fn());
+            out.write_spaces(cmp::max(width, line_width) - line_width)
         }
 
         let str_width = out.str_width_fn();
@@ -386,17 +380,16 @@ impl Outcome for InteractiveOutcome {
 
         for output in &self.outputs {
             use self::Output::*;
-            use console::Palette::*;
-            let (title, left, right, time, palette) = match output {
+            let (title, left, right, time, color) = match output {
                 TesterStdout(s, t) => ("Tester Stdout", s, &dummy, t, None),
                 SolverStdout(s, t) => ("Solver Stdout", &dummy, s, t, None),
-                TesterStderr(s, t) => ("Tester Stderr", s, &dummy, t, Some(Warning)),
-                SolverStderr(s, t) => ("Solver Stderr", &dummy, s, t, Some(Warning)),
-                TesterTerminated(true, s, t) => ("Tester terminated", s, &dummy, t, Some(Success)),
-                SolverTerminated(true, s, t) => ("Solver terminated", &dummy, s, t, Some(Success)),
-                TesterTerminated(false, s, t) => ("Tester terminated", s, &dummy, t, Some(Fatal)),
-                SolverTerminated(false, s, t) => ("Solver terminated", &dummy, s, t, Some(Fatal)),
-                TimelimitExceeded(t) => ("Timelimit Exceeded", &dummy, &dummy, t, Some(Fatal)),
+                TesterStderr(s, t) => ("Tester Stderr", s, &dummy, t, Some(11)),
+                SolverStderr(s, t) => ("Solver Stderr", &dummy, s, t, Some(11)),
+                TesterTerminated(true, s, t) => ("Tester terminated", s, &dummy, t, Some(10)),
+                SolverTerminated(true, s, t) => ("Solver terminated", &dummy, s, t, Some(10)),
+                TesterTerminated(false, s, t) => ("Tester terminated", s, &dummy, t, Some(9)),
+                SolverTerminated(false, s, t) => ("Solver terminated", &dummy, s, t, Some(9)),
+                TimelimitExceeded(t) => ("Timelimit Exceeded", &dummy, &dummy, t, Some(9)),
             };
             let empty_line = Line::<Word>::default();
             let (left, right) = (left.lines(), right.lines());
@@ -405,13 +398,13 @@ impl Outcome for InteractiveOutcome {
                 let right = right.get(i).unwrap_or(&empty_line);
                 write!(out, "│")?;
                 match i {
-                    0 => print_str_left_aligned(out.bold(palette), title, title_width),
+                    0 => print_str_left_aligned(&mut out, color, title, title_width),
                     _ => out.write_spaces(title_width),
                 }?;
                 write!(out, "│")?;
-                print_line_left_aligned(&mut out, palette, left, left_width)?;
+                print_line_left_aligned(&mut out, left, left_width)?;
                 write!(out, "│")?;
-                print_line_left_aligned(&mut out, palette, right, right_width)?;
+                print_line_left_aligned(&mut out, right, right_width)?;
                 match i {
                     0 => writeln!(out, "│{}ms", time.millis_rounded_up()),
                     _ => writeln!(out, "│"),
