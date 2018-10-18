@@ -28,14 +28,14 @@ use std::time::Duration;
              \n    snowchains <p|participate> [OPTIONS] <service> <contest>\
              \n    snowchains <d|download> [FLAGS] [OPTIONS]\
              \n    snowchains <r|restore> [OPTIONS]\
-             \n    snowchains <a|append> [OPTIONS] <problem> <extension> <input> [output]\
              \n    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>\
              \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>\
              \n    snowchains show num-cases [OPTIONS] <problem> <extension>\
              \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
              \n    snowchains show in [OPTIONS] <problem> <nth>\
              \n    snowchains show accepts [OPTIONS] <problem> <nth>\
-             \n    snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]"
+             \n    snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
+             \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]"
 )]
 pub enum Opt {
     #[structopt(
@@ -139,33 +139,10 @@ pub enum Opt {
     },
 
     #[structopt(
-        about = "Appends a test case to a test suite file",
-        name = "append",
-        usage = "snowchains <a|append> [OPTIONS] <problem> <extension> <input> [output]",
-        raw(alias = "\"a\"", display_order = "7"),
-    )]
-    Append {
-        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
-        service: Option<ServiceName>,
-        #[structopt(raw(contest = "Kind::Option(2)"))]
-        contest: Option<String>,
-        #[structopt(raw(color_choice = "3"))]
-        color_choice: AnsiColorChoice,
-        #[structopt(raw(problem = ""))]
-        problem: String,
-        #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
-        extension: SerializableExtension,
-        #[structopt(help = "\"input\" value to append")]
-        input: String,
-        #[structopt(help = "\"expected\" value to append")]
-        output: Option<String>,
-    },
-
-    #[structopt(
         about = "Tests a binary or script",
         name = "judge",
         usage = "snowchains <j|judge> [FLAGS] [OPTIONS] <problem>",
-        raw(alias = "\"j\"", display_order = "8"),
+        raw(alias = "\"j\"", display_order = "7"),
     )]
     Judge {
         #[structopt(raw(force_compile = "1"))]
@@ -191,7 +168,7 @@ pub enum Opt {
         about = "Submits a source code",
         name = "submit",
         usage = "snowchains <s|submit> [FLAGS] [OPTIONS] <problem>",
-        raw(alias = "\"s\"", display_order = "9"),
+        raw(alias = "\"s\"", display_order = "8"),
     )]
     Submit {
         #[structopt(raw(open_browser = "1"))]
@@ -234,15 +211,16 @@ pub enum Opt {
                  \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
                  \n    snowchains show in [OPTIONS] <problem> <nth>\
                  \n    snowchains show accepts [OPTIONS] <problem> <nth>",
-        raw(display_order = "10"),
+        raw(display_order = "9"),
     )]
     Show(Show),
 
     #[structopt(
         about = "Modify values",
         name = "modify",
-        usage = "snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]",
-        raw(display_order = "11"),
+        usage = "snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
+                 \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]",
+        raw(display_order = "10"),
     )]
     Modify(Modify),
 }
@@ -337,6 +315,28 @@ pub enum Modify {
             parse(try_from_str = "parse_timelimit"),
         )]
         timelimit: Option<Duration>,
+    },
+
+    #[structopt(
+        about = "Appends a test case to a test suite file",
+        name = "append",
+        raw(display_order = "2"),
+    )]
+    Append {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(color_choice = "3"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+        #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
+        extension: SerializableExtension,
+        #[structopt(help = "\"input\" value to append")]
+        input: String,
+        #[structopt(help = "\"expected\" value to append")]
+        output: Option<String>,
     },
 }
 
@@ -584,23 +584,6 @@ impl<T: Term> App<T> {
                     _ => return Err(::Error::Unimplemented),
                 };
             }
-            Opt::Append {
-                service,
-                contest,
-                color_choice,
-                problem,
-                extension,
-                input,
-                output,
-            } => {
-                let config = Config::load(service, contest, &working_dir)?;
-                self.term.setup(color_choice, config.console());
-                let path = config
-                    .download_destinations(Some(extension))
-                    .scraping(&problem)?;
-                let output = output.as_ref().map(String::as_str);
-                testsuite::append(&problem, &path, &input, output, self.term.stdout())?;
-            }
             Opt::Judge {
                 force_compile,
                 service,
@@ -723,6 +706,23 @@ impl<T: Term> App<T> {
                     .download_destinations(Some(extension))
                     .scraping(&problem)?;
                 testsuite::modify_timelimit(self.term.stdout(), &problem, &path, timelimit)?;
+            }
+            Opt::Modify(Modify::Append {
+                service,
+                contest,
+                color_choice,
+                problem,
+                extension,
+                input,
+                output,
+            }) => {
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
+                let path = config
+                    .download_destinations(Some(extension))
+                    .scraping(&problem)?;
+                let output = output.as_ref().map(String::as_str);
+                testsuite::append(&problem, &path, &input, output, self.term.stdout())?;
             }
         }
         Ok(())
