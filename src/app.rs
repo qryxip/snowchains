@@ -39,7 +39,7 @@ use std::time::Duration;
 )]
 pub enum Opt {
     #[structopt(
-        about = "Creates a \"snowchains.yaml\"",
+        about = "Creates a config file (\"snowchains.yaml\")",
         name = "init",
         usage = "snowchains <i|init> [OPTIONS] [directory]",
         raw(alias = "\"i\"", display_order = "1"),
@@ -56,7 +56,7 @@ pub enum Opt {
     },
 
     #[structopt(
-        about = "Changes attribute values of a \"snowchains.yaml\"",
+        about = "Changes attribute values of a config file",
         name = "switch",
         usage = "snowchains <w|switch> [OPTIONS]",
         raw(alias = "\"w\"", display_order = "2"),
@@ -122,7 +122,7 @@ pub enum Opt {
     },
 
     #[structopt(
-        about = "Downloads the source codes you've submitted",
+        about = "Downloads source files you have submitted",
         name = "restore",
         usage = "snowchains <r|restore> [OPTIONS]",
         raw(alias = "\"r\"", display_order = "6"),
@@ -165,7 +165,7 @@ pub enum Opt {
     },
 
     #[structopt(
-        about = "Submits a source code",
+        about = "Submits a source file",
         name = "submit",
         usage = "snowchains <s|submit> [FLAGS] [OPTIONS] <problem>",
         raw(alias = "\"s\"", display_order = "8"),
@@ -183,7 +183,7 @@ pub enum Opt {
         skip_judging: bool,
         #[structopt(
             long = "skip-checking-duplication",
-            help = "Submits even if the contest is active and your code is already accepted",
+            help = "Submits even if the contest is active and you have already solved the problem",
             raw(display_order = "4"),
         )]
         skip_checking_duplication: bool,
@@ -216,7 +216,7 @@ pub enum Opt {
     Show(Show),
 
     #[structopt(
-        about = "Modify values",
+        about = "Modifies values in a config file or test files",
         name = "modify",
         usage = "snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
                  \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]",
@@ -274,7 +274,7 @@ pub enum Show {
     },
 
     #[structopt(
-        about = "Tests a value from stdin",
+        about = "Tests for a value from stdin (without timelimit)",
         name = "accepts",
         raw(display_order = "4"),
     )]
@@ -295,7 +295,7 @@ pub enum Show {
 #[derive(Debug, StructOpt)]
 pub enum Modify {
     #[structopt(
-        about = "Modify a timellimit",
+        about = "Modifies a `timellimit`",
         name = "timelimit",
         raw(display_order = "1"),
     )]

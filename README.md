@@ -8,9 +8,9 @@ Tools for online programming contests.
 ## Features
 
 - Scrapes sample cases as YAML, TOML, or JSON
-- Tests a source code with downloaded sample cases
-- Submits a source code
-- Downloads source codes you have submitted
+- Tests a source file with downloaded sample cases
+- Submits a source file
+- Downloads source file you have submitted
 
 |                         | Target                                       | "contest" attribute | Scrape samples  | Download system tests | Submit          |
 | :---------------------- | :------------------------------------------- | :------------------ | :-------------: | :-------------------: | :-------------: |
@@ -38,15 +38,55 @@ $ cargo [+stable] install-update -ag
 
 ## Usage
 
+```
+snowchains 0.23.0
+Ryo Yamashita <wariuni@gmail.com>
+Tools for online programming contests
+
+USAGE:
+    snowchains <i|init> [OPTIONS] [directory]
+    snowchains <w|switch> [OPTIONS]
+    snowchains <l|login> [OPTIONS] <service>
+    snowchains <p|participate> [OPTIONS] <service> <contest>
+    snowchains <d|download> [FLAGS] [OPTIONS]
+    snowchains <r|restore> [OPTIONS]
+    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>
+    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>
+    snowchains show num-cases [OPTIONS] <problem> <extension>
+    snowchains show timelimit-millis [OPTIONS] <problem> <nth>
+    snowchains show in [OPTIONS] <problem> <nth>
+    snowchains show accepts [OPTIONS] <problem> <nth>
+    snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]
+    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+SUBCOMMANDS:
+    init           Creates a config file ("snowchains.yaml")
+    switch         Changes attribute values of a config file
+    login          Logges in to a service
+    participate    Participates in a contest
+    download       Downloads test cases
+    restore        Downloads source files you have submitted
+    judge          Tests a binary or script
+    submit         Submits a source file
+    show           Prints information
+    modify         Modifies values in a config file or test files
+    help           Prints this message or the help of the given subcommand(s)
+```
+
 ```console
-$ snowchains --help
-$ snowchains <i|init> ./
-$ snowchains <w|switch> [-s <service>] [-c <contest>] [-l <language>]                       # e.g. "-s atcoder -c arc100 -l c++"
-$ snowchains <d|download> [-b|--open-browser] [-s <service>] [-c <contest>] [-p <problems>] # Does not ask username and password unless they are needed
-$ $EDITOR ./snowchains/<service>/<contest>/<problem>.yaml                                   # Add more test cases
-$ snowchains <j|judge> [--force-compile] [-s <service>] [-c <contest>] [-l <language>] [-j <jobs>] <problem>
-$ snowchains <s|submit> [-b|--open-browser] [--force-compile] [-j|--skip-judging] [-d|--skip-checking-duplication] \
-                        [-s <service>] [-c <contest>] [-l <language>] <problem>
+$ snowchains init ./
+$ snowchains switch --service atcoder --contest practice --language c++
+$ # snowchains login atcoder
+$ # snowchains participate atcoder practice
+$ snowchains download --open-browser           # does not ask your username and password unless they are needed
+$ $EDITOR ./snowchains/atcoder/practice/a.yaml # add more test cases
+$ $EDITOR ./cpp/a.cpp
+$ # snowchains judge a
+$ snowchains submit a --open-browser           # executes `judge` command before submitting
 ```
 
 ## Config File (snowchains.yaml)
