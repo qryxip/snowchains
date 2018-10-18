@@ -1,5 +1,5 @@
-use command::JudgingCommand;
 use errors::JudgeResult;
+use judging::command::JudgingCommand;
 use judging::text::{Line, PrintAligned, Text, Width, Word};
 use judging::{MillisRoundedUp, Outcome};
 use terminal::{TermOut, WriteSpaces as _WriteSpaces};

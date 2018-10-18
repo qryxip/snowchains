@@ -1,10 +1,11 @@
+pub(crate) mod command;
 mod interactive;
 mod simple;
 mod text;
 
-use command::JudgingCommand;
 use config::Config;
 use errors::{JudgeError, JudgeResult, SuiteFileResult};
+use judging::command::JudgingCommand;
 use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use testsuite::{SimpleCase, TestCase, TestCases};
 

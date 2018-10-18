@@ -1,5 +1,5 @@
-use command::{CompilationCommand, JudgingCommand};
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
+use judging::command::{CompilationCommand, JudgingCommand};
 use path::{AbsPath, AbsPathBuf};
 use replacer::{CodeReplacer, CodeReplacerConf};
 use service::{ServiceName, SessionConfig};

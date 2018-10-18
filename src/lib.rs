@@ -71,7 +71,6 @@ pub mod service;
 pub mod terminal;
 pub mod util;
 
-mod command;
 mod config;
 mod errors;
 mod fs;

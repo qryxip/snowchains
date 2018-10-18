@@ -1,8 +1,8 @@
-use command::{CompilationCommand, JudgingCommand};
 use errors::{
     ExpandTemplateResult, FileIoError, FileIoErrorCause, FileIoErrorKind, LoadConfigError,
     SuiteFileError, SuiteFileResult,
 };
+use judging::command::{CompilationCommand, JudgingCommand};
 use path::{AbsPath, AbsPathBuf};
 use template::Template;
 use terminal::WriteAnsi;

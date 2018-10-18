@@ -1,5 +1,5 @@
-use command::{CompilationCommand, JudgingCommand};
 use errors::{ExpandTemplateError, ExpandTemplateErrorContext, ExpandTemplateResult};
+use judging::command::{CompilationCommand, JudgingCommand};
 use path::{AbsPath, AbsPathBuf};
 
 use combine::Parser;
@@ -522,7 +522,7 @@ impl fmt::Display for ParseTemplateError {
 mod tests {
     use super::TemplateBuilder;
 
-    use command::{CompilationCommand, JudgingCommand};
+    use judging::command::{CompilationCommand, JudgingCommand};
     use path::AbsPathBuf;
 
     use {dirs, env_logger, serde_json};
