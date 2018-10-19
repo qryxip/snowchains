@@ -59,7 +59,7 @@ impl FromStr for ServiceName {
             s if s.eq_ignore_ascii_case("hackerrank") => Ok(ServiceName::Hackerrank),
             s if s.eq_ignore_ascii_case("yukicoder") => Ok(ServiceName::Yukicoder),
             s if s.eq_ignore_ascii_case("other") => Ok(ServiceName::Other),
-            _ => Err(Never),
+            _ => unreachable!(),
         }
     }
 }

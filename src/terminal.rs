@@ -545,7 +545,7 @@ impl FromStr for AnsiColorChoice {
             "never" => Ok(AnsiColorChoice::Never),
             "auto" => Ok(AnsiColorChoice::Auto),
             "always" => Ok(AnsiColorChoice::Always),
-            _ => Err(Never),
+            _ => unreachable!(),
         }
     }
 }

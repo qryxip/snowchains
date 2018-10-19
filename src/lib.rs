@@ -85,10 +85,10 @@ pub use errors::{Error, Result};
 use std::fmt;
 
 #[derive(Debug)]
-pub struct Never;
+pub enum Never {}
 
 impl fmt::Display for Never {
     fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result {
-        panic!("should be filtered by `clap::Arg::possible_values`")
+        unreachable!()
     }
 }
