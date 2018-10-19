@@ -106,7 +106,7 @@ interactive:
   python3:
     src: testers/py/test-{{kebab}}.py
     run:
-      command: {venv_python3} -- $src $*
+      command: [{venv_python3}, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/py
   haskell:
     src: testers/hs/src/Test{{Pascal}}.hs
@@ -115,7 +115,7 @@ interactive:
       command: [stack, ghc, --, -O2, -o, $bin, $src]
       working_directory: testers/hs
     run:
-      command: $bin $*
+      command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/hs
 
 languages:
@@ -132,14 +132,14 @@ languages:
       atcoder: 3003          # "C++14 (GCC x.x.x)"
       yukicoder: cpp14       # "C++14 (gcc x.x.x)"
   rust:
-    src: rs$rust_version/src/bin/{{kebab}}.rs
+    src: rs/src/bin/{{kebab}}.rs
     compile:
-      bin: rs$rust_version/target/release/{{kebab}}{exe}
+      bin: rs/target/release/{{kebab}}{exe}
       command: [rustc, +$rust_version, -o, $bin, $src]
-      working_directory: rs$rust_version
+      working_directory: rs
     run:
       command: [$bin]
-      working_directory: rs$rust_version
+      working_directory: rs
     language_ids:
       atcoder: 3504
       yukicoder: rust
@@ -245,7 +245,7 @@ languages:
         } else {
             "./venv/bin/python3"
         },
-        csharp = if cfg!(target_os = "windows") {
+        csharp = if cfg!(windows) {
             r#"  c#:
     src: cs/{Pascal}/{Pascal}.cs
     compile:

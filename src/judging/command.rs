@@ -8,6 +8,7 @@ use tokio_process::{self, CommandExt as _CommandExt};
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::io;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
@@ -151,12 +152,19 @@ struct Inner {
 
 impl Inner {
     fn new(args: &[impl AsRef<OsStr>], working_dir: AbsPathBuf) -> Self {
-        let (arg0, rest_args) = if args.is_empty() {
+        let (mut arg0, rest_args) = if args.is_empty() {
             (OsString::new(), vec![])
         } else {
             let rest_args = args.iter().skip(1).map(|s| s.as_ref().to_owned()).collect();
             (args[0].as_ref().to_owned(), rest_args)
         };
+        // https://github.com/rust-lang/rust/issues/37519
+        if cfg!(windows) && AsRef::<Path>::as_ref(&arg0).is_relative() {
+            let abs = working_dir.join(&arg0);
+            if abs.exists() {
+                arg0 = abs.into();
+            }
+        }
         Self {
             arg0,
             rest_args,
