@@ -308,24 +308,23 @@ languages:
 
 ```yaml
 ---
-type: simple        # "simple" "interactive", or "unsubmittable"
-timelimit: 2000     # optional
-match: exact        # "exact" or "float"
-modify:             # modifies `cases/{in, out}`
-  add_eol: false    # add a missing "\n"
-  crlf_to_lf: false # converts CRLF to LF
+type: simple    # "simple", "interactive", or "unsubmittable"
+timelimit: 2000 # optional
+match: exact    # "accept_all", "exact", or "float"
 
 cases:
   - in: |
       1
       2 3
       test
-    out: 6 test
+    out: |
+      6 test
   - in: |
       72
       128 256
       myonmyon
-    out: 456 myonmyon
+    out: |
+      456 myonmyon
   # "out" is optional
   - in: |
       1000
@@ -341,7 +340,6 @@ type: simple
 timelimit: 2000
 match:
   float:
-    add_eols_to_cases: true
     absolute_error: 1E-9
     relative_error: 1E-9
 

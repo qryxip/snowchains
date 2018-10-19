@@ -340,7 +340,6 @@ pub(crate) struct ZipConfig {
     timelimit: Option<Duration>,
     #[serde(rename = "match")]
     output_match: Match,
-    modify: Modify,
     entries: Vec<ZipEntries>,
 }
 
@@ -348,13 +347,7 @@ impl ZipConfig {
     fn load(&self, path: AbsPath, filename: &str) -> SuiteFileResult<Vec<SimpleCase>> {
         let mut cases = vec![];
         for entry in &self.entries {
-            cases.extend(entry.load(
-                path,
-                filename,
-                self.timelimit,
-                self.output_match,
-                self.modify,
-            )?);
+            cases.extend(entry.load(path, filename, self.timelimit, self.output_match)?);
         }
         Ok(cases)
     }
@@ -376,7 +369,6 @@ impl ZipEntries {
         filename: &str,
         timelimit: Option<Duration>,
         output_match: Match,
-        modify: Modify,
     ) -> SuiteFileResult<Vec<SimpleCase>> {
         if !path.exists() {
             return Ok(vec![]);
@@ -444,7 +436,7 @@ impl ZipEntries {
         let cases = cases
             .into_iter()
             .map(|(name, input, output)| {
-                let (input, expected) = process_pair(&input, Some(&output), output_match, modify);
+                let (input, expected) = process_pair(&input, Some(&output), output_match);
                 SimpleCase {
                     name: Arc::new(format!("{}:{}", filename, name)),
                     input,
@@ -599,7 +591,6 @@ impl<T, E: 'static + std::error::Error + Send + Sync> WrapInIoError for std::res
 pub(crate) struct SimpleSuite {
     timelimit: Option<Duration>,
     output_match: Match,
-    modify: Modify,
     cases: Vec<(Arc<String>, Option<Arc<String>>)>,
 }
 
@@ -624,13 +615,13 @@ impl SimpleSuite {
     }
 
     fn cases_named(self, filename: &str) -> Vec<SimpleCase> {
-        let (output_match, modify, timelimit) = (self.output_match, self.modify, self.timelimit);
+        let (output_match, timelimit) = (self.output_match, self.timelimit);
         self.cases
             .into_iter()
             .enumerate()
             .map(move |(i, (input, output))| {
                 let output = output.as_ref().map(|s| s.as_str());
-                let (input, expected) = process_pair(&input, output, output_match, modify);
+                let (input, expected) = process_pair(&input, output, output_match);
                 let name = Arc::new(format!("{}[{}]", filename, i));
                 SimpleCase {
                     name,
@@ -660,7 +651,6 @@ impl Serialize for SimpleSuite {
         SimpleSuiteSchema {
             timelimit: self.timelimit,
             output_match: self.output_match,
-            modify: self.modify,
             cases,
         }.serialize(serializer)
     }
@@ -672,7 +662,6 @@ impl<'de> Deserialize<'de> for SimpleSuite {
         Ok(Self {
             timelimit: raw.timelimit,
             output_match: raw.output_match,
-            modify: raw.modify,
             cases: raw
                 .cases
                 .into_iter()
@@ -692,7 +681,6 @@ struct SimpleSuiteSchema {
     timelimit: Option<Duration>,
     #[serde(rename = "match", default)]
     output_match: Match,
-    modify: Modify,
     cases: Vec<SimpleCaseSchema>,
 }
 
@@ -827,22 +815,9 @@ fn process_pair(
     input: &str,
     output: Option<&str>,
     output_match: Match,
-    modify: Modify,
 ) -> (Arc<String>, ExpectedStdout) {
-    fn modify_str(s: &str, modify: Modify) -> String {
-        let mut s = if modify.crlf_to_lf && s.contains("\r\n") {
-            s.replace("\r\n", "\n")
-        } else {
-            s.to_owned()
-        };
-        if modify.add_eol && !s.ends_with('\n') {
-            s.push('\n');
-        }
-        s
-    }
-
-    let input = modify_str(input, modify);
-    let output = output.map(|o| modify_str(o, modify));
+    let input = input.to_owned();
+    let output = output.map(ToOwned::to_owned);
     match (output_match, output) {
         (Match::AcceptAll, example) => (
             Arc::new(input.to_owned()),
@@ -905,22 +880,6 @@ fn nan() -> f64 {
 impl Default for Match {
     fn default() -> Self {
         Match::Exact
-    }
-}
-
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-struct Modify {
-    add_eol: bool,
-    crlf_to_lf: bool,
-}
-
-impl Default for Modify {
-    fn default() -> Self {
-        Modify {
-            add_eol: false,
-            crlf_to_lf: false,
-        }
     }
 }
 
