@@ -17,9 +17,13 @@ use std::{self, cmp, fmt, mem};
 
 pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
     let input = Text::exact(&case.input());
-    let (stdout, expected) = match case.expected().as_ref() {
-        ExpectedStdout::AcceptAny => (Text::exact(stdout), None),
-        ExpectedStdout::Exact(expected) => (Text::exact(stdout), Some(Text::exact(expected))),
+    let (stdout, expected, example) = match case.expected().as_ref() {
+        ExpectedStdout::AcceptAny { example } => (
+            Text::exact(stdout),
+            None,
+            example.as_ref().map(|s| Text::exact(s)),
+        ),
+        ExpectedStdout::Exact(expected) => (Text::exact(stdout), Some(Text::exact(expected)), None),
         ExpectedStdout::Float {
             lines,
             absolute_error,
@@ -28,7 +32,7 @@ pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
             let errors = Some((*absolute_error, *relative_error));
             let expected = Text::float(lines, errors);
             let stdout = Text::float(stdout, None);
-            (stdout, Some(expected))
+            (stdout, Some(expected), None)
         }
     };
     if let Some(expected) = &expected {
@@ -44,6 +48,7 @@ pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
     SimpleOutcomeInner::Accepted {
         elapsed: Duration::new(0, 0),
         input,
+        example,
         stdout,
         stderr: Text::exact(""),
     }.into()
@@ -263,10 +268,14 @@ impl CommandOutcome {
         let (status, elapsed) = (self.status, self.elapsed);
         let input = Text::exact(&self.input);
         let stderr = Text::exact(&self.stderr);
-        let (stdout, expected) = match expected {
-            ExpectedStdout::AcceptAny => (Text::exact(&self.stdout), None),
+        let (stdout, expected, example) = match expected {
+            ExpectedStdout::AcceptAny { example } => (
+                Text::exact(&self.stdout),
+                None,
+                example.as_ref().map(|s| Text::exact(s)),
+            ),
             ExpectedStdout::Exact(expected) => {
-                (Text::exact(&self.stdout), Some(Text::exact(expected)))
+                (Text::exact(&self.stdout), Some(Text::exact(expected)), None)
             }
             ExpectedStdout::Float {
                 lines,
@@ -276,7 +285,7 @@ impl CommandOutcome {
                 let errors = Some((*absolute_error, *relative_error));
                 let expected = Text::float(lines, errors);
                 let stdout = Text::float(&self.stdout, None);
-                (stdout, Some(expected))
+                (stdout, Some(expected), None)
             }
         };
         if !status.success() {
@@ -299,6 +308,7 @@ impl CommandOutcome {
             SimpleOutcomeInner::Accepted {
                 elapsed,
                 input,
+                example,
                 stdout,
                 stderr,
             }
@@ -387,11 +397,13 @@ impl Outcome for SimpleOutcome {
         match &self.inner {
             SimpleOutcomeInner::Accepted {
                 input,
+                example,
                 stdout,
                 stderr,
                 ..
             } => {
                 print_section(&mut out, "input:", input)?;
+                print_section_unless_empty(&mut out, "example:", example.as_ref())?;
                 print_section(&mut out, "stdout:", stdout)?;
                 print_section_unless_empty(&mut out, "stderr:", stderr)
             }
@@ -438,6 +450,7 @@ enum SimpleOutcomeInner {
     Accepted {
         elapsed: Duration,
         input: Text,
+        example: Option<Text>,
         stdout: Text,
         stderr: Text,
     },

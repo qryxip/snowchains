@@ -49,7 +49,7 @@ pub(crate) fn append(
 
 /// Extension of a test suite file.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum SerializableExtension {
     Json,
     Toml,
@@ -89,7 +89,7 @@ impl FromStr for SerializableExtension {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum SuiteFileExtension {
     Json,
     Toml,
@@ -457,7 +457,7 @@ impl ZipEntries {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 enum ZipEntrySorting {
     Dictionary,
     Number,
@@ -476,7 +476,7 @@ struct ZipEntry {
 /// `SimpelSuite` or `InteractiveSuite`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum TestSuite {
     Simple(SimpleSuite),
     Interactive(InteractiveSuite),
@@ -829,48 +829,39 @@ fn process_pair(
     output_match: Match,
     modify: Modify,
 ) -> (Arc<String>, ExpectedStdout) {
-    fn add_eols(ss: &mut [&mut String]) {
-        for s in ss {
-            if !s.ends_with('\n') {
-                s.push('\n');
-            }
+    fn modify_str(s: &str, modify: Modify) -> String {
+        let mut s = if modify.crlf_to_lf && s.contains("\r\n") {
+            s.replace("\r\n", "\n")
+        } else {
+            s.to_owned()
+        };
+        if modify.add_eol && !s.ends_with('\n') {
+            s.push('\n');
         }
+        s
     }
 
-    fn convert_crlf_to_lf(ss: &mut [&mut String]) {
-        for s in ss {
-            **s = s.replace("\r\n", "\n");
-        }
-    }
-
-    match (output, output_match) {
-        (None, _) => (Arc::new(input.to_owned()), ExpectedStdout::AcceptAny),
-        (Some(output), Match::Exact) => {
-            let (mut input, mut output) = (input.to_owned(), output.to_owned());
-            if modify.add_eol {
-                add_eols(&mut [&mut input, &mut output]);
-            }
-            if modify.crlf_to_lf {
-                convert_crlf_to_lf(&mut [&mut input, &mut output]);
-            }
-            (Arc::new(input), ExpectedStdout::Exact(output))
-        }
+    let input = modify_str(input, modify);
+    let output = output.map(|o| modify_str(o, modify));
+    match (output_match, output) {
+        (Match::AcceptAll, example) => (
+            Arc::new(input.to_owned()),
+            ExpectedStdout::AcceptAny { example },
+        ),
+        (Match::Exact, None) | (Match::Float { .. }, None) => (
+            Arc::new(input.to_owned()),
+            ExpectedStdout::AcceptAny { example: None },
+        ),
+        (Match::Exact, Some(output)) => (Arc::new(input), ExpectedStdout::Exact(output)),
         (
-            Some(output),
             Match::Float {
                 absolute_error,
                 relative_error,
             },
+            Some(lines),
         ) => {
-            let (mut input, mut string) = (input.to_owned(), output.to_owned());
-            if modify.add_eol {
-                add_eols(&mut [&mut input, &mut string]);
-            }
-            if modify.crlf_to_lf {
-                convert_crlf_to_lf(&mut [&mut input, &mut string]);
-            }
             let expected = ExpectedStdout::Float {
-                lines: string,
+                lines,
                 absolute_error,
                 relative_error,
             };
@@ -882,7 +873,9 @@ fn process_pair(
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) enum ExpectedStdout {
-    AcceptAny,
+    AcceptAny {
+        example: Option<String>,
+    },
     Exact(String),
     Float {
         lines: String,
@@ -893,8 +886,9 @@ pub(crate) enum ExpectedStdout {
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 enum Match {
+    AcceptAll,
     Exact,
     Float {
         #[serde(default = "nan")]
