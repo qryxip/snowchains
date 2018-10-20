@@ -5,35 +5,34 @@ use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use testsuite::InteractiveCase;
 
 use futures::{task, Async, Future, Poll, Stream};
-use tokio::io::{AsyncRead, AsyncWrite as _AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_process;
 
-use std::io::{self, Cursor, Seek as _Seek, SeekFrom};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{cmp, fmt, mem, slice, str};
+use std::{cmp, fmt, io, mem, slice, str};
 
 pub(super) fn judge(
     case: &InteractiveCase,
     solver: &Arc<JudgingCommand>,
 ) -> JudgeResult<impl Future<Item = InteractiveOutcome, Error = io::Error>> {
-    let tester = case.tester().spawn_async_piped()?;
-    let solver = solver.spawn_async_piped()?;
+    let mut tester = case.tester().spawn_async_piped()?;
+    let mut solver = solver.spawn_async_piped()?;
     let start = Instant::now();
+    let deadline = case.timelimit().map(|t| start + t);
+    let tester_stdin = tester.stdin().take().unwrap();
+    let tester_stdout = tester.stdout().take().unwrap();
+    let tester_stderr = tester.stderr().take().unwrap();
+    let solver_stdin = solver.stdin().take().unwrap();
+    let solver_stdout = solver.stdout().take().unwrap();
+    let solver_stderr = solver.stderr().take().unwrap();
     let stream = Interaction {
-        tester,
-        solver,
-        tester_finished: false,
-        solver_finished: false,
-        tester_stdin_buf: Cursor::new(vec![]),
-        solver_stdin_buf: Cursor::new(vec![]),
-        tester_stdout_buf: Some(vec![]),
-        solver_stdout_buf: Some(vec![]),
-        tester_stderr_buf: Some(vec![]),
-        solver_stderr_buf: Some(vec![]),
-        exceeded: false,
-        start,
-        deadline: case.timelimit().map(|t| start + t),
+        tester_to_solver: Pipe::new(tester_stdout, solver_stdin, start, Output::TesterStdout),
+        solver_to_tester: Pipe::new(solver_stdout, tester_stdin, start, Output::SolverStdout),
+        tester_stderr: Reading::new(tester_stderr, start, Output::TesterStderr),
+        solver_stderr: Reading::new(solver_stderr, start, Output::SolverStderr),
+        tester_status: Waiting::new(tester, start, deadline, Output::TesterTerminated),
+        solver_status: Waiting::new(solver, start, deadline, Output::SolverTerminated),
     }.collect();
     Ok(stream.map(|outputs| InteractiveOutcome {
         outputs: NonEmptyVec::new(outputs),
@@ -41,19 +40,12 @@ pub(super) fn judge(
 }
 
 struct Interaction {
-    tester: tokio_process::Child,
-    solver: tokio_process::Child,
-    tester_finished: bool,
-    solver_finished: bool,
-    tester_stdin_buf: Cursor<Vec<u8>>,
-    solver_stdin_buf: Cursor<Vec<u8>>,
-    tester_stdout_buf: Option<Vec<u8>>,
-    solver_stdout_buf: Option<Vec<u8>>,
-    tester_stderr_buf: Option<Vec<u8>>,
-    solver_stderr_buf: Option<Vec<u8>>,
-    start: Instant,
-    deadline: Option<Instant>,
-    exceeded: bool,
+    tester_to_solver: Pipe<tokio_process::ChildStdout, tokio_process::ChildStdin>,
+    solver_to_tester: Pipe<tokio_process::ChildStdout, tokio_process::ChildStdin>,
+    tester_stderr: Reading<tokio_process::ChildStderr>,
+    solver_stderr: Reading<tokio_process::ChildStderr>,
+    tester_status: Waiting,
+    solver_status: Waiting,
 }
 
 impl Stream for Interaction {
@@ -61,221 +53,235 @@ impl Stream for Interaction {
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Option<Output>, io::Error> {
-        if self.tester_finished && self.solver_finished {
-            return Ok(Async::Ready(None));
+        let (mut tester_finished, mut solver_finished) = (true, true);
+        macro_rules! poll {
+            ($stream:expr, $finished_p:ident) => {
+                match $stream.poll()? {
+                    Async::NotReady => $finished_p = false,
+                    Async::Ready(None) => {}
+                    Async::Ready(Some(output)) => return Ok(Async::Ready(Some(output))),
+                }
+            };
         }
-
-        task::current().notify();
-
-        if let Some(deadline) = self.deadline {
-            let now = Instant::now();
-            if !self.exceeded && now > deadline {
-                self.tester.kill()?;
-                self.solver.kill()?;
-                self.tester_finished = true;
-                self.solver_finished = true;
-                self.exceeded = true;
-                let timelimit = deadline - self.start;
-                return Ok(Async::Ready(Some(Output::TimelimitExceeded(timelimit))));
-            }
+        poll!(self.tester_to_solver, tester_finished);
+        poll!(self.solver_to_tester, solver_finished);
+        poll!(self.tester_stderr, tester_finished);
+        poll!(self.solver_stderr, solver_finished);
+        if tester_finished {
+            poll!(self.tester_status, tester_finished);
         }
-
-        if !self.tester_finished
-            && self.tester_stdout_buf.is_none()
-            && self.tester_stderr_buf.is_none()
-        {
-            return self
-                .poll_status(
-                    |this| &mut this.tester,
-                    |this| this.tester_finished = true,
-                    Output::TesterTerminated,
-                ).map(|r| r.map(Some));
+        if solver_finished {
+            poll!(self.solver_status, solver_finished);
         }
-        if !self.solver_finished
-            && self.solver_stdout_buf.is_none()
-            && self.solver_stderr_buf.is_none()
-        {
-            return self
-                .poll_status(
-                    |this| &mut this.solver,
-                    |this| this.solver_finished = true,
-                    Output::SolverTerminated,
-                ).map(|r| r.map(Some));
-        }
-
-        if self.should_write_to_tester_stdin() {
-            try_ready!(self.write_to_stdin(|this| (
-                this.tester.stdin().as_mut().unwrap(),
-                &mut this.tester_stdin_buf,
-            )))
-        }
-        if self.should_write_to_solver_stdin() {
-            try_ready!(self.write_to_stdin(|this| (
-                this.solver.stdin().as_mut().unwrap(),
-                &mut this.solver_stdin_buf,
-            )))
-        }
-
-        if self.tester_stdout_buf.is_some() {
-            if let Async::Ready(output) = self.read_output(
-                |this| this.tester.stdout().as_mut().unwrap(),
-                |this| this.tester_stdout_buf.as_mut().unwrap(),
-                |this, input| this.solver_stdin_buf = input,
-                |this| this.tester_stdout_buf = None,
-                Output::TesterStdout,
-            )? {
-                return Ok(Async::Ready(Some(output)));
-            }
-        }
-        if self.solver_stdout_buf.is_some() {
-            if let Async::Ready(output) = self.read_output(
-                |this| this.solver.stdout().as_mut().unwrap(),
-                |this| this.solver_stdout_buf.as_mut().unwrap(),
-                |this, input| this.tester_stdin_buf = input,
-                |this| this.solver_stdout_buf = None,
-                Output::SolverStdout,
-            )? {
-                return Ok(Async::Ready(Some(output)));
-            }
-        }
-
-        if self.tester_stderr_buf.is_some() {
-            if let Async::Ready(output) = self.read_output(
-                |this| this.tester.stderr().as_mut().unwrap(),
-                |this| this.tester_stderr_buf.as_mut().unwrap(),
-                |_, _| (),
-                |this| this.tester_stderr_buf = None,
-                Output::TesterStderr,
-            )? {
-                return Ok(Async::Ready(Some(output)));
-            }
-        }
-        if self.solver_stderr_buf.is_some() {
-            if let Async::Ready(output) = self.read_output(
-                |this| this.solver.stderr().as_mut().unwrap(),
-                |this| this.solver_stderr_buf.as_mut().unwrap(),
-                |_, _| (),
-                |this| this.solver_stderr_buf = None,
-                Output::SolverStderr,
-            )? {
-                return Ok(Async::Ready(Some(output)));
-            }
-        }
-
-        Ok(Async::NotReady)
+        Ok(if tester_finished && solver_finished {
+            Async::Ready(None)
+        } else {
+            Async::NotReady
+        })
     }
 }
 
-impl Interaction {
-    fn poll_status(
-        &mut self,
-        proc: fn(&mut Self) -> &mut tokio_process::Child,
-        mark_finished: fn(&mut Self),
+struct Waiting {
+    finished: bool,
+    proc: tokio_process::Child,
+    start: Instant,
+    deadline: Option<Instant>,
+    construct_output: fn(bool, Text, Duration) -> Output,
+}
+
+impl Waiting {
+    fn new(
+        proc: tokio_process::Child,
+        start: Instant,
+        deadline: Option<Instant>,
         construct_output: fn(bool, Text, Duration) -> Output,
-    ) -> Poll<Output, io::Error> {
-        let status = try_ready!(proc(self).poll());
-        let success = status.success();
-        let text = Text::exact(&format!("{}\n", status));
-        let elapsed = Instant::now() - self.start;
-        let output = construct_output(success, text, elapsed);
-        mark_finished(self);
+    ) -> Self {
+        Self {
+            finished: false,
+            proc,
+            start,
+            deadline,
+            construct_output,
+        }
+    }
+}
+
+impl Stream for Waiting {
+    type Item = Output;
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Poll<Option<Output>, io::Error> {
+        let mut output = None;
+        if !self.finished {
+            let now = Instant::now();
+            if self.deadline.is_some() && self.deadline.unwrap() < now {
+                self.proc.kill()?;
+                output = Some(Output::TimelimitExceeded(
+                    self.deadline.unwrap() - self.start,
+                ));
+            } else {
+                let status = try_ready!(self.proc.poll());
+                output = Some((self.construct_output)(
+                    status.success(),
+                    Text::exact(&format!("{}\n", status)),
+                    now - self.start,
+                ));
+            }
+        }
+        self.finished = true;
         Ok(Async::Ready(output))
     }
+}
 
-    fn should_write_to_tester_stdin(&self) -> bool {
-        !self.tester_stdin_buf.get_ref().is_empty()
-    }
-
-    fn should_write_to_solver_stdin(&self) -> bool {
-        !self.solver_stdin_buf.get_ref().is_empty()
-    }
-
-    fn write_to_stdin(
-        &mut self,
-        stdin_and_buf: fn(&mut Self) -> (&mut tokio_process::ChildStdin, &mut Cursor<Vec<u8>>),
-    ) -> Poll<(), io::Error> {
-        fn clear_buf(buf: &mut Cursor<Vec<u8>>) {
-            buf.seek(SeekFrom::Start(0)).unwrap();
-            buf.get_mut().clear();
-        }
-
-        let (stdin, buf) = stdin_and_buf(self);
-        if buf.position() >= buf.get_ref().len() as u64 {
-            clear_buf(buf);
-            match stdin.poll_flush() {
-                Err(err) => {
-                    return if err.kind() == io::ErrorKind::BrokenPipe {
-                        Ok(Async::Ready(()))
-                    } else {
-                        Err(err)
-                    };
-                }
-                Ok(Async::Ready(())) => return Ok(Async::Ready(())),
-                Ok(Async::NotReady) => {}
-            }
-        } else {
-            match stdin.poll_write(&buf.get_ref()[buf.position() as usize..]) {
-                Err(ref err) if err.kind() == io::ErrorKind::BrokenPipe => {
-                    clear_buf(buf);
-                    return Ok(Async::Ready(()));
-                }
-                Err(err) => return Err(err),
-                Ok(Async::Ready(n)) => {
-                    buf.seek(SeekFrom::Current(n as i64)).unwrap();
-                }
-                Ok(Async::NotReady) => {}
-            }
-        }
-        Ok(Async::Ready(()))
-    }
-
-    fn read_output<R: AsyncRead>(
-        &mut self,
-        rdr: fn(&mut Self) -> &mut R,
-        buf: fn(&mut Self) -> &mut Vec<u8>,
-        on_read: fn(&mut Self, Cursor<Vec<u8>>),
-        mark_finished: fn(&mut Self),
+enum Pipe<O: AsyncRead, I: AsyncWrite> {
+    Ready,
+    NotReady {
+        stdout: O,
+        stdin: I,
+        buf: Vec<u8>,
+        pos: usize,
+        start: Instant,
         construct_output: fn(Text, Duration) -> Output,
-    ) -> Poll<Output, io::Error> {
-        let capture_all = |this: &mut Self| -> io::Result<_> {
-            let t = Instant::now() - this.start;
-            let s = Text::exact(str_from_utf8(&buf(this)[..])?);
-            let input = mem::replace(buf(this), vec![]);
-            on_read(this, Cursor::new(input));
-            Ok(construct_output(s, t))
-        };
+    },
+}
 
-        let capture_line = |this: &mut Self| -> io::Result<_> {
-            debug_assert!(buf(this).contains(&b'\n') && buf(this).last() != Some(&b'\n'));
-            let t = Instant::now() - this.start;
-            let i = buf(this).iter().position(|&c| c == b'\n').unwrap();
-            let s = Text::exact(str_from_utf8(&buf(this)[0..=i])?);
-            let trailing = buf(this).split_off(i + 1);
-            let input = mem::replace(buf(this), trailing);
-            on_read(this, Cursor::new(input));
-            Ok(construct_output(s, t))
-        };
+impl<O: AsyncRead, I: AsyncWrite> Pipe<O, I> {
+    fn new(
+        stdout: O,
+        stdin: I,
+        start: Instant,
+        construct_output: fn(Text, Duration) -> Output,
+    ) -> Self {
+        Pipe::NotReady {
+            stdout,
+            stdin,
+            buf: Vec::with_capacity(1024),
+            pos: 0,
+            start,
+            construct_output,
+        }
+    }
+}
 
-        let buf_ends_with_lf = buf(self).last() == Some(&b'\n');
-        let buf_contains_lf = buf(self).contains(&b'\n');
-        let buf_empty = buf(self).is_empty();
-        let mut temp_buf = unsafe { mem::uninitialized::<[u8; 1024]>() };
-        match rdr(self).poll_read(&mut temp_buf)? {
-            Async::NotReady if buf_ends_with_lf => capture_all(self).map(Async::Ready),
-            Async::NotReady if buf_contains_lf => capture_line(self).map(Async::Ready),
-            Async::NotReady => Ok(Async::NotReady),
-            Async::Ready(0) if buf_empty => {
-                mark_finished(self);
-                Ok(Async::NotReady)
+impl<O: AsyncRead, I: AsyncWrite> Stream for Pipe<O, I> {
+    type Item = Output;
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Poll<Option<Output>, io::Error> {
+        if let Pipe::NotReady {
+            stdout,
+            stdin,
+            buf,
+            pos,
+            start,
+            construct_output,
+        } = self
+        {
+            match stdout.read_buf(buf)? {
+                Async::Ready(0) if buf.is_empty() => {}
+                Async::Ready(0) => {
+                    while buf.len() > *pos {
+                        match stdin.poll_write(&buf[*pos..]) {
+                            Err(ref e) if e.kind() == io::ErrorKind::BrokenPipe => break,
+                            Err(e) => return Err(e),
+                            Ok(Async::NotReady) => return Ok(Async::NotReady),
+                            Ok(Async::Ready(n)) => *pos += n,
+                        }
+                    }
+                    let elapsed = Instant::now() - *start;
+                    let output = mem::replace(buf, Vec::with_capacity(0));
+                    let output = Text::exact(str_from_utf8(&output)?);
+                    let output = construct_output(output, elapsed);
+                    return Ok(Async::Ready(Some(output)));
+                }
+                Async::Ready(_) => {
+                    task::current().notify();
+                    if buf.len() + 512 > buf.capacity() {
+                        buf.reserve(1024);
+                    }
+                    return Ok(Async::NotReady);
+                }
+                Async::NotReady => {
+                    task::current().notify();
+                    if let Some(lf_pos) = buf.iter().rposition(|&c| c == b'\n') {
+                        if *pos > lf_pos {
+                            let mut output = mem::replace(buf, Vec::with_capacity(1024));
+                            *buf = output.split_off(*pos);
+                            *pos = 0;
+                            let elapsed = Instant::now() - *start;
+                            let output = Text::exact(str_from_utf8(&output)?);
+                            let output = construct_output(output, elapsed);
+                            return Ok(Async::Ready(Some(output)));
+                        }
+                        match stdin.poll_write(buf) {
+                            Err(ref e) if e.kind() == io::ErrorKind::BrokenPipe => {
+                                *pos = lf_pos + 1
+                            }
+                            Err(e) => return Err(e),
+                            Ok(Async::NotReady) => {}
+                            Ok(Async::Ready(n)) => *pos += n,
+                        }
+                    }
+                    return Ok(Async::NotReady);
+                }
             }
+        }
+        *self = Pipe::Ready;
+        Ok(Async::Ready(None))
+    }
+}
+
+struct Reading<R: AsyncRead> {
+    rdr: R,
+    buf: Vec<u8>,
+    start: Instant,
+    construct_output: fn(Text, Duration) -> Output,
+}
+
+impl<R: AsyncRead> Reading<R> {
+    fn new(rdr: R, start: Instant, construct_output: fn(Text, Duration) -> Output) -> Self {
+        Self {
+            rdr,
+            buf: Vec::with_capacity(1024),
+            start,
+            construct_output,
+        }
+    }
+}
+
+impl<R: AsyncRead> Stream for Reading<R> {
+    type Item = Output;
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Poll<Option<Output>, io::Error> {
+        match self.rdr.read_buf(&mut self.buf)? {
+            Async::Ready(0) if self.buf.is_empty() => Ok(Async::Ready(None)),
             Async::Ready(0) => {
-                let output = capture_all(self)?;
-                mark_finished(self);
-                Ok(Async::Ready(output))
+                let elapsed = Instant::now() - self.start;
+                let output = mem::replace(&mut self.buf, Vec::with_capacity(0));
+                let output = Text::exact(str_from_utf8(&output)?);
+                let output = (self.construct_output)(output, elapsed);
+                Ok(Async::Ready(Some(output)))
             }
-            Async::Ready(n) => {
-                buf(self).extend_from_slice(&temp_buf[0..n]);
+            Async::Ready(_) => {
+                task::current().notify();
+                if self.buf.len() + 512 > self.buf.capacity() {
+                    self.buf.reserve(1024);
+                }
                 Ok(Async::NotReady)
+            }
+            Async::NotReady => {
+                task::current().notify();
+                if let Some(lf_pos) = self.buf.iter().rposition(|&c| c == b'\n') {
+                    let mut output = mem::replace(&mut self.buf, Vec::with_capacity(1024));
+                    self.buf = output.split_off(lf_pos + 1);
+                    let elapsed = Instant::now() - self.start;
+                    let output = Text::exact(str_from_utf8(&output)?);
+                    let output = (self.construct_output)(output, elapsed);
+                    Ok(Async::Ready(Some(output)))
+                } else {
+                    Ok(Async::NotReady)
+                }
             }
         }
     }

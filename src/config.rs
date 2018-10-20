@@ -109,7 +109,7 @@ interactive:
       command: [{venv_python3}, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/py
   haskell:
-    src: testers/hs/src/Test{{Pascal}}.hs
+    src: testers/hs/app/Test{{Pascal}}.hs
     compile:
       bin: testers/hs/target/Test{{Pascal}}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
@@ -156,7 +156,7 @@ languages:
       atcoder: 3013
       yukicoder: go
   haskell:
-    src: hs/src/{{Pascal}}.hs
+    src: hs/app/{{Pascal}}.hs
     compile:
       bin: hs/target/{{Pascal}}{exe}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
