@@ -8,17 +8,19 @@ use service::{
 };
 use terminal::{AnsiColorChoice, Term};
 use testsuite::{self, SerializableExtension};
+use Never;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
 use structopt::clap::Arg;
 
-use std;
 use std::borrow::Cow;
 use std::io::Write as _Write;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
+use std::{self, f64};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -35,7 +37,8 @@ use std::time::Duration;
              \n    snowchains show in [OPTIONS] <problem> <nth>\
              \n    snowchains show accepts [OPTIONS] <problem> <nth>\
              \n    snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
-             \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]"
+             \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]\
+             \n    snowchains modify match [OPTIONS] <problem> <extension> <match>"
 )]
 pub enum Opt {
     #[structopt(
@@ -219,7 +222,8 @@ pub enum Opt {
         about = "Modifies values in a config file or test files",
         name = "modify",
         usage = "snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
-                 \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]",
+                 \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]\
+                 \n    snowchains modify match [OPTIONS] <problem> <extension> <match>",
         raw(display_order = "10"),
     )]
     Modify(Modify),
@@ -338,9 +342,84 @@ pub enum Modify {
         #[structopt(help = "\"expected\" value to append")]
         output: Option<String>,
     },
+
+    #[structopt(
+        about = "Modifies a `match`",
+        name = "match",
+        raw(display_order = "3"),
+    )]
+    Match {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(color_choice = "3"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+        #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
+        extension: SerializableExtension,
+        #[structopt(flatten)]
+        match_opts: MatchOpts,
+    },
 }
 
 static SERVICE_VALUES: &[&str] = &["atcoder", "hackerrank", "yukicoder", "other"];
+
+#[derive(StructOpt, Debug)]
+pub struct MatchOpts {
+    #[structopt(
+        name = "match",
+        help = "`match` type",
+        raw(possible_values = r#"&["accept_all", "exact", "float"]"#),
+    )]
+    kind: MatchKind,
+    #[structopt(
+        long = "relative",
+        help = "Relative error (ignored if <match> is not \"float\")",
+        raw(value_name = "\"FLOAT64\"", display_order = "4")
+    )]
+    relative_error: Option<f64>,
+    #[structopt(
+        long = "absolute",
+        help = "Absolute error (ignored if <match> is not \"float\")",
+        raw(value_name = "\"FLOAT64\"", display_order = "5")
+    )]
+    absolute_error: Option<f64>,
+}
+
+impl Into<testsuite::Match> for MatchOpts {
+    fn into(self) -> testsuite::Match {
+        match self.kind {
+            MatchKind::AcceptAll => testsuite::Match::AcceptAll,
+            MatchKind::Exact => testsuite::Match::Exact,
+            MatchKind::Float => testsuite::Match::Float {
+                relative_error: self.relative_error.unwrap_or(f64::NAN),
+                absolute_error: self.absolute_error.unwrap_or(f64::NAN),
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+enum MatchKind {
+    AcceptAll,
+    Exact,
+    Float,
+}
+
+impl FromStr for MatchKind {
+    type Err = Never;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Never> {
+        match s {
+            "accept_all" => Ok(MatchKind::AcceptAll),
+            "exact" => Ok(MatchKind::Exact),
+            "float" => Ok(MatchKind::Float),
+            _ => unreachable!(),
+        }
+    }
+}
 
 enum Kind {
     Option(usize),
@@ -722,7 +801,23 @@ impl<T: Term> App<T> {
                     .download_destinations(Some(extension))
                     .scraping(&problem)?;
                 let output = output.as_ref().map(String::as_str);
-                testsuite::append(&problem, &path, &input, output, self.term.stdout())?;
+                testsuite::modify_append(&problem, &path, &input, output, self.term.stdout())?;
+            }
+            Opt::Modify(Modify::Match {
+                service,
+                contest,
+                color_choice,
+                problem,
+                extension,
+                match_opts,
+            }) => {
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
+                let path = config
+                    .download_destinations(Some(extension))
+                    .scraping(&problem)?;
+                let output_match = match_opts.into();
+                testsuite::modify_match(self.term.stdout(), &problem, &path, output_match)?;
             }
         }
         Ok(())

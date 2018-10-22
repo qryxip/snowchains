@@ -33,8 +33,7 @@ pub(crate) fn modify_timelimit(
     suite.save(name, path, stdout)
 }
 
-/// Appends `input` and `output` to a test suite read from `path`.
-pub(crate) fn append(
+pub(crate) fn modify_append(
     name: &str,
     path: &SuiteFilePath,
     input: &str,
@@ -43,6 +42,17 @@ pub(crate) fn append(
 ) -> SuiteFileResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.append(input, output)?;
+    suite.save(name, path, stdout)
+}
+
+pub(crate) fn modify_match(
+    stdout: impl WriteAnsi,
+    name: &str,
+    path: &SuiteFilePath,
+    output_match: Match,
+) -> SuiteFileResult<()> {
+    let mut suite = TestSuite::load(path)?;
+    suite.modify_match(output_match)?;
     suite.save(name, path, stdout)
 }
 
@@ -566,6 +576,16 @@ impl TestSuite {
             _ => Err(SuiteFileError::SuiteIsNotSimple),
         }
     }
+
+    fn modify_match(&mut self, output_match: Match) -> SuiteFileResult<()> {
+        match self {
+            TestSuite::Simple(suite) => {
+                suite.output_match = output_match;
+                Ok(())
+            }
+            _ => Err(SuiteFileError::SuiteIsNotSimple),
+        }
+    }
 }
 
 impl From<SimpleSuite> for TestSuite {
@@ -894,7 +914,7 @@ pub(crate) enum ExpectedStdout {
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Match {
+pub(crate) enum Match {
     AcceptAll,
     Exact,
     Float {
