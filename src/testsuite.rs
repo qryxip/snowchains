@@ -604,14 +604,19 @@ pub(crate) struct SimpleSuite {
 }
 
 impl SimpleSuite {
-    pub fn new(timelimit: impl Into<Option<Duration>>) -> Self {
+    pub(crate) fn new(timelimit: impl Into<Option<Duration>>) -> Self {
         Self {
             timelimit: timelimit.into(),
             ..Self::default()
         }
     }
 
-    pub fn cases<S: Into<String>, O: Into<Option<S>>, I: IntoIterator<Item = (S, O)>>(
+    pub(crate) fn accept_all(mut self) -> Self {
+        self.output_match = Match::AcceptAll;
+        self
+    }
+
+    pub(crate) fn cases<S: Into<String>, O: Into<Option<S>>, I: IntoIterator<Item = (S, O)>>(
         mut self,
         cases: I,
     ) -> Self {

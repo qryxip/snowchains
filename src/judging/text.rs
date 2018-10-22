@@ -46,10 +46,10 @@ impl Text {
             let codepoints = many1::<String, _>(satisfy(|c: char| {
                 ![' ', '\t', '\r', '\n'].contains(&c) && (c.is_whitespace() || c.is_control())
             })).map(|s| {
-                let mut escaped = "".to_owned();
-                s.chars()
-                    .for_each(|c| write!(escaped, "\\u{:<010x}", u32::from(c)).unwrap());
-                Word::CodePoints(Arc::new(escaped))
+                Word::CodePoints(Arc::new(s.chars().fold("".to_owned(), |mut s, c| {
+                    write!(s, "{}", c.escape_unicode()).unwrap();
+                    s
+                })))
             });
             let plain =
                 many1(satisfy(|c: char| !(c.is_whitespace() || c.is_control()))).map(on_plain);

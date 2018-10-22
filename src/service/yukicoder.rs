@@ -394,7 +394,7 @@ impl Extract for Document {
     }
 
     fn extract_samples(&self) -> ServiceResult<TestSuite> {
-        #[derive(Clone, Copy)]
+        #[derive(Clone, Copy, PartialEq)]
         enum ProblemKind {
             Regular,
             Special,
@@ -440,7 +440,11 @@ impl Extract for Document {
                         };
                         samples.push((input, output));
                     }
-                    Some(SimpleSuite::new(timelimit).cases(samples).into())
+                    let mut suite = SimpleSuite::new(timelimit).cases(samples);
+                    if kind == ProblemKind::Special {
+                        suite = suite.accept_all();
+                    }
+                    Some(suite.into())
                 }
                 ProblemKind::Reactive => Some(InteractiveSuite::new(timelimit).into()),
             }
@@ -535,7 +539,9 @@ mod tests {
         let _ = env_logger::try_init();
         test_extracting_samples(
             "/problems/no/192",
-            SimpleSuite::new(Duration::from_secs(2)).cases(vec![("101\n", None), ("1000\n", None)]),
+            SimpleSuite::new(Duration::from_secs(2))
+                .accept_all()
+                .cases(vec![("101\n", None), ("1000\n", None)]),
         );
     }
 
