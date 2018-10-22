@@ -14,6 +14,7 @@ use zip::ZipArchive;
 use {serde_json, serde_yaml, toml};
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::fmt::Write as _Write;
 use std::iter::FromIterator as _FromIterator;
 use std::ops::Deref;
 use std::path::Path;
@@ -522,13 +523,7 @@ impl TestSuite {
         mut out: impl WriteAnsi,
     ) -> SuiteFileResult<()> {
         let (path, extension) = (&path.path, path.extension);
-        let serialized = match extension {
-            SerializableExtension::Json => serde_json::to_string(self)?,
-            SerializableExtension::Toml => toml::to_string(self)?,
-            SerializableExtension::Yaml | SerializableExtension::Yml => {
-                serde_yaml::to_string(self)?
-            }
-        };
+        let serialized = self.to_string_pretty(extension)?;
         ::fs::write(path, serialized.as_bytes())?;
         out.with_reset(|o| o.bold()?.write_str(name))?;
         write!(out, ": Saved to {} ", path.display())?;
@@ -545,6 +540,50 @@ impl TestSuite {
                 out.with_reset(|o| o.fg(10)?.write_str("(unsubmittable problem)\n"))
             }
         }.map_err(Into::into)
+    }
+
+    fn to_string_pretty(&self, ext: SerializableExtension) -> SuiteFileResult<String> {
+        fn is_valid(s: &str) -> bool {
+            s.ends_with('\n') && s
+                .chars()
+                .all(|c| [' ', '\n'].contains(&c) || (!c.is_whitespace() && !c.is_control()))
+        }
+
+        match ext {
+            SerializableExtension::Json => serde_json::to_string(self).map_err(Into::into),
+            SerializableExtension::Toml => toml::to_string(self).map_err(Into::into),
+            SerializableExtension::Yaml | SerializableExtension::Yml => {
+                let mut s = serde_yaml::to_string(self)?;
+                if let TestSuite::Simple(suite) = self {
+                    let cases = &suite.cases;
+                    if cases
+                        .iter()
+                        .all(|(i, o)| is_valid(i) && o.as_ref().map_or(true, |o| is_valid(o)))
+                    {
+                        if let Some(pos) = s.find("\ncases:\n") {
+                            let pos = pos + 8;
+                            if pos != s.len() {
+                                let mut new_s = s[..pos].to_owned();
+                                for (i, o) in cases {
+                                    new_s += "  - in: |\n";
+                                    for l in i.lines() {
+                                        writeln!(new_s, "      {}", l).unwrap();
+                                    }
+                                    if let Some(o) = o {
+                                        new_s += "    out: |\n";
+                                        for l in o.lines() {
+                                            writeln!(new_s, "      {}", l).unwrap();
+                                        }
+                                    }
+                                }
+                                s = new_s;
+                            }
+                        }
+                    }
+                }
+                Ok(s)
+            }
+        }
     }
 
     fn modify_timelimit(
