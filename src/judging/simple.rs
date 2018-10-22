@@ -9,29 +9,36 @@ use futures::{task, Async, Future, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 use {diff, tokio_process};
 
-use std::io;
+use std::borrow::Cow;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{self, cmp, fmt, mem};
+use std::{self, cmp, fmt, io, mem};
 
 pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
     let input = Text::exact(&case.input());
+    let stdout = if case.remove_crlf_from_actual_stdout() && stdout.contains("\r\n") {
+        Cow::from(stdout.replace("\r\n", "\n"))
+    } else {
+        Cow::from(stdout)
+    };
     let (stdout, expected, example) = match case.expected().as_ref() {
         ExpectedStdout::AcceptAny { example } => (
-            Text::exact(stdout),
+            Text::exact(&stdout),
             None,
             example.as_ref().map(|s| Text::exact(s)),
         ),
-        ExpectedStdout::Exact(expected) => (Text::exact(stdout), Some(Text::exact(expected)), None),
+        ExpectedStdout::Exact(expected) => {
+            (Text::exact(&stdout), Some(Text::exact(expected)), None)
+        }
         ExpectedStdout::Float {
-            lines,
+            string,
             absolute_error,
             relative_error,
         } => {
             let errors = Some((*absolute_error, *relative_error));
-            let expected = Text::float(lines, errors);
-            let stdout = Text::float(stdout, None);
+            let expected = Text::float(string, errors);
+            let stdout = Text::float(&stdout, None);
             (stdout, Some(expected), None)
         }
     };
@@ -70,8 +77,8 @@ pub(super) fn judge(
         expected: case.expected(),
         stdin: Writing::NotReady(stdin, 0),
         status: Waiting::NotReady(solver, start, deadline),
-        stdout: Reading::NotReady(stdout, stdout_buf),
-        stderr: Reading::NotReady(stderr, stderr_buf),
+        stdout: Reading::NotReady(stdout, stdout_buf, case.remove_crlf_from_actual_stdout()),
+        stderr: Reading::NotReady(stderr, stderr_buf, case.remove_crlf_from_actual_stdout()),
     })
 }
 
@@ -89,15 +96,6 @@ impl Future for Judge {
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<SimpleOutcome, io::Error> {
-        fn string_from_utf8(s: Vec<u8>) -> io::Result<String> {
-            String::from_utf8(s).map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "stream did not contain valid UTF-8",
-                )
-            })
-        }
-
         try_ready!(self.stdin.poll_write(self.input.as_bytes()));
         if let Err(timelimit) = try_ready!(self.status.poll_wait()) {
             return Ok(Async::Ready(
@@ -107,7 +105,7 @@ impl Future for Judge {
                     expected: match self.expected.as_ref() {
                         ExpectedStdout::AcceptAny { .. } => None,
                         ExpectedStdout::Exact(expected) => Some(Text::exact(&expected)),
-                        ExpectedStdout::Float { lines, .. } => Some(Text::float(lines, None)),
+                        ExpectedStdout::Float { string, .. } => Some(Text::float(string, None)),
                     },
                 }.into(),
             ));
@@ -120,8 +118,8 @@ impl Future for Judge {
             status,
             elapsed,
             input: self.input.clone(),
-            stdout: Arc::new(string_from_utf8(self.stdout.unwrap())?),
-            stderr: Arc::new(string_from_utf8(self.stderr.unwrap())?),
+            stdout: Arc::new(self.stdout.unwrap()),
+            stderr: Arc::new(self.stderr.unwrap()),
         };
         Ok(Async::Ready(outcome.compare(&self.expected)))
     }
@@ -211,33 +209,48 @@ impl<F: Future<Item = ExitStatus>> Waiting<F> {
 }
 
 enum Reading<R: AsyncRead> {
-    NotReady(R, Vec<u8>),
-    Ready(Vec<u8>),
+    NotReady(R, Vec<u8>, bool),
+    Ready(String),
 }
 
 impl<R: AsyncRead> Reading<R> {
     fn poll_read(&mut self) -> Poll<(), io::Error> {
+        fn string_from_utf8(s: Vec<u8>) -> io::Result<String> {
+            String::from_utf8(s).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "stream did not contain valid UTF-8",
+                )
+            })
+        }
+
         let poll_status;
         match self {
             Reading::Ready(_) => return Ok(Async::Ready(())),
-            Reading::NotReady(out, buf) => {
-                let mut temp_buf = unsafe { mem::uninitialized::<[u8; 1024]>() };
-                match try_ready!(out.poll_read(&mut temp_buf)) {
-                    0 => poll_status = Async::Ready(()),
-                    n => {
-                        buf.extend_from_slice(&temp_buf[..n]);
-                        poll_status = Async::NotReady;
+            Reading::NotReady(out, buf, _) => match try_ready!(out.read_buf(buf)) {
+                0 => poll_status = Async::Ready(()),
+                _ => {
+                    if buf.len() + 512 > buf.capacity() {
+                        buf.reserve(1024);
                     }
+                    poll_status = Async::NotReady;
                 }
-            }
+            },
         }
         match &poll_status {
             Async::Ready(()) => {
-                let buf = match self {
+                let s = match self {
                     Reading::Ready(_) => unreachable!(),
-                    Reading::NotReady(_, buf) => mem::replace(buf, vec![]),
+                    Reading::NotReady(_, buf, remove_crlf) => {
+                        let s = string_from_utf8(mem::replace(buf, vec![]))?;
+                        if *remove_crlf && s.contains("\r\n") {
+                            s.replace("\r\n", "\n")
+                        } else {
+                            s
+                        }
+                    }
                 };
-                *self = Reading::Ready(buf);
+                *self = Reading::Ready(s);
             }
             Async::NotReady => task::current().notify(),
         }
@@ -247,10 +260,10 @@ impl<R: AsyncRead> Reading<R> {
     /// # Panics
     ///
     /// Panics if `self` is `Reading::NotReady(..)`.
-    fn unwrap(&mut self) -> Vec<u8> {
+    fn unwrap(&mut self) -> String {
         match self {
             Reading::NotReady(..) => panic!(),
-            Reading::Ready(buf) => mem::replace(buf, vec![]),
+            Reading::Ready(s) => mem::replace(s, "".to_owned()),
         }
     }
 }
@@ -278,12 +291,12 @@ impl CommandOutcome {
                 (Text::exact(&self.stdout), Some(Text::exact(expected)), None)
             }
             ExpectedStdout::Float {
-                lines,
+                string,
                 absolute_error,
                 relative_error,
             } => {
                 let errors = Some((*absolute_error, *relative_error));
-                let expected = Text::float(lines, errors);
+                let expected = Text::float(string, errors);
                 let stdout = Text::float(&self.stdout, None);
                 (stdout, Some(expected), None)
             }

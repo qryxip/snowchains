@@ -13,7 +13,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zip::ZipArchive;
 use {serde_json, serde_yaml, toml};
 
-use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::iter::FromIterator as _FromIterator;
 use std::ops::Deref;
@@ -21,7 +20,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{self, f64, fmt, io, str, vec};
+use std::{self, cmp, f64, fmt, io, str, vec};
 
 pub(crate) fn modify_timelimit(
     stdout: impl WriteAnsi,
@@ -340,6 +339,7 @@ pub(crate) struct ZipConfig {
     timelimit: Option<Duration>,
     #[serde(rename = "match")]
     output_match: Match,
+    crlf_to_lf: CrlfToLf,
     entries: Vec<ZipEntries>,
 }
 
@@ -347,7 +347,13 @@ impl ZipConfig {
     fn load(&self, path: AbsPath, filename: &str) -> SuiteFileResult<Vec<SimpleCase>> {
         let mut cases = vec![];
         for entry in &self.entries {
-            cases.extend(entry.load(path, filename, self.timelimit, self.output_match)?);
+            cases.extend(entry.load(
+                path,
+                filename,
+                self.timelimit,
+                self.output_match,
+                self.crlf_to_lf,
+            )?);
         }
         Ok(cases)
     }
@@ -369,6 +375,7 @@ impl ZipEntries {
         filename: &str,
         timelimit: Option<Duration>,
         output_match: Match,
+        crlf_to_lf: CrlfToLf,
     ) -> SuiteFileResult<Vec<SimpleCase>> {
         if !path.exists() {
             return Ok(vec![]);
@@ -426,9 +433,9 @@ impl ZipEntries {
                 ZipEntrySorting::Number => cases.sort_by(|(s1, _, _), (s2, _, _)| {
                     match (s1.parse::<usize>(), s2.parse::<usize>()) {
                         (Ok(n1), Ok(n2)) => n1.cmp(&n2),
-                        (Ok(_), Err(_)) => Ordering::Less,
-                        (Err(_), Ok(_)) => Ordering::Greater,
-                        (Err(_), Err(_)) => Ordering::Equal,
+                        (Ok(_), Err(_)) => cmp::Ordering::Less,
+                        (Err(_), Ok(_)) => cmp::Ordering::Greater,
+                        (Err(_), Err(_)) => cmp::Ordering::Equal,
                     }
                 }),
             }
@@ -436,13 +443,14 @@ impl ZipEntries {
         let cases = cases
             .into_iter()
             .map(|(name, input, output)| {
-                let (input, expected) = process_pair(&input, Some(&output), output_match);
-                SimpleCase {
-                    name: Arc::new(format!("{}:{}", filename, name)),
-                    input,
-                    expected: Arc::new(expected),
+                SimpleCase::new(
+                    &format!("{}:{}", filename, name),
                     timelimit,
-                }
+                    &input,
+                    Some(&output),
+                    output_match,
+                    crlf_to_lf,
+                )
             }).collect();
         Ok(cases)
     }
@@ -591,6 +599,7 @@ impl<T, E: 'static + std::error::Error + Send + Sync> WrapInIoError for std::res
 pub(crate) struct SimpleSuite {
     timelimit: Option<Duration>,
     output_match: Match,
+    crlf_to_lf: CrlfToLf,
     cases: Vec<(Arc<String>, Option<Arc<String>>)>,
 }
 
@@ -615,20 +624,20 @@ impl SimpleSuite {
     }
 
     fn cases_named(self, filename: &str) -> Vec<SimpleCase> {
-        let (output_match, timelimit) = (self.output_match, self.timelimit);
+        let (output_match, crlf_to_lf, timelimit) =
+            (self.output_match, self.crlf_to_lf, self.timelimit);
         self.cases
             .into_iter()
             .enumerate()
             .map(move |(i, (input, output))| {
-                let output = output.as_ref().map(|s| s.as_str());
-                let (input, expected) = process_pair(&input, output, output_match);
-                let name = Arc::new(format!("{}[{}]", filename, i));
-                SimpleCase {
-                    name,
-                    input,
-                    expected: Arc::new(expected),
+                SimpleCase::new(
+                    &format!("{}[{}]", filename, i),
                     timelimit,
-                }
+                    &input,
+                    output.as_ref().map(|s| s.as_str()),
+                    output_match,
+                    crlf_to_lf,
+                )
             }).collect::<Vec<_>>()
     }
 
@@ -651,6 +660,7 @@ impl Serialize for SimpleSuite {
         SimpleSuiteSchema {
             timelimit: self.timelimit,
             output_match: self.output_match,
+            crlf_to_lf: self.crlf_to_lf,
             cases,
         }.serialize(serializer)
     }
@@ -662,6 +672,7 @@ impl<'de> Deserialize<'de> for SimpleSuite {
         Ok(Self {
             timelimit: raw.timelimit,
             output_match: raw.output_match,
+            crlf_to_lf: raw.crlf_to_lf,
             cases: raw
                 .cases
                 .into_iter()
@@ -681,6 +692,7 @@ struct SimpleSuiteSchema {
     timelimit: Option<Duration>,
     #[serde(rename = "match", default)]
     output_match: Match,
+    crlf_to_lf: CrlfToLf,
     cases: Vec<SimpleCaseSchema>,
 }
 
@@ -788,6 +800,7 @@ pub(crate) struct SimpleCase {
     name: Arc<String>,
     input: Arc<String>,
     expected: Arc<ExpectedStdout>,
+    remove_crlf_from_actual_stdout: bool,
     timelimit: Option<Duration>,
 }
 
@@ -798,50 +811,64 @@ impl TestCase for SimpleCase {
 }
 
 impl SimpleCase {
-    pub fn input(&self) -> Arc<String> {
-        self.input.clone()
-    }
+    fn new(
+        name: &str,
+        timelimit: Option<Duration>,
+        input: &str,
+        output: Option<&str>,
+        output_match: Match,
+        crlf_to_lf: CrlfToLf,
+    ) -> Self {
+        fn replace_crlf_to_lf(s: &str, p: bool) -> String {
+            if p && s.contains("\r\n") {
+                s.replace("\r\n", "\n")
+            } else {
+                s.to_owned()
+            }
+        }
 
-    pub fn expected(&self) -> Arc<ExpectedStdout> {
-        self.expected.clone()
-    }
-
-    pub fn timelimit(&self) -> Option<Duration> {
-        self.timelimit
-    }
-}
-
-fn process_pair(
-    input: &str,
-    output: Option<&str>,
-    output_match: Match,
-) -> (Arc<String>, ExpectedStdout) {
-    let input = input.to_owned();
-    let output = output.map(ToOwned::to_owned);
-    match (output_match, output) {
-        (Match::AcceptAll, example) => (
-            Arc::new(input.to_owned()),
-            ExpectedStdout::AcceptAny { example },
-        ),
-        (Match::Exact, None) | (Match::Float { .. }, None) => (
-            Arc::new(input.to_owned()),
-            ExpectedStdout::AcceptAny { example: None },
-        ),
-        (Match::Exact, Some(output)) => (Arc::new(input), ExpectedStdout::Exact(output)),
-        (
-            Match::Float {
+        let output = output.map(|o| replace_crlf_to_lf(o, crlf_to_lf.expected_out));
+        let expected = match (output_match, output) {
+            (Match::AcceptAll, example) => ExpectedStdout::AcceptAny { example },
+            (Match::Exact, None) | (Match::Float { .. }, None) => {
+                ExpectedStdout::AcceptAny { example: None }
+            }
+            (Match::Exact, Some(output)) => ExpectedStdout::Exact(output),
+            (
+                Match::Float {
+                    absolute_error,
+                    relative_error,
+                },
+                Some(string),
+            ) => ExpectedStdout::Float {
+                string,
                 absolute_error,
                 relative_error,
             },
-            Some(lines),
-        ) => {
-            let expected = ExpectedStdout::Float {
-                lines,
-                absolute_error,
-                relative_error,
-            };
-            (Arc::new(input), expected)
+        };
+        Self {
+            name: Arc::new(name.to_owned()),
+            input: Arc::new(replace_crlf_to_lf(input, crlf_to_lf.input)),
+            expected: Arc::new(expected),
+            remove_crlf_from_actual_stdout: crlf_to_lf.actual_out,
+            timelimit,
         }
+    }
+
+    pub(crate) fn input(&self) -> Arc<String> {
+        self.input.clone()
+    }
+
+    pub(crate) fn expected(&self) -> Arc<ExpectedStdout> {
+        self.expected.clone()
+    }
+
+    pub(crate) fn remove_crlf_from_actual_stdout(&self) -> bool {
+        self.remove_crlf_from_actual_stdout
+    }
+
+    pub(crate) fn timelimit(&self) -> Option<Duration> {
+        self.timelimit
     }
 }
 
@@ -853,7 +880,7 @@ pub(crate) enum ExpectedStdout {
     },
     Exact(String),
     Float {
-        lines: String,
+        string: String,
         absolute_error: f64,
         relative_error: f64,
     },
@@ -880,6 +907,35 @@ fn nan() -> f64 {
 impl Default for Match {
     fn default() -> Self {
         Match::Exact
+    }
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+struct CrlfToLf {
+    #[serde(rename = "in")]
+    input: bool,
+    expected_out: bool,
+    actual_out: bool,
+}
+
+impl Default for CrlfToLf {
+    #[cfg(not(windows))]
+    fn default() -> Self {
+        Self {
+            input: false,
+            expected_out: false,
+            actual_out: false,
+        }
+    }
+
+    #[cfg(windows)]
+    fn default() -> Self {
+        Self {
+            input: false,
+            expected_out: false,
+            actual_out: true,
+        }
     }
 }
 

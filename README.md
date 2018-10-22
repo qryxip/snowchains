@@ -115,9 +115,10 @@ testfiles:
   zip:
     timelimit: 2000
     match: exact
-    modify:
-      add_eol: false
-      crlf_to_lf: true
+    crlf_to_lf:
+      in: true
+      expected_out: true
+      actual_out: false
     entries:
       # AtCoder
       - in:
@@ -311,6 +312,10 @@ languages:
 type: simple    # "simple", "interactive", or "unsubmittable"
 timelimit: 2000 # optional
 match: exact    # "accept_all", "exact", or "float"
+crlf_to_lf:
+  in: false
+  expected_out: false
+  actual_out: false
 
 cases:
   - in: |
@@ -342,6 +347,10 @@ match:
   float:
     absolute_error: 1E-9
     relative_error: 1E-9
+crlf_to_lf:
+  in: false
+  expected_out: false
+  actual_out: false
 
 cases:
   - in: |
