@@ -167,7 +167,7 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
 
         if num_failures == 0 {
             for (i, name, outcome) in outcomes {
-                outcome.print_title(&mut stdout, i + 1, num_cases, &name, name_max_width)?;
+                outcome.print_title(&mut stdout, i + 1, num_cases, &name, Some(name_max_width))?;
             }
             writeln!(
                 stdout,
@@ -179,7 +179,7 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
         } else {
             for (i, name, outcome) in outcomes {
                 writeln!(stdout)?;
-                outcome.print_title(&mut stdout, i + 1, num_cases, &name, 0)?;
+                outcome.print_title(&mut stdout, i + 1, num_cases, &name, None)?;
                 outcome.print_details(&mut stdout)?;
             }
             stdout.flush()?;
@@ -266,11 +266,14 @@ pub(self) trait Outcome: fmt::Display {
         i: impl DisplayableNum,
         n: impl DisplayableNum,
         name: &str,
-        name_width: usize,
+        name_width: Option<usize>,
     ) -> io::Result<()> {
-        out.write_spaces(n.num_digits() - i.num_digits())?;
+        if name_width.is_some() {
+            out.write_spaces(n.num_digits() - i.num_digits())?;
+        }
         out.with_reset(|o| write!(o.bold()?, "{}/{} ({})", i, n, name))?;
         let l = out.str_width(name);
+        let name_width = name_width.unwrap_or(0);
         out.write_spaces(cmp::max(name_width, l) - l + 1)?;
         out.with_reset(|o| writeln!(o.fg(self.color())?, "{}", self))
     }
