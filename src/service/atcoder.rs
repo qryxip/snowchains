@@ -831,17 +831,15 @@ impl Extract for Document {
     }
 
     fn extract_submitted_code(&self) -> ServiceResult<String> {
-        let extract = || {
-            let pred = selector!(#submission-code).child(Text);
-            let code = self.find(pred).next()?.text();
-            info!(
-                "Extracting submitted code: Found {} byte{} of code from #submission-code",
-                code.len(),
-                if code.len() > 1 { "s" } else { "" },
-            );
-            Some(code)
-        };
-        extract().ok_or_else(|| ServiceError::Scrape)
+        let submission_code = self
+            .find(selector!(#submission-code))
+            .next()
+            .ok_or(ServiceError::Scrape)?;
+        Ok(submission_code
+            .find(Text)
+            .next()
+            .map(|t| t.text())
+            .unwrap_or_else(|| "".to_owned()))
     }
 
     fn extract_lang_id(&self, lang_name: &str) -> ServiceResult<String> {
