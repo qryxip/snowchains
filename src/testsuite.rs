@@ -1,11 +1,11 @@
-use command::{CompilationCommand, JudgingCommand};
-use console::{ConsoleWrite, Palette};
 use errors::{
     ExpandTemplateResult, FileIoError, FileIoErrorCause, FileIoErrorKind, LoadConfigError,
     SuiteFileError, SuiteFileResult,
 };
+use judging::command::{CompilationCommand, JudgingCommand};
 use path::{AbsPath, AbsPathBuf};
 use template::Template;
+use terminal::WriteAnsi;
 use {util, yaml};
 
 use regex::Regex;
@@ -13,33 +13,53 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zip::ZipArchive;
 use {serde_json, serde_yaml, toml};
 
-use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::io::{self, Write as _Write};
+use std::fmt::Write as _Write;
 use std::iter::FromIterator as _FromIterator;
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{self, f64, fmt, str, vec};
+use std::{self, cmp, f64, fmt, io, str, vec};
 
-/// Appends `input` and `output` to a test suite read from `path`.
-pub(crate) fn append(
+pub(crate) fn modify_timelimit(
+    stdout: impl WriteAnsi,
+    name: &str,
+    path: &SuiteFilePath,
+    timelimit: Option<Duration>,
+) -> SuiteFileResult<()> {
+    let mut suite = TestSuite::load(path)?;
+    suite.modify_timelimit(&path.path, timelimit)?;
+    suite.save(name, path, stdout)
+}
+
+pub(crate) fn modify_append(
     name: &str,
     path: &SuiteFilePath,
     input: &str,
     output: Option<&str>,
-    stdout: impl ConsoleWrite,
+    stdout: impl WriteAnsi,
 ) -> SuiteFileResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.append(input, output)?;
     suite.save(name, path, stdout)
 }
 
+pub(crate) fn modify_match(
+    stdout: impl WriteAnsi,
+    name: &str,
+    path: &SuiteFilePath,
+    output_match: Match,
+) -> SuiteFileResult<()> {
+    let mut suite = TestSuite::load(path)?;
+    suite.modify_match(output_match)?;
+    suite.save(name, path, stdout)
+}
+
 /// Extension of a test suite file.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum SerializableExtension {
     Json,
     Toml,
@@ -78,9 +98,9 @@ impl FromStr for SerializableExtension {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum SuiteFileExtension {
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuiteFileExtension {
     Json,
     Toml,
     Yaml,
@@ -101,16 +121,16 @@ impl SuiteFileExtension {
 }
 
 impl FromStr for SuiteFileExtension {
-    type Err = ();
+    type Err = String;
 
-    fn from_str(s: &str) -> std::result::Result<Self, ()> {
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
         match s {
             "json" => Ok(SuiteFileExtension::Json),
             "toml" => Ok(SuiteFileExtension::Toml),
             "yaml" => Ok(SuiteFileExtension::Yaml),
             "yml" => Ok(SuiteFileExtension::Yml),
             "zip" => Ok(SuiteFileExtension::Zip),
-            _ => Err(()),
+            _ => Err(format!("Unsupported extension: {:?}", s)),
         }
     }
 }
@@ -330,7 +350,7 @@ pub(crate) struct ZipConfig {
     timelimit: Option<Duration>,
     #[serde(rename = "match")]
     output_match: Match,
-    modify: Modify,
+    crlf_to_lf: CrlfToLf,
     entries: Vec<ZipEntries>,
 }
 
@@ -343,7 +363,7 @@ impl ZipConfig {
                 filename,
                 self.timelimit,
                 self.output_match,
-                self.modify,
+                self.crlf_to_lf,
             )?);
         }
         Ok(cases)
@@ -366,7 +386,7 @@ impl ZipEntries {
         filename: &str,
         timelimit: Option<Duration>,
         output_match: Match,
-        modify: Modify,
+        crlf_to_lf: CrlfToLf,
     ) -> SuiteFileResult<Vec<SimpleCase>> {
         if !path.exists() {
             return Ok(vec![]);
@@ -424,9 +444,9 @@ impl ZipEntries {
                 ZipEntrySorting::Number => cases.sort_by(|(s1, _, _), (s2, _, _)| {
                     match (s1.parse::<usize>(), s2.parse::<usize>()) {
                         (Ok(n1), Ok(n2)) => n1.cmp(&n2),
-                        (Ok(_), Err(_)) => Ordering::Less,
-                        (Err(_), Ok(_)) => Ordering::Greater,
-                        (Err(_), Err(_)) => Ordering::Equal,
+                        (Ok(_), Err(_)) => cmp::Ordering::Less,
+                        (Err(_), Ok(_)) => cmp::Ordering::Greater,
+                        (Err(_), Err(_)) => cmp::Ordering::Equal,
                     }
                 }),
             }
@@ -434,20 +454,21 @@ impl ZipEntries {
         let cases = cases
             .into_iter()
             .map(|(name, input, output)| {
-                let (input, expected) = process_pair(&input, Some(&output), output_match, modify);
-                SimpleCase {
-                    name: Arc::new(format!("{}:{}", filename, name)),
-                    input,
-                    expected: Arc::new(expected),
+                SimpleCase::new(
+                    &format!("{}:{}", filename, name),
                     timelimit,
-                }
+                    &input,
+                    Some(&output),
+                    output_match,
+                    crlf_to_lf,
+                )
             }).collect();
         Ok(cases)
     }
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 enum ZipEntrySorting {
     Dictionary,
     Number,
@@ -466,7 +487,7 @@ struct ZipEntry {
 /// `SimpelSuite` or `InteractiveSuite`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum TestSuite {
     Simple(SimpleSuite),
     Interactive(InteractiveSuite),
@@ -499,39 +520,106 @@ impl TestSuite {
         &self,
         name: &str,
         path: &SuiteFilePath,
-        mut out: impl ConsoleWrite,
+        mut out: impl WriteAnsi,
     ) -> SuiteFileResult<()> {
         let (path, extension) = (&path.path, path.extension);
-        let serialized = match extension {
-            SerializableExtension::Json => serde_json::to_string(self)?,
-            SerializableExtension::Toml => toml::to_string(self)?,
-            SerializableExtension::Yaml | SerializableExtension::Yml => {
-                serde_yaml::to_string(self)?
-            }
-        };
+        let serialized = self.to_string_pretty(extension)?;
         ::fs::write(path, serialized.as_bytes())?;
-        write!(out.bold(None), "{}", name)?;
-        write!(out, ": Saved to {}", path.display())?;
+        out.with_reset(|o| o.bold()?.write_str(name))?;
+        write!(out, ": Saved to {} ", path.display())?;
         match self {
             TestSuite::Simple(s) => match s.cases.len() {
-                0 => writeln!(out.plain(Palette::Warning), " (no test case)"),
-                1 => writeln!(out.plain(Palette::Success), " (1 test case)"),
-                n => writeln!(out.plain(Palette::Success), " ({} test cases)", n),
+                0 => out.with_reset(|o| o.fg(11)?.write_str("(no test case)\n")),
+                1 => out.with_reset(|o| o.fg(10)?.write_str("(1 test case)\n")),
+                n => out.with_reset(|o| writeln!(o.fg(10)?, "({} test cases)", n)),
             },
             TestSuite::Interactive(_) => {
-                writeln!(out.plain(Palette::Success), " (interactive problem)")
+                out.with_reset(|o| o.fg(10)?.write_str("(interactive problem)\n"))
             }
             TestSuite::Unsubmittable => {
-                writeln!(out.plain(Palette::Success), " (unsubmittable problem)")
+                out.with_reset(|o| o.fg(10)?.write_str("(unsubmittable problem)\n"))
             }
-        }?;
-        Ok(())
+        }.map_err(Into::into)
+    }
+
+    fn to_string_pretty(&self, ext: SerializableExtension) -> SuiteFileResult<String> {
+        fn is_valid(s: &str) -> bool {
+            s.ends_with('\n') && s
+                .chars()
+                .all(|c| [' ', '\n'].contains(&c) || (!c.is_whitespace() && !c.is_control()))
+        }
+
+        match ext {
+            SerializableExtension::Json => serde_json::to_string(self).map_err(Into::into),
+            SerializableExtension::Toml => toml::to_string(self).map_err(Into::into),
+            SerializableExtension::Yaml | SerializableExtension::Yml => {
+                let mut s = serde_yaml::to_string(self)?;
+                if let TestSuite::Simple(suite) = self {
+                    let cases = &suite.cases;
+                    if cases
+                        .iter()
+                        .all(|(i, o)| is_valid(i) && o.as_ref().map_or(true, |o| is_valid(o)))
+                    {
+                        if let Some(pos) = s.find("\ncases:\n") {
+                            let pos = pos + 8;
+                            if pos != s.len() {
+                                let mut new_s = s[..pos].to_owned();
+                                for (i, o) in cases {
+                                    new_s += "  - in: |\n";
+                                    for l in i.lines() {
+                                        writeln!(new_s, "      {}", l).unwrap();
+                                    }
+                                    if let Some(o) = o {
+                                        new_s += "    out: |\n";
+                                        for l in o.lines() {
+                                            writeln!(new_s, "      {}", l).unwrap();
+                                        }
+                                    }
+                                }
+                                s = new_s;
+                            }
+                        }
+                    }
+                }
+                Ok(s)
+            }
+        }
+    }
+
+    fn modify_timelimit(
+        &mut self,
+        path: &Path,
+        timelimit: Option<Duration>,
+    ) -> SuiteFileResult<()> {
+        match self {
+            TestSuite::Simple(suite) => {
+                suite.timelimit = timelimit;
+                Ok(())
+            }
+            TestSuite::Interactive(suite) => {
+                suite.timelimit = timelimit;
+                Ok(())
+            }
+            TestSuite::Unsubmittable => {
+                Err(SuiteFileError::Unsubmittable(path.display().to_string()))
+            }
+        }
     }
 
     fn append(&mut self, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
         match self {
             TestSuite::Simple(suite) => {
                 suite.append(input, output);
+                Ok(())
+            }
+            _ => Err(SuiteFileError::SuiteIsNotSimple),
+        }
+    }
+
+    fn modify_match(&mut self, output_match: Match) -> SuiteFileResult<()> {
+        match self {
+            TestSuite::Simple(suite) => {
+                suite.output_match = output_match;
                 Ok(())
             }
             _ => Err(SuiteFileError::SuiteIsNotSimple),
@@ -570,19 +658,24 @@ impl<T, E: 'static + std::error::Error + Send + Sync> WrapInIoError for std::res
 pub(crate) struct SimpleSuite {
     timelimit: Option<Duration>,
     output_match: Match,
-    modify: Modify,
+    crlf_to_lf: CrlfToLf,
     cases: Vec<(Arc<String>, Option<Arc<String>>)>,
 }
 
 impl SimpleSuite {
-    pub fn new(timelimit: impl Into<Option<Duration>>) -> Self {
+    pub(crate) fn new(timelimit: impl Into<Option<Duration>>) -> Self {
         Self {
             timelimit: timelimit.into(),
             ..Self::default()
         }
     }
 
-    pub fn cases<S: Into<String>, O: Into<Option<S>>, I: IntoIterator<Item = (S, O)>>(
+    pub(crate) fn accept_all(mut self) -> Self {
+        self.output_match = Match::AcceptAll;
+        self
+    }
+
+    pub(crate) fn cases<S: Into<String>, O: Into<Option<S>>, I: IntoIterator<Item = (S, O)>>(
         mut self,
         cases: I,
     ) -> Self {
@@ -595,20 +688,20 @@ impl SimpleSuite {
     }
 
     fn cases_named(self, filename: &str) -> Vec<SimpleCase> {
-        let (output_match, modify, timelimit) = (self.output_match, self.modify, self.timelimit);
+        let (output_match, crlf_to_lf, timelimit) =
+            (self.output_match, self.crlf_to_lf, self.timelimit);
         self.cases
             .into_iter()
             .enumerate()
             .map(move |(i, (input, output))| {
-                let output = output.as_ref().map(|s| s.as_str());
-                let (input, expected) = process_pair(&input, output, output_match, modify);
-                let name = Arc::new(format!("{}[{}]", filename, i));
-                SimpleCase {
-                    name,
-                    input,
-                    expected: Arc::new(expected),
+                SimpleCase::new(
+                    &format!("{}[{}]", filename, i),
                     timelimit,
-                }
+                    &input,
+                    output.as_ref().map(|s| s.as_str()),
+                    output_match,
+                    crlf_to_lf,
+                )
             }).collect::<Vec<_>>()
     }
 
@@ -631,7 +724,7 @@ impl Serialize for SimpleSuite {
         SimpleSuiteSchema {
             timelimit: self.timelimit,
             output_match: self.output_match,
-            modify: self.modify,
+            crlf_to_lf: self.crlf_to_lf,
             cases,
         }.serialize(serializer)
     }
@@ -643,7 +736,7 @@ impl<'de> Deserialize<'de> for SimpleSuite {
         Ok(Self {
             timelimit: raw.timelimit,
             output_match: raw.output_match,
-            modify: raw.modify,
+            crlf_to_lf: raw.crlf_to_lf,
             cases: raw
                 .cases
                 .into_iter()
@@ -663,7 +756,7 @@ struct SimpleSuiteSchema {
     timelimit: Option<Duration>,
     #[serde(rename = "match", default)]
     output_match: Match,
-    modify: Modify,
+    crlf_to_lf: CrlfToLf,
     cases: Vec<SimpleCaseSchema>,
 }
 
@@ -771,6 +864,7 @@ pub(crate) struct SimpleCase {
     name: Arc<String>,
     input: Arc<String>,
     expected: Arc<ExpectedStdout>,
+    remove_crlf_from_actual_stdout: bool,
     timelimit: Option<Duration>,
 }
 
@@ -781,82 +875,76 @@ impl TestCase for SimpleCase {
 }
 
 impl SimpleCase {
-    pub fn input(&self) -> Arc<String> {
-        self.input.clone()
-    }
-
-    pub fn expected(&self) -> Arc<ExpectedStdout> {
-        self.expected.clone()
-    }
-
-    pub fn timelimit(&self) -> Option<Duration> {
-        self.timelimit
-    }
-}
-
-fn process_pair(
-    input: &str,
-    output: Option<&str>,
-    output_match: Match,
-    modify: Modify,
-) -> (Arc<String>, ExpectedStdout) {
-    fn add_eols(ss: &mut [&mut String]) {
-        for s in ss {
-            if !s.ends_with('\n') {
-                s.push('\n');
+    fn new(
+        name: &str,
+        timelimit: Option<Duration>,
+        input: &str,
+        output: Option<&str>,
+        output_match: Match,
+        crlf_to_lf: CrlfToLf,
+    ) -> Self {
+        fn replace_crlf_to_lf(s: &str, p: bool) -> String {
+            if p && s.contains("\r\n") {
+                s.replace("\r\n", "\n")
+            } else {
+                s.to_owned()
             }
         }
-    }
 
-    fn convert_crlf_to_lf(ss: &mut [&mut String]) {
-        for s in ss {
-            **s = s.replace("\r\n", "\n");
-        }
-    }
-
-    match (output, output_match) {
-        (None, _) => (Arc::new(input.to_owned()), ExpectedStdout::AcceptAny),
-        (Some(output), Match::Exact) => {
-            let (mut input, mut output) = (input.to_owned(), output.to_owned());
-            if modify.add_eol {
-                add_eols(&mut [&mut input, &mut output]);
+        let output = output.map(|o| replace_crlf_to_lf(o, crlf_to_lf.expected_out));
+        let expected = match (output_match, output) {
+            (Match::AcceptAll, example) => ExpectedStdout::AcceptAny { example },
+            (Match::Exact, None) | (Match::Float { .. }, None) => {
+                ExpectedStdout::AcceptAny { example: None }
             }
-            if modify.crlf_to_lf {
-                convert_crlf_to_lf(&mut [&mut input, &mut output]);
-            }
-            (Arc::new(input), ExpectedStdout::Exact(output))
-        }
-        (
-            Some(output),
-            Match::Float {
+            (Match::Exact, Some(output)) => ExpectedStdout::Exact(output),
+            (
+                Match::Float {
+                    absolute_error,
+                    relative_error,
+                },
+                Some(string),
+            ) => ExpectedStdout::Float {
+                string,
                 absolute_error,
                 relative_error,
             },
-        ) => {
-            let (mut input, mut string) = (input.to_owned(), output.to_owned());
-            if modify.add_eol {
-                add_eols(&mut [&mut input, &mut string]);
-            }
-            if modify.crlf_to_lf {
-                convert_crlf_to_lf(&mut [&mut input, &mut string]);
-            }
-            let expected = ExpectedStdout::Float {
-                lines: string,
-                absolute_error,
-                relative_error,
-            };
-            (Arc::new(input), expected)
+        };
+        Self {
+            name: Arc::new(name.to_owned()),
+            input: Arc::new(replace_crlf_to_lf(input, crlf_to_lf.input)),
+            expected: Arc::new(expected),
+            remove_crlf_from_actual_stdout: crlf_to_lf.actual_out,
+            timelimit,
         }
+    }
+
+    pub(crate) fn input(&self) -> Arc<String> {
+        self.input.clone()
+    }
+
+    pub(crate) fn expected(&self) -> Arc<ExpectedStdout> {
+        self.expected.clone()
+    }
+
+    pub(crate) fn remove_crlf_from_actual_stdout(&self) -> bool {
+        self.remove_crlf_from_actual_stdout
+    }
+
+    pub(crate) fn timelimit(&self) -> Option<Duration> {
+        self.timelimit
     }
 }
 
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) enum ExpectedStdout {
-    AcceptAny,
+    AcceptAny {
+        example: Option<String>,
+    },
     Exact(String),
     Float {
-        lines: String,
+        string: String,
         absolute_error: f64,
         relative_error: f64,
     },
@@ -864,8 +952,9 @@ pub(crate) enum ExpectedStdout {
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum Match {
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Match {
+    AcceptAll,
     Exact,
     Float {
         #[serde(default = "nan")]
@@ -887,16 +976,29 @@ impl Default for Match {
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-struct Modify {
-    add_eol: bool,
-    crlf_to_lf: bool,
+struct CrlfToLf {
+    #[serde(rename = "in")]
+    input: bool,
+    expected_out: bool,
+    actual_out: bool,
 }
 
-impl Default for Modify {
+impl Default for CrlfToLf {
+    #[cfg(not(windows))]
     fn default() -> Self {
-        Modify {
-            add_eol: false,
-            crlf_to_lf: false,
+        Self {
+            input: false,
+            expected_out: false,
+            actual_out: false,
+        }
+    }
+
+    #[cfg(windows)]
+    fn default() -> Self {
+        Self {
+            input: false,
+            expected_out: false,
+            actual_out: true,
         }
     }
 }

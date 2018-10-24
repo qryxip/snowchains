@@ -1,10 +1,10 @@
-use console::{ConsoleReadWrite, ConsoleWrite as _ConsoleWrite, Palette, Printer};
 use errors::{ServiceError, ServiceResult, SubmitError};
 use service::session::HttpSession;
 use service::{
     Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProp,
     Service, SessionProp, SubmitProp, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
+use terminal::{Term, WriteAnsi as _WriteAnsi};
 use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 use util::std_unstable::RemoveItem_ as _RemoveItem_;
 
@@ -23,73 +23,69 @@ use std::time::Duration;
 use std::{fmt, vec};
 
 /// Logins to "beta.atcoder.jp".
-pub(crate) fn login(sess_prop: SessionProp<impl ConsoleReadWrite>) -> ServiceResult<()> {
-    Atcoder::start(sess_prop)?.login_if_not(true)
+pub(crate) fn login(sess_prop: SessionProp<impl Term>) -> ServiceResult<()> {
+    Atcoder::try_new(sess_prop)?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
 pub(crate) fn participate(
     contest_name: &str,
-    sess_prop: SessionProp<impl ConsoleReadWrite>,
+    sess_prop: SessionProp<impl Term>,
 ) -> ServiceResult<()> {
-    Atcoder::start(sess_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
+    Atcoder::try_new(sess_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
 pub(crate) fn download(
-    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
+    mut sess_prop: SessionProp<impl Term>,
     download_prop: DownloadProp<String>,
 ) -> ServiceResult<()> {
     let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
-    download_prop.print_targets(sess_prop.console.stdout())?;
-    Atcoder::start(sess_prop)?.download(&download_prop)
+    download_prop.print_targets(sess_prop.term.stdout())?;
+    Atcoder::try_new(sess_prop)?.download(&download_prop)
 }
 
 /// Downloads submitted source codes.
 pub(crate) fn restore(
-    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
+    mut sess_prop: SessionProp<impl Term>,
     restore_prop: RestoreProp<String>,
 ) -> ServiceResult<()> {
     let restore_prop = restore_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
-    restore_prop.print_targets(sess_prop.console.stdout())?;
-    Atcoder::start(sess_prop)?.restore(&restore_prop)
+    restore_prop.print_targets(sess_prop.term.stdout())?;
+    Atcoder::try_new(sess_prop)?.restore(&restore_prop)
 }
 
 /// Submits a source code.
 pub(crate) fn submit(
-    mut sess_prop: SessionProp<impl ConsoleReadWrite>,
+    mut sess_prop: SessionProp<impl Term>,
     submit_prop: SubmitProp<String>,
 ) -> ServiceResult<()> {
     let submit_prop = submit_prop.convert_contest_and_problem(ProblemNameConversion::Upper);
-    submit_prop.print_targets(sess_prop.console.stdout())?;
-    Atcoder::start(sess_prop)?.submit(&submit_prop)
+    submit_prop.print_targets(sess_prop.term.stdout())?;
+    Atcoder::try_new(sess_prop)?.submit(&submit_prop)
 }
 
-pub(self) struct Atcoder<RW: ConsoleReadWrite> {
-    console: RW,
+pub(self) struct Atcoder<T: Term> {
+    term: T,
     session: HttpSession,
     credentials: UserNameAndPassword,
 }
 
-impl<RW: ConsoleReadWrite> Service for Atcoder<RW> {
-    type Console = RW;
+impl<T: Term> Service for Atcoder<T> {
+    type Term = T;
 
-    fn session_and_stdout(&mut self) -> (&mut HttpSession, Printer<&mut RW::Stdout>) {
-        (&mut self.session, self.console.stdout())
-    }
-
-    fn console(&mut self) -> &mut RW {
-        &mut self.console
+    fn session_and_term(&mut self) -> (&mut HttpSession, &mut T) {
+        (&mut self.session, &mut self.term)
     }
 }
 
-impl<RW: ConsoleReadWrite> Atcoder<RW> {
-    fn start(mut sess_prop: SessionProp<RW>) -> ServiceResult<Self> {
+impl<T: Term> Atcoder<T> {
+    fn try_new(mut sess_prop: SessionProp<T>) -> ServiceResult<Self> {
         let credentials = sess_prop.credentials.atcoder.clone();
         let session = sess_prop.start_session()?;
         Ok(Self {
-            console: sess_prop.console,
+            term: sess_prop.term,
             session,
             credentials,
         })
@@ -120,8 +116,8 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
         let (username, password) = match self.credentials.clone() {
             UserNameAndPassword::Some(username, password) => (username.clone(), password.clone()),
             UserNameAndPassword::None => (
-                Rc::new(self.console().prompt_reply_stderr("Username: ")?),
-                Rc::new(self.console().prompt_password_stderr("Password: ")?),
+                Rc::new(self.term.prompt_reply_stderr("Username: ")?),
+                Rc::new(self.term.prompt_password_stderr("Password: ")?),
             ),
         };
         let payload = hashmap!(
@@ -221,7 +217,8 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
         }
         self.stdout().flush()?;
         if !not_found.is_empty() {
-            writeln!(self.stderr(), "Not found: {:?}", not_found)?;
+            self.stderr()
+                .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
             self.stderr().flush()?;
         }
         if *open_browser {
@@ -282,12 +279,9 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
                 ::fs::write(&path, code.as_bytes())?;
                 results.push((task_name, lang_name, lang_id, path));
             } else {
-                writeln!(
-                    self.stderr().bold(Palette::Warning),
-                    "Ignoring {:?} (id: {})",
-                    lang_name,
-                    lang_id
-                )?;
+                self.stderr().with_reset(|o| {
+                    writeln!(o.fg(11)?, "Ignoring {:?} (id: {})", lang_name, lang_id)
+                })?;
                 self.stderr().flush()?;
             }
         }
@@ -307,11 +301,11 @@ impl<RW: ConsoleReadWrite> Atcoder<RW> {
             not_found.remove_item_(&task_name);
         }
         if !not_found.is_empty() {
-            let mut stderr = self.stderr();
-            writeln!(stderr.plain(Palette::Warning), "Not found: {:?}", not_found)?;
-            stderr.flush()?;
+            self.stderr()
+                .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
+            self.stderr().flush()?;
         }
-        let mut stdout = self.stdout();
+        let stdout = self.stdout();
         writeln!(stdout, "Saved {}.", plural!(results.len(), "file", "files"))?;
         stdout.flush()?;
         Ok(())
@@ -837,17 +831,15 @@ impl Extract for Document {
     }
 
     fn extract_submitted_code(&self) -> ServiceResult<String> {
-        let extract = || {
-            let pred = selector!(#submission-code).child(Text);
-            let code = self.find(pred).next()?.text();
-            info!(
-                "Extracting submitted code: Found {} byte{} of code from #submission-code",
-                code.len(),
-                if code.len() > 1 { "s" } else { "" },
-            );
-            Some(code)
-        };
-        extract().ok_or_else(|| ServiceError::Scrape)
+        let submission_code = self
+            .find(selector!(#submission-code))
+            .next()
+            .ok_or(ServiceError::Scrape)?;
+        Ok(submission_code
+            .find(Text)
+            .next()
+            .map(|t| t.text())
+            .unwrap_or_else(|| "".to_owned()))
     }
 
     fn extract_lang_id(&self, lang_name: &str) -> ServiceResult<String> {
@@ -867,11 +859,11 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use console::{ConsoleReadWrite, NullConsole};
     use errors::SessionResult;
     use service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
     use service::session::{HttpSession, UrlBase};
     use service::{self, Service as _Service, UserNameAndPassword};
+    use terminal::{Term, TermImpl};
     use testsuite::{SimpleSuite, TestSuite};
 
     use env_logger;
@@ -1233,13 +1225,13 @@ mod tests {
         assert_eq!(EXPECTED_CODE, code);
     }
 
-    fn start() -> SessionResult<Atcoder<impl ConsoleReadWrite>> {
+    fn start() -> SessionResult<Atcoder<impl Term>> {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
-        let mut console = NullConsole::new();
-        let session = HttpSession::new(console.stdout(), client, base, None)?;
+        let mut term = TermImpl::null();
+        let session = HttpSession::try_new(term.stdout(), client, base, None)?;
         Ok(Atcoder {
-            console,
+            term,
             session,
             credentials: UserNameAndPassword::None,
         })

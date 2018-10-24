@@ -8,9 +8,9 @@ Tools for online programming contests.
 ## Features
 
 - Scrapes sample cases as YAML, TOML, or JSON
-- Tests a source code with downloaded sample cases
-- Submits a source code
-- Downloads source codes you have submitted
+- Tests a source file with downloaded sample cases
+- Submits a source file
+- Downloads source file you have submitted
 
 |                         | Target                                       | "contest" attribute | Scrape samples  | Download system tests | Submit          |
 | :---------------------- | :------------------------------------------- | :------------------ | :-------------: | :-------------------: | :-------------: |
@@ -38,15 +38,55 @@ $ cargo [+stable] install-update -ag
 
 ## Usage
 
+```
+snowchains 0.23.0
+Ryo Yamashita <wariuni@gmail.com>
+Tools for online programming contests
+
+USAGE:
+    snowchains <i|init> [OPTIONS] [directory]
+    snowchains <w|switch> [OPTIONS]
+    snowchains <l|login> [OPTIONS] <service>
+    snowchains <p|participate> [OPTIONS] <service> <contest>
+    snowchains <d|download> [FLAGS] [OPTIONS]
+    snowchains <r|restore> [OPTIONS]
+    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>
+    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>
+    snowchains show num-cases [OPTIONS] <problem> <extension>
+    snowchains show timelimit-millis [OPTIONS] <problem> <nth>
+    snowchains show in [OPTIONS] <problem> <nth>
+    snowchains show accepts [OPTIONS] <problem> <nth>
+    snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]
+    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+SUBCOMMANDS:
+    init           Creates a config file ("snowchains.yaml")
+    switch         Changes attribute values of a config file
+    login          Logges in to a service
+    participate    Participates in a contest
+    download       Downloads test cases
+    restore        Downloads source files you have submitted
+    judge          Tests a binary or script
+    submit         Submits a source file
+    show           Prints information
+    modify         Modifies values in a config file or test files
+    help           Prints this message or the help of the given subcommand(s)
+```
+
 ```console
-$ snowchains --help
-$ snowchains <i|init> ./
-$ snowchains <w|switch> [-s <service>] [-c <contest>] [-l <language>]                       # e.g. "-s atcoder -c arc100 -l c++"
-$ snowchains <d|download> [-b|--open-browser] [-s <service>] [-c <contest>] [-p <problems>] # Does not ask username and password unless they are needed
-$ $EDITOR ./snowchains/<service>/<contest>/<problem>.yaml                                   # Add more test cases
-$ snowchains <j|judge> [--force-compile] [-s <service>] [-c <contest>] [-l <language>] [-j <jobs>] <problem>
-$ snowchains <s|submit> [-b|--open-browser] [--force-compile] [-j|--skip-judging] [-d|--skip-checking-duplication] \
-                        [-s <service>] [-c <contest>] [-l <language>] <problem>
+$ snowchains init ./
+$ snowchains switch --service atcoder --contest practice --language c++
+$ # snowchains login atcoder
+$ # snowchains participate atcoder practice
+$ snowchains download --open-browser           # does not ask your username and password unless they are needed
+$ $EDITOR ./snowchains/atcoder/practice/a.yaml # add more test cases
+$ $EDITOR ./cpp/a.cpp
+$ # snowchains judge a
+$ snowchains submit a --open-browser           # executes `judge` command before submitting
 ```
 
 ## Config File (snowchains.yaml)
@@ -58,9 +98,8 @@ service: atcoder # "atcoder", "hackerrank", "yukicoder", "other"
 contest: arc100
 language: c++    # Priorities: <command line argument>, `service._.language`, `language`
 
-# console:
-#   color: 256color # "8color", "16color", "256color"
-#   cjk: true
+console:
+  cjk: false
 
 session:
   timeout: 10
@@ -76,9 +115,10 @@ testfiles:
   zip:
     timelimit: 2000
     match: exact
-    modify:
-      add_eol: false
-      crlf_to_lf: true
+    crlf_to_lf:
+      in: true
+      expected_out: true
+      actual_out: false
     entries:
       # AtCoder
       - in:
@@ -130,16 +170,16 @@ interactive:
   python3:
     src: testers/py/test-{{kebab}}.py
     run:
-      command: python3 -- $src $*
+      command: [./venv/bin/python3, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/py
   haskell:
-    src: testers/hs/src/Test{{Pascal}}.hs
+    src: testers/hs/app/Test{{Pascal}}.hs
     compile:
       bin: testers/hs/target/Test{{Pascal}}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
       working_directory: testers/hs
     run:
-      command: $bin $*
+      command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/hs
 
 # test files: <testsuite>/<problem>.[json|toml|yaml|yml|zip]
@@ -182,19 +222,19 @@ languages:
       atcoder: 3003          # "C++14 (GCC x.x.x)"
       yukicoder: cpp14       # "C++14 (gcc x.x.x)"
   rust:
-    src: rs$rust_version/src/bin/{kebab}.rs
+    src: rs/src/bin/{kebab}.rs
     compile:
-      bin: rs$rust_version/target/release/{kebab}
+      bin: rs/target/release/{kebab}
       command: [rustc, +$rust_version, -o, $bin, $src]
-      working_directory: rs$rust_version
+      working_directory: rs
     run:
       command: [$bin]
-      working_directory: rs$rust_version
+      working_directory: rs
     language_ids:
       atcoder: 3504
       yukicoder: rust
   haskell:
-    src: hs/src/{Pascal}.hs
+    src: hs/app/{Pascal}.hs
     compile:
       bin: hs/target/{Pascal}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
@@ -269,24 +309,27 @@ languages:
 
 ```yaml
 ---
-type: simple        # "simple" or "interactive"
-timelimit: 2000     # optional
-match: exact        # "exact" or "float"
-modify:             # modifies `cases/{in, out}`
-  add_eol: false    # add a missing "\n"
-  crlf_to_lf: false # converts CRLF to LF
+type: simple    # "simple", "interactive", or "unsubmittable"
+timelimit: 2000 # optional
+match: exact    # "accept_all", "exact", or "float"
+crlf_to_lf:
+  in: false
+  expected_out: false
+  actual_out: false
 
 cases:
   - in: |
       1
       2 3
       test
-    out: 6 test
+    out: |
+      6 test
   - in: |
       72
       128 256
       myonmyon
-    out: 456 myonmyon
+    out: |
+      456 myonmyon
   # "out" is optional
   - in: |
       1000
@@ -302,9 +345,12 @@ type: simple
 timelimit: 2000
 match:
   float:
-    add_eols_to_cases: true
     absolute_error: 1E-9
     relative_error: 1E-9
+crlf_to_lf:
+  in: false
+  expected_out: false
+  actual_out: false
 
 cases:
   - in: |

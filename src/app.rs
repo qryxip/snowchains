@@ -1,20 +1,26 @@
 use config::{self, Config};
-use console::{self, ColorChoice, ConsoleReadWrite};
 use errors::ExpandTemplateResult;
-use judging::{self, JudgeProp};
+use judging::{self, JudgeParams};
 use path::AbsPathBuf;
 use service::{
     atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, ServiceName,
     SessionProp, SubmitProp,
 };
+use terminal::{AnsiColorChoice, Term};
 use testsuite::{self, SerializableExtension};
+use Never;
 
-use std;
+use once_cell::sync::Lazy;
+use regex::Regex;
+use structopt::clap::Arg;
+
 use std::borrow::Cow;
 use std::io::Write as _Write;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
+use std::{self, f64};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -24,438 +30,561 @@ use std::str::FromStr;
              \n    snowchains <p|participate> [OPTIONS] <service> <contest>\
              \n    snowchains <d|download> [FLAGS] [OPTIONS]\
              \n    snowchains <r|restore> [OPTIONS]\
-             \n    snowchains <a|append> [OPTIONS] <problem> <extension> <input> [output]\
              \n    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>\
-             \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>"
+             \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>\
+             \n    snowchains show num-cases [OPTIONS] <problem> <extension>\
+             \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
+             \n    snowchains show in [OPTIONS] <problem> <nth>\
+             \n    snowchains show accepts [OPTIONS] <problem> <nth>\
+             \n    snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
+             \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]\
+             \n    snowchains modify match [OPTIONS] <problem> <extension> <match>"
 )]
 pub enum Opt {
     #[structopt(
+        about = "Creates a config file (\"snowchains.yaml\")",
         name = "init",
-        about = "Creates a \"snowchains.yaml\"",
         usage = "snowchains <i|init> [OPTIONS] [directory]",
-        raw(display_order = "1", aliases = r#"&["i"]"#)
+        raw(alias = "\"i\"", display_order = "1"),
     )]
     Init {
+        #[structopt(raw(color_choice = "1"))]
+        _color_choice: AnsiColorChoice,
         #[structopt(
-            short = "C",
-            long = "color",
-            name = "WHEN",
-            raw(
-                help = "ColorChoice::clap_help()",
-                default_value = "ColorChoice::clap_default_value()",
-                possible_values = "ColorChoice::clap_possible_values()"
-            )
-        )]
-        color_choice: ColorChoice,
-        #[structopt(
-            name = "directory",
             help = "Directory to create a \"snowchains.yaml\"",
+            default_value = ".",
             parse(from_os_str),
-            default_value = "."
         )]
         directory: PathBuf,
     },
 
     #[structopt(
+        about = "Changes attribute values of a config file",
         name = "switch",
-        about = "Changes attribute values of a \"snowchains.yaml\"",
         usage = "snowchains <w|switch> [OPTIONS]",
-        raw(display_order = "2", aliases = r#"&["w"]"#)
+        raw(alias = "\"w\"", display_order = "2"),
     )]
     Switch {
         #[structopt(
-            short = "s",
-            long = "service",
-            help = "Service name",
-            raw(
-                possible_values = r#"&["atcoder", "hackerrank", "yukicoder", "other"]"#,
-                display_order = "1"
-            )
+            raw(service = r#"&["atcoder", "hackerrank", "yukicoder", "other"], Kind::Option(1)"#),
         )]
         service: Option<ServiceName>,
-        #[structopt(
-            short = "c",
-            long = "contest",
-            help = "Contest name",
-            raw(display_order = "2")
-        )]
+        #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
-        #[structopt(
-            short = "l",
-            long = "language",
-            help = "Language name",
-            raw(display_order = "3")
-        )]
+        #[structopt(raw(language = "3"))]
         language: Option<String>,
-        #[structopt(
-            short = "C",
-            long = "color",
-            name = "WHEN",
-            raw(
-                help = "ColorChoice::clap_help()",
-                default_value = "ColorChoice::clap_default_value()",
-                possible_values = "ColorChoice::clap_possible_values()",
-                display_order = "4"
-            )
-        )]
-        color_choice: ColorChoice,
+        #[structopt(raw(color_choice = "4"))]
+        color_choice: AnsiColorChoice,
     },
 
     #[structopt(
-        name = "login",
         about = "Logges in to a service",
+        name = "login",
         usage = "snowchains <l|login> [OPTIONS] <service>",
-        raw(display_order = "3", aliases = r#"&["l"]"#)
+        raw(alias = "\"l\"", display_order = "3"),
     )]
     Login {
-        #[structopt(
-            short = "C",
-            long = "color",
-            name = "WHEN",
-            raw(
-                help = "ColorChoice::clap_help()",
-                default_value = "ColorChoice::clap_default_value()",
-                possible_values = "ColorChoice::clap_possible_values()"
-            )
-        )]
-        color_choice: ColorChoice,
-        #[structopt(
-            name = "service",
-            help = "Service name",
-            raw(possible_values = r#"&["atcoder", "hackerrank", "yukicoder"]"#)
-        )]
+        #[structopt(raw(color_choice = "1"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(service = r#"&["atcoder", "hackerrank", "yukicoder"], Kind::Arg"#))]
         service: ServiceName,
     },
 
     #[structopt(
-        name = "participate",
         about = "Participates in a contest",
+        name = "participate",
         usage = "snowchains <p|participate> [OPTIONS] <service> <contest>",
-        raw(display_order = "4", aliases = r#"&["p"]"#)
+        raw(alias = "\"p\"", display_order = "4"),
     )]
     Participate {
-        #[structopt(
-            short = "C",
-            long = "color",
-            name = "WHEN",
-            raw(
-                help = "ColorChoice::clap_help()",
-                default_value = "ColorChoice::clap_default_value()",
-                possible_values = "ColorChoice::clap_possible_values()"
-            )
-        )]
-        color_choice: ColorChoice,
-        #[structopt(
-            name = "service",
-            help = "Service name",
-            raw(possible_values = r#"&["atcoder"]"#)
-        )]
+        #[structopt(raw(color_choice = "1"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(service = r#"&["atcoder"], Kind::Arg"#))]
         service: ServiceName,
-        #[structopt(name = "contest", help = "Contest name")]
+        #[structopt(raw(contest = "Kind::Arg"))]
         contest: String,
     },
 
     #[structopt(
-        name = "download",
         about = "Downloads test cases",
+        name = "download",
         usage = "snowchains <d|download> [FLAGS] [OPTIONS]",
-        raw(display_order = "5", aliases = r#"&["d"]"#)
+        raw(alias = "\"d\"", display_order = "5"),
     )]
     Download {
-        #[structopt(
-            short = "b",
-            long = "open-browser",
-            help = "Opens the pages with your default browser"
-        )]
+        #[structopt(raw(open_browser = "1"))]
         open_browser: bool,
-        #[structopt(
-            short = "s",
-            long = "service",
-            help = "Service name",
-            raw(
-                possible_values = r#"&["atcoder", "hackerrank", "yukicoder"]"#,
-                display_order = "1"
-            )
-        )]
+        #[structopt(raw(service = r#"&["atcoder", "hackerrank", "yukicoder"], Kind::Option(1)"#))]
         service: Option<ServiceName>,
-        #[structopt(
-            short = "c",
-            long = "contest",
-            help = "Contest name",
-            raw(display_order = "2")
-        )]
+        #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
-        #[structopt(
-            short = "p",
-            long = "problems",
-            help = "Problem names",
-            raw(display_order = "3")
-        )]
+        #[structopt(raw(problems = "3"))]
         problems: Vec<String>,
-        #[structopt(
-            short = "C",
-            long = "color",
-            name = "WHEN",
-            raw(
-                help = "ColorChoice::clap_help()",
-                default_value = "ColorChoice::clap_default_value()",
-                possible_values = "ColorChoice::clap_possible_values()",
-                display_order = "4"
-            )
-        )]
-        color_choice: ColorChoice,
+        #[structopt(raw(color_choice = "4"))]
+        color_choice: AnsiColorChoice,
     },
 
     #[structopt(
+        about = "Downloads source files you have submitted",
         name = "restore",
-        about = "Downloads the source codes you've submitted",
         usage = "snowchains <r|restore> [OPTIONS]",
-        raw(display_order = "6", aliases = r#"&["r"]"#)
+        raw(alias = "\"r\"", display_order = "6"),
     )]
     Restore {
-        #[structopt(
-            short = "s",
-            long = "service",
-            help = "Service name",
-            raw(display_order = "1", possible_values = "&[\"atcoder\"]")
-        )]
+        #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
         service: Option<ServiceName>,
-        #[structopt(
-            short = "c",
-            long = "contest",
-            help = "Contest name",
-            raw(display_order = "2")
-        )]
+        #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
-        #[structopt(
-            short = "p",
-            long = "problems",
-            help = "Problem names",
-            raw(display_order = "3")
-        )]
+        #[structopt(raw(problems = "3"))]
         problems: Vec<String>,
-        #[structopt(
-            short = "C",
-            long = "color",
-            name = "WHEN",
-            raw(
-                help = "ColorChoice::clap_help()",
-                default_value = "ColorChoice::clap_default_value()",
-                possible_values = "ColorChoice::clap_possible_values()",
-                display_order = "4"
-            )
-        )]
-        color_choice: ColorChoice,
+        #[structopt(raw(color_choice = "4"))]
+        color_choice: AnsiColorChoice,
     },
 
     #[structopt(
-        name = "append",
-        about = "Appends a test case to a test suite file",
-        usage = "snowchains <a|append> [OPTIONS] <problem> <extension> <input> [output]",
-        raw(display_order = "7", aliases = r#"&["a"]"#)
-    )]
-    Append {
-        #[structopt(
-            short = "s",
-            long = "service",
-            help = "Service name",
-            raw(
-                display_order = "1",
-                possible_values = r#"&["atcoder", "hackerrank", "other"]"#
-            )
-        )]
-        service: Option<ServiceName>,
-        #[structopt(
-            short = "c",
-            long = "contest",
-            help = "Contest name",
-            raw(display_order = "2")
-        )]
-        contest: Option<String>,
-        #[structopt(
-            short = "C",
-            long = "color",
-            name = "WHEN",
-            raw(
-                help = "ColorChoice::clap_help()",
-                default_value = "ColorChoice::clap_default_value()",
-                possible_values = "ColorChoice::clap_possible_values()",
-                display_order = "3"
-            )
-        )]
-        color_choice: ColorChoice,
-        #[structopt(name = "problem", help = "Problem name")]
-        problem: String,
-        #[structopt(
-            name = "extension",
-            help = "Extension",
-            raw(possible_values = r#"&["json", "toml", "yaml", "yml"]"#)
-        )]
-        extension: SerializableExtension,
-        #[structopt(name = "input", help = "\"input\" value to append")]
-        input: String,
-        #[structopt(name = "output", help = "\"expected\" value to append")]
-        output: Option<String>,
-    },
-
-    #[structopt(
-        name = "judge",
         about = "Tests a binary or script",
+        name = "judge",
         usage = "snowchains <j|judge> [FLAGS] [OPTIONS] <problem>",
-        raw(display_order = "8", aliases = r#"&["j"]"#)
+        raw(alias = "\"j\"", display_order = "7"),
     )]
     Judge {
-        #[structopt(long = "force-compile", help = "Force to compile")]
+        #[structopt(raw(force_compile = "1"))]
         force_compile: bool,
-        #[structopt(
-            short = "s",
-            long = "service",
-            help = "Service name",
-            raw(
-                display_order = "1",
-                possible_values = r#"&["atcoder", "hackerrank", "yukicoder", "other"]"#
-            )
-        )]
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
         service: Option<ServiceName>,
-        #[structopt(
-            short = "c",
-            long = "contest",
-            help = "Contest name",
-            raw(display_order = "2")
-        )]
+        #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
-        #[structopt(
-            short = "l",
-            long = "language",
-            help = "Language name",
-            raw(display_order = "3")
-        )]
+        #[structopt(raw(language = "3"))]
         language: Option<String>,
         #[structopt(
-            short = "j",
-            long = "jobs",
-            name = "number",
-            help = "Number of jobs",
-            raw(display_order = "4"),
+            parse(try_from_str = "parse_non_zero_usize"),
+            raw(jobs = "4"),
         )]
-        jobs: Option<NonZeroUsizeFromStr>,
-        #[structopt(
-            short = "C",
-            long = "color",
-            name = "WHEN",
-            raw(
-                help = "ColorChoice::clap_help()",
-                default_value = "ColorChoice::clap_default_value()",
-                possible_values = "ColorChoice::clap_possible_values()",
-                display_order = "5"
-            )
-        )]
-        color_choice: ColorChoice,
-        #[structopt(name = "problem", help = "Problem name")]
+        jobs: Option<NonZeroUsize>,
+        #[structopt(raw(color_choice = "4"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(problem = ""))]
         problem: String,
     },
 
     #[structopt(
+        about = "Submits a source file",
         name = "submit",
-        about = "Submits a source code",
         usage = "snowchains <s|submit> [FLAGS] [OPTIONS] <problem>",
-        raw(display_order = "9", aliases = r#"&["s"]"#)
+        raw(alias = "\"s\"", display_order = "8"),
     )]
     Submit {
-        #[structopt(
-            short = "b",
-            long = "open-browser",
-            help = "Opens the pages with your default browser"
-        )]
+        #[structopt(raw(open_browser = "1"))]
         open_browser: bool,
-        #[structopt(
-            long = "force-compile",
-            help = "Force to compile",
-            raw(conflicts_with = "\"skip_judging\"")
-        )]
+        #[structopt(raw(force_compile = "2", conflicts_with = "\"skip_judging\""))]
         force_compile: bool,
         #[structopt(
             long = "skip-judging",
             help = "Skips judging",
-            raw(conflicts_with = "\"force_compile\"")
+            raw(conflicts_with = "\"force_compile\"", display_order = "3"),
         )]
         skip_judging: bool,
         #[structopt(
-            short = "d",
             long = "skip-checking-duplication",
-            help = "Submits even if the contest is active and your code is already accepted"
+            help = "Submits even if the contest is active and you have already solved the problem",
+            raw(display_order = "4"),
         )]
         skip_checking_duplication: bool,
-        #[structopt(
-            short = "s",
-            long = "service",
-            help = "Service name",
-            raw(
-                possible_values = "&[\"atcoder\", \"yukicoder\"]",
-                display_order = "1"
-            )
-        )]
+        #[structopt(raw(service = "&[\"atcoder\", \"yukicoder\"], Kind::Option(1)"))]
         service: Option<ServiceName>,
-        #[structopt(
-            short = "c",
-            long = "contest",
-            help = "Contest name",
-            raw(display_order = "2")
-        )]
+        #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
-        #[structopt(
-            short = "l",
-            long = "language",
-            help = "Language name",
-            raw(display_order = "3")
-        )]
+        #[structopt(raw(language = "3"))]
         language: Option<String>,
         #[structopt(
-            short = "j",
-            long = "jobs",
-            name = "number",
-            help = "Number of jobs",
-            raw(conflicts_with = "\"skip_judging\"", display_order = "4")
+            parse(try_from_str = "parse_non_zero_usize"),
+            raw(jobs = "4"),
         )]
-        jobs: Option<NonZeroUsizeFromStr>,
-        #[structopt(
-            short = "C",
-            long = "color",
-            name = "WHEN",
-            raw(
-                help = "ColorChoice::clap_help()",
-                default_value = "ColorChoice::clap_default_value()",
-                possible_values = "ColorChoice::clap_possible_values()",
-                display_order = "5"
-            )
-        )]
-        color_choice: ColorChoice,
-        #[structopt(name = "problem", help = "Problem name")]
+        jobs: Option<NonZeroUsize>,
+        #[structopt(raw(color_choice = "5"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(problem = ""))]
         problem: String,
+    },
+
+    #[structopt(
+        about = "Prints information",
+        name = "show",
+        usage = "snowchains show num-cases [OPTIONS] <problem> <extension>\
+                 \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
+                 \n    snowchains show in [OPTIONS] <problem> <nth>\
+                 \n    snowchains show accepts [OPTIONS] <problem> <nth>",
+        raw(display_order = "9"),
+    )]
+    Show(Show),
+
+    #[structopt(
+        about = "Modifies values in a config file or test files",
+        name = "modify",
+        usage = "snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
+                 \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]\
+                 \n    snowchains modify match [OPTIONS] <problem> <extension> <match>",
+        raw(display_order = "10"),
+    )]
+    Modify(Modify),
+}
+
+#[derive(Debug, StructOpt)]
+pub enum Show {
+    #[structopt(
+        about = "Prints number of test cases (without EOL)",
+        name = "num-cases",
+        raw(display_order = "1"),
+    )]
+    NumCases {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+    },
+
+    #[structopt(
+        about = "Prints timelimit (without EOL)",
+        name = "timelimit-millis",
+        raw(display_order = "2"),
+    )]
+    TimelimitMillis {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+        #[structopt(raw(nth = ""))]
+        nth: usize,
+    },
+
+    #[structopt(
+        about = "Prints \"in\" value",
+        name = "in",
+        raw(display_order = "3"),
+    )]
+    In {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+        #[structopt(raw(nth = ""))]
+        nth: usize,
+    },
+
+    #[structopt(
+        about = "Tests for a value from stdin (without timelimit)",
+        name = "accepts",
+        raw(display_order = "4"),
+    )]
+    Accepts {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(color_choice = "3"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+        #[structopt(raw(nth = ""))]
+        nth: usize,
     },
 }
 
-pub struct App<RW: ConsoleReadWrite> {
+#[derive(Debug, StructOpt)]
+pub enum Modify {
+    #[structopt(
+        about = "Modifies a `timellimit`",
+        name = "timelimit",
+        raw(display_order = "1"),
+    )]
+    Timelimit {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(color_choice = "3"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+        #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
+        extension: SerializableExtension,
+        #[structopt(
+            help = "Timelimit (\\A[0-9]{1,19}(\\.[0-9]+)?m?s\\z)",
+            parse(try_from_str = "parse_timelimit"),
+        )]
+        timelimit: Option<Duration>,
+    },
+
+    #[structopt(
+        about = "Appends a test case to a test suite file",
+        name = "append",
+        raw(display_order = "2"),
+    )]
+    Append {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(color_choice = "3"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+        #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
+        extension: SerializableExtension,
+        #[structopt(help = "\"input\" value to append")]
+        input: String,
+        #[structopt(help = "\"expected\" value to append")]
+        output: Option<String>,
+    },
+
+    #[structopt(
+        about = "Modifies a `match`",
+        name = "match",
+        raw(display_order = "3"),
+    )]
+    Match {
+        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+        service: Option<ServiceName>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(color_choice = "3"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(problem = ""))]
+        problem: String,
+        #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
+        extension: SerializableExtension,
+        #[structopt(flatten)]
+        match_opts: MatchOpts,
+    },
+}
+
+static SERVICE_VALUES: &[&str] = &["atcoder", "hackerrank", "yukicoder", "other"];
+
+#[derive(StructOpt, Debug)]
+pub struct MatchOpts {
+    #[structopt(
+        name = "match",
+        help = "`match` type",
+        raw(possible_values = r#"&["accept_all", "exact", "float"]"#),
+    )]
+    kind: MatchKind,
+    #[structopt(
+        long = "relative",
+        help = "Relative error (ignored if <match> is not \"float\")",
+        raw(value_name = "\"FLOAT64\"", display_order = "4")
+    )]
+    relative_error: Option<f64>,
+    #[structopt(
+        long = "absolute",
+        help = "Absolute error (ignored if <match> is not \"float\")",
+        raw(value_name = "\"FLOAT64\"", display_order = "5")
+    )]
+    absolute_error: Option<f64>,
+}
+
+impl Into<testsuite::Match> for MatchOpts {
+    fn into(self) -> testsuite::Match {
+        match self.kind {
+            MatchKind::AcceptAll => testsuite::Match::AcceptAll,
+            MatchKind::Exact => testsuite::Match::Exact,
+            MatchKind::Float => testsuite::Match::Float {
+                relative_error: self.relative_error.unwrap_or(f64::NAN),
+                absolute_error: self.absolute_error.unwrap_or(f64::NAN),
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+enum MatchKind {
+    AcceptAll,
+    Exact,
+    Float,
+}
+
+impl FromStr for MatchKind {
+    type Err = Never;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Never> {
+        match s {
+            "accept_all" => Ok(MatchKind::AcceptAll),
+            "exact" => Ok(MatchKind::Exact),
+            "float" => Ok(MatchKind::Float),
+            _ => unreachable!(),
+        }
+    }
+}
+
+enum Kind {
+    Option(usize),
+    Arg,
+}
+
+trait ArgExt {
+    fn force_compile(self, order: usize) -> Self;
+    fn open_browser(self, order: usize) -> Self;
+    fn language(self, order: usize) -> Self;
+    fn problems(self, order: usize) -> Self;
+    fn jobs(self, order: usize) -> Self;
+    fn color_choice(self, order: usize) -> Self;
+    fn problem(self) -> Self;
+    fn nth(self) -> Self;
+    fn extension(self, values: &'static [&'static str]) -> Self;
+    fn service(self, values: &'static [&'static str], kind: Kind) -> Self;
+    fn contest(self, kind: Kind) -> Self;
+}
+
+impl ArgExt for Arg<'static, 'static> {
+    fn force_compile(self, order: usize) -> Self {
+        self.long("force-compile")
+            .help("Force to compile")
+            .display_order(order)
+    }
+
+    fn open_browser(self, order: usize) -> Self {
+        self.short("b")
+            .long("--open-browser")
+            .help("Opens the pages with your default browser")
+            .display_order(order)
+    }
+
+    fn language(self, order: usize) -> Self {
+        self.short("l")
+            .long("language")
+            .help("Language name")
+            .value_name("STRING")
+            .display_order(order)
+    }
+
+    fn problems(self, order: usize) -> Self {
+        self.short("p")
+            .long("problems")
+            .help("Problem names")
+            .value_name("STRING")
+            .display_order(order)
+    }
+
+    fn jobs(self, order: usize) -> Self {
+        self.short("j")
+            .long("jobs")
+            .help("Number of jobs")
+            .value_name("NUMBER")
+            .display_order(order)
+    }
+
+    fn color_choice(self, order: usize) -> Self {
+        self.short("C")
+            .long("color")
+            .help("Use colors")
+            .required(false)
+            .possible_values(&["never", "auto", "always"])
+            .value_name("WHEN")
+            .default_value("auto")
+            .display_order(order)
+    }
+
+    fn problem(self) -> Self {
+        self.help("Problem name")
+    }
+
+    fn nth(self) -> Self {
+        self.help("0-based index")
+    }
+
+    fn extension(self, values: &'static [&'static str]) -> Self {
+        self.help("Extension").possible_values(values)
+    }
+
+    fn service(mut self, values: &'static [&'static str], kind: Kind) -> Self {
+        self = self.help("Service name").possible_values(values);
+        if let Kind::Option(order) = kind {
+            self = self
+                .short("s")
+                .long("service")
+                .help("Service name")
+                .value_name("SERVICE")
+                .display_order(order);
+        }
+        self
+    }
+
+    fn contest(mut self, kind: Kind) -> Self {
+        self = self.help("Contest name");
+        if let Kind::Option(order) = kind {
+            self = self
+                .short("c")
+                .long("contest")
+                .value_name("STRING")
+                .display_order(order);
+        }
+        self
+    }
+}
+
+fn parse_non_zero_usize(s: &str) -> std::result::Result<NonZeroUsize, String> {
+    let n = s.parse::<usize>().map_err(|e| e.to_string())?;
+    NonZeroUsize::new(n).ok_or_else(|| "must be non-zero".to_owned())
+}
+
+fn parse_timelimit(s: &str) -> std::result::Result<Duration, &'static str> {
+    static R: Lazy<Regex> = lazy_regex!(r"\A([0-9]{1,19})(\.[0-9]+)?(m)?s\z");
+    let caps = R
+        .captures(s)
+        .ok_or(r"Input must match \A[0-9]{1,19}(\.[0-9]+)?m?s\z")?;
+    Ok({
+        let (secs, nanos);
+        if caps.get(3).is_none() {
+            secs = caps[1].parse().unwrap();
+            nanos = caps
+                .get(2)
+                .map(|m| &m.as_str()[1..])
+                .unwrap_or("")
+                .as_bytes()
+                .iter()
+                .scan(1_000_000_000, |k, &c| {
+                    *k /= 10;
+                    Some(*k * u32::from(c - b'0'))
+                }).sum::<u32>();
+        } else {
+            let millis = caps[1].parse::<u64>().unwrap();
+            secs = millis / 1000;
+            nanos = 1_000_000 * ((millis % 1000) as u32) + caps
+                .get(2)
+                .map(|m| &m.as_str()[1..])
+                .unwrap_or("")
+                .as_bytes()
+                .iter()
+                .scan(1_000_000, |k, &c| {
+                    *k /= 10;
+                    Some(*k * u32::from(c - b'0'))
+                }).sum::<u32>();
+        }
+        Duration::new(secs, nanos)
+    })
+}
+
+pub struct App<T: Term> {
     pub working_dir: AbsPathBuf,
     pub cookies_on_init: Cow<'static, str>,
     pub credentials: Credentials,
-    pub console: RW,
+    pub term: T,
 }
 
-impl<RW: ConsoleReadWrite> App<RW> {
+impl<T: Term> App<T> {
     pub fn run(&mut self, opt: Opt) -> ::Result<()> {
         info!("Opt = {:?}", opt);
         let working_dir = self.working_dir.clone();
         let cookies_on_init = self.cookies_on_init.clone();
         match opt {
-            Opt::Init {
-                color_choice,
-                directory,
-            } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
+            Opt::Init { directory, .. } => {
                 let wd = working_dir.join(&directory);
-                config::init(self.console.stdout(), &wd, &cookies_on_init)?;
+                config::init(self.term.stdout(), &wd, &cookies_on_init)?;
             }
             Opt::Switch {
                 service,
@@ -463,10 +592,11 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 language,
                 color_choice,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
+                let (_, stdout, stderr) = self.term.split_mut();
                 config::switch(
-                    self.console.stdout_and_stderr(),
+                    stdout,
+                    stderr,
+                    color_choice,
                     &working_dir,
                     service,
                     contest,
@@ -477,10 +607,8 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 color_choice,
                 service,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.stdout(), service, None, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, None, &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 let sess_prop = self.sess_prop(&config)?;
                 match service {
                     ServiceName::Atcoder => atcoder::login(sess_prop),
@@ -494,15 +622,8 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 service,
                 contest,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(
-                    self.console.stdout(),
-                    service,
-                    contest.clone(),
-                    &working_dir,
-                )?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, contest.clone(), &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 let sess_prop = self.sess_prop(&config)?;
                 match service {
                     ServiceName::Atcoder => atcoder::participate(&contest, sess_prop),
@@ -516,12 +637,10 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 problems,
                 color_choice,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 let sess_prop = self.sess_prop(&config)?;
-                let download_prop = DownloadProp::new(&config, open_browser, problems)?;
+                let download_prop = DownloadProp::try_new(&config, open_browser, problems)?;
                 match config.service() {
                     ServiceName::Atcoder => atcoder::download(sess_prop, download_prop),
                     ServiceName::Hackerrank => hackerrank::download(sess_prop, download_prop),
@@ -535,35 +654,14 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 problems,
                 color_choice,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 let sess_prop = self.sess_prop(&config)?;
-                let restore_prop = RestoreProp::new(&config, problems)?;
+                let restore_prop = RestoreProp::try_new(&config, problems)?;
                 match config.service() {
                     ServiceName::Atcoder => atcoder::restore(sess_prop, restore_prop)?,
                     _ => return Err(::Error::Unimplemented),
                 };
-            }
-            Opt::Append {
-                service,
-                contest,
-                color_choice,
-                problem,
-                extension,
-                input,
-                output,
-            } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
-                let path = config
-                    .download_destinations(Some(extension))
-                    .scraping(&problem)?;
-                let output = output.as_ref().map(String::as_str);
-                testsuite::append(&problem, &path, &input, output, self.console.stdout())?;
             }
             Opt::Judge {
                 force_compile,
@@ -574,20 +672,18 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 color_choice,
                 problem,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
-                let language = language.as_ref().map(String::as_str);
-                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
-                let judge_prop = JudgeProp::new(
-                    self.console.stdout_and_stderr(),
-                    &config,
-                    &problem,
-                    language,
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
+                let (_, stdout, stderr) = self.term.split_mut();
+                judging::judge(JudgeParams {
+                    stdout,
+                    stderr,
+                    config: &config,
+                    problem: &problem,
+                    language: language.as_ref().map(String::as_ref),
                     force_compile,
-                    jobs.map(|jobs| jobs.0),
-                )?;
-                judging::judge(judge_prop)?;
+                    jobs,
+                })?;
             }
             Opt::Submit {
                 open_browser,
@@ -601,24 +697,24 @@ impl<RW: ConsoleReadWrite> App<RW> {
                 color_choice,
                 problem,
             } => {
-                self.console
-                    .fill_palettes(color_choice, &console::Conf::default())?;
                 let language = language.as_ref().map(String::as_str);
-                let config = Config::load(self.console.stdout(), service, contest, &working_dir)?;
-                self.console.fill_palettes(color_choice, config.console())?;
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
                 if !skip_judging {
-                    judging::judge(JudgeProp::new(
-                        self.console.stdout_and_stderr(),
-                        &config,
-                        &problem,
+                    let (_, mut stdout, stderr) = self.term.split_mut();
+                    judging::judge(JudgeParams {
+                        stdout: &mut stdout,
+                        stderr,
+                        config: &config,
+                        problem: &problem,
                         language,
                         force_compile,
-                        jobs.map(|jobs| jobs.0),
-                    )?)?;
-                    writeln!(self.console.stdout())?;
+                        jobs,
+                    })?;
+                    writeln!(stdout)?;
                 }
                 let sess_prop = self.sess_prop(&config)?;
-                let submit_prop = SubmitProp::new(
+                let submit_prop = SubmitProp::try_new(
                     &config,
                     problem.clone(),
                     language,
@@ -631,14 +727,106 @@ impl<RW: ConsoleReadWrite> App<RW> {
                     _ => return Err(::Error::Unimplemented),
                 };
             }
+            Opt::Show(Show::NumCases {
+                service,
+                contest,
+                problem,
+            }) => {
+                let config = Config::load(service, contest, &working_dir)?;
+                let num_cases = judging::num_cases(&config, &problem)?;
+                write!(self.term.stdout(), "{}", num_cases)?;
+                self.term.stdout().flush()?;
+            }
+            Opt::Show(Show::TimelimitMillis {
+                service,
+                contest,
+                problem,
+                nth,
+            }) => {
+                let config = Config::load(service, contest, &working_dir)?;
+                let timelimit = judging::timelimit_millis(&config, &problem, nth)?;
+                write!(self.term.stdout(), "{}", timelimit)?;
+                self.term.stdout().flush()?;
+            }
+            Opt::Show(Show::In {
+                service,
+                contest,
+                problem,
+                nth,
+            }) => {
+                let config = Config::load(service, contest, &working_dir)?;
+                let input = judging::input(&config, &problem, nth)?;
+                write!(self.term.stdout(), "{}", input)?;
+                self.term.stdout().flush()?;
+            }
+            Opt::Show(Show::Accepts {
+                service,
+                contest,
+                color_choice,
+                problem,
+                nth,
+            }) => {
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
+                let (stdin, _, stderr) = self.term.split_mut();
+                judging::accepts(&config, &problem, nth, stdin, stderr)?;
+            }
+            Opt::Modify(Modify::Timelimit {
+                service,
+                contest,
+                color_choice,
+                problem,
+                extension,
+                timelimit,
+            }) => {
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
+                let path = config
+                    .download_destinations(Some(extension))
+                    .scraping(&problem)?;
+                testsuite::modify_timelimit(self.term.stdout(), &problem, &path, timelimit)?;
+            }
+            Opt::Modify(Modify::Append {
+                service,
+                contest,
+                color_choice,
+                problem,
+                extension,
+                input,
+                output,
+            }) => {
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
+                let path = config
+                    .download_destinations(Some(extension))
+                    .scraping(&problem)?;
+                let output = output.as_ref().map(String::as_str);
+                testsuite::modify_append(&problem, &path, &input, output, self.term.stdout())?;
+            }
+            Opt::Modify(Modify::Match {
+                service,
+                contest,
+                color_choice,
+                problem,
+                extension,
+                match_opts,
+            }) => {
+                let config = Config::load(service, contest, &working_dir)?;
+                self.term.setup(color_choice, config.console());
+                let path = config
+                    .download_destinations(Some(extension))
+                    .scraping(&problem)?;
+                let output_match = match_opts.into();
+                testsuite::modify_match(self.term.stdout(), &problem, &path, output_match)?;
+            }
         }
         Ok(())
     }
 
-    fn sess_prop(&mut self, config: &Config) -> ExpandTemplateResult<SessionProp<&mut RW>> {
+    fn sess_prop(&mut self, config: &Config) -> ExpandTemplateResult<SessionProp<&mut T>> {
         let cookies_path = config.session_cookies().expand("")?;
         Ok(SessionProp {
-            console: &mut self.console,
+            term: &mut self.term,
             domain: config.service().domain(),
             cookies_path,
             timeout: config.session_timeout(),
@@ -647,15 +835,29 @@ impl<RW: ConsoleReadWrite> App<RW> {
     }
 }
 
-#[derive(Debug)]
-pub struct NonZeroUsizeFromStr(NonZeroUsize);
+#[cfg(test)]
+mod tests {
+    use super::parse_timelimit;
 
-impl FromStr for NonZeroUsizeFromStr {
-    type Err = String;
+    use std::time::Duration;
 
-    fn from_str(s: &str) -> std::result::Result<Self, String> {
-        let n = s.parse::<usize>().map_err(|e| e.to_string())?;
-        let n = NonZeroUsize::new(n).ok_or_else(|| "must be non-zero".to_owned())?;
-        Ok(NonZeroUsizeFromStr(n))
+    #[test]
+    fn it_parses_a_timelimit() {
+        for (s, t) in &[
+            ("0.0s", Duration::new(0, 0)),
+            ("0.5678s", Duration::new(0, 567800000)),
+            ("1234.0s", Duration::new(1234, 0)),
+            ("1234.5678s", Duration::new(1234, 567800000)),
+            ("0s", Duration::new(0, 0)),
+            ("1234s", Duration::new(1234, 0)),
+            ("0.0ms", Duration::new(0, 0)),
+            ("0.5678ms", Duration::new(0, 567800)),
+            ("1234.0ms", Duration::new(1, 234000000)),
+            ("1234.5678ms", Duration::new(1, 234567800)),
+            ("0ms", Duration::new(0, 0)),
+            ("1234ms", Duration::new(1, 234000000)),
+        ] {
+            assert_eq!(parse_timelimit(s).unwrap(), *t);
+        }
     }
 }

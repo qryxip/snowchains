@@ -95,7 +95,7 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
                 .into_iter()
                 .zip(paths.iter())
                 .zip(pb_rx.collect().wait().unwrap())
-                .map(|((resp, path), pb)| DownloadBody::new(resp, &path, pb))
+                .map(|((resp, path), pb)| DownloadBody::try_new(resp, &path, pb))
                 .collect::<FileIoResult<Vec<_>>>()?;
             core.run(future::join_all(works).map(|_| ()))
         });
@@ -178,7 +178,7 @@ struct DownloadBody {
 }
 
 impl DownloadBody {
-    fn new(
+    fn try_new(
         response: reqwest::async::Response,
         path: AbsPath,
         mut progress_bar: ProgressBar<Pipe>,

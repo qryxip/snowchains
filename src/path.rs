@@ -100,6 +100,12 @@ impl Into<PathBuf> for AbsPathBuf {
     }
 }
 
+impl Into<OsString> for AbsPathBuf {
+    fn into(self) -> OsString {
+        self.0.into()
+    }
+}
+
 impl Default for AbsPathBuf {
     fn default() -> Self {
         if cfg!(target_os = "windows") {

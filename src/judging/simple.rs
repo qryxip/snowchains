@@ -1,97 +1,220 @@
-use command::JudgingCommand;
-use console::{ConsoleWrite, Palette};
-use errors::JudgeError;
+use errors::JudgeResult;
+use judging::command::JudgingCommand;
 use judging::text::{Line, PrintAligned, Text, Width, Word};
 use judging::{MillisRoundedUp, Outcome};
+use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use testsuite::{ExpectedStdout, SimpleCase};
 
-use diff;
 use futures::{task, Async, Future, Poll};
-use tokio::io::{AsyncRead, AsyncWrite as _AsyncWrite};
-use tokio_process;
+use tokio::io::{AsyncRead, AsyncWrite};
+use {diff, tokio_process};
 
-use std::io::{self, Write as _Write};
+use std::borrow::Cow;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{self, cmp, fmt, mem};
+use std::{self, cmp, fmt, io, mem};
+
+pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
+    let input = Text::exact(&case.input());
+    let stdout = if case.remove_crlf_from_actual_stdout() && stdout.contains("\r\n") {
+        Cow::from(stdout.replace("\r\n", "\n"))
+    } else {
+        Cow::from(stdout)
+    };
+    let (stdout, expected, example) = match case.expected().as_ref() {
+        ExpectedStdout::AcceptAny { example } => (
+            Text::exact(&stdout),
+            None,
+            example.as_ref().map(|s| Text::exact(s)),
+        ),
+        ExpectedStdout::Exact(expected) => {
+            (Text::exact(&stdout), Some(Text::exact(expected)), None)
+        }
+        ExpectedStdout::Float {
+            string,
+            absolute_error,
+            relative_error,
+        } => {
+            let errors = Some((*absolute_error, *relative_error));
+            let expected = Text::float(string, errors);
+            let stdout = Text::float(&stdout, None);
+            (stdout, Some(expected), None)
+        }
+    };
+    if let Some(expected) = &expected {
+        if stdout != *expected {
+            return SimpleOutcomeInner::WrongAnswer {
+                elapsed: Duration::new(0, 0),
+                input,
+                diff: TextDiff::new(expected, &stdout),
+                stderr: Text::exact(""),
+            }.into();
+        }
+    }
+    SimpleOutcomeInner::Accepted {
+        elapsed: Duration::new(0, 0),
+        input,
+        example,
+        stdout,
+        stderr: Text::exact(""),
+    }.into()
+}
 
 pub(super) fn judge(
     case: &SimpleCase,
     solver: &Arc<JudgingCommand>,
-) -> impl Future<Item = SimpleOutcome, Error = JudgeError> {
-    // https://github.com/rust-lang/rust/issues/54427
-    Judge {
+) -> JudgeResult<impl Future<Item = SimpleOutcome, Error = io::Error>> {
+    let (stdout_buf, stderr_buf) = (Vec::with_capacity(1024), Vec::with_capacity(1024));
+    let mut solver = solver.spawn_async_piped()?;
+    let start = Instant::now();
+    let deadline = case.timelimit().map(|t| start + t);
+    let stdin = solver.stdin().take().unwrap();
+    let stdout = solver.stdout().take().unwrap();
+    let stderr = solver.stderr().take().unwrap();
+    Ok(Judge {
         input: case.input(),
         expected: case.expected(),
-        timelimit: case.timelimit(),
-        solver: solver.clone(),
-        process: None,
-    }
+        stdin: Writing::NotReady(stdin, 0),
+        status: Waiting::NotReady(solver, start, deadline),
+        stdout: Reading::NotReady(stdout, stdout_buf, case.remove_crlf_from_actual_stdout()),
+        stderr: Reading::NotReady(stderr, stderr_buf, case.remove_crlf_from_actual_stdout()),
+    })
 }
 
 struct Judge {
     input: Arc<String>,
     expected: Arc<ExpectedStdout>,
-    timelimit: Option<Duration>,
-    solver: Arc<JudgingCommand>,
-    process: Option<RunCommand>,
+    stdin: Writing<tokio_process::ChildStdin>,
+    status: Waiting<tokio_process::Child>,
+    stdout: Reading<tokio_process::ChildStdout>,
+    stderr: Reading<tokio_process::ChildStderr>,
 }
 
 impl Future for Judge {
     type Item = SimpleOutcome;
-    type Error = JudgeError;
+    type Error = io::Error;
 
-    fn poll(&mut self) -> Poll<SimpleOutcome, JudgeError> {
-        if self.process.is_none() {
-            let solver = self.solver.spawn_async_piped()?;
-            let start = Instant::now();
-            self.process = Some(RunCommand {
-                process: solver,
-                input: self.input.clone(),
-                state: State::Writing(0),
-                stdout: Vec::with_capacity(2048),
-                stderr: Vec::with_capacity(2048),
-                start,
-                deadline: self.timelimit.map(|t| start + t),
-            });
-            task::current().notify();
-            Ok(Async::NotReady)
-        } else {
-            let result = try_ready!(self.process.as_mut().unwrap().poll());
-            Ok(Async::Ready(match result {
-                Err(timelimit) => SimpleOutcomeInner::TimelimitExceeded {
+    fn poll(&mut self) -> Poll<SimpleOutcome, io::Error> {
+        try_ready!(self.stdin.poll_write(self.input.as_bytes()));
+        if let Err(timelimit) = try_ready!(self.status.poll_wait()) {
+            return Ok(Async::Ready(
+                SimpleOutcomeInner::TimelimitExceeded {
                     timelimit,
                     input: Text::exact(&self.input),
                     expected: match self.expected.as_ref() {
                         ExpectedStdout::AcceptAny { .. } => None,
                         ExpectedStdout::Exact(expected) => Some(Text::exact(&expected)),
-                        ExpectedStdout::Float {
-                            lines: expected, ..
-                        } => Some(Text::float(expected, None)),
+                        ExpectedStdout::Float { string, .. } => Some(Text::float(string, None)),
                     },
                 }.into(),
-                Ok(outcome) => outcome.compare(&self.expected),
-            }))
+            ));
+        }
+        try_ready!(self.stdout.poll_read());
+        try_ready!(self.stderr.poll_read());
+
+        let (status, elapsed) = self.status.unwrap();
+        let outcome = CommandOutcome {
+            status,
+            elapsed,
+            input: self.input.clone(),
+            stdout: Arc::new(self.stdout.unwrap()),
+            stderr: Arc::new(self.stderr.unwrap()),
+        };
+        Ok(Async::Ready(outcome.compare(&self.expected)))
+    }
+}
+
+enum Writing<W: AsyncWrite> {
+    NotReady(W, usize),
+    Ready,
+}
+
+impl<W: AsyncWrite> Writing<W> {
+    /// # Panics
+    ///
+    /// Panics if `num_wrote` >= `input.len()` where `self == Writing::NotReady(_, num_wrote)`
+    fn poll_write(&mut self, input: &[u8]) -> Poll<(), io::Error> {
+        let poll_status;
+        match self {
+            Writing::Ready => return Ok(Async::Ready(())),
+            Writing::NotReady(stdin, num_wrote) => match stdin.poll_write(&input[*num_wrote..]) {
+                Err(ref err) if err.kind() == io::ErrorKind::BrokenPipe => {
+                    poll_status = Async::Ready(())
+                }
+                Err(err) => return Err(err),
+                Ok(Async::NotReady) => poll_status = Async::NotReady,
+                Ok(Async::Ready(n)) => {
+                    *num_wrote += n;
+                    poll_status = if *num_wrote == input.len() {
+                        Async::Ready(())
+                    } else {
+                        Async::NotReady
+                    };
+                }
+            },
+        };
+        match &poll_status {
+            Async::Ready(()) => *self = Writing::Ready,
+            Async::NotReady => task::current().notify(),
+        }
+        Ok(poll_status)
+    }
+}
+
+enum Waiting<F: Future<Item = ExitStatus>> {
+    NotReady(F, Instant, Option<Instant>), // _1 <= _2
+    Ready(ExitStatus, Duration),
+}
+
+impl<F: Future<Item = ExitStatus>> Waiting<F> {
+    fn poll_wait(&mut self) -> Poll<std::result::Result<(), Duration>, F::Error> {
+        let result;
+        match self {
+            Waiting::Ready(..) => return Ok(Async::Ready(Ok(()))),
+            Waiting::NotReady(f, start, deadline) => {
+                let now = Instant::now();
+                if deadline.is_some() && now > (*deadline).unwrap() {
+                    result = Some(Err((*deadline).unwrap() - *start));
+                } else {
+                    result = match f.poll()? {
+                        Async::NotReady => None,
+                        Async::Ready(s) => Some(Ok((s, now - *start))),
+                    };
+                }
+            }
+        }
+        match result {
+            None => {
+                task::current().notify();
+                Ok(Async::NotReady)
+            }
+            Some(Ok((s, t))) => {
+                *self = Waiting::Ready(s, t);
+                Ok(Async::Ready(Ok(())))
+            }
+            Some(Err(t)) => Ok(Async::Ready(Err(t))),
+        }
+    }
+
+    /// # Panics
+    ///
+    /// Panics if `self` is `Waiting::NotReady(..)`.
+    fn unwrap(&self) -> (ExitStatus, Duration) {
+        match self {
+            Waiting::NotReady(..) => panic!(),
+            Waiting::Ready(s, t) => (*s, *t),
         }
     }
 }
 
-struct RunCommand {
-    process: tokio_process::Child,
-    input: Arc<String>,
-    state: State,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-    start: Instant,
-    deadline: Option<Instant>,
+enum Reading<R: AsyncRead> {
+    NotReady(R, Vec<u8>, bool),
+    Ready(String),
 }
 
-impl Future for RunCommand {
-    type Item = std::result::Result<CommandOutcome, Duration>;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<std::result::Result<CommandOutcome, Duration>, io::Error> {
+impl<R: AsyncRead> Reading<R> {
+    fn poll_read(&mut self) -> Poll<(), io::Error> {
         fn string_from_utf8(s: Vec<u8>) -> io::Result<String> {
             String::from_utf8(s).map_err(|_| {
                 io::Error::new(
@@ -101,101 +224,48 @@ impl Future for RunCommand {
             })
         }
 
-        match self.state {
-            State::Writing(num_wrote) => {
-                task::current().notify();
-                let stdin = self.process.stdin().as_mut().unwrap();
-                let input = &self.input.as_bytes()[num_wrote..];
-                match stdin.poll_write(input) {
-                    Err(ref err) if err.kind() == io::ErrorKind::BrokenPipe => {
-                        self.state = State::PollingStatus;
-                        Ok(Async::NotReady)
+        let poll_status;
+        match self {
+            Reading::Ready(_) => return Ok(Async::Ready(())),
+            Reading::NotReady(out, buf, _) => match try_ready!(out.read_buf(buf)) {
+                0 => poll_status = Async::Ready(()),
+                _ => {
+                    if buf.len() + 512 > buf.capacity() {
+                        buf.reserve(1024);
                     }
-                    Err(err) => Err(err),
-                    Ok(Async::NotReady) => Ok(Async::NotReady),
-                    Ok(Async::Ready(n)) => {
-                        let num_wrote = num_wrote + n;
-                        self.state = if num_wrote == self.input.len() {
-                            State::ShuttingDownStdin
+                    poll_status = Async::NotReady;
+                }
+            },
+        }
+        match &poll_status {
+            Async::Ready(()) => {
+                let s = match self {
+                    Reading::Ready(_) => unreachable!(),
+                    Reading::NotReady(_, buf, remove_crlf) => {
+                        let s = string_from_utf8(mem::replace(buf, vec![]))?;
+                        if *remove_crlf && s.contains("\r\n") {
+                            s.replace("\r\n", "\n")
                         } else {
-                            State::Writing(num_wrote)
-                        };
-                        Ok(Async::NotReady)
+                            s
+                        }
                     }
-                }
+                };
+                *self = Reading::Ready(s);
             }
-            State::ShuttingDownStdin => {
-                task::current().notify();
-                try_ready!(self.process.stdin().as_mut().unwrap().shutdown());
-                self.process.stdin().take(); // sends EOF by dropping `stdin`
-                self.state = State::PollingStatus;
-                Ok(Async::NotReady)
-            }
-            State::PollingStatus => {
-                task::current().notify();
-                let now = Instant::now();
-                if self.deadline.is_some() && self.deadline.unwrap() < now {
-                    self.process.kill()?;
-                    return Ok(Async::Ready(Err(self.deadline.unwrap() - self.start)));
-                }
-                let (status, time) = (try_ready!(self.process.poll()), now - self.start);
-                self.state = State::PollingStdout(status, time);
-                Ok(Async::NotReady)
-            }
-            State::PollingStdout(status, time) => {
-                task::current().notify();
-                try_ready!(self.poll_output(
-                    |this| this.process.stdout().as_mut().unwrap(),
-                    |this| &mut this.stdout,
-                ));
-                self.state = State::PollingStderr(status, time);
-                Ok(Async::NotReady)
-            }
-            State::PollingStderr(status, time) => {
-                task::current().notify();
-                try_ready!(self.poll_output(
-                    |this| this.process.stderr().as_mut().unwrap(),
-                    |this| &mut this.stderr,
-                ));
-                let stdout = string_from_utf8(mem::replace(&mut self.stdout, vec![]))?;
-                let stderr = string_from_utf8(mem::replace(&mut self.stderr, vec![]))?;
-                Ok(Async::Ready(Ok(CommandOutcome {
-                    status,
-                    elapsed: time,
-                    input: self.input.clone(),
-                    stdout: Arc::new(stdout),
-                    stderr: Arc::new(stderr),
-                })))
-            }
+            Async::NotReady => task::current().notify(),
+        }
+        Ok(poll_status)
+    }
+
+    /// # Panics
+    ///
+    /// Panics if `self` is `Reading::NotReady(..)`.
+    fn unwrap(&mut self) -> String {
+        match self {
+            Reading::NotReady(..) => panic!(),
+            Reading::Ready(s) => mem::replace(s, "".to_owned()),
         }
     }
-}
-
-impl RunCommand {
-    fn poll_output<R: AsyncRead>(
-        &mut self,
-        pipe: fn(&mut Self) -> &mut R,
-        buf: fn(&mut Self) -> &mut Vec<u8>,
-    ) -> Poll<(), io::Error> {
-        let mut temp_buf = unsafe { mem::uninitialized::<[u8; 1024]>() };
-        match try_ready!(pipe(self).poll_read(&mut temp_buf)) {
-            0 => Ok(Async::Ready(())),
-            n => {
-                buf(self).extend_from_slice(&temp_buf[..n]);
-                task::current().notify();
-                Ok(Async::NotReady)
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum State {
-    Writing(usize),
-    ShuttingDownStdin,
-    PollingStatus,
-    PollingStdout(ExitStatus, Duration),
-    PollingStderr(ExitStatus, Duration),
 }
 
 struct CommandOutcome {
@@ -211,20 +281,24 @@ impl CommandOutcome {
         let (status, elapsed) = (self.status, self.elapsed);
         let input = Text::exact(&self.input);
         let stderr = Text::exact(&self.stderr);
-        let (stdout, expected) = match expected {
-            ExpectedStdout::AcceptAny => (Text::exact(&self.stdout), None),
+        let (stdout, expected, example) = match expected {
+            ExpectedStdout::AcceptAny { example } => (
+                Text::exact(&self.stdout),
+                None,
+                example.as_ref().map(|s| Text::exact(s)),
+            ),
             ExpectedStdout::Exact(expected) => {
-                (Text::exact(&self.stdout), Some(Text::exact(expected)))
+                (Text::exact(&self.stdout), Some(Text::exact(expected)), None)
             }
             ExpectedStdout::Float {
-                lines,
+                string,
                 absolute_error,
                 relative_error,
             } => {
                 let errors = Some((*absolute_error, *relative_error));
-                let expected = Text::float(lines, errors);
+                let expected = Text::float(string, errors);
                 let stdout = Text::float(&self.stdout, None);
-                (stdout, Some(expected))
+                (stdout, Some(expected), None)
             }
         };
         if !status.success() {
@@ -247,6 +321,7 @@ impl CommandOutcome {
             SimpleOutcomeInner::Accepted {
                 elapsed,
                 input,
+                example,
                 stdout,
                 stderr,
             }
@@ -292,53 +367,56 @@ impl Outcome for SimpleOutcome {
         }
     }
 
-    fn palette(&self) -> Palette {
+    fn color(&self) -> u8 {
         match self.inner {
-            SimpleOutcomeInner::Accepted { .. } => Palette::Success,
-            SimpleOutcomeInner::TimelimitExceeded { .. } => Palette::Fatal,
-            SimpleOutcomeInner::WrongAnswer { .. } | SimpleOutcomeInner::RuntimeError { .. } => {
-                Palette::Warning
-            }
+            SimpleOutcomeInner::Accepted { .. } => 10,
+            SimpleOutcomeInner::TimelimitExceeded { .. } => 9,
+            SimpleOutcomeInner::WrongAnswer { .. } | SimpleOutcomeInner::RuntimeError { .. } => 11,
         }
     }
 
-    fn print_details(&self, mut out: impl ConsoleWrite) -> io::Result<()> {
-        fn print_section(mut out: impl ConsoleWrite, title: &str, text: &Text) -> io::Result<()> {
-            writeln!(out.bold(Palette::Title), "{}", title)?;
+    fn print_details(&self, mut out: impl TermOut) -> io::Result<()> {
+        fn print_section(mut out: impl TermOut, title: &str, text: &Text) -> io::Result<()> {
+            out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+            out.write_str("\n")?;
             if text.is_empty() {
-                writeln!(out.bold(Palette::Warning), "EMPTY")
+                out.with_reset(|o| o.fg(11)?.bold()?.write_str("EMPTY\n"))
             } else {
                 text.print_all(out)
             }
         }
 
         fn print_section_unless_empty<'a>(
-            mut out: impl ConsoleWrite,
+            mut out: impl TermOut,
             title: &str,
             text: impl Into<Option<&'a Text>>,
         ) -> io::Result<()> {
             if let Some(text) = text.into() {
                 if !text.is_empty() {
-                    writeln!(out.bold(Palette::Title), "{}", title)?;
+                    out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+                    out.write_str("\n")?;
                     text.print_all(out)?;
                 }
             }
             Ok(())
         }
 
-        fn print_diff(mut out: impl ConsoleWrite, title: &str, diff: &TextDiff) -> io::Result<()> {
-            writeln!(out.bold(Palette::Title), "{}", title)?;
+        fn print_diff(mut out: impl TermOut, title: &str, diff: &TextDiff) -> io::Result<()> {
+            out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+            out.write_str("\n")?;
             diff.print(out)
         }
 
         match &self.inner {
             SimpleOutcomeInner::Accepted {
                 input,
+                example,
                 stdout,
                 stderr,
                 ..
             } => {
                 print_section(&mut out, "input:", input)?;
+                print_section_unless_empty(&mut out, "example:", example.as_ref())?;
                 print_section(&mut out, "stdout:", stdout)?;
                 print_section_unless_empty(&mut out, "stderr:", stderr)
             }
@@ -385,6 +463,7 @@ enum SimpleOutcomeInner {
     Accepted {
         elapsed: Duration,
         input: Text,
+        example: Option<Text>,
         stdout: Text,
         stderr: Text,
     },
@@ -488,10 +567,10 @@ impl TextDiff {
         }
     }
 
-    fn print(&self, out: impl ConsoleWrite) -> io::Result<()> {
+    fn print(&self, out: impl TermOut) -> io::Result<()> {
         fn print(
             lines: &[(impl PrintAligned, impl PrintAligned)],
-            mut out: impl ConsoleWrite,
+            mut out: impl TermOut,
         ) -> io::Result<()> {
             let (l_max_width, r_max_width) = {
                 let (mut l_max_width, mut r_max_width) = (0, 0);
@@ -502,19 +581,19 @@ impl TextDiff {
                 (l_max_width, r_max_width)
             };
             let (wl, wr) = (cmp::max(l_max_width, 8), cmp::max(r_max_width, 6));
-            out.write_all("│".as_bytes())?;
-            out.bold(Palette::Title).write_all(b"expected")?;
+            out.write_str("│")?;
+            out.with_reset(|o| o.fg(13)?.bold()?.write_str("expected"))?;
             out.write_spaces(wl - 8)?;
-            out.write_all("│".as_bytes())?;
-            out.bold(Palette::Title).write_all(b"stdout")?;
+            out.write_str("│")?;
+            out.with_reset(|o| o.fg(13)?.bold()?.write_str("stdout"))?;
             out.write_spaces(wr - 6)?;
-            out.write_all("│\n".as_bytes())?;
+            out.write_str("│\n")?;
             for (l, r) in lines {
-                out.write_all("│".as_bytes())?;
+                out.write_str("│")?;
                 l.print_aligned(&mut out, wl)?;
-                out.write_all("│".as_bytes())?;
+                out.write_str("│")?;
                 r.print_aligned(&mut out, wr)?;
-                out.write_all("│\n".as_bytes())?;
+                out.write_str("│\n")?;
             }
             Ok(())
         }
@@ -546,7 +625,7 @@ type LineDiffDetialed = Line<Diff<Word>>;
 type LineDiff = Diff<Line<Word>>;
 
 impl PrintAligned for LineDiffDetialed {
-    fn print_aligned<W: ConsoleWrite>(&self, mut out: W, min_width: usize) -> io::Result<()> {
+    fn print_aligned<W: TermOut>(&self, mut out: W, min_width: usize) -> io::Result<()> {
         for word_diff in self.words() {
             match word_diff {
                 Diff::Common(w) => w.print_as_common(&mut out),
@@ -559,7 +638,7 @@ impl PrintAligned for LineDiffDetialed {
 }
 
 impl PrintAligned for LineDiff {
-    fn print_aligned<W: ConsoleWrite>(&self, mut out: W, min_width: usize) -> io::Result<()> {
+    fn print_aligned<W: TermOut>(&self, mut out: W, min_width: usize) -> io::Result<()> {
         let (l, f): (_, fn(&Word, &mut W) -> io::Result<()>) = match self {
             Diff::Common(l) => (l, |w, out| w.print_as_common(out)),
             Diff::NotCommon(l) => (l, |w, out| w.print_as_difference(out)),
@@ -595,7 +674,7 @@ impl Text {
         }
     }
 
-    fn print_all(&self, mut out: impl ConsoleWrite) -> io::Result<()> {
+    fn print_all(&self, mut out: impl TermOut) -> io::Result<()> {
         for line in self.lines() {
             for word in line.words() {
                 word.print_as_common(&mut out)?;

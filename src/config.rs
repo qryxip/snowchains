@@ -1,10 +1,10 @@
-use command::{CompilationCommand, JudgingCommand};
-use console::{self, ConsoleWrite, Palette};
 use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
+use judging::command::{CompilationCommand, JudgingCommand};
 use path::{AbsPath, AbsPathBuf};
 use replacer::{CodeReplacer, CodeReplacerConf};
 use service::{ServiceName, SessionConfig};
 use template::{Template, TemplateBuilder};
+use terminal::{AnsiColorChoice, TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
 use testsuite::{
     DownloadDestinations, SerializableExtension, SuiteFileExtension, TestCaseLoader, ZipConfig,
 };
@@ -25,7 +25,7 @@ static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates `snowchains.yaml` in `directory`.
 pub(crate) fn init(
-    mut stdout: impl ConsoleWrite,
+    mut stdout: impl Write,
     directory: AbsPath,
     session_cookies: &str,
 ) -> FileIoResult<()> {
@@ -35,9 +35,8 @@ service: atcoder
 contest: arc100
 language: c++
 
-# console:
-#   color: 256color
-#   cjk: true
+console:
+  cjk: false
 
 session:
   timeout: 60
@@ -53,9 +52,10 @@ judge:
   zip:
     timelimit: 2000
     match: exact
-    modify:
-      add_eol: false
-      crlf_to_lf: true
+    crlf_to_lf:
+      in: true
+      expected_out: true
+      actual_out: {zip_crlf_to_lf_actual_out:?}
     entries:
       # AtCoder
       - in:
@@ -107,23 +107,23 @@ interactive:
   python3:
     src: testers/py/test-{{kebab}}.py
     run:
-      command: python3 -- $src $*
+      command: [{venv_python3}, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/py
   haskell:
-    src: testers/hs/src/Test{{Pascal}}.hs
+    src: testers/hs/app/Test{{Pascal}}.hs
     compile:
       bin: testers/hs/target/Test{{Pascal}}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
       working_directory: testers/hs
     run:
-      command: $bin $*
+      command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/hs
 
 languages:
   c++:
     src: cpp/{{kebab}}.cpp     # source file to test and to submit
     compile:                 # optional
-      bin: cpp/build/{{kebab}}
+      bin: cpp/build/{{kebab}}{exe}
       command: [g++, -std=c++14, -Wall, -Wextra, -g, -fsanitize=undefined, -D_GLIBCXX_DEBUG, -o, $bin, $src]
       working_directory: cpp # default: "."
     run:
@@ -133,14 +133,14 @@ languages:
       atcoder: 3003          # "C++14 (GCC x.x.x)"
       yukicoder: cpp14       # "C++14 (gcc x.x.x)"
   rust:
-    src: rs$rust_version/src/bin/{{kebab}}.rs
+    src: rs/src/bin/{{kebab}}.rs
     compile:
-      bin: rs$rust_version/target/release/{{kebab}}{exe}
+      bin: rs/target/release/{{kebab}}{exe}
       command: [rustc, +$rust_version, -o, $bin, $src]
-      working_directory: rs$rust_version
+      working_directory: rs
     run:
       command: [$bin]
-      working_directory: rs$rust_version
+      working_directory: rs
     language_ids:
       atcoder: 3504
       yukicoder: rust
@@ -157,7 +157,7 @@ languages:
       atcoder: 3013
       yukicoder: go
   haskell:
-    src: hs/src/{{Pascal}}.hs
+    src: hs/app/{{Pascal}}.hs
     compile:
       bin: hs/target/{{Pascal}}{exe}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
@@ -179,7 +179,7 @@ languages:
   python3:
     src: py/{{kebab}}.py
     run:
-      command: [./venv/bin/python3, $src]
+      command: [{venv_python3}, $src]
       working_directory: py
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
@@ -230,6 +230,7 @@ languages:
       atcoder: 3027
       yukicoder: text
 "#,
+        zip_crlf_to_lf_actual_out = cfg!(windows),
         session_cookies = yaml::escape_string(session_cookies),
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
@@ -241,7 +242,12 @@ languages:
         } else {
             ""
         },
-        csharp = if cfg!(target_os = "windows") {
+        venv_python3 = if cfg!(windows) {
+            "./venv/Scripts/python.exe"
+        } else {
+            "./venv/bin/python3"
+        },
+        csharp = if cfg!(windows) {
             r#"  c#:
     src: cs/{Pascal}/{Pascal}.cs
     compile:
@@ -278,30 +284,37 @@ languages:
 
 /// Changes attributes.
 pub(crate) fn switch(
-    (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
+    mut stdout: impl TermOut,
+    mut stderr: impl TermOut,
+    color_choice: AnsiColorChoice,
     directory: AbsPath,
     service: Option<ServiceName>,
     contest: Option<String>,
     language: Option<String>,
 ) -> FileIoResult<()> {
     fn print_change(
-        mut stdout: impl ConsoleWrite,
+        mut stdout: impl WriteAnsi,
+        title: &str,
         left_width: usize,
         prev: &Option<String>,
         new: &Option<String>,
     ) -> io::Result<()> {
         let prev = prev.as_ref().map(String::as_str).unwrap_or("~");
         let new = new.as_ref().map(String::as_str).unwrap_or("~");
-        write!(stdout, "{}", prev)?;
-        (0..left_width - prev.len()).try_for_each(|_| write!(stdout, " "))?;
-        writeln!(stdout, " -> {}", new)
+        stdout.write_str(title)?;
+        stdout.with_reset(|o| o.bold()?.write_str(prev))?;
+        stdout.write_spaces(left_width - prev.len())?;
+        stdout.write_str(" -> ")?;
+        stdout.with_reset(|o| o.bold()?.write_str(new))?;
+        stdout.write_str("\n")
     }
 
     let path = ::fs::find_filepath(directory, CONFIG_FILE_NAME)?;
     let mut old_yaml = ::fs::read_to_string(&path)?;
     let old_config = serde_yaml::from_str::<Config>(&old_yaml)
         .map_err(|err| FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err))?;
-    writeln!(stdout, "Loaded {}", path.display())?;
+    stdout.setup(color_choice, &old_config.console);
+    stderr.setup(color_choice, &old_config.console);
 
     let mut m = hashmap!();
     if let Some(service) = service {
@@ -329,7 +342,7 @@ pub(crate) fn switch(
             let new_config = serde_yaml::from_str(&new_yaml)?;
             Ok((new_yaml, new_config))
         }).or_else::<FileIoError, _>(|warning| {
-            writeln!(stderr.plain(Palette::Warning), "{}", warning)?;
+            stderr.with_reset(|o| writeln!(o.fg(11)?, "{}", warning))?;
             stderr.flush()?;
             let mut new_config = serde_yaml::from_str::<Config>(&old_yaml).map_err(|err| {
                 FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
@@ -349,20 +362,20 @@ pub(crate) fn switch(
     let l1 = old_config.language.as_ref().map(|l| format!("{:?}", l));
     let l2 = new_config.language.as_ref().map(|l| format!("{:?}", l));
     let w = [
-        s1.as_ref().map(|s| stdout.width(s)).unwrap_or(1),
-        c1.as_ref().map(|s| stdout.width(s)).unwrap_or(1),
-        l1.as_ref().map(|s| stdout.width(s)).unwrap_or(1),
+        s1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
+        c1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
+        l1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
     ]
         .iter()
         .cloned()
         .max()
         .unwrap();
-    print_change(&mut stdout, w, &s1, &s2)?;
-    print_change(&mut stdout, w, &c1, &c2)?;
-    print_change(&mut stdout, w, &l1, &l2)?;
+    print_change(&mut stdout, "service:  ", w, &s1, &s2)?;
+    print_change(&mut stdout, "contest:  ", w, &c1, &c2)?;
+    print_change(&mut stdout, "language: ", w, &l1, &l2)?;
     ::fs::write(&path, new_yaml.as_bytes())?;
 
-    writeln!(stdout, "Saved.")?;
+    writeln!(stdout, "Saved to {}", path.display())?;
     stdout.flush()?;
     Ok(())
 }
@@ -375,7 +388,7 @@ pub(crate) struct Config {
     contest: String,
     language: Option<String>,
     #[serde(default)]
-    console: console::Conf,
+    console: Console,
     session: SessionConfig,
     shell: Vec<TemplateBuilder<OsString>>,
     judge: Judge,
@@ -390,7 +403,6 @@ pub(crate) struct Config {
 
 impl Config {
     pub fn load(
-        mut stdout: impl ConsoleWrite,
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
         dir: AbsPath,
@@ -402,8 +414,6 @@ impl Config {
         config.base_dir = path.parent().unwrap();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
-        writeln!(stdout, "Loaded {}", path.display())?;
-        stdout.flush()?;
         Ok(config)
     }
 
@@ -417,7 +427,7 @@ impl Config {
         &self.contest
     }
 
-    pub fn console(&self) -> &console::Conf {
+    pub fn console(&self) -> &Console {
         &self.console
     }
 
@@ -599,6 +609,12 @@ fn find_language<'a>(
     langs
         .get(name)
         .ok_or_else(|| LoadConfigError::NoSuchLanguage(name.to_owned()))
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub struct Console {
+    #[serde(default)]
+    pub(crate) cjk: bool,
 }
 
 #[derive(Serialize, Deserialize)]

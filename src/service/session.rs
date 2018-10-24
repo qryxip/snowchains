@@ -1,7 +1,7 @@
-use console::{ConsoleWrite, Palette};
 use errors::{FileIoError, FileIoErrorKind, SessionError, SessionResult, StartSessionError};
 use path::AbsPathBuf;
 use service::USER_AGENT;
+use terminal::WriteAnsi;
 
 use cookie::{self, CookieJar};
 use failure::ResultExt as _ResultExt;
@@ -31,8 +31,8 @@ pub(crate) struct HttpSession {
 }
 
 impl HttpSession {
-    pub fn new(
-        mut stdout: impl ConsoleWrite,
+    pub fn try_new(
+        mut stdout: impl WriteAnsi,
         client: reqwest::Client,
         base: impl Into<Option<UrlBase>>,
         cookies_path: impl Into<Option<AbsPathBuf>>,
@@ -41,7 +41,7 @@ impl HttpSession {
             let base = base.into();
             let host = base.as_ref().map(|base| base.host.clone());
             let jar = match cookies_path.into() {
-                Some(path) => Some(AutosavedCookieJar::new(path)?),
+                Some(path) => Some(AutosavedCookieJar::try_new(path)?),
                 None => None,
             };
             let mut this = Self {
@@ -124,11 +124,7 @@ impl HttpSession {
 
     /// Opens `url`, which is relative or absolute, with default browser
     /// printing a message.
-    pub fn open_in_browser(
-        &mut self,
-        url: &str,
-        mut stdout: impl ConsoleWrite,
-    ) -> SessionResult<()> {
+    pub fn open_in_browser(&mut self, url: &str, mut stdout: impl WriteAnsi) -> SessionResult<()> {
         let url = self.resolve_url(url)?;
         writeln!(stdout, "Opening {} in default browser...", url)?;
         stdout.flush()?;
@@ -140,15 +136,15 @@ impl HttpSession {
         }
     }
 
-    pub fn get<O: ConsoleWrite>(&mut self, url: &str, stdout: O) -> self::Request<O> {
+    pub fn get<O: WriteAnsi>(&mut self, url: &str, stdout: O) -> self::Request<O> {
         self.request(url, Method::GET, vec![StatusCode::OK], stdout)
     }
 
-    pub fn post<O: ConsoleWrite>(&mut self, url: &str, stdout: O) -> self::Request<O> {
+    pub fn post<O: WriteAnsi>(&mut self, url: &str, stdout: O) -> self::Request<O> {
         self.request(url, Method::POST, vec![StatusCode::FOUND], stdout)
     }
 
-    fn request<O: ConsoleWrite>(
+    fn request<O: WriteAnsi>(
         &mut self,
         url: &str,
         method: Method,
@@ -187,14 +183,14 @@ impl HttpSession {
     }
 }
 
-pub(crate) struct Request<'a, O: ConsoleWrite> {
+pub(crate) struct Request<'a, O: WriteAnsi> {
     inner: SessionResult<reqwest::RequestBuilder>,
     stdout: O,
     session: &'a mut HttpSession,
     acceptable: Vec<StatusCode>,
 }
 
-impl<'a, O: ConsoleWrite> Request<'a, O> {
+impl<'a, O: WriteAnsi> Request<'a, O> {
     pub fn x_csrf_token(self, token: &str) -> Self {
         Self {
             inner: self.inner.map(|inner| inner.header("X-CSRF-Token", token)),
@@ -264,15 +260,16 @@ impl<'a, O: ConsoleWrite> Request<'a, O> {
 }
 
 trait EchoMethod {
-    fn echo_method(&self, stdout: impl ConsoleWrite) -> io::Result<()>;
+    fn echo_method(&self, out: impl WriteAnsi) -> io::Result<()>;
 }
 
 impl EchoMethod for reqwest::Request {
-    fn echo_method(&self, mut stdout: impl ConsoleWrite) -> io::Result<()> {
-        write!(stdout.bold(None), "{}", self.method())?;
-        write!(stdout.plain(Palette::Url), " {}", self.url())?;
-        write!(stdout, " ... ")?;
-        stdout.flush()
+    fn echo_method(&self, mut out: impl WriteAnsi) -> io::Result<()> {
+        out.with_reset(|o| o.bold()?.write_str(self.method()))?;
+        out.write_str(" ")?;
+        out.with_reset(|o| o.fg(14)?.write_str(self.url()))?;
+        out.write_str(" ... ")?;
+        out.flush()
     }
 }
 
@@ -283,7 +280,7 @@ where
     fn echo_status(
         &self,
         expected_statuses: &[StatusCode],
-        stdout: impl ConsoleWrite,
+        stdout: impl WriteAnsi,
     ) -> io::Result<()>;
     fn filter_by_status(self, expected: Vec<StatusCode>) -> SessionResult<Self>;
 }
@@ -292,15 +289,16 @@ impl ResponseExt for Response {
     fn echo_status(
         &self,
         expected_statuses: &[StatusCode],
-        mut stdout: impl ConsoleWrite,
+        mut out: impl WriteAnsi,
     ) -> io::Result<()> {
-        let palette = if expected_statuses.contains(&self.status()) {
-            Palette::Success
+        let color = if expected_statuses.contains(&self.status()) {
+            10
         } else {
-            Palette::Fatal
+            9
         };
-        writeln!(stdout.bold(palette), "{}", self.status())?;
-        stdout.flush()
+        out.with_reset(|o| write!(o.fg(color)?.bold()?, "{}", self.status()))?;
+        out.write_str("\n")?;
+        out.flush()
     }
 
     fn filter_by_status(self, expected: Vec<StatusCode>) -> SessionResult<Self> {
@@ -350,7 +348,7 @@ struct AutosavedCookieJar {
 }
 
 impl AutosavedCookieJar {
-    fn new(path: impl Into<AbsPathBuf>) -> SessionResult<Self> {
+    fn try_new(path: impl Into<AbsPathBuf>) -> SessionResult<Self> {
         let path = path.into();
         let exists = path.exists();
         let mut file = ::fs::create_and_lock(&path)?;
@@ -428,11 +426,11 @@ impl AutosavedCookieJar {
 
 #[cfg(test)]
 mod tests {
-    use console::Printer;
     use errors::SessionError;
     use path::AbsPathBuf;
     use service;
     use service::session::{HttpSession, UrlBase};
+    use terminal::tests::Ansi;
 
     use env_logger;
     use failure::Fail as _Fail;
@@ -441,8 +439,9 @@ mod tests {
     use tempdir::TempDir;
     use url::Host;
 
+    use std::io::{self, Cursor};
     use std::net::Ipv4Addr;
-    use std::panic;
+    use std::{panic, str};
 
     #[test]
     #[ignore]
@@ -463,22 +462,38 @@ mod tests {
         let result = panic::catch_unwind(|| {
             let client = service::reqwest_client(None).unwrap();
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
-            let mut null = Printer::null();
-            let mut sess = HttpSession::new(&mut null, client, Some(base), None).unwrap();
-            let res = sess.get("/", &mut null).send().unwrap();
+            let mut wtr = Ansi::new(Cursor::new(Vec::<u8>::new()));
+            let mut sess = HttpSession::try_new(&mut wtr, client, Some(base), None).unwrap();
+            let res = sess.get("/", &mut wtr).send().unwrap();
             assert!(res.headers().get(header::SET_COOKIE).is_some());
-            sess.get("/nonexisting", &mut null)
+            sess.get("/nonexisting", &mut wtr)
                 .acceptable(&[404])
                 .send()
                 .unwrap();
-            sess.get("/nonexisting", &mut null)
+            sess.get("/nonexisting", &mut wtr)
                 .acceptable(&[])
                 .send()
                 .unwrap();
-            match sess.get("/sensitive", null).send().unwrap_err() {
+            match sess.get("/sensitive", &mut wtr).send().unwrap_err() {
                 SessionError::ForbiddenByRobotsTxt => {}
                 err => panic!("{:?}", err),
             }
+            assert_eq!(
+                str::from_utf8(wtr.get_ref().get_ref()).unwrap(),
+                format!(
+                    "{get} {robots_txt} ... {expected_200}\n\
+                     {get} {root} ... {expected_200}\n\
+                     {get} {nonexisting} ... {expected_404}\n\
+                     {get} {nonexisting} ... {unexpected_404}\n",
+                    get = "\x1b[1mGET\x1b[0m",
+                    robots_txt = "\x1b[38;5;14mhttp://127.0.0.1:2000/robots.txt\x1b[0m",
+                    root = "\x1b[38;5;14mhttp://127.0.0.1:2000/\x1b[0m",
+                    nonexisting = "\x1b[38;5;14mhttp://127.0.0.1:2000/nonexisting\x1b[0m",
+                    expected_200 = "\x1b[38;5;10m\x1b[1m200 OK\x1b[0m",
+                    expected_404 = "\x1b[38;5;10m\x1b[1m404 Not Found\x1b[0m",
+                    unexpected_404 = "\x1b[38;5;9m\x1b[1m404 Not Found\x1b[0m",
+                ),
+            );
         });
         server.detach();
         result.unwrap_or_else(|p| panic::resume_unwind(p));
@@ -491,14 +506,14 @@ mod tests {
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
         let path = AbsPathBuf::new_or_panic(tempdir.path().join("cookies"));
         let client = service::reqwest_client(None).unwrap();
-        let mut null = Printer::null();
-        HttpSession::new(&mut null, client.clone(), None, path.clone()).unwrap();
-        HttpSession::new(&mut null, client.clone(), None, path.clone()).unwrap();
-        let _session = HttpSession::new(&mut null, client.clone(), None, path.clone()).unwrap();
-        let err = HttpSession::new(&mut null, client, None, path.clone()).unwrap_err();
+        let mut wtr = Ansi::new(io::sink());
+        HttpSession::try_new(&mut wtr, client.clone(), None, path.clone()).unwrap();
+        HttpSession::try_new(&mut wtr, client.clone(), None, path.clone()).unwrap();
+        let _session = HttpSession::try_new(&mut wtr, client.clone(), None, path.clone()).unwrap();
+        let err = HttpSession::try_new(&mut wtr, client, None, path.clone()).unwrap_err();
         if let SessionError::Start(ref ctx) = err {
             if ctx.cause().is_some() {
-                return;
+                return tempdir.close().unwrap();
             }
         }
         panic!("{:?}", err);

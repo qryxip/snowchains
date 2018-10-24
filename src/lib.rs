@@ -15,7 +15,6 @@ extern crate serde_json;
 #[macro_use]
 extern crate structopt;
 
-extern crate ansi_term;
 extern crate atty;
 extern crate bincode;
 extern crate chrono;
@@ -36,7 +35,6 @@ extern crate select;
 extern crate serde;
 extern crate serde_urlencoded;
 extern crate serde_yaml;
-extern crate term;
 extern crate tokio;
 extern crate tokio_core;
 extern crate tokio_process;
@@ -52,6 +50,8 @@ extern crate libc;
 
 #[cfg(windows)]
 extern crate winapi;
+#[cfg(windows)]
+extern crate winapi_util;
 
 #[cfg(test)]
 #[macro_use]
@@ -66,12 +66,11 @@ extern crate tempdir;
 mod macros;
 
 pub mod app;
-pub mod console;
 pub mod path;
 pub mod service;
+pub mod terminal;
 pub mod util;
 
-mod command;
 mod config;
 mod errors;
 mod fs;
@@ -86,10 +85,10 @@ pub use errors::{Error, Result};
 use std::fmt;
 
 #[derive(Debug)]
-pub struct Never;
+pub enum Never {}
 
 impl fmt::Display for Never {
     fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result {
-        panic!("should be filtered by `clap::Arg::possible_values`")
+        unreachable!()
     }
 }

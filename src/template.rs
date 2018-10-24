@@ -1,5 +1,5 @@
-use command::{CompilationCommand, JudgingCommand};
 use errors::{ExpandTemplateError, ExpandTemplateErrorContext, ExpandTemplateResult};
+use judging::command::{CompilationCommand, JudgingCommand};
 use path::{AbsPath, AbsPathBuf};
 
 use combine::Parser;
@@ -279,7 +279,7 @@ impl FromStr for Tokens {
 
     fn from_str(input: &str) -> ParseTemplateResult<Self> {
         use combine::char::{alpha_num, char, letter, spaces, string};
-        use combine::{choice, eof, many, many1, satisfy, try};
+        use combine::{attempt, choice, eof, many, many1, satisfy};
 
         fn escape<'a>(
             from: &'static str,
@@ -302,9 +302,9 @@ impl FromStr for Tokens {
             ))).map(|(h, t): (_, String)| Token::Var(format!("{}{}", h, t)));
         many(choice((
             plain,
-            try(escape("$$", "$")),
-            try(escape("{{", "{")),
-            try(escape("}}", "}")),
+            attempt(escape("$$", "$")),
+            attempt(escape("{{", "{")),
+            attempt(escape("}}", "}")),
             problem,
             var,
         ))).skip(eof())
@@ -522,7 +522,7 @@ impl fmt::Display for ParseTemplateError {
 mod tests {
     use super::TemplateBuilder;
 
-    use command::{CompilationCommand, JudgingCommand};
+    use judging::command::{CompilationCommand, JudgingCommand};
     use path::AbsPathBuf;
 
     use {dirs, env_logger, serde_json};

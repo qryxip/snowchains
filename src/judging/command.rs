@@ -1,13 +1,14 @@
-use console::{ConsoleWrite, Palette};
 use errors::{JudgeError, JudgeResult};
 use path::AbsPathBuf;
+use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 
 use itertools::Itertools as _Itertools;
 use tokio_process::{self, CommandExt as _CommandExt};
 
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
-use std::io::{self, Write as _Write};
+use std::io;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
@@ -36,17 +37,14 @@ impl CompilationCommand {
     }
 
     /// Executes the command.
-    pub fn run(
+    pub fn run<O: TermOut, E: TermOut>(
         &self,
-        (mut stdout, mut stderr): (impl ConsoleWrite, impl ConsoleWrite),
+        (mut stdout, mut stderr): (O, E),
         force_compile: bool,
     ) -> JudgeResult<()> {
         if !self.src.exists() {
-            writeln!(
-                stderr.bold(Palette::Warning),
-                "Warning: {} not found",
-                self.src.display()
-            )?;
+            stderr
+                .with_reset(|o| writeln!(o.fg(11)?, "Warning: {} not found", self.src.display()))?;
             stderr.flush()?;
         }
         if self.src.exists() && self.bin.exists() {
@@ -66,39 +64,32 @@ impl CompilationCommand {
         }
 
         let args = self.inner.format_args();
-        write_info(&mut stdout, "Compilation Command:", &args)?;
         let wd = self.inner.working_dir.display().to_string();
+        write_info(&mut stdout, "Compilation Command:", &args)?;
         write_info(&mut stdout, "Working directory:  ", &[&wd])?;
         writeln!(stdout)?;
         stdout.flush()?;
 
         let mut proc = self.inner.build_checking_wd()?;
         proc.stdin(Stdio::null())
-            .stdout(stdout.process_redirection())
-            .stderr(stderr.process_redirection());
+            .stdout(O::process_redirection())
+            .stderr(E::process_redirection());
         let start = Instant::now();
         let status = proc.status().map_err(self.map_err())?;
         let elapsed = Instant::now() - start;
-        let (code, palette) = match status.code() {
-            Some(0) => (Cow::from("0"), Palette::Success),
-            Some(code) => (Cow::from(code.to_string()), Palette::Fatal),
-            None => (Cow::from("<no exit code>"), Palette::Warning),
+
+        let (mes, color) = match status.code() {
+            Some(0) => (Cow::from("Finished compiling"), 10),
+            Some(code) => (Cow::from(format!("Exited with {}", code)), 9),
+            None => (Cow::from("Exited without code"), 11),
         };
-        write!(stdout.bold(Palette::Info), "Status code")?;
-        write!(stdout.plain(Palette::Info), ":")?;
-        writeln!(stdout.bold(palette), " {}", code)?;
-        write!(stdout.bold(Palette::Info), "Time")?;
-        write!(stdout.plain(Palette::Info), ":")?;
-        writeln!(stdout.bold(None), "        {:?}", elapsed)?;
-        stdout.flush()?;
+        stdout.with_reset(|o| writeln!(o.fg(color)?.bold()?, "{} in {:?}.", mes, elapsed))?;
 
         if status.success() {
             if !self.bin.exists() {
-                writeln!(
-                    stderr.plain(Palette::Warning),
-                    "Warning: {} not created",
-                    self.bin.display()
-                )?;
+                stderr.with_reset(|o| {
+                    writeln!(o.fg(11)?, "Warning: {} not created", self.bin.display())
+                })?;
                 stderr.flush()?;
             }
             Ok(())
@@ -132,7 +123,7 @@ impl JudgingCommand {
     /// Working directory: /path/to/working/dir/
     /// Test files:        /path/to/testfiles/{a.json, a.yaml}
     /// """
-    pub fn write_info(&self, mut out: impl ConsoleWrite, paths_formatted: &str) -> io::Result<()> {
+    pub fn write_info(&self, mut out: impl TermOut, paths_formatted: &str) -> io::Result<()> {
         let args = self.0.format_args();
         let wd = self.0.working_dir.display().to_string();
         write_info(&mut out, "Command:          ", &args)?;
@@ -161,12 +152,19 @@ struct Inner {
 
 impl Inner {
     fn new(args: &[impl AsRef<OsStr>], working_dir: AbsPathBuf) -> Self {
-        let (arg0, rest_args) = if args.is_empty() {
+        let (mut arg0, rest_args) = if args.is_empty() {
             (OsString::new(), vec![])
         } else {
             let rest_args = args.iter().skip(1).map(|s| s.as_ref().to_owned()).collect();
             (args[0].as_ref().to_owned(), rest_args)
         };
+        // https://github.com/rust-lang/rust/issues/37519
+        if cfg!(windows) && AsRef::<Path>::as_ref(&arg0).is_relative() {
+            let abs = working_dir.join(&arg0);
+            if abs.exists() {
+                arg0 = abs.into();
+            }
+        }
         Self {
             arg0,
             rest_args,
@@ -199,10 +197,11 @@ impl Inner {
     }
 }
 
-fn write_info(mut out: impl ConsoleWrite, title: &str, rest: &[impl AsRef<str>]) -> io::Result<()> {
-    write!(out.bold(Palette::Info), "{} ", title)?;
-    if let Some(w) = out.columns() {
-        let o = out.width(title) + 1;
+fn write_info<O: TermOut>(mut out: O, title: &str, rest: &[impl AsRef<str>]) -> io::Result<()> {
+    out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+    out.write_str(" ")?;
+    if let Some(w) = O::columns() {
+        let o = out.str_width(title) + 1;
         let mut x = 0;
         macro_rules! next_line {
             () => {
@@ -212,7 +211,7 @@ fn write_info(mut out: impl ConsoleWrite, title: &str, rest: &[impl AsRef<str>])
             };
         }
         for s in rest.iter().map(AsRef::as_ref) {
-            let l = out.width(s);
+            let l = out.str_width(s);
             if o + x + l > w && x > 0 {
                 next_line!();
             }

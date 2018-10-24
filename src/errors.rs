@@ -13,7 +13,6 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::string::FromUtf8Error;
-use std::sync::mpsc::RecvError;
 use std::{self, fmt, io};
 
 pub type Result<T> = std::result::Result<T, self::Error>;
@@ -285,9 +284,12 @@ pub(crate) type JudgeResult<T> = std::result::Result<T, JudgeError>;
 #[derive(Debug)]
 pub enum JudgeError {
     SuiteFile(SuiteFileError),
+    LoadConfig(LoadConfigError),
+    ExpandTemplate(ExpandTemplateError),
     FileIo(FileIoError),
     Io(io::Error),
-    Recv(RecvError),
+    IndexOutOfBounds(usize, usize),
+    ExpectedSimple,
     Command(OsString, io::Error),
     Compile(ExitStatus),
     TestFailed(usize, usize),
@@ -295,19 +297,25 @@ pub enum JudgeError {
 
 #[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
 derive_from!(
-    JudgeError::SuiteFile <- SuiteFileError,
-    JudgeError::FileIo    <- FileIoError,
-    JudgeError::Io        <- io::Error,
-    JudgeError::Recv      <- RecvError,
+    JudgeError::SuiteFile      <- SuiteFileError,
+    JudgeError::LoadConfig     <- LoadConfigError,
+    JudgeError::ExpandTemplate <- ExpandTemplateError,
+    JudgeError::FileIo         <- FileIoError,
+    JudgeError::Io             <- io::Error,
 );
 
 impl fmt::Display for JudgeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             JudgeError::SuiteFile(e) => write!(f, "{}", e),
+            JudgeError::LoadConfig(e) => write!(f, "{}", e),
+            JudgeError::ExpandTemplate(e) => write!(f, "{}", e),
             JudgeError::FileIo(e) => write!(f, "{}", e),
             JudgeError::Io(_) => write!(f, "An IO error occurred"),
-            JudgeError::Recv(e) => write!(f, "{}", e),
+            JudgeError::IndexOutOfBounds(l, i) => {
+                write!(f, "The length is {} but the index is {}", l, i)
+            }
+            JudgeError::ExpectedSimple => write!(f, "Expected \"simple\" case"),
             JudgeError::Command(c, _) => write!(f, "Failed to execute: {:?}", c),
             JudgeError::Compile(s) => write!(
                 f,
@@ -333,6 +341,8 @@ impl Fail for JudgeError {
     fn cause(&self) -> Option<&dyn Fail> {
         match self {
             JudgeError::SuiteFile(e) => e.cause(),
+            JudgeError::LoadConfig(e) => e.cause(),
+            JudgeError::ExpandTemplate(e) => e.cause(),
             JudgeError::FileIo(e) => e.cause(),
             JudgeError::Io(e) => Some(e),
             _ => None,
