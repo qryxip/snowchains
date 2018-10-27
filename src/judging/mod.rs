@@ -2,6 +2,7 @@ pub(crate) mod command;
 mod interactive;
 mod simple;
 mod text;
+use util::std_unstable::AsMillis_;
 
 use config::Config;
 use errors::{JudgeError, JudgeResult, SuiteFileResult};
@@ -26,16 +27,16 @@ pub(crate) fn num_cases(config: &Config, problem: &str) -> SuiteFileResult<usize
     })
 }
 
-pub(crate) fn timelimit_millis(config: &Config, problem: &str, nth: usize) -> JudgeResult<u64> {
+pub(crate) fn timelimit_millis(config: &Config, problem: &str, nth: usize) -> JudgeResult<u128> {
     fn get_timelimit_millis<C>(
         cases: &[C],
         nth: usize,
         f: fn(&C) -> Option<Duration>,
-    ) -> JudgeResult<u64> {
+    ) -> JudgeResult<u128> {
         cases
             .get(nth)
             .and_then(f)
-            .map(|t| 1000 * t.as_secs() + u64::from(t.subsec_millis()))
+            .map(AsMillis_::as_millis_)
             .ok_or_else(|| JudgeError::IndexOutOfBounds(cases.len(), nth))
     }
 
@@ -276,17 +277,6 @@ pub(self) trait Outcome: fmt::Display {
         let name_width = name_width.unwrap_or(0);
         out.write_spaces(cmp::max(name_width, l) - l + 1)?;
         out.with_reset(|o| writeln!(o.fg(self.color())?, "{}", self))
-    }
-}
-
-pub(self) trait MillisRoundedUp {
-    /// As milliseconds rounded up.
-    fn millis_rounded_up(self) -> u64;
-}
-
-impl MillisRoundedUp for Duration {
-    fn millis_rounded_up(self) -> u64 {
-        (1_000_000_000 * self.as_secs() + u64::from(self.subsec_nanos()) + 999_999) / 1_000_000
     }
 }
 

@@ -1,5 +1,3 @@
-pub(crate) mod de;
-pub(crate) mod ser;
 pub(crate) mod std_unstable;
 
 use serde_derive::{Deserialize, Serialize};

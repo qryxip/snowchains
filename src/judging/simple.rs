@@ -1,9 +1,10 @@
 use errors::JudgeResult;
 use judging::command::JudgingCommand;
 use judging::text::{Line, PrintAligned, Text, Width, Word};
-use judging::{MillisRoundedUp, Outcome};
+use judging::Outcome;
 use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use testsuite::{ExpectedStdout, SimpleCase};
+use time::MillisRoundedUp as _MillisRoundedUp;
 
 use futures::{task, try_ready, Async, Future, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};

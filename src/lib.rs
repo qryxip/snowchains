@@ -68,6 +68,7 @@ mod judging;
 mod replacer;
 mod template;
 mod testsuite;
+mod time;
 mod yaml;
 
 pub use errors::{Error, Result};

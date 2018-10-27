@@ -64,8 +64,8 @@ fn it_scrapes_samples_from_practice() {
                 .join("snowchains")
                 .join("atcoder")
                 .join("practice");
-            just_confirm_num_samples_and_timelimit(&download_dir, "a", 2, 2000);
-            just_confirm_num_samples_and_timelimit(&download_dir, "b", 0, 2000);
+            just_confirm_num_samples_and_timelimit(&download_dir, "a", 2, "2000ms");
+            just_confirm_num_samples_and_timelimit(&download_dir, "b", 0, "2000ms");
             Ok(())
         },
     );
@@ -92,25 +92,25 @@ fn it_scrapes_samples_from_arc058() {
                 .join("snowchains")
                 .join("atcoder")
                 .join("arc058");
-            just_confirm_num_samples_and_timelimit(&download_dir, "c", 2, 2000);
-            just_confirm_num_samples_and_timelimit(&download_dir, "d", 4, 2000);
-            just_confirm_num_samples_and_timelimit(&download_dir, "e", 4, 4000);
-            just_confirm_num_samples_and_timelimit(&download_dir, "f", 3, 5000);
+            just_confirm_num_samples_and_timelimit(&download_dir, "c", 2, "2000ms");
+            just_confirm_num_samples_and_timelimit(&download_dir, "d", 4, "2000ms");
+            just_confirm_num_samples_and_timelimit(&download_dir, "e", 4, "4000ms");
+            just_confirm_num_samples_and_timelimit(&download_dir, "f", 3, "5000ms");
             Ok(())
         },
     );
 }
 
-fn just_confirm_num_samples_and_timelimit(dir: &Path, name: &str, n: usize, t: u64) {
+fn just_confirm_num_samples_and_timelimit(dir: &Path, name: &str, n: usize, t: &str) {
     #[derive(Deserialize)]
     #[serde(tag = "type", rename_all = "lowercase")]
     enum TestSuite {
         Simple {
-            timelimit: u64,
+            timelimit: String,
             cases: Vec<serde_yaml::Mapping>,
         },
         Interactive {
-            timelimit: u64,
+            timelimit: String,
             each_args: Vec<serde_yaml::Sequence>,
         },
     }

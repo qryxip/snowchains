@@ -40,7 +40,7 @@ console:
   cjk: false
 
 session:
-  timeout: 60
+  timeout: 60s
   cookies: {session_cookies}
 
 shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
@@ -51,7 +51,7 @@ judge:
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
   zip:
-    timelimit: 2000
+    timelimit: 2000ms
     match: exact
     crlf_to_lf:
       in: true

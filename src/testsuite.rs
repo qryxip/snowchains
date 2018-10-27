@@ -6,7 +6,7 @@ use judging::command::{CompilationCommand, JudgingCommand};
 use path::{AbsPath, AbsPathBuf};
 use template::Template;
 use terminal::WriteAnsi;
-use {util, yaml};
+use {time, util, yaml};
 
 use maplit::{hashmap, hashset};
 use regex::Regex;
@@ -344,9 +344,9 @@ impl SuiteFilePath {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ZipConfig {
     #[serde(
-        serialize_with = "util::ser::millis",
-        deserialize_with = "util::de::millis",
-        skip_serializing_if = "Option::is_none"
+        serialize_with = "time::ser_millis",
+        deserialize_with = "time::de_secs",
+        skip_serializing_if = "Option::is_none",
     )]
     timelimit: Option<Duration>,
     #[serde(rename = "match")]
@@ -750,9 +750,9 @@ impl<'de> Deserialize<'de> for SimpleSuite {
 #[derive(Debug, Serialize, Deserialize)]
 struct SimpleSuiteSchema {
     #[serde(
-        serialize_with = "util::ser::millis",
-        deserialize_with = "util::de::millis",
-        skip_serializing_if = "Option::is_none"
+        serialize_with = "time::ser_millis",
+        deserialize_with = "time::de_secs",
+        skip_serializing_if = "Option::is_none",
     )]
     timelimit: Option<Duration>,
     #[serde(rename = "match", default)]
@@ -774,9 +774,9 @@ struct SimpleCaseSchema {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct InteractiveSuite {
     #[serde(
-        serialize_with = "util::ser::millis",
-        deserialize_with = "util::de::millis",
-        skip_serializing_if = "Option::is_none"
+        serialize_with = "time::ser_millis",
+        deserialize_with = "time::de_secs",
+        skip_serializing_if = "Option::is_none",
     )]
     timelimit: Option<Duration>,
     tester: Option<String>,
