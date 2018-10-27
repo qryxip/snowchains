@@ -4,9 +4,8 @@ use judging::{JudgingCommand, MillisRoundedUp, Outcome};
 use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use testsuite::InteractiveCase;
 
-use futures::{task, Async, Future, Poll, Stream};
+use futures::{task, try_ready, Async, Future, Poll, Stream};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_process;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

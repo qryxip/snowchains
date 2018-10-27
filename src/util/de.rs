@@ -1,6 +1,5 @@
 use serde::{self, Deserialize, Deserializer};
 
-use std;
 use std::time::Duration;
 
 pub(crate) fn non_zero_secs<'de, D: Deserializer<'de>>(

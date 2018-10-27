@@ -17,9 +17,11 @@ use testsuite::DownloadDestinations;
 use {util, Never};
 
 use heck::KebabCase as _KebabCase;
+use maplit::hashmap;
 use reqwest::header::{self, HeaderMap};
-use reqwest::{self, RedirectPolicy, Response};
+use reqwest::{RedirectPolicy, Response};
 use select::document::Document;
+use serde_derive::{Deserialize, Serialize};
 use url::Host;
 
 use std::collections::HashMap;
@@ -27,7 +29,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Duration;
-use std::{self, fmt, io, slice};
+use std::{fmt, io, slice};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

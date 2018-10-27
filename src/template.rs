@@ -8,8 +8,10 @@ use heck::{
     CamelCase as _CamelCase, KebabCase as _KebabCase, MixedCase as _MixedCase,
     ShoutySnakeCase as _ShoutySnakeCase, SnakeCase as _SnakeCase, TitleCase as _TitleCase,
 };
+use maplit::hashmap;
 use serde::de::DeserializeOwned;
-use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_derive::{Deserialize, Serialize};
 
 use std::borrow::Borrow;
 use std::borrow::Cow;
@@ -17,7 +19,7 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::str::FromStr;
-use std::{self, env, fmt};
+use std::{env, fmt};
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Default, Serialize, Deserialize)]
@@ -525,7 +527,8 @@ mod tests {
     use judging::command::{CompilationCommand, JudgingCommand};
     use path::AbsPathBuf;
 
-    use {dirs, env_logger, serde_json};
+    use maplit::hashmap;
+    use serde_derive::{Deserialize, Serialize};
 
     use std::env;
     use std::ffi::{OsStr, OsString};

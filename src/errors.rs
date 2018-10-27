@@ -1,19 +1,18 @@
-use chrono::{self, DateTime, Local};
+use chrono::{DateTime, Local};
 use failure::{Context, Fail};
 use itertools::Itertools as _Itertools;
 use path::AbsPathBuf;
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
-use reqwest::{self, StatusCode};
+use reqwest::StatusCode;
 use template::Tokens;
-use url::{self, Url};
+use url::Url;
 use zip::result::ZipError;
-use {bincode, cookie, serde_json, serde_urlencoded, serde_yaml, toml};
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::string::FromUtf8Error;
-use std::{self, fmt, io};
+use std::{fmt, io};
 
 pub type Result<T> = std::result::Result<T, self::Error>;
 
@@ -807,7 +806,7 @@ mod tests {
 
     use failure::Fail;
 
-    use std::{self, fmt};
+    use std::fmt;
 
     #[test]
     fn std_error_with_display_chain_works() {

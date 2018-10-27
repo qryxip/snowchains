@@ -8,10 +8,11 @@ use template::Template;
 use terminal::WriteAnsi;
 use {util, yaml};
 
+use maplit::{hashmap, hashset};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_derive::{Deserialize, Serialize};
 use zip::ZipArchive;
-use {serde_json, serde_yaml, toml};
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt::Write as _Write;
@@ -21,7 +22,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{self, cmp, f64, fmt, io, str, vec};
+use std::{cmp, f64, fmt, io, str, vec};
 
 pub(crate) fn modify_timelimit(
     stdout: impl WriteAnsi,

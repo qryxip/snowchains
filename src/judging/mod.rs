@@ -9,7 +9,7 @@ use judging::command::JudgingCommand;
 use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use testsuite::{SimpleCase, TestCase, TestCases};
 
-use futures::{self, Future, Sink as _Sink, Stream as _Stream};
+use futures::{Future, Sink as _Sink, Stream as _Stream};
 use tokio::runtime::Runtime;
 
 use std::io::{self, BufRead};

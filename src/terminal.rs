@@ -1,19 +1,12 @@
 use {config, Never};
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-use {atty, rpassword};
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use libc;
-
-#[cfg(windows)]
-use winapi_util;
 
 use std::io::{
     self, BufRead, BufWriter, Stderr, StderrLock, Stdin, StdinLock, Stdout, StdoutLock, Write,
 };
 use std::str::FromStr;
-use std::{self, env, fmt, process};
+use std::{env, fmt, process};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::mem;

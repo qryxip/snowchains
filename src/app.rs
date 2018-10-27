@@ -10,17 +10,19 @@ use terminal::{AnsiColorChoice, Term};
 use testsuite::{self, SerializableExtension};
 use Never;
 
+use log::info;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use structopt::clap::Arg;
+use structopt::StructOpt;
 
 use std::borrow::Cow;
+use std::f64;
 use std::io::Write as _Write;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
-use std::{self, f64};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -65,9 +67,9 @@ pub enum Opt {
         raw(alias = "\"w\"", display_order = "2"),
     )]
     Switch {
-        #[structopt(
-            raw(service = r#"&["atcoder", "hackerrank", "yukicoder", "other"], Kind::Option(1)"#),
-        )]
+        #[structopt(raw(
+            service = r#"&["atcoder", "hackerrank", "yukicoder", "other"], Kind::Option(1)"#,
+        ))]
         service: Option<ServiceName>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,

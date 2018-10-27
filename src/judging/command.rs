@@ -3,7 +3,7 @@ use path::AbsPathBuf;
 use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 
 use itertools::Itertools as _Itertools;
-use tokio_process::{self, CommandExt as _CommandExt};
+use tokio_process::CommandExt as _CommandExt;
 
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};

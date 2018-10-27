@@ -3,7 +3,6 @@ use path::{AbsPath, AbsPathBuf};
 
 use fs2::FileExt as _FileExt;
 
-use std;
 use std::fs::{File, OpenOptions};
 use std::io::Write as _Write;
 

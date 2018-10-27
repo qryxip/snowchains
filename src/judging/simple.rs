@@ -5,15 +5,14 @@ use judging::{MillisRoundedUp, Outcome};
 use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use testsuite::{ExpectedStdout, SimpleCase};
 
-use futures::{task, Async, Future, Poll};
+use futures::{task, try_ready, Async, Future, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
-use {diff, tokio_process};
 
 use std::borrow::Cow;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{self, cmp, fmt, io, mem};
+use std::{cmp, fmt, io, mem};
 
 pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
     let input = Text::exact(&case.input());

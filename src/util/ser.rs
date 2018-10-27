@@ -1,6 +1,5 @@
 use serde::{Serialize, Serializer};
 
-use std;
 use std::time::Duration;
 
 pub(crate) fn secs<S: Serializer>(

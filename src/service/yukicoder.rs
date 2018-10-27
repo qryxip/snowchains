@@ -14,6 +14,7 @@ use regex::Regex;
 use reqwest::{header, multipart, StatusCode};
 use select::document::Document;
 use select::predicate::{Attr, Predicate as _Predicate, Text};
+use serde_derive::Deserialize;
 
 use std::fmt;
 use std::io::Write as _Write;
@@ -478,15 +479,13 @@ impl Extract for Document {
     fn extract_csrf_token_from_submit_page(&self) -> ServiceResult<String> {
         self.find(
             selector!(#submit_form>input).child(selector!(input).and(Attr("name", "csrf_token"))),
-        ).filter_map(|input| input.attr("value").map(ToOwned::to_owned))
-        .next()
+        ).find_map(|input| input.attr("value").map(ToOwned::to_owned))
         .ok_or(ServiceError::Scrape)
     }
 
     fn extract_url_from_submit_page(&self) -> ServiceResult<String> {
         self.find(selector!(submit_form))
-            .filter_map(|form| form.attr("action").map(ToOwned::to_owned))
-            .next()
+            .find_map(|form| form.attr("action").map(ToOwned::to_owned))
             .ok_or(ServiceError::Scrape)
     }
 }
@@ -500,7 +499,6 @@ mod tests {
     use terminal::{Term, TermImpl};
     use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 
-    use env_logger;
     use url::Host;
 
     use std::borrow::Borrow;

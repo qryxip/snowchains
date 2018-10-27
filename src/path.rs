@@ -1,7 +1,5 @@
 use errors::{FileIoError, FileIoErrorKind, FileIoResult};
 
-use dirs;
-
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -139,8 +137,6 @@ impl AsRef<Path> for AbsPathBuf {
 #[cfg(test)]
 mod tests {
     use path::AbsPathBuf;
-
-    use dirs;
 
     use std::path::Path;
 

@@ -6,13 +6,12 @@ use service;
 use testsuite::DownloadDestinations;
 
 use futures::sync::oneshot;
-use futures::{self, future, task, Async, Future, Poll, Stream};
+use futures::{future, task, Async, Future, Poll, Stream};
 use itertools::Itertools as _Itertools;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
 use reqwest::async::Decoder;
 use reqwest::header::{self, HeaderMap, HeaderValue};
-use reqwest::{self, RedirectPolicy, StatusCode};
-use tokio_core;
+use reqwest::{RedirectPolicy, StatusCode};
 use url::Url;
 use zip::ZipArchive;
 

@@ -1,11 +1,9 @@
 extern crate snowchains;
 
-#[macro_use]
-extern crate serde_derive;
-
 extern crate env_logger;
 extern crate failure;
 extern crate serde;
+extern crate serde_derive;
 extern crate serde_yaml;
 extern crate tempdir;
 
@@ -14,6 +12,8 @@ mod common;
 use snowchains::app::{App, Opt};
 use snowchains::service::ServiceName;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
+
+use serde_derive::Deserialize;
 
 use std::fs::File;
 use std::io;

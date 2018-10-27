@@ -9,17 +9,20 @@ use terminal::{Term, WriteAnsi};
 use testsuite::{SimpleSuite, TestSuite};
 
 use itertools::Itertools as _Itertools;
+use log::warn;
 use reqwest::{Response, StatusCode};
 use select::document::Document;
 use select::predicate::{Attr, Predicate, Text};
-use serde::{self, Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer};
+use serde_derive::Deserialize;
+use serde_json::json;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt;
 use std::io::{self, Write as _Write};
 use std::rc::Rc;
 use std::time::Duration;
-use std::{self, fmt};
 
 pub(crate) fn login(sess_prop: SessionProp<impl Term>) -> ServiceResult<()> {
     Hackerrank::try_new(sess_prop)?.login(LoginOption::Explicit)

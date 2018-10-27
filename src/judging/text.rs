@@ -262,8 +262,6 @@ impl PartialEq for Word {
 mod tests {
     use judging::text::{Line, Text, Word};
 
-    use env_logger;
-
     use std::sync::Arc;
 
     #[test]

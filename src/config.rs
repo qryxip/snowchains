@@ -10,7 +10,8 @@ use testsuite::{
 };
 use yaml;
 
-use serde_yaml;
+use maplit::hashmap;
+use serde_derive::{Deserialize, Serialize};
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};

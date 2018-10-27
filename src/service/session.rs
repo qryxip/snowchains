@@ -3,18 +3,17 @@ use path::AbsPathBuf;
 use service::USER_AGENT;
 use terminal::WriteAnsi;
 
-use cookie::{self, CookieJar};
+use cookie::CookieJar;
 use failure::ResultExt as _ResultExt;
+use maplit::hashmap;
 use reqwest::header::{self, HeaderValue, InvalidHeaderValue};
-use reqwest::{self, multipart, Method, Response, StatusCode};
+use reqwest::{multipart, Method, Response, StatusCode};
 use robots_txt::{Robots, SimpleMatcher};
 use select::document::Document;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use url::{Host, Url};
-use {bincode, webbrowser};
 
-use std;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write as _FmtWrite;
@@ -434,7 +433,7 @@ mod tests {
 
     use env_logger;
     use failure::Fail as _Fail;
-    use nickel::{self, Nickel};
+    use nickel::{Nickel, _middleware_inner, _router_inner, as_block, as_pat, middleware, router};
     use reqwest::header;
     use tempdir::TempDir;
     use url::Host;
