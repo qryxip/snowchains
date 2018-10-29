@@ -102,7 +102,7 @@ console:
   cjk: false
 
 session:
-  timeout: 10
+  timeout: 60s
   cookies: ~/.local/share/snowchains/$service
 
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
@@ -113,7 +113,7 @@ testfiles:
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
   zip:
-    timelimit: 2000
+    timelimit: 2000ms
     match: exact
     crlf_to_lf:
       in: true
@@ -309,9 +309,9 @@ languages:
 
 ```yaml
 ---
-type: simple    # "simple", "interactive", or "unsubmittable"
-timelimit: 2000 # optional
-match: exact    # "accept_all", "exact", or "float"
+type: simple      # "simple", "interactive", or "unsubmittable"
+timelimit: 2000ms # optional
+match: exact      # "accept_all", "exact", or "float"
 crlf_to_lf:
   in: false
   expected_out: false
@@ -342,7 +342,7 @@ cases:
 ```yaml
 ---
 type: simple
-timelimit: 2000
+timelimit: 2000ms
 match:
   float:
     absolute_error: 1E-9
@@ -371,7 +371,7 @@ cases:
 ```yaml
 ---
 type: interactive
-timelimit: 2000
+timelimit: 2000ms
 tester: python3
 
 each_args:

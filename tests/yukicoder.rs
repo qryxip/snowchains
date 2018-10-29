@@ -66,6 +66,6 @@ fn download(
     common::download(app, ServiceName::Yukicoder, contest, problems)
 }
 
-fn confirm_num_cases(wd: AbsPath, contest: &str, pairs: &[(&str, usize)]) {
+fn confirm_num_cases(wd: &AbsPath, contest: &str, pairs: &[(&str, usize)]) {
     common::confirm_num_cases(wd, ServiceName::Yukicoder, contest, pairs)
 }

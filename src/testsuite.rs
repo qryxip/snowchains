@@ -6,12 +6,13 @@ use judging::command::{CompilationCommand, JudgingCommand};
 use path::{AbsPath, AbsPathBuf};
 use template::Template;
 use terminal::WriteAnsi;
-use {util, yaml};
+use {time, util, yaml};
 
+use maplit::{hashmap, hashset};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_derive::{Deserialize, Serialize};
 use zip::ZipArchive;
-use {serde_json, serde_yaml, toml};
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt::Write as _Write;
@@ -21,7 +22,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{self, cmp, f64, fmt, io, str, vec};
+use std::{cmp, f64, fmt, io, str, vec};
 
 pub(crate) fn modify_timelimit(
     stdout: impl WriteAnsi,
@@ -334,7 +335,7 @@ pub(crate) struct SuiteFilePath {
 }
 
 impl SuiteFilePath {
-    pub fn new(path: AbsPath, extension: SerializableExtension) -> Self {
+    pub fn new(path: &AbsPath, extension: SerializableExtension) -> Self {
         let path = path.to_owned();
         Self { path, extension }
     }
@@ -343,9 +344,9 @@ impl SuiteFilePath {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ZipConfig {
     #[serde(
-        serialize_with = "util::ser::millis",
-        deserialize_with = "util::de::millis",
-        skip_serializing_if = "Option::is_none"
+        serialize_with = "time::ser_millis",
+        deserialize_with = "time::de_secs",
+        skip_serializing_if = "Option::is_none",
     )]
     timelimit: Option<Duration>,
     #[serde(rename = "match")]
@@ -355,7 +356,7 @@ pub(crate) struct ZipConfig {
 }
 
 impl ZipConfig {
-    fn load(&self, path: AbsPath, filename: &str) -> SuiteFileResult<Vec<SimpleCase>> {
+    fn load(&self, path: &AbsPath, filename: &str) -> SuiteFileResult<Vec<SimpleCase>> {
         let mut cases = vec![];
         for entry in &self.entries {
             cases.extend(entry.load(
@@ -382,7 +383,7 @@ struct ZipEntries {
 impl ZipEntries {
     fn load(
         &self,
-        path: AbsPath,
+        path: &AbsPath,
         filename: &str,
         timelimit: Option<Duration>,
         output_match: Match,
@@ -749,9 +750,9 @@ impl<'de> Deserialize<'de> for SimpleSuite {
 #[derive(Debug, Serialize, Deserialize)]
 struct SimpleSuiteSchema {
     #[serde(
-        serialize_with = "util::ser::millis",
-        deserialize_with = "util::de::millis",
-        skip_serializing_if = "Option::is_none"
+        serialize_with = "time::ser_millis",
+        deserialize_with = "time::de_secs",
+        skip_serializing_if = "Option::is_none",
     )]
     timelimit: Option<Duration>,
     #[serde(rename = "match", default)]
@@ -773,9 +774,9 @@ struct SimpleCaseSchema {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct InteractiveSuite {
     #[serde(
-        serialize_with = "util::ser::millis",
-        deserialize_with = "util::de::millis",
-        skip_serializing_if = "Option::is_none"
+        serialize_with = "time::ser_millis",
+        deserialize_with = "time::de_secs",
+        skip_serializing_if = "Option::is_none",
     )]
     timelimit: Option<Duration>,
     tester: Option<String>,

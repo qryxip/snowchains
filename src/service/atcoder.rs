@@ -9,6 +9,8 @@ use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 use util::std_unstable::RemoveItem_ as _RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
+use log::{info, warn};
+use maplit::hashmap;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::StatusCode;
@@ -866,7 +868,6 @@ mod tests {
     use terminal::{Term, TermImpl};
     use testsuite::{SimpleSuite, TestSuite};
 
-    use env_logger;
     use url::Host;
 
     use std::time::Duration;

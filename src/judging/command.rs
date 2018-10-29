@@ -3,7 +3,7 @@ use path::AbsPathBuf;
 use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 
 use itertools::Itertools as _Itertools;
-use tokio_process::{self, CommandExt as _CommandExt};
+use tokio_process::CommandExt as _CommandExt;
 
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
@@ -160,7 +160,7 @@ impl Inner {
         };
         // https://github.com/rust-lang/rust/issues/37519
         if cfg!(windows) && AsRef::<Path>::as_ref(&arg0).is_relative() {
-            let abs = working_dir.join(&arg0);
+            let abs = working_dir.join_canonicalizing_lossy(&arg0);
             if abs.exists() {
                 arg0 = abs.into();
             }

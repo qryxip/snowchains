@@ -6,13 +6,12 @@ use service;
 use testsuite::DownloadDestinations;
 
 use futures::sync::oneshot;
-use futures::{self, future, task, Async, Future, Poll, Stream};
+use futures::{future, task, Async, Future, Poll, Stream};
 use itertools::Itertools as _Itertools;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
 use reqwest::async::Decoder;
 use reqwest::header::{self, HeaderMap, HeaderValue};
-use reqwest::{self, RedirectPolicy, StatusCode};
-use tokio_core;
+use reqwest::{RedirectPolicy, StatusCode};
 use url::Url;
 use zip::ZipArchive;
 
@@ -180,7 +179,7 @@ struct DownloadBody {
 impl DownloadBody {
     fn try_new(
         response: reqwest::async::Response,
-        path: AbsPath,
+        path: &AbsPath,
         mut progress_bar: ProgressBar<Pipe>,
     ) -> FileIoResult<Self> {
         const ALT_CAPACITY: usize = 30 * 1024 * 1024;

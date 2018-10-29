@@ -1,12 +1,12 @@
 use errors::JudgeResult;
 use judging::text::{Line, Text, Width as _Width, Word};
-use judging::{JudgingCommand, MillisRoundedUp, Outcome};
+use judging::{JudgingCommand, Outcome};
 use terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use testsuite::InteractiveCase;
+use time::MillisRoundedUp as _MillisRoundedUp;
 
-use futures::{task, Async, Future, Poll, Stream};
+use futures::{task, try_ready, Async, Future, Poll, Stream};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_process;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

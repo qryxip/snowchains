@@ -8,19 +8,19 @@ use service::{
 };
 use terminal::{AnsiColorChoice, Term};
 use testsuite::{self, SerializableExtension};
-use Never;
+use {time, Never};
 
-use once_cell::sync::Lazy;
-use regex::Regex;
+use log::info;
 use structopt::clap::Arg;
+use structopt::StructOpt;
 
 use std::borrow::Cow;
+use std::f64;
 use std::io::Write as _Write;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
-use std::{self, f64};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -65,9 +65,9 @@ pub enum Opt {
         raw(alias = "\"w\"", display_order = "2"),
     )]
     Switch {
-        #[structopt(
-            raw(service = r#"&["atcoder", "hackerrank", "yukicoder", "other"], Kind::Option(1)"#),
-        )]
+        #[structopt(raw(
+            service = r#"&["atcoder", "hackerrank", "yukicoder", "other"], Kind::Option(1)"#,
+        ))]
         service: Option<ServiceName>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
@@ -314,10 +314,7 @@ pub enum Modify {
         problem: String,
         #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
         extension: SerializableExtension,
-        #[structopt(
-            help = "Timelimit (\\A[0-9]{1,19}(\\.[0-9]+)?m?s\\z)",
-            parse(try_from_str = "parse_timelimit"),
-        )]
+        #[structopt(help = "Timelimit", parse(try_from_str = "time::parse_secs"))]
         timelimit: Option<Duration>,
     },
 
@@ -532,43 +529,6 @@ fn parse_non_zero_usize(s: &str) -> std::result::Result<NonZeroUsize, String> {
     NonZeroUsize::new(n).ok_or_else(|| "must be non-zero".to_owned())
 }
 
-fn parse_timelimit(s: &str) -> std::result::Result<Duration, &'static str> {
-    static R: Lazy<Regex> = lazy_regex!(r"\A([0-9]{1,19})(\.[0-9]+)?(m)?s\z");
-    let caps = R
-        .captures(s)
-        .ok_or(r"Input must match \A[0-9]{1,19}(\.[0-9]+)?m?s\z")?;
-    Ok({
-        let (secs, nanos);
-        if caps.get(3).is_none() {
-            secs = caps[1].parse().unwrap();
-            nanos = caps
-                .get(2)
-                .map(|m| &m.as_str()[1..])
-                .unwrap_or("")
-                .as_bytes()
-                .iter()
-                .scan(1_000_000_000, |k, &c| {
-                    *k /= 10;
-                    Some(*k * u32::from(c - b'0'))
-                }).sum::<u32>();
-        } else {
-            let millis = caps[1].parse::<u64>().unwrap();
-            secs = millis / 1000;
-            nanos = 1_000_000 * ((millis % 1000) as u32) + caps
-                .get(2)
-                .map(|m| &m.as_str()[1..])
-                .unwrap_or("")
-                .as_bytes()
-                .iter()
-                .scan(1_000_000, |k, &c| {
-                    *k /= 10;
-                    Some(*k * u32::from(c - b'0'))
-                }).sum::<u32>();
-        }
-        Duration::new(secs, nanos)
-    })
-}
-
 pub struct App<T: Term> {
     pub working_dir: AbsPathBuf,
     pub cookies_on_init: Cow<'static, str>,
@@ -583,7 +543,7 @@ impl<T: Term> App<T> {
         let cookies_on_init = self.cookies_on_init.clone();
         match opt {
             Opt::Init { directory, .. } => {
-                let wd = working_dir.join(&directory);
+                let wd = working_dir.join_canonicalizing_lossy(&directory);
                 config::init(self.term.stdout(), &wd, &cookies_on_init)?;
             }
             Opt::Switch {
@@ -832,32 +792,5 @@ impl<T: Term> App<T> {
             timeout: config.session_timeout(),
             credentials: self.credentials.clone(),
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_timelimit;
-
-    use std::time::Duration;
-
-    #[test]
-    fn it_parses_a_timelimit() {
-        for (s, t) in &[
-            ("0.0s", Duration::new(0, 0)),
-            ("0.5678s", Duration::new(0, 567800000)),
-            ("1234.0s", Duration::new(1234, 0)),
-            ("1234.5678s", Duration::new(1234, 567800000)),
-            ("0s", Duration::new(0, 0)),
-            ("1234s", Duration::new(1234, 0)),
-            ("0.0ms", Duration::new(0, 0)),
-            ("0.5678ms", Duration::new(0, 567800)),
-            ("1234.0ms", Duration::new(1, 234000000)),
-            ("1234.5678ms", Duration::new(1, 234567800)),
-            ("0ms", Duration::new(0, 0)),
-            ("1234ms", Duration::new(1, 234000000)),
-        ] {
-            assert_eq!(parse_timelimit(s).unwrap(), *t);
-        }
     }
 }

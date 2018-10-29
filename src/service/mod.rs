@@ -14,12 +14,14 @@ use service::session::{HttpSession, UrlBase};
 use template::{Template, TemplateBuilder};
 use terminal::{Term, WriteAnsi};
 use testsuite::DownloadDestinations;
-use {util, Never};
+use {time, Never};
 
 use heck::KebabCase as _KebabCase;
+use maplit::hashmap;
 use reqwest::header::{self, HeaderMap};
-use reqwest::{self, RedirectPolicy, Response};
+use reqwest::{RedirectPolicy, Response};
 use select::document::Document;
+use serde_derive::{Deserialize, Serialize};
 use url::Host;
 
 use std::collections::HashMap;
@@ -27,7 +29,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Duration;
-use std::{self, fmt, io, slice};
+use std::{fmt, io, slice};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -166,8 +168,8 @@ pub enum RevelSession {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SessionConfig {
     #[serde(
-        serialize_with = "util::ser::secs",
-        deserialize_with = "util::de::non_zero_secs"
+        serialize_with = "time::ser_secs",
+        deserialize_with = "time::de_secs",
     )]
     timeout: Option<Duration>,
     cookies: TemplateBuilder<AbsPathBuf>,
@@ -178,7 +180,7 @@ impl SessionConfig {
         self.timeout
     }
 
-    pub(crate) fn cookies(&self, base_dir: AbsPath, service: ServiceName) -> Template<AbsPathBuf> {
+    pub(crate) fn cookies(&self, base_dir: &AbsPath, service: ServiceName) -> Template<AbsPathBuf> {
         self.cookies
             .build(base_dir)
             .strings(hashmap!("service".to_owned() => service.to_string()))

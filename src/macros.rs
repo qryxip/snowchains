@@ -33,9 +33,10 @@ macro_rules! derive_from {
 }
 
 macro_rules! lazy_regex {
-    ($expr:expr) => {
+    ($expr:expr) => {{
+        use once_cell::sync_lazy;
         sync_lazy!(::regex::Regex::new($expr).unwrap())
-    };
+    }};
 }
 
 macro_rules! selector {

@@ -8,8 +8,10 @@ use heck::{
     CamelCase as _CamelCase, KebabCase as _KebabCase, MixedCase as _MixedCase,
     ShoutySnakeCase as _ShoutySnakeCase, SnakeCase as _SnakeCase, TitleCase as _TitleCase,
 };
+use maplit::hashmap;
 use serde::de::DeserializeOwned;
-use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_derive::{Deserialize, Serialize};
 
 use std::borrow::Borrow;
 use std::borrow::Cow;
@@ -17,7 +19,7 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::str::FromStr;
-use std::{self, env, fmt};
+use std::{env, fmt};
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Default, Serialize, Deserialize)]
@@ -47,7 +49,7 @@ impl TemplateBuilder<String> {
 }
 
 impl TemplateBuilder<AbsPathBuf> {
-    pub fn build(&self, base_dir: AbsPath) -> Template<AbsPathBuf> {
+    pub fn build(&self, base_dir: &AbsPath) -> Template<AbsPathBuf> {
         Template {
             inner: self.0.clone(),
             base_dir: base_dir.to_owned(),
@@ -60,7 +62,7 @@ impl TemplateBuilder<AbsPathBuf> {
 impl TemplateBuilder<CompilationCommand> {
     pub fn build(
         &self,
-        base_dir: AbsPath,
+        base_dir: &AbsPath,
         shell: &[TemplateBuilder<OsString>],
         wd: &TemplateBuilder<AbsPathBuf>,
         src: &TemplateBuilder<AbsPathBuf>,
@@ -84,7 +86,7 @@ impl TemplateBuilder<CompilationCommand> {
 impl TemplateBuilder<JudgingCommand> {
     pub fn build(
         &self,
-        base_dir: AbsPath,
+        base_dir: &AbsPath,
         shell: &[TemplateBuilder<OsString>],
         wd: &TemplateBuilder<AbsPathBuf>,
         src: &TemplateBuilder<AbsPathBuf>,
@@ -448,7 +450,7 @@ impl Tokens {
     fn expand_as_path(
         &self,
         problem: &str,
-        base_dir: AbsPath,
+        base_dir: &AbsPath,
         strings: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<str>>,
     ) -> ExpandTemplateResult<AbsPathBuf> {
         self.expand_with_context(
@@ -525,7 +527,8 @@ mod tests {
     use judging::command::{CompilationCommand, JudgingCommand};
     use path::AbsPathBuf;
 
-    use {dirs, env_logger, serde_json};
+    use maplit::hashmap;
+    use serde_derive::{Deserialize, Serialize};
 
     use std::env;
     use std::ffi::{OsStr, OsString};

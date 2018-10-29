@@ -3,6 +3,7 @@ use template::{Template, TemplateBuilder};
 use yaml;
 
 use regex::Regex;
+use serde_derive::{Deserialize, Serialize};
 
 use std::borrow::Cow;
 use std::collections::HashMap;

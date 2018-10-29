@@ -1,14 +1,14 @@
 use itertools::Itertools as _Itertools;
+use maplit::{btreeset, hashmap};
 use regex::Regex;
-use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
-use serde_yaml;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use yaml_rust::parser::{Event, Parser};
 use yaml_rust::scanner::{ScanError, Scanner, TScalarStyle, Token, TokenType};
 use yaml_rust::{Yaml, YamlEmitter};
 
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
-use std::{self, cmp, fmt, str};
+use std::{cmp, fmt, str};
 
 pub(crate) fn serialize_regex<S: Serializer>(
     regex: &Regex,

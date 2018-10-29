@@ -10,7 +10,8 @@ use testsuite::{
 };
 use yaml;
 
-use serde_yaml;
+use maplit::hashmap;
+use serde_derive::{Deserialize, Serialize};
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -26,7 +27,7 @@ static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 /// Creates `snowchains.yaml` in `directory`.
 pub(crate) fn init(
     mut stdout: impl Write,
-    directory: AbsPath,
+    directory: &AbsPath,
     session_cookies: &str,
 ) -> FileIoResult<()> {
     let config = format!(
@@ -39,7 +40,7 @@ console:
   cjk: false
 
 session:
-  timeout: 60
+  timeout: 60s
   cookies: {session_cookies}
 
 shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
@@ -50,7 +51,7 @@ judge:
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
   zip:
-    timelimit: 2000
+    timelimit: 2000ms
     match: exact
     crlf_to_lf:
       in: true
@@ -287,7 +288,7 @@ pub(crate) fn switch(
     mut stdout: impl TermOut,
     mut stderr: impl TermOut,
     color_choice: AnsiColorChoice,
-    directory: AbsPath,
+    directory: &AbsPath,
     service: Option<ServiceName>,
     contest: Option<String>,
     language: Option<String>,
@@ -405,13 +406,13 @@ impl Config {
     pub fn load(
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
-        dir: AbsPath,
+        dir: &AbsPath,
     ) -> FileIoResult<Self> {
         let path = ::fs::find_filepath(dir, CONFIG_FILE_NAME)?;
         let mut config = serde_yaml::from_reader::<_, Self>(::fs::open(&path)?).map_err(|err| {
             FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
         })?;
-        config.base_dir = path.parent().unwrap();
+        config.base_dir = path.parent().unwrap().to_owned();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
         Ok(config)

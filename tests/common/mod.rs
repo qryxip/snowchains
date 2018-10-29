@@ -102,7 +102,7 @@ pub fn download(
 }
 
 pub fn confirm_num_cases(
-    wd: AbsPath,
+    wd: &AbsPath,
     service: ServiceName,
     contest: &str,
     pairs: &[(&str, usize)],
@@ -138,7 +138,7 @@ pub fn confirm_num_cases(
     }
 }
 
-pub fn confirm_zip_exists(wd: AbsPath, contest: &str, problem: &str) -> io::Result<()> {
+pub fn confirm_zip_exists(wd: &AbsPath, contest: &str, problem: &str) -> io::Result<()> {
     let path = wd
         .join("snowchains")
         .join("hackerrank")

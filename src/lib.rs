@@ -1,20 +1,3 @@
-#[macro_use]
-extern crate failure;
-#[macro_use]
-extern crate futures;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate maplit;
-#[macro_use]
-extern crate once_cell;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
-extern crate serde_json;
-#[macro_use]
-extern crate structopt;
-
 extern crate atty;
 extern crate bincode;
 extern crate chrono;
@@ -22,9 +5,14 @@ extern crate combine;
 extern crate cookie;
 extern crate diff;
 extern crate dirs;
+extern crate failure;
 extern crate fs2;
+extern crate futures;
 extern crate heck;
 extern crate itertools;
+extern crate log;
+extern crate maplit;
+extern crate once_cell;
 extern crate pbr;
 extern crate regex;
 extern crate reqwest;
@@ -33,8 +21,11 @@ extern crate rpassword;
 extern crate rprompt;
 extern crate select;
 extern crate serde;
+extern crate serde_derive;
+extern crate serde_json;
 extern crate serde_urlencoded;
 extern crate serde_yaml;
+extern crate structopt;
 extern crate tokio;
 extern crate tokio_core;
 extern crate tokio_process;
@@ -54,7 +45,6 @@ extern crate winapi;
 extern crate winapi_util;
 
 #[cfg(test)]
-#[macro_use]
 extern crate nickel;
 
 #[cfg(test)]
@@ -78,6 +68,7 @@ mod judging;
 mod replacer;
 mod template;
 mod testsuite;
+mod time;
 mod yaml;
 
 pub use errors::{Error, Result};
