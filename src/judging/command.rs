@@ -160,7 +160,7 @@ impl Inner {
         };
         // https://github.com/rust-lang/rust/issues/37519
         if cfg!(windows) && AsRef::<Path>::as_ref(&arg0).is_relative() {
-            let abs = working_dir.join(&arg0);
+            let abs = working_dir.join_canonicalizing_lossy(&arg0);
             if abs.exists() {
                 arg0 = abs.into();
             }

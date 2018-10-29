@@ -24,8 +24,7 @@ pub enum Error {
     LoadConfig(LoadConfigError),
     ExpandTemplate(ExpandTemplateError),
     FileIo(FileIoError),
-    Io(io::Error),
-    Getcwd(io::Error),
+    Io(StdErrorWithDisplayChain<io::Error>),
     Unimplemented,
 }
 
@@ -39,7 +38,6 @@ impl fmt::Display for self::Error {
             self::Error::ExpandTemplate(e) => write!(f, "{}", e),
             self::Error::FileIo(e) => write!(f, "{}", e),
             self::Error::Io(e) => write!(f, "{}", e),
-            self::Error::Getcwd(_) => write!(f, "Failed to get the current directory"),
             self::Error::Unimplemented => write!(f, "Sorry, not yet implemented"),
         }
     }
@@ -54,7 +52,7 @@ impl Fail for self::Error {
             ::Error::LoadConfig(e) => e.cause(),
             ::Error::ExpandTemplate(e) => e.cause(),
             ::Error::FileIo(e) => e.cause(),
-            ::Error::Getcwd(e) => Some(e),
+            ::Error::Io(e) => e.cause(),
             _ => None,
         }
     }
@@ -477,6 +475,7 @@ pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateE
 pub enum ExpandTemplateError {
     Context(Context<ExpandTemplateErrorContext>),
     FileIo(FileIoError),
+    Io(StdErrorWithDisplayChain<io::Error>),
     UnknownSpecifier(String),
     EnvVarNotPresent(String),
     EnvVarNotUnicode(String, OsString),
@@ -486,6 +485,7 @@ pub enum ExpandTemplateError {
 derive_from!(
     ExpandTemplateError::Context <- Context<ExpandTemplateErrorContext>,
     ExpandTemplateError::FileIo  <- FileIoError,
+    ExpandTemplateError::Io      <- io::Error,
 );
 
 impl fmt::Display for ExpandTemplateError {
@@ -493,6 +493,7 @@ impl fmt::Display for ExpandTemplateError {
         match self {
             ExpandTemplateError::Context(c) => write!(f, "{}", c),
             ExpandTemplateError::FileIo(e) => write!(f, "{}", e),
+            ExpandTemplateError::Io(e) => write!(f, "{}", e),
             ExpandTemplateError::UnknownSpecifier(s) => write!(
                 f,
                 "Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
@@ -516,6 +517,7 @@ impl Fail for ExpandTemplateError {
         match self {
             ExpandTemplateError::Context(c) => c.cause(),
             ExpandTemplateError::FileIo(e) => e.cause(),
+            ExpandTemplateError::Io(e) => e.cause(),
             _ => None,
         }
     }
@@ -643,10 +645,6 @@ impl fmt::Display for FileIoError {
             FileIoErrorKind::Read => write!(f, "Failed to read {}", path),
             FileIoErrorKind::Write => write!(f, "Failed to write to {}", path),
             FileIoErrorKind::Deserialize => write!(f, "Failed to deserialize data from {}", path),
-            FileIoErrorKind::HomeDirNotFound => write!(f, "Home directory not found"),
-            FileIoErrorKind::UnsupportedUseOfTilde => {
-                write!(f, "Unsupported use of \"~\": {:?}", self.path)
-            }
             FileIoErrorKind::InvalidZipArchive(m) => {
                 write!(f, "{} is invalid Zip archive: {}", path, m)
             }
@@ -678,8 +676,6 @@ pub(crate) enum FileIoErrorKind {
     Read,
     Write,
     Deserialize,
-    HomeDirNotFound,
-    UnsupportedUseOfTilde,
     InvalidZipArchive(&'static str),
     UnsupportedZipArchive(&'static str),
     Other,

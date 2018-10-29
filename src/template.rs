@@ -49,7 +49,7 @@ impl TemplateBuilder<String> {
 }
 
 impl TemplateBuilder<AbsPathBuf> {
-    pub fn build(&self, base_dir: AbsPath) -> Template<AbsPathBuf> {
+    pub fn build(&self, base_dir: &AbsPath) -> Template<AbsPathBuf> {
         Template {
             inner: self.0.clone(),
             base_dir: base_dir.to_owned(),
@@ -62,7 +62,7 @@ impl TemplateBuilder<AbsPathBuf> {
 impl TemplateBuilder<CompilationCommand> {
     pub fn build(
         &self,
-        base_dir: AbsPath,
+        base_dir: &AbsPath,
         shell: &[TemplateBuilder<OsString>],
         wd: &TemplateBuilder<AbsPathBuf>,
         src: &TemplateBuilder<AbsPathBuf>,
@@ -86,7 +86,7 @@ impl TemplateBuilder<CompilationCommand> {
 impl TemplateBuilder<JudgingCommand> {
     pub fn build(
         &self,
-        base_dir: AbsPath,
+        base_dir: &AbsPath,
         shell: &[TemplateBuilder<OsString>],
         wd: &TemplateBuilder<AbsPathBuf>,
         src: &TemplateBuilder<AbsPathBuf>,
@@ -450,7 +450,7 @@ impl Tokens {
     fn expand_as_path(
         &self,
         problem: &str,
-        base_dir: AbsPath,
+        base_dir: &AbsPath,
         strings: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<str>>,
     ) -> ExpandTemplateResult<AbsPathBuf> {
         self.expand_with_context(

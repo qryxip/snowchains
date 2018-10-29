@@ -180,7 +180,7 @@ impl SessionConfig {
         self.timeout
     }
 
-    pub(crate) fn cookies(&self, base_dir: AbsPath, service: ServiceName) -> Template<AbsPathBuf> {
+    pub(crate) fn cookies(&self, base_dir: &AbsPath, service: ServiceName) -> Template<AbsPathBuf> {
         self.cookies
             .build(base_dir)
             .strings(hashmap!("service".to_owned() => service.to_string()))

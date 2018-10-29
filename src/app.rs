@@ -543,7 +543,7 @@ impl<T: Term> App<T> {
         let cookies_on_init = self.cookies_on_init.clone();
         match opt {
             Opt::Init { directory, .. } => {
-                let wd = working_dir.join(&directory);
+                let wd = working_dir.join_canonicalizing_lossy(&directory);
                 config::init(self.term.stdout(), &wd, &cookies_on_init)?;
             }
             Opt::Switch {

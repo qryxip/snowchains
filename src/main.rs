@@ -13,7 +13,7 @@ use failure::Fail;
 use structopt::StructOpt as _StructOpt;
 
 use std::io::{self, Write as _Write};
-use std::{env, process};
+use std::process;
 
 fn main() -> io::Result<()> {
     env_logger::init();
@@ -51,9 +51,7 @@ fn main() -> io::Result<()> {
 }
 
 fn run(opt: Opt, term: impl Term) -> snowchains::Result<()> {
-    let working_dir = env::current_dir()
-        .map(AbsPathBuf::new_or_panic)
-        .map_err(snowchains::Error::Getcwd)?;
+    let working_dir = AbsPathBuf::cwd()?;
     App {
         working_dir,
         cookies_on_init: "~/.local/share/snowchains/$service".into(),

@@ -179,7 +179,7 @@ struct DownloadBody {
 impl DownloadBody {
     fn try_new(
         response: reqwest::async::Response,
-        path: AbsPath,
+        path: &AbsPath,
         mut progress_bar: ProgressBar<Pipe>,
     ) -> FileIoResult<Self> {
         const ALT_CAPACITY: usize = 30 * 1024 * 1024;

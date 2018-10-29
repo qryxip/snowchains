@@ -27,7 +27,7 @@ static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 /// Creates `snowchains.yaml` in `directory`.
 pub(crate) fn init(
     mut stdout: impl Write,
-    directory: AbsPath,
+    directory: &AbsPath,
     session_cookies: &str,
 ) -> FileIoResult<()> {
     let config = format!(
@@ -288,7 +288,7 @@ pub(crate) fn switch(
     mut stdout: impl TermOut,
     mut stderr: impl TermOut,
     color_choice: AnsiColorChoice,
-    directory: AbsPath,
+    directory: &AbsPath,
     service: Option<ServiceName>,
     contest: Option<String>,
     language: Option<String>,
@@ -406,13 +406,13 @@ impl Config {
     pub fn load(
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
-        dir: AbsPath,
+        dir: &AbsPath,
     ) -> FileIoResult<Self> {
         let path = ::fs::find_filepath(dir, CONFIG_FILE_NAME)?;
         let mut config = serde_yaml::from_reader::<_, Self>(::fs::open(&path)?).map_err(|err| {
             FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
         })?;
-        config.base_dir = path.parent().unwrap();
+        config.base_dir = path.parent().unwrap().to_owned();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
         Ok(config)

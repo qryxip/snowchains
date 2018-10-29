@@ -335,7 +335,7 @@ pub(crate) struct SuiteFilePath {
 }
 
 impl SuiteFilePath {
-    pub fn new(path: AbsPath, extension: SerializableExtension) -> Self {
+    pub fn new(path: &AbsPath, extension: SerializableExtension) -> Self {
         let path = path.to_owned();
         Self { path, extension }
     }
@@ -356,7 +356,7 @@ pub(crate) struct ZipConfig {
 }
 
 impl ZipConfig {
-    fn load(&self, path: AbsPath, filename: &str) -> SuiteFileResult<Vec<SimpleCase>> {
+    fn load(&self, path: &AbsPath, filename: &str) -> SuiteFileResult<Vec<SimpleCase>> {
         let mut cases = vec![];
         for entry in &self.entries {
             cases.extend(entry.load(
@@ -383,7 +383,7 @@ struct ZipEntries {
 impl ZipEntries {
     fn load(
         &self,
-        path: AbsPath,
+        path: &AbsPath,
         filename: &str,
         timelimit: Option<Duration>,
         output_match: Match,
