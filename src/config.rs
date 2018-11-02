@@ -64,25 +64,31 @@ judge:
       - in:
           entry: /\Ain/([a-z0-9_\-]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         out:
           entry: /\Aout/([a-z0-9_\-]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         sort: [dictionary]
       # HackerRank
       - in:
           entry: /\Ainput/input([0-9]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         out:
           entry: /\Aoutput/output([0-9]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         sort: [number]
       # yukicoder
       - in:
           entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         out:
           entry: /\Atest_out/([a-z0-9_]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         sort: [dictionary, number]
 
 services:

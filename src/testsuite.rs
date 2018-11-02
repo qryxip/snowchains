@@ -373,7 +373,7 @@ impl ZipConfig {
 
 #[derive(Serialize, Deserialize)]
 struct ZipEntries {
-    sort: Vec<ZipEntrySorting>,
+    sort: Vec<ZipEntriesSorting>,
     #[serde(rename = "in")]
     input: ZipEntry,
     #[serde(rename = "out")]
@@ -411,10 +411,15 @@ impl ZipEntries {
                     .ok_or_else(|| SuiteFileError::RegexGroupOutOfBounds(self.input.match_group))?
                     .as_str()
                     .to_owned();
-                if let Some((_, output)) = pairs.remove(&name) {
-                    pairs.insert(name, (Some(content.clone()), output));
+                let content = if self.input.crlf_to_lf {
+                    content.replace("\r\n", "\n")
                 } else {
-                    pairs.insert(name, (Some(content.clone()), None));
+                    content.clone()
+                };
+                if let Some((_, output)) = pairs.remove(&name) {
+                    pairs.insert(name, (Some(content), output));
+                } else {
+                    pairs.insert(name, (Some(content), None));
                 }
             }
             if let Some(caps) = self.output.entry.captures(&filename) {
@@ -423,6 +428,11 @@ impl ZipEntries {
                     .ok_or_else(|| SuiteFileError::RegexGroupOutOfBounds(self.output.match_group))?
                     .as_str()
                     .to_owned();
+                let content = if self.output.crlf_to_lf {
+                    content.replace("\r\n", "\n")
+                } else {
+                    content
+                };
                 if let Some((input, _)) = pairs.remove(&name) {
                     pairs.insert(name, (input, Some(content)));
                 } else {
@@ -441,8 +451,8 @@ impl ZipEntries {
             }).collect::<Vec<_>>();
         for sorting in &self.sort {
             match sorting {
-                ZipEntrySorting::Dictionary => cases.sort_by(|(s1, _, _), (s2, _, _)| s1.cmp(s2)),
-                ZipEntrySorting::Number => cases.sort_by(|(s1, _, _), (s2, _, _)| {
+                ZipEntriesSorting::Dictionary => cases.sort_by(|(s1, _, _), (s2, _, _)| s1.cmp(s2)),
+                ZipEntriesSorting::Number => cases.sort_by(|(s1, _, _), (s2, _, _)| {
                     match (s1.parse::<usize>(), s2.parse::<usize>()) {
                         (Ok(n1), Ok(n2)) => n1.cmp(&n2),
                         (Ok(_), Err(_)) => cmp::Ordering::Less,
@@ -470,7 +480,7 @@ impl ZipEntries {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum ZipEntrySorting {
+enum ZipEntriesSorting {
     Dictionary,
     Number,
 }
@@ -483,6 +493,7 @@ struct ZipEntry {
     )]
     entry: Regex,
     match_group: usize,
+    crlf_to_lf: bool,
 }
 
 /// `SimpelSuite` or `InteractiveSuite`.
