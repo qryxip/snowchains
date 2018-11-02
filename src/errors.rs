@@ -1,10 +1,10 @@
 use chrono::{DateTime, Local};
+use crate::path::AbsPathBuf;
+use crate::template::Tokens;
 use failure::{Context, Fail};
 use itertools::Itertools as _Itertools;
-use path::AbsPathBuf;
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use reqwest::StatusCode;
-use template::Tokens;
 use url::Url;
 use zip::result::ZipError;
 
@@ -46,13 +46,13 @@ impl fmt::Display for self::Error {
 impl Fail for self::Error {
     fn cause(&self) -> Option<&dyn Fail> {
         match self {
-            ::Error::Service(e) => e.cause(),
-            ::Error::Judge(e) => e.cause(),
-            ::Error::SuiteFile(e) => e.cause(),
-            ::Error::LoadConfig(e) => e.cause(),
-            ::Error::ExpandTemplate(e) => e.cause(),
-            ::Error::FileIo(e) => e.cause(),
-            ::Error::Io(e) => e.cause(),
+            crate::Error::Service(e) => e.cause(),
+            crate::Error::Judge(e) => e.cause(),
+            crate::Error::SuiteFile(e) => e.cause(),
+            crate::Error::LoadConfig(e) => e.cause(),
+            crate::Error::ExpandTemplate(e) => e.cause(),
+            crate::Error::FileIo(e) => e.cause(),
+            crate::Error::Io(e) => e.cause(),
             _ => None,
         }
     }
@@ -798,7 +798,7 @@ impl Fail for DisplayChain {
 
 #[cfg(test)]
 mod tests {
-    use errors::StdErrorWithDisplayChain;
+    use crate::errors::StdErrorWithDisplayChain;
 
     use failure::Fail;
 

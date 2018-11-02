@@ -1,6 +1,6 @@
-use errors::{JudgeError, JudgeResult};
-use path::AbsPathBuf;
-use terminal::{TermOut, WriteSpaces as _WriteSpaces};
+use crate::errors::{JudgeError, JudgeResult};
+use crate::path::AbsPathBuf;
+use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
 
 use itertools::Itertools as _Itertools;
 use tokio_process::CommandExt as _CommandExt;
@@ -57,7 +57,7 @@ impl CompilationCommand {
             }
         } else if let Some(parent) = self.bin.parent() {
             if !parent.exists() {
-                ::fs::create_dir_all(&parent)?;
+                crate::fs::create_dir_all(&parent)?;
                 writeln!(stdout, "Created {}", parent.display())?;
                 stdout.flush()?;
             }

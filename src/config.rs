@@ -1,14 +1,16 @@
-use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
-use judging::command::{CompilationCommand, JudgingCommand};
-use path::{AbsPath, AbsPathBuf};
-use replacer::{CodeReplacer, CodeReplacerConf};
-use service::{ServiceName, SessionConfig};
-use template::{Template, TemplateBuilder};
-use terminal::{AnsiColorChoice, TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
-use testsuite::{
+use crate::errors::{
+    FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult,
+};
+use crate::judging::command::{CompilationCommand, JudgingCommand};
+use crate::path::{AbsPath, AbsPathBuf};
+use crate::replacer::{CodeReplacer, CodeReplacerConf};
+use crate::service::{ServiceName, SessionConfig};
+use crate::template::{Template, TemplateBuilder};
+use crate::terminal::{AnsiColorChoice, TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
+use crate::testsuite::{
     DownloadDestinations, SerializableExtension, SuiteFileExtension, TestCaseLoader, ZipConfig,
 };
-use yaml;
+use crate::yaml;
 
 use maplit::hashmap;
 use serde_derive::{Deserialize, Serialize};
@@ -277,7 +279,7 @@ languages:
         }
     );
     let path = directory.join(CONFIG_FILE_NAME);
-    ::fs::write(&path, config.as_bytes())?;
+    crate::fs::write(&path, config.as_bytes())?;
     writeln!(stdout, "Wrote to {}", path.display())?;
     stdout.flush()?;
     Ok(())
@@ -310,8 +312,8 @@ pub(crate) fn switch(
         stdout.write_str("\n")
     }
 
-    let path = ::fs::find_filepath(directory, CONFIG_FILE_NAME)?;
-    let mut old_yaml = ::fs::read_to_string(&path)?;
+    let path = crate::fs::find_filepath(directory, CONFIG_FILE_NAME)?;
+    let mut old_yaml = crate::fs::read_to_string(&path)?;
     let old_config = serde_yaml::from_str::<Config>(&old_yaml)
         .map_err(|err| FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err))?;
     stdout.setup(color_choice, &old_config.console);
@@ -374,7 +376,7 @@ pub(crate) fn switch(
     print_change(&mut stdout, "service:  ", w, &s1, &s2)?;
     print_change(&mut stdout, "contest:  ", w, &c1, &c2)?;
     print_change(&mut stdout, "language: ", w, &l1, &l2)?;
-    ::fs::write(&path, new_yaml.as_bytes())?;
+    crate::fs::write(&path, new_yaml.as_bytes())?;
 
     writeln!(stdout, "Saved to {}", path.display())?;
     stdout.flush()?;
@@ -408,10 +410,11 @@ impl Config {
         contest: impl Into<Option<String>>,
         dir: &AbsPath,
     ) -> FileIoResult<Self> {
-        let path = ::fs::find_filepath(dir, CONFIG_FILE_NAME)?;
-        let mut config = serde_yaml::from_reader::<_, Self>(::fs::open(&path)?).map_err(|err| {
-            FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
-        })?;
+        let path = crate::fs::find_filepath(dir, CONFIG_FILE_NAME)?;
+        let mut config =
+            serde_yaml::from_reader::<_, Self>(crate::fs::open(&path)?).map_err(|err| {
+                FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
+            })?;
         config.base_dir = path.parent().unwrap().to_owned();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);

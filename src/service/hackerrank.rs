@@ -1,12 +1,12 @@
-use errors::{ServiceError, ServiceResult, SessionResult};
-use service::downloader::ZipDownloader;
-use service::session::HttpSession;
-use service::{
+use crate::errors::{ServiceError, ServiceResult, SessionResult};
+use crate::service::downloader::ZipDownloader;
+use crate::service::session::HttpSession;
+use crate::service::{
     Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, Service,
     SessionProp, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
-use terminal::{Term, WriteAnsi};
-use testsuite::{SimpleSuite, TestSuite};
+use crate::terminal::{Term, WriteAnsi};
+use crate::testsuite::{SimpleSuite, TestSuite};
 
 use itertools::Itertools as _Itertools;
 use log::warn;
@@ -381,12 +381,12 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use errors::SessionResult;
-    use service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
-    use service::session::{HttpSession, UrlBase};
-    use service::{self, Service as _Service, UserNameAndPassword};
-    use terminal::{Term, TermImpl};
-    use testsuite::{SimpleSuite, TestSuite};
+    use crate::errors::SessionResult;
+    use crate::service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
+    use crate::service::session::{HttpSession, UrlBase};
+    use crate::service::{self, Service as _Service, UserNameAndPassword};
+    use crate::terminal::{Term, TermImpl};
+    use crate::testsuite::{SimpleSuite, TestSuite};
 
     use select::document::Document;
     use url::Host;

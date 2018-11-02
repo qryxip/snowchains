@@ -1,9 +1,9 @@
-use errors::JudgeResult;
-use judging::text::{Line, Text, Width as _Width, Word};
-use judging::{JudgingCommand, Outcome};
-use terminal::{TermOut, WriteSpaces as _WriteSpaces};
-use testsuite::InteractiveCase;
-use time::MillisRoundedUp as _MillisRoundedUp;
+use crate::errors::JudgeResult;
+use crate::judging::text::{Line, Text, Width as _Width, Word};
+use crate::judging::{JudgingCommand, Outcome};
+use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
+use crate::testsuite::InteractiveCase;
+use crate::time::MillisRoundedUp as _MillisRoundedUp;
 
 use futures::{task, try_ready, Async, Future, Poll, Stream};
 use tokio::io::{AsyncRead, AsyncWrite};

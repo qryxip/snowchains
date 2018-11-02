@@ -1,12 +1,12 @@
-use errors::{ServiceError, ServiceResult, SubmitError};
-use service::session::HttpSession;
-use service::{
+use crate::errors::{ServiceError, ServiceResult, SubmitError};
+use crate::service::session::HttpSession;
+use crate::service::{
     Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProp,
     Service, SessionProp, SubmitProp, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
-use terminal::{Term, WriteAnsi as _WriteAnsi};
-use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
-use util::std_unstable::RemoveItem_ as _RemoveItem_;
+use crate::terminal::{Term, WriteAnsi as _WriteAnsi};
+use crate::testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
+use crate::util::std_unstable::RemoveItem_ as _RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
 use log::{info, warn};
@@ -278,7 +278,7 @@ impl<T: Term> Atcoder<T> {
                     }
                     None => code,
                 };
-                ::fs::write(&path, code.as_bytes())?;
+                crate::fs::write(&path, code.as_bytes())?;
                 results.push((task_name, lang_name, lang_id, path));
             } else {
                 self.stderr().with_reset(|o| {
@@ -363,7 +363,7 @@ impl<T: Term> Atcoder<T> {
                         }
                     }
                 }
-                let source_code = ::fs::read_to_string(src_path)?;
+                let source_code = crate::fs::read_to_string(src_path)?;
                 let source_code = match replacer {
                     Some(replacer) => {
                         replacer.replace_from_local_to_submission(&problem, &source_code)?
@@ -861,12 +861,12 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use errors::SessionResult;
-    use service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
-    use service::session::{HttpSession, UrlBase};
-    use service::{self, Service as _Service, UserNameAndPassword};
-    use terminal::{Term, TermImpl};
-    use testsuite::{SimpleSuite, TestSuite};
+    use crate::errors::SessionResult;
+    use crate::service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
+    use crate::service::session::{HttpSession, UrlBase};
+    use crate::service::{self, Service as _Service, UserNameAndPassword};
+    use crate::terminal::{Term, TermImpl};
+    use crate::testsuite::{SimpleSuite, TestSuite};
 
     use url::Host;
 

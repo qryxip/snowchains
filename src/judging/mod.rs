@@ -2,13 +2,13 @@ pub(crate) mod command;
 mod interactive;
 mod simple;
 mod text;
-use util::std_unstable::AsMillis_;
+use crate::util::std_unstable::AsMillis_;
 
-use config::Config;
-use errors::{JudgeError, JudgeResult, SuiteFileResult};
-use judging::command::JudgingCommand;
-use terminal::{TermOut, WriteSpaces as _WriteSpaces};
-use testsuite::{SimpleCase, TestCase, TestCases};
+use crate::config::Config;
+use crate::errors::{JudgeError, JudgeResult, SuiteFileResult};
+use crate::judging::command::JudgingCommand;
+use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
+use crate::testsuite::{SimpleCase, TestCase, TestCases};
 
 use futures::{Future, Sink as _Sink, Stream as _Stream};
 use tokio::runtime::Runtime;

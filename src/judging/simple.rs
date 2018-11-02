@@ -1,10 +1,10 @@
-use errors::JudgeResult;
-use judging::command::JudgingCommand;
-use judging::text::{Line, PrintAligned, Text, Width, Word};
-use judging::Outcome;
-use terminal::{TermOut, WriteSpaces as _WriteSpaces};
-use testsuite::{ExpectedStdout, SimpleCase};
-use time::MillisRoundedUp as _MillisRoundedUp;
+use crate::errors::JudgeResult;
+use crate::judging::command::JudgingCommand;
+use crate::judging::text::{Line, PrintAligned, Text, Width, Word};
+use crate::judging::Outcome;
+use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
+use crate::testsuite::{ExpectedStdout, SimpleCase};
+use crate::time::MillisRoundedUp as _MillisRoundedUp;
 
 use futures::{task, try_ready, Async, Future, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};

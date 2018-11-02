@@ -1,5 +1,5 @@
-use errors::{FileIoError, FileIoErrorKind, FileIoResult};
-use path::{AbsPath, AbsPathBuf};
+use crate::errors::{FileIoError, FileIoErrorKind, FileIoResult};
+use crate::path::{AbsPath, AbsPathBuf};
 
 use fs2::FileExt as _FileExt;
 

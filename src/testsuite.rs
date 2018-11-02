@@ -1,12 +1,12 @@
-use errors::{
+use crate::errors::{
     ExpandTemplateResult, FileIoError, FileIoErrorCause, FileIoErrorKind, LoadConfigError,
     SuiteFileError, SuiteFileResult,
 };
-use judging::command::{CompilationCommand, JudgingCommand};
-use path::{AbsPath, AbsPathBuf};
-use template::Template;
-use terminal::WriteAnsi;
-use {time, util, yaml};
+use crate::judging::command::{CompilationCommand, JudgingCommand};
+use crate::path::{AbsPath, AbsPathBuf};
+use crate::template::Template;
+use crate::terminal::WriteAnsi;
+use crate::{time, util, yaml};
 
 use maplit::{hashmap, hashset};
 use regex::Regex;
@@ -393,7 +393,7 @@ impl ZipEntries {
             return Ok(vec![]);
         }
         let mut zip =
-            ZipArchive::new(::fs::open(path)?).map_err(|e| FileIoError::read_zip(path, e))?;
+            ZipArchive::new(crate::fs::open(path)?).map_err(|e| FileIoError::read_zip(path, e))?;
         let mut pairs = hashmap!();
         for i in 0..zip.len() {
             let (filename, content) = {
@@ -502,7 +502,7 @@ impl TestSuite {
         }
 
         let (path, extension) = (&path.path, path.extension);
-        let content = ::fs::read_to_string(&path)?;
+        let content = crate::fs::read_to_string(&path)?;
         match extension {
             SerializableExtension::Json => {
                 serde_json::from_str(&content).map_err(|e| chain_err(e, &path))
@@ -525,7 +525,7 @@ impl TestSuite {
     ) -> SuiteFileResult<()> {
         let (path, extension) = (&path.path, path.extension);
         let serialized = self.to_string_pretty(extension)?;
-        ::fs::write(path, serialized.as_bytes())?;
+        crate::fs::write(path, serialized.as_bytes())?;
         out.with_reset(|o| o.bold()?.write_str(name))?;
         write!(out, ": Saved to {} ", path.display())?;
         match self {

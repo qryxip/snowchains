@@ -6,15 +6,15 @@ pub(crate) mod yukicoder;
 
 pub(self) mod downloader;
 
-use config::Config;
-use errors::SessionResult;
-use path::{AbsPath, AbsPathBuf};
-use replacer::CodeReplacer;
-use service::session::{HttpSession, UrlBase};
-use template::{Template, TemplateBuilder};
-use terminal::{Term, WriteAnsi};
-use testsuite::DownloadDestinations;
-use {time, Never};
+use crate::config::Config;
+use crate::errors::SessionResult;
+use crate::path::{AbsPath, AbsPathBuf};
+use crate::replacer::CodeReplacer;
+use crate::service::session::{HttpSession, UrlBase};
+use crate::template::{Template, TemplateBuilder};
+use crate::terminal::{Term, WriteAnsi};
+use crate::testsuite::DownloadDestinations;
+use crate::{time, Never};
 
 use heck::KebabCase as _KebabCase;
 use maplit::hashmap;
@@ -227,7 +227,11 @@ pub(crate) struct DownloadProp<C: Contest> {
 }
 
 impl DownloadProp<String> {
-    pub fn try_new(config: &Config, open_browser: bool, problems: Vec<String>) -> ::Result<Self> {
+    pub fn try_new(
+        config: &Config,
+        open_browser: bool,
+        problems: Vec<String>,
+    ) -> crate::Result<Self> {
         let destinations = config.download_destinations(None);
         Ok(Self {
             contest: config.contest().to_owned(),
@@ -276,7 +280,7 @@ pub(crate) struct RestoreProp<'a, C: Contest> {
 }
 
 impl<'a> RestoreProp<'a, String> {
-    pub fn try_new(config: &'a Config, problems: Vec<String>) -> ::Result<Self> {
+    pub fn try_new(config: &'a Config, problems: Vec<String>) -> crate::Result<Self> {
         let replacers = config.code_replacers_on_atcoder()?;
         Ok(Self {
             contest: config.contest().to_owned(),
@@ -334,7 +338,7 @@ impl SubmitProp<String> {
         language: Option<&str>,
         open_browser: bool,
         skip_checking_if_accepted: bool,
-    ) -> ::Result<Self> {
+    ) -> crate::Result<Self> {
         let service = config.service();
         let contest = config.contest().to_owned();
         let src_path = config.src_to_submit(language)?.expand(&problem)?;

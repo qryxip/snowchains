@@ -1,6 +1,6 @@
-use errors::{ExpandTemplateError, ExpandTemplateErrorContext, ExpandTemplateResult};
-use judging::command::{CompilationCommand, JudgingCommand};
-use path::{AbsPath, AbsPathBuf};
+use crate::errors::{ExpandTemplateError, ExpandTemplateErrorContext, ExpandTemplateResult};
+use crate::judging::command::{CompilationCommand, JudgingCommand};
+use crate::path::{AbsPath, AbsPathBuf};
 
 use combine::Parser;
 use failure::ResultExt as _ResultExt;
@@ -524,8 +524,8 @@ impl fmt::Display for ParseTemplateError {
 mod tests {
     use super::TemplateBuilder;
 
-    use judging::command::{CompilationCommand, JudgingCommand};
-    use path::AbsPathBuf;
+    use crate::judging::command::{CompilationCommand, JudgingCommand};
+    use crate::path::AbsPathBuf;
 
     use maplit::hashmap;
     use serde_derive::{Deserialize, Serialize};

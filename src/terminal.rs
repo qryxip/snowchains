@@ -1,4 +1,4 @@
-use {config, Never};
+use crate::{config, Never};
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 

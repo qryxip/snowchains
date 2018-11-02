@@ -1,7 +1,7 @@
-use errors::{FileIoError, FileIoErrorKind, SessionError, SessionResult, StartSessionError};
-use path::AbsPathBuf;
-use service::USER_AGENT;
-use terminal::WriteAnsi;
+use crate::errors::{FileIoError, FileIoErrorKind, SessionError, SessionResult, StartSessionError};
+use crate::path::AbsPathBuf;
+use crate::service::USER_AGENT;
+use crate::terminal::WriteAnsi;
 
 use cookie::CookieJar;
 use failure::ResultExt as _ResultExt;
@@ -350,7 +350,7 @@ impl AutosavedCookieJar {
     fn try_new(path: impl Into<AbsPathBuf>) -> SessionResult<Self> {
         let path = path.into();
         let exists = path.exists();
-        let mut file = ::fs::create_and_lock(&path)?;
+        let mut file = crate::fs::create_and_lock(&path)?;
         let mut inner = CookieJar::new();
         if exists {
             let mut cookies =
@@ -425,11 +425,11 @@ impl AutosavedCookieJar {
 
 #[cfg(test)]
 mod tests {
-    use errors::SessionError;
-    use path::AbsPathBuf;
-    use service;
-    use service::session::{HttpSession, UrlBase};
-    use terminal::tests::Ansi;
+    use crate::errors::SessionError;
+    use crate::path::AbsPathBuf;
+    use crate::service;
+    use crate::service::session::{HttpSession, UrlBase};
+    use crate::terminal::tests::Ansi;
 
     use env_logger;
     use failure::Fail as _Fail;

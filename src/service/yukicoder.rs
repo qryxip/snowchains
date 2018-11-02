@@ -1,12 +1,12 @@
-use errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
-use service::downloader::ZipDownloader;
-use service::session::HttpSession;
-use service::{
+use crate::errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
+use crate::service::downloader::ZipDownloader;
+use crate::service::session::HttpSession;
+use crate::service::{
     Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, RevelSession,
     Service, SessionProp, SubmitProp, TryIntoDocument as _TryIntoDocument,
 };
-use terminal::{Term, WriteAnsi as _WriteAnsi};
-use testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
+use crate::terminal::{Term, WriteAnsi as _WriteAnsi};
+use crate::testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
 use once_cell::sync::Lazy;
@@ -227,7 +227,7 @@ impl<T: Term> Yukicoder<T> {
             skip_checking_if_accepted,
         } = prop;
         self.login(true)?;
-        let code = ::fs::read_to_string(src_path)?;
+        let code = crate::fs::read_to_string(src_path)?;
         let code = match replacer {
             Some(replacer) => replacer.replace_from_local_to_submission(&problem, &code)?,
             None => code,
@@ -492,12 +492,12 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use errors::SessionResult;
-    use service::session::{HttpSession, UrlBase};
-    use service::yukicoder::{Extract as _Extract, Username, Yukicoder};
-    use service::{self, RevelSession, Service as _Service};
-    use terminal::{Term, TermImpl};
-    use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
+    use crate::errors::SessionResult;
+    use crate::service::session::{HttpSession, UrlBase};
+    use crate::service::yukicoder::{Extract as _Extract, Username, Yukicoder};
+    use crate::service::{self, RevelSession, Service as _Service};
+    use crate::terminal::{Term, TermImpl};
+    use crate::testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 
     use url::Host;
 

@@ -1,14 +1,14 @@
-use config::{self, Config};
-use errors::ExpandTemplateResult;
-use judging::{self, JudgeParams};
-use path::AbsPathBuf;
-use service::{
+use crate::config::{self, Config};
+use crate::errors::ExpandTemplateResult;
+use crate::judging::{self, JudgeParams};
+use crate::path::AbsPathBuf;
+use crate::service::{
     atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, ServiceName,
     SessionProp, SubmitProp,
 };
-use terminal::{AnsiColorChoice, Term};
-use testsuite::{self, SerializableExtension};
-use {time, Never};
+use crate::terminal::{AnsiColorChoice, Term};
+use crate::testsuite::{self, SerializableExtension};
+use crate::{time, Never};
 
 use log::info;
 use structopt::clap::Arg;
@@ -537,7 +537,7 @@ pub struct App<T: Term> {
 }
 
 impl<T: Term> App<T> {
-    pub fn run(&mut self, opt: Opt) -> ::Result<()> {
+    pub fn run(&mut self, opt: Opt) -> crate::Result<()> {
         info!("Opt = {:?}", opt);
         let working_dir = self.working_dir.clone();
         let cookies_on_init = self.cookies_on_init.clone();
@@ -605,7 +605,7 @@ impl<T: Term> App<T> {
                     ServiceName::Atcoder => atcoder::download(sess_prop, download_prop),
                     ServiceName::Hackerrank => hackerrank::download(sess_prop, download_prop),
                     ServiceName::Yukicoder => yukicoder::download(sess_prop, download_prop),
-                    ServiceName::Other => return Err(::Error::Unimplemented),
+                    ServiceName::Other => return Err(crate::Error::Unimplemented),
                 }?;
             }
             Opt::Restore {
@@ -620,7 +620,7 @@ impl<T: Term> App<T> {
                 let restore_prop = RestoreProp::try_new(&config, problems)?;
                 match config.service() {
                     ServiceName::Atcoder => atcoder::restore(sess_prop, restore_prop)?,
-                    _ => return Err(::Error::Unimplemented),
+                    _ => return Err(crate::Error::Unimplemented),
                 };
             }
             Opt::Judge {
@@ -684,7 +684,7 @@ impl<T: Term> App<T> {
                 match config.service() {
                     ServiceName::Atcoder => atcoder::submit(sess_prop, submit_prop)?,
                     ServiceName::Yukicoder => yukicoder::submit(sess_prop, submit_prop)?,
-                    _ => return Err(::Error::Unimplemented),
+                    _ => return Err(crate::Error::Unimplemented),
                 };
             }
             Opt::Show(Show::NumCases {
