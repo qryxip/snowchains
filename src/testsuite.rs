@@ -352,7 +352,6 @@ pub(crate) struct ZipConfig {
     timelimit: Option<Duration>,
     #[serde(rename = "match")]
     output_match: Match,
-    crlf_to_lf: CrlfToLf,
     entries: Vec<ZipEntries>,
 }
 
@@ -360,13 +359,7 @@ impl ZipConfig {
     fn load(&self, path: &AbsPath, filename: &str) -> SuiteFileResult<Vec<SimpleCase>> {
         let mut cases = vec![];
         for entry in &self.entries {
-            cases.extend(entry.load(
-                path,
-                filename,
-                self.timelimit,
-                self.output_match,
-                self.crlf_to_lf,
-            )?);
+            cases.extend(entry.load(path, filename, self.timelimit, self.output_match)?);
         }
         Ok(cases)
     }
@@ -388,7 +381,6 @@ impl ZipEntries {
         filename: &str,
         timelimit: Option<Duration>,
         output_match: Match,
-        crlf_to_lf: CrlfToLf,
     ) -> SuiteFileResult<Vec<SimpleCase>> {
         if !path.exists() {
             return Ok(vec![]);
@@ -412,7 +404,7 @@ impl ZipEntries {
                     .ok_or_else(|| SuiteFileError::RegexGroupOutOfBounds(self.input.match_group))?
                     .as_str()
                     .to_owned();
-                let content = if self.input.crlf_to_lf {
+                let content = if self.input.crlf_to_lf && content.contains("\r\n") {
                     content.replace("\r\n", "\n")
                 } else {
                     content.clone()
@@ -429,7 +421,7 @@ impl ZipEntries {
                     .ok_or_else(|| SuiteFileError::RegexGroupOutOfBounds(self.output.match_group))?
                     .as_str()
                     .to_owned();
-                let content = if self.output.crlf_to_lf {
+                let content = if self.output.crlf_to_lf && content.contains("\r\n") {
                     content.replace("\r\n", "\n")
                 } else {
                     content
@@ -472,7 +464,6 @@ impl ZipEntries {
                     &input,
                     Some(&output),
                     output_match,
-                    crlf_to_lf,
                 )
             }).collect();
         Ok(cases)
@@ -671,7 +662,6 @@ impl<T, E: 'static + std::error::Error + Send + Sync> WrapInIoError for std::res
 pub(crate) struct SimpleSuite {
     timelimit: Option<Duration>,
     output_match: Match,
-    crlf_to_lf: CrlfToLf,
     cases: Vec<(Arc<String>, Option<Arc<String>>)>,
 }
 
@@ -701,8 +691,7 @@ impl SimpleSuite {
     }
 
     fn cases_named(self, filename: &str) -> Vec<SimpleCase> {
-        let (output_match, crlf_to_lf, timelimit) =
-            (self.output_match, self.crlf_to_lf, self.timelimit);
+        let (output_match, timelimit) = (self.output_match, self.timelimit);
         self.cases
             .into_iter()
             .enumerate()
@@ -713,7 +702,6 @@ impl SimpleSuite {
                     &input,
                     output.as_ref().map(|s| s.as_str()),
                     output_match,
-                    crlf_to_lf,
                 )
             }).collect::<Vec<_>>()
     }
@@ -737,7 +725,6 @@ impl Serialize for SimpleSuite {
         SimpleSuiteSchema {
             timelimit: self.timelimit,
             output_match: self.output_match,
-            crlf_to_lf: self.crlf_to_lf,
             cases,
         }.serialize(serializer)
     }
@@ -749,7 +736,6 @@ impl<'de> Deserialize<'de> for SimpleSuite {
         Ok(Self {
             timelimit: raw.timelimit,
             output_match: raw.output_match,
-            crlf_to_lf: raw.crlf_to_lf,
             cases: raw
                 .cases
                 .into_iter()
@@ -769,7 +755,6 @@ struct SimpleSuiteSchema {
     timelimit: Option<Duration>,
     #[serde(rename = "match", default)]
     output_match: Match,
-    crlf_to_lf: CrlfToLf,
     cases: Vec<SimpleCaseSchema>,
 }
 
@@ -879,7 +864,6 @@ pub(crate) struct SimpleCase {
     name: Arc<String>,
     input: Arc<String>,
     expected: Arc<ExpectedStdout>,
-    remove_crlf_from_actual_stdout: bool,
     timelimit: Option<Duration>,
 }
 
@@ -896,18 +880,8 @@ impl SimpleCase {
         input: &str,
         output: Option<&str>,
         output_match: Match,
-        crlf_to_lf: CrlfToLf,
     ) -> Self {
-        fn replace_crlf_to_lf(s: &str, p: bool) -> String {
-            if p && s.contains("\r\n") {
-                s.replace("\r\n", "\n")
-            } else {
-                s.to_owned()
-            }
-        }
-
-        let output = output.map(|o| replace_crlf_to_lf(o, crlf_to_lf.expected_out));
-        let expected = match (output_match, output) {
+        let expected = match (output_match, output.map(ToOwned::to_owned)) {
             (Match::AcceptAll, example) => ExpectedStdout::AcceptAny { example },
             (Match::Exact, None) | (Match::Float { .. }, None) => {
                 ExpectedStdout::AcceptAny { example: None }
@@ -927,9 +901,8 @@ impl SimpleCase {
         };
         Self {
             name: Arc::new(name.to_owned()),
-            input: Arc::new(replace_crlf_to_lf(input, crlf_to_lf.input)),
+            input: Arc::new(input.to_owned()),
             expected: Arc::new(expected),
-            remove_crlf_from_actual_stdout: crlf_to_lf.actual_out,
             timelimit,
         }
     }
@@ -940,10 +913,6 @@ impl SimpleCase {
 
     pub(crate) fn expected(&self) -> Arc<ExpectedStdout> {
         self.expected.clone()
-    }
-
-    pub(crate) fn remove_crlf_from_actual_stdout(&self) -> bool {
-        self.remove_crlf_from_actual_stdout
     }
 
     pub(crate) fn timelimit(&self) -> Option<Duration> {
@@ -986,35 +955,6 @@ fn nan() -> f64 {
 impl Default for Match {
     fn default() -> Self {
         Match::Exact
-    }
-}
-
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-struct CrlfToLf {
-    #[serde(rename = "in")]
-    input: bool,
-    expected_out: bool,
-    actual_out: bool,
-}
-
-impl Default for CrlfToLf {
-    #[cfg(not(windows))]
-    fn default() -> Self {
-        Self {
-            input: false,
-            expected_out: false,
-            actual_out: false,
-        }
-    }
-
-    #[cfg(windows)]
-    fn default() -> Self {
-        Self {
-            input: false,
-            expected_out: false,
-            actual_out: true,
-        }
     }
 }
 

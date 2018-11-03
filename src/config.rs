@@ -55,10 +55,6 @@ judge:
   zip:
     timelimit: 2000ms
     match: exact
-    crlf_to_lf:
-      in: true
-      expected_out: true
-      actual_out: {zip_crlf_to_lf_actual_out:?}
     entries:
       # AtCoder
       - in:
@@ -250,12 +246,11 @@ languages:
       atcoder: 3027
       yukicoder: text
 "#,
-        zip_crlf_to_lf_actual_out = cfg!(windows),
         session_cookies = yaml::escape_string(session_cookies),
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
         } else {
-            "[/bin/sh, -c]"
+            "[$SHELL, -c]"
         },
         exe = if cfg!(windows) {
             ".exe"

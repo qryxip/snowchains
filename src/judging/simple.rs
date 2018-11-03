@@ -9,7 +9,6 @@ use crate::time::MillisRoundedUp as _MillisRoundedUp;
 use futures::{task, try_ready, Async, Future, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use std::borrow::Cow;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -17,14 +16,9 @@ use std::{cmp, fmt, io, mem};
 
 pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
     let input = Text::exact(&case.input());
-    let stdout = if case.remove_crlf_from_actual_stdout() && stdout.contains("\r\n") {
-        Cow::from(stdout.replace("\r\n", "\n"))
-    } else {
-        Cow::from(stdout)
-    };
     let (stdout, expected, example) = match case.expected().as_ref() {
         ExpectedStdout::AcceptAny { example } => (
-            Text::exact(&stdout),
+            Text::exact(stdout),
             None,
             example.as_ref().map(|s| Text::exact(s)),
         ),
@@ -73,7 +67,6 @@ pub(super) fn judge(
     let stdin = solver.stdin().take().unwrap();
     let stdout = solver.stdout().take().unwrap();
     let stderr = solver.stderr().take().unwrap();
-    let crlf_to_lf = crlf_to_lf || case.remove_crlf_from_actual_stdout();
     Ok(Judge {
         input: case.input(),
         expected: case.expected(),
