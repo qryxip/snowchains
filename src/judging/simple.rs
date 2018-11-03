@@ -65,6 +65,7 @@ pub(super) fn judge(
     case: &SimpleCase,
     solver: &Arc<JudgingCommand>,
 ) -> JudgeResult<impl Future<Item = SimpleOutcome, Error = io::Error>> {
+    let crlf_to_lf = solver.crlf_to_lf();
     let (stdout_buf, stderr_buf) = (Vec::with_capacity(1024), Vec::with_capacity(1024));
     let mut solver = solver.spawn_async_piped()?;
     let start = Instant::now();
@@ -72,13 +73,14 @@ pub(super) fn judge(
     let stdin = solver.stdin().take().unwrap();
     let stdout = solver.stdout().take().unwrap();
     let stderr = solver.stderr().take().unwrap();
+    let crlf_to_lf = crlf_to_lf || case.remove_crlf_from_actual_stdout();
     Ok(Judge {
         input: case.input(),
         expected: case.expected(),
         stdin: Writing::NotReady(stdin, 0),
         status: Waiting::NotReady(solver, start, deadline),
-        stdout: Reading::NotReady(stdout, stdout_buf, case.remove_crlf_from_actual_stdout()),
-        stderr: Reading::NotReady(stderr, stderr_buf, case.remove_crlf_from_actual_stdout()),
+        stdout: Reading::NotReady(stdout, stdout_buf, crlf_to_lf),
+        stderr: Reading::NotReady(stderr, stderr_buf, crlf_to_lf),
     })
 }
 
@@ -241,9 +243,9 @@ impl<R: AsyncRead> Reading<R> {
             Async::Ready(()) => {
                 let s = match self {
                     Reading::Ready(_) => unreachable!(),
-                    Reading::NotReady(_, buf, remove_crlf) => {
+                    Reading::NotReady(_, buf, crlf_to_lf) => {
                         let s = string_from_utf8(mem::replace(buf, vec![]))?;
-                        if *remove_crlf && s.contains("\r\n") {
+                        if *crlf_to_lf && s.contains("\r\n") {
                             s.replace("\r\n", "\n")
                         } else {
                             s

@@ -118,6 +118,7 @@ interactive:
     run:
       command: [{venv_python3}, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/py
+      {crlf_to_lf}
   haskell:
     src: testers/hs/app/Test{{Pascal}}.hs
     compile:
@@ -127,6 +128,7 @@ interactive:
     run:
       command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/hs
+      # crlf_to_lf: false
 
 languages:
   c++:
@@ -138,6 +140,7 @@ languages:
     run:
       command: [$bin]
       working_directory: cpp # default: "."
+      {crlf_to_lf}
     language_ids:            # optional
       atcoder: 3003          # "C++14 (GCC x.x.x)"
       yukicoder: cpp14       # "C++14 (gcc x.x.x)"
@@ -150,6 +153,7 @@ languages:
     run:
       command: [$bin]
       working_directory: rs
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3504
       yukicoder: rust
@@ -162,6 +166,7 @@ languages:
     run:
       command: [$bin]
       working_directory: go
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3013
       yukicoder: go
@@ -174,6 +179,7 @@ languages:
     run:
       command: [$bin]
       working_directory: hs
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3014
       yukicoder: haskell
@@ -182,6 +188,7 @@ languages:
     run:
       command: [bash, $src]
       working_directory: bash
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3001
       yukicoder: sh
@@ -190,6 +197,7 @@ languages:
     run:
       command: [{venv_python3}, $src]
       working_directory: py
+      {crlf_to_lf}
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
       yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x)"
@@ -202,6 +210,7 @@ languages:
     run:
       command: [java, -classpath, ./build/classes/java/main, '{{Pascal}}']
       working_directory: java
+      {crlf_to_lf}
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       match_group: 2
@@ -220,6 +229,7 @@ languages:
     run:
       command: [scala, -classpath, ./target/scala-2.12/classes, '{{Pascal}}']
       working_directory: scala
+      {crlf_to_lf}
     replace:
       regex: /^\s*object\s+([A-Z][a-zA-Z0-9_]*).*$/
       match_group: 1
@@ -235,6 +245,7 @@ languages:
     run:
       command: [cat, $src]
       working_directory: txt
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3027
       yukicoder: text
@@ -246,7 +257,7 @@ languages:
         } else {
             "[/bin/sh, -c]"
         },
-        exe = if cfg!(target_os = "windows") {
+        exe = if cfg!(windows) {
             ".exe"
         } else {
             ""
@@ -255,6 +266,11 @@ languages:
             "./venv/Scripts/python.exe"
         } else {
             "./venv/bin/python3"
+        },
+        crlf_to_lf = if cfg!(windows) {
+            "crlf_to_lf: true"
+        } else {
+            "# crlf_to_lf: false"
         },
         csharp = if cfg!(windows) {
             r#"  c#:
@@ -266,6 +282,7 @@ languages:
     run:
       command: [$bin]
       working_directory: cs
+      crlf_to_lf: true
     language_ids:
       atcoder: 3006     # "C# (Mono x.x.x.x)"
       yukicoder: csharp # "C# (csc x.x.x.x)""#
@@ -279,6 +296,7 @@ languages:
     run:
       command: [mono, $bin]
       working_directory: cs
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3006          # "C# (Mono x.x.x.x)"
       yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)""#
@@ -581,6 +599,7 @@ impl Config {
                 &lang.run.working_directory,
                 &lang.src,
                 lang.compile.as_ref().map(|c| &c.bin),
+                lang.run.crlf_to_lf,
             ).insert_strings(&self.vars_for_langs(None))
     }
 
@@ -666,4 +685,6 @@ struct Run {
     command: TemplateBuilder<JudgingCommand>,
     #[serde(default)]
     working_directory: TemplateBuilder<AbsPathBuf>,
+    #[serde(default)]
+    crlf_to_lf: bool,
 }

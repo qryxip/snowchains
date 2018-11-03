@@ -8,6 +8,7 @@ use crate::template::Template;
 use crate::terminal::WriteAnsi;
 use crate::{time, util, yaml};
 
+use itertools::{EitherOrBoth, Itertools as _Itertools};
 use maplit::{hashmap, hashset};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -817,9 +818,11 @@ impl InteractiveSuite {
                 .as_ref()
                 .ok_or_else(|| LoadConfigError::LanguageNotSpecified)?;
             let mut m = hashmap!("*".to_owned() => args.join(" "));
-            for (i, arg) in args.iter().enumerate() {
-                m.insert((i + 1).to_string(), arg.clone());
-            }
+            m.extend(args.iter().enumerate().zip_longest(1..=9).map(|p| match p {
+                EitherOrBoth::Both((_, arg), i) => (i.to_string(), arg.clone()),
+                EitherOrBoth::Left((j, arg)) => ((j + i).to_string(), arg.clone()),
+                EitherOrBoth::Right(i) => (i.to_string(), "".to_owned()),
+            }));
             let tester_compilation = match tester_compilations
                 .get(lang)
                 .map(|t| t.clone().expand(&problem))

@@ -16,21 +16,23 @@ pub(super) fn judge(
     case: &InteractiveCase,
     solver: &Arc<JudgingCommand>,
 ) -> JudgeResult<impl Future<Item = InteractiveOutcome, Error = io::Error>> {
+    let t_trim_crlf = case.tester().crlf_to_lf();
+    let s_trim_crlf = solver.crlf_to_lf();
     let mut tester = case.tester().spawn_async_piped()?;
     let mut solver = solver.spawn_async_piped()?;
     let start = Instant::now();
     let deadline = case.timelimit().map(|t| start + t);
-    let tester_stdin = tester.stdin().take().unwrap();
-    let tester_stdout = tester.stdout().take().unwrap();
-    let tester_stderr = tester.stderr().take().unwrap();
-    let solver_stdin = solver.stdin().take().unwrap();
-    let solver_stdout = solver.stdout().take().unwrap();
-    let solver_stderr = solver.stderr().take().unwrap();
+    let t_stdin = tester.stdin().take().unwrap();
+    let t_stdout = tester.stdout().take().unwrap();
+    let t_stderr = tester.stderr().take().unwrap();
+    let s_stdin = solver.stdin().take().unwrap();
+    let s_stdout = solver.stdout().take().unwrap();
+    let s_stderr = solver.stderr().take().unwrap();
     let stream = Interaction {
-        tester_to_solver: Pipe::new(tester_stdout, solver_stdin, start, Output::TesterStdout),
-        solver_to_tester: Pipe::new(solver_stdout, tester_stdin, start, Output::SolverStdout),
-        tester_stderr: Reading::new(tester_stderr, start, Output::TesterStderr),
-        solver_stderr: Reading::new(solver_stderr, start, Output::SolverStderr),
+        tester_to_solver: Pipe::new(t_stdout, s_stdin, start, t_trim_crlf, Output::TesterStdout),
+        solver_to_tester: Pipe::new(s_stdout, t_stdin, start, s_trim_crlf, Output::SolverStdout),
+        tester_stderr: Reading::new(t_stderr, start, t_trim_crlf, Output::TesterStderr),
+        solver_stderr: Reading::new(s_stderr, start, s_trim_crlf, Output::SolverStderr),
         tester_status: Waiting::new(tester, start, deadline, Output::TesterTerminated),
         solver_status: Waiting::new(solver, start, deadline, Output::SolverTerminated),
     }.collect();
@@ -141,6 +143,7 @@ enum Pipe<O: AsyncRead, I: AsyncWrite> {
         buf: Vec<u8>,
         pos: usize,
         start: Instant,
+        crlf_to_lf: bool,
         construct_output: fn(Text, Duration) -> Output,
     },
 }
@@ -150,6 +153,7 @@ impl<O: AsyncRead, I: AsyncWrite> Pipe<O, I> {
         stdout: O,
         stdin: I,
         start: Instant,
+        crlf_to_lf: bool,
         construct_output: fn(Text, Duration) -> Output,
     ) -> Self {
         Pipe::NotReady {
@@ -158,6 +162,7 @@ impl<O: AsyncRead, I: AsyncWrite> Pipe<O, I> {
             buf: Vec::with_capacity(1024),
             pos: 0,
             start,
+            crlf_to_lf,
             construct_output,
         }
     }
@@ -174,6 +179,7 @@ impl<O: AsyncRead, I: AsyncWrite> Stream for Pipe<O, I> {
             buf,
             pos,
             start,
+            crlf_to_lf,
             construct_output,
         } = self
         {
@@ -190,7 +196,12 @@ impl<O: AsyncRead, I: AsyncWrite> Stream for Pipe<O, I> {
                     }
                     let elapsed = Instant::now() - *start;
                     let output = mem::replace(buf, Vec::with_capacity(0));
-                    let output = Text::exact(str_from_utf8(&output)?);
+                    let output = str_from_utf8(&output)?;
+                    let output = if *crlf_to_lf && output.contains("\r\n") {
+                        Text::exact(&output.replace("\r\n", "\n"))
+                    } else {
+                        Text::exact(output)
+                    };
                     let output = construct_output(output, elapsed);
                     return Ok(Async::Ready(Some(output)));
                 }
@@ -209,7 +220,12 @@ impl<O: AsyncRead, I: AsyncWrite> Stream for Pipe<O, I> {
                             *buf = output.split_off(*pos);
                             *pos = 0;
                             let elapsed = Instant::now() - *start;
-                            let output = Text::exact(str_from_utf8(&output)?);
+                            let output = str_from_utf8(&output)?;
+                            let output = if *crlf_to_lf && output.contains("\r\n") {
+                                Text::exact(&output.replace("\r\n", "\n"))
+                            } else {
+                                Text::exact(output)
+                            };
                             let output = construct_output(output, elapsed);
                             return Ok(Async::Ready(Some(output)));
                         }
@@ -235,15 +251,22 @@ struct Reading<R: AsyncRead> {
     rdr: R,
     buf: Vec<u8>,
     start: Instant,
+    crlf_to_lf: bool,
     construct_output: fn(Text, Duration) -> Output,
 }
 
 impl<R: AsyncRead> Reading<R> {
-    fn new(rdr: R, start: Instant, construct_output: fn(Text, Duration) -> Output) -> Self {
+    fn new(
+        rdr: R,
+        start: Instant,
+        crlf_to_lf: bool,
+        construct_output: fn(Text, Duration) -> Output,
+    ) -> Self {
         Self {
             rdr,
             buf: Vec::with_capacity(1024),
             start,
+            crlf_to_lf,
             construct_output,
         }
     }
@@ -259,7 +282,12 @@ impl<R: AsyncRead> Stream for Reading<R> {
             Async::Ready(0) => {
                 let elapsed = Instant::now() - self.start;
                 let output = mem::replace(&mut self.buf, Vec::with_capacity(0));
-                let output = Text::exact(str_from_utf8(&output)?);
+                let output = str_from_utf8(&output)?;
+                let output = if self.crlf_to_lf && output.contains("\r\n") {
+                    Text::exact(&output.replace("\r\n", "\n"))
+                } else {
+                    Text::exact(output)
+                };
                 let output = (self.construct_output)(output, elapsed);
                 Ok(Async::Ready(Some(output)))
             }
@@ -276,7 +304,12 @@ impl<R: AsyncRead> Stream for Reading<R> {
                     let mut output = mem::replace(&mut self.buf, Vec::with_capacity(1024));
                     self.buf = output.split_off(lf_pos + 1);
                     let elapsed = Instant::now() - self.start;
-                    let output = Text::exact(str_from_utf8(&output)?);
+                    let output = str_from_utf8(&output)?;
+                    let output = if self.crlf_to_lf && output.contains("\r\n") {
+                        Text::exact(&output.replace("\r\n", "\n"))
+                    } else {
+                        Text::exact(output)
+                    };
                     let output = (self.construct_output)(output, elapsed);
                     Ok(Async::Ready(Some(output)))
                 } else {

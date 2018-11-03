@@ -41,8 +41,7 @@ impl TemplateBuilder<String> {
     pub fn build(&self) -> Template<String> {
         Template {
             inner: self.0.clone(),
-            base_dir: (),
-            command_additional: (),
+            requirements: (),
             strings: hashmap!(),
         }
     }
@@ -52,8 +51,7 @@ impl TemplateBuilder<AbsPathBuf> {
     pub fn build(&self, base_dir: &AbsPath) -> Template<AbsPathBuf> {
         Template {
             inner: self.0.clone(),
-            base_dir: base_dir.to_owned(),
-            command_additional: (),
+            requirements: base_dir.to_owned(),
             strings: hashmap!(),
         }
     }
@@ -68,16 +66,15 @@ impl TemplateBuilder<CompilationCommand> {
         src: &TemplateBuilder<AbsPathBuf>,
         bin: &TemplateBuilder<AbsPathBuf>,
     ) -> Template<CompilationCommand> {
-        let command_additional = CommandAdditionalInfo {
-            shell: shell.iter().map(|t| t.0.clone()).collect(),
-            working_dir: wd.0.clone(),
-            src: src.0.clone(),
-            bin: Some(bin.0.clone()),
-        };
         Template {
             inner: self.0.clone(),
-            base_dir: base_dir.to_owned(),
-            command_additional,
+            requirements: CompilationCommandRequirements {
+                base_dir: base_dir.to_owned(),
+                shell: shell.iter().map(|t| t.0.clone()).collect(),
+                working_dir: wd.0.clone(),
+                src: src.0.clone(),
+                bin: bin.0.clone(),
+            },
             strings: hashmap!(),
         }
     }
@@ -91,17 +88,18 @@ impl TemplateBuilder<JudgingCommand> {
         wd: &TemplateBuilder<AbsPathBuf>,
         src: &TemplateBuilder<AbsPathBuf>,
         bin: Option<&TemplateBuilder<AbsPathBuf>>,
+        crlf_to_lf: bool,
     ) -> Template<JudgingCommand> {
-        let command_additional = CommandAdditionalInfo {
-            shell: shell.iter().map(|t| t.0.clone()).collect(),
-            working_dir: wd.0.clone(),
-            src: src.0.clone(),
-            bin: bin.map(|bin| bin.0.clone()),
-        };
         Template {
             inner: self.0.clone(),
-            base_dir: base_dir.to_owned(),
-            command_additional,
+            requirements: JudgingCommandRequirements {
+                base_dir: base_dir.to_owned(),
+                shell: shell.iter().map(|t| t.0.clone()).collect(),
+                working_dir: wd.0.clone(),
+                src: src.0.clone(),
+                bin: bin.map(|bin| bin.0.clone()),
+                crlf_to_lf,
+            },
             strings: hashmap!(),
         }
     }
@@ -109,8 +107,7 @@ impl TemplateBuilder<JudgingCommand> {
 
 pub(crate) struct Template<T: Target> {
     inner: T::Inner,
-    base_dir: T::BaseDir,
-    command_additional: T::CommandAdditional,
+    requirements: T::Requirements,
     strings: HashMap<String, String>,
 }
 
@@ -149,48 +146,56 @@ impl Template<String> {
 impl Template<AbsPathBuf> {
     pub fn expand(&self, problem: &str) -> ExpandTemplateResult<AbsPathBuf> {
         self.inner
-            .expand_as_path(problem, &self.base_dir, &self.strings)
+            .expand_as_path(problem, &self.requirements, &self.strings)
     }
 }
 
 impl Template<CompilationCommand> {
     pub fn expand(&self, problem: &str) -> ExpandTemplateResult<CompilationCommand> {
-        let (args, wd, src, bin) = self.expand_as_command(problem)?;
-        let bin = bin.unwrap();
+        let CompilationCommandRequirements {
+            base_dir,
+            shell,
+            working_dir,
+            src,
+            bin,
+        } = &self.requirements;
+        let strings = &self.strings;
+        let wd = working_dir.expand_as_path(problem, base_dir, strings)?;
+        let src = src.expand_as_path(problem, base_dir, strings)?;
+        let bin = bin.expand_as_path(problem, base_dir, strings)?;
+        let args = {
+            let mut os_strings = hashmap!("src" => src.as_os_str(), "bin" => bin.as_os_str());
+            match &self.inner {
+                CommandTemplateInner::Args(args) => Cow::Borrowed(args),
+                CommandTemplateInner::Shell(arg) => {
+                    let mut args = shell.to_vec();
+                    args.push(arg.clone());
+                    Cow::Owned(args)
+                }
+            }.iter()
+            .map(|arg| arg.expand_as_os_string(problem, strings, &os_strings))
+            .collect::<ExpandTemplateResult<Vec<_>>>()?
+        };
         Ok(CompilationCommand::new(&args, wd, src, bin))
     }
 }
 
 impl Template<JudgingCommand> {
     pub fn expand(&self, problem: &str) -> ExpandTemplateResult<JudgingCommand> {
-        let (args, wd, _, _) = self.expand_as_command(problem)?;
-        Ok(JudgingCommand::new(&args, wd))
-    }
-}
-
-impl<
-        T: Target<
-            Inner = CommandTemplateInner,
-            BaseDir = AbsPathBuf,
-            CommandAdditional = CommandAdditionalInfo,
-        >,
-    > Template<T>
-{
-    fn expand_as_command(
-        &self,
-        problem: &str,
-    ) -> ExpandTemplateResult<(Vec<OsString>, AbsPathBuf, AbsPathBuf, Option<AbsPathBuf>)> {
-        let CommandAdditionalInfo {
+        let JudgingCommandRequirements {
+            base_dir,
+            shell,
             working_dir,
             src,
             bin,
-            ..
-        } = &self.command_additional;
-        let wd = working_dir.expand_as_path(problem, &self.base_dir, &self.strings)?;
-        let src = src.expand_as_path(problem, &self.base_dir, &self.strings)?;
+            crlf_to_lf,
+        } = &self.requirements;
+        let strings = &self.strings;
+        let wd = working_dir.expand_as_path(problem, base_dir, strings)?;
+        let src = src.expand_as_path(problem, base_dir, strings)?;
         let bin = match bin {
             None => None,
-            Some(bin) => Some(bin.expand_as_path(problem, &self.base_dir, &self.strings)?),
+            Some(bin) => Some(bin.expand_as_path(problem, base_dir, strings)?),
         };
         let args = {
             let mut os_strings = hashmap!("src" => src.as_os_str());
@@ -200,29 +205,27 @@ impl<
             match &self.inner {
                 CommandTemplateInner::Args(args) => Cow::Borrowed(args),
                 CommandTemplateInner::Shell(arg) => {
-                    let mut args = self.command_additional.shell.to_vec();
+                    let mut args = shell.to_vec();
                     args.push(arg.clone());
                     Cow::Owned(args)
                 }
             }.iter()
-            .map(|arg| arg.expand_as_os_string(problem, &self.strings, &os_strings))
+            .map(|arg| arg.expand_as_os_string(problem, strings, &os_strings))
             .collect::<ExpandTemplateResult<Vec<_>>>()?
         };
-        Ok((args, wd, src, bin))
+        Ok(JudgingCommand::new(&args, wd, *crlf_to_lf))
     }
 }
 
 impl<T: Target> Clone for Template<T>
 where
     T::Inner: Clone,
-    T::BaseDir: Clone,
-    T::CommandAdditional: Clone,
+    T::Requirements: Clone,
 {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
-            base_dir: self.base_dir.clone(),
-            command_additional: self.command_additional.clone(),
+            requirements: self.requirements.clone(),
             strings: self.strings.clone(),
         }
     }
@@ -230,38 +233,32 @@ where
 
 pub(crate) trait Target {
     type Inner: Clone + Serialize + DeserializeOwned;
-    type BaseDir;
-    type CommandAdditional;
+    type Requirements;
 }
 
 impl Target for String {
     type Inner = Tokens;
-    type BaseDir = ();
-    type CommandAdditional = ();
+    type Requirements = ();
 }
 
 impl Target for OsString {
     type Inner = Tokens;
-    type BaseDir = ();
-    type CommandAdditional = ();
+    type Requirements = ();
 }
 
 impl Target for AbsPathBuf {
     type Inner = Tokens;
-    type BaseDir = AbsPathBuf;
-    type CommandAdditional = ();
+    type Requirements = AbsPathBuf;
 }
 
 impl Target for CompilationCommand {
     type Inner = CommandTemplateInner;
-    type BaseDir = AbsPathBuf;
-    type CommandAdditional = CommandAdditionalInfo;
+    type Requirements = CompilationCommandRequirements;
 }
 
 impl Target for JudgingCommand {
     type Inner = CommandTemplateInner;
-    type BaseDir = AbsPathBuf;
-    type CommandAdditional = CommandAdditionalInfo;
+    type Requirements = JudgingCommandRequirements;
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -500,11 +497,22 @@ pub(crate) enum CommandTemplateInner {
 }
 
 #[derive(Clone)]
-pub(crate) struct CommandAdditionalInfo {
+pub(crate) struct CompilationCommandRequirements {
+    base_dir: AbsPathBuf,
+    shell: Vec<Tokens>,
+    working_dir: Tokens,
+    src: Tokens,
+    bin: Tokens,
+}
+
+#[derive(Clone)]
+pub(crate) struct JudgingCommandRequirements {
+    base_dir: AbsPathBuf,
     shell: Vec<Tokens>,
     working_dir: Tokens,
     src: Tokens,
     bin: Option<Tokens>,
+    crlf_to_lf: bool,
 }
 
 type ParseTemplateResult<T> = std::result::Result<T, ParseTemplateError>;
