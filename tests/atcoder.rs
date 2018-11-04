@@ -13,6 +13,7 @@ use snowchains::app::{App, Opt};
 use snowchains::service::ServiceName;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
+use failure::Fallible;
 use serde_derive::Deserialize;
 
 use std::fs::File;
@@ -139,13 +140,10 @@ fn it_submits_to_practice_a() {
     common::test_in_tempdir(
         "it_submits_to_practice_a",
         credentials,
-        |mut app| -> Result<(), failure::Error> {
-            static CODE: &[u8] = br#"#!/usr/bin/env python3
-
-
-def main():
+        |mut app| -> Fallible<()> {
+            static CODE: &[u8] = br#"def main():
     (a, (b, c), s) = (int(input()), map(int, input().split()), input())
-    print('{{}} {{}}'.format(a + b + c, s))
+    print('{} {}'.format(a + b + c, s))
 
 
 if __name__ == '__main__':

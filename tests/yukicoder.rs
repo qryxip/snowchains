@@ -14,6 +14,8 @@ use snowchains::path::AbsPath;
 use snowchains::service::ServiceName;
 use snowchains::terminal::TermImpl;
 
+use failure::Fallible;
+
 use std::io;
 
 #[test]
@@ -44,7 +46,7 @@ fn it_downloads_testcases() {
     common::test_in_tempdir(
         "it_downloads_test_cases_from_master",
         credentials,
-        |app| -> Result<(), failure::Error> {
+        |app| -> Fallible<()> {
             static CONTEST: &str = "no";
             let wd = app.working_dir.clone();
             download(app, CONTEST, &["1", "2", "3"])?;

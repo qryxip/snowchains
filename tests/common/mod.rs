@@ -11,6 +11,7 @@ use snowchains::path::{AbsPath, AbsPathBuf};
 use snowchains::service::{Credentials, RevelSession, ServiceName, UserNameAndPassword};
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
+use failure::Fallible;
 use serde::{de, Deserialize, Deserializer};
 use tempdir::TempDir;
 
@@ -28,7 +29,7 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
 ) {
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
     let tempdir_path = tempdir.path().to_owned();
-    let result = panic::catch_unwind(move || -> Result<(), failure::Error> {
+    let result = panic::catch_unwind(move || -> Fallible<()> {
         let mut app = App {
             working_dir: AbsPathBuf::new_or_panic(tempdir_path),
             cookies_on_init: Cow::from("$service"),
@@ -48,18 +49,29 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     }
 }
 
-pub fn credentials_from_env_vars() -> Result<Credentials, failure::Error> {
-    fn read(name: &'static str) -> Result<Rc<String>, failure::Error> {
+pub fn credentials_from_env_vars() -> Fallible<Credentials> {
+    fn env(name: &'static str) -> Fallible<Rc<String>> {
+        let output = std::process::Command::new("envchain")
+            .args(&["snowchains", "sh", "-c"])
+            .arg(format!("printf %s ${}", name))
+            .output();
+        if let Ok(output) = output {
+            if output.status.success() && !output.stdout.is_empty() {
+                if let Ok(stdout) = String::from_utf8(output.stdout) {
+                    return Ok(Rc::new(stdout));
+                }
+            }
+        }
         env::var(name)
-            .map(Rc::new)
             .map_err(|e| failure::err_msg(format!("Failed to read {:?}: {}", name, e)))
+            .map(Rc::new)
     }
 
-    let atcoder_username = read("ATCODER_USERNAME")?;
-    let atcoder_password = read("ATCODER_PASSWORD")?;
-    let hackerrank_username = read("HACKERRANK_USERNAME")?;
-    let hackerrank_password = read("HACKERRANK_PASSWORD")?;
-    let yukicoder_revel_session = read("YUKICODER_REVEL_SESSION")?;
+    let atcoder_username = env("ATCODER_USERNAME")?;
+    let atcoder_password = env("ATCODER_PASSWORD")?;
+    let hackerrank_username = env("HACKERRANK_USERNAME")?;
+    let hackerrank_password = env("HACKERRANK_PASSWORD")?;
+    let yukicoder_revel_session = env("YUKICODER_REVEL_SESSION")?;
     Ok(Credentials {
         atcoder: UserNameAndPassword::Some(atcoder_username, atcoder_password),
         hackerrank: UserNameAndPassword::Some(hackerrank_username, hackerrank_password),

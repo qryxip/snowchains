@@ -14,6 +14,7 @@ use snowchains::app::App;
 use snowchains::service::ServiceName;
 use snowchains::terminal::TermImpl;
 
+use failure::Fallible;
 use heck::SnakeCase as _SnakeCase;
 
 use std::io;
@@ -46,7 +47,7 @@ fn it_downloads_testcases_from_master() {
     common::test_in_tempdir(
         "it_downloads_test_cases_from_master",
         credentials,
-        |app| -> Result<(), failure::Error> {
+        |app| -> Fallible<()> {
             static CONTEST: &str = "master";
             static PROBLEMS: &[&str] = &["solve-me-first", "simple-array-sum"];
             let wd = app.working_dir.clone();
@@ -67,7 +68,7 @@ fn it_downloads_testcases_from_hourrank_20() {
     common::test_in_tempdir(
         "it_downloads_test_cases_from_hourrank_20",
         credentials,
-        |app| -> Result<(), failure::Error> {
+        |app| -> Fallible<()> {
             static CONTEST: &str = "hourrank-20";
             static PROBLEM: &str = "hot-and-cold";
             let wd = app.working_dir.clone();
