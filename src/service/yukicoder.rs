@@ -505,7 +505,6 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    #[ignore]
     fn it_extracts_samples_from_problem1() {
         let _ = env_logger::try_init();
         test_extracting_samples(
@@ -525,14 +524,12 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_samples_from_problem188() {
         let _ = env_logger::try_init();
         test_extracting_samples("/problems/no/188", SimpleSuite::new(Duration::from_secs(1)));
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_samples_from_problem192() {
         let _ = env_logger::try_init();
         test_extracting_samples(
@@ -544,7 +541,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_samples_from_problem246() {
         let _ = env_logger::try_init();
         test_extracting_samples(
@@ -561,7 +557,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_problems_names_and_hrefs_from_yukicoder_open_2015_small() {
         static EXPECTED: &[(&str, &str)] = &[
             ("A", "/problems/no/191"),

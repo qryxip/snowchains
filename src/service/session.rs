@@ -443,7 +443,6 @@ mod tests {
     use std::{panic, str};
 
     #[test]
-    #[ignore]
     fn it_works() {
         let _ = env_logger::try_init();
         let server = {
@@ -499,7 +498,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_keeps_a_file_locked_while_alive() {
         let _ = env_logger::try_init();
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();

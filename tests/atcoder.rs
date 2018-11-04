@@ -21,7 +21,6 @@ use std::io;
 use std::path::Path;
 
 #[test]
-#[ignore]
 fn it_logins() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();
@@ -29,7 +28,6 @@ fn it_logins() {
 }
 
 #[test]
-#[ignore]
 #[should_panic(expected = "called `Result::unwrap()` on an `Err` value: Service(LoginOnTest)")]
 fn it_raises_an_when_login_fails() {
     let _ = env_logger::try_init();
@@ -45,7 +43,6 @@ fn login(mut app: App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> snowchains::R
 }
 
 #[test]
-#[ignore]
 fn it_scrapes_samples_from_practice() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();
@@ -73,7 +70,6 @@ fn it_scrapes_samples_from_practice() {
 }
 
 #[test]
-#[ignore]
 fn it_scrapes_samples_from_arc058() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();

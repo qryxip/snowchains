@@ -30,9 +30,8 @@ install:
   - cargo -vV
 
 script:
-  - test "${TRAVIS_SECURE_ENV_VARS}" = true && TEST_TARGET=all || TEST_TARGET=lib
-  - cargo test --$TEST_TARGET
-  - cargo test --$TEST_TARGET -- --ignored --skip it_submits
+  - test "${TRAVIS_SECURE_ENV_VARS}" = true && TEST_TARGETS=all || TEST_TARGETS=lib
+  - cargo test --$TEST_TARGETS
 
 before_deploy:
   - tar --version

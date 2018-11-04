@@ -19,7 +19,6 @@ use failure::Fallible;
 use std::io;
 
 #[test]
-#[ignore]
 fn it_logins() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();
@@ -27,7 +26,6 @@ fn it_logins() {
 }
 
 #[test]
-#[ignore]
 #[should_panic(expected = "called `Result::unwrap()` on an `Err` value: Service(LoginOnTest)")]
 fn it_raises_an_error_when_login_fails() {
     let _ = env_logger::try_init();
@@ -39,7 +37,6 @@ fn it_raises_an_error_when_login_fails() {
 }
 
 #[test]
-#[ignore]
 fn it_downloads_testcases() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();

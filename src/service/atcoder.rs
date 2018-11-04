@@ -873,7 +873,6 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    #[ignore]
     fn it_extracts_task_urls_from_arc001() {
         let _ = env_logger::try_init();
         let mut atcoder = start().unwrap();
@@ -897,7 +896,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_a_timelimit_from_apg4b_b() {
         let _ = env_logger::try_init();
         let mut atcoder = start().unwrap();
@@ -913,7 +911,6 @@ mod tests {
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc001() {
         static A: &[(&str, &str)] = &[
             ("9\n131142143\n", "4 1\n"),
@@ -942,7 +939,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc002() {
         static A: &[(&str, &str)] = &[
             ("1001\n", "NO\n"),
@@ -976,7 +972,6 @@ mod tests {
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc019() {
         static A: &[(&str, &str)] = &[
             ("1Z0\n", "120\n"),
@@ -1009,7 +1004,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc058() {
         static C: &[(&str, &str)] = &[
             ("1000 8\n1 3 4 5 6 7 8 9\n", "2000\n"),
@@ -1043,7 +1037,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_abc041() {
         static A: &[(&str, &str)] = &[
             ("atcoder\n3\n", "c\n"),
@@ -1079,7 +1072,6 @@ mod tests {
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_chokudai_s001() {
         static A: &[(&str, &str)] = &[
             ("5\n3 1 5 4 2\n", "5\n"),
@@ -1196,7 +1188,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_a_submitted_source_code() {
         static URL: &str = "/contests/utpc2011/submissions/2067";
         static EXPECTED_CODE: &str =

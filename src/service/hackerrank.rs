@@ -394,7 +394,6 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    #[ignore]
     fn it_scrapes_samples() {
         let expected = TestSuite::from(SimpleSuite::new(None).cases(vec![
             ("50 40 70 60", "YES"),
