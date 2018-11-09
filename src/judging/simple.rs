@@ -17,7 +17,7 @@ use std::{cmp, fmt, io, mem};
 pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
     let input = Text::exact(&case.input());
     let (stdout, expected, example) = match case.expected().as_ref() {
-        ExpectedStdout::AcceptAny { example } => (
+        ExpectedStdout::Any { example } => (
             Text::exact(stdout),
             None,
             example.as_ref().map(|s| Text::exact(s)),
@@ -98,7 +98,7 @@ impl Future for Judge {
                     timelimit,
                     input: Text::exact(&self.input),
                     expected: match self.expected.as_ref() {
-                        ExpectedStdout::AcceptAny { .. } => None,
+                        ExpectedStdout::Any { .. } => None,
                         ExpectedStdout::Exact(expected) => Some(Text::exact(&expected)),
                         ExpectedStdout::Float { string, .. } => Some(Text::float(string, None)),
                     },
@@ -277,7 +277,7 @@ impl CommandOutcome {
         let input = Text::exact(&self.input);
         let stderr = Text::exact(&self.stderr);
         let (stdout, expected, example) = match expected {
-            ExpectedStdout::AcceptAny { example } => (
+            ExpectedStdout::Any { example } => (
                 Text::exact(&self.stdout),
                 None,
                 example.as_ref().map(|s| Text::exact(s)),

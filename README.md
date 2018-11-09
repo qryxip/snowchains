@@ -322,7 +322,7 @@ languages:
 ---
 type: simple      # "simple", "interactive", or "unsubmittable"
 timelimit: 2000ms # optional
-match: exact      # "accept_all", "exact", or "float"
+match: exact      # "any", "exact", or "float"
 
 cases:
   - in: |
@@ -344,6 +344,39 @@ cases:
       oooooooooooooo
 ```
 
+```toml
+type = 'simple'
+timelimit = '2000ms'
+match = 'exact'
+
+[[cases]]
+in = '''
+1
+2 3
+test
+'''
+out = '''
+6 test
+'''
+
+[[cases]]
+in = '''
+72
+128 256
+myonmyon
+'''
+out = '''
+456 myonmyon
+'''
+
+[[cases]]
+in = '''
+1000
+1000 1000
+oooooooooooooo
+'''
+```
+
 <https://beta.atcoder.jp/contests/tricky/tasks/tricky_2>
 
 ```yaml
@@ -352,8 +385,8 @@ type: simple
 timelimit: 2000ms
 match:
   float:
-    absolute_error: 1E-9
-    relative_error: 1E-9
+    absolute_error: 1e-9
+    relative_error: 1e-9
 
 cases:
   - in: |
@@ -365,6 +398,28 @@ cases:
       2 1.000 2.000
       2 1.000 2.000
       2 1.000 2.000
+```
+
+```toml
+type = 'simple'
+timelimit = '2000ms'
+
+[match.float]
+absolute_error = 1e-9
+relative_error = 1e-9
+
+[[cases]]
+in = '''
+3
+1 -3 2
+-10 30 -20
+100 -300 200
+'''
+out = '''
+2 1.000 2.000
+2 1.000 2.000
+2 1.000 2.000
+'''
 ```
 
 ### Interactive

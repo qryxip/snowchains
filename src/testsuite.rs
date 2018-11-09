@@ -11,19 +11,18 @@ use crate::{time, util, yaml};
 use itertools::{EitherOrBoth, Itertools as _Itertools};
 use maplit::{hashmap, hashset};
 use regex::Regex;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 use zip::ZipArchive;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt::Write as _Write;
 use std::iter::FromIterator as _FromIterator;
-use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{cmp, f64, fmt, io, str, vec};
+use std::{cmp, f64, fmt, str, vec};
 
 pub(crate) fn modify_timelimit(
     stdout: impl WriteAnsi,
@@ -547,46 +546,17 @@ impl TestSuite {
     }
 
     fn to_string_pretty(&self, ext: SerializableExtension) -> SuiteFileResult<String> {
-        fn is_valid(s: &str) -> bool {
-            s.ends_with('\n') && s
-                .chars()
-                .all(|c| [' ', '\n'].contains(&c) || (!c.is_whitespace() && !c.is_control()))
-        }
-
-        match ext {
-            SerializableExtension::Json => serde_json::to_string(self).map_err(Into::into),
-            SerializableExtension::Toml => toml::to_string(self).map_err(Into::into),
-            SerializableExtension::Yaml | SerializableExtension::Yml => {
-                let mut s = serde_yaml::to_string(self)?;
-                if let TestSuite::Simple(suite) = self {
-                    let cases = &suite.cases;
-                    if cases
-                        .iter()
-                        .all(|(i, o)| is_valid(i) && o.as_ref().map_or(true, |o| is_valid(o)))
-                    {
-                        if let Some(pos) = s.find("\ncases:\n") {
-                            let pos = pos + 8;
-                            if pos != s.len() {
-                                let mut new_s = s[..pos].to_owned();
-                                for (i, o) in cases {
-                                    new_s += "  - in: |\n";
-                                    for l in i.lines() {
-                                        writeln!(new_s, "      {}", l).unwrap();
-                                    }
-                                    if let Some(o) = o {
-                                        new_s += "    out: |\n";
-                                        for l in o.lines() {
-                                            writeln!(new_s, "      {}", l).unwrap();
-                                        }
-                                    }
-                                }
-                                s = new_s;
-                            }
-                        }
-                    }
+        match self {
+            TestSuite::Simple(this) => this.to_string_pretty(ext),
+            TestSuite::Interactive(_) | TestSuite::Unsubmittable => match ext {
+                SerializableExtension::Json => {
+                    serde_json::to_string_pretty(self).map_err(Into::into)
                 }
-                Ok(s)
-            }
+                SerializableExtension::Toml => toml::to_string_pretty(self).map_err(Into::into),
+                SerializableExtension::Yaml | SerializableExtension::Yml => {
+                    serde_yaml::to_string(self).map_err(Into::into)
+                }
+            },
         }
     }
 
@@ -597,7 +567,7 @@ impl TestSuite {
     ) -> SuiteFileResult<()> {
         match self {
             TestSuite::Simple(suite) => {
-                suite.timelimit = timelimit;
+                suite.head.timelimit = timelimit;
                 Ok(())
             }
             TestSuite::Interactive(suite) => {
@@ -623,7 +593,7 @@ impl TestSuite {
     fn modify_match(&mut self, output_match: Match) -> SuiteFileResult<()> {
         match self {
             TestSuite::Simple(suite) => {
-                suite.output_match = output_match;
+                suite.head.output_match = output_match;
                 Ok(())
             }
             _ => Err(SuiteFileError::SuiteIsNotSimple),
@@ -643,38 +613,49 @@ impl From<InteractiveSuite> for TestSuite {
     }
 }
 
-trait WrapInIoError {
-    type Problem;
-    fn wrap_in_io_error(self) -> io::Result<Self::Problem>;
-}
-
-impl<T, E: 'static + std::error::Error + Send + Sync> WrapInIoError for std::result::Result<T, E> {
-    type Problem = T;
-
-    fn wrap_in_io_error(self) -> io::Result<T> {
-        self.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-    }
-}
-
-/// Set of the timelimit and test cases.
-#[derive(Clone, Debug, Default)]
 #[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct SimpleSuite {
+    #[serde(flatten)]
+    head: SimpleSuiteSchemaHead,
+    cases: Vec<SimpleSuiteSchemaCase>,
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+struct SimpleSuiteSchemaHead {
+    #[serde(
+        serialize_with = "time::ser_millis",
+        deserialize_with = "time::de_secs",
+        skip_serializing_if = "Option::is_none",
+    )]
     timelimit: Option<Duration>,
+    #[serde(rename = "match", default)]
     output_match: Match,
-    cases: Vec<(Arc<String>, Option<Arc<String>>)>,
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct SimpleSuiteSchemaCase {
+    #[serde(rename = "in")]
+    input: String,
+    #[serde(rename = "out", skip_serializing_if = "Option::is_none")]
+    output: Option<String>,
 }
 
 impl SimpleSuite {
     pub(crate) fn new(timelimit: impl Into<Option<Duration>>) -> Self {
         Self {
-            timelimit: timelimit.into(),
-            ..Self::default()
+            head: SimpleSuiteSchemaHead {
+                timelimit: timelimit.into(),
+                output_match: Match::default(),
+            },
+            cases: vec![],
         }
     }
 
-    pub(crate) fn accept_all(mut self) -> Self {
-        self.output_match = Match::AcceptAll;
+    pub(crate) fn any(mut self) -> Self {
+        self.head.output_match = Match::Any;
         self
     }
 
@@ -685,86 +666,93 @@ impl SimpleSuite {
         self.cases.extend(
             cases
                 .into_iter()
-                .map(|(i, o)| (Arc::new(i.into()), o.into().map(|o| Arc::new(o.into())))),
+                .map(|(input, output)| SimpleSuiteSchemaCase {
+                    input: input.into(),
+                    output: output.into().map(Into::into),
+                }),
         );
         self
     }
 
     fn cases_named(self, filename: &str) -> Vec<SimpleCase> {
-        let (output_match, timelimit) = (self.output_match, self.timelimit);
+        let (output_match, timelimit) = (self.head.output_match, self.head.timelimit);
         self.cases
             .into_iter()
             .enumerate()
-            .map(move |(i, (input, output))| {
+            .map(move |(i, case)| {
                 SimpleCase::new(
                     &format!("{}[{}]", filename, i),
                     timelimit,
-                    &input,
-                    output.as_ref().map(|s| s.as_str()),
+                    &case.input,
+                    case.output.as_ref().map(String::as_str),
                     output_match,
                 )
             }).collect::<Vec<_>>()
     }
 
+    fn to_string_pretty(&self, ext: SerializableExtension) -> SuiteFileResult<String> {
+        #[derive(Serialize)]
+        struct WithType<T: Serialize> {
+            r#type: &'static str,
+            #[serde(flatten)]
+            repr: T,
+        }
+
+        impl<T: Serialize> WithType<T> {
+            fn new(repr: T) -> Self {
+                Self {
+                    r#type: "simple",
+                    repr,
+                }
+            }
+        }
+
+        fn is_valid(s: &str) -> bool {
+            s.ends_with('\n') && s
+                .chars()
+                .all(|c| [' ', '\n'].contains(&c) || (!c.is_whitespace() && !c.is_control()))
+        }
+
+        match ext {
+            SerializableExtension::Json => {
+                serde_json::to_string_pretty(&WithType::new(self)).map_err(Into::into)
+            }
+            SerializableExtension::Toml => {
+                toml::to_string_pretty(&WithType::new(self)).map_err(Into::into)
+            }
+            SerializableExtension::Yaml | SerializableExtension::Yml => {
+                let mut r = serde_yaml::to_string(&WithType::new(self))?;
+                let cases = &self.cases;
+                let all_valid = cases.iter().all(|SimpleSuiteSchemaCase { input, output }| {
+                    is_valid(input) && output.as_ref().map_or(true, |o| is_valid(o))
+                });
+                if all_valid {
+                    r = serde_yaml::to_string(&WithType::new(&self.head))?;
+                    r += "\ncases:\n";
+                    for SimpleSuiteSchemaCase { input, output } in cases {
+                        r += "  - in: |\n";
+                        for l in input.lines() {
+                            writeln!(r, "      {}", l).unwrap();
+                        }
+                        if let Some(output) = output {
+                            r += "    out: |\n";
+                            for l in output.lines() {
+                                writeln!(r, "      {}", l).unwrap();
+                            }
+                        }
+                    }
+                }
+                Ok(r)
+            }
+        }
+    }
+
     fn append(&mut self, input: &str, output: Option<&str>) {
-        let input = Arc::new(input.to_owned());
-        let output = output.map(str::to_owned).map(Arc::new);
-        self.cases.push((input, output))
+        self.cases.push(SimpleSuiteSchemaCase {
+            input: input.to_owned(),
+            output: output.map(ToOwned::to_owned),
+        });
     }
-}
-
-impl Serialize for SimpleSuite {
-    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-        let cases = self
-            .cases
-            .iter()
-            .map(|(input, output)| SimpleCaseSchema {
-                input: input.deref().clone(),
-                output: output.as_ref().map(|o| o.deref().clone()),
-            }).collect();
-        SimpleSuiteSchema {
-            timelimit: self.timelimit,
-            output_match: self.output_match,
-            cases,
-        }.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for SimpleSuite {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        let raw = SimpleSuiteSchema::deserialize(deserializer)?;
-        Ok(Self {
-            timelimit: raw.timelimit,
-            output_match: raw.output_match,
-            cases: raw
-                .cases
-                .into_iter()
-                .map(|case| (Arc::new(case.input), case.output.map(Arc::new)))
-                .collect(),
-        })
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct SimpleSuiteSchema {
-    #[serde(
-        serialize_with = "time::ser_millis",
-        deserialize_with = "time::de_secs",
-        skip_serializing_if = "Option::is_none",
-    )]
-    timelimit: Option<Duration>,
-    #[serde(rename = "match", default)]
-    output_match: Match,
-    cases: Vec<SimpleCaseSchema>,
-}
-
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SimpleCaseSchema {
-    #[serde(rename = "in")]
-    input: String,
-    #[serde(rename = "out", skip_serializing_if = "Option::is_none")]
-    output: Option<String>,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -882,9 +870,9 @@ impl SimpleCase {
         output_match: Match,
     ) -> Self {
         let expected = match (output_match, output.map(ToOwned::to_owned)) {
-            (Match::AcceptAll, example) => ExpectedStdout::AcceptAny { example },
+            (Match::Any, example) => ExpectedStdout::Any { example },
             (Match::Exact, None) | (Match::Float { .. }, None) => {
-                ExpectedStdout::AcceptAny { example: None }
+                ExpectedStdout::Any { example: None }
             }
             (Match::Exact, Some(output)) => ExpectedStdout::Exact(output),
             (
@@ -923,7 +911,7 @@ impl SimpleCase {
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) enum ExpectedStdout {
-    AcceptAny {
+    Any {
         example: Option<String>,
     },
     Exact(String),
@@ -938,7 +926,7 @@ pub(crate) enum ExpectedStdout {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Match {
-    AcceptAll,
+    Any,
     Exact,
     Float {
         #[serde(default = "nan")]

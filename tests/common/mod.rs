@@ -1,10 +1,4 @@
 #![allow(dead_code)]
-extern crate snowchains;
-
-extern crate failure;
-extern crate serde;
-extern crate serde_yaml;
-extern crate tempdir;
 
 use snowchains::app::{App, Opt};
 use snowchains::path::{AbsPath, AbsPathBuf};
@@ -12,7 +6,8 @@ use snowchains::service::{Credentials, RevelSession, ServiceName, UserNameAndPas
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
 use failure::Fallible;
-use serde::{de, Deserialize, Deserializer};
+use if_chain::if_chain;
+use serde_derive::Deserialize;
 use tempdir::TempDir;
 
 use std::borrow::Cow;
@@ -55,16 +50,18 @@ pub fn credentials_from_env_vars() -> Fallible<Credentials> {
             .args(&["snowchains", "sh", "-c"])
             .arg(format!("printf %s ${}", name))
             .output();
-        if let Ok(output) = output {
-            if output.status.success() && !output.stdout.is_empty() {
-                if let Ok(stdout) = String::from_utf8(output.stdout) {
-                    return Ok(Rc::new(stdout));
-                }
+        if_chain! {
+            if let Ok(std::process::Output { status, stdout, .. }) = output;
+            if status.success() && !stdout.is_empty();
+            if let Ok(stdout) = String::from_utf8(stdout);
+            then {
+                Ok(Rc::new(stdout))
+            } else {
+                env::var(name)
+                    .map(Rc::new)
+                    .map_err(|e| failure::err_msg(format!("Failed to read {:?}: {}", name, e)))
             }
         }
-        env::var(name)
-            .map_err(|e| failure::err_msg(format!("Failed to read {:?}: {}", name, e)))
-            .map(Rc::new)
     }
 
     let atcoder_username = env("ATCODER_USERNAME")?;
@@ -119,23 +116,9 @@ pub fn confirm_num_cases(
     contest: &str,
     pairs: &[(&str, usize)],
 ) {
+    #[derive(Deserialize)]
     struct SimpleSuite {
         cases: Vec<serde_yaml::Value>,
-    }
-
-    // TODO: use `serde_derive`
-    impl<'de> Deserialize<'de> for SimpleSuite {
-        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-            let m = serde_yaml::Mapping::deserialize(deserializer)?;
-            let cases = m
-                .get(&serde_yaml::Value::String("cases".to_owned()))
-                .cloned()
-                .ok_or_else(|| de::Error::custom("expected \"cases\""))?;
-            match cases {
-                serde_yaml::Value::Sequence(cases) => Ok(Self { cases }),
-                _ => Err(de::Error::custom("expected sequence")),
-            }
-        }
     }
 
     for &(problem, expected_num_cases) in pairs {

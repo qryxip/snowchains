@@ -443,7 +443,7 @@ impl Extract for Document {
                     }
                     let mut suite = SimpleSuite::new(timelimit).cases(samples);
                     if kind == ProblemKind::Special {
-                        suite = suite.accept_all();
+                        suite = suite.any();
                     }
                     Some(suite.into())
                 }
@@ -535,7 +535,7 @@ mod tests {
         test_extracting_samples(
             "/problems/no/192",
             SimpleSuite::new(Duration::from_secs(2))
-                .accept_all()
+                .any()
                 .cases(vec![("101\n", None), ("1000\n", None)]),
         );
     }

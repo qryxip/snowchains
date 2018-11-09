@@ -3,7 +3,9 @@ extern crate snowchains;
 extern crate env_logger;
 extern crate failure;
 extern crate heck;
+extern crate if_chain;
 extern crate serde;
+extern crate serde_derive;
 extern crate serde_yaml;
 extern crate tempdir;
 

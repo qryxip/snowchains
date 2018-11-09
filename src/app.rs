@@ -368,7 +368,7 @@ pub struct MatchOpts {
     #[structopt(
         name = "match",
         help = "`match` type",
-        raw(possible_values = r#"&["accept_all", "exact", "float"]"#),
+        raw(possible_values = r#"&["any", "exact", "float"]"#),
     )]
     kind: MatchKind,
     #[structopt(
@@ -388,7 +388,7 @@ pub struct MatchOpts {
 impl Into<testsuite::Match> for MatchOpts {
     fn into(self) -> testsuite::Match {
         match self.kind {
-            MatchKind::AcceptAll => testsuite::Match::AcceptAll,
+            MatchKind::Any => testsuite::Match::Any,
             MatchKind::Exact => testsuite::Match::Exact,
             MatchKind::Float => testsuite::Match::Float {
                 relative_error: self.relative_error.unwrap_or(f64::NAN),
@@ -400,7 +400,7 @@ impl Into<testsuite::Match> for MatchOpts {
 
 #[derive(Debug)]
 enum MatchKind {
-    AcceptAll,
+    Any,
     Exact,
     Float,
 }
@@ -410,7 +410,7 @@ impl FromStr for MatchKind {
 
     fn from_str(s: &str) -> std::result::Result<Self, Never> {
         match s {
-            "accept_all" => Ok(MatchKind::AcceptAll),
+            "any" => Ok(MatchKind::Any),
             "exact" => Ok(MatchKind::Exact),
             "float" => Ok(MatchKind::Float),
             _ => unreachable!(),
