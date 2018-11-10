@@ -178,6 +178,10 @@ impl AbsPathBuf {
         Self { inner }
     }
 
+    pub(crate) fn as_path(&self) -> &AbsPath {
+        &self
+    }
+
     pub(crate) fn pop(&mut self) -> bool {
         self.inner.pop()
     }

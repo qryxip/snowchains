@@ -184,10 +184,9 @@ pub(crate) enum ReplaceYamlScalarWarning {
     UnexpectedElement,
 }
 
-#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
 derive_from!(
     ReplaceYamlScalarWarning::Deserialize <- serde_yaml::Error,
-    ReplaceYamlScalarWarning::Scan        <- ScanError,
+    ReplaceYamlScalarWarning::Scan <- ScanError,
 );
 
 impl fmt::Display for ReplaceYamlScalarWarning {

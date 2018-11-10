@@ -1,7 +1,4 @@
-use crate::errors::{
-    ExpandTemplateResult, FileIoError, FileIoErrorCause, FileIoErrorKind, LoadConfigError,
-    SuiteFileError, SuiteFileResult,
-};
+use crate::errors::{ExpandTemplateResult, LoadConfigError, SuiteFileError, SuiteFileResult};
 use crate::judging::command::{CompilationCommand, JudgingCommand};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
@@ -13,7 +10,6 @@ use maplit::{hashmap, hashset};
 use regex::Regex;
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
-use zip::ZipArchive;
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt::Write as _Write;
@@ -22,7 +18,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{cmp, f64, fmt, str, vec};
+use std::{cmp, f64, fmt, io, str, vec};
 
 pub(crate) fn modify_timelimit(
     stdout: impl WriteAnsi,
@@ -384,17 +380,13 @@ impl ZipEntries {
         if !path.exists() {
             return Ok(vec![]);
         }
-        let mut zip =
-            ZipArchive::new(crate::fs::open(path)?).map_err(|e| FileIoError::read_zip(path, e))?;
+        let mut zip = crate::fs::open_zip(path)?;
         let mut pairs = hashmap!();
         for i in 0..zip.len() {
             let (filename, content) = {
-                let file = zip
-                    .by_index(i)
-                    .map_err(|e| FileIoError::read_zip(path, e))?;
+                let file = zip.by_index(i).map_err(io::Error::from)?;
                 let filename = file.name().to_owned();
-                let content = util::string_from_read(file, 0)
-                    .map_err(|e| FileIoError::read_zip(path, e.into()))?;
+                let content = util::string_from_read(file, 0).map_err(io::Error::from)?;
                 (filename, content)
             };
             if let Some(caps) = self.input.entry.captures(&filename) {
@@ -498,24 +490,13 @@ pub(crate) enum TestSuite {
 }
 
 impl TestSuite {
-    fn load(path: &SuiteFilePath) -> SuiteFileResult<Self> {
-        fn chain_err<E: Into<FileIoErrorCause>>(err: E, path: &Path) -> FileIoError {
-            FileIoError::new(FileIoErrorKind::Deserialize, path).with(err)
+    fn load(path: &SuiteFilePath) -> io::Result<Self> {
+        let (path, ext) = (&path.path, path.extension);
+        match ext {
+            SerializableExtension::Json => crate::fs::read_json(path),
+            SerializableExtension::Toml => crate::fs::read_toml(path),
+            SerializableExtension::Yaml | SerializableExtension::Yml => crate::fs::read_yaml(path),
         }
-
-        let (path, extension) = (&path.path, path.extension);
-        let content = crate::fs::read_to_string(&path)?;
-        match extension {
-            SerializableExtension::Json => {
-                serde_json::from_str(&content).map_err(|e| chain_err(e, &path))
-            }
-            SerializableExtension::Toml => {
-                toml::from_str(&content).map_err(|e| chain_err(e, &path))
-            }
-            SerializableExtension::Yaml | SerializableExtension::Yml => {
-                serde_yaml::from_str(&content).map_err(|e| chain_err(e, &path))
-            }
-        }.map_err(Into::into)
     }
 
     /// Serializes `self` and save it to given path.

@@ -909,7 +909,7 @@ mod tests {
         }
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[rustfmt::skip]
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_arc001() {
         static A: &[(&str, &str)] = &[
@@ -970,7 +970,7 @@ mod tests {
         test_sample_extraction("arc002", &expected);
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[rustfmt::skip]
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_arc019() {
         static A: &[(&str, &str)] = &[
@@ -1070,7 +1070,7 @@ mod tests {
         test_sample_extraction("abc041", &expected);
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[rustfmt::skip]
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_chokudai_s001() {
         static A: &[(&str, &str)] = &[

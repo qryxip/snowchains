@@ -1,5 +1,6 @@
-use crate::errors::{FileIoError, FileIoErrorKind, SessionError, SessionResult, StartSessionError};
-use crate::path::AbsPathBuf;
+use crate::errors::{SessionError, SessionResult, StartSessionError};
+use crate::fs::LockedFile;
+use crate::path::AbsPath;
 use crate::service::USER_AGENT;
 use crate::terminal::WriteAnsi;
 
@@ -17,8 +18,7 @@ use url::{Host, Url};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write as _FmtWrite;
-use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io;
 
 /// A wrapper of `reqwest::Client`.
 #[derive(Debug)]
@@ -30,11 +30,11 @@ pub(crate) struct HttpSession {
 }
 
 impl HttpSession {
-    pub fn try_new(
+    pub fn try_new<'a>(
         mut stdout: impl WriteAnsi,
         client: reqwest::Client,
         base: impl Into<Option<UrlBase>>,
-        cookies_path: impl Into<Option<AbsPathBuf>>,
+        cookies_path: impl Into<Option<&'a AbsPath>>,
     ) -> SessionResult<Self> {
         let start = move || -> SessionResult<Self> {
             let base = base.into();
@@ -341,38 +341,28 @@ impl UrlBase {
 
 #[derive(Debug)]
 struct AutosavedCookieJar {
-    path: AbsPathBuf,
-    file: File,
+    file: LockedFile,
     inner: CookieJar,
 }
 
 impl AutosavedCookieJar {
-    fn try_new(path: impl Into<AbsPathBuf>) -> SessionResult<Self> {
-        let path = path.into();
-        let exists = path.exists();
-        let mut file = crate::fs::create_and_lock(&path)?;
+    fn try_new(path: &AbsPath) -> SessionResult<Self> {
+        let mut file = LockedFile::try_new(path)?;
         let mut inner = CookieJar::new();
-        if exists {
-            let mut cookies =
-                Vec::with_capacity(file.metadata().map(|m| m.len() as usize + 1).unwrap_or(0));
-            file.read_to_end(&mut cookies)
-                .map_err(|err| FileIoError::new(FileIoErrorKind::Read, path.as_ref()).with(err))?;
+        if !file.is_empty()? {
+            let cookies = file.bincode::<Vec<String>>()?;
             if !cookies.is_empty() {
-                let cookies = bincode::deserialize::<Vec<String>>(&cookies).map_err(|err| {
-                    FileIoError::new(FileIoErrorKind::Deserialize, path.as_ref()).with(err)
-                })?;
                 for cookie in cookies {
                     let cookie = cookie::Cookie::parse(cookie.clone()).map_err(|e| {
                         SessionError::ParseCookieFromPath(cookie, path.to_owned(), e)
                     })?;
                     inner.add(cookie);
                 }
+                return Ok(Self { file, inner });
             }
-        } else {
-            file.write_all(&bincode::serialize(&Vec::<String>::new()).unwrap())
-                .map_err(|err| FileIoError::new(FileIoErrorKind::Write, path.as_ref()).with(err))?;
         }
-        Ok(Self { file, path, inner })
+        file.write_bincode(&Vec::<String>::new())?;
+        Ok(Self { file, inner })
     }
 
     fn to_header_value(&self) -> std::result::Result<HeaderValue, InvalidHeaderValue> {
@@ -388,7 +378,7 @@ impl AutosavedCookieJar {
 
     fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> SessionResult<()> {
         self.inner.add(cookie);
-        self.save()
+        self.save().map_err(Into::into)
     }
 
     fn update(&mut self, response: &Response) -> SessionResult<()> {
@@ -404,22 +394,16 @@ impl AutosavedCookieJar {
             })?;
             self.inner.add(cookie);
         }
-        self.save()
+        self.save().map_err(Into::into)
     }
 
-    fn save(&mut self) -> SessionResult<()> {
+    fn save(&mut self) -> io::Result<()> {
         let value = self
             .inner
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>();
-        let value = bincode::serialize(&value)?;
-        self.file
-            .seek(SeekFrom::Start(0))
-            .and_then(|_| self.file.set_len(0))
-            .and_then(|()| self.file.write_all(&value))
-            .map_err(|err| FileIoError::new(FileIoErrorKind::Write, self.path.as_ref()).with(err))
-            .map_err(Into::into)
+        self.file.write_bincode(&value)
     }
 }
 
@@ -502,12 +486,13 @@ mod tests {
         let _ = env_logger::try_init();
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
         let path = AbsPathBuf::new_or_panic(tempdir.path().join("cookies"));
+        let path = path.as_path();
         let client = service::reqwest_client(None).unwrap();
         let mut wtr = Ansi::new(io::sink());
-        HttpSession::try_new(&mut wtr, client.clone(), None, path.clone()).unwrap();
-        HttpSession::try_new(&mut wtr, client.clone(), None, path.clone()).unwrap();
-        let _session = HttpSession::try_new(&mut wtr, client.clone(), None, path.clone()).unwrap();
-        let err = HttpSession::try_new(&mut wtr, client, None, path.clone()).unwrap_err();
+        HttpSession::try_new(&mut wtr, client.clone(), None, path).unwrap();
+        HttpSession::try_new(&mut wtr, client.clone(), None, path).unwrap();
+        let _session = HttpSession::try_new(&mut wtr, client.clone(), None, path).unwrap();
+        let err = HttpSession::try_new(&mut wtr, client, None, path).unwrap_err();
         if let SessionError::Start(ref ctx) = err {
             if ctx.cause().is_some() {
                 return tempdir.close().unwrap();

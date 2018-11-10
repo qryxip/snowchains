@@ -201,7 +201,12 @@ impl<T: Term> SessionProp<T> {
         let base = self
             .domain
             .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
-        HttpSession::try_new(self.term.stdout(), client, base, self.cookies_path.clone())
+        HttpSession::try_new(
+            self.term.stdout(),
+            client,
+            base,
+            self.cookies_path.as_path(),
+        )
     }
 }
 

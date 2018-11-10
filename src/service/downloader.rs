@@ -1,5 +1,5 @@
 use crate::errors::{
-    ExpandTemplateResult, FileIoResult, ServiceError, ServiceResult, SessionError, SessionResult,
+    ExpandTemplateResult, ServiceError, ServiceResult, SessionError, SessionResult,
 };
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service;
@@ -95,7 +95,7 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
                 .zip(paths.iter())
                 .zip(pb_rx.collect().wait().unwrap())
                 .map(|((resp, path), pb)| DownloadBody::try_new(resp, &path, pb))
-                .collect::<FileIoResult<Vec<_>>>()?;
+                .collect::<io::Result<Vec<_>>>()?;
             core.run(future::join_all(works).map(|_| ()))
         });
         match header_result_rx.wait() {
@@ -181,7 +181,7 @@ impl DownloadBody {
         response: reqwest::r#async::Response,
         path: &AbsPath,
         mut progress_bar: ProgressBar<Pipe>,
-    ) -> FileIoResult<Self> {
+    ) -> io::Result<Self> {
         const ALT_CAPACITY: usize = 30 * 1024 * 1024;
         let len = response
             .headers()
