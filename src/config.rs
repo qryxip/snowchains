@@ -1,14 +1,14 @@
-use errors::{FileIoError, FileIoErrorKind, FileIoResult, LoadConfigError, LoadConfigResult};
-use judging::command::{CompilationCommand, JudgingCommand};
-use path::{AbsPath, AbsPathBuf};
-use replacer::{CodeReplacer, CodeReplacerConf};
-use service::{ServiceName, SessionConfig};
-use template::{Template, TemplateBuilder};
-use terminal::{AnsiColorChoice, TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
-use testsuite::{
+use crate::errors::{LoadConfigError, LoadConfigResult};
+use crate::judging::command::{CompilationCommand, JudgingCommand};
+use crate::path::{AbsPath, AbsPathBuf};
+use crate::replacer::{CodeReplacer, CodeReplacerConf};
+use crate::service::{ServiceName, SessionConfig};
+use crate::template::{Template, TemplateBuilder};
+use crate::terminal::{AnsiColorChoice, TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
+use crate::testsuite::{
     DownloadDestinations, SerializableExtension, SuiteFileExtension, TestCaseLoader, ZipConfig,
 };
-use yaml;
+use crate::yaml;
 
 use maplit::hashmap;
 use serde_derive::{Deserialize, Serialize};
@@ -18,7 +18,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
-use std::ops::Deref as _Deref;
 use std::str;
 use std::time::Duration;
 
@@ -29,7 +28,7 @@ pub(crate) fn init(
     mut stdout: impl Write,
     directory: &AbsPath,
     session_cookies: &str,
-) -> FileIoResult<()> {
+) -> io::Result<()> {
     let config = format!(
         r#"---
 service: atcoder
@@ -53,34 +52,36 @@ judge:
   zip:
     timelimit: 2000ms
     match: exact
-    crlf_to_lf:
-      in: true
-      expected_out: true
-      actual_out: {zip_crlf_to_lf_actual_out:?}
     entries:
       # AtCoder
       - in:
           entry: /\Ain/([a-z0-9_\-]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         out:
           entry: /\Aout/([a-z0-9_\-]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         sort: [dictionary]
       # HackerRank
       - in:
           entry: /\Ainput/input([0-9]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         out:
           entry: /\Aoutput/output([0-9]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         sort: [number]
       # yukicoder
       - in:
           entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         out:
           entry: /\Atest_out/([a-z0-9_]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         sort: [dictionary, number]
 
 services:
@@ -110,6 +111,7 @@ interactive:
     run:
       command: [{venv_python3}, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/py
+      {crlf_to_lf}
   haskell:
     src: testers/hs/app/Test{{Pascal}}.hs
     compile:
@@ -119,6 +121,7 @@ interactive:
     run:
       command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/hs
+      # crlf_to_lf: false
 
 languages:
   c++:
@@ -130,6 +133,7 @@ languages:
     run:
       command: [$bin]
       working_directory: cpp # default: "."
+      {crlf_to_lf}
     language_ids:            # optional
       atcoder: 3003          # "C++14 (GCC x.x.x)"
       yukicoder: cpp14       # "C++14 (gcc x.x.x)"
@@ -142,6 +146,7 @@ languages:
     run:
       command: [$bin]
       working_directory: rs
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3504
       yukicoder: rust
@@ -154,6 +159,7 @@ languages:
     run:
       command: [$bin]
       working_directory: go
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3013
       yukicoder: go
@@ -166,6 +172,7 @@ languages:
     run:
       command: [$bin]
       working_directory: hs
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3014
       yukicoder: haskell
@@ -174,6 +181,7 @@ languages:
     run:
       command: [bash, $src]
       working_directory: bash
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3001
       yukicoder: sh
@@ -182,6 +190,7 @@ languages:
     run:
       command: [{venv_python3}, $src]
       working_directory: py
+      {crlf_to_lf}
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
       yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x)"
@@ -194,6 +203,7 @@ languages:
     run:
       command: [java, -classpath, ./build/classes/java/main, '{{Pascal}}']
       working_directory: java
+      {crlf_to_lf}
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       match_group: 2
@@ -212,6 +222,7 @@ languages:
     run:
       command: [scala, -classpath, ./target/scala-2.12/classes, '{{Pascal}}']
       working_directory: scala
+      {crlf_to_lf}
     replace:
       regex: /^\s*object\s+([A-Z][a-zA-Z0-9_]*).*$/
       match_group: 1
@@ -227,18 +238,18 @@ languages:
     run:
       command: [cat, $src]
       working_directory: txt
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3027
       yukicoder: text
 "#,
-        zip_crlf_to_lf_actual_out = cfg!(windows),
         session_cookies = yaml::escape_string(session_cookies),
         shell = if cfg!(windows) {
             r"['C:\Windows\cmd.exe', /C]"
         } else {
-            "[/bin/sh, -c]"
+            "[$SHELL, -c]"
         },
-        exe = if cfg!(target_os = "windows") {
+        exe = if cfg!(windows) {
             ".exe"
         } else {
             ""
@@ -247,6 +258,11 @@ languages:
             "./venv/Scripts/python.exe"
         } else {
             "./venv/bin/python3"
+        },
+        crlf_to_lf = if cfg!(windows) {
+            "crlf_to_lf: true"
+        } else {
+            "# crlf_to_lf: false"
         },
         csharp = if cfg!(windows) {
             r#"  c#:
@@ -258,6 +274,7 @@ languages:
     run:
       command: [$bin]
       working_directory: cs
+      crlf_to_lf: true
     language_ids:
       atcoder: 3006     # "C# (Mono x.x.x.x)"
       yukicoder: csharp # "C# (csc x.x.x.x)""#
@@ -271,16 +288,16 @@ languages:
     run:
       command: [mono, $bin]
       working_directory: cs
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3006          # "C# (Mono x.x.x.x)"
       yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)""#
         }
     );
     let path = directory.join(CONFIG_FILE_NAME);
-    ::fs::write(&path, config.as_bytes())?;
+    crate::fs::write(&path, config.as_bytes())?;
     writeln!(stdout, "Wrote to {}", path.display())?;
-    stdout.flush()?;
-    Ok(())
+    stdout.flush()
 }
 
 /// Changes attributes.
@@ -292,7 +309,7 @@ pub(crate) fn switch(
     service: Option<ServiceName>,
     contest: Option<String>,
     language: Option<String>,
-) -> FileIoResult<()> {
+) -> io::Result<()> {
     fn print_change(
         mut stdout: impl WriteAnsi,
         title: &str,
@@ -310,10 +327,9 @@ pub(crate) fn switch(
         stdout.write_str("\n")
     }
 
-    let path = ::fs::find_filepath(directory, CONFIG_FILE_NAME)?;
-    let mut old_yaml = ::fs::read_to_string(&path)?;
-    let old_config = serde_yaml::from_str::<Config>(&old_yaml)
-        .map_err(|err| FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err))?;
+    let path = crate::fs::find_filepath(directory, CONFIG_FILE_NAME)?;
+    let mut old_yaml = crate::fs::read_to_string(&path)?;
+    let old_config = crate::fs::read_yaml::<Config>(&path)?;
     stdout.setup(color_choice, &old_config.console);
     stderr.setup(color_choice, &old_config.console);
 
@@ -342,17 +358,16 @@ pub(crate) fn switch(
         .and_then(|new_yaml| {
             let new_config = serde_yaml::from_str(&new_yaml)?;
             Ok((new_yaml, new_config))
-        }).or_else::<FileIoError, _>(|warning| {
+        }).or_else::<io::Error, _>(|warning| {
             stderr.with_reset(|o| writeln!(o.fg(11)?, "{}", warning))?;
             stderr.flush()?;
-            let mut new_config = serde_yaml::from_str::<Config>(&old_yaml).map_err(|err| {
-                FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
-            })?;
+            let mut new_config = serde_yaml::from_str::<Config>(&old_yaml)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
             new_config.service = service.unwrap_or(new_config.service);
             new_config.contest = contest.unwrap_or(new_config.contest);
             new_config.language = language.or(new_config.language);
             let new_yaml = serde_yaml::to_string(&new_config)
-                .map_err(|err| FileIoError::new(FileIoErrorKind::Write, path.deref()).with(err))?;
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
             Ok((new_yaml, new_config))
         })?;
 
@@ -374,11 +389,10 @@ pub(crate) fn switch(
     print_change(&mut stdout, "service:  ", w, &s1, &s2)?;
     print_change(&mut stdout, "contest:  ", w, &c1, &c2)?;
     print_change(&mut stdout, "language: ", w, &l1, &l2)?;
-    ::fs::write(&path, new_yaml.as_bytes())?;
+    crate::fs::write(&path, new_yaml.as_bytes())?;
 
     writeln!(stdout, "Saved to {}", path.display())?;
-    stdout.flush()?;
-    Ok(())
+    stdout.flush()
 }
 
 /// Config.
@@ -407,11 +421,9 @@ impl Config {
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
         dir: &AbsPath,
-    ) -> FileIoResult<Self> {
-        let path = ::fs::find_filepath(dir, CONFIG_FILE_NAME)?;
-        let mut config = serde_yaml::from_reader::<_, Self>(::fs::open(&path)?).map_err(|err| {
-            FileIoError::new(FileIoErrorKind::Deserialize, path.deref()).with(err)
-        })?;
+    ) -> io::Result<Self> {
+        let path = crate::fs::find_filepath(dir, CONFIG_FILE_NAME)?;
+        let mut config = crate::fs::read_yaml::<Self>(&path)?;
         config.base_dir = path.parent().unwrap().to_owned();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
@@ -572,6 +584,7 @@ impl Config {
                 &lang.run.working_directory,
                 &lang.src,
                 lang.compile.as_ref().map(|c| &c.bin),
+                lang.run.crlf_to_lf,
             ).insert_strings(&self.vars_for_langs(None))
     }
 
@@ -657,4 +670,6 @@ struct Run {
     command: TemplateBuilder<JudgingCommand>,
     #[serde(default)]
     working_directory: TemplateBuilder<AbsPathBuf>,
+    #[serde(default)]
+    crlf_to_lf: bool,
 }

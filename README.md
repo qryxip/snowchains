@@ -2,6 +2,7 @@
 
 [![Build Status](https://travis-ci.org/wariuni/snowchains.svg?branch=master)](https://travis-ci.org/wariuni/snowchains)
 [![Build status](https://ci.appveyor.com/api/projects/status/hfc4x704uufkb2sh/branch/master?svg=true)](https://ci.appveyor.com/project/wariuni/snowchains/branch/master)
+[![Coverage Status](https://coveralls.io/repos/github/wariuni/snowchains/badge.svg?branch=master)](https://coveralls.io/github/wariuni/snowchains?branch=master)
 
 Tools for online programming contests.
 
@@ -115,34 +116,36 @@ testfiles:
   zip:
     timelimit: 2000ms
     match: exact
-    crlf_to_lf:
-      in: true
-      expected_out: true
-      actual_out: false
     entries:
       # AtCoder
       - in:
           entry: /\Ain/([a-z0-9_\-]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         out:
           entry: /\Aout/([a-z0-9_\-]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         sort: [dictionary]
       # HackerRank
       - in:
           entry: /\Ainput/input([0-9]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         out:
           entry: /\Aoutput/output([0-9]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         sort: [number]
       # yukicoder
       - in:
           entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         out:
           entry: /\Atest_out/([a-z0-9_]+)\.txt\z/
           match_group: 1
+          crlf_to_lf: true
         sort: [dictionary, number]
 
 services:
@@ -172,6 +175,7 @@ interactive:
     run:
       command: [./venv/bin/python3, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/py
+      # crlf_to_lf: false
   haskell:
     src: testers/hs/app/Test{{Pascal}}.hs
     compile:
@@ -181,6 +185,7 @@ interactive:
     run:
       command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
       working_directory: testers/hs
+      # crlf_to_lf: false
 
 # test files: <testsuite>/<problem>.[json|toml|yaml|yml|zip]
 # source:     <<src> % <problem>>
@@ -218,6 +223,7 @@ languages:
     run:
       command: [$bin]
       working_directory: cpp # default: "."
+      # crlf_to_lf: false
     language_ids:            # optional
       atcoder: 3003          # "C++14 (GCC x.x.x)"
       yukicoder: cpp14       # "C++14 (gcc x.x.x)"
@@ -230,6 +236,7 @@ languages:
     run:
       command: [$bin]
       working_directory: rs
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3504
       yukicoder: rust
@@ -242,6 +249,7 @@ languages:
     run:
       command: [$bin]
       working_directory: hs
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3014
       yukicoder: haskell
@@ -250,6 +258,7 @@ languages:
     run:
       command: [./venv/bin/python3, $src]
       working_directory: py
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
       yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x)"
@@ -262,6 +271,7 @@ languages:
     run:
       command: [java, -classpath, ./build/classes/java/main, '{Pascal}']
       working_directory: java
+      # crlf_to_lf: false
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       regex_group: 2
@@ -280,6 +290,7 @@ languages:
   #   run:
   #     command: [$bin]
   #     working_directory: cs
+  #     crlf_to_lf: true
   #   language_ids:
   #     atcoder: 3006     # "C# (Mono x.x.x.x)"
   #     yukicoder: csharp # "C# (csc x.x.x.x)"
@@ -292,6 +303,7 @@ languages:
     run:
       command: [mono, $bin]
       working_directory: cs
+      # crlf_to_lf: false
     language_ids:
       atcoder: 3006          # "C# (Mono x.x.x.x)"
       yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)"
@@ -311,11 +323,7 @@ languages:
 ---
 type: simple      # "simple", "interactive", or "unsubmittable"
 timelimit: 2000ms # optional
-match: exact      # "accept_all", "exact", or "float"
-crlf_to_lf:
-  in: false
-  expected_out: false
-  actual_out: false
+match: exact      # "any", "exact", or "float"
 
 cases:
   - in: |
@@ -337,6 +345,39 @@ cases:
       oooooooooooooo
 ```
 
+```toml
+type = 'simple'
+timelimit = '2000ms'
+match = 'exact'
+
+[[cases]]
+in = '''
+1
+2 3
+test
+'''
+out = '''
+6 test
+'''
+
+[[cases]]
+in = '''
+72
+128 256
+myonmyon
+'''
+out = '''
+456 myonmyon
+'''
+
+[[cases]]
+in = '''
+1000
+1000 1000
+oooooooooooooo
+'''
+```
+
 <https://beta.atcoder.jp/contests/tricky/tasks/tricky_2>
 
 ```yaml
@@ -345,12 +386,8 @@ type: simple
 timelimit: 2000ms
 match:
   float:
-    absolute_error: 1E-9
-    relative_error: 1E-9
-crlf_to_lf:
-  in: false
-  expected_out: false
-  actual_out: false
+    absolute_error: 1e-9
+    relative_error: 1e-9
 
 cases:
   - in: |
@@ -362,6 +399,28 @@ cases:
       2 1.000 2.000
       2 1.000 2.000
       2 1.000 2.000
+```
+
+```toml
+type = 'simple'
+timelimit = '2000ms'
+
+[match.float]
+absolute_error = 1e-9
+relative_error = 1e-9
+
+[[cases]]
+in = '''
+3
+1 -3 2
+-10 30 -20
+100 -300 200
+'''
+out = '''
+2 1.000 2.000
+2 1.000 2.000
+2 1.000 2.000
+'''
 ```
 
 ### Interactive

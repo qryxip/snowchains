@@ -71,7 +71,7 @@ mod testsuite;
 mod time;
 mod yaml;
 
-pub use errors::{Error, Result};
+pub use crate::errors::{Error, Result};
 
 use std::fmt;
 

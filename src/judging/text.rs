@@ -1,4 +1,4 @@
-use terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
+use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
 
 use combine::Parser;
 
@@ -260,7 +260,7 @@ impl PartialEq for Word {
 
 #[cfg(test)]
 mod tests {
-    use judging::text::{Line, Text, Word};
+    use crate::judging::text::{Line, Text, Word};
 
     use std::sync::Arc;
 

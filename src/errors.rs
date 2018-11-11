@@ -1,15 +1,14 @@
 use chrono::{DateTime, Local};
+use crate::path::AbsPathBuf;
+use crate::template::Tokens;
 use failure::{Context, Fail};
 use itertools::Itertools as _Itertools;
-use path::AbsPathBuf;
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use reqwest::StatusCode;
-use template::Tokens;
 use url::Url;
 use zip::result::ZipError;
 
 use std::ffi::OsString;
-use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::string::FromUtf8Error;
 use std::{fmt, io};
@@ -23,7 +22,6 @@ pub enum Error {
     SuiteFile(SuiteFileError),
     LoadConfig(LoadConfigError),
     ExpandTemplate(ExpandTemplateError),
-    FileIo(FileIoError),
     Io(StdErrorWithDisplayChain<io::Error>),
     Unimplemented,
 }
@@ -36,7 +34,6 @@ impl fmt::Display for self::Error {
             self::Error::SuiteFile(e) => write!(f, "{}", e),
             self::Error::LoadConfig(e) => write!(f, "{}", e),
             self::Error::ExpandTemplate(e) => write!(f, "{}", e),
-            self::Error::FileIo(e) => write!(f, "{}", e),
             self::Error::Io(e) => write!(f, "{}", e),
             self::Error::Unimplemented => write!(f, "Sorry, not yet implemented"),
         }
@@ -46,27 +43,24 @@ impl fmt::Display for self::Error {
 impl Fail for self::Error {
     fn cause(&self) -> Option<&dyn Fail> {
         match self {
-            ::Error::Service(e) => e.cause(),
-            ::Error::Judge(e) => e.cause(),
-            ::Error::SuiteFile(e) => e.cause(),
-            ::Error::LoadConfig(e) => e.cause(),
-            ::Error::ExpandTemplate(e) => e.cause(),
-            ::Error::FileIo(e) => e.cause(),
-            ::Error::Io(e) => e.cause(),
+            crate::Error::Service(e) => e.cause(),
+            crate::Error::Judge(e) => e.cause(),
+            crate::Error::SuiteFile(e) => e.cause(),
+            crate::Error::LoadConfig(e) => e.cause(),
+            crate::Error::ExpandTemplate(e) => e.cause(),
+            crate::Error::Io(e) => e.cause(),
             _ => None,
         }
     }
 }
 
-#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
 derive_from!(
-    Error::Service        <- ServiceError,
-    Error::Judge          <- JudgeError,
-    Error::SuiteFile      <- SuiteFileError,
-    Error::LoadConfig     <- LoadConfigError,
+    Error::Service <- ServiceError,
+    Error::Judge <- JudgeError,
+    Error::SuiteFile <- SuiteFileError,
+    Error::LoadConfig <- LoadConfigError,
     Error::ExpandTemplate <- ExpandTemplateError,
-    Error::FileIo         <- FileIoError,
-    Error::Io             <- io::Error,
+    Error::Io <- io::Error,
 );
 
 pub(crate) type ServiceResult<T> = std::result::Result<T, ServiceError>;
@@ -77,7 +71,6 @@ pub enum ServiceError {
     CodeReplace(CodeReplaceError),
     SuiteFile(SuiteFileError),
     ExpandTemplate(ExpandTemplateError),
-    FileIo(FileIoError),
     Submit(SubmitError),
     ChronoParse(StdErrorWithDisplayChain<chrono::ParseError>),
     Reqwest(StdErrorWithDisplayChain<reqwest::Error>),
@@ -101,7 +94,6 @@ impl fmt::Display for ServiceError {
             ServiceError::CodeReplace(e) => write!(f, "{}", e),
             ServiceError::SuiteFile(e) => write!(f, "{}", e),
             ServiceError::ExpandTemplate(e) => write!(f, "{}", e),
-            ServiceError::FileIo(e) => write!(f, "{}", e),
             ServiceError::Submit(e) => write!(f, "{}", e),
             ServiceError::ChronoParse(e) => write!(f, "{}", e),
             ServiceError::Reqwest(e) => write!(f, "{}", e),
@@ -123,20 +115,18 @@ impl fmt::Display for ServiceError {
     }
 }
 
-#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
 derive_from!(
-    ServiceError::Session            <- SessionError,
-    ServiceError::CodeReplace        <- CodeReplaceError,
-    ServiceError::SuiteFile          <- SuiteFileError,
-    ServiceError::ExpandTemplate     <- ExpandTemplateError,
-    ServiceError::Submit             <- SubmitError,
-    ServiceError::FileIo             <- FileIoError,
-    ServiceError::ChronoParse        <- chrono::ParseError,
-    ServiceError::Reqwest            <- reqwest::Error,
-    ServiceError::ToStr              <- reqwest::header::ToStrError,
+    ServiceError::Session <- SessionError,
+    ServiceError::CodeReplace <- CodeReplaceError,
+    ServiceError::SuiteFile <- SuiteFileError,
+    ServiceError::ExpandTemplate <- ExpandTemplateError,
+    ServiceError::Submit <- SubmitError,
+    ServiceError::ChronoParse <- chrono::ParseError,
+    ServiceError::Reqwest <- reqwest::Error,
+    ServiceError::ToStr <- reqwest::header::ToStrError,
     ServiceError::SerdeUrlencodedSer <- serde_urlencoded::ser::Error,
-    ServiceError::Zip                <- ZipError,
-    ServiceError::Io                 <- io::Error,
+    ServiceError::Zip <- ZipError,
+    ServiceError::Io <- io::Error,
 );
 
 impl Fail for ServiceError {
@@ -146,7 +136,6 @@ impl Fail for ServiceError {
             ServiceError::CodeReplace(e) => e.cause(),
             ServiceError::SuiteFile(e) => e.cause(),
             ServiceError::ExpandTemplate(e) => e.cause(),
-            ServiceError::FileIo(e) => e.cause(),
             ServiceError::ChronoParse(e) => e.cause(),
             ServiceError::Reqwest(e) => e.cause(),
             ServiceError::ToStr(e) => e.cause(),
@@ -186,7 +175,6 @@ pub(crate) type SessionResult<T> = std::result::Result<T, SessionError>;
 
 #[derive(Debug)]
 pub enum SessionError {
-    FileIo(FileIoError),
     Bincode(StdErrorWithDisplayChain<bincode::Error>),
     Reqwest(StdErrorWithDisplayChain<reqwest::Error>),
     InvalidHeaderValue(StdErrorWithDisplayChain<InvalidHeaderValue>),
@@ -202,21 +190,18 @@ pub enum SessionError {
     Webbrowser(ExitStatus),
 }
 
-#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
 derive_from!(
-    SessionError::FileIo             <- FileIoError,
-    SessionError::Bincode            <- bincode::Error,
-    SessionError::Reqwest            <- reqwest::Error,
+    SessionError::Bincode <- bincode::Error,
+    SessionError::Reqwest <- reqwest::Error,
     SessionError::InvalidHeaderValue <- InvalidHeaderValue,
-    SessionError::ToStr              <- reqwest::header::ToStrError,
-    SessionError::Io                 <- io::Error,
-    SessionError::Start              <- Context<StartSessionError>,
+    SessionError::ToStr <- reqwest::header::ToStrError,
+    SessionError::Io <- io::Error,
+    SessionError::Start <- Context<StartSessionError>,
 );
 
 impl fmt::Display for SessionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            SessionError::FileIo(e) => write!(f, "{}", e),
             SessionError::Bincode(e) => write!(f, "{}", e),
             SessionError::Reqwest(e) => write!(f, "{}", e),
             SessionError::InvalidHeaderValue(e) => write!(f, "{}", e),
@@ -258,7 +243,6 @@ impl fmt::Display for SessionError {
 impl Fail for SessionError {
     fn cause(&self) -> Option<&dyn Fail> {
         match self {
-            SessionError::FileIo(e) => e.cause(),
             SessionError::Bincode(e) => e.cause(),
             SessionError::Reqwest(e) => e.cause(),
             SessionError::InvalidHeaderValue(e) => e.cause(),
@@ -283,7 +267,6 @@ pub enum JudgeError {
     SuiteFile(SuiteFileError),
     LoadConfig(LoadConfigError),
     ExpandTemplate(ExpandTemplateError),
-    FileIo(FileIoError),
     Io(io::Error),
     IndexOutOfBounds(usize, usize),
     ExpectedSimple,
@@ -292,13 +275,11 @@ pub enum JudgeError {
     TestFailed(usize, usize),
 }
 
-#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
 derive_from!(
-    JudgeError::SuiteFile      <- SuiteFileError,
-    JudgeError::LoadConfig     <- LoadConfigError,
+    JudgeError::SuiteFile <- SuiteFileError,
+    JudgeError::LoadConfig <- LoadConfigError,
     JudgeError::ExpandTemplate <- ExpandTemplateError,
-    JudgeError::FileIo         <- FileIoError,
-    JudgeError::Io             <- io::Error,
+    JudgeError::Io <- io::Error,
 );
 
 impl fmt::Display for JudgeError {
@@ -307,7 +288,6 @@ impl fmt::Display for JudgeError {
             JudgeError::SuiteFile(e) => write!(f, "{}", e),
             JudgeError::LoadConfig(e) => write!(f, "{}", e),
             JudgeError::ExpandTemplate(e) => write!(f, "{}", e),
-            JudgeError::FileIo(e) => write!(f, "{}", e),
             JudgeError::Io(_) => write!(f, "An IO error occurred"),
             JudgeError::IndexOutOfBounds(l, i) => {
                 write!(f, "The length is {} but the index is {}", l, i)
@@ -340,7 +320,6 @@ impl Fail for JudgeError {
             JudgeError::SuiteFile(e) => e.cause(),
             JudgeError::LoadConfig(e) => e.cause(),
             JudgeError::ExpandTemplate(e) => e.cause(),
-            JudgeError::FileIo(e) => e.cause(),
             JudgeError::Io(e) => Some(e),
             _ => None,
         }
@@ -353,7 +332,6 @@ pub(crate) type SuiteFileResult<T> = std::result::Result<T, SuiteFileError>;
 pub enum SuiteFileError {
     LoadConfig(LoadConfigError),
     ExpandTemplate(ExpandTemplateError),
-    FileIo(FileIoError),
     SerdeJson(StdErrorWithDisplayChain<serde_json::Error>),
     SerdeYaml(StdErrorWithDisplayChain<serde_yaml::Error>),
     TomlSer(StdErrorWithDisplayChain<toml::ser::Error>),
@@ -371,7 +349,6 @@ impl fmt::Display for SuiteFileError {
         match self {
             SuiteFileError::LoadConfig(e) => write!(f, "{}", e),
             SuiteFileError::ExpandTemplate(e) => write!(f, "{}", e),
-            SuiteFileError::FileIo(e) => write!(f, "{}", e),
             SuiteFileError::Io(_) => write!(f, "An IO error occurred"),
             SuiteFileError::SerdeJson(_)
             | SuiteFileError::SerdeYaml(_)
@@ -397,7 +374,6 @@ impl Fail for SuiteFileError {
         match self {
             SuiteFileError::LoadConfig(e) => e.cause(),
             SuiteFileError::ExpandTemplate(e) => e.cause(),
-            SuiteFileError::FileIo(e) => e.cause(),
             SuiteFileError::SerdeJson(e) => Some(e),
             SuiteFileError::SerdeYaml(e) => Some(e),
             SuiteFileError::TomlSer(e) => Some(e),
@@ -407,15 +383,13 @@ impl Fail for SuiteFileError {
     }
 }
 
-#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
 derive_from!(
-    SuiteFileError::LoadConfig     <- LoadConfigError,
+    SuiteFileError::LoadConfig <- LoadConfigError,
     SuiteFileError::ExpandTemplate <- ExpandTemplateError,
-    SuiteFileError::SerdeJson      <- serde_json::Error,
-    SuiteFileError::SerdeYaml      <- serde_yaml::Error,
-    SuiteFileError::TomlSer        <- toml::ser::Error,
-    SuiteFileError::FileIo         <- FileIoError,
-    SuiteFileError::Io             <- io::Error,
+    SuiteFileError::SerdeJson <- serde_json::Error,
+    SuiteFileError::SerdeYaml <- serde_yaml::Error,
+    SuiteFileError::TomlSer <- toml::ser::Error,
+    SuiteFileError::Io <- io::Error,
 );
 
 pub(crate) type LoadConfigResult<T> = std::result::Result<T, LoadConfigError>;
@@ -440,10 +414,9 @@ pub enum CodeReplaceError {
     NoMatch(String),
 }
 
-#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
 derive_from!(
     CodeReplaceError::ExpandTemplate <- ExpandTemplateError,
-    CodeReplaceError::NonUtf8        <- FromUtf8Error,
+    CodeReplaceError::NonUtf8 <- FromUtf8Error,
 );
 
 impl fmt::Display for CodeReplaceError {
@@ -474,25 +447,21 @@ pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateE
 #[derive(Debug)]
 pub enum ExpandTemplateError {
     Context(Context<ExpandTemplateErrorContext>),
-    FileIo(FileIoError),
     Io(StdErrorWithDisplayChain<io::Error>),
     UnknownSpecifier(String),
     EnvVarNotPresent(String),
     EnvVarNotUnicode(String, OsString),
 }
 
-#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
 derive_from!(
     ExpandTemplateError::Context <- Context<ExpandTemplateErrorContext>,
-    ExpandTemplateError::FileIo  <- FileIoError,
-    ExpandTemplateError::Io      <- io::Error,
+    ExpandTemplateError::Io <- io::Error,
 );
 
 impl fmt::Display for ExpandTemplateError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ExpandTemplateError::Context(c) => write!(f, "{}", c),
-            ExpandTemplateError::FileIo(e) => write!(f, "{}", e),
             ExpandTemplateError::Io(e) => write!(f, "{}", e),
             ExpandTemplateError::UnknownSpecifier(s) => write!(
                 f,
@@ -516,7 +485,6 @@ impl Fail for ExpandTemplateError {
     fn cause(&self) -> Option<&dyn Fail> {
         match self {
             ExpandTemplateError::Context(c) => c.cause(),
-            ExpandTemplateError::FileIo(e) => e.cause(),
             ExpandTemplateError::Io(e) => e.cause(),
             _ => None,
         }
@@ -564,161 +532,6 @@ impl fmt::Display for ExpandTemplateErrorContext {
                 tokens,
                 problem,
             ),
-        }
-    }
-}
-
-pub(crate) type FileIoResult<T> = std::result::Result<T, FileIoError>;
-
-#[derive(Debug)]
-pub struct FileIoError {
-    kind: FileIoErrorKind,
-    path: PathBuf,
-    cause: Option<FileIoErrorCause>,
-}
-
-impl FileIoError {
-    pub(crate) fn new(kind: FileIoErrorKind, path: impl Into<PathBuf>) -> Self {
-        Self {
-            kind,
-            path: path.into(),
-            cause: None,
-        }
-    }
-
-    pub(crate) fn with(self, cause: impl Into<FileIoErrorCause>) -> Self {
-        Self {
-            cause: Some(cause.into()),
-            ..self
-        }
-    }
-
-    pub(crate) fn read_zip(path: impl Into<PathBuf>, e: ZipError) -> Self {
-        match e {
-            ZipError::Io(e) => Self::new(FileIoErrorKind::Read, path).with(e),
-            ZipError::InvalidArchive(m) => Self::new(FileIoErrorKind::InvalidZipArchive(m), path),
-            ZipError::UnsupportedArchive(m) => {
-                Self::new(FileIoErrorKind::UnsupportedZipArchive(m), path)
-            }
-            ZipError::FileNotFound => Self::new(FileIoErrorKind::OpenInReadOnly, path)
-                .with(io::Error::from(io::ErrorKind::NotFound)),
-        }
-    }
-}
-
-impl From<io::Error> for FileIoError {
-    fn from(from: io::Error) -> Self {
-        Self {
-            kind: FileIoErrorKind::Other,
-            path: PathBuf::new(),
-            cause: Some(from.into()),
-        }
-    }
-}
-
-impl fmt::Display for FileIoError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let path = self.path.display();
-        match self.kind {
-            FileIoErrorKind::Search(name) => write!(
-                f,
-                "Could not find {:?} in {} or any parent directory",
-                name, path,
-            ),
-            FileIoErrorKind::OpenInReadOnly => write!(
-                f,
-                "An IO error occurred while opening {} in read-only mode",
-                path,
-            ),
-            FileIoErrorKind::OpenInWriteOnly => write!(
-                f,
-                "An IO error occurred while opening {} in write-only mode",
-                path,
-            ),
-            FileIoErrorKind::OpenInReadWrite => write!(
-                f,
-                "An IO error occurred while opening {} in read/write mode",
-                path,
-            ),
-            FileIoErrorKind::Lock => write!(f, "Failed to lock {}", path),
-            FileIoErrorKind::CreateDirAll => write!(f, "Failed to create {}", path),
-            FileIoErrorKind::Read => write!(f, "Failed to read {}", path),
-            FileIoErrorKind::Write => write!(f, "Failed to write to {}", path),
-            FileIoErrorKind::Deserialize => write!(f, "Failed to deserialize data from {}", path),
-            FileIoErrorKind::InvalidZipArchive(m) => {
-                write!(f, "{} is invalid Zip archive: {}", path, m)
-            }
-            FileIoErrorKind::UnsupportedZipArchive(m) => {
-                write!(f, "{} is unsupported Zip archive: {}", path, m)
-            }
-            FileIoErrorKind::Other => match &self.cause {
-                Some(cause) => write!(f, "{}", cause),
-                None => write!(f, "other"),
-            },
-        }
-    }
-}
-
-impl Fail for FileIoError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        self.cause.as_ref().map(|cause| cause as &dyn Fail)
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum FileIoErrorKind {
-    Search(&'static str),
-    OpenInReadOnly,
-    OpenInWriteOnly,
-    OpenInReadWrite,
-    Lock,
-    CreateDirAll,
-    Read,
-    Write,
-    Deserialize,
-    InvalidZipArchive(&'static str),
-    UnsupportedZipArchive(&'static str),
-    Other,
-}
-
-#[derive(Debug)]
-pub(crate) enum FileIoErrorCause {
-    Bincode(bincode::Error),
-    SerdeJson(serde_json::Error),
-    SerdeYaml(serde_yaml::Error),
-    TomlDe(toml::de::Error),
-    Io(StdErrorWithDisplayChain<io::Error>),
-}
-
-#[cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2743
-derive_from!(
-    FileIoErrorCause::Bincode   <- bincode::Error,
-    FileIoErrorCause::SerdeJson <- serde_json::Error,
-    FileIoErrorCause::SerdeYaml <- serde_yaml::Error,
-    FileIoErrorCause::TomlDe    <- toml::de::Error,
-    FileIoErrorCause::Io        <- io::Error,
-);
-
-impl fmt::Display for FileIoErrorCause {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            FileIoErrorCause::Bincode(e) => write!(f, "{}", e),
-            FileIoErrorCause::SerdeJson(e) => write!(f, "{}", e),
-            FileIoErrorCause::SerdeYaml(e) => write!(f, "{}", e),
-            FileIoErrorCause::TomlDe(e) => write!(f, "{}", e),
-            FileIoErrorCause::Io(e) => write!(f, "{}", e),
-        }
-    }
-}
-
-impl Fail for FileIoErrorCause {
-    fn cause(&self) -> Option<&dyn Fail> {
-        match self {
-            FileIoErrorCause::Bincode(e) => e.cause(),
-            FileIoErrorCause::SerdeJson(e) => e.cause(),
-            FileIoErrorCause::SerdeYaml(e) => e.cause(),
-            FileIoErrorCause::TomlDe(e) => e.cause(),
-            FileIoErrorCause::Io(e) => e.cause(),
         }
     }
 }
@@ -798,7 +611,7 @@ impl Fail for DisplayChain {
 
 #[cfg(test)]
 mod tests {
-    use errors::StdErrorWithDisplayChain;
+    use crate::errors::StdErrorWithDisplayChain;
 
     use failure::Fail;
 

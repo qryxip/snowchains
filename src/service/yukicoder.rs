@@ -1,12 +1,12 @@
-use errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
-use service::downloader::ZipDownloader;
-use service::session::HttpSession;
-use service::{
-    Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, RevelSession,
-    Service, SessionProp, SubmitProp, TryIntoDocument as _TryIntoDocument,
+use crate::errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
+use crate::service::downloader::ZipDownloader;
+use crate::service::session::HttpSession;
+use crate::service::{
+    Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, RevelSession,
+    Service, SessionProps, SubmitProps, TryIntoDocument as _TryIntoDocument,
 };
-use terminal::{Term, WriteAnsi as _WriteAnsi};
-use testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
+use crate::terminal::{Term, WriteAnsi as _WriteAnsi};
+use crate::testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
 use once_cell::sync::Lazy;
@@ -20,27 +20,27 @@ use std::fmt;
 use std::io::Write as _Write;
 use std::time::Duration;
 
-pub(crate) fn login(sess_prop: SessionProp<impl Term>) -> ServiceResult<()> {
-    Yukicoder::try_new(sess_prop)?.login(true)
+pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
+    Yukicoder::try_new(sess_props)?.login(true)
 }
 
 pub(crate) fn download(
-    mut sess_prop: SessionProp<impl Term>,
-    download_prop: DownloadProp<String>,
+    mut sess_props: SessionProps<impl Term>,
+    download_props: DownloadProps<String>,
 ) -> ServiceResult<()> {
-    let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
-    download_prop.print_targets(sess_prop.term.stdout())?;
-    let timeout = sess_prop.timeout;
-    Yukicoder::try_new(sess_prop)?.download(&download_prop, timeout)
+    let download_props = download_props.convert_contest_and_problems(ProblemNameConversion::Upper);
+    download_props.print_targets(sess_props.term.stdout())?;
+    let timeout = sess_props.timeout;
+    Yukicoder::try_new(sess_props)?.download(&download_props, timeout)
 }
 
 pub(crate) fn submit(
-    mut sess_prop: SessionProp<impl Term>,
-    submit_prop: SubmitProp<String>,
+    mut sess_props: SessionProps<impl Term>,
+    submit_props: SubmitProps<String>,
 ) -> ServiceResult<()> {
-    let submit_prop = submit_prop.convert_contest_and_problem(ProblemNameConversion::Upper);
-    submit_prop.print_targets(sess_prop.term.stdout())?;
-    Yukicoder::try_new(sess_prop)?.submit(&submit_prop)
+    let submit_props = submit_props.convert_contest_and_problem(ProblemNameConversion::Upper);
+    submit_props.print_targets(sess_props.term.stdout())?;
+    Yukicoder::try_new(sess_props)?.submit(&submit_props)
 }
 
 struct Yukicoder<T: Term> {
@@ -59,11 +59,11 @@ impl<T: Term> Service for Yukicoder<T> {
 }
 
 impl<T: Term> Yukicoder<T> {
-    fn try_new(mut sess_prop: SessionProp<T>) -> SessionResult<Self> {
-        let credential = sess_prop.credentials.yukicoder.clone();
-        let session = sess_prop.start_session()?;
+    fn try_new(mut sess_props: SessionProps<T>) -> SessionResult<Self> {
+        let credential = sess_props.credentials.yukicoder.clone();
+        let session = sess_props.start_session()?;
         Ok(Self {
-            term: sess_prop.term,
+            term: sess_props.term,
             session,
             username: Username::None,
             credential,
@@ -124,15 +124,15 @@ impl<T: Term> Yukicoder<T> {
 
     fn download(
         &mut self,
-        download_prop: &DownloadProp<YukicoderContest>,
+        download_props: &DownloadProps<YukicoderContest>,
         timeout: Option<Duration>,
     ) -> ServiceResult<()> {
-        let DownloadProp {
+        let DownloadProps {
             contest,
             problems,
             destinations,
             open_browser,
-        } = download_prop;
+        } = download_props;
         self.login(false)?;
         let scrape =
             |document: &Document, problem: &str| -> ServiceResult<(TestSuite, SuiteFilePath)> {
@@ -216,8 +216,8 @@ impl<T: Term> Yukicoder<T> {
         Ok(())
     }
 
-    fn submit(&mut self, prop: &SubmitProp<YukicoderContest>) -> ServiceResult<()> {
-        let SubmitProp {
+    fn submit(&mut self, prop: &SubmitProps<YukicoderContest>) -> ServiceResult<()> {
+        let SubmitProps {
             contest,
             problem,
             lang_id,
@@ -227,7 +227,7 @@ impl<T: Term> Yukicoder<T> {
             skip_checking_if_accepted,
         } = prop;
         self.login(true)?;
-        let code = ::fs::read_to_string(src_path)?;
+        let code = crate::fs::read_to_string(src_path)?;
         let code = match replacer {
             Some(replacer) => replacer.replace_from_local_to_submission(&problem, &code)?,
             None => code,
@@ -443,7 +443,7 @@ impl Extract for Document {
                     }
                     let mut suite = SimpleSuite::new(timelimit).cases(samples);
                     if kind == ProblemKind::Special {
-                        suite = suite.accept_all();
+                        suite = suite.any();
                     }
                     Some(suite.into())
                 }
@@ -492,12 +492,12 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use errors::SessionResult;
-    use service::session::{HttpSession, UrlBase};
-    use service::yukicoder::{Extract as _Extract, Username, Yukicoder};
-    use service::{self, RevelSession, Service as _Service};
-    use terminal::{Term, TermImpl};
-    use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
+    use crate::errors::SessionResult;
+    use crate::service::session::{HttpSession, UrlBase};
+    use crate::service::yukicoder::{Extract as _Extract, Username, Yukicoder};
+    use crate::service::{self, RevelSession, Service as _Service};
+    use crate::terminal::{Term, TermImpl};
+    use crate::testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 
     use url::Host;
 
@@ -505,7 +505,6 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    #[ignore]
     fn it_extracts_samples_from_problem1() {
         let _ = env_logger::try_init();
         test_extracting_samples(
@@ -525,26 +524,23 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_samples_from_problem188() {
         let _ = env_logger::try_init();
         test_extracting_samples("/problems/no/188", SimpleSuite::new(Duration::from_secs(1)));
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_samples_from_problem192() {
         let _ = env_logger::try_init();
         test_extracting_samples(
             "/problems/no/192",
             SimpleSuite::new(Duration::from_secs(2))
-                .accept_all()
+                .any()
                 .cases(vec![("101\n", None), ("1000\n", None)]),
         );
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_samples_from_problem246() {
         let _ = env_logger::try_init();
         test_extracting_samples(
@@ -561,7 +557,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_problems_names_and_hrefs_from_yukicoder_open_2015_small() {
         static EXPECTED: &[(&str, &str)] = &[
             ("A", "/problems/no/191"),

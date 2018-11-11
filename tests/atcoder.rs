@@ -2,6 +2,7 @@ extern crate snowchains;
 
 extern crate env_logger;
 extern crate failure;
+extern crate if_chain;
 extern crate serde;
 extern crate serde_derive;
 extern crate serde_yaml;
@@ -13,6 +14,7 @@ use snowchains::app::{App, Opt};
 use snowchains::service::ServiceName;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
+use failure::Fallible;
 use serde_derive::Deserialize;
 
 use std::fs::File;
@@ -20,7 +22,6 @@ use std::io;
 use std::path::Path;
 
 #[test]
-#[ignore]
 fn it_logins() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();
@@ -28,7 +29,6 @@ fn it_logins() {
 }
 
 #[test]
-#[ignore]
 #[should_panic(expected = "called `Result::unwrap()` on an `Err` value: Service(LoginOnTest)")]
 fn it_raises_an_when_login_fails() {
     let _ = env_logger::try_init();
@@ -44,7 +44,6 @@ fn login(mut app: App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> snowchains::R
 }
 
 #[test]
-#[ignore]
 fn it_scrapes_samples_from_practice() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();
@@ -72,7 +71,6 @@ fn it_scrapes_samples_from_practice() {
 }
 
 #[test]
-#[ignore]
 fn it_scrapes_samples_from_arc058() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();
@@ -139,13 +137,10 @@ fn it_submits_to_practice_a() {
     common::test_in_tempdir(
         "it_submits_to_practice_a",
         credentials,
-        |mut app| -> Result<(), failure::Error> {
-            static CODE: &[u8] = br#"#!/usr/bin/env python3
-
-
-def main():
+        |mut app| -> Fallible<()> {
+            static CODE: &[u8] = br#"def main():
     (a, (b, c), s) = (int(input()), map(int, input().split()), input())
-    print('{{}} {{}}'.format(a + b + c, s))
+    print('{} {}'.format(a + b + c, s))
 
 
 if __name__ == '__main__':

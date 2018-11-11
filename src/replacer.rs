@@ -1,6 +1,6 @@
-use errors::{CodeReplaceError, CodeReplaceResult};
-use template::{Template, TemplateBuilder};
-use yaml;
+use crate::errors::{CodeReplaceError, CodeReplaceResult};
+use crate::template::{Template, TemplateBuilder};
+use crate::yaml;
 
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
@@ -105,9 +105,9 @@ impl CodeReplacer {
 
 #[cfg(test)]
 mod tests {
-    use errors::CodeReplaceError;
-    use replacer::CodeReplacer;
-    use template::TemplateBuilder;
+    use crate::errors::CodeReplaceError;
+    use crate::replacer::CodeReplacer;
+    use crate::template::TemplateBuilder;
 
     use regex::Regex;
 

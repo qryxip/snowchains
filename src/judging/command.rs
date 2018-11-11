@@ -1,6 +1,6 @@
-use errors::{JudgeError, JudgeResult};
-use path::AbsPathBuf;
-use terminal::{TermOut, WriteSpaces as _WriteSpaces};
+use crate::errors::{JudgeError, JudgeResult};
+use crate::path::AbsPathBuf;
+use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
 
 use itertools::Itertools as _Itertools;
 use tokio_process::CommandExt as _CommandExt;
@@ -57,7 +57,7 @@ impl CompilationCommand {
             }
         } else if let Some(parent) = self.bin.parent() {
             if !parent.exists() {
-                ::fs::create_dir_all(&parent)?;
+                crate::fs::create_dir_all(&parent)?;
                 writeln!(stdout, "Created {}", parent.display())?;
                 stdout.flush()?;
             }
@@ -105,14 +105,28 @@ impl CompilationCommand {
 
 /// Command for simple/interactive testing.
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub(crate) struct JudgingCommand(Inner);
+pub(crate) struct JudgingCommand {
+    inner: Inner,
+    crlf_to_lf: bool,
+}
 
 impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
     ///
     /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub fn new(args: &[impl AsRef<OsStr>], working_dir: AbsPathBuf) -> Self {
-        JudgingCommand(Inner::new(args, working_dir))
+    pub(crate) fn new(
+        args: &[impl AsRef<OsStr>],
+        working_dir: AbsPathBuf,
+        crlf_to_lf: bool,
+    ) -> Self {
+        JudgingCommand {
+            inner: Inner::new(args, working_dir),
+            crlf_to_lf,
+        }
+    }
+
+    pub(crate) fn crlf_to_lf(&self) -> bool {
+        self.crlf_to_lf
     }
 
     /// Prints the arguments and working directory.
@@ -123,22 +137,32 @@ impl JudgingCommand {
     /// Working directory: /path/to/working/dir/
     /// Test files:        /path/to/testfiles/{a.json, a.yaml}
     /// """
-    pub fn write_info(&self, mut out: impl TermOut, paths_formatted: &str) -> io::Result<()> {
-        let args = self.0.format_args();
-        let wd = self.0.working_dir.display().to_string();
+    pub(crate) fn write_info(
+        &self,
+        mut out: impl TermOut,
+        paths_formatted: &str,
+    ) -> io::Result<()> {
+        let args = self.inner.format_args();
+        let wd = self.inner.working_dir.display().to_string();
         write_info(&mut out, "Command:          ", &args)?;
         write_info(&mut out, "Working directory:", &[&wd])?;
-        write_info(&mut out, "Test files:       ", &[paths_formatted])
+        write_info(&mut out, "Test files:       ", &[paths_formatted])?;
+        if self.crlf_to_lf {
+            write_info(&mut out, "CRLF to LF:       ", &["true"])?;
+        } else if cfg!(windows) {
+            write_info(&mut out, "CRLF to LF:       ", &["false"])?;
+        }
+        Ok(())
     }
 
-    pub fn spawn_async_piped(&self) -> JudgeResult<tokio_process::Child> {
-        self.0
+    pub(crate) fn spawn_async_piped(&self) -> JudgeResult<tokio_process::Child> {
+        self.inner
             .build_checking_wd()?
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn_async()
-            .map_err(|e| JudgeError::Command(self.0.arg0.clone(), e))
+            .map_err(|e| JudgeError::Command(self.inner.arg0.clone(), e))
     }
 }
 

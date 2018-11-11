@@ -2,7 +2,9 @@ extern crate snowchains;
 
 extern crate env_logger;
 extern crate failure;
+extern crate if_chain;
 extern crate serde;
+extern crate serde_derive;
 extern crate serde_yaml;
 extern crate tempdir;
 
@@ -14,10 +16,11 @@ use snowchains::path::AbsPath;
 use snowchains::service::ServiceName;
 use snowchains::terminal::TermImpl;
 
+use failure::Fallible;
+
 use std::io;
 
 #[test]
-#[ignore]
 fn it_logins() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();
@@ -25,7 +28,6 @@ fn it_logins() {
 }
 
 #[test]
-#[ignore]
 #[should_panic(expected = "called `Result::unwrap()` on an `Err` value: Service(LoginOnTest)")]
 fn it_raises_an_error_when_login_fails() {
     let _ = env_logger::try_init();
@@ -37,14 +39,13 @@ fn it_raises_an_error_when_login_fails() {
 }
 
 #[test]
-#[ignore]
 fn it_downloads_testcases() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();
     common::test_in_tempdir(
         "it_downloads_test_cases_from_master",
         credentials,
-        |app| -> Result<(), failure::Error> {
+        |app| -> Fallible<()> {
             static CONTEST: &str = "no";
             let wd = app.working_dir.clone();
             download(app, CONTEST, &["1", "2", "3"])?;

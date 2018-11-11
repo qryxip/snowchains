@@ -1,15 +1,14 @@
-use errors::JudgeResult;
-use judging::command::JudgingCommand;
-use judging::text::{Line, PrintAligned, Text, Width, Word};
-use judging::Outcome;
-use terminal::{TermOut, WriteSpaces as _WriteSpaces};
-use testsuite::{ExpectedStdout, SimpleCase};
-use time::MillisRoundedUp as _MillisRoundedUp;
+use crate::errors::JudgeResult;
+use crate::judging::command::JudgingCommand;
+use crate::judging::text::{Line, PrintAligned, Text, Width, Word};
+use crate::judging::Outcome;
+use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
+use crate::testsuite::{ExpectedStdout, SimpleCase};
+use crate::time::MillisRoundedUp as _MillisRoundedUp;
 
 use futures::{task, try_ready, Async, Future, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use std::borrow::Cow;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -17,14 +16,9 @@ use std::{cmp, fmt, io, mem};
 
 pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
     let input = Text::exact(&case.input());
-    let stdout = if case.remove_crlf_from_actual_stdout() && stdout.contains("\r\n") {
-        Cow::from(stdout.replace("\r\n", "\n"))
-    } else {
-        Cow::from(stdout)
-    };
     let (stdout, expected, example) = match case.expected().as_ref() {
-        ExpectedStdout::AcceptAny { example } => (
-            Text::exact(&stdout),
+        ExpectedStdout::Any { example } => (
+            Text::exact(stdout),
             None,
             example.as_ref().map(|s| Text::exact(s)),
         ),
@@ -65,6 +59,7 @@ pub(super) fn judge(
     case: &SimpleCase,
     solver: &Arc<JudgingCommand>,
 ) -> JudgeResult<impl Future<Item = SimpleOutcome, Error = io::Error>> {
+    let crlf_to_lf = solver.crlf_to_lf();
     let (stdout_buf, stderr_buf) = (Vec::with_capacity(1024), Vec::with_capacity(1024));
     let mut solver = solver.spawn_async_piped()?;
     let start = Instant::now();
@@ -77,8 +72,8 @@ pub(super) fn judge(
         expected: case.expected(),
         stdin: Writing::NotReady(stdin, 0),
         status: Waiting::NotReady(solver, start, deadline),
-        stdout: Reading::NotReady(stdout, stdout_buf, case.remove_crlf_from_actual_stdout()),
-        stderr: Reading::NotReady(stderr, stderr_buf, case.remove_crlf_from_actual_stdout()),
+        stdout: Reading::NotReady(stdout, stdout_buf, crlf_to_lf),
+        stderr: Reading::NotReady(stderr, stderr_buf, crlf_to_lf),
     })
 }
 
@@ -103,7 +98,7 @@ impl Future for Judge {
                     timelimit,
                     input: Text::exact(&self.input),
                     expected: match self.expected.as_ref() {
-                        ExpectedStdout::AcceptAny { .. } => None,
+                        ExpectedStdout::Any { .. } => None,
                         ExpectedStdout::Exact(expected) => Some(Text::exact(&expected)),
                         ExpectedStdout::Float { string, .. } => Some(Text::float(string, None)),
                     },
@@ -241,9 +236,9 @@ impl<R: AsyncRead> Reading<R> {
             Async::Ready(()) => {
                 let s = match self {
                     Reading::Ready(_) => unreachable!(),
-                    Reading::NotReady(_, buf, remove_crlf) => {
+                    Reading::NotReady(_, buf, crlf_to_lf) => {
                         let s = string_from_utf8(mem::replace(buf, vec![]))?;
-                        if *remove_crlf && s.contains("\r\n") {
+                        if *crlf_to_lf && s.contains("\r\n") {
                             s.replace("\r\n", "\n")
                         } else {
                             s
@@ -282,7 +277,7 @@ impl CommandOutcome {
         let input = Text::exact(&self.input);
         let stderr = Text::exact(&self.stderr);
         let (stdout, expected, example) = match expected {
-            ExpectedStdout::AcceptAny { example } => (
+            ExpectedStdout::Any { example } => (
                 Text::exact(&self.stdout),
                 None,
                 example.as_ref().map(|s| Text::exact(s)),

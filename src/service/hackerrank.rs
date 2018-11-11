@@ -1,12 +1,12 @@
-use errors::{ServiceError, ServiceResult, SessionResult};
-use service::downloader::ZipDownloader;
-use service::session::HttpSession;
-use service::{
-    Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, Service,
-    SessionProp, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
+use crate::errors::{ServiceError, ServiceResult, SessionResult};
+use crate::service::downloader::ZipDownloader;
+use crate::service::session::HttpSession;
+use crate::service::{
+    Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, Service,
+    SessionProps, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
-use terminal::{Term, WriteAnsi};
-use testsuite::{SimpleSuite, TestSuite};
+use crate::terminal::{Term, WriteAnsi};
+use crate::testsuite::{SimpleSuite, TestSuite};
 
 use itertools::Itertools as _Itertools;
 use log::warn;
@@ -24,18 +24,18 @@ use std::io::{self, Write as _Write};
 use std::rc::Rc;
 use std::time::Duration;
 
-pub(crate) fn login(sess_prop: SessionProp<impl Term>) -> ServiceResult<()> {
-    Hackerrank::try_new(sess_prop)?.login(LoginOption::Explicit)
+pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
+    Hackerrank::try_new(sess_props)?.login(LoginOption::Explicit)
 }
 
 pub(crate) fn download(
-    mut sess_prop: SessionProp<impl Term>,
-    download_prop: DownloadProp<String>,
+    mut sess_props: SessionProps<impl Term>,
+    download_props: DownloadProps<String>,
 ) -> ServiceResult<()> {
-    let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Kebab);
-    download_prop.print_targets(sess_prop.term.stdout())?;
-    let timeout = sess_prop.timeout;
-    Hackerrank::try_new(sess_prop)?.download(&download_prop, timeout)
+    let download_props = download_props.convert_contest_and_problems(ProblemNameConversion::Kebab);
+    download_props.print_targets(sess_props.term.stdout())?;
+    let timeout = sess_props.timeout;
+    Hackerrank::try_new(sess_props)?.download(&download_props, timeout)
 }
 
 struct Hackerrank<T: Term> {
@@ -53,11 +53,11 @@ impl<T: Term> Service for Hackerrank<T> {
 }
 
 impl<T: Term> Hackerrank<T> {
-    fn try_new(mut sess_prop: SessionProp<T>) -> SessionResult<Self> {
-        let credentials = sess_prop.credentials.hackerrank.clone();
-        let session = sess_prop.start_session()?;
+    fn try_new(mut sess_props: SessionProps<T>) -> SessionResult<Self> {
+        let credentials = sess_props.credentials.hackerrank.clone();
+        let session = sess_props.start_session()?;
         Ok(Hackerrank {
-            term: sess_prop.term,
+            term: sess_props.term,
             session,
             credentials,
         })
@@ -133,7 +133,7 @@ impl<T: Term> Hackerrank<T> {
 
     fn download(
         &mut self,
-        download_prop: &DownloadProp<HackerrankContest>,
+        download_props: &DownloadProps<HackerrankContest>,
         timeout: Option<Duration>,
     ) -> ServiceResult<()> {
         fn warn_unless_empty(
@@ -155,12 +155,12 @@ impl<T: Term> Hackerrank<T> {
             Ok(())
         }
 
-        let DownloadProp {
+        let DownloadProps {
             contest,
             problems,
             destinations,
             open_browser,
-        } = download_prop;
+        } = download_props;
         let problems = problems.as_ref();
 
         let models = match (contest, problems) {
@@ -381,12 +381,12 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use errors::SessionResult;
-    use service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
-    use service::session::{HttpSession, UrlBase};
-    use service::{self, Service as _Service, UserNameAndPassword};
-    use terminal::{Term, TermImpl};
-    use testsuite::{SimpleSuite, TestSuite};
+    use crate::errors::SessionResult;
+    use crate::service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
+    use crate::service::session::{HttpSession, UrlBase};
+    use crate::service::{self, Service as _Service, UserNameAndPassword};
+    use crate::terminal::{Term, TermImpl};
+    use crate::testsuite::{SimpleSuite, TestSuite};
 
     use select::document::Document;
     use url::Host;
@@ -394,7 +394,6 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    #[ignore]
     fn it_scrapes_samples() {
         let expected = TestSuite::from(SimpleSuite::new(None).cases(vec![
             ("50 40 70 60", "YES"),

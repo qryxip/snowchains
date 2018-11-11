@@ -1,12 +1,12 @@
-use errors::{ServiceError, ServiceResult, SubmitError};
-use service::session::HttpSession;
-use service::{
-    Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProp,
-    Service, SessionProp, SubmitProp, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
+use crate::errors::{ServiceError, ServiceResult, SubmitError};
+use crate::service::session::HttpSession;
+use crate::service::{
+    Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProps,
+    Service, SessionProps, SubmitProps, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
-use terminal::{Term, WriteAnsi as _WriteAnsi};
-use testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
-use util::std_unstable::RemoveItem_ as _RemoveItem_;
+use crate::terminal::{Term, WriteAnsi as _WriteAnsi};
+use crate::testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
+use crate::util::std_unstable::RemoveItem_ as _RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
 use log::{info, warn};
@@ -25,47 +25,47 @@ use std::time::Duration;
 use std::{fmt, vec};
 
 /// Logins to "beta.atcoder.jp".
-pub(crate) fn login(sess_prop: SessionProp<impl Term>) -> ServiceResult<()> {
-    Atcoder::try_new(sess_prop)?.login_if_not(true)
+pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
+    Atcoder::try_new(sess_props)?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
 pub(crate) fn participate(
     contest_name: &str,
-    sess_prop: SessionProp<impl Term>,
+    sess_props: SessionProps<impl Term>,
 ) -> ServiceResult<()> {
-    Atcoder::try_new(sess_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
+    Atcoder::try_new(sess_props)?.register_explicitly(&AtcoderContest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
 pub(crate) fn download(
-    mut sess_prop: SessionProp<impl Term>,
-    download_prop: DownloadProp<String>,
+    mut sess_props: SessionProps<impl Term>,
+    download_props: DownloadProps<String>,
 ) -> ServiceResult<()> {
-    let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
-    download_prop.print_targets(sess_prop.term.stdout())?;
-    Atcoder::try_new(sess_prop)?.download(&download_prop)
+    let download_props = download_props.convert_contest_and_problems(ProblemNameConversion::Upper);
+    download_props.print_targets(sess_props.term.stdout())?;
+    Atcoder::try_new(sess_props)?.download(&download_props)
 }
 
 /// Downloads submitted source codes.
 pub(crate) fn restore(
-    mut sess_prop: SessionProp<impl Term>,
-    restore_prop: RestoreProp<String>,
+    mut sess_props: SessionProps<impl Term>,
+    restore_props: RestoreProps<String>,
 ) -> ServiceResult<()> {
-    let restore_prop = restore_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
-    restore_prop.print_targets(sess_prop.term.stdout())?;
-    Atcoder::try_new(sess_prop)?.restore(&restore_prop)
+    let restore_props = restore_props.convert_contest_and_problems(ProblemNameConversion::Upper);
+    restore_props.print_targets(sess_props.term.stdout())?;
+    Atcoder::try_new(sess_props)?.restore(&restore_props)
 }
 
 /// Submits a source code.
 pub(crate) fn submit(
-    mut sess_prop: SessionProp<impl Term>,
-    submit_prop: SubmitProp<String>,
+    mut sess_props: SessionProps<impl Term>,
+    submit_props: SubmitProps<String>,
 ) -> ServiceResult<()> {
-    let submit_prop = submit_prop.convert_contest_and_problem(ProblemNameConversion::Upper);
-    submit_prop.print_targets(sess_prop.term.stdout())?;
-    Atcoder::try_new(sess_prop)?.submit(&submit_prop)
+    let submit_props = submit_props.convert_contest_and_problem(ProblemNameConversion::Upper);
+    submit_props.print_targets(sess_props.term.stdout())?;
+    Atcoder::try_new(sess_props)?.submit(&submit_props)
 }
 
 pub(self) struct Atcoder<T: Term> {
@@ -83,11 +83,11 @@ impl<T: Term> Service for Atcoder<T> {
 }
 
 impl<T: Term> Atcoder<T> {
-    fn try_new(mut sess_prop: SessionProp<T>) -> ServiceResult<Self> {
-        let credentials = sess_prop.credentials.atcoder.clone();
-        let session = sess_prop.start_session()?;
+    fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
+        let credentials = sess_props.credentials.atcoder.clone();
+        let session = sess_props.start_session()?;
         Ok(Self {
-            term: sess_prop.term,
+            term: sess_props.term,
             session,
             credentials,
         })
@@ -187,8 +187,8 @@ impl<T: Term> Atcoder<T> {
         Ok(())
     }
 
-    fn download(&mut self, prop: &DownloadProp<AtcoderContest>) -> ServiceResult<()> {
-        let DownloadProp {
+    fn download(&mut self, prop: &DownloadProps<AtcoderContest>) -> ServiceResult<()> {
+        let DownloadProps {
             contest,
             problems,
             destinations,
@@ -232,7 +232,7 @@ impl<T: Term> Atcoder<T> {
         Ok(())
     }
 
-    fn restore(&mut self, prop: &RestoreProp<AtcoderContest>) -> ServiceResult<()> {
+    fn restore(&mut self, prop: &RestoreProps<AtcoderContest>) -> ServiceResult<()> {
         fn collect_urls(
             detail_urls: &mut HashMap<(String, String), String>,
             submissions: vec::IntoIter<Submission>,
@@ -245,7 +245,7 @@ impl<T: Term> Atcoder<T> {
             }
         }
 
-        let RestoreProp {
+        let RestoreProps {
             contest,
             problems,
             src_paths,
@@ -278,7 +278,7 @@ impl<T: Term> Atcoder<T> {
                     }
                     None => code,
                 };
-                ::fs::write(&path, code.as_bytes())?;
+                crate::fs::write(&path, code.as_bytes())?;
                 results.push((task_name, lang_name, lang_id, path));
             } else {
                 self.stderr().with_reset(|o| {
@@ -314,8 +314,8 @@ impl<T: Term> Atcoder<T> {
     }
 
     #[allow(non_snake_case)]
-    fn submit(&mut self, prop: &SubmitProp<AtcoderContest>) -> ServiceResult<()> {
-        let SubmitProp {
+    fn submit(&mut self, prop: &SubmitProps<AtcoderContest>) -> ServiceResult<()> {
+        let SubmitProps {
             contest,
             problem,
             lang_id,
@@ -363,7 +363,7 @@ impl<T: Term> Atcoder<T> {
                         }
                     }
                 }
-                let source_code = ::fs::read_to_string(src_path)?;
+                let source_code = crate::fs::read_to_string(src_path)?;
                 let source_code = match replacer {
                     Some(replacer) => {
                         replacer.replace_from_local_to_submission(&problem, &source_code)?
@@ -861,19 +861,18 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use errors::SessionResult;
-    use service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
-    use service::session::{HttpSession, UrlBase};
-    use service::{self, Service as _Service, UserNameAndPassword};
-    use terminal::{Term, TermImpl};
-    use testsuite::{SimpleSuite, TestSuite};
+    use crate::errors::SessionResult;
+    use crate::service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
+    use crate::service::session::{HttpSession, UrlBase};
+    use crate::service::{self, Service as _Service, UserNameAndPassword};
+    use crate::terminal::{Term, TermImpl};
+    use crate::testsuite::{SimpleSuite, TestSuite};
 
     use url::Host;
 
     use std::time::Duration;
 
     #[test]
-    #[ignore]
     fn it_extracts_task_urls_from_arc001() {
         let _ = env_logger::try_init();
         let mut atcoder = start().unwrap();
@@ -897,7 +896,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_a_timelimit_from_apg4b_b() {
         let _ = env_logger::try_init();
         let mut atcoder = start().unwrap();
@@ -911,9 +909,8 @@ mod tests {
         }
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[rustfmt::skip]
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc001() {
         static A: &[(&str, &str)] = &[
             ("9\n131142143\n", "4 1\n"),
@@ -931,18 +928,17 @@ mod tests {
             ("7\n3 3\n2 5\n4 6\n2 3\n3 6\n3 4\n4 6\n2 5\n1 5\n", "8.22677276241436\n"),
             ("5\n3 3\n0 5\n0 5\n0 5\n0 5\n0 5\n0 5\n", "5\n"),
         ];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("A", "/contests/arc001/tasks/arc001_1", 2000, A),
             ("B", "/contests/arc001/tasks/arc001_2", 2000, B),
             ("C", "/contests/arc001/tasks/arc001_3", 2000, C),
             ("D", "/contests/arc001/tasks/arc001_4", 2000, D),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc001", &expected);
+        test_sample_extraction("arc001", EXPECTED);
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc002() {
         static A: &[(&str, &str)] = &[
             ("1001\n", "NO\n"),
@@ -964,19 +960,18 @@ mod tests {
             ("3 10\n..o.o.xxx.\n...o.xo.x.\no.xxo..x..\n", "o\n"),
             ("3 5\n..x..\n.o...\n...x.\n", "x\n"),
         ];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("A", "/contests/arc002/tasks/arc002_1", 2000, A),
             ("B", "/contests/arc002/tasks/arc002_2", 2000, B),
             ("C", "/contests/arc002/tasks/arc002_3", 2000, C),
             ("D", "/contests/arc002/tasks/arc002_4", 2000, D),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc002", &expected);
+        test_sample_extraction("arc002", EXPECTED);
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[rustfmt::skip]
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc019() {
         static A: &[(&str, &str)] = &[
             ("1Z0\n", "120\n"),
@@ -998,18 +993,17 @@ mod tests {
              "94\n"),
         ];
         static D: &[(&str, &str)] = &[];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("A", "/contests/arc019/tasks/arc019_1", 2000, A),
             ("B", "/contests/arc019/tasks/arc019_2", 2000, B),
             ("C", "/contests/arc019/tasks/arc019_3", 2000, C),
             ("D", "/contests/arc019/tasks/arc019_4", 2000, D),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc019", &expected);
+        test_sample_extraction("arc019", EXPECTED);
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_arc058() {
         static C: &[(&str, &str)] = &[
             ("1000 8\n1 3 4 5 6 7 8 9\n", "2000\n"),
@@ -1032,18 +1026,17 @@ mod tests {
             ("3 7\ncoder\ncodar\nat\n", "codarat\n"),
             ("4 13\nkyuri\nnamida\nzzzzzzz\naaaaaa\n", "namidazzzzzzz\n"),
         ];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("C", "/contests/arc058/tasks/arc058_a", 2000, C),
             ("D", "/contests/arc058/tasks/arc058_b", 2000, D),
             ("E", "/contests/arc058/tasks/arc058_c", 4000, E),
             ("F", "/contests/arc058/tasks/arc058_d", 5000, F),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc058", &expected);
+        test_sample_extraction("arc058", EXPECTED);
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_abc041() {
         static A: &[(&str, &str)] = &[
             ("atcoder\n3\n", "c\n"),
@@ -1067,19 +1060,18 @@ mod tests {
             ("5 5\n1 2\n2 3\n3 5\n1 4\n4 5\n", "3\n"),
             ("16 1\n1 2\n", "10461394944000\n"),
         ];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("A", "/contests/abc041/tasks/abc041_a", 2000, A),
             ("B", "/contests/abc041/tasks/abc041_b", 2000, B),
             ("C", "/contests/abc041/tasks/abc041_c", 2000, C),
             ("D", "/contests/abc041/tasks/abc041_d", 3000, D),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("abc041", &expected);
+        test_sample_extraction("abc041", EXPECTED);
     }
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    #[rustfmt::skip]
     #[test]
-    #[ignore]
     fn it_extracts_timelimits_and_sample_cases_from_chokudai_s001() {
         static A: &[(&str, &str)] = &[
             ("5\n3 1 5 4 2\n", "5\n"),
@@ -1155,7 +1147,7 @@ mod tests {
             ("7\n7 6 5 4 3 2 1\n", "YES\n"),
             ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "YES\n"),
         ];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("A", "/contests/chokudai_s001/tasks/chokudai_S001_a", 2000, A),
             ("B", "/contests/chokudai_s001/tasks/chokudai_S001_b", 2000, B),
             ("C", "/contests/chokudai_s001/tasks/chokudai_S001_c", 2000, C),
@@ -1170,10 +1162,17 @@ mod tests {
             ("L", "/contests/chokudai_s001/tasks/chokudai_S001_l", 2000, L),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("chokudai_s001", &expected);
+        test_sample_extraction("chokudai_s001", EXPECTED);
     }
 
-    fn test_sample_extraction(contest: &str, expected: &[(&str, &str, u64, &[(&str, &str)])]) {
+    type Expected = &'static [(
+        &'static str,
+        &'static str,
+        u64,
+        &'static [(&'static str, &'static str)],
+    )];
+
+    fn test_sample_extraction(contest: &str, expected: Expected) {
         let mut atcoder = start().unwrap();
         let contest = AtcoderContest::new(contest);
         let page = atcoder.fetch_tasks_page(&contest).unwrap();
@@ -1196,7 +1195,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn it_extracts_a_submitted_source_code() {
         static URL: &str = "/contests/utpc2011/submissions/2067";
         static EXPECTED_CODE: &str =

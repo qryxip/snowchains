@@ -1,16 +1,16 @@
-use errors::{
-    ExpandTemplateResult, FileIoResult, ServiceError, ServiceResult, SessionError, SessionResult,
+use crate::errors::{
+    ExpandTemplateResult, ServiceError, ServiceResult, SessionError, SessionResult,
 };
-use path::{AbsPath, AbsPathBuf};
-use service;
-use testsuite::DownloadDestinations;
+use crate::path::{AbsPath, AbsPathBuf};
+use crate::service;
+use crate::testsuite::DownloadDestinations;
 
 use futures::sync::oneshot;
 use futures::{future, task, Async, Future, Poll, Stream};
 use itertools::Itertools as _Itertools;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
-use reqwest::async::Decoder;
 use reqwest::header::{self, HeaderMap, HeaderValue};
+use reqwest::r#async::Decoder;
 use reqwest::{RedirectPolicy, StatusCode};
 use url::Url;
 use zip::ZipArchive;
@@ -47,7 +47,7 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
 
         for path in &paths {
             if let Some(dir) = path.parent() {
-                ::fs::create_dir_all(&dir)?;
+                crate::fs::create_dir_all(&dir)?;
             }
         }
 
@@ -60,7 +60,7 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
         let (header_result_tx, header_result_rx) = oneshot::channel();
         let (mut pb_tx, pb_rx) = futures::sync::mpsc::channel(self.names.len());
         let thread = thread::spawn(move || -> ServiceResult<()> {
-            let builder = reqwest::async::Client::builder()
+            let builder = reqwest::r#async::Client::builder()
                 .redirect(RedirectPolicy::none())
                 .referer(false)
                 .default_headers({
@@ -95,7 +95,7 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
                 .zip(paths.iter())
                 .zip(pb_rx.collect().wait().unwrap())
                 .map(|((resp, path), pb)| DownloadBody::try_new(resp, &path, pb))
-                .collect::<FileIoResult<Vec<_>>>()?;
+                .collect::<io::Result<Vec<_>>>()?;
             core.run(future::join_all(works).map(|_| ()))
         });
         match header_result_rx.wait() {
@@ -153,9 +153,9 @@ impl fmt::Display for Urls {
 }
 
 fn receive_header(
-    client: &reqwest::async::Client,
+    client: &reqwest::r#async::Client,
     url: Url,
-) -> impl Future<Item = reqwest::async::Response, Error = SessionError> {
+) -> impl Future<Item = reqwest::r#async::Response, Error = SessionError> {
     client
         .get(url)
         .send()
@@ -178,10 +178,10 @@ struct DownloadBody {
 
 impl DownloadBody {
     fn try_new(
-        response: reqwest::async::Response,
+        response: reqwest::r#async::Response,
         path: &AbsPath,
         mut progress_bar: ProgressBar<Pipe>,
-    ) -> FileIoResult<Self> {
+    ) -> io::Result<Self> {
         const ALT_CAPACITY: usize = 30 * 1024 * 1024;
         let len = response
             .headers()
@@ -189,7 +189,7 @@ impl DownloadBody {
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<usize>().ok());
         let cap = len.unwrap_or(ALT_CAPACITY);
-        let file = BufWriter::with_capacity(cap, ::fs::create_file_and_dirs(path)?);
+        let file = BufWriter::with_capacity(cap, crate::fs::create_file_and_dirs(path)?);
         progress_bar.total = len.map(|n| n as u64).unwrap_or(0);
         progress_bar.set_units(Units::Bytes);
         Ok(Self {
