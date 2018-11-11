@@ -3,8 +3,8 @@ use crate::errors::ExpandTemplateResult;
 use crate::judging::{self, JudgeParams};
 use crate::path::AbsPathBuf;
 use crate::service::{
-    atcoder, hackerrank, yukicoder, Credentials, DownloadProp, RestoreProp, ServiceName,
-    SessionProp, SubmitProp,
+    atcoder, hackerrank, yukicoder, Credentials, DownloadProps, RestoreProps, ServiceName,
+    SessionProps, SubmitProps,
 };
 use crate::terminal::{AnsiColorChoice, Term};
 use crate::testsuite::{self, SerializableExtension};
@@ -569,11 +569,11 @@ impl<T: Term> App<T> {
             } => {
                 let config = Config::load(service, None, &working_dir)?;
                 self.term.setup(color_choice, config.console());
-                let sess_prop = self.sess_prop(&config)?;
+                let sess_props = self.sess_props(&config)?;
                 match service {
-                    ServiceName::Atcoder => atcoder::login(sess_prop),
-                    ServiceName::Hackerrank => hackerrank::login(sess_prop),
-                    ServiceName::Yukicoder => yukicoder::login(sess_prop),
+                    ServiceName::Atcoder => atcoder::login(sess_props),
+                    ServiceName::Hackerrank => hackerrank::login(sess_props),
+                    ServiceName::Yukicoder => yukicoder::login(sess_props),
                     ServiceName::Other => unreachable!(),
                 }?;
             }
@@ -584,9 +584,9 @@ impl<T: Term> App<T> {
             } => {
                 let config = Config::load(service, contest.clone(), &working_dir)?;
                 self.term.setup(color_choice, config.console());
-                let sess_prop = self.sess_prop(&config)?;
+                let sess_props = self.sess_props(&config)?;
                 match service {
-                    ServiceName::Atcoder => atcoder::participate(&contest, sess_prop),
+                    ServiceName::Atcoder => atcoder::participate(&contest, sess_props),
                     _ => unreachable!(),
                 }?;
             }
@@ -599,12 +599,12 @@ impl<T: Term> App<T> {
             } => {
                 let config = Config::load(service, contest, &working_dir)?;
                 self.term.setup(color_choice, config.console());
-                let sess_prop = self.sess_prop(&config)?;
-                let download_prop = DownloadProp::try_new(&config, open_browser, problems)?;
+                let sess_props = self.sess_props(&config)?;
+                let download_props = DownloadProps::try_new(&config, open_browser, problems)?;
                 match config.service() {
-                    ServiceName::Atcoder => atcoder::download(sess_prop, download_prop),
-                    ServiceName::Hackerrank => hackerrank::download(sess_prop, download_prop),
-                    ServiceName::Yukicoder => yukicoder::download(sess_prop, download_prop),
+                    ServiceName::Atcoder => atcoder::download(sess_props, download_props),
+                    ServiceName::Hackerrank => hackerrank::download(sess_props, download_props),
+                    ServiceName::Yukicoder => yukicoder::download(sess_props, download_props),
                     ServiceName::Other => return Err(crate::Error::Unimplemented),
                 }?;
             }
@@ -616,10 +616,10 @@ impl<T: Term> App<T> {
             } => {
                 let config = Config::load(service, contest, &working_dir)?;
                 self.term.setup(color_choice, config.console());
-                let sess_prop = self.sess_prop(&config)?;
-                let restore_prop = RestoreProp::try_new(&config, problems)?;
+                let sess_props = self.sess_props(&config)?;
+                let restore_props = RestoreProps::try_new(&config, problems)?;
                 match config.service() {
-                    ServiceName::Atcoder => atcoder::restore(sess_prop, restore_prop)?,
+                    ServiceName::Atcoder => atcoder::restore(sess_props, restore_props)?,
                     _ => return Err(crate::Error::Unimplemented),
                 };
             }
@@ -673,8 +673,8 @@ impl<T: Term> App<T> {
                     })?;
                     writeln!(stdout)?;
                 }
-                let sess_prop = self.sess_prop(&config)?;
-                let submit_prop = SubmitProp::try_new(
+                let sess_props = self.sess_props(&config)?;
+                let submit_props = SubmitProps::try_new(
                     &config,
                     problem.clone(),
                     language,
@@ -682,8 +682,8 @@ impl<T: Term> App<T> {
                     skip_checking_duplication,
                 )?;
                 match config.service() {
-                    ServiceName::Atcoder => atcoder::submit(sess_prop, submit_prop)?,
-                    ServiceName::Yukicoder => yukicoder::submit(sess_prop, submit_prop)?,
+                    ServiceName::Atcoder => atcoder::submit(sess_props, submit_props)?,
+                    ServiceName::Yukicoder => yukicoder::submit(sess_props, submit_props)?,
                     _ => return Err(crate::Error::Unimplemented),
                 };
             }
@@ -783,9 +783,9 @@ impl<T: Term> App<T> {
         Ok(())
     }
 
-    fn sess_prop(&mut self, config: &Config) -> ExpandTemplateResult<SessionProp<&mut T>> {
+    fn sess_props(&mut self, config: &Config) -> ExpandTemplateResult<SessionProps<&mut T>> {
         let cookies_path = config.session_cookies().expand("")?;
-        Ok(SessionProp {
+        Ok(SessionProps {
             term: &mut self.term,
             domain: config.service().domain(),
             cookies_path,

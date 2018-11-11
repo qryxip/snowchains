@@ -187,15 +187,15 @@ impl SessionConfig {
     }
 }
 
-pub(crate) struct SessionProp<T: Term> {
-    pub term: T,
-    pub domain: Option<&'static str>,
-    pub cookies_path: AbsPathBuf,
-    pub timeout: Option<Duration>,
-    pub credentials: Credentials,
+pub(crate) struct SessionProps<T: Term> {
+    pub(crate) term: T,
+    pub(crate) domain: Option<&'static str>,
+    pub(crate) cookies_path: AbsPathBuf,
+    pub(crate) timeout: Option<Duration>,
+    pub(crate) credentials: Credentials,
 }
 
-impl<T: Term> SessionProp<T> {
+impl<T: Term> SessionProps<T> {
     pub(self) fn start_session(&mut self) -> SessionResult<HttpSession> {
         let client = reqwest_client(self.timeout)?;
         let base = self
@@ -224,15 +224,15 @@ pub(self) fn reqwest_client(
         }).build()
 }
 
-pub(crate) struct DownloadProp<C: Contest> {
-    pub contest: C,
-    pub problems: Option<Vec<String>>,
-    pub destinations: DownloadDestinations,
-    pub open_browser: bool,
+pub(crate) struct DownloadProps<C: Contest> {
+    pub(self) contest: C,
+    pub(self) problems: Option<Vec<String>>,
+    pub(self) destinations: DownloadDestinations,
+    pub(self) open_browser: bool,
 }
 
-impl DownloadProp<String> {
-    pub fn try_new(
+impl DownloadProps<String> {
+    pub(crate) fn try_new(
         config: &Config,
         open_browser: bool,
         problems: Vec<String>,
@@ -253,8 +253,8 @@ impl DownloadProp<String> {
     pub(self) fn convert_contest_and_problems<C: Contest>(
         self,
         conversion: ProblemNameConversion,
-    ) -> DownloadProp<C> {
-        DownloadProp {
+    ) -> DownloadProps<C> {
+        DownloadProps {
             contest: C::from_string(self.contest),
             problems: self
                 .problems
@@ -265,7 +265,7 @@ impl DownloadProp<String> {
     }
 }
 
-impl<C: Contest> PrintTargets for DownloadProp<C> {
+impl<C: Contest> PrintTargets for DownloadProps<C> {
     type Contest = C;
 
     fn contest(&self) -> &C {
@@ -277,15 +277,15 @@ impl<C: Contest> PrintTargets for DownloadProp<C> {
     }
 }
 
-pub(crate) struct RestoreProp<'a, C: Contest> {
-    pub contest: C,
-    pub problems: Option<Vec<String>>,
-    pub src_paths: HashMap<&'a str, Template<AbsPathBuf>>,
-    pub replacers: HashMap<&'a str, CodeReplacer>,
+pub(crate) struct RestoreProps<'a, C: Contest> {
+    pub(self) contest: C,
+    pub(self) problems: Option<Vec<String>>,
+    pub(self) src_paths: HashMap<&'a str, Template<AbsPathBuf>>,
+    pub(self) replacers: HashMap<&'a str, CodeReplacer>,
 }
 
-impl<'a> RestoreProp<'a, String> {
-    pub fn try_new(config: &'a Config, problems: Vec<String>) -> crate::Result<Self> {
+impl<'a> RestoreProps<'a, String> {
+    pub(crate) fn try_new(config: &'a Config, problems: Vec<String>) -> crate::Result<Self> {
         let replacers = config.code_replacers_on_atcoder()?;
         Ok(Self {
             contest: config.contest().to_owned(),
@@ -302,8 +302,8 @@ impl<'a> RestoreProp<'a, String> {
     pub(self) fn convert_contest_and_problems<C: Contest>(
         self,
         conversion: ProblemNameConversion,
-    ) -> RestoreProp<'a, C> {
-        RestoreProp {
+    ) -> RestoreProps<'a, C> {
+        RestoreProps {
             contest: C::from_string(self.contest),
             problems: self
                 .problems
@@ -314,7 +314,7 @@ impl<'a> RestoreProp<'a, String> {
     }
 }
 
-impl<'a, C: Contest> PrintTargets for RestoreProp<'a, C> {
+impl<'a, C: Contest> PrintTargets for RestoreProps<'a, C> {
     type Contest = C;
 
     fn contest(&self) -> &Self::Contest {
@@ -326,18 +326,18 @@ impl<'a, C: Contest> PrintTargets for RestoreProp<'a, C> {
     }
 }
 
-pub(crate) struct SubmitProp<C: Contest> {
-    pub contest: C,
-    pub problem: String,
-    pub lang_id: String,
-    pub src_path: AbsPathBuf,
-    pub replacer: Option<CodeReplacer>,
-    pub open_browser: bool,
-    pub skip_checking_if_accepted: bool,
+pub(crate) struct SubmitProps<C: Contest> {
+    pub(self) contest: C,
+    pub(self) problem: String,
+    pub(self) lang_id: String,
+    pub(self) src_path: AbsPathBuf,
+    pub(self) replacer: Option<CodeReplacer>,
+    pub(self) open_browser: bool,
+    pub(self) skip_checking_if_accepted: bool,
 }
 
-impl SubmitProp<String> {
-    pub fn try_new(
+impl SubmitProps<String> {
+    pub(crate) fn try_new(
         config: &Config,
         problem: String,
         language: Option<&str>,
@@ -363,8 +363,8 @@ impl SubmitProp<String> {
     pub(self) fn convert_contest_and_problem<C: Contest>(
         self,
         conversion: ProblemNameConversion,
-    ) -> SubmitProp<C> {
-        SubmitProp {
+    ) -> SubmitProps<C> {
+        SubmitProps {
             contest: C::from_string(self.contest),
             problem: conversion.convert(&self.problem),
             lang_id: self.lang_id,
@@ -376,7 +376,7 @@ impl SubmitProp<String> {
     }
 }
 
-impl<C: Contest> PrintTargets for SubmitProp<C> {
+impl<C: Contest> PrintTargets for SubmitProps<C> {
     type Contest = C;
 
     fn contest(&self) -> &Self::Contest {

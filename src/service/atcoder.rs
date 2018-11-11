@@ -1,8 +1,8 @@
 use crate::errors::{ServiceError, ServiceResult, SubmitError};
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadProp, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProp,
-    Service, SessionProp, SubmitProp, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
+    Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProps,
+    Service, SessionProps, SubmitProps, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
 };
 use crate::terminal::{Term, WriteAnsi as _WriteAnsi};
 use crate::testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
@@ -25,47 +25,47 @@ use std::time::Duration;
 use std::{fmt, vec};
 
 /// Logins to "beta.atcoder.jp".
-pub(crate) fn login(sess_prop: SessionProp<impl Term>) -> ServiceResult<()> {
-    Atcoder::try_new(sess_prop)?.login_if_not(true)
+pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
+    Atcoder::try_new(sess_props)?.login_if_not(true)
 }
 
 /// Participates in a `contest_name`.
 pub(crate) fn participate(
     contest_name: &str,
-    sess_prop: SessionProp<impl Term>,
+    sess_props: SessionProps<impl Term>,
 ) -> ServiceResult<()> {
-    Atcoder::try_new(sess_prop)?.register_explicitly(&AtcoderContest::new(contest_name))
+    Atcoder::try_new(sess_props)?.register_explicitly(&AtcoderContest::new(contest_name))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
 pub(crate) fn download(
-    mut sess_prop: SessionProp<impl Term>,
-    download_prop: DownloadProp<String>,
+    mut sess_props: SessionProps<impl Term>,
+    download_props: DownloadProps<String>,
 ) -> ServiceResult<()> {
-    let download_prop = download_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
-    download_prop.print_targets(sess_prop.term.stdout())?;
-    Atcoder::try_new(sess_prop)?.download(&download_prop)
+    let download_props = download_props.convert_contest_and_problems(ProblemNameConversion::Upper);
+    download_props.print_targets(sess_props.term.stdout())?;
+    Atcoder::try_new(sess_props)?.download(&download_props)
 }
 
 /// Downloads submitted source codes.
 pub(crate) fn restore(
-    mut sess_prop: SessionProp<impl Term>,
-    restore_prop: RestoreProp<String>,
+    mut sess_props: SessionProps<impl Term>,
+    restore_props: RestoreProps<String>,
 ) -> ServiceResult<()> {
-    let restore_prop = restore_prop.convert_contest_and_problems(ProblemNameConversion::Upper);
-    restore_prop.print_targets(sess_prop.term.stdout())?;
-    Atcoder::try_new(sess_prop)?.restore(&restore_prop)
+    let restore_props = restore_props.convert_contest_and_problems(ProblemNameConversion::Upper);
+    restore_props.print_targets(sess_props.term.stdout())?;
+    Atcoder::try_new(sess_props)?.restore(&restore_props)
 }
 
 /// Submits a source code.
 pub(crate) fn submit(
-    mut sess_prop: SessionProp<impl Term>,
-    submit_prop: SubmitProp<String>,
+    mut sess_props: SessionProps<impl Term>,
+    submit_props: SubmitProps<String>,
 ) -> ServiceResult<()> {
-    let submit_prop = submit_prop.convert_contest_and_problem(ProblemNameConversion::Upper);
-    submit_prop.print_targets(sess_prop.term.stdout())?;
-    Atcoder::try_new(sess_prop)?.submit(&submit_prop)
+    let submit_props = submit_props.convert_contest_and_problem(ProblemNameConversion::Upper);
+    submit_props.print_targets(sess_props.term.stdout())?;
+    Atcoder::try_new(sess_props)?.submit(&submit_props)
 }
 
 pub(self) struct Atcoder<T: Term> {
@@ -83,11 +83,11 @@ impl<T: Term> Service for Atcoder<T> {
 }
 
 impl<T: Term> Atcoder<T> {
-    fn try_new(mut sess_prop: SessionProp<T>) -> ServiceResult<Self> {
-        let credentials = sess_prop.credentials.atcoder.clone();
-        let session = sess_prop.start_session()?;
+    fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
+        let credentials = sess_props.credentials.atcoder.clone();
+        let session = sess_props.start_session()?;
         Ok(Self {
-            term: sess_prop.term,
+            term: sess_props.term,
             session,
             credentials,
         })
@@ -187,8 +187,8 @@ impl<T: Term> Atcoder<T> {
         Ok(())
     }
 
-    fn download(&mut self, prop: &DownloadProp<AtcoderContest>) -> ServiceResult<()> {
-        let DownloadProp {
+    fn download(&mut self, prop: &DownloadProps<AtcoderContest>) -> ServiceResult<()> {
+        let DownloadProps {
             contest,
             problems,
             destinations,
@@ -232,7 +232,7 @@ impl<T: Term> Atcoder<T> {
         Ok(())
     }
 
-    fn restore(&mut self, prop: &RestoreProp<AtcoderContest>) -> ServiceResult<()> {
+    fn restore(&mut self, prop: &RestoreProps<AtcoderContest>) -> ServiceResult<()> {
         fn collect_urls(
             detail_urls: &mut HashMap<(String, String), String>,
             submissions: vec::IntoIter<Submission>,
@@ -245,7 +245,7 @@ impl<T: Term> Atcoder<T> {
             }
         }
 
-        let RestoreProp {
+        let RestoreProps {
             contest,
             problems,
             src_paths,
@@ -314,8 +314,8 @@ impl<T: Term> Atcoder<T> {
     }
 
     #[allow(non_snake_case)]
-    fn submit(&mut self, prop: &SubmitProp<AtcoderContest>) -> ServiceResult<()> {
-        let SubmitProp {
+    fn submit(&mut self, prop: &SubmitProps<AtcoderContest>) -> ServiceResult<()> {
+        let SubmitProps {
             contest,
             problem,
             lang_id,
