@@ -23,14 +23,19 @@ install:
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:RUSTUP_HOST}/rustup-init.exe"
   - rustup-init.exe -y --default-toolchain %RUSTUP_TOOLCHAIN% --default-host %RUSTUP_HOST% --no-modify-path
   - set PATH=C:\Users\appveyor\.cargo\bin;%PATH%
+  - rustup component add clippy-preview rustfmt-preview
   - rustc -vV
   - cargo -vV
+  - cargo clippy -V
+  - rustfmt -V
 
 build: false
 
 test_script:
-  - set PATH=C:\msys64\usr\bin;%PATH%
-  - sh -c "[ -z \"${ATCODER_USERNAME}\" ] && TEST_TARGETS=lib || TEST_TARGETS=all; cargo test --$TEST_TARGETS"
+  - cargo fmt --all -- --check
+  - cargo clippy --all-targets -- -D warnings
+  - ps: $env:targets = If (Test-Path env:ATCODER_USERNAME) { 'all' } else { 'lib' }
+  - cargo test --%targets%
 
 before_deploy:
   - cargo build --release

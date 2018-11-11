@@ -928,14 +928,14 @@ mod tests {
             ("7\n3 3\n2 5\n4 6\n2 3\n3 6\n3 4\n4 6\n2 5\n1 5\n", "8.22677276241436\n"),
             ("5\n3 3\n0 5\n0 5\n0 5\n0 5\n0 5\n0 5\n", "5\n"),
         ];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("A", "/contests/arc001/tasks/arc001_1", 2000, A),
             ("B", "/contests/arc001/tasks/arc001_2", 2000, B),
             ("C", "/contests/arc001/tasks/arc001_3", 2000, C),
             ("D", "/contests/arc001/tasks/arc001_4", 2000, D),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc001", &expected);
+        test_sample_extraction("arc001", EXPECTED);
     }
 
     #[test]
@@ -960,14 +960,14 @@ mod tests {
             ("3 10\n..o.o.xxx.\n...o.xo.x.\no.xxo..x..\n", "o\n"),
             ("3 5\n..x..\n.o...\n...x.\n", "x\n"),
         ];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("A", "/contests/arc002/tasks/arc002_1", 2000, A),
             ("B", "/contests/arc002/tasks/arc002_2", 2000, B),
             ("C", "/contests/arc002/tasks/arc002_3", 2000, C),
             ("D", "/contests/arc002/tasks/arc002_4", 2000, D),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc002", &expected);
+        test_sample_extraction("arc002", EXPECTED);
     }
 
     #[rustfmt::skip]
@@ -993,14 +993,14 @@ mod tests {
              "94\n"),
         ];
         static D: &[(&str, &str)] = &[];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("A", "/contests/arc019/tasks/arc019_1", 2000, A),
             ("B", "/contests/arc019/tasks/arc019_2", 2000, B),
             ("C", "/contests/arc019/tasks/arc019_3", 2000, C),
             ("D", "/contests/arc019/tasks/arc019_4", 2000, D),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc019", &expected);
+        test_sample_extraction("arc019", EXPECTED);
     }
 
     #[test]
@@ -1026,14 +1026,14 @@ mod tests {
             ("3 7\ncoder\ncodar\nat\n", "codarat\n"),
             ("4 13\nkyuri\nnamida\nzzzzzzz\naaaaaa\n", "namidazzzzzzz\n"),
         ];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("C", "/contests/arc058/tasks/arc058_a", 2000, C),
             ("D", "/contests/arc058/tasks/arc058_b", 2000, D),
             ("E", "/contests/arc058/tasks/arc058_c", 4000, E),
             ("F", "/contests/arc058/tasks/arc058_d", 5000, F),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc058", &expected);
+        test_sample_extraction("arc058", EXPECTED);
     }
 
     #[test]
@@ -1060,14 +1060,14 @@ mod tests {
             ("5 5\n1 2\n2 3\n3 5\n1 4\n4 5\n", "3\n"),
             ("16 1\n1 2\n", "10461394944000\n"),
         ];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("A", "/contests/abc041/tasks/abc041_a", 2000, A),
             ("B", "/contests/abc041/tasks/abc041_b", 2000, B),
             ("C", "/contests/abc041/tasks/abc041_c", 2000, C),
             ("D", "/contests/abc041/tasks/abc041_d", 3000, D),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("abc041", &expected);
+        test_sample_extraction("abc041", EXPECTED);
     }
 
     #[rustfmt::skip]
@@ -1147,7 +1147,7 @@ mod tests {
             ("7\n7 6 5 4 3 2 1\n", "YES\n"),
             ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "YES\n"),
         ];
-        let expected = [
+        static EXPECTED: Expected = &[
             ("A", "/contests/chokudai_s001/tasks/chokudai_S001_a", 2000, A),
             ("B", "/contests/chokudai_s001/tasks/chokudai_S001_b", 2000, B),
             ("C", "/contests/chokudai_s001/tasks/chokudai_S001_c", 2000, C),
@@ -1162,10 +1162,17 @@ mod tests {
             ("L", "/contests/chokudai_s001/tasks/chokudai_S001_l", 2000, L),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("chokudai_s001", &expected);
+        test_sample_extraction("chokudai_s001", EXPECTED);
     }
 
-    fn test_sample_extraction(contest: &str, expected: &[(&str, &str, u64, &[(&str, &str)])]) {
+    type Expected = &'static [(
+        &'static str,
+        &'static str,
+        u64,
+        &'static [(&'static str, &'static str)],
+    )];
+
+    fn test_sample_extraction(contest: &str, expected: Expected) {
         let mut atcoder = start().unwrap();
         let contest = AtcoderContest::new(contest);
         let page = atcoder.fetch_tasks_page(&contest).unwrap();

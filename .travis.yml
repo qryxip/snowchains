@@ -1,6 +1,6 @@
 dist: trusty
 language: rust
-sudo: false
+sudo: true
 
 rust:
   - stable
@@ -26,12 +26,33 @@ install:
   - rustup self update
   - rustup set default-host $RUSTUP_HOST
   - rustup update $TRAVIS_RUST_VERSION
-  - rustc -Vv
+  - rustup component add clippy-preview rustfmt-preview
+  - rustc -vV
   - cargo -vV
+  - cargo clippy -V
+  - rustfmt -V
+  - |
+    if [ "${RUSTUP_HOST}" = x86_64-unknown-linux-gnu -a "${TRAVIS_BRANCH}" = master -a "${TRAVIS_PULL_REQUEST}" = false ]; then
+      sudo apt-get install -y cmake g++ pkg-config jq libcurl4-openssl-dev libelf-dev libdw-dev binutils-dev &&
+      cargo install cargo-kcov &&
+      cargo kcov --print-install-kcov-sh | sh &&
+      kcov --version &&
+      cargo kcov -V
+    fi
 
 script:
-  - test "${TRAVIS_SECURE_ENV_VARS}" = true && TEST_TARGETS=all || TEST_TARGETS=lib
-  - cargo test --$TEST_TARGETS
+  - cargo fmt --all -- --check
+  - cargo clippy --all-targets -- -D warnings
+  - |
+    if [ -f ~/.cargo/bin/cargo-kcov ]; then
+      rm -r ./target &&
+      cargo kcov --coveralls -- --include-path=./src/,./tests/ &&
+      cargo clean
+    elif [ "${TRAVIS_SECURE_ENV_VARS}" = true ]; then
+      cargo test --all
+    else
+      cargo test --lib
+    fi
 
 before_deploy:
   - tar --version
