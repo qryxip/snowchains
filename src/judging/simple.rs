@@ -6,6 +6,7 @@ use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use crate::testsuite::{ExpectedStdout, SimpleCase};
 use crate::time::MillisRoundedUp as _MillisRoundedUp;
 
+use derive_more::From;
 use futures::{task, try_ready, Async, Future, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -326,6 +327,7 @@ impl CommandOutcome {
 
 /// Test result.
 #[cfg_attr(test, derive(Debug))]
+#[derive(From)]
 pub(super) struct SimpleOutcome {
     inner: SimpleOutcomeInner,
 }
@@ -444,12 +446,6 @@ impl Outcome for SimpleOutcome {
                 print_section(&mut out, "stderr:", stderr)
             }
         }
-    }
-}
-
-impl From<SimpleOutcomeInner> for SimpleOutcome {
-    fn from(inner: SimpleOutcomeInner) -> Self {
-        Self { inner }
     }
 }
 

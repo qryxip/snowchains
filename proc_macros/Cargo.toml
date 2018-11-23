@@ -1,0 +1,13 @@
+[package]
+name = "snowchains_proc_macros"
+version = "0.1.0"
+license = "MIT"
+authors = ["Ryo Yamashita <wariuni@gmail.com>"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+if_chain = "0.1.3"
+quote = "0.6.10"
+syn = { version = "0.15.21", features = ["full"] }

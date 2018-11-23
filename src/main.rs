@@ -24,7 +24,7 @@ fn main() -> io::Result<()> {
         term.stdout().flush()?;
         let mut stderr = term.stderr();
         writeln!(stderr)?;
-        for (i, cause) in (&err as &Fail).iter_chain().enumerate() {
+        for (i, cause) in Fail::iter_chain(&err).enumerate() {
             let head = if i == 0 && err.cause().is_none() {
                 "error: "
             } else if i == 0 {

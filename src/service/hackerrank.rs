@@ -1,4 +1,4 @@
-use crate::errors::{ServiceError, ServiceResult, SessionResult};
+use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
 use crate::service::downloader::ZipDownloader;
 use crate::service::session::HttpSession;
 use crate::service::{
@@ -53,7 +53,7 @@ impl<T: Term> Service for Hackerrank<T> {
 }
 
 impl<T: Term> Hackerrank<T> {
-    fn try_new(mut sess_props: SessionProps<T>) -> SessionResult<Self> {
+    fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
         let credentials = sess_props.credentials.hackerrank.clone();
         let session = sess_props.start_session()?;
         Ok(Hackerrank {
@@ -93,7 +93,7 @@ impl<T: Term> Hackerrank<T> {
                     break self.stdout().flush()?;
                 }
                 if on_test {
-                    return Err(ServiceError::LoginOnTest);
+                    return Err(ServiceErrorKind::LoginOnTest.into());
                 }
                 username = Rc::new(self.term.prompt_reply_stderr("Username: ")?);
                 password = Rc::new(self.term.prompt_password_stderr("Password: ")?);
@@ -164,14 +164,16 @@ impl<T: Term> Hackerrank<T> {
         let problems = problems.as_ref();
 
         let models = match (contest, problems) {
-            (HackerrankContest::Master, None) => return Err(ServiceError::PleaseSpecifyProblems),
+            (HackerrankContest::Master, None) => {
+                return Err(ServiceErrorKind::PleaseSpecifyProblems.into())
+            }
             (HackerrankContest::Master, Some(problems)) => problems
                 .iter()
                 .map(|problem| {
                     self.get(&format!("/rest/contests/master/challenges/{}", problem))
                         .recv_json::<ProblemQueryResponse>()
                         .map(|r| r.model)
-                }).collect::<SessionResult<Vec<_>>>()?,
+                }).collect::<ServiceResult<Vec<_>>>()?,
             (HackerrankContest::Contest(contest), problems) => {
                 self.login(LoginOption::NotNecessary)?;
                 self.get(&format!("/rest/contests/{}/challenges", contest))
@@ -191,7 +193,7 @@ impl<T: Term> Hackerrank<T> {
                                 .recv_json::<ProblemQueryResponse>()
                                 .map(|r| r.model)
                         }
-                    }).collect::<SessionResult<Vec<_>>>()?
+                    }).collect::<ServiceResult<Vec<_>>>()?
             }
         };
 
@@ -346,20 +348,20 @@ impl<'de> Deserialize<'de> for True {
 }
 
 trait Extract {
-    fn extract_csrf_token(&self) -> ServiceResult<String>;
-    fn extract_samples(&self) -> ServiceResult<TestSuite>;
+    fn extract_csrf_token(&self) -> ScrapeResult<String>;
+    fn extract_samples(&self) -> ScrapeResult<TestSuite>;
 }
 
 impl Extract for Document {
-    fn extract_csrf_token(&self) -> ServiceResult<String> {
+    fn extract_csrf_token(&self) -> ScrapeResult<String> {
         self.find(Attr("name", "csrf-token"))
             .next()
             .and_then(|node| node.attr("content").map(str::to_owned))
             .filter(|token| !token.is_empty())
-            .ok_or(ServiceError::Scrape)
+            .ok_or_else(ScrapeError::new)
     }
 
-    fn extract_samples(&self) -> ServiceResult<TestSuite> {
+    fn extract_samples(&self) -> ScrapeResult<TestSuite> {
         fn extract_item(this: &Document, predicate: impl Predicate) -> Vec<String> {
             this.find(predicate)
                 .map(|pre| {
@@ -372,7 +374,7 @@ impl Extract for Document {
         let inputs = extract_item(self, selector!(.challenge_sample_input>>pre));
         let outputs = extract_item(self, selector!(.challenge_sample_output>>pre));
         if inputs.len() != outputs.len() || inputs.is_empty() {
-            return Err(ServiceError::Scrape);
+            return Err(ScrapeError::new());
         }
         let samples = inputs.into_iter().zip(outputs);
         Ok(SimpleSuite::new(None).cases(samples).into())
@@ -381,7 +383,7 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::SessionResult;
+    use crate::errors::ServiceResult;
     use crate::service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
     use crate::service::session::{HttpSession, UrlBase};
     use crate::service::{self, Service as _Service, UserNameAndPassword};
@@ -412,7 +414,7 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    fn start() -> SessionResult<Hackerrank<impl Term>> {
+    fn start() -> ServiceResult<Hackerrank<impl Term>> {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("www.hackerrank.com"), true, None);
         let mut term = TermImpl::null();

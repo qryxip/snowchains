@@ -5,7 +5,7 @@ mod text;
 use crate::util::std_unstable::AsMillis_;
 
 use crate::config::Config;
-use crate::errors::{JudgeError, JudgeResult, SuiteFileResult};
+use crate::errors::{JudgeErrorKind, JudgeResult, TestSuiteResult};
 use crate::judging::command::JudgingCommand;
 use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use crate::testsuite::{SimpleCase, TestCase, TestCases};
@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{cmp, fmt};
 
-pub(crate) fn num_cases(config: &Config, problem: &str) -> SuiteFileResult<usize> {
+pub(crate) fn num_cases(config: &Config, problem: &str) -> TestSuiteResult<usize> {
     let (cases, _) = config.testcase_loader().load_merging(problem)?;
     Ok(match cases {
         TestCases::Simple(cases) => cases.len(),
@@ -37,7 +37,7 @@ pub(crate) fn timelimit_millis(config: &Config, problem: &str, nth: usize) -> Ju
             .get(nth)
             .and_then(f)
             .map(AsMillis_::as_millis_)
-            .ok_or_else(|| JudgeError::IndexOutOfBounds(cases.len(), nth))
+            .ok_or_else(|| JudgeErrorKind::IndexOutOfBounds(cases.len(), nth).into())
     }
 
     let (cases, _) = config.testcase_loader().load_merging(problem)?;
@@ -53,9 +53,11 @@ pub(crate) fn input(config: &Config, problem: &str, nth: usize) -> JudgeResult<A
         TestCases::Simple(cases) => cases
             .get(nth)
             .map(SimpleCase::input)
-            .ok_or_else(|| JudgeError::IndexOutOfBounds(cases.len(), nth)),
+            .ok_or_else(|| JudgeErrorKind::IndexOutOfBounds(cases.len(), nth).into()),
         TestCases::Interactive(cases) if nth < cases.len() => Ok(Arc::new("".to_owned())),
-        TestCases::Interactive(cases) => Err(JudgeError::IndexOutOfBounds(cases.len(), nth)),
+        TestCases::Interactive(cases) => {
+            Err(JudgeErrorKind::IndexOutOfBounds(cases.len(), nth).into())
+        }
     }
 }
 
@@ -71,19 +73,19 @@ pub(crate) fn accepts(
         TestCases::Simple(cases) => {
             let case = cases
                 .get(nth)
-                .ok_or_else(|| JudgeError::IndexOutOfBounds(cases.len(), nth))?;
+                .ok_or_else(|| JudgeErrorKind::IndexOutOfBounds(cases.len(), nth))?;
             let mut output = "".to_owned();
             stdin.read_to_string(&mut output)?;
             let outcome = simple::accepts(&case, &output);
             if outcome.failure() {
                 outcome.print_details(&mut stderr)?;
                 stderr.flush()?;
-                Err(JudgeError::TestFailed(1, 1))
+                Err(JudgeErrorKind::TestFailed(1, 1).into())
             } else {
                 Ok(())
             }
         }
-        TestCases::Interactive(_) => Err(JudgeError::ExpectedSimple),
+        TestCases::Interactive(_) => Err(JudgeErrorKind::ExpectedSimple.into()),
     }
 }
 
@@ -184,7 +186,7 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
                 outcome.print_details(&mut stdout)?;
             }
             stdout.flush()?;
-            Err(JudgeError::TestFailed(num_failures, num_cases))
+            Err(JudgeErrorKind::TestFailed(num_failures, num_cases).into())
         }
     }
 

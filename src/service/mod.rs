@@ -7,14 +7,14 @@ pub(crate) mod yukicoder;
 pub(self) mod downloader;
 
 use crate::config::Config;
-use crate::errors::SessionResult;
+use crate::errors::ServiceResult;
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::replacer::CodeReplacer;
 use crate::service::session::{HttpSession, UrlBase};
 use crate::template::{Template, TemplateBuilder};
 use crate::terminal::{Term, WriteAnsi};
 use crate::testsuite::DownloadDestinations;
-use crate::{time, Never};
+use crate::time;
 
 use heck::KebabCase as _KebabCase;
 use maplit::hashmap;
@@ -22,21 +22,38 @@ use reqwest::header::{self, HeaderMap};
 use reqwest::{RedirectPolicy, Response};
 use select::document::Document;
 use serde_derive::{Deserialize, Serialize};
+use strum_macros::{AsStaticStr, EnumString};
 use url::Host;
 
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, io, slice};
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Debug,
+    strum_macros::Display,
+    AsStaticStr,
+    EnumString,
+    Serialize,
+    Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceName {
+    #[strum(to_string = "atcoder")]
     Atcoder,
+    #[strum(to_string = "hackerrank")]
     Hackerrank,
+    #[strum(to_string = "yukicoder")]
     Yukicoder,
+    #[strum(to_string = "other")]
     Other,
 }
 
@@ -46,36 +63,7 @@ impl Default for ServiceName {
     }
 }
 
-impl fmt::Display for ServiceName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_str())
-    }
-}
-
-impl FromStr for ServiceName {
-    type Err = Never;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Never> {
-        match s {
-            s if s.eq_ignore_ascii_case("atcoder") => Ok(ServiceName::Atcoder),
-            s if s.eq_ignore_ascii_case("hackerrank") => Ok(ServiceName::Hackerrank),
-            s if s.eq_ignore_ascii_case("yukicoder") => Ok(ServiceName::Yukicoder),
-            s if s.eq_ignore_ascii_case("other") => Ok(ServiceName::Other),
-            _ => unreachable!(),
-        }
-    }
-}
-
 impl ServiceName {
-    pub fn to_str(self) -> &'static str {
-        match self {
-            ServiceName::Atcoder => "atcoder",
-            ServiceName::Hackerrank => "hackerrank",
-            ServiceName::Yukicoder => "yukicoder",
-            ServiceName::Other => "other",
-        }
-    }
-
     pub(crate) fn domain(self) -> Option<&'static str> {
         match self {
             ServiceName::Atcoder => Some("beta.atcoder.jp"),
@@ -111,7 +99,7 @@ pub(self) trait Service {
         sess.post(url, term.stdout())
     }
 
-    fn open_in_browser(&mut self, url: &str) -> SessionResult<()> {
+    fn open_in_browser(&mut self, url: &str) -> ServiceResult<()> {
         let (sess, term) = self.session_and_term();
         sess.open_in_browser(url, term.stdout())
     }
@@ -196,7 +184,7 @@ pub(crate) struct SessionProps<T: Term> {
 }
 
 impl<T: Term> SessionProps<T> {
-    pub(self) fn start_session(&mut self) -> SessionResult<HttpSession> {
+    pub(self) fn start_session(&mut self) -> ServiceResult<HttpSession> {
         let client = reqwest_client(self.timeout)?;
         let base = self
             .domain

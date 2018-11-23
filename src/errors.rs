@@ -1,639 +1,439 @@
-use chrono::{DateTime, Local};
 use crate::path::AbsPathBuf;
 use crate::template::Tokens;
-use failure::{Context, Fail};
+
+use snowchains_proc_macros::{DoubleFrom, FailPair, PartialFailPair};
+
+use chrono::{DateTime, Local};
+use derive_new::new;
+use failure::{Backtrace, Fail};
 use itertools::Itertools as _Itertools;
-use reqwest::header::{HeaderValue, InvalidHeaderValue};
+use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::StatusCode;
 use url::Url;
 use zip::result::ZipError;
 
 use std::ffi::OsString;
 use std::process::ExitStatus;
-use std::string::FromUtf8Error;
 use std::{fmt, io};
 
 pub type Result<T> = std::result::Result<T, self::Error>;
 
-#[derive(Debug)]
+#[derive(DoubleFrom, Debug, PartialFailPair)]
 pub enum Error {
+    Context(failure::Context<self::ErrorKind>),
     Service(ServiceError),
     Judge(JudgeError),
-    SuiteFile(SuiteFileError),
-    LoadConfig(LoadConfigError),
+    TestSuite(TestSuiteError),
+    Config(ConfigError),
     ExpandTemplate(ExpandTemplateError),
-    Io(StdErrorWithDisplayChain<io::Error>),
+    File(FileError),
+    #[double_from = "io::Error"]
+    Io(StdError<io::Error>),
+}
+
+#[derive(Debug, derive_more::Display)]
+pub enum ErrorKind {
+    #[display(fmt = "Sorry, not yet implemented")]
     Unimplemented,
 }
 
-impl fmt::Display for self::Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            self::Error::Service(e) => write!(f, "{}", e),
-            self::Error::Judge(e) => write!(f, "{}", e),
-            self::Error::SuiteFile(e) => write!(f, "{}", e),
-            self::Error::LoadConfig(e) => write!(f, "{}", e),
-            self::Error::ExpandTemplate(e) => write!(f, "{}", e),
-            self::Error::Io(e) => write!(f, "{}", e),
-            self::Error::Unimplemented => write!(f, "Sorry, not yet implemented"),
-        }
-    }
-}
-
-impl Fail for self::Error {
-    fn cause(&self) -> Option<&dyn Fail> {
-        match self {
-            crate::Error::Service(e) => e.cause(),
-            crate::Error::Judge(e) => e.cause(),
-            crate::Error::SuiteFile(e) => e.cause(),
-            crate::Error::LoadConfig(e) => e.cause(),
-            crate::Error::ExpandTemplate(e) => e.cause(),
-            crate::Error::Io(e) => e.cause(),
-            _ => None,
-        }
-    }
-}
-
-derive_from!(
-    Error::Service <- ServiceError,
-    Error::Judge <- JudgeError,
-    Error::SuiteFile <- SuiteFileError,
-    Error::LoadConfig <- LoadConfigError,
-    Error::ExpandTemplate <- ExpandTemplateError,
-    Error::Io <- io::Error,
-);
-
 pub(crate) type ServiceResult<T> = std::result::Result<T, ServiceError>;
 
-#[derive(Debug)]
+#[derive(DoubleFrom, Debug, PartialFailPair)]
 pub enum ServiceError {
-    Session(SessionError),
-    CodeReplace(CodeReplaceError),
-    SuiteFile(SuiteFileError),
+    Context(failure::Context<ServiceErrorKind>),
+    Scrape(ScrapeError),
+    ReplaceCode(ReplaceCodeError),
+    TestSuite(TestSuiteError),
     ExpandTemplate(ExpandTemplateError),
-    Submit(SubmitError),
-    ChronoParse(StdErrorWithDisplayChain<chrono::ParseError>),
-    Reqwest(StdErrorWithDisplayChain<reqwest::Error>),
-    ToStr(StdErrorWithDisplayChain<reqwest::header::ToStrError>),
-    SerdeUrlencodedSer(StdErrorWithDisplayChain<serde_urlencoded::ser::Error>),
-    Zip(StdErrorWithDisplayChain<ZipError>),
-    Io(StdErrorWithDisplayChain<io::Error>),
+    File(FileError),
+    #[double_from = "reqwest::Error"]
+    Reqwest(StdError<reqwest::Error>),
+    #[double_from = "serde_urlencoded::ser::Error"]
+    SerdeUrlencodedSer(StdError<serde_urlencoded::ser::Error>),
+    #[double_from = "ZipError"]
+    Zip(StdError<ZipError>),
+    #[double_from = "io::Error"]
+    Io(StdError<io::Error>),
+}
+
+#[derive(Debug, derive_more::Display)]
+pub enum ServiceErrorKind {
+    #[display(fmt = "Failed to parse a URL: {:?}", _0)]
+    ParseUrl(String),
+    #[display(
+        fmt = "Failed to parse a cookie in {}: {:?}",
+        "_0.display()",
+        _1,
+    )]
+    ParseCookieFromPath(AbsPathBuf, String),
+    #[display(fmt = "Failed to parse a cookie from {}: {:?}", _0, _1)]
+    ParseCookieFromUrl(Url, HeaderValue),
+    #[display(fmt = "The response does not contain {:?} header", _0)]
+    HeaderMissing(HeaderName),
+    #[display(fmt = "Failed to read {:?} header", _0)]
+    ReadHeader(HeaderName),
+    #[display(fmt = "Forbidden by the \"robots.txt\"")]
+    ForbiddenByRobotsTxt,
+    #[display(
+        fmt = "{}: Unexpected HTTP status code {} (expected [{}])",
+        _0,
+        _1,
+        "_2.iter().format(\", \")",
+    )]
+    UnexpectedStatusCode(Url, StatusCode, Vec<StatusCode>),
+    #[display(
+        fmt = "The default browser terminated abnormally {}",
+        r#"match _0.code() {
+               Some(c) => format!("with code {}", c),
+               None => "without code".to_owned(),
+           }"#,
+    )]
+    Webbrowser(ExitStatus),
+    #[display(fmt = r#"Found an accepted submission. Add "--skip-checking-duplication" ("-d")"#)]
     AlreadyAccepted,
+    #[display(fmt = "{} will begin at {}", _0, _1)]
     ContestNotBegun(String, DateTime<Local>),
+    #[display(fmt = "{} not found", _0)]
     ContestNotFound(String),
+    #[display(fmt = "Please specify problem")]
     PleaseSpecifyProblems,
-    Scrape,
-    UnexpectedRedirection(String),
+    #[display(fmt = "No such problem: {:?}", _0)]
+    NoSuchProblem(String),
+    #[display(
+        fmt = "Submission rejected: language={:?}, size={}, status={}, location={}",
+        _0,
+        _1,
+        "_2.as_u16()",
+        r#"_3.as_ref().map(|s| format!("{:?}", s)).unwrap_or_else(|| "<none>".to_owned())"#,
+    )]
+    SubmissionRejected(String, usize, StatusCode, Option<String>),
+    #[display(fmt = "Failed to login")]
     LoginOnTest,
 }
 
-impl fmt::Display for ServiceError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ServiceError::Session(e) => write!(f, "{}", e),
-            ServiceError::CodeReplace(e) => write!(f, "{}", e),
-            ServiceError::SuiteFile(e) => write!(f, "{}", e),
-            ServiceError::ExpandTemplate(e) => write!(f, "{}", e),
-            ServiceError::Submit(e) => write!(f, "{}", e),
-            ServiceError::ChronoParse(e) => write!(f, "{}", e),
-            ServiceError::Reqwest(e) => write!(f, "{}", e),
-            ServiceError::ToStr(e) => write!(f, "{}", e),
-            ServiceError::SerdeUrlencodedSer(e) => write!(f, "{}", e),
-            ServiceError::Zip(e) => write!(f, "{}", e),
-            ServiceError::Io(e) => write!(f, "{}", e),
-            ServiceError::AlreadyAccepted => write!(
-                f,
-                "Found an accepted submission. Add \"--skip-checking-duplication\" (\"-d\")"
-            ),
-            ServiceError::ContestNotBegun(s, t) => write!(f, "{} will begin at {}", s, t),
-            ServiceError::ContestNotFound(s) => write!(f, "{} not found", s),
-            ServiceError::PleaseSpecifyProblems => write!(f, "Please specify problems"),
-            ServiceError::Scrape => write!(f, "Failed to scrape"),
-            ServiceError::UnexpectedRedirection(u) => write!(f, "Unexpected redirection to {}", u),
-            ServiceError::LoginOnTest => write!(f, "Failed to login"),
-        }
-    }
+pub(crate) type ScrapeResult<T> = std::result::Result<T, ScrapeError>;
+
+#[derive(Default, Debug, derive_more::Display, Fail, new)]
+#[display(fmt = "Failed to scrape")]
+pub struct ScrapeError {
+    #[new(default)]
+    #[fail(backtrace)]
+    backtrace: Backtrace,
 }
-
-derive_from!(
-    ServiceError::Session <- SessionError,
-    ServiceError::CodeReplace <- CodeReplaceError,
-    ServiceError::SuiteFile <- SuiteFileError,
-    ServiceError::ExpandTemplate <- ExpandTemplateError,
-    ServiceError::Submit <- SubmitError,
-    ServiceError::ChronoParse <- chrono::ParseError,
-    ServiceError::Reqwest <- reqwest::Error,
-    ServiceError::ToStr <- reqwest::header::ToStrError,
-    ServiceError::SerdeUrlencodedSer <- serde_urlencoded::ser::Error,
-    ServiceError::Zip <- ZipError,
-    ServiceError::Io <- io::Error,
-);
-
-impl Fail for ServiceError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        match self {
-            ServiceError::Session(e) => e.cause(),
-            ServiceError::CodeReplace(e) => e.cause(),
-            ServiceError::SuiteFile(e) => e.cause(),
-            ServiceError::ExpandTemplate(e) => e.cause(),
-            ServiceError::ChronoParse(e) => e.cause(),
-            ServiceError::Reqwest(e) => e.cause(),
-            ServiceError::ToStr(e) => e.cause(),
-            ServiceError::SerdeUrlencodedSer(e) => e.cause(),
-            ServiceError::Zip(e) => e.cause(),
-            ServiceError::Io(e) => e.cause(),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Fail)]
-pub enum SubmitError {
-    NoSuchProblem(String),
-    Rejected(String, usize, Option<Url>),
-}
-
-impl fmt::Display for SubmitError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            SubmitError::NoSuchProblem(problem) => write!(f, "No such problem: {:?}", problem),
-            SubmitError::Rejected(lang_id, len, None) => write!(
-                f,
-                "Submission rejected: language={:?}, size={}, location=<none>",
-                lang_id, len
-            ),
-            SubmitError::Rejected(lang_id, len, Some(location)) => write!(
-                f,
-                "Submission rejected: language={:?}, size={}, location={}",
-                lang_id, len, location
-            ),
-        }
-    }
-}
-
-pub(crate) type SessionResult<T> = std::result::Result<T, SessionError>;
-
-#[derive(Debug)]
-pub enum SessionError {
-    Bincode(StdErrorWithDisplayChain<bincode::Error>),
-    Reqwest(StdErrorWithDisplayChain<reqwest::Error>),
-    InvalidHeaderValue(StdErrorWithDisplayChain<InvalidHeaderValue>),
-    ToStr(StdErrorWithDisplayChain<reqwest::header::ToStrError>),
-    Io(StdErrorWithDisplayChain<io::Error>),
-    Start(Context<StartSessionError>),
-    ParseUrl(String, url::ParseError),
-    ParseCookieFromPath(String, AbsPathBuf, cookie::ParseError),
-    ParseCookieFromUrl(HeaderValue, Url),
-    HeaderMissing(&'static str),
-    ForbiddenByRobotsTxt,
-    UnexpectedStatusCode(Vec<StatusCode>, StatusCode),
-    Webbrowser(ExitStatus),
-}
-
-derive_from!(
-    SessionError::Bincode <- bincode::Error,
-    SessionError::Reqwest <- reqwest::Error,
-    SessionError::InvalidHeaderValue <- InvalidHeaderValue,
-    SessionError::ToStr <- reqwest::header::ToStrError,
-    SessionError::Io <- io::Error,
-    SessionError::Start <- Context<StartSessionError>,
-);
-
-impl fmt::Display for SessionError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            SessionError::Bincode(e) => write!(f, "{}", e),
-            SessionError::Reqwest(e) => write!(f, "{}", e),
-            SessionError::InvalidHeaderValue(e) => write!(f, "{}", e),
-            SessionError::ToStr(e) => write!(f, "{}", e),
-            SessionError::Io(e) => write!(f, "{}", e),
-            SessionError::Start(e) => write!(f, "{}", e),
-            SessionError::ParseUrl(s, _) => write!(f, "Failed to parse {:?}", s),
-            SessionError::ParseCookieFromPath(s, p, _) => {
-                write!(f, "Failed to parse {:?} in {}", s, p.display())
-            }
-            SessionError::ParseCookieFromUrl(s, u) => {
-                write!(f, "Failed to parse {:?} from {}", s, u)
-            }
-            SessionError::HeaderMissing(s) => {
-                write!(f, "The response does not contain {:?} header", s)
-            }
-            SessionError::ForbiddenByRobotsTxt => write!(f, "Forbidden by robots.txt"),
-            SessionError::UnexpectedStatusCode(ss, s) => write!(
-                f,
-                "Unexpected HTTP status code {} (expected [{}])",
-                s,
-                ss.iter().format(", "),
-            ),
-            SessionError::Webbrowser(s) => match s.code() {
-                Some(c) => write!(
-                    f,
-                    "The default browser terminated abnormally with code {}",
-                    c
-                ),
-                None => write!(
-                    f,
-                    "The default browser terminated abnormally without code (possibly killed)"
-                ),
-            },
-        }
-    }
-}
-
-impl Fail for SessionError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        match self {
-            SessionError::Bincode(e) => e.cause(),
-            SessionError::Reqwest(e) => e.cause(),
-            SessionError::InvalidHeaderValue(e) => e.cause(),
-            SessionError::ToStr(e) => e.cause(),
-            SessionError::Io(e) => e.cause(),
-            SessionError::Start(e) => e.cause(),
-            SessionError::ParseUrl(_, e) => Some(e),
-            SessionError::ParseCookieFromPath(_, _, e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Fail)]
-#[fail(display = "Failed to start a session")]
-pub struct StartSessionError;
 
 pub(crate) type JudgeResult<T> = std::result::Result<T, JudgeError>;
 
-#[derive(Debug)]
+#[derive(DoubleFrom, Debug, PartialFailPair)]
 pub enum JudgeError {
-    SuiteFile(SuiteFileError),
-    LoadConfig(LoadConfigError),
+    Context(failure::Context<JudgeErrorKind>),
+    TestSuite(TestSuiteError),
+    Config(ConfigError),
     ExpandTemplate(ExpandTemplateError),
-    Io(io::Error),
+    File(FileError),
+    #[double_from = "io::Error"]
+    Io(StdError<io::Error>),
+}
+
+#[derive(Debug, derive_more::Display)]
+pub enum JudgeErrorKind {
+    #[display(fmt = "The length is {} but the index is {}", _0, _1)]
     IndexOutOfBounds(usize, usize),
+    #[display(fmt = "Expected \"simple\" case")]
     ExpectedSimple,
-    Command(OsString, io::Error),
+    #[display(fmt = "Failed to execute {:?}", _0)]
+    Command(OsString),
+    #[display(
+        fmt = "The compilation command terminated abnormally {}",
+        r#"match _0.code() {
+             Some(c) => format!("with code {}", c),
+             None => "without code".to_owned(),
+           }"#,
+    )]
     Compile(ExitStatus),
+    #[display(
+        fmt = "{}/{} Test{} failed",
+        _0,
+        _1,
+        r#"if *_0 > 0 { "s" } else { "" }"#,
+    )]
     TestFailed(usize, usize),
 }
 
-derive_from!(
-    JudgeError::SuiteFile <- SuiteFileError,
-    JudgeError::LoadConfig <- LoadConfigError,
-    JudgeError::ExpandTemplate <- ExpandTemplateError,
-    JudgeError::Io <- io::Error,
-);
+pub(crate) type TestSuiteResult<T> = std::result::Result<T, TestSuiteError>;
 
-impl fmt::Display for JudgeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            JudgeError::SuiteFile(e) => write!(f, "{}", e),
-            JudgeError::LoadConfig(e) => write!(f, "{}", e),
-            JudgeError::ExpandTemplate(e) => write!(f, "{}", e),
-            JudgeError::Io(_) => write!(f, "An IO error occurred"),
-            JudgeError::IndexOutOfBounds(l, i) => {
-                write!(f, "The length is {} but the index is {}", l, i)
-            }
-            JudgeError::ExpectedSimple => write!(f, "Expected \"simple\" case"),
-            JudgeError::Command(c, _) => write!(f, "Failed to execute: {:?}", c),
-            JudgeError::Compile(s) => write!(
-                f,
-                "The compilation command terminated abnormally {}",
-                if let Some(code) = s.code() {
-                    format!("with code {}", code)
-                } else {
-                    "without code".to_owned()
-                }
-            ),
-            JudgeError::TestFailed(n, d) => write!(
-                f,
-                "{}/{} Test{} failed",
-                n,
-                d,
-                if *n > 0 { "s" } else { "" }
-            ),
-        }
-    }
-}
-
-impl Fail for JudgeError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        match self {
-            JudgeError::SuiteFile(e) => e.cause(),
-            JudgeError::LoadConfig(e) => e.cause(),
-            JudgeError::ExpandTemplate(e) => e.cause(),
-            JudgeError::Io(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-pub(crate) type SuiteFileResult<T> = std::result::Result<T, SuiteFileError>;
-
-#[derive(Debug)]
-pub enum SuiteFileError {
-    LoadConfig(LoadConfigError),
+#[derive(DoubleFrom, Debug, PartialFailPair)]
+pub enum TestSuiteError {
+    Context(failure::Context<TestSuiteErrorKind>),
+    Config(ConfigError),
     ExpandTemplate(ExpandTemplateError),
-    SerdeJson(StdErrorWithDisplayChain<serde_json::Error>),
-    SerdeYaml(StdErrorWithDisplayChain<serde_yaml::Error>),
-    TomlSer(StdErrorWithDisplayChain<toml::ser::Error>),
-    Io(io::Error),
+    File(FileError),
+    #[double_from = "io::Error"]
+    Io(StdError<io::Error>),
+}
+
+#[derive(Debug, derive_more::Display)]
+pub enum TestSuiteErrorKind {
+    #[display(fmt = "Failed to serialize the data")]
+    Serialize,
+    #[display(
+        fmt = "None of {} exists. Execute \"download\" command first",
+        _0,
+    )]
     NoFile(String),
+    #[display(fmt = "Different types of suites")]
     DifferentTypesOfSuites,
+    #[display(fmt = "Target suite is not \"simple\" type")]
     SuiteIsNotSimple,
-    Unsubmittable(String),
+    #[display(fmt = "{:?} is unsubmittable", _0)]
+    Unsubmittable(AbsPathBuf),
+    #[display(fmt = "Regex group out of bounds: {}", _0)]
     RegexGroupOutOfBounds(usize),
+    #[display(fmt = "Unsupported extension: {:?}", _0)]
     UnsupportedExtension(String),
 }
 
-impl fmt::Display for SuiteFileError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            SuiteFileError::LoadConfig(e) => write!(f, "{}", e),
-            SuiteFileError::ExpandTemplate(e) => write!(f, "{}", e),
-            SuiteFileError::Io(_) => write!(f, "An IO error occurred"),
-            SuiteFileError::SerdeJson(_)
-            | SuiteFileError::SerdeYaml(_)
-            | SuiteFileError::TomlSer(_) => write!(f, "Failed to serialize"),
-            SuiteFileError::NoFile(s) => write!(
-                f,
-                "None of {} exists. Execute \"download\" command first",
-                s
-            ),
-            SuiteFileError::DifferentTypesOfSuites => write!(f, "Different types of suites"),
-            SuiteFileError::SuiteIsNotSimple => write!(f, "Target suite is not \"simple\" type"),
-            SuiteFileError::Unsubmittable(p) => write!(f, "{:?} is unsubmittable", p),
-            SuiteFileError::RegexGroupOutOfBounds(i) => {
-                write!(f, "Regex group out of bounds: {}", i)
-            }
-            SuiteFileError::UnsupportedExtension(e) => write!(f, "Unsupported extension; {:?}", e),
+pub(crate) type ConfigResult<T> = std::result::Result<T, ConfigError>;
+
+#[derive(Debug, derive_more::Display, Fail)]
+#[display(fmt = "{}", kind)]
+pub struct ConfigError {
+    kind: ConfigErrorKind,
+    #[fail(backtrace)]
+    backtrace: Backtrace,
+}
+
+impl From<ConfigErrorKind> for ConfigError {
+    fn from(kind: ConfigErrorKind) -> Self {
+        Self {
+            kind,
+            backtrace: Backtrace::new(),
         }
     }
 }
 
-impl Fail for SuiteFileError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        match self {
-            SuiteFileError::LoadConfig(e) => e.cause(),
-            SuiteFileError::ExpandTemplate(e) => e.cause(),
-            SuiteFileError::SerdeJson(e) => Some(e),
-            SuiteFileError::SerdeYaml(e) => Some(e),
-            SuiteFileError::TomlSer(e) => Some(e),
-            SuiteFileError::Io(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-derive_from!(
-    SuiteFileError::LoadConfig <- LoadConfigError,
-    SuiteFileError::ExpandTemplate <- ExpandTemplateError,
-    SuiteFileError::SerdeJson <- serde_json::Error,
-    SuiteFileError::SerdeYaml <- serde_yaml::Error,
-    SuiteFileError::TomlSer <- toml::ser::Error,
-    SuiteFileError::Io <- io::Error,
-);
-
-pub(crate) type LoadConfigResult<T> = std::result::Result<T, LoadConfigError>;
-
-#[derive(Debug, Fail)]
-pub enum LoadConfigError {
-    #[fail(display = "Language not specified")]
+#[derive(Debug, derive_more::Display)]
+pub enum ConfigErrorKind {
+    #[display(fmt = "Language not specified")]
     LanguageNotSpecified,
-    #[fail(display = "No such language: {:?}", _0)]
+    #[display(fmt = "No such language: {:?}", _0)]
     NoSuchLanguage(String),
-    #[fail(display = "Property not set: {:?}", _0)]
+    #[display(fmt = "Property not set: {:?}", _0)]
     PropertyNotSet(&'static str),
 }
 
-pub(crate) type CodeReplaceResult<T> = std::result::Result<T, CodeReplaceError>;
+pub(crate) type ReplaceCodeResult<T> = std::result::Result<T, ReplaceCodeError>;
 
-#[derive(Debug)]
-pub enum CodeReplaceError {
-    ExpandTemplate(ExpandTemplateError),
-    NonUtf8(FromUtf8Error),
+#[derive(Debug, FailPair)]
+pub struct ReplaceCodeError(failure::Context<ReplaceCodeErrorKind>);
+
+impl ReplaceCodeError {
+    #[cfg(test)]
+    pub(crate) fn kind(&self) -> &ReplaceCodeErrorKind {
+        self.0.get_context()
+    }
+}
+
+#[derive(Debug, derive_more::Display)]
+pub enum ReplaceCodeErrorKind {
+    #[display(fmt = "Failed to expand `{}`", _0)]
+    ExpandTemplate(&'static str),
+    #[display(fmt = "The source code is not valid UTF-8")]
+    InvalidUtf8,
+    #[display(fmt = "Regex group out of bounds: {}", _0)]
     RegexGroupOutOfBounds(usize),
+    #[display(fmt = "No match: {:?}", _0)]
     NoMatch(String),
-}
-
-derive_from!(
-    CodeReplaceError::ExpandTemplate <- ExpandTemplateError,
-    CodeReplaceError::NonUtf8 <- FromUtf8Error,
-);
-
-impl fmt::Display for CodeReplaceError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CodeReplaceError::ExpandTemplate(e) => write!(f, "{}", e),
-            CodeReplaceError::NonUtf8(_) => write!(f, "The source code is not valid UTF-8"),
-            CodeReplaceError::RegexGroupOutOfBounds(i) => {
-                write!(f, "Regex group out of bounds: {}", i)
-            }
-            CodeReplaceError::NoMatch(s) => write!(f, "No match: {:?}", s),
-        }
-    }
-}
-
-impl Fail for CodeReplaceError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        match self {
-            CodeReplaceError::ExpandTemplate(e) => e.cause(),
-            CodeReplaceError::NonUtf8(e) => Some(e),
-            _ => None,
-        }
-    }
 }
 
 pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateError>;
 
-#[derive(Debug)]
-pub enum ExpandTemplateError {
-    Context(Context<ExpandTemplateErrorContext>),
-    Io(StdErrorWithDisplayChain<io::Error>),
-    UnknownSpecifier(String),
-    EnvVarNotPresent(String),
-    EnvVarNotUnicode(String, OsString),
-}
+#[derive(Debug, FailPair)]
+pub struct ExpandTemplateError(failure::Context<ExpandTemplateErrorKind>);
 
-derive_from!(
-    ExpandTemplateError::Context <- Context<ExpandTemplateErrorContext>,
-    ExpandTemplateError::Io <- io::Error,
-);
-
-impl fmt::Display for ExpandTemplateError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ExpandTemplateError::Context(c) => write!(f, "{}", c),
-            ExpandTemplateError::Io(e) => write!(f, "{}", e),
-            ExpandTemplateError::UnknownSpecifier(s) => write!(
-                f,
-                "Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
-                 \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"",
-                s
-            ),
-            ExpandTemplateError::EnvVarNotPresent(k) => {
-                write!(f, "Environment variable {:?} is not present", k)
-            }
-            ExpandTemplateError::EnvVarNotUnicode(k, v) => write!(
-                f,
-                "Environment variable {:?} is not valid unicode: {:?}",
-                k, v
-            ),
-        }
-    }
-}
-
-impl Fail for ExpandTemplateError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        match self {
-            ExpandTemplateError::Context(c) => c.cause(),
-            ExpandTemplateError::Io(e) => e.cause(),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum ExpandTemplateErrorContext {
-    Str {
-        tokens: Tokens,
-        problem: String,
-    },
-    OsStr {
-        tokens: Tokens,
-        problem: String,
-    },
+#[derive(Debug, derive_more::Display, Fail)]
+pub enum ExpandTemplateErrorKind {
+    #[display(
+        fmt = "Failed to expand ({:?} % {:?}) as a UTF-8 string",
+        tokens,
+        problem,
+    )]
+    Str { tokens: Tokens, problem: String },
+    #[display(
+        fmt = "Failed to expand ({:?} % {:?}) as a non UTF-8 string",
+        tokens,
+        problem,
+    )]
+    OsStr { tokens: Tokens, problem: String },
+    #[display(
+        fmt = "Failed to expand ({} </> ({:?} % {:?})) as a non UTF-8 string",
+        "base_dir.display()",
+        tokens,
+        problem,
+    )]
     Path {
         tokens: Tokens,
         problem: String,
         base_dir: AbsPathBuf,
     },
+    #[display(
+        fmt = "Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
+               \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"",
+        _0,
+    )]
+    UnknownSpecifier(String),
+    #[display(fmt = "The environment variable {} is not present", _0)]
+    EnvVarNotPresent(String),
+    #[display(fmt = "The environment variable {} is not valid unicode", _0)]
+    EnvVarNotUnicode(String),
 }
 
-impl fmt::Display for ExpandTemplateErrorContext {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ExpandTemplateErrorContext::Str { tokens, problem } => write!(
-                f,
-                "Failed to expand ({:?} % {:?}) as a UTF-8 string",
-                tokens, problem
-            ),
-            ExpandTemplateErrorContext::OsStr { tokens, problem } => write!(
-                f,
-                "Failed to expand ({:?} % {:?}) as a non UTF-8 string",
-                tokens, problem
-            ),
-            ExpandTemplateErrorContext::Path {
-                tokens,
-                problem,
-                base_dir,
-            } => write!(
-                f,
-                "Failed to expand ({} </> ({:?} % {:?})) as an absolute path",
-                base_dir.display(),
-                tokens,
-                problem,
-            ),
-        }
-    }
+pub(crate) type FileResult<T> = std::result::Result<T, FileError>;
+
+#[derive(DoubleFrom, Debug, PartialFailPair)]
+pub enum FileError {
+    Context(failure::Context<FileErrorKind>),
+    #[double_from = "io::Error"]
+    Io(StdError<io::Error>),
 }
 
-#[derive(Debug)]
-pub struct StdErrorWithDisplayChain<E: 'static + std::error::Error + Send + Sync> {
+#[derive(Debug, derive_more::Display)]
+pub enum FileErrorKind {
+    #[display(fmt = "Failed to read {}", "_0.display()")]
+    Read(AbsPathBuf),
+    #[display(fmt = "Failed to write to {}", "_0.display()")]
+    Write(AbsPathBuf),
+    #[display(fmt = "Failed to create {}", "_0.display()")]
+    CreateDir(AbsPathBuf),
+    #[display(fmt = "Failed to open {} in read-only mode", "_0.display()")]
+    OpenRo(AbsPathBuf),
+    #[display(
+        fmt = "Failed to open/create {} in write-only mode",
+        "_0.display()",
+    )]
+    OpenWo(AbsPathBuf),
+    #[display(
+        fmt = "Failed to open/create {} in read/write mode",
+        "_0.display()",
+    )]
+    OpenRw(AbsPathBuf),
+    #[display(fmt = "Failed to lock {}", "_0.display()")]
+    Lock(AbsPathBuf),
+    #[display(
+        fmt = "Could not find {:?} in {} or any parent directory",
+        filename,
+        "start.display()",
+    )]
+    Find {
+        filename: &'static str,
+        start: AbsPathBuf,
+    },
+}
+
+#[derive(Debug, derive_more::Display)]
+#[display(fmt = "{}", messages)]
+pub struct StdError<E: std::error::Error + Send + Sync + 'static> {
     inner: E,
-    chain: Option<Box<DisplayChain>>,
+    messages: Messages,
+    backtrace: Backtrace,
 }
 
-impl<E: 'static + std::error::Error + Send + Sync> From<E> for StdErrorWithDisplayChain<E> {
+impl<E: std::error::Error + Send + Sync + 'static> From<E> for StdError<E> {
     fn from(from: E) -> Self {
-        let mut causes_rev = {
-            let mut causes = vec![];
-            let mut cause: Option<&dyn std::error::Error> = from.cause();
-            while let Some(next_cause) = cause {
-                causes.push(next_cause.to_string());
-                cause = (next_cause as &dyn std::error::Error).cause();
+        let messages_rev = {
+            let mut messages = vec![from.to_string()];
+            let mut cause = std::error::Error::cause(&from);
+            while let Some(next) = cause {
+                messages.push(next.to_string());
+                cause = next.cause();
             }
-            causes.into_iter().rev()
-        };
-        let chain = match causes_rev.next() {
-            None => None,
-            Some(cause) => {
-                let mut chain = Box::new(DisplayChain {
-                    display: cause.to_string(),
-                    next: None,
-                });
-                for cause in causes_rev {
-                    chain = Box::new(DisplayChain {
-                        display: cause.to_string(),
-                        next: Some(chain),
-                    });
+            for i in (0..messages.len()).rev() {
+                let duplicated = format!(": {}", messages[i]);
+                if messages[0..i].iter().all(|m| m.ends_with(&duplicated)) {
+                    for message in &mut messages[0..i] {
+                        let at = message.len() - duplicated.len();
+                        message.split_off(at);
+                    }
                 }
-                Some(chain)
             }
+            messages.into_iter().rev()
         };
-        Self { inner: from, chain }
-    }
-}
-
-impl<E: 'static + std::error::Error + Send + Sync> fmt::Display for StdErrorWithDisplayChain<E> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl<E: 'static + std::error::Error + Send + Sync> Fail for StdErrorWithDisplayChain<E> {
-    fn cause(&self) -> Option<&dyn Fail> {
-        match self.chain.as_ref() {
-            None => None,
-            Some(chain) => Some(chain.as_ref()),
+        let mut messages = None;
+        for message in messages_rev {
+            messages = Some(Messages {
+                message,
+                next: messages.map(Box::new),
+            });
+        }
+        Self {
+            inner: from,
+            messages: messages.unwrap(),
+            backtrace: Backtrace::new(),
         }
     }
 }
 
-#[derive(Debug)]
-struct DisplayChain {
-    display: String,
-    next: Option<Box<DisplayChain>>,
-}
+impl<E: std::error::Error + Send + Sync + 'static> Fail for StdError<E> {
+    fn cause(&self) -> Option<&dyn Fail> {
+        self.messages.cause()
+    }
 
-impl fmt::Display for DisplayChain {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.display)
+    fn backtrace(&self) -> Option<&Backtrace> {
+        Some(&self.backtrace)
     }
 }
 
-impl Fail for DisplayChain {
-    fn cause(&self) -> Option<&dyn Fail> {
-        match self.next.as_ref() {
-            None => None,
-            Some(cause) => Some(cause.as_ref()),
+#[derive(derive_more::Display)]
+#[display(fmt = "{}", message)]
+struct Messages {
+    message: String,
+    next: Option<Box<Messages>>,
+}
+
+impl fmt::Debug for Messages {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[{:?}", self.message)?;
+        let mut next = self.next.as_ref();
+        loop {
+            if next.is_none() {
+                break write!(f, "]");
+            } else {
+                write!(f, ", {:?}", next.unwrap().message)?;
+                next = next.unwrap().next.as_ref();
+            }
         }
+    }
+}
+
+impl Fail for Messages {
+    fn cause(&self) -> Option<&dyn Fail> {
+        self.next.as_ref().map(|n| n.as_ref() as &dyn Fail)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::StdErrorWithDisplayChain;
+    use super::StdError;
 
+    use derive_new::new;
     use failure::Fail;
 
     use std::fmt;
 
     #[test]
-    fn std_error_with_display_chain_works() {
-        #[derive(Debug)]
+    fn std_error_works() {
+        #[derive(Debug, new)]
         struct E {
             value: &'static str,
-            cause: Option<Box<E>>,
+            #[new(default)]
+            source: Option<Box<E>>,
         }
 
         impl E {
-            fn new(value: &'static str) -> Self {
-                Self { value, cause: None }
-            }
-
             fn chain(self, value: &'static str) -> Self {
                 Self {
                     value,
-                    cause: Some(Box::new(self)),
+                    source: Some(Box::new(self)),
                 }
             }
         }
@@ -645,16 +445,17 @@ mod tests {
         }
 
         impl std::error::Error for E {
-            fn cause(&self) -> Option<&dyn std::error::Error> {
-                self.cause.as_ref().map(|c| c as &dyn std::error::Error)
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                self.source
+                    .as_ref()
+                    .map(|s| s as &(dyn std::error::Error + 'static))
             }
         }
 
         let e = E::new("foo").chain("bar").chain("baz").chain("qux");
-        let e = StdErrorWithDisplayChain::from(e);
+        let e = StdError::from(e);
         assert_eq!(
-            (&e as &Fail)
-                .iter_chain()
+            Fail::iter_chain(&e)
                 .map(ToString::to_string)
                 .collect::<Vec<_>>(),
             vec![

@@ -153,11 +153,7 @@ impl AbsPathBuf {
         }
 
         impl std::error::Error for GetcwdError {
-            fn description(&self) -> &str {
-                "failed to getcwd"
-            }
-
-            fn cause(&self) -> Option<&dyn std::error::Error> {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
                 Some(&self.0)
             }
         }

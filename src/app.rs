@@ -8,18 +8,18 @@ use crate::service::{
 };
 use crate::terminal::{AnsiColorChoice, Term};
 use crate::testsuite::{self, SerializableExtension};
-use crate::{time, Never};
+use crate::time;
 
 use log::info;
 use structopt::clap::Arg;
 use structopt::StructOpt;
+use strum_macros::EnumString;
 
 use std::borrow::Cow;
 use std::f64;
 use std::io::Write as _Write;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::time::Duration;
 
 #[derive(Debug, StructOpt)]
@@ -49,7 +49,7 @@ pub enum Opt {
     )]
     Init {
         #[structopt(raw(color_choice = "1"))]
-        _color_choice: AnsiColorChoice,
+        color_choice: AnsiColorChoice,
         #[structopt(
             help = "Directory to create a \"snowchains.yaml\"",
             default_value = ".",
@@ -398,24 +398,12 @@ impl Into<testsuite::Match> for MatchOpts {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumString)]
+#[strum(serialize_all = "snake_case")]
 enum MatchKind {
     Any,
     Exact,
     Float,
-}
-
-impl FromStr for MatchKind {
-    type Err = Never;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Never> {
-        match s {
-            "any" => Ok(MatchKind::Any),
-            "exact" => Ok(MatchKind::Exact),
-            "float" => Ok(MatchKind::Float),
-            _ => unreachable!(),
-        }
-    }
 }
 
 enum Kind {
@@ -542,8 +530,12 @@ impl<T: Term> App<T> {
         let working_dir = self.working_dir.clone();
         let cookies_on_init = self.cookies_on_init.clone();
         match opt {
-            Opt::Init { directory, .. } => {
+            Opt::Init {
+                color_choice,
+                directory,
+            } => {
                 let wd = working_dir.join_canonicalizing_lossy(&directory);
+                self.term.attempt_enable_ansi(color_choice);
                 config::init(self.term.stdout(), &wd, &cookies_on_init)?;
             }
             Opt::Switch {
@@ -552,23 +544,17 @@ impl<T: Term> App<T> {
                 language,
                 color_choice,
             } => {
+                self.term.attempt_enable_ansi(color_choice);
                 let (_, stdout, stderr) = self.term.split_mut();
-                config::switch(
-                    stdout,
-                    stderr,
-                    color_choice,
-                    &working_dir,
-                    service,
-                    contest,
-                    language,
-                )?;
+                config::switch(stdout, stderr, &working_dir, service, contest, language)?;
             }
             Opt::Login {
                 color_choice,
                 service,
             } => {
+                self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, None, &working_dir)?;
-                self.term.setup(color_choice, config.console());
+                self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 match service {
                     ServiceName::Atcoder => atcoder::login(sess_props),
@@ -582,8 +568,9 @@ impl<T: Term> App<T> {
                 service,
                 contest,
             } => {
+                self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest.clone(), &working_dir)?;
-                self.term.setup(color_choice, config.console());
+                self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 match service {
                     ServiceName::Atcoder => atcoder::participate(&contest, sess_props),
@@ -597,15 +584,16 @@ impl<T: Term> App<T> {
                 problems,
                 color_choice,
             } => {
+                self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest, &working_dir)?;
-                self.term.setup(color_choice, config.console());
+                self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 let download_props = DownloadProps::try_new(&config, open_browser, problems)?;
                 match config.service() {
                     ServiceName::Atcoder => atcoder::download(sess_props, download_props),
                     ServiceName::Hackerrank => hackerrank::download(sess_props, download_props),
                     ServiceName::Yukicoder => yukicoder::download(sess_props, download_props),
-                    ServiceName::Other => return Err(crate::Error::Unimplemented),
+                    ServiceName::Other => return Err(crate::ErrorKind::Unimplemented.into()),
                 }?;
             }
             Opt::Restore {
@@ -614,13 +602,14 @@ impl<T: Term> App<T> {
                 problems,
                 color_choice,
             } => {
+                self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest, &working_dir)?;
-                self.term.setup(color_choice, config.console());
+                self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 let restore_props = RestoreProps::try_new(&config, problems)?;
                 match config.service() {
                     ServiceName::Atcoder => atcoder::restore(sess_props, restore_props)?,
-                    _ => return Err(crate::Error::Unimplemented),
+                    _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
             }
             Opt::Judge {
@@ -632,8 +621,9 @@ impl<T: Term> App<T> {
                 color_choice,
                 problem,
             } => {
+                self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest, &working_dir)?;
-                self.term.setup(color_choice, config.console());
+                self.term.apply_conf(config.console());
                 let (_, stdout, stderr) = self.term.split_mut();
                 judging::judge(JudgeParams {
                     stdout,
@@ -658,8 +648,9 @@ impl<T: Term> App<T> {
                 problem,
             } => {
                 let language = language.as_ref().map(String::as_str);
+                self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest, &working_dir)?;
-                self.term.setup(color_choice, config.console());
+                self.term.apply_conf(config.console());
                 if !skip_judging {
                     let (_, mut stdout, stderr) = self.term.split_mut();
                     judging::judge(JudgeParams {
@@ -684,7 +675,7 @@ impl<T: Term> App<T> {
                 match config.service() {
                     ServiceName::Atcoder => atcoder::submit(sess_props, submit_props)?,
                     ServiceName::Yukicoder => yukicoder::submit(sess_props, submit_props)?,
-                    _ => return Err(crate::Error::Unimplemented),
+                    _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
             }
             Opt::Show(Show::NumCases {
@@ -726,8 +717,9 @@ impl<T: Term> App<T> {
                 problem,
                 nth,
             }) => {
+                self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest, &working_dir)?;
-                self.term.setup(color_choice, config.console());
+                self.term.apply_conf(config.console());
                 let (stdin, _, stderr) = self.term.split_mut();
                 judging::accepts(&config, &problem, nth, stdin, stderr)?;
             }
@@ -739,8 +731,9 @@ impl<T: Term> App<T> {
                 extension,
                 timelimit,
             }) => {
+                self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest, &working_dir)?;
-                self.term.setup(color_choice, config.console());
+                self.term.apply_conf(config.console());
                 let path = config
                     .download_destinations(Some(extension))
                     .scraping(&problem)?;
@@ -755,8 +748,9 @@ impl<T: Term> App<T> {
                 input,
                 output,
             }) => {
+                self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest, &working_dir)?;
-                self.term.setup(color_choice, config.console());
+                self.term.apply_conf(config.console());
                 let path = config
                     .download_destinations(Some(extension))
                     .scraping(&problem)?;
@@ -771,8 +765,9 @@ impl<T: Term> App<T> {
                 extension,
                 match_opts,
             }) => {
+                self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest, &working_dir)?;
-                self.term.setup(color_choice, config.console());
+                self.term.apply_conf(config.console());
                 let path = config
                     .download_destinations(Some(extension))
                     .scraping(&problem)?;

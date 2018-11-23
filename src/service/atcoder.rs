@@ -1,4 +1,4 @@
-use crate::errors::{ServiceError, ServiceResult, SubmitError};
+use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProps,
@@ -9,11 +9,12 @@ use crate::testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 use crate::util::std_unstable::RemoveItem_ as _RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
+use failure::ResultExt as _ResultExt;
 use log::{info, warn};
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use reqwest::StatusCode;
+use reqwest::{header, StatusCode};
 use select::document::Document;
 use select::predicate::{Attr, Predicate, Text};
 
@@ -22,7 +23,7 @@ use std::io::Write as _Write;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Duration;
-use std::{fmt, vec};
+use std::vec;
 
 /// Logins to "beta.atcoder.jp".
 pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
@@ -134,7 +135,7 @@ impl<T: Term> Atcoder<T> {
             writeln!(self.stdout(), "Successfully logged in.")?;
             self.stdout().flush()?;
         } else if self.credentials.is_some() {
-            return Err(ServiceError::LoginOnTest);
+            return Err(ServiceErrorKind::LoginOnTest.into());
         }
         Ok(success)
     }
@@ -166,7 +167,7 @@ impl<T: Term> Atcoder<T> {
             .acceptable(&[200, 302])
             .send()?;
         if res.status() == StatusCode::FOUND {
-            return Err(ServiceError::ContestNotFound(contest.to_string()));
+            return Err(ServiceErrorKind::ContestNotFound(contest.to_string()).into());
         }
         let page = res.try_into_document()?;
         let duration = page.extract_contest_duration()?;
@@ -181,7 +182,7 @@ impl<T: Term> Atcoder<T> {
                 .recv_html()?
                 .extract_csrf_token()?;
             let url = contest.url_register();
-            let payload = hashmap!("csrf_token" => csrf_token.as_str());
+            let payload = hashmap!("csrf_token" => csrf_token);
             self.post(&url).send_form(&payload)?;
         }
         Ok(())
@@ -313,8 +314,7 @@ impl<T: Term> Atcoder<T> {
         Ok(())
     }
 
-    #[allow(non_snake_case)]
-    fn submit(&mut self, prop: &SubmitProps<AtcoderContest>) -> ServiceResult<()> {
+    fn submit(&mut self, props: &SubmitProps<AtcoderContest>) -> ServiceResult<()> {
         let SubmitProps {
             contest,
             problem,
@@ -323,7 +323,7 @@ impl<T: Term> Atcoder<T> {
             replacer,
             open_browser,
             skip_checking_if_accepted,
-        } = prop;
+        } = props;
         let tasks_page = self.fetch_tasks_page(&contest)?;
         let checks_if_accepted =
             !skip_checking_if_accepted && *contest != AtcoderContest::Practice && {
@@ -349,7 +349,7 @@ impl<T: Term> Atcoder<T> {
                         .recv_html()?
                         .extract_submissions()?;
                     if submissions.any(|s| s.task_screen_name == task_screen_name && s.is_ac) {
-                        return Err(ServiceError::AlreadyAccepted);
+                        return Err(ServiceErrorKind::AlreadyAccepted.into());
                     }
                     for i in 2..=num_pages {
                         if self
@@ -359,10 +359,11 @@ impl<T: Term> Atcoder<T> {
                             .0
                             .any(|s| s.task_screen_name == task_screen_name && s.is_ac)
                         {
-                            return Err(ServiceError::AlreadyAccepted);
+                            return Err(ServiceErrorKind::AlreadyAccepted.into());
                         }
                     }
                 }
+
                 let source_code = crate::fs::read_to_string(src_path)?;
                 let source_code = match replacer {
                     Some(replacer) => {
@@ -378,25 +379,72 @@ impl<T: Term> Atcoder<T> {
                     "sourceCode" => &source_code,
                     "csrf_token" => &csrf_token,
                 );
-                self.post(&url).send_form(&payload)?;
+
+                let error = |status: StatusCode, location: Option<String>| -> _ {
+                    ServiceError::from(ServiceErrorKind::SubmissionRejected(
+                        lang_id.to_owned(),
+                        source_code.len(),
+                        status,
+                        location,
+                    ))
+                };
+
+                match self.post(&url).send_form(&payload) {
+                    Ok(res) => {
+                        let location = res
+                            .headers()
+                            .get(header::LOCATION)
+                            .ok_or_else(|| error(res.status(), None))?;
+                        let location = location
+                            .to_str()
+                            .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
+                        if !(location.starts_with("/contests/")
+                            && location.ends_with("/submissions/me"))
+                        {
+                            return Err(error(res.status(), Some(location.to_owned())));
+                        }
+                    }
+                    Err(err) => {
+                        if let ServiceError::Context(ctx) = &err {
+                            if let ServiceErrorKind::UnexpectedStatusCode(_, status, _) =
+                                ctx.get_context()
+                            {
+                                return Err(error(*status, None));
+                            }
+                        }
+                        return Err(err);
+                    }
+                }
+
                 if *open_browser {
                     self.open_in_browser(&contest.url_submissions_me(1))?;
                 }
                 return Ok(());
             }
         }
-        Err(SubmitError::NoSuchProblem(problem.clone()).into())
+        Err(ServiceErrorKind::NoSuchProblem(problem.clone()).into())
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, derive_more::Display)]
 enum AtcoderContest {
+    #[display(fmt = "practice contest")]
     Practice,
+    #[display(fmt = "AtCoder Programming Guide for beginners")]
     Apg4b,
+    #[display(fmt = "ARC{:>03}", _0)]
     Arc(u32),
+    #[display(fmt = "ABC{:>03}", _0)]
     Abc(u32),
+    #[display(fmt = "AGC{:>03}", _0)]
     Agc(u32),
+    #[display(fmt = "ATC{:>03}", _0)]
+    Atc(u32),
+    #[display(fmt = "APC{:>03}", _0)]
+    Apc(u32),
+    #[display(fmt = "Chokudai SpeedRun {:>03}", _0)]
     ChokudaiS(u32),
+    #[display(fmt = "{}", _0)]
     Other(String),
 }
 
@@ -412,6 +460,10 @@ impl AtcoderContest {
                 return AtcoderContest::Arc(number);
             } else if name == "agc" {
                 return AtcoderContest::Agc(number);
+            } else if name == "atc" {
+                return AtcoderContest::Atc(number);
+            } else if name == "apc" {
+                return AtcoderContest::Apc(number);
             } else if name == "chokudai_s" || name == "chokudais" {
                 return AtcoderContest::ChokudaiS(number);
             }
@@ -433,6 +485,8 @@ impl AtcoderContest {
             AtcoderContest::Abc(n) => format!("{}abc{:>03}", BASE, n),
             AtcoderContest::Arc(n) => format!("{}arc{:>03}", BASE, n),
             AtcoderContest::Agc(n) => format!("{}agc{:>03}", BASE, n),
+            AtcoderContest::Atc(n) => format!("{}atc{:>03}", BASE, n),
+            AtcoderContest::Apc(n) => format!("{}apc{:>03}", BASE, n),
             AtcoderContest::ChokudaiS(n) => format!("{}chokudai_s{:>03}", BASE, n),
             AtcoderContest::Other(s) => format!("{}{}", BASE, s),
         }
@@ -463,20 +517,6 @@ impl AtcoderContest {
     }
 }
 
-impl fmt::Display for AtcoderContest {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            AtcoderContest::Practice => write!(f, "practice contest"),
-            AtcoderContest::Apg4b => write!(f, "AtCoder Programming Guide for beginners"),
-            AtcoderContest::Abc(n) => write!(f, "ABC{:>03}", n),
-            AtcoderContest::Arc(n) => write!(f, "ARC{:>03}", n),
-            AtcoderContest::Agc(n) => write!(f, "AGC{:>03}", n),
-            AtcoderContest::ChokudaiS(n) => write!(f, "Chokudai SpeedRun {:>03}", n),
-            AtcoderContest::Other(s) => write!(f, "{}", s),
-        }
-    }
-}
-
 impl Contest for AtcoderContest {
     fn from_string(s: String) -> Self {
         Self::new(&s)
@@ -499,9 +539,10 @@ impl ContestStatus {
     }
 
     fn raise_if_not_begun(&self) -> ServiceResult<()> {
-        match self {
-            ContestStatus::NotBegun(s, t) => Err(ServiceError::ContestNotBegun(s.clone(), *t)),
-            _ => Ok(()),
+        if let ContestStatus::NotBegun(s, t) = self {
+            Err(ServiceErrorKind::ContestNotBegun(s.clone(), *t).into())
+        } else {
+            Ok(())
         }
     }
 }
@@ -530,25 +571,25 @@ struct Submission {
 }
 
 trait Extract {
-    fn extract_csrf_token(&self) -> ServiceResult<String>;
-    fn extract_task_urls_with_names(&self) -> ServiceResult<Vec<(String, String)>>;
-    fn extract_as_suite(&self) -> ServiceResult<TestSuite>;
-    fn extract_contest_duration(&self) -> ServiceResult<ContestDuration>;
-    fn extract_submissions(&self) -> ServiceResult<(vec::IntoIter<Submission>, u32)>;
-    fn extract_submitted_code(&self) -> ServiceResult<String>;
-    fn extract_lang_id(&self, lang_name: &str) -> ServiceResult<String>;
+    fn extract_csrf_token(&self) -> ScrapeResult<String>;
+    fn extract_task_urls_with_names(&self) -> ScrapeResult<Vec<(String, String)>>;
+    fn extract_as_suite(&self) -> ScrapeResult<TestSuite>;
+    fn extract_contest_duration(&self) -> ScrapeResult<ContestDuration>;
+    fn extract_submissions(&self) -> ScrapeResult<(vec::IntoIter<Submission>, u32)>;
+    fn extract_submitted_code(&self) -> ScrapeResult<String>;
+    fn extract_lang_id(&self, lang_name: &str) -> ScrapeResult<String>;
 }
 
 impl Extract for Document {
-    fn extract_csrf_token(&self) -> ServiceResult<String> {
+    fn extract_csrf_token(&self) -> ScrapeResult<String> {
         self.find(Attr("name", "csrf_token"))
             .next()
             .and_then(|node| node.attr("value").map(ToOwned::to_owned))
             .filter(|token| !token.is_empty())
-            .ok_or(ServiceError::Scrape)
+            .ok_or_else(ScrapeError::new)
     }
 
-    fn extract_task_urls_with_names(&self) -> ServiceResult<Vec<(String, String)>> {
+    fn extract_task_urls_with_names(&self) -> ScrapeResult<Vec<(String, String)>> {
         let extract = || {
             let mut names_and_pathes = vec![];
             for node in self.find(
@@ -565,10 +606,10 @@ impl Extract for Document {
                 Some(names_and_pathes)
             }
         };
-        extract().ok_or(ServiceError::Scrape)
+        extract().ok_or_else(ScrapeError::new)
     }
 
-    fn extract_as_suite(&self) -> ServiceResult<TestSuite> {
+    fn extract_as_suite(&self) -> ScrapeResult<TestSuite> {
         enum Samples {
             Simple(Vec<(String, String)>),
             Interactive,
@@ -736,13 +777,13 @@ impl Extract for Document {
             Some(Duration::from_millis(timelimit))
         }
 
-        let timelimit = extract_timelimit(self).ok_or_else(|| ServiceError::Scrape)?;
+        let timelimit = extract_timelimit(self).ok_or_else(ScrapeError::new)?;
         if timelimit == Duration::from_millis(0) {
             return Ok(TestSuite::Unsubmittable);
         }
         match extract_samples(self) {
             None => {
-                warn!("Extracting sample cases: Could not extract sample cases");
+                warn!("Extracting sample cases: Failed to extract sample cases");
                 Ok(SimpleSuite::new(timelimit).into())
             }
             Some(Samples::Simple(samples)) => Ok(SimpleSuite::new(timelimit).cases(samples).into()),
@@ -750,27 +791,23 @@ impl Extract for Document {
         }
     }
 
-    fn extract_contest_duration(&self) -> ServiceResult<ContestDuration> {
-        fn extract(this: &Document) -> Option<(String, String)> {
+    fn extract_contest_duration(&self) -> ScrapeResult<ContestDuration> {
+        fn extract(this: &Document) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+            static FORMAT: &'static str = "%F %T%z";
             let t1 = this.find(selector!(time).child(Text)).nth(0)?.text();
-            info!("Extracting contest duration: Found time{{{}}}", t1);
             let t2 = this.find(selector!(time).child(Text)).nth(1)?.text();
-            info!("Extracting contest duration: Found time{{{}}}", t2);
-            Some((t1, t2))
+            let t1 = DateTime::parse_from_str(&t1, FORMAT).ok()?;
+            let t2 = DateTime::parse_from_str(&t2, FORMAT).ok()?;
+            Some((t1.with_timezone(&Utc), t2.with_timezone(&Utc)))
         }
 
         match extract(self) {
-            Some((t1, t2)) => {
-                static FORMAT: &'static str = "%F %T%z";
-                let t1 = DateTime::parse_from_str(&t1, FORMAT)?.with_timezone(&Utc);
-                let t2 = DateTime::parse_from_str(&t2, FORMAT)?.with_timezone(&Utc);
-                Ok(ContestDuration(t1, t2))
-            }
-            None => Err(ServiceError::Scrape),
+            Some((t1, t2)) => Ok(ContestDuration(t1, t2)),
+            None => Err(ScrapeError::new()),
         }
     }
 
-    fn extract_submissions(&self) -> ServiceResult<(vec::IntoIter<Submission>, u32)> {
+    fn extract_submissions(&self) -> ScrapeResult<(vec::IntoIter<Submission>, u32)> {
         let extract = || {
             let num_pages = {
                 let num_pages = self
@@ -829,14 +866,14 @@ impl Extract for Document {
             }
             Some((submissions.into_iter(), num_pages))
         };
-        extract().ok_or_else(|| ServiceError::Scrape)
+        extract().ok_or_else(ScrapeError::new)
     }
 
-    fn extract_submitted_code(&self) -> ServiceResult<String> {
+    fn extract_submitted_code(&self) -> ScrapeResult<String> {
         let submission_code = self
             .find(selector!(#submission-code))
             .next()
-            .ok_or(ServiceError::Scrape)?;
+            .ok_or_else(ScrapeError::new)?;
         Ok(submission_code
             .find(Text)
             .next()
@@ -844,24 +881,24 @@ impl Extract for Document {
             .unwrap_or_else(|| "".to_owned()))
     }
 
-    fn extract_lang_id(&self, lang_name: &str) -> ServiceResult<String> {
+    fn extract_lang_id(&self, lang_name: &str) -> ScrapeResult<String> {
         for option in self.find(selector!(#select-language>option)) {
             if let Some(text) = option.find(Text).next().map(|n| n.text()) {
                 if text == lang_name {
                     return option
                         .attr("value")
                         .map(ToOwned::to_owned)
-                        .ok_or_else(|| ServiceError::Scrape);
+                        .ok_or_else(ScrapeError::new);
                 }
             }
         }
-        Err(ServiceError::Scrape)
+        Err(ScrapeError::new())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::SessionResult;
+    use crate::errors::ServiceResult;
     use crate::service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
     use crate::service::session::{HttpSession, UrlBase};
     use crate::service::{self, Service as _Service, UserNameAndPassword};
@@ -1224,7 +1261,7 @@ mod tests {
         assert_eq!(EXPECTED_CODE, code);
     }
 
-    fn start() -> SessionResult<Atcoder<impl Term>> {
+    fn start() -> ServiceResult<Atcoder<impl Term>> {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
         let mut term = TermImpl::null();

@@ -1,12 +1,12 @@
-use crate::{config, Never};
+use crate::config;
 
+use strum_macros::EnumString;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use std::io::{
     self, BufRead, BufWriter, Stderr, StderrLock, Stdin, StdinLock, Stdout, StdoutLock, Write,
 };
-use std::str::FromStr;
-use std::{env, fmt, process};
+use std::{env, process};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::mem;
@@ -42,9 +42,12 @@ pub trait Term {
         self.split_mut().2
     }
 
-    fn setup(&mut self, choice: AnsiColorChoice, conf: &config::Console) {
+    fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice) {
         self.stdout().attempt_enable_ansi(choice);
         self.stderr().attempt_enable_ansi(choice);
+    }
+
+    fn apply_conf(&mut self, conf: &config::Console) {
         self.stdout().apply_conf(conf);
         self.stderr().apply_conf(conf);
     }
@@ -89,11 +92,6 @@ pub trait TermOut: WriteAnsi {
     #[inline]
     fn char_width_or_zero(&self, c: char) -> usize {
         self.char_width_fn()(c).unwrap_or(0)
-    }
-
-    fn setup(&mut self, choice: AnsiColorChoice, conf: &config::Console) {
-        self.attempt_enable_ansi(choice);
-        self.apply_conf(conf);
     }
 }
 
@@ -523,34 +521,12 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, strum_macros::Display, EnumString)]
+#[strum(serialize_all = "snake_case")]
 pub enum AnsiColorChoice {
     Never,
     Auto,
     Always,
-}
-
-impl FromStr for AnsiColorChoice {
-    type Err = Never;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Never> {
-        match s {
-            "never" => Ok(AnsiColorChoice::Never),
-            "auto" => Ok(AnsiColorChoice::Auto),
-            "always" => Ok(AnsiColorChoice::Always),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl fmt::Display for AnsiColorChoice {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            AnsiColorChoice::Never => write!(f, "never"),
-            AnsiColorChoice::Auto => write!(f, "auto"),
-            AnsiColorChoice::Always => write!(f, "always"),
-        }
-    }
 }
 
 #[cfg(test)]

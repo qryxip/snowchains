@@ -1,10 +1,10 @@
-use crate::errors::{LoadConfigError, LoadConfigResult};
+use crate::errors::{ConfigErrorKind, ConfigResult, FileResult};
 use crate::judging::command::{CompilationCommand, JudgingCommand};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::replacer::{CodeReplacer, CodeReplacerConf};
 use crate::service::{ServiceName, SessionConfig};
 use crate::template::{Template, TemplateBuilder};
-use crate::terminal::{AnsiColorChoice, TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
+use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
 use crate::testsuite::{
     DownloadDestinations, SerializableExtension, SuiteFileExtension, TestCaseLoader, ZipConfig,
 };
@@ -12,6 +12,7 @@ use crate::yaml;
 
 use maplit::hashmap;
 use serde_derive::{Deserialize, Serialize};
+use strum::AsStaticRef as _AsStaticRef;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -28,7 +29,7 @@ pub(crate) fn init(
     mut stdout: impl Write,
     directory: &AbsPath,
     session_cookies: &str,
-) -> io::Result<()> {
+) -> FileResult<()> {
     let config = format!(
         r#"---
 service: atcoder
@@ -297,19 +298,18 @@ languages:
     let path = directory.join(CONFIG_FILE_NAME);
     crate::fs::write(&path, config.as_bytes())?;
     writeln!(stdout, "Wrote to {}", path.display())?;
-    stdout.flush()
+    stdout.flush().map_err(Into::into)
 }
 
 /// Changes attributes.
 pub(crate) fn switch(
     mut stdout: impl TermOut,
     mut stderr: impl TermOut,
-    color_choice: AnsiColorChoice,
     directory: &AbsPath,
     service: Option<ServiceName>,
     contest: Option<String>,
     language: Option<String>,
-) -> io::Result<()> {
+) -> FileResult<()> {
     fn print_change(
         mut stdout: impl WriteAnsi,
         title: &str,
@@ -327,15 +327,15 @@ pub(crate) fn switch(
         stdout.write_str("\n")
     }
 
-    let path = crate::fs::find_filepath(directory, CONFIG_FILE_NAME)?;
+    let path = crate::fs::find_path(CONFIG_FILE_NAME, directory)?;
     let mut old_yaml = crate::fs::read_to_string(&path)?;
     let old_config = crate::fs::read_yaml::<Config>(&path)?;
-    stdout.setup(color_choice, &old_config.console);
-    stderr.setup(color_choice, &old_config.console);
+    stdout.apply_conf(&old_config.console);
+    stderr.apply_conf(&old_config.console);
 
     let mut m = hashmap!();
     if let Some(service) = service {
-        m.insert("service", Cow::from(service.to_str()));
+        m.insert("service", Cow::from(service.as_static()));
     }
     if let Some(contest) = contest.as_ref() {
         m.insert("contest", Cow::from(contest.clone()));
@@ -371,8 +371,8 @@ pub(crate) fn switch(
             Ok((new_yaml, new_config))
         })?;
 
-    let s1 = Some(format!("{:?}", old_config.service.to_str()));
-    let s2 = Some(format!("{:?}", new_config.service.to_str()));
+    let s1 = Some(format!("{:?}", old_config.service.as_static()));
+    let s2 = Some(format!("{:?}", new_config.service.as_static()));
     let c1 = Some(format!("{:?}", old_config.contest));
     let c2 = Some(format!("{:?}", new_config.contest));
     let l1 = old_config.language.as_ref().map(|l| format!("{:?}", l));
@@ -392,7 +392,7 @@ pub(crate) fn switch(
     crate::fs::write(&path, new_yaml.as_bytes())?;
 
     writeln!(stdout, "Saved to {}", path.display())?;
-    stdout.flush()
+    stdout.flush().map_err(Into::into)
 }
 
 /// Config.
@@ -421,8 +421,8 @@ impl Config {
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
         dir: &AbsPath,
-    ) -> io::Result<Self> {
-        let path = crate::fs::find_filepath(dir, CONFIG_FILE_NAME)?;
+    ) -> FileResult<Self> {
+        let path = crate::fs::find_path(CONFIG_FILE_NAME, dir)?;
         let mut config = crate::fs::read_yaml::<Self>(&path)?;
         config.base_dir = path.parent().unwrap().to_owned();
         config.service = service.into().unwrap_or(config.service);
@@ -466,7 +466,7 @@ impl Config {
             .judge
             .path
             .build(&self.base_dir)
-            .insert_string("service", self.service.to_str())
+            .insert_string("service", self.service.as_static())
             .insert_string("contest", &self.contest);
         let ext = ext.unwrap_or(self.judge.scrape);
         DownloadDestinations::new(template, ext)
@@ -477,7 +477,7 @@ impl Config {
             .judge
             .path
             .build(&self.base_dir)
-            .insert_string("service", self.service.to_str())
+            .insert_string("service", self.service.as_static())
             .insert_string("contest", &self.contest);
         TestCaseLoader::new(
             path,
@@ -500,19 +500,19 @@ impl Config {
         templates
     }
 
-    pub fn src_to_submit(&self, lang: Option<&str>) -> LoadConfigResult<Template<AbsPathBuf>> {
+    pub fn src_to_submit(&self, lang: Option<&str>) -> ConfigResult<Template<AbsPathBuf>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         let vars = self.vars_for_langs(None);
         Ok(lang.src.build(&self.base_dir).insert_strings(&vars))
     }
 
-    pub fn code_replacer(&self, lang: Option<&str>) -> LoadConfigResult<Option<CodeReplacer>> {
+    pub fn code_replacer(&self, lang: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         let vars = self.vars_for_langs(None);
         Ok(lang.replace.as_ref().map(|r| r.build(&vars)))
     }
 
-    pub fn code_replacers_on_atcoder(&self) -> LoadConfigResult<HashMap<&str, CodeReplacer>> {
+    pub fn code_replacers_on_atcoder(&self) -> ConfigResult<HashMap<&str, CodeReplacer>> {
         let mut replacers = hashmap!();
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.get(&ServiceName::Atcoder) {
@@ -526,23 +526,23 @@ impl Config {
         Ok(replacers)
     }
 
-    pub fn lang_id(&self, service: ServiceName, lang: Option<&str>) -> LoadConfigResult<&str> {
+    pub fn lang_id(&self, service: ServiceName, lang: Option<&str>) -> ConfigResult<&str> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         lang.language_ids
             .get(&service)
             .map(String::as_str)
-            .ok_or_else(|| LoadConfigError::PropertyNotSet("language_ids.atcoder"))
+            .ok_or_else(|| ConfigErrorKind::PropertyNotSet("language_ids.atcoder").into())
     }
 
     pub fn solver_compilation(
         &self,
         lang: Option<&str>,
-    ) -> LoadConfigResult<Option<Template<CompilationCommand>>> {
+    ) -> ConfigResult<Option<Template<CompilationCommand>>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         Ok(self.compilation_command(lang))
     }
 
-    pub fn solver(&self, lang: Option<&str>) -> LoadConfigResult<Template<JudgingCommand>> {
+    pub fn solver(&self, lang: Option<&str>) -> ConfigResult<Template<JudgingCommand>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         Ok(self.judge_command(lang))
     }
@@ -588,14 +588,14 @@ impl Config {
             ).insert_strings(&self.vars_for_langs(None))
     }
 
-    fn lang_name<'a>(&'a self, name: Option<&'a str>) -> LoadConfigResult<&'a str> {
+    fn lang_name<'a>(&'a self, name: Option<&'a str>) -> ConfigResult<&'a str> {
         name.or_else(|| {
             self.services
                 .get(&self.service)
                 .and_then(|s| s.language.as_ref())
                 .map(String::as_str)
         }).or_else(|| self.language.as_ref().map(String::as_str))
-        .ok_or_else(|| LoadConfigError::PropertyNotSet("language"))
+        .ok_or_else(|| ConfigErrorKind::PropertyNotSet("language").into())
     }
 
     fn vars_for_langs(&self, service: impl Into<Option<ServiceName>>) -> HashMap<&str, &str> {
@@ -603,7 +603,7 @@ impl Config {
             .services
             .get(&service.into().unwrap_or(self.service))
             .map(|s| &s.variables);
-        let mut vars = hashmap!("service" => self.service.to_str(), "contest" => &self.contest);
+        let mut vars = hashmap!("service" => self.service.as_static(), "contest" => &self.contest);
         if let Some(vars_in_service) = vars_in_service {
             for (k, v) in vars_in_service {
                 vars.insert(k, v);
@@ -616,13 +616,13 @@ impl Config {
 fn find_language<'a>(
     langs: &HashMap<String, Language>,
     default_lang: impl Into<Option<&'a str>>,
-) -> LoadConfigResult<&Language> {
+) -> ConfigResult<&Language> {
     let name = default_lang
         .into()
-        .ok_or_else(|| LoadConfigError::LanguageNotSpecified)?;
+        .ok_or_else(|| ConfigErrorKind::LanguageNotSpecified)?;
     langs
         .get(name)
-        .ok_or_else(|| LoadConfigError::NoSuchLanguage(name.to_owned()))
+        .ok_or_else(|| ConfigErrorKind::NoSuchLanguage(name.to_owned()).into())
 }
 
 #[derive(Default, Serialize, Deserialize)]

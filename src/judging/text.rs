@@ -1,6 +1,7 @@
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
 
 use combine::Parser;
+use derive_new::new;
 
 use std::fmt::Write as _Write;
 use std::sync::Arc;
@@ -98,16 +99,12 @@ impl Width for Text {
 }
 
 #[cfg_attr(test, derive(Debug))]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 pub(super) struct Line<W> {
     words: Vec<W>,
 }
 
 impl<W> Line<W> {
-    pub fn new(words: Vec<W>) -> Self {
-        Self { words }
-    }
-
     pub fn words(&self) -> &[W] {
         &self.words
     }

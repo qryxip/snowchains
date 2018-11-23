@@ -5,6 +5,7 @@ use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use crate::testsuite::InteractiveCase;
 use crate::time::MillisRoundedUp as _MillisRoundedUp;
 
+use derive_new::new;
 use futures::{task, try_ready, Async, Future, Poll, Stream};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -83,29 +84,14 @@ impl Stream for Interaction {
     }
 }
 
+#[derive(new)]
 struct Waiting {
+    #[new(value = "false")]
     finished: bool,
     proc: tokio_process::Child,
     start: Instant,
     deadline: Option<Instant>,
     construct_output: fn(bool, Text, Duration) -> Output,
-}
-
-impl Waiting {
-    fn new(
-        proc: tokio_process::Child,
-        start: Instant,
-        deadline: Option<Instant>,
-        construct_output: fn(bool, Text, Duration) -> Output,
-    ) -> Self {
-        Self {
-            finished: false,
-            proc,
-            start,
-            deadline,
-            construct_output,
-        }
-    }
 }
 
 impl Stream for Waiting {
@@ -247,29 +233,14 @@ impl<O: AsyncRead, I: AsyncWrite> Stream for Pipe<O, I> {
     }
 }
 
+#[derive(new)]
 struct Reading<R: AsyncRead> {
     rdr: R,
+    #[new(value = "Vec::with_capacity(1024)")]
     buf: Vec<u8>,
     start: Instant,
     crlf_to_lf: bool,
     construct_output: fn(Text, Duration) -> Output,
-}
-
-impl<R: AsyncRead> Reading<R> {
-    fn new(
-        rdr: R,
-        start: Instant,
-        crlf_to_lf: bool,
-        construct_output: fn(Text, Duration) -> Output,
-    ) -> Self {
-        Self {
-            rdr,
-            buf: Vec::with_capacity(1024),
-            start,
-            crlf_to_lf,
-            construct_output,
-        }
-    }
 }
 
 impl<R: AsyncRead> Stream for Reading<R> {

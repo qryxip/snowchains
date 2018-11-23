@@ -8,6 +8,7 @@ use snowchains::terminal::{AnsiColorChoice, TermImpl};
 use failure::Fallible;
 use if_chain::if_chain;
 use serde_derive::Deserialize;
+use strum::AsStaticRef as _AsStaticRef;
 use tempdir::TempDir;
 
 use std::borrow::Cow;
@@ -21,7 +22,7 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     tempdir_prefix: &str,
     credentials: Credentials,
     f: impl FnOnce(App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> Result<(), E> + UnwindSafe,
-) {
+) -> Fallible<()> {
     let tempdir = TempDir::new(tempdir_prefix).unwrap();
     let tempdir_path = tempdir.path().to_owned();
     let result = panic::catch_unwind(move || -> Fallible<()> {
@@ -32,7 +33,7 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
             term: TermImpl::null(),
         };
         app.run(Opt::Init {
-            _color_choice: AnsiColorChoice::Never,
+            color_choice: AnsiColorChoice::Never,
             directory: PathBuf::from("."),
         })?;
         f(app).map_err(Into::into)
@@ -40,7 +41,7 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     tempdir.close().unwrap();
     match result {
         Err(panic) => panic::resume_unwind(panic),
-        Ok(result) => result.unwrap(),
+        Ok(result) => result,
     }
 }
 
@@ -124,7 +125,7 @@ pub fn confirm_num_cases(
     for &(problem, expected_num_cases) in pairs {
         let path = wd
             .join("snowchains")
-            .join(service.to_str())
+            .join(service.as_static())
             .join(contest)
             .join(format!("{}.yaml", problem));
         let file = File::open(&path).unwrap();

@@ -1,5 +1,7 @@
+use crate::errors::{FileErrorKind, FileResult, StdError};
 use crate::path::{AbsPath, AbsPathBuf};
 
+use failure::{Fail as _Fail, Fallible, ResultExt as _ResultExt};
 use fs2::FileExt as _FileExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -9,60 +11,60 @@ use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Seek as _Seek, SeekFrom, Write as _Write};
 
-pub(crate) fn create_dir_all(dir: &AbsPath) -> io::Result<()> {
-    std::fs::create_dir_all(dir).io_context(|| format!("Failed to create {}", dir.display()))
+pub(crate) fn create_dir_all(dir: &AbsPath) -> FileResult<()> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| e.context(FileErrorKind::CreateDir(dir.to_owned())).into())
 }
 
-pub(crate) fn write(path: &AbsPath, contents: &[u8]) -> io::Result<()> {
+pub(crate) fn write(path: &AbsPath, contents: &[u8]) -> FileResult<()> {
     create_file_and_dirs(path)?
         .write_all(contents)
-        .io_context(|| format!("Failed to write to {}", path.display()))
+        .map_err(|e| e.context(FileErrorKind::Write(path.to_owned())).into())
 }
 
-pub(crate) fn read_to_string(path: &AbsPath) -> io::Result<String> {
-    std::fs::read_to_string(path).io_context(|| format!("Failed to read {}", path.display()))
-}
-
-pub(crate) fn read_json<T: DeserializeOwned>(path: &AbsPath) -> io::Result<T> {
-    File::open(path)
-        .and_then(|f| serde_json::from_reader(f).map_err(Into::into))
-        .io_context(|| format!("Failed to read {}", path.display()))
-}
-
-pub(crate) fn read_toml<T: DeserializeOwned>(path: &AbsPath) -> io::Result<T> {
+pub(crate) fn read_to_string(path: &AbsPath) -> FileResult<String> {
     std::fs::read_to_string(path)
-        .and_then(|s| toml::from_str(&s).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)))
-        .io_context(|| format!("Failed to read {}", path.display()))
+        .map_err(|e| e.context(FileErrorKind::Read(path.to_owned())).into())
 }
 
-pub(crate) fn read_yaml<T: DeserializeOwned>(path: &AbsPath) -> io::Result<T> {
-    std::fs::read_to_string(path)
-        .and_then(|s| {
-            serde_yaml::from_str(&s).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-        }).io_context(|| format!("Failed to read {}", path.display()))
-}
-
-pub(crate) fn open_zip(path: &AbsPath) -> io::Result<ZipArchive<File>> {
+pub(crate) fn read_json<T: DeserializeOwned>(path: &AbsPath) -> FileResult<T> {
     File::open(path)
-        .and_then(|f| ZipArchive::new(f).map_err(Into::into))
-        .io_context(|| format!("Failed to read {}", path.display()))
+        .map_err(failure::Error::from)
+        .and_then(|f| serde_json::from_reader(f).map_err(|e| StdError::from(e).into()))
+        .map_err(|e| e.context(FileErrorKind::Read(path.to_owned())).into())
 }
 
-pub(crate) fn create_file_and_dirs(path: &AbsPath) -> io::Result<File> {
+pub(crate) fn read_toml<T: DeserializeOwned>(path: &AbsPath) -> FileResult<T> {
+    std::fs::read_to_string(path)
+        .map_err(failure::Error::from)
+        .and_then(|s| toml::from_str(&s).map_err(|e| StdError::from(e).into()))
+        .map_err(|e| e.context(FileErrorKind::Read(path.to_owned())).into())
+}
+
+pub(crate) fn read_yaml<T: DeserializeOwned>(path: &AbsPath) -> FileResult<T> {
+    std::fs::read_to_string(path)
+        .map_err(failure::Error::from)
+        .and_then(|s| serde_yaml::from_str(&s).map_err(|e| StdError::from(e).into()))
+        .map_err(|e| e.context(FileErrorKind::Read(path.to_owned())).into())
+}
+
+pub(crate) fn open_zip(path: &AbsPath) -> FileResult<ZipArchive<File>> {
+    File::open(path)
+        .map_err(failure::Error::from)
+        .and_then(|f| ZipArchive::new(f).map_err(|e| StdError::from(e).into()))
+        .map_err(|e| e.context(FileErrorKind::OpenRo(path.to_owned())).into())
+}
+
+pub(crate) fn create_file_and_dirs(path: &AbsPath) -> FileResult<File> {
     if let Some(dir) = path.parent() {
         if !dir.exists() {
             create_dir_all(&dir)?;
         }
     }
-    File::create(path).io_context(|| {
-        format!(
-            "An IO error occurred while opening/creating {} in write-only mode",
-            path.display()
-        )
-    })
+    File::create(path).map_err(|e| e.context(FileErrorKind::OpenWo(path.to_owned())).into())
 }
 
-pub(crate) fn find_filepath(start: &AbsPath, filename: &'static str) -> io::Result<AbsPathBuf> {
+pub(crate) fn find_path(filename: &'static str, start: &AbsPath) -> FileResult<AbsPathBuf> {
     let mut dir = start.to_owned();
     loop {
         let path = dir.join(filename);
@@ -70,14 +72,10 @@ pub(crate) fn find_filepath(start: &AbsPath, filename: &'static str) -> io::Resu
             break Ok(path);
         }
         if !dir.pop() {
-            break Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!(
-                    "Could not find {:?} in {} or any parent directory",
-                    filename,
-                    start.display()
-                ),
-            ));
+            break Err(FileErrorKind::Find {
+                filename,
+                start: start.to_owned(),
+            }.into());
         }
     }
 }
@@ -89,7 +87,7 @@ pub(crate) struct LockedFile {
 }
 
 impl LockedFile {
-    pub(crate) fn try_new(path: &AbsPath) -> io::Result<Self> {
+    pub(crate) fn try_new(path: &AbsPath) -> FileResult<Self> {
         if let Some(parent) = path.parent() {
             create_dir_all(&parent)?;
         }
@@ -98,52 +96,43 @@ impl LockedFile {
             .write(true)
             .create(true)
             .open(path)
-            .io_context(|| {
-                format!(
-                    "An IO error occurred while opening {} in read/write mode",
-                    path.display()
-                )
-            })?;
+            .with_context(|_| FileErrorKind::OpenRw(path.to_owned()))?;
         inner
             .try_lock_exclusive()
-            .io_context(|| format!("Failed to lock {}", path.display()))?;
+            .map_err(|e| StdError::from(e).context(FileErrorKind::Lock(path.to_owned())))?;
         Ok(Self {
             inner,
             path: path.to_owned(),
         })
     }
 
+    pub(crate) fn path(&self) -> &AbsPath {
+        &self.path
+    }
+
     pub(crate) fn is_empty(&self) -> io::Result<bool> {
         self.inner.metadata().map(|m| m.len() == 0)
     }
 
-    pub(crate) fn bincode<T: DeserializeOwned>(&mut self) -> io::Result<T> {
-        fn bincode<T: DeserializeOwned>(file: &mut File) -> io::Result<T> {
+    pub(crate) fn bincode<T: DeserializeOwned>(&mut self) -> FileResult<T> {
+        fn bincode<T: DeserializeOwned>(file: &mut File) -> Fallible<T> {
             file.seek(SeekFrom::Start(0))?;
-            bincode::deserialize_from(file).map_err(|e| match *e {
-                bincode::ErrorKind::Io(e) => e,
-                bincode::ErrorKind::InvalidUtf8Encoding(e) => {
-                    io::Error::new(io::ErrorKind::InvalidData, e)
-                }
-                e => io::Error::new(io::ErrorKind::InvalidData, e),
-            })
+            bincode::deserialize_from(file).map_err(|e| StdError::from(e).into())
         }
 
-        bincode(&mut self.inner).io_context(|| format!("Failed to read {}", self.path.display()))
+        bincode(&mut self.inner)
+            .map_err(|e| e.context(FileErrorKind::Read(self.path.clone())).into())
     }
 
-    pub(crate) fn write_bincode<T: Serialize>(&mut self, value: &T) -> io::Result<()> {
-        fn write_bincode<T: Serialize>(file: &mut File, value: &T) -> io::Result<()> {
+    pub(crate) fn write_bincode<T: Serialize>(&mut self, value: &T) -> FileResult<()> {
+        fn write_bincode<T: Serialize>(file: &mut File, value: &T) -> Fallible<()> {
             file.seek(SeekFrom::Start(0))?;
             file.set_len(0)?;
-            bincode::serialize_into(file, value).map_err(|e| match *e {
-                bincode::ErrorKind::Io(e) => e,
-                e => io::Error::new(io::ErrorKind::Other, e),
-            })
+            bincode::serialize_into(file, value).map_err(|e| StdError::from(e).into())
         }
 
         write_bincode(&mut self.inner, value)
-            .io_context(|| format!("Failed to write to {}", self.path.display()))
+            .map_err(|e| e.context(FileErrorKind::Write(self.path.clone())).into())
     }
 }
 
@@ -162,7 +151,7 @@ impl<T> IoContext for io::Result<T> {
         #[derive(Debug)]
         struct IoContext<E> {
             ctx: E,
-            cause: io::Error,
+            source: io::Error,
         }
 
         impl<E: fmt::Display> fmt::Display for IoContext<E> {
@@ -172,15 +161,11 @@ impl<T> IoContext for io::Result<T> {
         }
 
         impl<E: fmt::Display + fmt::Debug> std::error::Error for IoContext<E> {
-            fn description(&self) -> &str {
-                "IoContext"
-            }
-
-            fn cause(&self) -> Option<&dyn std::error::Error> {
-                Some(&self.cause)
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.source)
             }
         }
 
-        self.map_err(|cause| io::Error::new(cause.kind(), IoContext { ctx: f(), cause }))
+        self.map_err(|source| io::Error::new(source.kind(), IoContext { ctx: f(), source }))
     }
 }

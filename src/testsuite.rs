@@ -1,10 +1,16 @@
-use crate::errors::{ExpandTemplateResult, LoadConfigError, SuiteFileError, SuiteFileResult};
+use crate::errors::{
+    ConfigError, ConfigErrorKind, ExpandTemplateResult, FileResult, StdError, TestSuiteErrorKind,
+    TestSuiteResult,
+};
 use crate::judging::command::{CompilationCommand, JudgingCommand};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
 use crate::terminal::WriteAnsi;
 use crate::{time, util, yaml};
 
+use derive_more::From;
+use derive_new::new;
+use failure::Fail as _Fail;
 use itertools::{EitherOrBoth, Itertools as _Itertools};
 use maplit::{hashmap, hashset};
 use regex::Regex;
@@ -14,7 +20,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt::Write as _Write;
 use std::iter::FromIterator as _FromIterator;
-use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,7 +30,7 @@ pub(crate) fn modify_timelimit(
     name: &str,
     path: &SuiteFilePath,
     timelimit: Option<Duration>,
-) -> SuiteFileResult<()> {
+) -> TestSuiteResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.modify_timelimit(&path.path, timelimit)?;
     suite.save(name, path, stdout)
@@ -37,7 +42,7 @@ pub(crate) fn modify_append(
     input: &str,
     output: Option<&str>,
     stdout: impl WriteAnsi,
-) -> SuiteFileResult<()> {
+) -> TestSuiteResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.append(input, output)?;
     suite.save(name, path, stdout)
@@ -48,14 +53,26 @@ pub(crate) fn modify_match(
     name: &str,
     path: &SuiteFilePath,
     output_match: Match,
-) -> SuiteFileResult<()> {
+) -> TestSuiteResult<()> {
     let mut suite = TestSuite::load(path)?;
     suite.modify_match(output_match)?;
     suite.save(name, path, stdout)
 }
 
 /// Extension of a test suite file.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Debug,
+    strum_macros::Display,
+    Serialize,
+    Deserialize,
+)]
+#[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum SerializableExtension {
     Json,
@@ -67,17 +84,6 @@ pub enum SerializableExtension {
 impl Default for SerializableExtension {
     fn default() -> Self {
         SerializableExtension::Yaml
-    }
-}
-
-impl fmt::Display for SerializableExtension {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            SerializableExtension::Json => write!(f, "json"),
-            SerializableExtension::Toml => write!(f, "toml"),
-            SerializableExtension::Yaml => write!(f, "yaml"),
-            SerializableExtension::Yml => write!(f, "yml"),
-        }
     }
 }
 
@@ -144,6 +150,7 @@ impl fmt::Display for SuiteFileExtension {
     }
 }
 
+#[derive(new)]
 pub(crate) struct TestCaseLoader<'a> {
     template: Template<AbsPathBuf>,
     extensions: &'a BTreeSet<SuiteFileExtension>,
@@ -153,23 +160,7 @@ pub(crate) struct TestCaseLoader<'a> {
 }
 
 impl<'a> TestCaseLoader<'a> {
-    pub fn new(
-        template: Template<AbsPathBuf>,
-        extensions: &'a BTreeSet<SuiteFileExtension>,
-        zip_conf: &'a ZipConfig,
-        tester_compilacions: HashMap<String, Template<CompilationCommand>>,
-        tester_commands: HashMap<String, Template<JudgingCommand>>,
-    ) -> Self {
-        Self {
-            template,
-            extensions,
-            zip_conf,
-            tester_compilacions,
-            tester_commands,
-        }
-    }
-
-    pub fn load_merging(&self, problem: &str) -> SuiteFileResult<(TestCases, String)> {
+    pub fn load_merging(&self, problem: &str) -> TestSuiteResult<(TestCases, String)> {
         fn format_paths(paths: &[impl AsRef<str>]) -> String {
             let mut pref_common = "".to_owned();
             let mut suf_common_rev = vec![];
@@ -263,7 +254,7 @@ impl<'a> TestCaseLoader<'a> {
                         )?);
                     }
                     TestSuite::Unsubmittable => {
-                        return Err(SuiteFileError::Unsubmittable(problem.to_owned()))
+                        return Err(TestSuiteErrorKind::Unsubmittable(path.path.clone()).into());
                     }
                 }
                 filepaths.push(path.path.display().to_string());
@@ -283,13 +274,13 @@ impl<'a> TestCaseLoader<'a> {
                 .into_iter()
                 .map(|(path, _)| path.display().to_string())
                 .collect::<Vec<_>>();
-            Err(SuiteFileError::NoFile(format_paths(&all_paths)))
+            Err(TestSuiteErrorKind::NoFile(format_paths(&all_paths)).into())
         } else if interactive_cases.is_empty() {
             Ok((TestCases::Simple(simple_cases), paths_as_text))
         } else if simple_cases.is_empty() {
             Ok((TestCases::Interactive(interactive_cases), paths_as_text))
         } else {
-            Err(SuiteFileError::DifferentTypesOfSuites)
+            Err(TestSuiteErrorKind::DifferentTypesOfSuites.into())
         }
     }
 }
@@ -351,7 +342,7 @@ pub(crate) struct ZipConfig {
 }
 
 impl ZipConfig {
-    fn load(&self, path: &AbsPath, filename: &str) -> SuiteFileResult<Vec<SimpleCase>> {
+    fn load(&self, path: &AbsPath, filename: &str) -> TestSuiteResult<Vec<SimpleCase>> {
         let mut cases = vec![];
         for entry in &self.entries {
             cases.extend(entry.load(path, filename, self.timelimit, self.output_match)?);
@@ -376,7 +367,7 @@ impl ZipEntries {
         filename: &str,
         timelimit: Option<Duration>,
         output_match: Match,
-    ) -> SuiteFileResult<Vec<SimpleCase>> {
+    ) -> TestSuiteResult<Vec<SimpleCase>> {
         if !path.exists() {
             return Ok(vec![]);
         }
@@ -392,8 +383,9 @@ impl ZipEntries {
             if let Some(caps) = self.input.entry.captures(&filename) {
                 let name = caps
                     .get(self.input.match_group)
-                    .ok_or_else(|| SuiteFileError::RegexGroupOutOfBounds(self.input.match_group))?
-                    .as_str()
+                    .ok_or_else(|| {
+                        TestSuiteErrorKind::RegexGroupOutOfBounds(self.input.match_group)
+                    })?.as_str()
                     .to_owned();
                 let content = if self.input.crlf_to_lf && content.contains("\r\n") {
                     content.replace("\r\n", "\n")
@@ -409,8 +401,9 @@ impl ZipEntries {
             if let Some(caps) = self.output.entry.captures(&filename) {
                 let name = caps
                     .get(self.output.match_group)
-                    .ok_or_else(|| SuiteFileError::RegexGroupOutOfBounds(self.output.match_group))?
-                    .as_str()
+                    .ok_or_else(|| {
+                        TestSuiteErrorKind::RegexGroupOutOfBounds(self.output.match_group)
+                    })?.as_str()
                     .to_owned();
                 let content = if self.output.crlf_to_lf && content.contains("\r\n") {
                     content.replace("\r\n", "\n")
@@ -480,7 +473,7 @@ struct ZipEntry {
 }
 
 /// `SimpelSuite` or `InteractiveSuite`.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, From, Serialize, Deserialize)]
 #[cfg_attr(test, derive(PartialEq))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum TestSuite {
@@ -490,7 +483,7 @@ pub(crate) enum TestSuite {
 }
 
 impl TestSuite {
-    fn load(path: &SuiteFilePath) -> io::Result<Self> {
+    fn load(path: &SuiteFilePath) -> FileResult<Self> {
         let (path, ext) = (&path.path, path.extension);
         match ext {
             SerializableExtension::Json => crate::fs::read_json(path),
@@ -505,7 +498,7 @@ impl TestSuite {
         name: &str,
         path: &SuiteFilePath,
         mut out: impl WriteAnsi,
-    ) -> SuiteFileResult<()> {
+    ) -> TestSuiteResult<()> {
         let (path, extension) = (&path.path, path.extension);
         let serialized = self.to_string_pretty(extension)?;
         crate::fs::write(path, serialized.as_bytes())?;
@@ -526,16 +519,14 @@ impl TestSuite {
         }.map_err(Into::into)
     }
 
-    fn to_string_pretty(&self, ext: SerializableExtension) -> SuiteFileResult<String> {
+    fn to_string_pretty(&self, ext: SerializableExtension) -> TestSuiteResult<String> {
         match self {
             TestSuite::Simple(this) => this.to_string_pretty(ext),
             TestSuite::Interactive(_) | TestSuite::Unsubmittable => match ext {
-                SerializableExtension::Json => {
-                    serde_json::to_string_pretty(self).map_err(Into::into)
-                }
-                SerializableExtension::Toml => toml::to_string_pretty(self).map_err(Into::into),
+                SerializableExtension::Json => serde_json::to_string_pretty(self).ser_context(),
+                SerializableExtension::Toml => toml::to_string_pretty(self).ser_context(),
                 SerializableExtension::Yaml | SerializableExtension::Yml => {
-                    serde_yaml::to_string(self).map_err(Into::into)
+                    serde_yaml::to_string(self).ser_context()
                 }
             },
         }
@@ -543,9 +534,9 @@ impl TestSuite {
 
     fn modify_timelimit(
         &mut self,
-        path: &Path,
+        path: &AbsPath,
         timelimit: Option<Duration>,
-    ) -> SuiteFileResult<()> {
+    ) -> TestSuiteResult<()> {
         match self {
             TestSuite::Simple(suite) => {
                 suite.head.timelimit = timelimit;
@@ -556,41 +547,29 @@ impl TestSuite {
                 Ok(())
             }
             TestSuite::Unsubmittable => {
-                Err(SuiteFileError::Unsubmittable(path.display().to_string()))
+                Err(TestSuiteErrorKind::Unsubmittable(path.to_owned()).into())
             }
         }
     }
 
-    fn append(&mut self, input: &str, output: Option<&str>) -> SuiteFileResult<()> {
+    fn append(&mut self, input: &str, output: Option<&str>) -> TestSuiteResult<()> {
         match self {
             TestSuite::Simple(suite) => {
                 suite.append(input, output);
                 Ok(())
             }
-            _ => Err(SuiteFileError::SuiteIsNotSimple),
+            _ => Err(TestSuiteErrorKind::SuiteIsNotSimple.into()),
         }
     }
 
-    fn modify_match(&mut self, output_match: Match) -> SuiteFileResult<()> {
+    fn modify_match(&mut self, output_match: Match) -> TestSuiteResult<()> {
         match self {
             TestSuite::Simple(suite) => {
                 suite.head.output_match = output_match;
                 Ok(())
             }
-            _ => Err(SuiteFileError::SuiteIsNotSimple),
+            _ => Err(TestSuiteErrorKind::SuiteIsNotSimple.into()),
         }
-    }
-}
-
-impl From<SimpleSuite> for TestSuite {
-    fn from(from: SimpleSuite) -> Self {
-        TestSuite::Simple(from)
-    }
-}
-
-impl From<InteractiveSuite> for TestSuite {
-    fn from(from: InteractiveSuite) -> Self {
-        TestSuite::Interactive(from)
     }
 }
 
@@ -671,21 +650,13 @@ impl SimpleSuite {
             }).collect::<Vec<_>>()
     }
 
-    fn to_string_pretty(&self, ext: SerializableExtension) -> SuiteFileResult<String> {
-        #[derive(Serialize)]
+    fn to_string_pretty(&self, ext: SerializableExtension) -> TestSuiteResult<String> {
+        #[derive(Serialize, new)]
         struct WithType<T: Serialize> {
+            #[new(value = "\"simple\"")]
             r#type: &'static str,
             #[serde(flatten)]
             repr: T,
-        }
-
-        impl<T: Serialize> WithType<T> {
-            fn new(repr: T) -> Self {
-                Self {
-                    r#type: "simple",
-                    repr,
-                }
-            }
         }
 
         fn is_valid(s: &str) -> bool {
@@ -696,19 +667,19 @@ impl SimpleSuite {
 
         match ext {
             SerializableExtension::Json => {
-                serde_json::to_string_pretty(&WithType::new(self)).map_err(Into::into)
+                serde_json::to_string_pretty(&WithType::new(self)).ser_context()
             }
             SerializableExtension::Toml => {
-                toml::to_string_pretty(&WithType::new(self)).map_err(Into::into)
+                toml::to_string_pretty(&WithType::new(self)).ser_context()
             }
             SerializableExtension::Yaml | SerializableExtension::Yml => {
-                let mut r = serde_yaml::to_string(&WithType::new(self))?;
+                let mut r = serde_yaml::to_string(&WithType::new(self)).ser_context()?;
                 let cases = &self.cases;
                 let all_valid = cases.iter().all(|SimpleSuiteSchemaCase { input, output }| {
                     is_valid(input) && output.as_ref().map_or(true, |o| is_valid(o))
                 });
                 if all_valid {
-                    r = serde_yaml::to_string(&WithType::new(&self.head))?;
+                    r = serde_yaml::to_string(&WithType::new(&self.head)).ser_context()?;
                     r += "\ncases:\n";
                     for SimpleSuiteSchemaCase { input, output } in cases {
                         r += "  - in: |\n";
@@ -764,13 +735,13 @@ impl InteractiveSuite {
         tester_commands: &HashMap<String, Template<JudgingCommand>>,
         filename: &str,
         problem: &str,
-    ) -> SuiteFileResult<vec::IntoIter<InteractiveCase>> {
+    ) -> TestSuiteResult<vec::IntoIter<InteractiveCase>> {
         let mut cases = Vec::with_capacity(self.each_args.len());
         for (i, args) in self.each_args.iter().enumerate() {
             let lang = self
                 .tester
                 .as_ref()
-                .ok_or_else(|| LoadConfigError::LanguageNotSpecified)?;
+                .ok_or_else(|| ConfigError::from(ConfigErrorKind::LanguageNotSpecified))?;
             let mut m = hashmap!("*".to_owned() => args.join(" "));
             m.extend(args.iter().enumerate().zip_longest(1..=9).map(|p| match p {
                 EitherOrBoth::Both((_, arg), i) => (i.to_string(), arg.clone()),
@@ -788,7 +759,7 @@ impl InteractiveSuite {
             let tester = tester_commands
                 .get(lang)
                 .map(|template| template.clone().clone())
-                .ok_or_else(|| LoadConfigError::NoSuchLanguage(lang.to_owned()))?
+                .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(lang.to_owned())))?
                 .insert_strings(&m)
                 .expand(&problem)?;
             cases.push(InteractiveCase {
@@ -799,6 +770,23 @@ impl InteractiveSuite {
             });
         }
         Ok(cases.into_iter())
+    }
+}
+
+trait SerContext {
+    type Item;
+    fn ser_context(self) -> TestSuiteResult<Self::Item>;
+}
+
+impl<T, E: std::error::Error + Send + Sync + 'static> SerContext for std::result::Result<T, E> {
+    type Item = T;
+
+    fn ser_context(self) -> TestSuiteResult<T> {
+        self.map_err(|e| {
+            StdError::from(e)
+                .context(TestSuiteErrorKind::Serialize)
+                .into()
+        })
     }
 }
 

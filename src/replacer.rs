@@ -1,7 +1,8 @@
-use crate::errors::{CodeReplaceError, CodeReplaceResult};
+use crate::errors::{ReplaceCodeErrorKind, ReplaceCodeResult};
 use crate::template::{Template, TemplateBuilder};
 use crate::yaml;
 
+use failure::ResultExt as _ResultExt;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 
@@ -56,8 +57,15 @@ impl CodeReplacer {
         &self,
         problem: &str,
         code: &str,
-    ) -> CodeReplaceResult<String> {
-        let (from, to) = (self.local.expand(problem)?, self.submit.expand(problem)?);
+    ) -> ReplaceCodeResult<String> {
+        let from = self
+            .local
+            .expand(problem)
+            .context(ReplaceCodeErrorKind::ExpandTemplate("local"))?;
+        let to = self
+            .submit
+            .expand(problem)
+            .context(ReplaceCodeErrorKind::ExpandTemplate("submit"))?;
         self.replace(code, &from, &to)
     }
 
@@ -65,12 +73,19 @@ impl CodeReplacer {
         &self,
         problem: &str,
         code: &str,
-    ) -> CodeReplaceResult<String> {
-        let (from, to) = (self.submit.expand(problem)?, self.local.expand(problem)?);
+    ) -> ReplaceCodeResult<String> {
+        let from = self
+            .submit
+            .expand(problem)
+            .context(ReplaceCodeErrorKind::ExpandTemplate("submit"))?;
+        let to = self
+            .local
+            .expand(problem)
+            .context(ReplaceCodeErrorKind::ExpandTemplate("local"))?;
         self.replace(code, &from, &to)
     }
 
-    fn replace(&self, code: &str, from: &str, to: &str) -> CodeReplaceResult<String> {
+    fn replace(&self, code: &str, from: &str, to: &str) -> ReplaceCodeResult<String> {
         let mut replaced_p = false;
         let mut replaced_lines = vec![];
         for line in code.lines() {
@@ -81,19 +96,23 @@ impl CodeReplacer {
                             let mut r = line.as_bytes()[..m.start()].to_owned();
                             r.extend(to.as_bytes());
                             r.extend(&line.as_bytes()[m.end()..]);
-                            replaced_lines.push(Cow::from(String::from_utf8(r)?));
+                            let r =
+                                String::from_utf8(r).context(ReplaceCodeErrorKind::InvalidUtf8)?;
+                            replaced_lines.push(Cow::from(r));
                             replaced_p = true;
                             continue;
                         }
                     } else {
-                        return Err(CodeReplaceError::RegexGroupOutOfBounds(self.match_group));
+                        return Err(
+                            ReplaceCodeErrorKind::RegexGroupOutOfBounds(self.match_group).into(),
+                        );
                     }
                 }
             }
             replaced_lines.push(Cow::from(line));
         }
         if !replaced_p {
-            return Err(CodeReplaceError::NoMatch(self.regex.as_str().to_owned()));
+            return Err(ReplaceCodeErrorKind::NoMatch(self.regex.as_str().to_owned()).into());
         }
         let mut r = replaced_lines.join("\n");
         if code.ends_with('\n') {
@@ -105,7 +124,7 @@ impl CodeReplacer {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::CodeReplaceError;
+    use crate::errors::ReplaceCodeErrorKind;
     use crate::replacer::CodeReplacer;
     use crate::template::TemplateBuilder;
 
@@ -152,8 +171,8 @@ object Foo {}
 
         let replaced = code_replacer(1).replace(CODE, "A", "Main").unwrap();
         assert_eq!(EXPECTED, replaced);
-        match code_replacer(2).replace(CODE, "", "").unwrap_err() {
-            CodeReplaceError::RegexGroupOutOfBounds(2) => {}
+        match code_replacer(2).replace(CODE, "", "").unwrap_err().kind() {
+            ReplaceCodeErrorKind::RegexGroupOutOfBounds(2) => {}
             e => panic!("{}", e),
         }
     }
