@@ -6,11 +6,14 @@ extern crate if_chain;
 extern crate serde;
 extern crate serde_derive;
 extern crate serde_yaml;
+extern crate strum;
 extern crate tempdir;
 
 mod common;
 
+use if_chain::if_chain;
 use snowchains::app::{App, Opt};
+use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceName;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
@@ -25,15 +28,23 @@ use std::path::Path;
 fn it_logins() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();
-    common::test_in_tempdir("it_logins", credentials, login);
+    common::test_in_tempdir("it_logins", credentials, login).unwrap();
 }
 
 #[test]
-#[should_panic(expected = "called `Result::unwrap()` on an `Err` value: Service(LoginOnTest)")]
 fn it_raises_an_when_login_fails() {
     let _ = env_logger::try_init();
     let credentials = common::dummy_credentials();
-    common::test_in_tempdir("it_raises_an_when_login_fails", credentials, login);
+    let err =
+        common::test_in_tempdir("it_raises_an_when_login_fails", credentials, login).unwrap_err();
+    if_chain! {
+        if let Some(snowchains::Error::Service(ServiceError::Context(ctx))) = err.downcast_ref();
+        if let ServiceErrorKind::LoginOnTest = ctx.get_context();
+        then {
+        } else {
+            panic!("{:?}", err);
+        }
+    }
 }
 
 fn login(mut app: App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> snowchains::Result<()> {
@@ -67,7 +78,7 @@ fn it_scrapes_samples_from_practice() {
             just_confirm_num_samples_and_timelimit(&download_dir, "b", 0, "2000ms");
             Ok(())
         },
-    );
+    ).unwrap();
 }
 
 #[test]
@@ -96,7 +107,7 @@ fn it_scrapes_samples_from_arc058() {
             just_confirm_num_samples_and_timelimit(&download_dir, "f", 3, "5000ms");
             Ok(())
         },
-    );
+    ).unwrap();
 }
 
 fn just_confirm_num_samples_and_timelimit(dir: &Path, name: &str, n: usize, t: &str) {
@@ -161,5 +172,5 @@ if __name__ == '__main__':
                 problem: "a".to_owned(),
             }).map_err(Into::into)
         },
-    );
+    ).unwrap();
 }

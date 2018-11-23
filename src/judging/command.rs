@@ -1,7 +1,8 @@
-use crate::errors::{JudgeError, JudgeResult};
+use crate::errors::{JudgeErrorKind, JudgeResult, StdError};
 use crate::path::AbsPathBuf;
 use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
 
+use failure::Fail as _Fail;
 use itertools::Itertools as _Itertools;
 use tokio_process::CommandExt as _CommandExt;
 
@@ -75,7 +76,9 @@ impl CompilationCommand {
             .stdout(O::process_redirection())
             .stderr(E::process_redirection());
         let start = Instant::now();
-        let status = proc.status().map_err(self.map_err())?;
+        let status = proc.status().map_err(|e| {
+            StdError::from(e).context(JudgeErrorKind::Command(self.inner.arg0.clone()))
+        })?;
         let elapsed = Instant::now() - start;
 
         let (mes, color) = match status.code() {
@@ -94,12 +97,8 @@ impl CompilationCommand {
             }
             Ok(())
         } else {
-            Err(JudgeError::Compile(status))
+            Err(JudgeErrorKind::Compile(status).into())
         }
-    }
-
-    fn map_err<'a>(&'a self) -> impl Fn(io::Error) -> JudgeError + 'a {
-        move |err| JudgeError::Command(self.inner.arg0.clone(), err)
     }
 }
 
@@ -162,7 +161,11 @@ impl JudgingCommand {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn_async()
-            .map_err(|e| JudgeError::Command(self.inner.arg0.clone(), e))
+            .map_err(|e| {
+                StdError::from(e)
+                    .context(JudgeErrorKind::Command(self.inner.arg0.clone()))
+                    .into()
+            })
     }
 }
 

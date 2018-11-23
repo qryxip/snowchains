@@ -1,13 +1,14 @@
-use crate::errors::{SessionError, SessionResult, StartSessionError};
+use crate::errors::{FileResult, ServiceErrorKind, ServiceResult};
 use crate::fs::LockedFile;
 use crate::path::AbsPath;
 use crate::service::USER_AGENT;
 use crate::terminal::WriteAnsi;
 
 use cookie::CookieJar;
-use failure::ResultExt as _ResultExt;
+use derive_new::new;
+use failure::{Fail as _Fail, Fallible, ResultExt as _ResultExt};
 use maplit::hashmap;
-use reqwest::header::{self, HeaderValue, InvalidHeaderValue};
+use reqwest::header::{self, HeaderValue};
 use reqwest::{multipart, Method, Response, StatusCode};
 use robots_txt::{Robots, SimpleMatcher};
 use select::document::Document;
@@ -35,49 +36,46 @@ impl HttpSession {
         client: reqwest::Client,
         base: impl Into<Option<UrlBase>>,
         cookies_path: impl Into<Option<&'a AbsPath>>,
-    ) -> SessionResult<Self> {
-        let start = move || -> SessionResult<Self> {
-            let base = base.into();
-            let host = base.as_ref().map(|base| base.host.clone());
-            let jar = match cookies_path.into() {
-                Some(path) => Some(AutosavedCookieJar::try_new(path)?),
-                None => None,
-            };
-            let mut this = Self {
-                client,
-                robots_txts: hashmap!(),
-                base,
-                jar,
-            };
-            if let Some(host) = host {
-                let mut res = this
-                    .get("/robots.txt", &mut stdout)
-                    .acceptable(&[200, 301, 302, 404])
-                    .send()?;
-                while [301, 302, 404].contains(&res.status().as_u16()) {
-                    if let Some(location) =
-                        res.headers().get(header::LOCATION).map(ToOwned::to_owned)
-                    {
-                        let location = location.to_str()?;
-                        res = this
-                            .get(location, &mut stdout)
-                            .acceptable(&[200, 301, 302, 404])
-                            .send()?;
-                    } else {
-                        return Ok(this);
-                    }
-                }
-                match res.status() {
-                    StatusCode::OK => {
-                        this.robots_txts.insert(host.to_string(), res.text()?);
-                    }
-                    StatusCode::NOT_FOUND => (),
-                    _ => unreachable!(),
+    ) -> ServiceResult<Self> {
+        let base = base.into();
+        let host = base.as_ref().map(|base| base.host.clone());
+        let jar = match cookies_path.into() {
+            Some(path) => Some(AutosavedCookieJar::try_new(path)?),
+            None => None,
+        };
+        let mut this = Self {
+            client,
+            robots_txts: hashmap!(),
+            base,
+            jar,
+        };
+        if let Some(host) = host {
+            let mut res = this
+                .get("/robots.txt", &mut stdout)
+                .acceptable(&[200, 301, 302, 404])
+                .send()?;
+            while [301, 302, 404].contains(&res.status().as_u16()) {
+                if let Some(location) = res.headers().get(header::LOCATION).map(ToOwned::to_owned) {
+                    let location = location
+                        .to_str()
+                        .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
+                    res = this
+                        .get(location, &mut stdout)
+                        .acceptable(&[200, 301, 302, 404])
+                        .send()?;
+                } else {
+                    return Ok(this);
                 }
             }
-            Ok(this)
-        };
-        start().context(StartSessionError).map_err(Into::into)
+            match res.status() {
+                StatusCode::OK => {
+                    this.robots_txts.insert(host.to_string(), res.text()?);
+                }
+                StatusCode::NOT_FOUND => (),
+                _ => unreachable!(),
+            }
+        }
+        Ok(this)
     }
 
     /// Whether it has any cookie value.
@@ -88,15 +86,15 @@ impl HttpSession {
         }
     }
 
-    pub fn cookies_to_header_value(&self) -> SessionResult<Option<HeaderValue>> {
+    pub fn cookies_to_header_value(&self) -> ServiceResult<Option<HeaderValue>> {
         match self.jar.as_ref().map(AutosavedCookieJar::to_header_value) {
             None => Ok(None),
             Some(Ok(v)) => Ok(Some(v)),
-            Some(Err(e)) => Err(e.into()),
+            Some(Err(e)) => Err(e),
         }
     }
 
-    pub fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> SessionResult<()> {
+    pub fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> ServiceResult<()> {
         match self.jar.as_mut() {
             None => Ok(()),
             Some(jar) => jar.insert_cookie(cookie),
@@ -104,7 +102,7 @@ impl HttpSession {
     }
 
     /// Removes all cookies.
-    pub fn clear_cookies(&mut self) -> SessionResult<()> {
+    pub fn clear_cookies(&mut self) -> ServiceResult<()> {
         if let Some(jar) = self.jar.as_mut() {
             jar.inner = CookieJar::new();
             jar.save()?;
@@ -114,16 +112,17 @@ impl HttpSession {
 
     /// If `url` starts with '/' and the base host is present, returns
     /// http(s)://<host><url>.
-    pub fn resolve_url(&self, url: &str) -> SessionResult<Url> {
+    pub fn resolve_url(&self, url: &str) -> ServiceResult<Url> {
         match self.base.as_ref() {
             Some(base) => base.with(url),
-            None => Url::parse(url).map_err(|e| SessionError::ParseUrl(url.to_owned(), e)),
+            None => Url::parse(url)
+                .map_err(|e| e.context(ServiceErrorKind::ParseUrl(url.to_owned())).into()),
         }
     }
 
     /// Opens `url`, which is relative or absolute, with default browser
     /// printing a message.
-    pub fn open_in_browser(&mut self, url: &str, mut stdout: impl WriteAnsi) -> SessionResult<()> {
+    pub fn open_in_browser(&mut self, url: &str, mut stdout: impl WriteAnsi) -> ServiceResult<()> {
         let url = self.resolve_url(url)?;
         writeln!(stdout, "Opening {} in default browser...", url)?;
         stdout.flush()?;
@@ -131,7 +130,7 @@ impl HttpSession {
         if status.success() {
             Ok(())
         } else {
-            Err(SessionError::Webbrowser(status))
+            Err(ServiceErrorKind::Webbrowser(status).into())
         }
     }
 
@@ -158,7 +157,7 @@ impl HttpSession {
         }
     }
 
-    fn try_request(&mut self, url: &str, method: Method) -> SessionResult<reqwest::RequestBuilder> {
+    fn try_request(&mut self, url: &str, method: Method) -> ServiceResult<reqwest::RequestBuilder> {
         let url = self.resolve_url(url)?;
         self.assert_not_forbidden_by_robots_txt(&url)?;
         let mut req = self.client.request(method, url.as_str());
@@ -168,13 +167,13 @@ impl HttpSession {
         Ok(req)
     }
 
-    fn assert_not_forbidden_by_robots_txt(&self, url: &Url) -> SessionResult<()> {
+    fn assert_not_forbidden_by_robots_txt(&self, url: &Url) -> ServiceResult<()> {
         if let Some(host) = url.host_str() {
             if let Some(robots_txt) = self.robots_txts.get(host) {
                 let robots = Robots::from_str(robots_txt);
                 let matcher = SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules);
                 if !matcher.check_path(url.path()) {
-                    return Err(SessionError::ForbiddenByRobotsTxt);
+                    return Err(ServiceErrorKind::ForbiddenByRobotsTxt.into());
                 }
             }
         }
@@ -183,7 +182,7 @@ impl HttpSession {
 }
 
 pub(crate) struct Request<'a, O: WriteAnsi> {
-    inner: SessionResult<reqwest::RequestBuilder>,
+    inner: ServiceResult<reqwest::RequestBuilder>,
     stdout: O,
     session: &'a mut HttpSession,
     acceptable: Vec<StatusCode>,
@@ -209,7 +208,7 @@ impl<'a, O: WriteAnsi> Request<'a, O> {
         Self { acceptable, ..self }
     }
 
-    pub fn send(mut self) -> SessionResult<Response> {
+    pub fn send(mut self) -> ServiceResult<Response> {
         let req = self.inner?.build()?;
         let client = &self.session.client;
         req.echo_method(&mut self.stdout)?;
@@ -228,32 +227,32 @@ impl<'a, O: WriteAnsi> Request<'a, O> {
         res.filter_by_status(self.acceptable)
     }
 
-    pub fn send_form(self, form: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
+    pub fn send_form(self, form: &(impl Serialize + ?Sized)) -> ServiceResult<Response> {
         Self {
             inner: self.inner.map(|inner| inner.form(form)),
             ..self
         }.send()
     }
 
-    pub fn send_json(self, json: &(impl Serialize + ?Sized)) -> SessionResult<Response> {
+    pub fn send_json(self, json: &(impl Serialize + ?Sized)) -> ServiceResult<Response> {
         Self {
             inner: self.inner.map(|inner| inner.json(json)),
             ..self
         }.send()
     }
 
-    pub fn send_multipart(self, multipart: multipart::Form) -> SessionResult<Response> {
+    pub fn send_multipart(self, multipart: multipart::Form) -> ServiceResult<Response> {
         Self {
             inner: self.inner.map(|inner| inner.multipart(multipart)),
             ..self
         }.send()
     }
 
-    pub fn recv_html(self) -> SessionResult<Document> {
+    pub fn recv_html(self) -> ServiceResult<Document> {
         Ok(Document::from(self.send()?.text()?.as_str()))
     }
 
-    pub fn recv_json<T: DeserializeOwned>(self) -> SessionResult<T> {
+    pub fn recv_json<T: DeserializeOwned>(self) -> ServiceResult<T> {
         Ok(self.send()?.json()?)
     }
 }
@@ -281,7 +280,7 @@ where
         expected_statuses: &[StatusCode],
         stdout: impl WriteAnsi,
     ) -> io::Result<()>;
-    fn filter_by_status(self, expected: Vec<StatusCode>) -> SessionResult<Self>;
+    fn filter_by_status(self, expected: Vec<StatusCode>) -> ServiceResult<Self>;
 }
 
 impl ResponseExt for Response {
@@ -300,16 +299,20 @@ impl ResponseExt for Response {
         out.flush()
     }
 
-    fn filter_by_status(self, expected: Vec<StatusCode>) -> SessionResult<Self> {
+    fn filter_by_status(self, expected: Vec<StatusCode>) -> ServiceResult<Self> {
         if expected.is_empty() || expected.contains(&self.status()) {
             Ok(self)
         } else {
-            Err(SessionError::UnexpectedStatusCode(expected, self.status()))
+            Err(ServiceErrorKind::UnexpectedStatusCode(
+                self.url().to_owned(),
+                self.status(),
+                expected,
+            ).into())
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, new)]
 pub(crate) struct UrlBase {
     host: Host<&'static str>,
     https: bool,
@@ -317,11 +320,7 @@ pub(crate) struct UrlBase {
 }
 
 impl UrlBase {
-    pub fn new(host: Host<&'static str>, https: bool, port: Option<u16>) -> Self {
-        Self { host, https, port }
-    }
-
-    fn with(&self, relative_or_absolute_url: &str) -> SessionResult<Url> {
+    fn with(&self, relative_or_absolute_url: &str) -> ServiceResult<Url> {
         let mut url = Cow::from(relative_or_absolute_url);
         if url.starts_with('/') {
             url = format!(
@@ -335,7 +334,10 @@ impl UrlBase {
                 url,
             ).into();
         }
-        Url::parse(&url).map_err(|e| SessionError::ParseUrl(url.into_owned(), e))
+        Url::parse(&url).map_err(|e| {
+            e.context(ServiceErrorKind::ParseUrl(url.into_owned()))
+                .into()
+        })
     }
 }
 
@@ -346,15 +348,15 @@ struct AutosavedCookieJar {
 }
 
 impl AutosavedCookieJar {
-    fn try_new(path: &AbsPath) -> SessionResult<Self> {
+    fn try_new(path: &AbsPath) -> ServiceResult<Self> {
         let mut file = LockedFile::try_new(path)?;
         let mut inner = CookieJar::new();
         if !file.is_empty()? {
             let cookies = file.bincode::<Vec<String>>()?;
             if !cookies.is_empty() {
                 for cookie in cookies {
-                    let cookie = cookie::Cookie::parse(cookie.clone()).map_err(|e| {
-                        SessionError::ParseCookieFromPath(cookie, path.to_owned(), e)
+                    let cookie = cookie::Cookie::parse(cookie.clone()).with_context(|_| {
+                        ServiceErrorKind::ParseCookieFromPath(path.to_owned(), cookie)
                     })?;
                     inner.add(cookie);
                 }
@@ -365,7 +367,7 @@ impl AutosavedCookieJar {
         Ok(Self { file, inner })
     }
 
-    fn to_header_value(&self) -> std::result::Result<HeaderValue, InvalidHeaderValue> {
+    fn to_header_value(&self) -> ServiceResult<HeaderValue> {
         let s = self.inner.iter().fold("".to_owned(), |mut s, cookie| {
             if !s.is_empty() {
                 s.push_str(";");
@@ -374,30 +376,35 @@ impl AutosavedCookieJar {
             s
         });
         HeaderValue::from_str(&s)
+            .with_context(|_| ServiceErrorKind::ParseCookieFromPath(self.file.path().to_owned(), s))
+            .map_err(Into::into)
     }
 
-    fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> SessionResult<()> {
+    fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> ServiceResult<()> {
         self.inner.add(cookie);
         self.save().map_err(Into::into)
     }
 
-    fn update(&mut self, response: &Response) -> SessionResult<()> {
-        fn parse_setcookie(setcookie: &HeaderValue) -> Option<cookie::Cookie<'static>> {
-            let setcookie = setcookie.to_str().ok()?;
-            let cookie = cookie::Cookie::parse(setcookie).ok()?;
-            Some(cookie.into_owned())
+    fn update(&mut self, response: &Response) -> ServiceResult<()> {
+        fn parse_setcookie(setcookie: &HeaderValue) -> Fallible<cookie::Cookie<'static>> {
+            let setcookie = setcookie.to_str()?;
+            let cookie = cookie::Cookie::parse(setcookie)?;
+            Ok(cookie.into_owned())
         }
 
         for setcookie in response.headers().get_all(header::SET_COOKIE) {
-            let cookie = parse_setcookie(setcookie).ok_or_else(|| {
-                SessionError::ParseCookieFromUrl(setcookie.to_owned(), response.url().to_owned())
+            let cookie = parse_setcookie(setcookie).with_context(|_| {
+                ServiceErrorKind::ParseCookieFromUrl(
+                    response.url().to_owned(),
+                    setcookie.to_owned(),
+                )
             })?;
             self.inner.add(cookie);
         }
         self.save().map_err(Into::into)
     }
 
-    fn save(&mut self) -> io::Result<()> {
+    fn save(&mut self) -> FileResult<()> {
         let value = self
             .inner
             .iter()
@@ -409,14 +416,13 @@ impl AutosavedCookieJar {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::SessionError;
+    use crate::errors::{FileError, FileErrorKind, ServiceError, ServiceErrorKind};
     use crate::path::AbsPathBuf;
     use crate::service;
     use crate::service::session::{HttpSession, UrlBase};
     use crate::terminal::tests::Ansi;
 
-    use env_logger;
-    use failure::Fail as _Fail;
+    use if_chain::if_chain;
     use nickel::{Nickel, _middleware_inner, _router_inner, as_block, as_pat, middleware, router};
     use reqwest::header;
     use tempdir::TempDir;
@@ -456,9 +462,14 @@ mod tests {
                 .acceptable(&[])
                 .send()
                 .unwrap();
-            match sess.get("/sensitive", &mut wtr).send().unwrap_err() {
-                SessionError::ForbiddenByRobotsTxt => {}
-                err => panic!("{:?}", err),
+            if_chain! {
+                let err = sess.get("/sensitive", &mut wtr).send().unwrap_err();
+                if let ServiceError::Context(ctx) = &err;
+                if let ServiceErrorKind::ForbiddenByRobotsTxt = ctx.get_context();
+                then {
+                } else {
+                    panic!("{:?}", err);
+                }
             }
             assert_eq!(
                 str::from_utf8(wtr.get_ref().get_ref()).unwrap(),
@@ -493,8 +504,8 @@ mod tests {
         HttpSession::try_new(&mut wtr, client.clone(), None, path).unwrap();
         let _session = HttpSession::try_new(&mut wtr, client.clone(), None, path).unwrap();
         let err = HttpSession::try_new(&mut wtr, client, None, path).unwrap_err();
-        if let SessionError::Start(ref ctx) = err {
-            if ctx.cause().is_some() {
+        if let ServiceError::File(FileError::Context(kind)) = &err {
+            if let FileErrorKind::Lock(_) = kind.get_context() {
                 return tempdir.close().unwrap();
             }
         }

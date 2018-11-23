@@ -1,10 +1,9 @@
-use crate::errors::{
-    ExpandTemplateResult, ServiceError, ServiceResult, SessionError, SessionResult,
-};
+use crate::errors::{ExpandTemplateResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service;
 use crate::testsuite::DownloadDestinations;
 
+use failure::Fail as _Fail;
 use futures::sync::oneshot;
 use futures::{future, task, Async, Future, Poll, Stream};
 use itertools::Itertools as _Itertools;
@@ -87,7 +86,7 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
                 }
                 Err(err) => {
                     header_result_tx.send(Err(())).unwrap();
-                    return Err(err.into());
+                    return Err(err);
                 }
             };
             let works = resps
@@ -130,12 +129,12 @@ struct Urls {
 }
 
 impl Urls {
-    fn try_to_urls(&self) -> SessionResult<Vec<Url>> {
+    fn try_to_urls(&self) -> ServiceResult<Vec<Url>> {
         self.names
             .iter()
             .map(|name| {
                 let url = format!("{}{}{}", self.pref, name, self.suf);
-                Url::parse(&url).map_err(|err| SessionError::ParseUrl(url, err))
+                Url::parse(&url).map_err(|e| e.context(ServiceErrorKind::ParseUrl(url)).into())
             }).collect()
     }
 }
@@ -155,14 +154,14 @@ impl fmt::Display for Urls {
 fn receive_header(
     client: &reqwest::r#async::Client,
     url: Url,
-) -> impl Future<Item = reqwest::r#async::Response, Error = SessionError> {
+) -> impl Future<Item = reqwest::r#async::Response, Error = ServiceError> {
     client
-        .get(url)
+        .get(url.clone())
         .send()
-        .map_err(SessionError::from)
+        .map_err(ServiceError::from)
         .and_then(|resp| match resp.status() {
             StatusCode::OK => Ok(resp),
-            s => Err(SessionError::UnexpectedStatusCode(vec![StatusCode::OK], s)),
+            s => Err(ServiceErrorKind::UnexpectedStatusCode(url, s, vec![StatusCode::OK]).into()),
         })
 }
 
@@ -189,7 +188,10 @@ impl DownloadBody {
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<usize>().ok());
         let cap = len.unwrap_or(ALT_CAPACITY);
-        let file = BufWriter::with_capacity(cap, crate::fs::create_file_and_dirs(path)?);
+        let file = BufWriter::with_capacity(
+            cap,
+            crate::fs::create_file_and_dirs(path).unwrap_or_else(|_| unimplemented!()),
+        );
         progress_bar.total = len.map(|n| n as u64).unwrap_or(0);
         progress_bar.set_units(Units::Bytes);
         Ok(Self {

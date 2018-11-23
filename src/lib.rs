@@ -1,8 +1,12 @@
+extern crate snowchains_proc_macros;
+
 extern crate atty;
 extern crate bincode;
 extern crate chrono;
 extern crate combine;
 extern crate cookie;
+extern crate derive_more;
+extern crate derive_new;
 extern crate diff;
 extern crate dirs;
 extern crate failure;
@@ -26,6 +30,8 @@ extern crate serde_json;
 extern crate serde_urlencoded;
 extern crate serde_yaml;
 extern crate structopt;
+extern crate strum;
+extern crate strum_macros;
 extern crate tokio;
 extern crate tokio_core;
 extern crate tokio_process;
@@ -50,36 +56,27 @@ extern crate nickel;
 #[cfg(test)]
 extern crate env_logger;
 #[cfg(test)]
+extern crate if_chain;
+#[cfg(test)]
 extern crate tempdir;
 
 #[macro_use]
 mod macros;
 
 pub mod app;
+pub mod errors;
 pub mod path;
 pub mod service;
 pub mod terminal;
-pub mod util;
 
 mod config;
-mod errors;
 mod fs;
 mod judging;
 mod replacer;
 mod template;
 mod testsuite;
 mod time;
+mod util;
 mod yaml;
 
-pub use crate::errors::{Error, Result};
-
-use std::fmt;
-
-#[derive(Debug)]
-pub enum Never {}
-
-impl fmt::Display for Never {
-    fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result {
-        unreachable!()
-    }
-}
+pub use crate::errors::{Error, ErrorKind, Result};

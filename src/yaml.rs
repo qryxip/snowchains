@@ -1,3 +1,4 @@
+use derive_more::From;
 use itertools::Itertools as _Itertools;
 use maplit::{btreeset, hashmap};
 use regex::Regex;
@@ -8,7 +9,7 @@ use yaml_rust::{Yaml, YamlEmitter};
 
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
-use std::{cmp, fmt, str};
+use std::{cmp, str};
 
 pub(crate) fn serialize_regex<S: Serializer>(
     regex: &Regex,
@@ -176,28 +177,14 @@ pub(crate) fn replace_scalars(
     }
 }
 
-#[derive(Debug)]
+#[derive(From, Debug, derive_more::Display)]
 pub(crate) enum ReplaceYamlScalarWarning {
+    #[display(fmt = "{}", _0)]
     Deserialize(serde_yaml::Error),
+    #[display(fmt = "{}", _0)]
     Scan(ScanError),
+    #[display(fmt = "Anchor and alias not supported")]
     AnchorAndAliasNotSupported,
+    #[display(fmt = "Unexpected element")]
     UnexpectedElement,
-}
-
-derive_from!(
-    ReplaceYamlScalarWarning::Deserialize <- serde_yaml::Error,
-    ReplaceYamlScalarWarning::Scan <- ScanError,
-);
-
-impl fmt::Display for ReplaceYamlScalarWarning {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ReplaceYamlScalarWarning::Deserialize(e) => write!(f, "{}", e),
-            ReplaceYamlScalarWarning::Scan(e) => write!(f, "{}", e),
-            ReplaceYamlScalarWarning::AnchorAndAliasNotSupported => {
-                write!(f, "Anchor and alias not supported")
-            }
-            ReplaceYamlScalarWarning::UnexpectedElement => write!(f, "Unexpected element"),
-        }
-    }
 }

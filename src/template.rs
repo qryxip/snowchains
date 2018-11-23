@@ -1,9 +1,9 @@
-use crate::errors::{ExpandTemplateError, ExpandTemplateErrorContext, ExpandTemplateResult};
+use crate::errors::{ExpandTemplateErrorKind, ExpandTemplateResult, StdError};
 use crate::judging::command::{CompilationCommand, JudgingCommand};
 use crate::path::{AbsPath, AbsPathBuf};
 
 use combine::Parser;
-use failure::ResultExt as _ResultExt;
+use failure::{Fail as _Fail, ResultExt as _ResultExt};
 use heck::{
     CamelCase as _CamelCase, KebabCase as _KebabCase, MixedCase as _MixedCase,
     ShoutySnakeCase as _ShoutySnakeCase, SnakeCase as _SnakeCase, TitleCase as _TitleCase,
@@ -387,10 +387,10 @@ impl Tokens {
                                 Some(v) => Cow::Borrowed(v.as_ref()),
                                 None => env::var(k).map(Cow::Owned).map_err(|e| match e {
                                     env::VarError::NotPresent => {
-                                        ExpandTemplateError::EnvVarNotPresent(k.to_owned())
+                                        ExpandTemplateErrorKind::EnvVarNotPresent(k.to_owned())
                                     }
-                                    env::VarError::NotUnicode(v) => {
-                                        ExpandTemplateError::EnvVarNotUnicode(k.to_owned(), v)
+                                    env::VarError::NotUnicode(_) => {
+                                        ExpandTemplateErrorKind::EnvVarNotUnicode(k.to_owned())
                                     }
                                 })?,
                             };
@@ -401,7 +401,7 @@ impl Tokens {
                 }
                 Ok(r)
             },
-            || ExpandTemplateErrorContext::Str {
+            || ExpandTemplateErrorKind::Str {
                 tokens: self.clone(),
                 problem: problem.to_owned(),
             },
@@ -428,7 +428,7 @@ impl Tokens {
                                 .or_else(|| os_strings.get(k.as_str()).map(|&v| Cow::Borrowed(v)));
                             let value = value.or_else(|| env::var_os(k).map(Cow::Owned));
                             let value = value.ok_or_else(|| {
-                                ExpandTemplateError::EnvVarNotPresent(k.to_owned())
+                                ExpandTemplateErrorKind::EnvVarNotPresent(k.to_owned())
                             })?;
                             r.push(&value);
                         }
@@ -437,7 +437,7 @@ impl Tokens {
                 }
                 Ok(r)
             },
-            || ExpandTemplateErrorContext::OsStr {
+            || ExpandTemplateErrorKind::OsStr {
                 tokens: self.clone(),
                 problem: problem.to_owned(),
             },
@@ -450,23 +450,23 @@ impl Tokens {
         base_dir: &AbsPath,
         strings: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<str>>,
     ) -> ExpandTemplateResult<AbsPathBuf> {
-        self.expand_with_context(
-            || {
-                self.expand_as_os_string(problem, strings, &hashmap!())
-                    .and_then(|s| base_dir.join_expanding_tilde(&s).map_err(Into::into))
-            },
-            || ExpandTemplateErrorContext::Path {
-                tokens: self.clone(),
-                problem: problem.to_owned(),
-                base_dir: base_dir.to_owned(),
-            },
-        )
+        self.expand_as_os_string(problem, strings, &hashmap!())
+            .and_then(|s| {
+                base_dir.join_expanding_tilde(&s).map_err(|e| {
+                    StdError::from(e)
+                        .context(ExpandTemplateErrorKind::Path {
+                            tokens: self.clone(),
+                            problem: problem.to_owned(),
+                            base_dir: base_dir.to_owned(),
+                        }).into()
+                })
+            })
     }
 
     fn expand_with_context<T: Target>(
         &self,
         f1: impl FnOnce() -> ExpandTemplateResult<T>,
-        f2: impl FnOnce() -> ExpandTemplateErrorContext,
+        f2: impl FnOnce() -> ExpandTemplateErrorKind,
     ) -> ExpandTemplateResult<T> {
         f1().with_context(|_| f2()).map_err(Into::into)
     }
@@ -484,7 +484,7 @@ fn apply_specifier<'a>(problem: &'a str, specifier: &str) -> ExpandTemplateResul
         s if s.eq_ignore_ascii_case("mixed") => Ok(Owned(problem.to_mixed_case())),
         s if s.eq_ignore_ascii_case("pascal") => Ok(Owned(problem.to_camel_case())),
         s if s.eq_ignore_ascii_case("title") => Ok(Owned(problem.to_title_case())),
-        s => Err(ExpandTemplateError::UnknownSpecifier(s.to_owned())),
+        s => Err(ExpandTemplateErrorKind::UnknownSpecifier(s.to_owned()).into()),
     }
 }
 
@@ -517,15 +517,10 @@ pub(crate) struct JudgingCommandRequirements {
 
 type ParseTemplateResult<T> = std::result::Result<T, ParseTemplateError>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, derive_more::Display)]
+#[display(fmt = "Failed to parse {:?}", input)]
 pub struct ParseTemplateError {
     input: String,
-}
-
-impl fmt::Display for ParseTemplateError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Failed to parse {:?}", self.input)
-    }
 }
 
 #[cfg(test)]

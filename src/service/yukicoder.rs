@@ -1,4 +1,4 @@
-use crate::errors::{ServiceError, ServiceResult, SessionResult, SubmitError};
+use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
 use crate::service::downloader::ZipDownloader;
 use crate::service::session::HttpSession;
 use crate::service::{
@@ -9,6 +9,7 @@ use crate::terminal::{Term, WriteAnsi as _WriteAnsi};
 use crate::testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
+use failure::ResultExt as _ResultExt;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::{header, multipart, StatusCode};
@@ -59,7 +60,7 @@ impl<T: Term> Service for Yukicoder<T> {
 }
 
 impl<T: Term> Yukicoder<T> {
-    fn try_new(mut sess_props: SessionProps<T>) -> SessionResult<Self> {
+    fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
         let credential = sess_props.credentials.yukicoder.clone();
         let session = sess_props.start_session()?;
         Ok(Self {
@@ -73,7 +74,7 @@ impl<T: Term> Yukicoder<T> {
     fn login(&mut self, assure: bool) -> ServiceResult<()> {
         if let RevelSession::Some(revel_session) = self.credential.clone() {
             if !self.confirm_revel_session(revel_session.as_ref().clone())? {
-                return Err(ServiceError::LoginOnTest);
+                return Err(ServiceErrorKind::LoginOnTest.into());
             }
         }
         self.fetch_username()?;
@@ -117,7 +118,7 @@ impl<T: Term> Yukicoder<T> {
         Ok(self.username.name().is_some())
     }
 
-    fn fetch_username(&mut self) -> SessionResult<()> {
+    fn fetch_username(&mut self) -> ServiceResult<()> {
         self.username = self.get("/").recv_html()?.extract_username();
         Ok(())
     }
@@ -142,7 +143,9 @@ impl<T: Term> Yukicoder<T> {
             };
         let (mut outputs, mut nos) = (vec![], vec![]);
         match (contest, problems.as_ref()) {
-            (YukicoderContest::No, None) => return Err(ServiceError::PleaseSpecifyProblems),
+            (YukicoderContest::No, None) => {
+                return Err(ServiceErrorKind::PleaseSpecifyProblems.into())
+            }
             (YukicoderContest::No, Some(problems)) => {
                 let (mut not_found, mut not_public) = (vec![], vec![]);
                 for problem in problems {
@@ -242,7 +245,7 @@ impl<T: Term> Yukicoder<T> {
                 .filter(|(name, _)| name.eq_ignore_ascii_case(problem))
                 .map(|(_, href)| href)
                 .next()
-                .ok_or_else(|| SubmitError::NoSuchProblem(problem.clone()))?,
+                .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?,
         };
         url += "/submit";
         let no = {
@@ -252,7 +255,7 @@ impl<T: Term> Yukicoder<T> {
         };
         if let Some(no) = no {
             if !(self.filter_solved(&[no])?.is_empty() || *skip_checking_if_accepted) {
-                return Err(ServiceError::AlreadyAccepted);
+                return Err(ServiceErrorKind::AlreadyAccepted.into());
             }
         }
         let document = self.get(&url).recv_html()?;
@@ -266,22 +269,28 @@ impl<T: Term> Yukicoder<T> {
         let res = self.post(&url).send_multipart(form)?;
         let location = match res.headers().get(header::LOCATION) {
             None => None,
-            Some(location) => Some(self.session.resolve_url(location.to_str()?)?),
+            Some(location) => Some(
+                location
+                    .to_str()
+                    .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?,
+            ),
         };
         if let Some(location) = location.as_ref() {
-            if location
-                .as_str()
-                .starts_with("https://yukicoder.me/submissions/")
-            {
-                writeln!(self.stdout(), "Success: {}", location)?;
+            if location.starts_with("https://yukicoder.me/submissions/") {
+                writeln!(self.stdout(), "Success: {:?}", location)?;
                 self.stdout().flush()?;
                 if *open_browser {
-                    self.open_in_browser(location.as_str())?;
+                    self.open_in_browser(location)?;
                 }
                 return Ok(());
             }
         }
-        Err(SubmitError::Rejected(lang_id.clone(), code.len(), location).into())
+        Err(ServiceErrorKind::SubmissionRejected(
+            lang_id.clone(),
+            code.len(),
+            res.status(),
+            location.map(ToOwned::to_owned),
+        ).into())
     }
 
     fn filter_solved<'b>(
@@ -371,10 +380,10 @@ impl fmt::Display for Username {
 
 trait Extract {
     fn extract_username(&self) -> Username;
-    fn extract_samples(&self) -> ServiceResult<TestSuite>;
-    fn extract_problems(&self) -> ServiceResult<Vec<(String, String)>>;
-    fn extract_csrf_token_from_submit_page(&self) -> ServiceResult<String>;
-    fn extract_url_from_submit_page(&self) -> ServiceResult<String>;
+    fn extract_samples(&self) -> ScrapeResult<TestSuite>;
+    fn extract_problems(&self) -> ScrapeResult<Vec<(String, String)>>;
+    fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String>;
+    fn extract_url_from_submit_page(&self) -> ScrapeResult<String>;
 }
 
 impl Extract for Document {
@@ -394,7 +403,7 @@ impl Extract for Document {
         extract().unwrap_or(Username::None)
     }
 
-    fn extract_samples(&self) -> ServiceResult<TestSuite> {
+    fn extract_samples(&self) -> ScrapeResult<TestSuite> {
         #[derive(Clone, Copy, PartialEq)]
         enum ProblemKind {
             Regular,
@@ -450,10 +459,10 @@ impl Extract for Document {
                 ProblemKind::Reactive => Some(InteractiveSuite::new(timelimit).into()),
             }
         };
-        extract().ok_or(ServiceError::Scrape)
+        extract().ok_or_else(ScrapeError::new)
     }
 
-    fn extract_problems(&self) -> ServiceResult<Vec<(String, String)>> {
+    fn extract_problems(&self) -> ScrapeResult<Vec<(String, String)>> {
         let extract = || {
             let mut problems = vec![];
             for tr in self.find(selector!(#content>div.left>table.table>tbody>tr)) {
@@ -473,26 +482,26 @@ impl Extract for Document {
                 Some(problems)
             }
         };
-        extract().ok_or(ServiceError::Scrape)
+        extract().ok_or_else(ScrapeError::new)
     }
 
-    fn extract_csrf_token_from_submit_page(&self) -> ServiceResult<String> {
+    fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String> {
         self.find(
             selector!(#submit_form>input).child(selector!(input).and(Attr("name", "csrf_token"))),
         ).find_map(|input| input.attr("value").map(ToOwned::to_owned))
-        .ok_or(ServiceError::Scrape)
+        .ok_or_else(ScrapeError::new)
     }
 
-    fn extract_url_from_submit_page(&self) -> ServiceResult<String> {
+    fn extract_url_from_submit_page(&self) -> ScrapeResult<String> {
         self.find(selector!(submit_form))
             .find_map(|form| form.attr("action").map(ToOwned::to_owned))
-            .ok_or(ServiceError::Scrape)
+            .ok_or_else(ScrapeError::new)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::SessionResult;
+    use crate::errors::ServiceResult;
     use crate::service::session::{HttpSession, UrlBase};
     use crate::service::yukicoder::{Extract as _Extract, Username, Yukicoder};
     use crate::service::{self, RevelSession, Service as _Service};
@@ -582,7 +591,7 @@ mod tests {
             .collect()
     }
 
-    fn start() -> SessionResult<Yukicoder<impl Term>> {
+    fn start() -> ServiceResult<Yukicoder<impl Term>> {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("yukicoder.me"), true, None);
         let mut term = TermImpl::null();
