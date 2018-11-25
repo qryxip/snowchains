@@ -2,13 +2,13 @@ use crate::errors::{ConfigErrorKind, ConfigResult, FileResult};
 use crate::judging::command::{CompilationCommand, JudgingCommand};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::replacer::{CodeReplacer, CodeReplacerConf};
-use crate::service::{ServiceName, SessionConfig};
+use crate::service::ServiceName;
 use crate::template::{Template, TemplateBuilder};
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
 use crate::testsuite::{
     DownloadDestinations, SerializableExtension, SuiteFileExtension, TestCaseLoader, ZipConfig,
 };
-use crate::yaml;
+use crate::{time, yaml};
 
 use maplit::hashmap;
 use serde_derive::{Deserialize, Serialize};
@@ -41,6 +41,7 @@ console:
 
 session:
   timeout: 60s
+  silent: false
   cookies: {session_cookies}
 
 shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
@@ -404,7 +405,7 @@ pub(crate) struct Config {
     language: Option<String>,
     #[serde(default)]
     console: Console,
-    session: SessionConfig,
+    session: Session,
     shell: Vec<TemplateBuilder<OsString>>,
     judge: Judge,
     #[serde(default)]
@@ -417,7 +418,7 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    pub fn load(
+    pub(crate) fn load(
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
         dir: &AbsPath,
@@ -431,34 +432,41 @@ impl Config {
     }
 
     /// Gets `service`.
-    pub fn service(&self) -> ServiceName {
+    pub(crate) fn service(&self) -> ServiceName {
         self.service
     }
 
     /// Gets `contest`.
-    pub fn contest(&self) -> &str {
+    pub(crate) fn contest(&self) -> &str {
         &self.contest
     }
 
-    pub fn console(&self) -> &Console {
+    pub(crate) fn console(&self) -> &Console {
         &self.console
     }
 
     /// Gets `session.timeout`.
-    pub fn session_timeout(&self) -> Option<Duration> {
-        self.session.timeout()
+    pub(crate) fn session_timeout(&self) -> Option<Duration> {
+        self.session.timeout
+    }
+
+    pub(crate) fn session_silent(&self) -> bool {
+        self.session.silent
     }
 
     /// Gets `session.cookies` embedding "service" and "base_dir".
-    pub fn session_cookies(&self) -> Template<AbsPathBuf> {
-        self.session.cookies(&self.base_dir, self.service)
+    pub(crate) fn session_cookies(&self) -> Template<AbsPathBuf> {
+        self.session
+            .cookies
+            .build(&self.base_dir)
+            .strings(hashmap!("service".to_owned() => self.service.to_string()))
     }
 
-    pub fn judge_jobs(&self) -> NonZeroUsize {
+    pub(crate) fn judge_jobs(&self) -> NonZeroUsize {
         self.judge.jobs
     }
 
-    pub fn download_destinations(
+    pub(crate) fn download_destinations(
         &self,
         ext: Option<SerializableExtension>,
     ) -> DownloadDestinations {
@@ -472,7 +480,7 @@ impl Config {
         DownloadDestinations::new(template, ext)
     }
 
-    pub fn testcase_loader(&self) -> TestCaseLoader {
+    pub(crate) fn testcase_loader(&self) -> TestCaseLoader {
         let path = self
             .judge
             .path
@@ -488,7 +496,7 @@ impl Config {
         )
     }
 
-    pub fn src_paths(&self) -> HashMap<&str, Template<AbsPathBuf>> {
+    pub(crate) fn src_paths(&self) -> HashMap<&str, Template<AbsPathBuf>> {
         let vars = self.vars_for_langs(None);
         let mut templates = hashmap!();
         for lang in self.languages.values() {
@@ -500,19 +508,19 @@ impl Config {
         templates
     }
 
-    pub fn src_to_submit(&self, lang: Option<&str>) -> ConfigResult<Template<AbsPathBuf>> {
+    pub(crate) fn src_to_submit(&self, lang: Option<&str>) -> ConfigResult<Template<AbsPathBuf>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         let vars = self.vars_for_langs(None);
         Ok(lang.src.build(&self.base_dir).insert_strings(&vars))
     }
 
-    pub fn code_replacer(&self, lang: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
+    pub(crate) fn code_replacer(&self, lang: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         let vars = self.vars_for_langs(None);
         Ok(lang.replace.as_ref().map(|r| r.build(&vars)))
     }
 
-    pub fn code_replacers_on_atcoder(&self) -> ConfigResult<HashMap<&str, CodeReplacer>> {
+    pub(crate) fn code_replacers_on_atcoder(&self) -> ConfigResult<HashMap<&str, CodeReplacer>> {
         let mut replacers = hashmap!();
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.get(&ServiceName::Atcoder) {
@@ -526,7 +534,7 @@ impl Config {
         Ok(replacers)
     }
 
-    pub fn lang_id(&self, service: ServiceName, lang: Option<&str>) -> ConfigResult<&str> {
+    pub(crate) fn lang_id(&self, service: ServiceName, lang: Option<&str>) -> ConfigResult<&str> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         lang.language_ids
             .get(&service)
@@ -534,7 +542,7 @@ impl Config {
             .ok_or_else(|| ConfigErrorKind::PropertyNotSet("language_ids.atcoder").into())
     }
 
-    pub fn solver_compilation(
+    pub(crate) fn solver_compilation(
         &self,
         lang: Option<&str>,
     ) -> ConfigResult<Option<Template<CompilationCommand>>> {
@@ -542,7 +550,7 @@ impl Config {
         Ok(self.compilation_command(lang))
     }
 
-    pub fn solver(&self, lang: Option<&str>) -> ConfigResult<Template<JudgingCommand>> {
+    pub(crate) fn solver(&self, lang: Option<&str>) -> ConfigResult<Template<JudgingCommand>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         Ok(self.judge_command(lang))
     }
@@ -629,6 +637,17 @@ fn find_language<'a>(
 pub struct Console {
     #[serde(default)]
     pub(crate) cjk: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct Session {
+    #[serde(
+        serialize_with = "time::ser_secs",
+        deserialize_with = "time::de_secs",
+    )]
+    timeout: Option<Duration>,
+    silent: bool,
+    cookies: TemplateBuilder<AbsPathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]

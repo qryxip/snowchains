@@ -785,6 +785,7 @@ impl<T: Term> App<T> {
             domain: config.service().domain(),
             cookies_path,
             timeout: config.session_timeout(),
+            silent: config.session_silent(),
             credentials: self.credentials.clone(),
         })
     }

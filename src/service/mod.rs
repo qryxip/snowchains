@@ -8,16 +8,14 @@ pub(self) mod downloader;
 
 use crate::config::Config;
 use crate::errors::ServiceResult;
-use crate::path::{AbsPath, AbsPathBuf};
+use crate::path::AbsPathBuf;
 use crate::replacer::CodeReplacer;
 use crate::service::session::{HttpSession, UrlBase};
-use crate::template::{Template, TemplateBuilder};
+use crate::template::Template;
 use crate::terminal::{Term, WriteAnsi};
 use crate::testsuite::DownloadDestinations;
-use crate::time;
 
 use heck::KebabCase as _KebabCase;
-use maplit::hashmap;
 use reqwest::header::{self, HeaderMap};
 use reqwest::{RedirectPolicy, Response};
 use select::document::Document;
@@ -153,33 +151,12 @@ pub enum RevelSession {
     Some(Rc<String>),
 }
 
-#[derive(Serialize, Deserialize)]
-pub(crate) struct SessionConfig {
-    #[serde(
-        serialize_with = "time::ser_secs",
-        deserialize_with = "time::de_secs",
-    )]
-    timeout: Option<Duration>,
-    cookies: TemplateBuilder<AbsPathBuf>,
-}
-
-impl SessionConfig {
-    pub(crate) fn timeout(&self) -> Option<Duration> {
-        self.timeout
-    }
-
-    pub(crate) fn cookies(&self, base_dir: &AbsPath, service: ServiceName) -> Template<AbsPathBuf> {
-        self.cookies
-            .build(base_dir)
-            .strings(hashmap!("service".to_owned() => service.to_string()))
-    }
-}
-
 pub(crate) struct SessionProps<T: Term> {
     pub(crate) term: T,
     pub(crate) domain: Option<&'static str>,
     pub(crate) cookies_path: AbsPathBuf,
     pub(crate) timeout: Option<Duration>,
+    pub(crate) silent: bool,
     pub(crate) credentials: Credentials,
 }
 
@@ -194,6 +171,7 @@ impl<T: Term> SessionProps<T> {
             client,
             base,
             self.cookies_path.as_path(),
+            self.silent,
         )
     }
 }
@@ -440,6 +418,7 @@ pub(self) trait PrintTargets {
                 out.write_str("}")?;
             }
         }
-        writeln!(out)
+        writeln!(out)?;
+        out.flush()
     }
 }

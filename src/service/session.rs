@@ -7,6 +7,7 @@ use crate::terminal::WriteAnsi;
 use cookie::CookieJar;
 use derive_new::new;
 use failure::{Fail as _Fail, Fallible, ResultExt as _ResultExt};
+use log::info;
 use maplit::hashmap;
 use reqwest::header::{self, HeaderValue};
 use reqwest::{multipart, Method, Response, StatusCode};
@@ -28,14 +29,16 @@ pub(crate) struct HttpSession {
     robots_txts: HashMap<String, String>,
     base: Option<UrlBase>,
     jar: Option<AutosavedCookieJar>,
+    silent: bool,
 }
 
 impl HttpSession {
     pub fn try_new<'a>(
-        mut stdout: impl WriteAnsi,
+        mut out: impl WriteAnsi,
         client: reqwest::Client,
         base: impl Into<Option<UrlBase>>,
         cookies_path: impl Into<Option<&'a AbsPath>>,
+        silent: bool,
     ) -> ServiceResult<Self> {
         let base = base.into();
         let host = base.as_ref().map(|base| base.host.clone());
@@ -48,10 +51,11 @@ impl HttpSession {
             robots_txts: hashmap!(),
             base,
             jar,
+            silent,
         };
         if let Some(host) = host {
             let mut res = this
-                .get("/robots.txt", &mut stdout)
+                .get("/robots.txt", &mut out)
                 .acceptable(&[200, 301, 302, 404])
                 .send()?;
             while [301, 302, 404].contains(&res.status().as_u16()) {
@@ -60,7 +64,7 @@ impl HttpSession {
                         .to_str()
                         .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
                     res = this
-                        .get(location, &mut stdout)
+                        .get(location, &mut out)
                         .acceptable(&[200, 301, 302, 404])
                         .send()?;
                 } else {
@@ -122,10 +126,10 @@ impl HttpSession {
 
     /// Opens `url`, which is relative or absolute, with default browser
     /// printing a message.
-    pub fn open_in_browser(&mut self, url: &str, mut stdout: impl WriteAnsi) -> ServiceResult<()> {
+    pub fn open_in_browser(&mut self, url: &str, mut out: impl WriteAnsi) -> ServiceResult<()> {
         let url = self.resolve_url(url)?;
-        writeln!(stdout, "Opening {} in default browser...", url)?;
-        stdout.flush()?;
+        writeln!(out, "Opening {} in default browser...", url)?;
+        out.flush()?;
         let status = webbrowser::open(url.as_str())?.status;
         if status.success() {
             Ok(())
@@ -134,12 +138,12 @@ impl HttpSession {
         }
     }
 
-    pub fn get<O: WriteAnsi>(&mut self, url: &str, stdout: O) -> self::Request<O> {
-        self.request(url, Method::GET, vec![StatusCode::OK], stdout)
+    pub fn get<O: WriteAnsi>(&mut self, url: &str, out: O) -> self::Request<O> {
+        self.request(url, Method::GET, vec![StatusCode::OK], out)
     }
 
-    pub fn post<O: WriteAnsi>(&mut self, url: &str, stdout: O) -> self::Request<O> {
-        self.request(url, Method::POST, vec![StatusCode::FOUND], stdout)
+    pub fn post<O: WriteAnsi>(&mut self, url: &str, out: O) -> self::Request<O> {
+        self.request(url, Method::POST, vec![StatusCode::FOUND], out)
     }
 
     fn request<O: WriteAnsi>(
@@ -147,11 +151,11 @@ impl HttpSession {
         url: &str,
         method: Method,
         acceptable: Vec<StatusCode>,
-        stdout: O,
+        out: O,
     ) -> self::Request<O> {
         self::Request {
             inner: self.try_request(url, method),
-            stdout,
+            out: if self.silent { None } else { Some(out) },
             session: self,
             acceptable,
         }
@@ -183,13 +187,13 @@ impl HttpSession {
 
 pub(crate) struct Request<'a, O: WriteAnsi> {
     inner: ServiceResult<reqwest::RequestBuilder>,
-    stdout: O,
+    out: Option<O>,
     session: &'a mut HttpSession,
     acceptable: Vec<StatusCode>,
 }
 
 impl<'a, O: WriteAnsi> Request<'a, O> {
-    pub fn x_csrf_token(self, token: &str) -> Self {
+    pub(crate) fn x_csrf_token(self, token: &str) -> Self {
         Self {
             inner: self.inner.map(|inner| inner.header("X-CSRF-Token", token)),
             ..self
@@ -199,7 +203,7 @@ impl<'a, O: WriteAnsi> Request<'a, O> {
     /// Panics:
     ///
     /// Panics if `statuses` contains `n` such that `n < 100 || 600 <= n`.
-    pub fn acceptable(self, statuses: &'static [u16]) -> Self {
+    pub(crate) fn acceptable(self, statuses: &'static [u16]) -> Self {
         let acceptable = statuses
             .iter()
             .map(|&n| StatusCode::from_u16(n))
@@ -208,60 +212,73 @@ impl<'a, O: WriteAnsi> Request<'a, O> {
         Self { acceptable, ..self }
     }
 
-    pub fn send(mut self) -> ServiceResult<Response> {
+    pub(crate) fn send(mut self) -> ServiceResult<Response> {
         let req = self.inner?.build()?;
         let client = &self.session.client;
-        req.echo_method(&mut self.stdout)?;
+        req.log_method();
+        if let Some(out) = self.out.as_mut() {
+            req.echo_method(out)?;
+        }
         let res = match client.execute(req) {
             Ok(res) => Ok(res),
             Err(err) => {
-                writeln!(self.stdout)?;
-                self.stdout.flush()?;
+                if let Some(out) = self.out.as_mut() {
+                    writeln!(out)?;
+                    out.flush()?;
+                }
                 Err(err)
             }
         }?;
-        res.echo_status(&self.acceptable, self.stdout)?;
+        if let Some(out) = self.out.as_mut() {
+            res.echo_status(&self.acceptable, out)?;
+        }
+        res.log_status();
         if let Some(jar) = self.session.jar.as_mut() {
             jar.update(&res)?;
         }
         res.filter_by_status(self.acceptable)
     }
 
-    pub fn send_form(self, form: &(impl Serialize + ?Sized)) -> ServiceResult<Response> {
+    pub(crate) fn send_form(self, form: &(impl Serialize + ?Sized)) -> ServiceResult<Response> {
         Self {
             inner: self.inner.map(|inner| inner.form(form)),
             ..self
         }.send()
     }
 
-    pub fn send_json(self, json: &(impl Serialize + ?Sized)) -> ServiceResult<Response> {
+    pub(crate) fn send_json(self, json: &(impl Serialize + ?Sized)) -> ServiceResult<Response> {
         Self {
             inner: self.inner.map(|inner| inner.json(json)),
             ..self
         }.send()
     }
 
-    pub fn send_multipart(self, multipart: multipart::Form) -> ServiceResult<Response> {
+    pub(crate) fn send_multipart(self, multipart: multipart::Form) -> ServiceResult<Response> {
         Self {
             inner: self.inner.map(|inner| inner.multipart(multipart)),
             ..self
         }.send()
     }
 
-    pub fn recv_html(self) -> ServiceResult<Document> {
+    pub(crate) fn recv_html(self) -> ServiceResult<Document> {
         Ok(Document::from(self.send()?.text()?.as_str()))
     }
 
-    pub fn recv_json<T: DeserializeOwned>(self) -> ServiceResult<T> {
+    pub(crate) fn recv_json<T: DeserializeOwned>(self) -> ServiceResult<T> {
         Ok(self.send()?.json()?)
     }
 }
 
-trait EchoMethod {
+trait RequestExt {
+    fn log_method(&self);
     fn echo_method(&self, out: impl WriteAnsi) -> io::Result<()>;
 }
 
-impl EchoMethod for reqwest::Request {
+impl RequestExt for reqwest::Request {
+    fn log_method(&self) {
+        info!("{}: {}", self.method(), self.url());
+    }
+
     fn echo_method(&self, mut out: impl WriteAnsi) -> io::Result<()> {
         out.with_reset(|o| o.bold()?.write_str(self.method()))?;
         out.write_str(" ")?;
@@ -275,15 +292,16 @@ trait ResponseExt
 where
     Self: Sized,
 {
-    fn echo_status(
-        &self,
-        expected_statuses: &[StatusCode],
-        stdout: impl WriteAnsi,
-    ) -> io::Result<()>;
+    fn log_status(&self);
+    fn echo_status(&self, expected_statuses: &[StatusCode], out: impl WriteAnsi) -> io::Result<()>;
     fn filter_by_status(self, expected: Vec<StatusCode>) -> ServiceResult<Self>;
 }
 
 impl ResponseExt for Response {
+    fn log_status(&self) {
+        info!("{}", self.status());
+    }
+
     fn echo_status(
         &self,
         expected_statuses: &[StatusCode],
@@ -451,7 +469,7 @@ mod tests {
             let client = service::reqwest_client(None).unwrap();
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
             let mut wtr = Ansi::new(Cursor::new(Vec::<u8>::new()));
-            let mut sess = HttpSession::try_new(&mut wtr, client, Some(base), None).unwrap();
+            let mut sess = HttpSession::try_new(&mut wtr, client, Some(base), None, false).unwrap();
             let res = sess.get("/", &mut wtr).send().unwrap();
             assert!(res.headers().get(header::SET_COOKIE).is_some());
             sess.get("/nonexisting", &mut wtr)
@@ -500,10 +518,10 @@ mod tests {
         let path = path.as_path();
         let client = service::reqwest_client(None).unwrap();
         let mut wtr = Ansi::new(io::sink());
-        HttpSession::try_new(&mut wtr, client.clone(), None, path).unwrap();
-        HttpSession::try_new(&mut wtr, client.clone(), None, path).unwrap();
-        let _session = HttpSession::try_new(&mut wtr, client.clone(), None, path).unwrap();
-        let err = HttpSession::try_new(&mut wtr, client, None, path).unwrap_err();
+        HttpSession::try_new(&mut wtr, client.clone(), None, path, true).unwrap();
+        HttpSession::try_new(&mut wtr, client.clone(), None, path, true).unwrap();
+        let _session = HttpSession::try_new(&mut wtr, client.clone(), None, path, true).unwrap();
+        let err = HttpSession::try_new(&mut wtr, client, None, path, true).unwrap_err();
         if let ServiceError::File(FileError::Context(kind)) = &err {
             if let FileErrorKind::Lock(_) = kind.get_context() {
                 return tempdir.close().unwrap();
