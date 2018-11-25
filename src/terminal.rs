@@ -424,15 +424,11 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
 
     #[cfg(windows)]
     fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice) {
-        fn enable_virtual_terminal_processing(handle: &winapi_util::HandleRef) -> io::Result<()> {
+        fn virtual_terminal_processing_enabled(handle: &winapi_util::HandleRef) -> bool {
             use winapi::um::wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-
-            let current = winapi_util::console::mode(handle)?;
-            let new = current | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            if current != new {
-                winapi_util::console::set_mode(handle, new)?;
-            }
-            Ok(())
+            winapi_util::console::mode(handle)
+                .ok()
+                .map_or(false, |mode| mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0)
         }
 
         enum EnvKind {
@@ -441,37 +437,29 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
             PossiblyWinConsole,
         }
 
-        let term = env::var("TERM");
-        let term = term.as_ref().map(String::as_str);
-        let kind = if term == Ok("dumb") || term == Ok("cygwin") {
-            EnvKind::DumbOrCygwin
-        } else if env::var_os("MSYSTEM").is_some() && term.is_ok() {
-            EnvKind::Msys
-        } else {
-            EnvKind::PossiblyWinConsole
-        };
-        let p = match choice {
+        self.supports_color = match choice {
             AnsiColorChoice::Never => false,
-            AnsiColorChoice::Always => {
-                if let EnvKind::PossiblyWinConsole = kind {
-                    if let Some(h) = W::windows_handle_ref() {
-                        let _ = enable_virtual_terminal_processing(&h);
+            AnsiColorChoice::Always => true,
+            AnsiColorChoice::Auto => {
+                let term = env::var("TERM");
+                let term = term.as_ref().map(String::as_str);
+                let kind = if term == Ok("dumb") || term == Ok("cygwin") {
+                    EnvKind::DumbOrCygwin
+                } else if env::var_os("MSYSTEM").is_some() && term.is_ok() {
+                    EnvKind::Msys
+                } else {
+                    EnvKind::PossiblyWinConsole
+                };
+                match kind {
+                    EnvKind::DumbOrCygwin => false,
+                    EnvKind::Msys => W::is_tty(),
+                    EnvKind::PossiblyWinConsole => {
+                        W::is_tty() && W::windows_handle_ref()
+                            .map_or(false, |h| virtual_terminal_processing_enabled(&h))
                     }
                 }
-                true
-            }
-            AnsiColorChoice::Auto => {
-                W::is_tty() && match kind {
-                    EnvKind::DumbOrCygwin => false,
-                    EnvKind::Msys => true,
-                    EnvKind::PossiblyWinConsole => W::windows_handle_ref()
-                        .map_or(false, |h| enable_virtual_terminal_processing(&h).is_ok()),
-                }
             }
         };
-        if p {
-            self.supports_color = true;
-        }
     }
 
     fn apply_conf(&mut self, conf: &config::Console) {
