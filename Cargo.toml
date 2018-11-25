@@ -42,6 +42,7 @@ serde_yaml = "0.8.7"
 structopt = { version = "0.2.13", features = ["wrap_help"] }
 strum = "0.11.0"
 strum_macros = "0.11.0"
+term_size = "0.3.1"
 tokio = "0.1.13"
 tokio-core = "0.1.17"
 tokio-process = "0.2.3"
@@ -51,9 +52,6 @@ url = "1.7.2"
 webbrowser = "0.3.1"
 yaml-rust = "0.4.2"
 zip = "0.5.0"
-
-[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
-libc = "0.2.44"
 
 [target.'cfg(windows)'.dependencies]
 winapi = "0.3.6"

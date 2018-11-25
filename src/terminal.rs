@@ -8,9 +8,6 @@ use std::io::{
 };
 use std::{env, process};
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::mem;
-
 pub trait WriteSpaces {
     fn write_spaces(&mut self, n: usize) -> io::Result<()>;
 }
@@ -126,39 +123,9 @@ impl<'a, W: TermOut + ?Sized> TermOut for &'a mut W {
 pub trait StandardOutput: Write {
     fn process_redirection() -> process::Stdio;
     fn is_tty() -> bool;
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    unsafe fn libc_fileno() -> Option<libc::c_int>;
+    fn columns() -> Option<usize>;
     #[cfg(windows)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef>;
-
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-    fn columns() -> Option<usize> {
-        None
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    fn columns() -> Option<usize> {
-        unsafe {
-            let fd = Self::libc_fileno()?;
-            let mut winsize = mem::zeroed::<libc::winsize>();
-            if libc::ioctl(fd, libc::TIOCGWINSZ, &mut winsize) != 0 || winsize.ws_col == 0 {
-                None
-            } else {
-                Some(winsize.ws_col as usize)
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    fn columns() -> Option<usize> {
-        let info = winapi_util::console::screen_buffer_info(Self::windows_handle_ref()?).ok()?;
-        let (columns, _) = info.size();
-        if columns > 0 {
-            Some(columns as usize)
-        } else {
-            None
-        }
-    }
 }
 
 impl<'a> StandardOutput for BufWriter<StdoutLock<'a>> {
@@ -170,9 +137,8 @@ impl<'a> StandardOutput for BufWriter<StdoutLock<'a>> {
         atty::is(atty::Stream::Stdout)
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    unsafe fn libc_fileno() -> Option<libc::c_int> {
-        Some(libc::STDOUT_FILENO)
+    fn columns() -> Option<usize> {
+        term_size::dimensions_stdout().map(|(c, _)| c)
     }
 
     #[cfg(windows)]
@@ -190,9 +156,8 @@ impl<'a> StandardOutput for BufWriter<StderrLock<'a>> {
         atty::is(atty::Stream::Stderr)
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    unsafe fn libc_fileno() -> Option<libc::c_int> {
-        Some(libc::STDERR_FILENO)
+    fn columns() -> Option<usize> {
+        term_size::dimensions_stderr().map(|(c, _)| c)
     }
 
     #[cfg(windows)]
@@ -210,8 +175,7 @@ impl StandardOutput for io::Sink {
         false
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    unsafe fn libc_fileno() -> Option<libc::c_int> {
+    fn columns() -> Option<usize> {
         None
     }
 
