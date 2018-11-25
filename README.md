@@ -104,6 +104,7 @@ console:
 
 session:
   timeout: 60s
+  silent: false
   cookies: ~/.local/share/snowchains/$service
 
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.

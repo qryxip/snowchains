@@ -32,6 +32,7 @@ extern crate serde_yaml;
 extern crate structopt;
 extern crate strum;
 extern crate strum_macros;
+extern crate term_size;
 extern crate tokio;
 extern crate tokio_core;
 extern crate tokio_process;
@@ -41,9 +42,6 @@ extern crate url;
 extern crate webbrowser;
 extern crate yaml_rust;
 extern crate zip;
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-extern crate libc;
 
 #[cfg(windows)]
 extern crate winapi;

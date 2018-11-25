@@ -8,9 +8,6 @@ use std::io::{
 };
 use std::{env, process};
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::mem;
-
 pub trait WriteSpaces {
     fn write_spaces(&mut self, n: usize) -> io::Result<()>;
 }
@@ -126,39 +123,9 @@ impl<'a, W: TermOut + ?Sized> TermOut for &'a mut W {
 pub trait StandardOutput: Write {
     fn process_redirection() -> process::Stdio;
     fn is_tty() -> bool;
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    unsafe fn libc_fileno() -> Option<libc::c_int>;
+    fn columns() -> Option<usize>;
     #[cfg(windows)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef>;
-
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-    fn columns() -> Option<usize> {
-        None
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    fn columns() -> Option<usize> {
-        unsafe {
-            let fd = Self::libc_fileno()?;
-            let mut winsize = mem::zeroed::<libc::winsize>();
-            if libc::ioctl(fd, libc::TIOCGWINSZ, &mut winsize) != 0 || winsize.ws_col == 0 {
-                None
-            } else {
-                Some(winsize.ws_col as usize)
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    fn columns() -> Option<usize> {
-        let info = winapi_util::console::screen_buffer_info(Self::windows_handle_ref()?).ok()?;
-        let (columns, _) = info.size();
-        if columns > 0 {
-            Some(columns as usize)
-        } else {
-            None
-        }
-    }
 }
 
 impl<'a> StandardOutput for BufWriter<StdoutLock<'a>> {
@@ -170,9 +137,8 @@ impl<'a> StandardOutput for BufWriter<StdoutLock<'a>> {
         atty::is(atty::Stream::Stdout)
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    unsafe fn libc_fileno() -> Option<libc::c_int> {
-        Some(libc::STDOUT_FILENO)
+    fn columns() -> Option<usize> {
+        term_size::dimensions_stdout().map(|(c, _)| c)
     }
 
     #[cfg(windows)]
@@ -190,9 +156,8 @@ impl<'a> StandardOutput for BufWriter<StderrLock<'a>> {
         atty::is(atty::Stream::Stderr)
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    unsafe fn libc_fileno() -> Option<libc::c_int> {
-        Some(libc::STDERR_FILENO)
+    fn columns() -> Option<usize> {
+        term_size::dimensions_stderr().map(|(c, _)| c)
     }
 
     #[cfg(windows)]
@@ -210,8 +175,7 @@ impl StandardOutput for io::Sink {
         false
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    unsafe fn libc_fileno() -> Option<libc::c_int> {
+    fn columns() -> Option<usize> {
         None
     }
 
@@ -460,15 +424,11 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
 
     #[cfg(windows)]
     fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice) {
-        fn enable_virtual_terminal_processing(handle: &winapi_util::HandleRef) -> io::Result<()> {
+        fn virtual_terminal_processing_enabled(handle: &winapi_util::HandleRef) -> bool {
             use winapi::um::wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-
-            let current = winapi_util::console::mode(handle)?;
-            let new = current | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            if current != new {
-                winapi_util::console::set_mode(handle, new)?;
-            }
-            Ok(())
+            winapi_util::console::mode(handle)
+                .ok()
+                .map_or(false, |mode| mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0)
         }
 
         enum EnvKind {
@@ -477,37 +437,29 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
             PossiblyWinConsole,
         }
 
-        let term = env::var("TERM");
-        let term = term.as_ref().map(String::as_str);
-        let kind = if term == Ok("dumb") || term == Ok("cygwin") {
-            EnvKind::DumbOrCygwin
-        } else if env::var_os("MSYSTEM").is_some() && term.is_ok() {
-            EnvKind::Msys
-        } else {
-            EnvKind::PossiblyWinConsole
-        };
-        let p = match choice {
+        self.supports_color = match choice {
             AnsiColorChoice::Never => false,
-            AnsiColorChoice::Always => {
-                if let EnvKind::PossiblyWinConsole = kind {
-                    if let Some(h) = W::windows_handle_ref() {
-                        let _ = enable_virtual_terminal_processing(&h);
+            AnsiColorChoice::Always => true,
+            AnsiColorChoice::Auto => {
+                let term = env::var("TERM");
+                let term = term.as_ref().map(String::as_str);
+                let kind = if term == Ok("dumb") || term == Ok("cygwin") {
+                    EnvKind::DumbOrCygwin
+                } else if env::var_os("MSYSTEM").is_some() && term.is_ok() {
+                    EnvKind::Msys
+                } else {
+                    EnvKind::PossiblyWinConsole
+                };
+                match kind {
+                    EnvKind::DumbOrCygwin => false,
+                    EnvKind::Msys => W::is_tty(),
+                    EnvKind::PossiblyWinConsole => {
+                        W::is_tty() && W::windows_handle_ref()
+                            .map_or(false, |h| virtual_terminal_processing_enabled(&h))
                     }
                 }
-                true
-            }
-            AnsiColorChoice::Auto => {
-                W::is_tty() && match kind {
-                    EnvKind::DumbOrCygwin => false,
-                    EnvKind::Msys => true,
-                    EnvKind::PossiblyWinConsole => W::windows_handle_ref()
-                        .map_or(false, |h| enable_virtual_terminal_processing(&h).is_ok()),
-                }
             }
         };
-        if p {
-            self.supports_color = true;
-        }
     }
 
     fn apply_conf(&mut self, conf: &config::Console) {

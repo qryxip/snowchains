@@ -1265,7 +1265,7 @@ mod tests {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
         let mut term = TermImpl::null();
-        let session = HttpSession::try_new(term.stdout(), client, base, None)?;
+        let session = HttpSession::try_new(term.stdout(), client, base, None, true)?;
         Ok(Atcoder {
             term,
             session,
