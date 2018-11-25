@@ -32,7 +32,7 @@ fn main() -> io::Result<()> {
             } else {
                 "caused by: "
             };
-            stderr.with_reset(|o| o.fg(9)?.bold()?.write_str(head))?;
+            stderr.with_reset(|o| o.fg(1)?.bold()?.write_str(head))?;
             for (i, line) in cause.to_string().lines().enumerate() {
                 if i > 0 {
                     stderr.write_spaces(head.len())?;
