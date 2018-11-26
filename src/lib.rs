@@ -34,7 +34,6 @@ extern crate strum;
 extern crate strum_macros;
 extern crate term_size;
 extern crate tokio;
-extern crate tokio_core;
 extern crate tokio_process;
 extern crate toml;
 extern crate unicode_width;

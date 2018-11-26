@@ -11,6 +11,7 @@ use pbr::{MultiBar, Pipe, ProgressBar, Units};
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use reqwest::r#async::Decoder;
 use reqwest::{RedirectPolicy, StatusCode};
+use tokio::runtime::Runtime;
 use url::Url;
 use zip::ZipArchive;
 
@@ -77,9 +78,9 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
             let works = urls
                 .try_to_urls()?
                 .into_iter()
-                .map(|url| receive_header(&client, url));
-            let mut core = tokio_core::reactor::Core::new()?;
-            let resps = match core.run(future::join_all(works)) {
+                .map(move |url| receive_header(&client, url));
+            let mut runtime = Runtime::new()?;
+            let resps = match runtime.block_on(future::join_all(works)) {
                 Ok(resps) => {
                     header_result_tx.send(Ok(resps.len())).unwrap();
                     resps
@@ -95,7 +96,7 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
                 .zip(pb_rx.collect().wait().unwrap())
                 .map(|((resp, path), pb)| DownloadBody::try_new(resp, &path, pb))
                 .collect::<io::Result<Vec<_>>>()?;
-            core.run(future::join_all(works).map(|_| ()))
+            runtime.block_on(future::join_all(works).map(|_| ()))
         });
         match header_result_rx.wait() {
             Ok(Ok(1)) => {
