@@ -1,5 +1,6 @@
 extern crate snowchains;
 
+extern crate ctrlc;
 extern crate env_logger;
 extern crate failure;
 extern crate structopt;
@@ -9,14 +10,15 @@ use snowchains::path::AbsPathBuf;
 use snowchains::service::Credentials;
 use snowchains::terminal::{Term, TermImpl, WriteAnsi as _WriteAnsi, WriteSpaces as _WriteSpaces};
 
-use failure::Fail;
+use failure::{Fail, Fallible};
 use structopt::StructOpt as _StructOpt;
 
 use std::io::{self, Write as _Write};
 use std::process;
 
-fn main() -> io::Result<()> {
+fn main() -> Fallible<()> {
     env_logger::init();
+    ctrlc::set_handler(|| ())?;
     let opt = Opt::from_args();
     let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
     let mut term = TermImpl::new(&stdin, &stdout, &stderr);

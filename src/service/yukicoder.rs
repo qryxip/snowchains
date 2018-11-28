@@ -3,23 +3,25 @@ use crate::service::downloader::ZipDownloader;
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, RevelSession,
-    Service, SessionProps, SubmitProps, TryIntoDocument as _TryIntoDocument,
+    Service, SessionProps, SubmitProps,
 };
 use crate::terminal::{Term, WriteAnsi as _WriteAnsi};
 use crate::testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
 use failure::ResultExt as _ResultExt;
+use multipart::client::lazy::Multipart;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use reqwest::{header, multipart, StatusCode};
+use reqwest::{header, StatusCode};
 use select::document::Document;
 use select::predicate::{Attr, Predicate as _Predicate, Text};
 use serde_derive::Deserialize;
+use tokio::runtime::Runtime;
 
-use std::fmt;
 use std::io::Write as _Write;
 use std::time::Duration;
+use std::{fmt, io};
 
 pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
     Yukicoder::try_new(sess_props)?.login(true)
@@ -31,8 +33,7 @@ pub(crate) fn download(
 ) -> ServiceResult<()> {
     let download_props = download_props.convert_contest_and_problems(ProblemNameConversion::Upper);
     download_props.print_targets(sess_props.term.stdout())?;
-    let timeout = sess_props.timeout;
-    Yukicoder::try_new(sess_props)?.download(&download_props, timeout)
+    Yukicoder::try_new(sess_props)?.download(&download_props)
 }
 
 pub(crate) fn submit(
@@ -47,6 +48,7 @@ pub(crate) fn submit(
 struct Yukicoder<T: Term> {
     term: T,
     session: HttpSession,
+    runtime: Runtime,
     username: Username,
     credential: RevelSession,
 }
@@ -54,18 +56,20 @@ struct Yukicoder<T: Term> {
 impl<T: Term> Service for Yukicoder<T> {
     type Term = T;
 
-    fn session_and_term(&mut self) -> (&mut HttpSession, &mut T) {
-        (&mut self.session, &mut self.term)
+    fn requirements(&mut self) -> (&mut T, &mut HttpSession, &mut Runtime) {
+        (&mut self.term, &mut self.session, &mut self.runtime)
     }
 }
 
 impl<T: Term> Yukicoder<T> {
     fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
         let credential = sess_props.credentials.yukicoder.clone();
-        let session = sess_props.start_session()?;
+        let mut runtime = Runtime::new()?;
+        let session = sess_props.start_session(&mut runtime)?;
         Ok(Self {
             term: sess_props.term,
             session,
+            runtime,
             username: Username::None,
             credential,
         })
@@ -123,11 +127,7 @@ impl<T: Term> Yukicoder<T> {
         Ok(())
     }
 
-    fn download(
-        &mut self,
-        download_props: &DownloadProps<YukicoderContest>,
-        timeout: Option<Duration>,
-    ) -> ServiceResult<()> {
+    fn download(&mut self, download_props: &DownloadProps<YukicoderContest>) -> ServiceResult<()> {
         let DownloadProps {
             contest,
             problems,
@@ -152,7 +152,7 @@ impl<T: Term> Yukicoder<T> {
                     let url = format!("/problems/no/{}", problem);
                     let res = self.get(&url).acceptable(&[200, 404]).send()?;
                     let status = res.status();
-                    let document = res.try_into_document()?;
+                    let document = res.document(&mut self.runtime)?;
                     let public = document
                         .find(selector!(#content).child(Text))
                         .next()
@@ -202,12 +202,12 @@ impl<T: Term> Yukicoder<T> {
             static URL_SUF: &str = "/testcase.zip";
             let cookie = self.session.cookies_to_header_value()?;
             ZipDownloader {
+                client: self.session.client(),
                 out: self.stdout(),
                 url_pref: URL_PREF,
                 url_suf: URL_SUF,
                 destinations,
                 names: &nos,
-                timeout,
                 cookie,
             }.download()?;
         }
@@ -260,11 +260,13 @@ impl<T: Term> Yukicoder<T> {
         }
         let document = self.get(&url).recv_html()?;
         let token = document.extract_csrf_token_from_submit_page()?;
-        let form = multipart::Form::new()
-            .text("csrf_token", token)
-            .text("lang", lang_id.clone())
-            .text("source", code.clone())
-            .text("submit", "提出する");
+        let form = Multipart::new()
+            .add_text("csrf_token", token)
+            .add_text("lang", lang_id.as_str())
+            .add_text("source", code.as_str())
+            .add_text("submit", "提出する")
+            .prepare()
+            .map_err(Into::<io::Error>::into)?;
         let url = document.extract_url_from_submit_page()?;
         let res = self.post(&url).send_multipart(form)?;
         let location = match res.headers().get(header::LOCATION) {
@@ -308,7 +310,7 @@ impl<T: Term> Yukicoder<T> {
             let solved_nos = self
                 .get(&url)
                 .send()?
-                .json::<Vec<Problem>>()?
+                .json::<Vec<Problem>>(&mut self.runtime)?
                 .into_iter()
                 .map(|problem| problem.no.to_string())
                 .collect::<Vec<_>>();
@@ -508,6 +510,7 @@ mod tests {
     use crate::terminal::{Term, TermImpl};
     use crate::testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 
+    use tokio::runtime::Runtime;
     use url::Host;
 
     use std::borrow::Borrow;
@@ -595,10 +598,12 @@ mod tests {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("yukicoder.me"), true, None);
         let mut term = TermImpl::null();
-        let session = HttpSession::try_new(term.stdout(), client, base, None, true)?;
+        let mut runtime = Runtime::new()?;
+        let session = HttpSession::try_new(term.stdout(), &mut runtime, client, base, None, true)?;
         Ok(Yukicoder {
             term,
             session,
+            runtime,
             username: Username::None,
             credential: RevelSession::None,
         })

@@ -2,13 +2,13 @@ pub(crate) mod command;
 mod interactive;
 mod simple;
 mod text;
-use crate::util::std_unstable::AsMillis_;
 
 use crate::config::Config;
 use crate::errors::{JudgeErrorKind, JudgeResult, TestSuiteResult};
 use crate::judging::command::JudgingCommand;
 use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use crate::testsuite::{SimpleCase, TestCase, TestCases};
+use crate::util::std_unstable::AsMillis_;
 
 use futures::{Future, Sink as _Sink, Stream as _Stream};
 use tokio::runtime::Runtime;
@@ -118,6 +118,14 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
 
         let (tx, rx) = futures::sync::mpsc::channel(num_cases);
         let mut runtime = Runtime::new()?;
+        {
+            let tx = tx.clone();
+            runtime.spawn(ctrl_c().then(move |r| {
+                let (dummy_i, dummy_name) = (num_cases, Arc::new("".to_owned()));
+                let _ = tx.send((dummy_i, dummy_name, r)).wait();
+                Ok(())
+            }));
+        }
         for _ in 0..jobs.get() {
             spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge)?;
         }
@@ -166,7 +174,7 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
             stderr.flush()?;
         }
         outcomes.sort_by_key(|(i, _, _)| *i);
-        let _ = runtime.shutdown_on_idle().wait();
+        let _ = runtime.shutdown_now().wait();
 
         if num_failures == 0 {
             for (i, name, outcome) in outcomes {
@@ -208,6 +216,17 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
             }));
         }
         Ok(())
+    }
+
+    fn ctrl_c<T>() -> impl Future<Item = T, Error = io::Error> {
+        tokio_signal::ctrl_c()
+            .flatten_stream()
+            .take(1)
+            .into_future()
+            .map_err(|(e, _)| e)
+            .and_then::<_, io::Result<T>>(|_| {
+                Err(io::Error::new(io::ErrorKind::Interrupted, "Interrupted"))
+            })
     }
 
     let JudgeParams {

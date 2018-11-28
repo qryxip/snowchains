@@ -17,7 +17,7 @@ environment:
     HACKERRANK_PASSWORD:
       secure: YCYQSV4TkGO8oHAkURbWzb6P57lzjE7NxUxy/c1XA2E=
     YUKICODER_REVEL_SESSION:
-      secure: rP8YsAvXYCoynuZozzvOucSzyybl7HggzAuKhlFQCocBkskrxJfBQPdQWQZVFgZ8F5GC/Z8QqKRW/dBsUC0p3hUtvdpvdlN7uhChxBMA4UhwmjZoy8xa8oR1RoWPCvOk2c0hv6QJIJ4wzjGkXQTHpHR6E3B4fJgzrfr6ErfkqMiITsw96J9p3ZyutJzVo6rGDof1AHfDYx/XRbhgxNlks0aL2a9yRwaO1TZZOjduKvHVnCOc7QV1k1/yMBwH65fhBcovC+1KDJLq7AZ0kVZMSg==
+      secure: +JsUS1EKWUXIyQua5MjhDUwBk9Fhig5e9ssDVf4igj0l6zaQ6JKwHwETHJPpYi0es1375TAognd5LBLNvvVvAIGnwefisDctfmvPDP8vUIvwl51cUAqfG5pYtpt7opdZiu/zLSQL3JXyXofHYgtZAKdrvROCt28ZHF+1hB16zIrAWjWlOYLBC3/eIGnQniybWMNMqSdOvkqy1RmZIukWWxaRr5v5eoN3KQ9GyqQB+Iks209TrgPwlUAMrnD3aVRLshkfhhPAIVUDJfAUDSkpVA==
 
 install:
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:RUSTUP_HOST}/rustup-init.exe"
