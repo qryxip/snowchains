@@ -1,6 +1,5 @@
 use crate::errors::{ExpandTemplateResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service;
 use crate::testsuite::DownloadDestinations;
 
 use failure::Fail as _Fail;
@@ -8,9 +7,10 @@ use futures::sync::oneshot;
 use futures::{future, task, Async, Future, Poll, Stream};
 use itertools::Itertools as _Itertools;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
-use reqwest::header::{self, HeaderMap, HeaderValue};
+use reqwest::header::{self, HeaderValue};
 use reqwest::r#async::Decoder;
-use reqwest::{RedirectPolicy, StatusCode};
+use reqwest::StatusCode;
+use tokio::runtime::Runtime;
 use url::Url;
 use zip::ZipArchive;
 
@@ -25,7 +25,7 @@ pub(super) struct ZipDownloader<'a, W: io::Write, S: AsRef<str> + 'a> {
     pub url_suf: &'static str,
     pub destinations: &'a DownloadDestinations,
     pub names: &'a [S],
-    pub timeout: Option<Duration>,
+    pub client: reqwest::r#async::Client,
     pub cookie: Option<HeaderValue>,
 }
 
@@ -41,7 +41,7 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
             .iter()
             .map(|name| self.destinations.zip(name.as_ref()))
             .collect::<ExpandTemplateResult<Vec<_>>>()?;
-        let timeout = self.timeout;
+        let client = self.client;
         let cookie = self.cookie;
 
         for path in &paths {
@@ -59,32 +59,23 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
         let (header_result_tx, header_result_rx) = oneshot::channel();
         let (mut pb_tx, pb_rx) = futures::sync::mpsc::channel(self.names.len());
         let thread = thread::spawn(move || -> ServiceResult<()> {
-            let builder = reqwest::r#async::Client::builder()
-                .redirect(RedirectPolicy::none())
-                .referer(false)
-                .default_headers({
-                    let mut headers = HeaderMap::new();
-                    headers.insert(header::USER_AGENT, service::USER_AGENT.parse().unwrap());
-                    if let Some(cookie) = cookie {
-                        headers.insert(header::COOKIE, cookie);
-                    }
-                    headers
-                });
-            let client = match timeout {
-                None => builder,
-                Some(timeout) => builder.timeout(timeout),
-            }.build()?;
-            let works = urls
-                .try_to_urls()?
-                .into_iter()
-                .map(|url| receive_header(&client, url));
-            let mut core = tokio_core::reactor::Core::new()?;
-            let resps = match core.run(future::join_all(works)) {
-                Ok(resps) => {
+            let (client, cookie) = (client, cookie);
+            let works = {
+                let urls = urls.try_to_urls()?;
+                let mut works = Vec::with_capacity(urls.len());
+                for url in urls {
+                    works.push(receive_header(&client, url, cookie.as_ref()));
+                }
+                works
+            };
+            let mut runtime = Runtime::new()?;
+            let fut = future::join_all(works).select(ctrl_c().map_err(Into::into));
+            let resps = match runtime.block_on(fut) {
+                Ok((resps, _)) => {
                     header_result_tx.send(Ok(resps.len())).unwrap();
                     resps
                 }
-                Err(err) => {
+                Err((err, _)) => {
                     header_result_tx.send(Err(())).unwrap();
                     return Err(err);
                 }
@@ -93,9 +84,9 @@ impl<'a, W: io::Write, S: AsRef<str> + 'a> ZipDownloader<'a, W, S> {
                 .into_iter()
                 .zip(paths.iter())
                 .zip(pb_rx.collect().wait().unwrap())
-                .map(|((resp, path), pb)| DownloadBody::try_new(resp, &path, pb))
+                .map(|((res, path), pb)| DownloadBody::try_new(res, &path, pb, ctrl_c::<()>()))
                 .collect::<io::Result<Vec<_>>>()?;
-            core.run(future::join_all(works).map(|_| ()))
+            runtime.block_on(future::join_all(works)).map(|_| ())
         });
         match header_result_rx.wait() {
             Ok(Ok(1)) => {
@@ -154,18 +145,22 @@ impl fmt::Display for Urls {
 fn receive_header(
     client: &reqwest::r#async::Client,
     url: Url,
+    cookie: Option<&HeaderValue>,
 ) -> impl Future<Item = reqwest::r#async::Response, Error = ServiceError> {
-    client
-        .get(url.clone())
-        .send()
+    let req = client.get(url.clone());
+    let req = match cookie {
+        None => req,
+        Some(cookie) => req.header(header::COOKIE, cookie),
+    };
+    req.send()
         .map_err(ServiceError::from)
-        .and_then(|resp| match resp.status() {
-            StatusCode::OK => Ok(resp),
+        .and_then(|res| match res.status() {
+            StatusCode::OK => Ok(res),
             s => Err(ServiceErrorKind::UnexpectedStatusCode(url, s, vec![StatusCode::OK]).into()),
         })
 }
 
-struct DownloadBody {
+struct DownloadBody<F: Future<Error = io::Error>> {
     size_unknown: bool,
     path: AbsPathBuf,
     body: Decoder,
@@ -173,13 +168,15 @@ struct DownloadBody {
     progress_bar: ProgressBar<Pipe>,
     pos: u64,
     updated: Instant,
+    ctrlc: F,
 }
 
-impl DownloadBody {
+impl<F: Future<Error = io::Error>> DownloadBody<F> {
     fn try_new(
         response: reqwest::r#async::Response,
         path: &AbsPath,
         mut progress_bar: ProgressBar<Pipe>,
+        ctrlc: F,
     ) -> io::Result<Self> {
         const ALT_CAPACITY: usize = 30 * 1024 * 1024;
         let len = response
@@ -202,6 +199,7 @@ impl DownloadBody {
             progress_bar,
             pos: 0,
             updated: Instant::now(),
+            ctrlc,
         })
     }
 
@@ -214,11 +212,15 @@ impl DownloadBody {
     }
 }
 
-impl Future for DownloadBody {
+impl<F: Future<Error = io::Error>> Future for DownloadBody<F> {
     type Item = ();
     type Error = ServiceError;
 
     fn poll(&mut self) -> Poll<(), ServiceError> {
+        if let Err(e) = self.ctrlc.poll() {
+            self.progress_bar.finish_print("Interrupted");
+            return Err(e.into());
+        }
         match self.body.poll() {
             Err(err) => {
                 self.progress_bar.finish_print("Failed");
@@ -247,4 +249,15 @@ impl Future for DownloadBody {
             }
         }
     }
+}
+
+fn ctrl_c<T>() -> impl Future<Item = T, Error = io::Error> {
+    tokio_signal::ctrl_c()
+        .flatten_stream()
+        .take(1)
+        .into_future()
+        .map_err(|(e, _)| e)
+        .and_then::<_, io::Result<T>>(|_| {
+            Err(io::Error::new(io::ErrorKind::Interrupted, "Interrupted"))
+        })
 }

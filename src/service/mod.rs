@@ -17,10 +17,10 @@ use crate::testsuite::DownloadDestinations;
 
 use heck::KebabCase as _KebabCase;
 use reqwest::header::{self, HeaderMap};
-use reqwest::{RedirectPolicy, Response};
-use select::document::Document;
+use reqwest::RedirectPolicy;
 use serde_derive::{Deserialize, Serialize};
 use strum_macros::{AsStaticStr, EnumString};
+use tokio::runtime::Runtime;
 use url::Host;
 
 use std::collections::HashMap;
@@ -77,39 +77,29 @@ pub(self) static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snow
 pub(self) trait Service {
     type Term: Term;
 
-    fn session_and_term(&mut self) -> (&mut HttpSession, &mut Self::Term);
+    fn requirements(&mut self) -> (&mut Self::Term, &mut HttpSession, &mut Runtime);
 
     fn stdout(&mut self) -> &mut <Self::Term as Term>::Stdout {
-        self.session_and_term().1.stdout()
+        self.requirements().0.stdout()
     }
 
     fn stderr(&mut self) -> &mut <Self::Term as Term>::Stderr {
-        self.session_and_term().1.stderr()
+        self.requirements().0.stderr()
     }
 
     fn get(&mut self, url: &str) -> session::Request<&mut <Self::Term as Term>::Stdout> {
-        let (sess, term) = self.session_and_term();
-        sess.get(url, term.stdout())
+        let (term, sess, runtime) = self.requirements();
+        sess.get(url, term.stdout(), runtime)
     }
 
     fn post(&mut self, url: &str) -> session::Request<&mut <Self::Term as Term>::Stdout> {
-        let (sess, term) = self.session_and_term();
-        sess.post(url, term.stdout())
+        let (term, sess, runtime) = self.requirements();
+        sess.post(url, term.stdout(), runtime)
     }
 
     fn open_in_browser(&mut self, url: &str) -> ServiceResult<()> {
-        let (sess, term) = self.session_and_term();
+        let (term, sess, _) = self.requirements();
         sess.open_in_browser(url, term.stdout())
-    }
-}
-
-pub(self) trait TryIntoDocument {
-    fn try_into_document(self) -> reqwest::Result<Document>;
-}
-
-impl TryIntoDocument for Response {
-    fn try_into_document(mut self) -> reqwest::Result<Document> {
-        Ok(Document::from(self.text()?.as_str()))
     }
 }
 
@@ -161,13 +151,14 @@ pub(crate) struct SessionProps<T: Term> {
 }
 
 impl<T: Term> SessionProps<T> {
-    pub(self) fn start_session(&mut self) -> ServiceResult<HttpSession> {
+    pub(self) fn start_session(&mut self, runtime: &mut Runtime) -> ServiceResult<HttpSession> {
         let client = reqwest_client(self.timeout)?;
         let base = self
             .domain
             .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
         HttpSession::try_new(
             self.term.stdout(),
+            runtime,
             client,
             base,
             self.cookies_path.as_path(),
@@ -178,16 +169,19 @@ impl<T: Term> SessionProps<T> {
 
 pub(self) fn reqwest_client(
     timeout: impl Into<Option<Duration>>,
-) -> reqwest::Result<reqwest::Client> {
-    reqwest::Client::builder()
+) -> reqwest::Result<reqwest::r#async::Client> {
+    let builder = reqwest::r#async::Client::builder()
         .redirect(RedirectPolicy::none())
-        .timeout(timeout)
         .referer(false)
         .default_headers({
             let mut headers = HeaderMap::new();
             headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());
             headers
-        }).build()
+        });
+    match timeout.into() {
+        None => builder,
+        Some(timeout) => builder.timeout(timeout),
+    }.build()
 }
 
 pub(crate) struct DownloadProps<C: Contest> {

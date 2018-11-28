@@ -2,7 +2,7 @@ use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, S
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProps,
-    Service, SessionProps, SubmitProps, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
+    Service, SessionProps, SubmitProps, UserNameAndPassword,
 };
 use crate::terminal::{Term, WriteAnsi as _WriteAnsi};
 use crate::testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
@@ -17,6 +17,7 @@ use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
 use select::predicate::{Attr, Predicate, Text};
+use tokio::runtime::Runtime;
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _Write;
@@ -72,32 +73,35 @@ pub(crate) fn submit(
 pub(self) struct Atcoder<T: Term> {
     term: T,
     session: HttpSession,
+    runtime: Runtime,
     credentials: UserNameAndPassword,
 }
 
 impl<T: Term> Service for Atcoder<T> {
     type Term = T;
 
-    fn session_and_term(&mut self) -> (&mut HttpSession, &mut T) {
-        (&mut self.session, &mut self.term)
+    fn requirements(&mut self) -> (&mut T, &mut HttpSession, &mut Runtime) {
+        (&mut self.term, &mut self.session, &mut self.runtime)
     }
 }
 
 impl<T: Term> Atcoder<T> {
     fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
         let credentials = sess_props.credentials.atcoder.clone();
-        let session = sess_props.start_session()?;
+        let mut runtime = Runtime::new()?;
+        let session = sess_props.start_session(&mut runtime)?;
         Ok(Self {
             term: sess_props.term,
             session,
+            runtime,
             credentials,
         })
     }
 
     fn login_if_not(&mut self, eprints_message_if_already_logged_in: bool) -> ServiceResult<()> {
         if self.session.has_cookie() {
-            let res = self.get("/settings").acceptable(&[200, 302]).send()?;
-            if res.status() == StatusCode::OK {
+            let status = self.get("/settings").acceptable(&[200, 302]).status()?;
+            if status == StatusCode::OK {
                 if eprints_message_if_already_logged_in {
                     writeln!(self.stderr(), "Already logged in.")?;
                     self.stderr().flush()?;
@@ -129,8 +133,8 @@ impl<T: Term> Atcoder<T> {
             "csrf_token" => token.as_str(),
         );
         self.post("/login").send_form(&payload)?;
-        let res = self.get("/settings").acceptable(&[200, 302]).send()?;
-        let success = res.status() == StatusCode::OK;
+        let status = self.get("/settings").acceptable(&[200, 302]).status()?;
+        let success = status == StatusCode::OK;
         if success {
             writeln!(self.stdout(), "Successfully logged in.")?;
             self.stdout().flush()?;
@@ -149,11 +153,11 @@ impl<T: Term> Atcoder<T> {
             .get(&contest.url_tasks())
             .acceptable(&[200, 302, 404])
             .send()?;
-        if res.status() == StatusCode::OK {
-            Ok(res.try_into_document()?)
+        if res.status() == 200 {
+            res.document(&mut self.runtime)
         } else {
             self.register_if_active_or_explicit(contest, false)?;
-            Ok(self.get(&contest.url_tasks()).recv_html()?)
+            self.get(&contest.url_tasks()).recv_html()
         }
     }
 
@@ -169,7 +173,7 @@ impl<T: Term> Atcoder<T> {
         if res.status() == StatusCode::FOUND {
             return Err(ServiceErrorKind::ContestNotFound(contest.to_string()).into());
         }
-        let page = res.try_into_document()?;
+        let page = res.document(&mut self.runtime)?;
         let duration = page.extract_contest_duration()?;
         let status = duration.check_current_status(contest.to_string());
         if !explicit {
@@ -905,6 +909,7 @@ mod tests {
     use crate::terminal::{Term, TermImpl};
     use crate::testsuite::{SimpleSuite, TestSuite};
 
+    use tokio::runtime::Runtime;
     use url::Host;
 
     use std::time::Duration;
@@ -1265,10 +1270,12 @@ mod tests {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
         let mut term = TermImpl::null();
-        let session = HttpSession::try_new(term.stdout(), client, base, None, true)?;
+        let mut runtime = Runtime::new()?;
+        let session = HttpSession::try_new(term.stdout(), &mut runtime, client, base, None, true)?;
         Ok(Atcoder {
             term,
             session,
+            runtime,
             credentials: UserNameAndPassword::None,
         })
     }

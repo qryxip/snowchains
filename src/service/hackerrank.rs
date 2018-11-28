@@ -1,28 +1,28 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
 use crate::service::downloader::ZipDownloader;
-use crate::service::session::HttpSession;
+use crate::service::session::{self, HttpSession};
 use crate::service::{
     Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, Service,
-    SessionProps, TryIntoDocument as _TryIntoDocument, UserNameAndPassword,
+    SessionProps, UserNameAndPassword,
 };
 use crate::terminal::{Term, WriteAnsi};
 use crate::testsuite::{SimpleSuite, TestSuite};
 
 use itertools::Itertools as _Itertools;
 use log::warn;
-use reqwest::{Response, StatusCode};
+use reqwest::StatusCode;
 use select::document::Document;
 use select::predicate::{Attr, Predicate, Text};
 use serde::{Deserialize, Deserializer};
 use serde_derive::Deserialize;
 use serde_json::json;
+use tokio::runtime::Runtime;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{self, Write as _Write};
 use std::rc::Rc;
-use std::time::Duration;
 
 pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
     Hackerrank::try_new(sess_props)?.login(LoginOption::Explicit)
@@ -34,31 +34,33 @@ pub(crate) fn download(
 ) -> ServiceResult<()> {
     let download_props = download_props.convert_contest_and_problems(ProblemNameConversion::Kebab);
     download_props.print_targets(sess_props.term.stdout())?;
-    let timeout = sess_props.timeout;
-    Hackerrank::try_new(sess_props)?.download(&download_props, timeout)
+    Hackerrank::try_new(sess_props)?.download(&download_props)
 }
 
 struct Hackerrank<T: Term> {
     term: T,
     session: HttpSession,
+    runtime: Runtime,
     credentials: UserNameAndPassword,
 }
 
 impl<T: Term> Service for Hackerrank<T> {
     type Term = T;
 
-    fn session_and_term(&mut self) -> (&mut HttpSession, &mut T) {
-        (&mut self.session, &mut self.term)
+    fn requirements(&mut self) -> (&mut T, &mut HttpSession, &mut Runtime) {
+        (&mut self.term, &mut self.session, &mut self.runtime)
     }
 }
 
 impl<T: Term> Hackerrank<T> {
     fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
         let credentials = sess_props.credentials.hackerrank.clone();
-        let session = sess_props.start_session()?;
+        let mut runtime = Runtime::new()?;
+        let session = sess_props.start_session(&mut runtime)?;
         Ok(Hackerrank {
             term: sess_props.term,
             session,
+            runtime,
             credentials,
         })
     }
@@ -110,14 +112,14 @@ impl<T: Term> Hackerrank<T> {
         &mut self,
         username: &str,
         password: &str,
-        response: Response,
+        response: session::Response,
     ) -> ServiceResult<bool> {
         #[derive(Deserialize)]
         struct LoginResponse {
             status: bool,
         }
 
-        let csrf_token = response.try_into_document()?.extract_csrf_token()?;
+        let csrf_token = response.document(&mut self.runtime)?.extract_csrf_token()?;
         let status = self
             .post("/auth/login")
             .x_csrf_token(&csrf_token)
@@ -126,16 +128,12 @@ impl<T: Term> Hackerrank<T> {
                 "login": username,
                 "password": password,
                 "remember_me": true
-            }))?.json::<LoginResponse>()?
+            }))?.json::<LoginResponse>(&mut self.runtime)?
             .status;
         Ok(status)
     }
 
-    fn download(
-        &mut self,
-        download_props: &DownloadProps<HackerrankContest>,
-        timeout: Option<Duration>,
-    ) -> ServiceResult<()> {
+    fn download(&mut self, download_props: &DownloadProps<HackerrankContest>) -> ServiceResult<()> {
         fn warn_unless_empty(
             mut stderr: impl WriteAnsi,
             problems: &[impl AsRef<str>],
@@ -264,12 +262,12 @@ impl<T: Term> Hackerrank<T> {
             static URL_SUF: &str = "/download_testcases";
             let cookie = self.session.cookies_to_header_value()?;
             ZipDownloader {
-                out: io::sink(),
+                client: self.session.client(),
+                out: self.stdout(),
                 url_pref: &url_pref,
                 url_suf: URL_SUF,
                 destinations,
                 names: &names,
-                timeout,
                 cookie,
             }.download()?;
         }
@@ -391,6 +389,7 @@ mod tests {
     use crate::testsuite::{SimpleSuite, TestSuite};
 
     use select::document::Document;
+    use tokio::runtime::Runtime;
     use url::Host;
 
     use std::time::Duration;
@@ -418,10 +417,12 @@ mod tests {
         let client = service::reqwest_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("www.hackerrank.com"), true, None);
         let mut term = TermImpl::null();
-        let session = HttpSession::try_new(term.stdout(), client, base, None, true)?;
+        let mut runtime = Runtime::new()?;
+        let session = HttpSession::try_new(term.stdout(), &mut runtime, client, base, None, true)?;
         Ok(Hackerrank {
             term,
             session,
+            runtime,
             credentials: UserNameAndPassword::None,
         })
     }

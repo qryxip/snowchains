@@ -1,3 +1,4 @@
+#![recursion_limit = "128"]
 extern crate snowchains_proc_macros;
 
 extern crate atty;
@@ -16,6 +17,8 @@ extern crate heck;
 extern crate itertools;
 extern crate log;
 extern crate maplit;
+extern crate mime;
+extern crate multipart;
 extern crate once_cell;
 extern crate pbr;
 extern crate regex;
@@ -34,8 +37,8 @@ extern crate strum;
 extern crate strum_macros;
 extern crate term_size;
 extern crate tokio;
-extern crate tokio_core;
 extern crate tokio_process;
+extern crate tokio_signal;
 extern crate toml;
 extern crate unicode_width;
 extern crate url;
