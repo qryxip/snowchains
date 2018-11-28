@@ -42,6 +42,9 @@ install:
 
 script:
   - cargo fmt --all -- --check
+  # A hack to prevent clippy from checking dependencies
+  - cargo check --all-targets
+  - find ./src/ ./tests/ ./proc_macros/src/ -type f | xargs touch
   - cargo clippy --all-targets -- -D warnings
   - |
     if [ -f ~/.cargo/bin/cargo-kcov ]; then
