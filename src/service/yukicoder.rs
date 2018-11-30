@@ -15,7 +15,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
-use select::predicate::{Attr, Predicate as _Predicate, Text};
+use select::predicate::{Predicate as _Predicate, Text};
 use serde_derive::Deserialize;
 use tokio::runtime::Runtime;
 
@@ -154,7 +154,7 @@ impl<T: Term> Yukicoder<T> {
                     let status = res.status();
                     let document = res.document(&mut self.runtime)?;
                     let public = document
-                        .find(selector!(#content).child(Text))
+                        .find(selector!("#content").child(Text))
                         .next()
                         .map_or(true, |t| !t.text().contains("非表示"));
                     if status == StatusCode::NOT_FOUND {
@@ -391,9 +391,9 @@ trait Extract {
 impl Extract for Document {
     fn extract_username(&self) -> Username {
         let extract = || {
-            let a = self.find(selector!(#usermenu>a)).next()?;
+            let a = self.find(selector!("#usermenu > a")).next()?;
             let name = a.find(Text).next()?.text();
-            let src = a.find(selector!(img)).next()?.attr("src")?;
+            let src = a.find(selector!("img")).next()?.attr("src")?;
             Some(if src == "/public/img/anony.png" {
                 Username::Yukicoder(name)
             } else if src.starts_with("https://avatars2.githubusercontent.com") {
@@ -419,7 +419,7 @@ impl Extract for Document {
                  (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z"
             );
             let text = self
-                .find(selector!(#content>div).child(Text))
+                .find(selector!("#content > div").child(Text))
                 .map(|text| text.text())
                 .nth(1)?;
             let caps = R.captures(&text)?;
@@ -437,11 +437,11 @@ impl Extract for Document {
             match kind {
                 ProblemKind::Regular | ProblemKind::Special => {
                     let mut samples = vec![];
-                    for paragraph in
-                        self.find(selector!(#content>div.block>div.sample>div.paragraph))
-                    {
+                    for paragraph in self.find(selector!(
+                        "#content > div.block > div.sample > div.paragraph",
+                    )) {
                         let pres = paragraph
-                            .find(selector!(pre).child(Text))
+                            .find(selector!("pre").child(Text))
                             .collect::<Vec<_>>();
                         ensure_opt!(pres.len() == 2);
                         let input = pres[0].text();
@@ -467,12 +467,12 @@ impl Extract for Document {
     fn extract_problems(&self) -> ScrapeResult<Vec<(String, String)>> {
         let extract = || {
             let mut problems = vec![];
-            for tr in self.find(selector!(#content>div.left>table.table>tbody>tr)) {
-                let name = tr.find(selector!(td)).nth(0)?.text();
+            for tr in self.find(selector!("#content > div.left > table.table > tbody > tr")) {
+                let name = tr.find(selector!("td")).nth(0)?.text();
                 let href = tr
-                    .find(selector!(td))
+                    .find(selector!("td"))
                     .nth(2)?
-                    .find(selector!(a))
+                    .find(selector!("a"))
                     .next()?
                     .attr("href")?
                     .to_owned();
@@ -488,14 +488,13 @@ impl Extract for Document {
     }
 
     fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String> {
-        self.find(
-            selector!(#submit_form>input).child(selector!(input).and(Attr("name", "csrf_token"))),
-        ).find_map(|input| input.attr("value").map(ToOwned::to_owned))
-        .ok_or_else(ScrapeError::new)
+        self.find(selector!("#submit_form > input[name=\"csrf_token\"]"))
+            .find_map(|input| input.attr("value").map(ToOwned::to_owned))
+            .ok_or_else(ScrapeError::new)
     }
 
     fn extract_url_from_submit_page(&self) -> ScrapeResult<String> {
-        self.find(selector!(submit_form))
+        self.find(selector!("submit_form"))
             .find_map(|form| form.attr("action").map(ToOwned::to_owned))
             .ok_or_else(ScrapeError::new)
     }

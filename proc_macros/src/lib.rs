@@ -1,17 +1,23 @@
 #![recursion_limit = "512"]
 
+extern crate combine;
 extern crate if_chain;
 extern crate proc_macro;
+extern crate proc_macro2;
 extern crate quote;
 extern crate syn;
 
+use combine::Parser;
 use if_chain::if_chain;
-use quote::quote;
+use quote::{quote, ToTokens};
+use syn::parse::{Parse, ParseStream};
 use syn::{
     parse_macro_input, AngleBracketedGenericArguments, Attribute, Field, Fields, FieldsUnnamed,
-    GenericArgument, Ident, ItemEnum, ItemStruct, Lit, Meta, MetaList, MetaNameValue, Path,
-    PathArguments, PathSegment, Type, TypePath,
+    GenericArgument, Ident, ItemEnum, ItemStruct, Lit, LitStr, Meta, MetaList, MetaNameValue, Path,
+    PathArguments, PathSegment, Token, Type, TypePath,
 };
+
+use std::mem;
 
 #[proc_macro_derive(DoubleFrom, attributes(double_from))]
 pub fn derive_double_from(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -221,4 +227,217 @@ fn extract_error_kind(fields: &Fields) -> Option<&Type> {
             None
         }
     }
+}
+
+#[proc_macro]
+pub fn def_gen_predicate(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    struct LitStrWithComma(LitStr);
+
+    impl Parse for LitStrWithComma {
+        fn parse(input: ParseStream) -> syn::Result<Self> {
+            let litstr = input.parse()?;
+            input.parse::<Option<Token![,]>>()?;
+            Ok(LitStrWithComma(litstr))
+        }
+    }
+
+    let input = parse_macro_input!(input as LitStrWithComma);
+    let pred = parse_selector(&input.0.value()).unwrap_or_else(|e| panic!("{}", e));
+    quote!(
+        #[inline]
+        fn gen() -> impl ::select::predicate::Predicate {
+            #pred
+        }
+    ).into()
+}
+
+fn parse_selector(input: &str) -> std::result::Result<impl ToTokens, String> {
+    use combine::char::{char, space, spaces, string};
+    use combine::{attempt, choice, eof, many1, satisfy};
+
+    #[derive(Debug)]
+    enum Token {
+        Name(String),
+        Id(String),
+        Class(String),
+        AttrEq(String, String),
+        Or,
+        Child,
+        Descendant,
+    }
+
+    fn ident<'a>() -> impl Parser<Input = &'a str, Output = String> {
+        many1(satisfy(|c| {
+            'a' <= c && c <= 'z'
+                || 'A' <= c && c <= 'Z'
+                || '0' <= c && c <= '9'
+                || c == '-'
+                || c == '_'
+        }))
+    }
+
+    fn op<'a>(c: char) -> impl Parser<Input = &'a str> {
+        spaces().with(char(c)).skip(spaces())
+    }
+
+    let name = ident().map(Token::Name);
+    let id = char('#').with(ident()).map(Token::Id);
+    let class = char('.').with(ident()).map(Token::Class);
+    let attr_eq = char('[')
+        .skip(spaces())
+        .with(ident())
+        .skip(spaces())
+        .skip(char('='))
+        .skip(spaces())
+        .skip(char('"'))
+        .and(many1(satisfy::<&str, _>(|c| {
+            !(c.is_whitespace() || c == '"' || c == '\\')
+        }))).skip(spaces())
+        .skip(string("\"]"))
+        .map(|(k, v)| Token::AttrEq(k, v));
+    let or = op(',').map(|_| Token::Or);
+    let child = op('>').map(|_| Token::Child);
+    let descendant = many1::<String, _>(space()).map(|_| Token::Descendant);
+
+    let tokens = many1::<Vec<_>, _>(choice((
+        name,
+        id,
+        class,
+        attr_eq,
+        attempt(or),
+        attempt(child),
+        descendant,
+    ))).skip(eof())
+    .parse(input)
+    .map(|(ts, _)| ts)
+    .map_err(|_| format!("Failed to parse {:?}", input))?;
+
+    enum Ancestor<S: ToTokens> {
+        None,
+        Parent(S),
+        Ancestor(S),
+    }
+
+    let (mut and, mut or, mut ancestor) = (None, None, Ancestor::None);
+
+    for token in tokens {
+        match token {
+            Token::Name(name) => {
+                let name = LitStr::new(&name, proc_macro2::Span::call_site());
+                let new = quote!(::select::predicate::Name(#name));
+                if and.is_none() {
+                    and = Some(new);
+                } else {
+                    and = and.map(|p| quote!(::select::predicate::And(#p, #new)));
+                }
+            }
+            Token::Id(id) => {
+                let id = LitStr::new(&id, proc_macro2::Span::call_site());
+                let new = quote!(::select::predicate::Attr("id", #id));
+                if and.is_none() {
+                    and = Some(new);
+                } else {
+                    and = and.map(|p| quote!(::select::predicate::And(#p, #new)));
+                }
+            }
+            Token::Class(class) => {
+                let class = LitStr::new(&class, proc_macro2::Span::call_site());
+                let new = quote!(::select::predicate::Class(#class));
+                if and.is_none() {
+                    and = Some(new);
+                } else {
+                    and = and.map(|p| quote!(::select::predicate::And(#p, #new)));
+                }
+            }
+            Token::AttrEq(key, value) => {
+                let key = LitStr::new(&key, proc_macro2::Span::call_site());
+                let value = LitStr::new(&value, proc_macro2::Span::call_site());
+                let new = quote!(::select::predicate::Attr(#key, #value));
+                if and.is_none() {
+                    and = Some(new);
+                } else {
+                    and = and.map(|p| quote!(::select::predicate::And(#p, #new)));
+                }
+            }
+            Token::Or if and.is_none() => {
+                return Err("Unexpected ','".to_owned());
+            }
+            Token::Or if or.is_none() => {
+                or = Some(and.take().unwrap());
+            }
+            Token::Or => {
+                let and = and.take().unwrap();
+                or = or.map(|p| quote!(::select::predicate::Or(#p, #and)));
+            }
+            Token::Child if and.is_none() && or.is_none() => {
+                return Err("Unexpected '>'".to_owned());
+            }
+            Token::Child if and.is_some() && or.is_none() => {
+                let current = and.take().unwrap();
+                ancestor = Ancestor::Parent(match mem::replace(&mut ancestor, Ancestor::None) {
+                    Ancestor::None => current,
+                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
+                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
+                });
+            }
+            Token::Child if and.is_none() && or.is_some() => {
+                let current = or.take().unwrap();
+                ancestor = Ancestor::Parent(match mem::replace(&mut ancestor, Ancestor::None) {
+                    Ancestor::None => current,
+                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
+                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
+                });
+            }
+            Token::Child => {
+                let and = and.take().unwrap();
+                let or = or.take().unwrap();
+                let current = quote!(::select::predicate::Or(#and, #or));
+                ancestor = Ancestor::Parent(match mem::replace(&mut ancestor, Ancestor::None) {
+                    Ancestor::None => current,
+                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
+                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
+                });
+            }
+            Token::Descendant if and.is_none() && or.is_none() => {
+                return Err("Unexpected space".to_owned());
+            }
+            Token::Descendant if and.is_some() && or.is_none() => {
+                let current = and.take().unwrap();
+                ancestor = Ancestor::Ancestor(match mem::replace(&mut ancestor, Ancestor::None) {
+                    Ancestor::None => current,
+                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
+                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
+                });
+            }
+            Token::Descendant if and.is_none() && or.is_some() => {
+                let current = or.take().unwrap();
+                ancestor = Ancestor::Ancestor(match mem::replace(&mut ancestor, Ancestor::None) {
+                    Ancestor::None => current,
+                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
+                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
+                });
+            }
+            Token::Descendant => {
+                let and = and.take().unwrap();
+                let or = or.take().unwrap();
+                let current = quote!(::select::predicate::Or(#and, #or));
+                ancestor = Ancestor::Ancestor(match mem::replace(&mut ancestor, Ancestor::None) {
+                    Ancestor::None => current,
+                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
+                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
+                });
+            }
+        }
+    }
+
+    let edge = match (and, or) {
+        (None, None) => return Err("Unexpected end".to_owned()),
+        (Some(p), None) | (None, Some(p)) => p,
+        (Some(p1), Some(p2)) => quote!(::select::predicate::Or(#p1, #p2)),
+    };
+    Ok(match ancestor {
+        Ancestor::None => edge,
+        Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #edge)),
+        Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #edge)),
+    })
 }
