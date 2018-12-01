@@ -12,7 +12,7 @@ use itertools::Itertools as _Itertools;
 use log::warn;
 use reqwest::StatusCode;
 use select::document::Document;
-use select::predicate::{Attr, Predicate, Text};
+use select::predicate::{Predicate, Text};
 use serde::{Deserialize, Deserializer};
 use serde_derive::Deserialize;
 use serde_json::json;
@@ -352,7 +352,7 @@ trait Extract {
 
 impl Extract for Document {
     fn extract_csrf_token(&self) -> ScrapeResult<String> {
-        self.find(Attr("name", "csrf-token"))
+        self.find(selector!("[name=\"csrf-token\"]"))
             .next()
             .and_then(|node| node.attr("content").map(str::to_owned))
             .filter(|token| !token.is_empty())
@@ -363,14 +363,14 @@ impl Extract for Document {
         fn extract_item(this: &Document, predicate: impl Predicate) -> Vec<String> {
             this.find(predicate)
                 .map(|pre| {
-                    pre.find(selector!(span.err).child(Text))
+                    pre.find(selector!("span.err").child(Text))
                         .map(|text| text.text())
                         .join("")
                 }).collect()
         }
 
-        let inputs = extract_item(self, selector!(.challenge_sample_input>>pre));
-        let outputs = extract_item(self, selector!(.challenge_sample_output>>pre));
+        let inputs = extract_item(self, selector!(".challenge_sample_input pre"));
+        let outputs = extract_item(self, selector!(".challenge_sample_output pre"));
         if inputs.len() != outputs.len() || inputs.is_empty() {
             return Err(ScrapeError::new());
         }

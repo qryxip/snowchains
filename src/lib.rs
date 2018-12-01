@@ -35,7 +35,6 @@ extern crate serde_yaml;
 extern crate structopt;
 extern crate strum;
 extern crate strum_macros;
-extern crate term_size;
 extern crate tokio;
 extern crate tokio_process;
 extern crate tokio_signal;
@@ -45,6 +44,9 @@ extern crate url;
 extern crate webbrowser;
 extern crate yaml_rust;
 extern crate zip;
+
+#[cfg(not(windows))]
+extern crate term_size;
 
 #[cfg(windows)]
 extern crate winapi;

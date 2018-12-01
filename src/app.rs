@@ -15,7 +15,6 @@ use structopt::clap::Arg;
 use structopt::StructOpt;
 use strum_macros::EnumString;
 
-use std::borrow::Cow;
 use std::f64;
 use std::io::Write as _Write;
 use std::num::NonZeroUsize;
@@ -38,7 +37,7 @@ use std::time::Duration;
              \n    snowchains show accepts [OPTIONS] <problem> <nth>\
              \n    snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
              \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]\
-             \n    snowchains modify match [OPTIONS] <problem> <extension> <match>"
+             \n    snowchains modify match [OPTIONS] <problem> <extension> <match>",
 )]
 pub enum Opt {
     #[structopt(
@@ -519,7 +518,7 @@ fn parse_non_zero_usize(s: &str) -> std::result::Result<NonZeroUsize, String> {
 
 pub struct App<T: Term> {
     pub working_dir: AbsPathBuf,
-    pub cookies_on_init: Cow<'static, str>,
+    pub cookies_on_init: String,
     pub credentials: Credentials,
     pub term: T,
 }

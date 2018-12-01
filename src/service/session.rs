@@ -305,10 +305,17 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
     }
 
     pub(crate) fn send_multipart(self, mut form: PreparedFields) -> ServiceResult<self::Response> {
+        let boundary = form.boundary().to_owned();
         let mut content = Vec::with_capacity(form.content_len().unwrap_or(0) as usize);
         form.read_to_end(&mut content)?;
         Self {
-            inner: self.inner.map(|i| i.body(content)),
+            inner: self.inner.map(|inner| {
+                let mime = format!("multipart/form-data;boundary={}", boundary);
+                inner
+                    .header(header::CONTENT_LENGTH, content.len() as u64)
+                    .header(header::CONTENT_TYPE, mime)
+                    .body(content)
+            }),
             ..self
         }.send()
     }

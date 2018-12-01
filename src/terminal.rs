@@ -123,7 +123,17 @@ impl<'a, W: TermOut + ?Sized> TermOut for &'a mut W {
 pub trait StandardOutput: Write {
     fn process_redirection() -> process::Stdio;
     fn is_tty() -> bool;
+    #[cfg(not(windows))]
     fn columns() -> Option<usize>;
+    #[cfg(windows)]
+    fn columns() -> Option<usize> {
+        let handle = Self::windows_handle_ref()?;
+        let info = winapi_util::console::screen_buffer_info(handle).ok()?;
+        match info.size() {
+            (w, _) if w >= 0 => Some(w as usize),
+            _ => None,
+        }
+    }
     #[cfg(windows)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef>;
 }
@@ -137,6 +147,7 @@ impl<'a> StandardOutput for BufWriter<StdoutLock<'a>> {
         atty::is(atty::Stream::Stdout)
     }
 
+    #[cfg(not(windows))]
     fn columns() -> Option<usize> {
         term_size::dimensions_stdout().map(|(c, _)| c)
     }
@@ -156,6 +167,7 @@ impl<'a> StandardOutput for BufWriter<StderrLock<'a>> {
         atty::is(atty::Stream::Stderr)
     }
 
+    #[cfg(not(windows))]
     fn columns() -> Option<usize> {
         term_size::dimensions_stderr().map(|(c, _)| c)
     }
@@ -175,6 +187,7 @@ impl StandardOutput for io::Sink {
         false
     }
 
+    #[cfg(not(windows))]
     fn columns() -> Option<usize> {
         None
     }

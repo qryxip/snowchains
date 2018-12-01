@@ -109,9 +109,9 @@ session:
 
 shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
 
-testfiles:
+judge:
   jobs: 4
-  path: snowchains/$service/$contest/{snake}.$extension
+  path: tests/$service/$contest/{snake}.$extension
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
   zip:
@@ -158,12 +158,12 @@ services:
   hackerrank:
     # language: c++
     variables:
-      rust_version: 1.21.0
+      rust_version: 1.29.1
       java_class: Main
   yukicoder:
     # language: c++
     variables:
-      rust_version: 1.28.0
+      rust_version: 1.30.1
       java_class: Main
   other:
     # language: c++
@@ -231,16 +231,16 @@ languages:
   rust:
     src: rs/src/bin/{kebab}.rs
     compile:
-      bin: rs/target/release/{kebab}
+      bin: rs/target/manually/{kebab}
       command: [rustc, +$rust_version, -o, $bin, $src]
       working_directory: rs
     run:
       command: [$bin]
       working_directory: rs
       # crlf_to_lf: false
-    language_ids:
-      atcoder: 3504
-      yukicoder: rust
+    # language_ids:
+    #   atcoder: 3504   # "Rust (x.x.x)"
+    #   yukicoder: rust # "Rust (x.x.x)"
   haskell:
     src: hs/app/{Pascal}.hs
     compile:
@@ -251,9 +251,9 @@ languages:
       command: [$bin]
       working_directory: hs
       # crlf_to_lf: false
-    language_ids:
-      atcoder: 3014
-      yukicoder: haskell
+    # language_ids:
+    #   atcoder: 3014      # "Haskell (GHC x.x.x)"
+    #   yukicoder: haskell # "Haskell (x.x.x)"
   python3:
     src: py/{kebab}.py
     run:
@@ -262,7 +262,7 @@ languages:
       # crlf_to_lf: false
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
-      yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x)"
+      yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x + scipy x.x.x)"
   java:
     src: java/src/main/java/{Pascal}.java
     compile:
@@ -280,8 +280,8 @@ languages:
       submit: $java_class
       all_matched: false
     language_ids:
-      atcoder: 3016
-      yukicoder: java8
+      atcoder: 3016      # "Java8 (OpenJDK 1.8.x)"
+      # yukicoder: java8 # "Java8 (openjdk 1.8.x)"
   # c#:
   #   src: cs/{Pascal}/{Pascal}.cs
   #   compile:
@@ -293,7 +293,7 @@ languages:
   #     working_directory: cs
   #     crlf_to_lf: true
   #   language_ids:
-  #     atcoder: 3006     # "C# (Mono x.x.x.x)"
+  #     # atcoder: 3006   # "C# (Mono x.x.x.x)"
   #     yukicoder: csharp # "C# (csc x.x.x.x)"
   c#:
     src: cs/{Pascal}/{Pascal}.cs
@@ -306,7 +306,7 @@ languages:
       working_directory: cs
       # crlf_to_lf: false
     language_ids:
-      atcoder: 3006          # "C# (Mono x.x.x.x)"
+      # atcoder: 3006        # "C# (Mono x.x.x.x)"
       yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)"
 ```
 

@@ -11,7 +11,6 @@ use serde_derive::Deserialize;
 use strum::AsStaticRef as _AsStaticRef;
 use tempdir::TempDir;
 
-use std::borrow::Cow;
 use std::fs::File;
 use std::panic::UnwindSafe;
 use std::path::PathBuf;
@@ -28,7 +27,7 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     let result = panic::catch_unwind(move || -> Fallible<()> {
         let mut app = App {
             working_dir: AbsPathBuf::new_or_panic(tempdir_path),
-            cookies_on_init: Cow::from("$service"),
+            cookies_on_init: "$service".to_owned(),
             credentials,
             term: TermImpl::null(),
         };
@@ -124,7 +123,7 @@ pub fn confirm_num_cases(
 
     for &(problem, expected_num_cases) in pairs {
         let path = wd
-            .join("snowchains")
+            .join("tests")
             .join(service.as_static())
             .join(contest)
             .join(format!("{}.yaml", problem));
@@ -136,7 +135,7 @@ pub fn confirm_num_cases(
 
 pub fn confirm_zip_exists(wd: &AbsPath, contest: &str, problem: &str) -> io::Result<()> {
     let path = wd
-        .join("snowchains")
+        .join("tests")
         .join("hackerrank")
         .join(contest)
         .join(format!("{}.zip", problem));

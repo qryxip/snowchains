@@ -17,7 +17,7 @@ environment:
     HACKERRANK_PASSWORD:
       secure: YCYQSV4TkGO8oHAkURbWzb6P57lzjE7NxUxy/c1XA2E=
     YUKICODER_REVEL_SESSION:
-      secure: +JsUS1EKWUXIyQua5MjhDUwBk9Fhig5e9ssDVf4igj0l6zaQ6JKwHwETHJPpYi0es1375TAognd5LBLNvvVvAIGnwefisDctfmvPDP8vUIvwl51cUAqfG5pYtpt7opdZiu/zLSQL3JXyXofHYgtZAKdrvROCt28ZHF+1hB16zIrAWjWlOYLBC3/eIGnQniybWMNMqSdOvkqy1RmZIukWWxaRr5v5eoN3KQ9GyqQB+Iks209TrgPwlUAMrnD3aVRLshkfhhPAIVUDJfAUDSkpVA==
+      secure: Kk65uDuSdkh+HJCLh72JBK1gPjAJMFHkONVBtK1nVQRhddSIVToWe/nCDrDOa0X2IMaoY/l3yBo3kN88nP3u23WVYzvBY6SnEHbfzD3+DRB2ezo4SDjfnBQENj+JEfd4P0yqcu2srbZIF/8WmwwDwJZaOMt7CUUKkMVeoqQt2W9/avX9ed7WtU639xGiX7A3BV5e0/wHnGRmoehhQN63STq9x2ARQCEuNs+3MCFpaInOtCauI+QxK4YaYzyx86Rd2/dNrIYbE6LIz6K83IyKMg==
 
 install:
   - ps: Start-FileDownload "https://static.rust-lang.org/rustup/dist/${env:RUSTUP_HOST}/rustup-init.exe"
@@ -34,8 +34,10 @@ build: false
 test_script:
   - cargo fmt --all -- --check
   # A hack to prevent clippy from checking dependencies
+  - cmd /C "cd .\proc_macros && cargo check"
   - cargo check --all-targets
-  - ps: Get-Childitem -File -Recurse .\src\,.\tests\,.\proc_macros\src\ | ForEach-Object { Set-ItemProperty -Path $_.FullName -Name LastWriteTime -Value $(Get-Date) }
+  - ps: Get-Childitem -File -Recurse .\src,.\tests,.\proc_macros\src | ForEach-Object { Set-ItemProperty -Path $_.FullName -Name LastWriteTime -Value $(Get-Date) }
+  - cmd /C "cd .\proc_macros && cargo clippy -- -D warnings"
   - cargo clippy --all-targets -- -D warnings
   - ps: $env:targets = If (Test-Path env:ATCODER_USERNAME) { 'all' } else { 'lib' }
   - cargo test --%targets%
