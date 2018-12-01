@@ -111,7 +111,7 @@ shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single st
 
 judge:
   jobs: 4
-  path: snowchains/$service/$contest/{snake}.$extension
+  path: tests/$service/$contest/{snake}.$extension
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
   zip:

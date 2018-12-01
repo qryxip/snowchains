@@ -24,7 +24,7 @@ use std::time::Duration;
 
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
-/// Creates `snowchains.yaml` in `directory`.
+/// Creates "snowchains.yaml" in `directory`.
 pub(crate) fn init(
     mut stdout: impl Write,
     directory: &AbsPath,
@@ -95,7 +95,7 @@ shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
 
 judge:
   jobs: 4
-  path: snowchains/$service/$contest/{{snake}}.$extension
+  path: tests/$service/$contest/{{snake}}.$extension
   forall: [json, toml, yaml, yml, zip]
   scrape: yaml
   zip:

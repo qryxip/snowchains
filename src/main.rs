@@ -1,6 +1,7 @@
 extern crate snowchains;
 
 extern crate ctrlc;
+extern crate dirs;
 extern crate env_logger;
 extern crate failure;
 extern crate structopt;
@@ -56,7 +57,10 @@ fn run(opt: Opt, term: impl Term) -> snowchains::Result<()> {
     let working_dir = AbsPathBuf::cwd()?;
     App {
         working_dir,
-        cookies_on_init: "~/.local/share/snowchains/$service".into(),
+        cookies_on_init: match dirs::data_local_dir() {
+            None => "~/.local/share/snowchains/$service".to_owned(),
+            Some(d) => d.join("snowchains").join("$service").display().to_string(),
+        },
         credentials: Credentials::default(),
         term,
     }.run(opt)

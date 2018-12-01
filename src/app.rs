@@ -15,7 +15,6 @@ use structopt::clap::Arg;
 use structopt::StructOpt;
 use strum_macros::EnumString;
 
-use std::borrow::Cow;
 use std::f64;
 use std::io::Write as _Write;
 use std::num::NonZeroUsize;
@@ -519,7 +518,7 @@ fn parse_non_zero_usize(s: &str) -> std::result::Result<NonZeroUsize, String> {
 
 pub struct App<T: Term> {
     pub working_dir: AbsPathBuf,
-    pub cookies_on_init: Cow<'static, str>,
+    pub cookies_on_init: String,
     pub credentials: Credentials,
     pub term: T,
 }
