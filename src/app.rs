@@ -37,7 +37,7 @@ use std::time::Duration;
              \n    snowchains show accepts [OPTIONS] <problem> <nth>\
              \n    snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
              \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]\
-             \n    snowchains modify match [OPTIONS] <problem> <extension> <match>"
+             \n    snowchains modify match [OPTIONS] <problem> <extension> <match>",
 )]
 pub enum Opt {
     #[structopt(

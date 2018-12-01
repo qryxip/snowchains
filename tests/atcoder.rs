@@ -71,7 +71,7 @@ fn it_scrapes_samples_from_practice() {
             })?;
             let download_dir = app
                 .working_dir
-                .join("snowchains")
+                .join("tests")
                 .join("atcoder")
                 .join("practice");
             just_confirm_num_samples_and_timelimit(&download_dir, "a", 2, "2000ms");
@@ -96,11 +96,7 @@ fn it_scrapes_samples_from_arc058() {
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
             })?;
-            let download_dir = app
-                .working_dir
-                .join("snowchains")
-                .join("atcoder")
-                .join("arc058");
+            let download_dir = app.working_dir.join("tests").join("atcoder").join("arc058");
             just_confirm_num_samples_and_timelimit(&download_dir, "c", 2, "2000ms");
             just_confirm_num_samples_and_timelimit(&download_dir, "d", 4, "2000ms");
             just_confirm_num_samples_and_timelimit(&download_dir, "e", 4, "4000ms");
