@@ -1,7 +1,17 @@
-macro_rules! ensure_opt {
-    ($x:expr) => {
-        if !$x {
-            return None;
+pub(crate) trait TryZero {
+    fn zero() -> Self;
+}
+
+impl<T> TryZero for Option<T> {
+    fn zero() -> Self {
+        None
+    }
+}
+
+macro_rules! guard {
+    ($p:expr) => {
+        if !$p {
+            return crate::macros::TryZero::zero();
         }
     };
 }
@@ -13,10 +23,9 @@ macro_rules! plural {
 }
 
 macro_rules! lazy_regex {
-    ($expr:expr) => {{
-        use once_cell::sync_lazy;
-        sync_lazy!(::regex::Regex::new($expr).unwrap())
-    }};
+    ($expr:expr) => {
+        ::once_cell::sync_lazy!(::regex::Regex::new($expr).unwrap())
+    };
 }
 
 macro_rules! selector {

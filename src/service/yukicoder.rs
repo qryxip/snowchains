@@ -1,4 +1,4 @@
-use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
+use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::downloader::ZipDownloader;
 use crate::service::session::HttpSession;
 use crate::service::{
@@ -10,8 +10,11 @@ use crate::testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
 use failure::ResultExt as _ResultExt;
+use itertools::Itertools as _Itertools;
+use maplit::hashmap;
 use multipart::client::lazy::Multipart;
 use once_cell::sync::Lazy;
+use once_cell::sync_lazy;
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
@@ -19,6 +22,9 @@ use select::predicate::{Predicate as _Predicate, Text};
 use serde_derive::Deserialize;
 use tokio::runtime::Runtime;
 
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::io::Write as _Write;
 use std::time::Duration;
 use std::{fmt, io};
@@ -219,7 +225,59 @@ impl<T: Term> Yukicoder<T> {
         Ok(())
     }
 
-    fn submit(&mut self, prop: &SubmitProps<YukicoderContest>) -> ServiceResult<()> {
+    fn submit(&mut self, props: &SubmitProps<YukicoderContest>) -> ServiceResult<()> {
+        static LANG_IDS: Lazy<HashMap<&OsStr, &[&str]>> = sync_lazy!(hashmap!(
+            OsStr::new("cpp")   => ["cpp", "cpp14", "cpp17", "cpp-clang"].as_ref(),
+            OsStr::new("cxx")   => &["cpp", "cpp14", "cpp17", "cpp-clang"],
+            OsStr::new("cc")    => &["cpp", "cpp14", "cpp17", "cpp-clang"],
+            OsStr::new("C")     => &["cpp", "cpp14", "cpp17", "cpp-clang"],
+            OsStr::new("c")     => &["c11", "c"],
+            OsStr::new("java")  => &["java8"],
+            OsStr::new("cs")    => &["csharp", "csharp_mono"],
+            OsStr::new("pl")    => &["perl", "perl6"],
+            OsStr::new("p6")    => &["perl6"],
+            OsStr::new("php")   => &["php", "php7"],
+            OsStr::new("py")    => &["python", "python3", "pypy2", "pypy3"],
+            OsStr::new("py2")   => &["python", "pypy2"],
+            OsStr::new("py3")   => &["python3", "pypy3"],
+            OsStr::new("rb")    => &["ruby"],
+            OsStr::new("d")     => &["d"],
+            OsStr::new("go")    => &["go"],
+            OsStr::new("hs")    => &["haskell"],
+            OsStr::new("scala") => &["scala"],
+            OsStr::new("nim")   => &["nim"],
+            OsStr::new("rs")    => &["rust"],
+            OsStr::new("kt")    => &["kotlin"],
+            OsStr::new("scm")   => &["scheme"],
+            OsStr::new("cr")    => &["crystal"],
+            OsStr::new("swift") => &["swift"],
+            OsStr::new("ml")    => &["ocaml"],
+            OsStr::new("clj")   => &["clojure"],
+            OsStr::new("fs")    => &["fsharp"],
+            OsStr::new("exs")   => &["elixer"],
+            OsStr::new("ex")    => &["elixer"],
+            OsStr::new("lua")   => &["lua"],
+            OsStr::new("f")     => &["fortran"],
+            OsStr::new("for")   => &["fortran"],
+            OsStr::new("f90")   => &["fortran"],
+            OsStr::new("F90")   => &["fortran"],
+            OsStr::new("f95")   => &["fortran"],
+            OsStr::new("F95")   => &["fortran"],
+            OsStr::new("f03")   => &["fortran"],
+            OsStr::new("F03")   => &["fortran"],
+            OsStr::new("f08")   => &["fortran"],
+            OsStr::new("F08")   => &["fortran"],
+            OsStr::new("js")    => &["node"],
+            OsStr::new("vim")   => &["vim"],
+            OsStr::new("sh")    => &["sh"],
+            OsStr::new("bash")  => &["sh"],
+            OsStr::new("txt")   => &["text"],
+            OsStr::new("asm")   => &["nasm"],
+            OsStr::new("clay")  => &["clay"], // ?
+            OsStr::new("bf")    => &["bf"],
+            OsStr::new("ws")    => &["Whitespace"],
+        ));
+
         let SubmitProps {
             contest,
             problem,
@@ -228,13 +286,38 @@ impl<T: Term> Yukicoder<T> {
             replacer,
             open_browser,
             skip_checking_if_accepted,
-        } = prop;
-        self.login(true)?;
+        } = props;
+
+        let lang_id = match lang_id {
+            None => {
+                let ext = src_path.extension().unwrap_or_default();
+                let error = |e: failure::Error| -> ServiceError {
+                    let ext = ext.to_string_lossy().into_owned();
+                    e.context(ServiceErrorKind::RecognizeByExtension(ext))
+                        .into()
+                };
+                match LANG_IDS.get(ext) {
+                    Some(&[id]) => Cow::from(*id),
+                    Some(ids) => {
+                        let msg = format!(
+                            "Candidates: [{}]",
+                            ids.iter()
+                                .format_with(", ", |s, f| f(&format_args!("{:?}", s))),
+                        );
+                        return Err(error(failure::err_msg(msg)));
+                    }
+                    None => return Err(error(failure::err_msg("Unknown extension"))),
+                }
+            }
+            Some(lang_id) => Cow::from(lang_id.as_str()),
+        };
         let code = crate::fs::read_to_string(src_path)?;
         let code = match replacer {
             Some(replacer) => replacer.replace_from_local_to_submission(&problem, &code)?,
             None => code,
         };
+
+        self.login(true)?;
         let mut url = match contest {
             YukicoderContest::No => format!("/problems/no/{}", problem),
             YukicoderContest::Contest(contest) => self
@@ -262,9 +345,8 @@ impl<T: Term> Yukicoder<T> {
         let token = document.extract_csrf_token_from_submit_page()?;
         let form = Multipart::new()
             .add_text("csrf_token", token)
-            .add_text("lang", lang_id.as_str())
+            .add_text("lang", lang_id.as_ref())
             .add_text("source", code.as_str())
-            .add_text("submit", "提出する")
             .prepare()
             .map_err(Into::<io::Error>::into)?;
         let url = document.extract_url_from_submit_page()?;
@@ -278,7 +360,7 @@ impl<T: Term> Yukicoder<T> {
             ),
         };
         if let Some(location) = location.as_ref() {
-            if location.starts_with("https://yukicoder.me/submissions/") {
+            if location.contains("/submissions/") {
                 writeln!(self.stdout(), "Success: {:?}", location)?;
                 self.stdout().flush()?;
                 if *open_browser {
@@ -288,7 +370,7 @@ impl<T: Term> Yukicoder<T> {
             }
         }
         Err(ServiceErrorKind::SubmissionRejected(
-            lang_id.clone(),
+            lang_id.as_ref().to_owned(),
             code.len(),
             res.status(),
             location.map(ToOwned::to_owned),
@@ -443,7 +525,7 @@ impl Extract for Document {
                         let pres = paragraph
                             .find(selector!("pre").child(Text))
                             .collect::<Vec<_>>();
-                        ensure_opt!(pres.len() == 2);
+                        guard!(pres.len() == 2);
                         let input = pres[0].text();
                         let output = match kind {
                             ProblemKind::Regular => Some(pres[1].text()),
@@ -494,7 +576,7 @@ impl Extract for Document {
     }
 
     fn extract_url_from_submit_page(&self) -> ScrapeResult<String> {
-        self.find(selector!("submit_form"))
+        self.find(selector!("#submit_form"))
             .find_map(|form| form.attr("action").map(ToOwned::to_owned))
             .ok_or_else(ScrapeError::new)
     }

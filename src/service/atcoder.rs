@@ -10,15 +10,19 @@ use crate::util::std_unstable::RemoveItem_ as _RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
 use failure::ResultExt as _ResultExt;
+use itertools::Itertools as _Itertools;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
+use once_cell::sync_lazy;
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
 use select::predicate::{Predicate, Text};
 use tokio::runtime::Runtime;
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsStr;
 use std::io::Write as _Write;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -273,7 +277,7 @@ impl<T: Term> Atcoder<T> {
                 .get(&detail_url)
                 .recv_html()?
                 .extract_submitted_code()?;
-            let lang_id = first_page.extract_lang_id(&lang_name)?;
+            let lang_id = first_page.extract_lang_id_by_name(&lang_name)?;
             if let Some(path_template) = src_paths.get(lang_id.as_str()) {
                 let path = path_template.expand(&task_name.to_lowercase())?;
                 let code = match replacers.get(lang_id.as_str()) {
@@ -340,10 +344,9 @@ impl<T: Term> Atcoder<T> {
                 let task_screen_name = {
                     static SCREEN_NAME: Lazy<Regex> =
                         lazy_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$");
-                    if let Some(caps) = SCREEN_NAME.captures(&url) {
-                        caps[1].to_owned()
-                    } else {
-                        break;
+                    match SCREEN_NAME.captures(&url) {
+                        None => break,
+                        Some(caps) => caps[1].to_owned(),
                     }
                 };
                 if checks_if_accepted {
@@ -374,18 +377,26 @@ impl<T: Term> Atcoder<T> {
                     }
                     None => source_code,
                 };
-                let csrf_token = self.get(&url).recv_html()?.extract_csrf_token()?;
+                let document = self.get(&url).recv_html()?;
+                let csrf_token = document.extract_csrf_token()?;
+                let lang_id = match lang_id.as_ref() {
+                    None => {
+                        let ext = src_path.extension().unwrap_or_default();
+                        Cow::from(document.extract_lang_id_by_extension(ext)?)
+                    }
+                    Some(lang_id) => Cow::from(lang_id.as_str()),
+                };
                 let url = contest.url_submit();
                 let payload = hashmap!(
-                    "data.TaskScreenName" => &task_screen_name,
-                    "data.LanguageId" => lang_id,
+                    "data.TaskScreenName" => task_screen_name.as_str(),
+                    "data.LanguageId" => &lang_id,
                     "sourceCode" => &source_code,
                     "csrf_token" => &csrf_token,
                 );
 
                 let error = |status: StatusCode, location: Option<String>| -> _ {
                     ServiceError::from(ServiceErrorKind::SubmissionRejected(
-                        lang_id.to_owned(),
+                        lang_id.as_ref().to_owned(),
                         source_code.len(),
                         status,
                         location,
@@ -580,16 +591,22 @@ trait Extract {
     fn extract_contest_duration(&self) -> ScrapeResult<ContestDuration>;
     fn extract_submissions(&self) -> ScrapeResult<(vec::IntoIter<Submission>, u32)>;
     fn extract_submitted_code(&self) -> ScrapeResult<String>;
-    fn extract_lang_id(&self, lang_name: &str) -> ScrapeResult<String>;
+    fn extract_lang_id_by_name(&self, lang_name: &str) -> ScrapeResult<String>;
+    fn extract_lang_id_by_extension(&self, ext: &OsStr) -> ServiceResult<String>;
 }
 
 impl Extract for Document {
     fn extract_csrf_token(&self) -> ScrapeResult<String> {
-        self.find(selector!("[name=\"csrf_token\"]"))
-            .next()
-            .and_then(|node| node.attr("value").map(ToOwned::to_owned))
-            .filter(|token| !token.is_empty())
-            .ok_or_else(ScrapeError::new)
+        let extract_csrf_token = || {
+            let token = self
+                .find(selector!("[name=\"csrf_token\"]"))
+                .next()?
+                .attr("value")?
+                .to_owned();
+            guard!(!token.is_empty());
+            Some(token)
+        };
+        extract_csrf_token().ok_or_else(ScrapeError::new)
     }
 
     fn extract_task_urls_with_names(&self) -> ScrapeResult<Vec<(String, String)>> {
@@ -726,9 +743,7 @@ impl Extract for Document {
                     if !s.ends_with('\n') {
                         s.push('\n');
                     }
-                    if !is_valid_text(s) {
-                        return None;
-                    }
+                    guard!(is_valid_text(s));
                 }
             }
 
@@ -845,9 +860,7 @@ impl Extract for Document {
                     .find(selector!("td.text-center > a"))
                     .flat_map(|a| -> Option<String> {
                         let text = a.find(Text).next()?.text();
-                        if text != "詳細" && text != "Detail" {
-                            return None;
-                        }
+                        guard!(["詳細", "Detail"].contains(&text.as_str()));
                         a.attr("href").map(ToOwned::to_owned)
                     }).next()?;
                 submissions.push(Submission {
@@ -875,7 +888,7 @@ impl Extract for Document {
             .unwrap_or_else(|| "".to_owned()))
     }
 
-    fn extract_lang_id(&self, lang_name: &str) -> ScrapeResult<String> {
+    fn extract_lang_id_by_name(&self, lang_name: &str) -> ScrapeResult<String> {
         for option in self.find(selector!("#select-language > option")) {
             if let Some(text) = option.find(Text).next().map(|n| n.text()) {
                 if text == lang_name {
@@ -887,6 +900,130 @@ impl Extract for Document {
             }
         }
         Err(ScrapeError::new())
+    }
+
+    fn extract_lang_id_by_extension(&self, ext: &OsStr) -> ServiceResult<String> {
+        enum Kind {
+            Mime(&'static str),
+            Name(&'static str),
+            Ambiguous(&'static [&'static str]),
+        }
+
+        static KINDS: Lazy<HashMap<&OsStr, Kind>> = sync_lazy!(hashmap!(
+            OsStr::new("bash")   => Kind::Name("Bash"),
+            OsStr::new("sh")     => Kind::Name("Bash"),
+            OsStr::new("c")      => Kind::Mime("text/x-csrc"),
+            OsStr::new("cpp")    => Kind::Mime("text/x-c++src"),
+            OsStr::new("cxx")    => Kind::Mime("text/x-c++src"),
+            OsStr::new("cc")     => Kind::Mime("text/x-c++src"),
+            OsStr::new("C")      => Kind::Mime("text/x-c++src"),
+            OsStr::new("cs")     => Kind::Mime("text/x-csharp"),
+            OsStr::new("clj")    => Kind::Mime("text/x-closure"),
+            OsStr::new("lisp")   => Kind::Mime("text/x-common-lisp"),
+            OsStr::new("cl")     => Kind::Mime("text/x-common-lisp"),
+            OsStr::new("d")      => Kind::Mime("text/x-d"),
+            OsStr::new("f08")    => Kind::Mime("text/x-fortran"),
+            OsStr::new("F08")    => Kind::Mime("text/x-fortran"),
+            OsStr::new("f03")    => Kind::Mime("text/x-fortran"),
+            OsStr::new("F03")    => Kind::Mime("text/x-fortran"),
+            OsStr::new("f95")    => Kind::Mime("text/x-fortran"),
+            OsStr::new("F95")    => Kind::Mime("text/x-fortran"),
+            OsStr::new("f90")    => Kind::Mime("text/x-fortran"),
+            OsStr::new("F90")    => Kind::Mime("text/x-fortran"),
+            OsStr::new("f")      => Kind::Mime("text/x-fortran"),
+            OsStr::new("for")    => Kind::Mime("text/x-fortran"),
+            OsStr::new("go")     => Kind::Mime("text/x-go"),
+            OsStr::new("hs")     => Kind::Mime("text/x-haskell"),
+            OsStr::new("java")   => Kind::Mime("text/x-java"),
+            OsStr::new("js")     => Kind::Mime("text/javascript"),
+            OsStr::new("ml")     => Kind::Mime("text/x-ocaml"),
+            OsStr::new("pas")    => Kind::Mime("text/x-pascal"),
+            OsStr::new("pl")     => Kind::Mime("text/x-perl"),
+            OsStr::new("php")    => Kind::Mime("text/x-php"),
+            OsStr::new("py")     => Kind::Mime("text/x-python"),
+            OsStr::new("py2")    => Kind::Mime("text/x-python"),
+            OsStr::new("py3")    => Kind::Mime("text/x-python"),
+            OsStr::new("rb")     => Kind::Mime("text/x-ruby"),
+            OsStr::new("scala")  => Kind::Mime("text/x-scala"),
+            OsStr::new("scm")    => Kind::Mime("text/x-scheme"),
+            OsStr::new("txt")    => Kind::Mime("text/plain"),
+            OsStr::new("vb")     => Kind::Mime("text/x-vb"),
+            OsStr::new("m")      => Kind::Ambiguous(&["Objective-C", "Octave"]),
+            OsStr::new("swift")  => Kind::Mime("text/x-swift"),
+            OsStr::new("rs")     => Kind::Mime("text/x-rust"),
+            OsStr::new("sed")    => Kind::Name("Sed"),
+            OsStr::new("awk")    => Kind::Name("Awk"),
+            OsStr::new("bf")     => Kind::Mime("text/x-brainfuck"),
+            OsStr::new("sml")    => Kind::Mime("text/x-sml"),
+            OsStr::new("cr")     => Kind::Mime("text/x-crystal"),
+            OsStr::new("fs")     => Kind::Mime("text/x-fsharp"),
+            OsStr::new("unl")    => Kind::Mime("text/x-unlambda"),
+            OsStr::new("lua")    => Kind::Mime("text/x-lua"),
+            OsStr::new("moon")   => Kind::Mime("text/x-moonscript"),
+            OsStr::new("ceylon") => Kind::Mime("text/x-ceylon"),
+            OsStr::new("jl")     => Kind::Mime("text/x-julia"),
+            OsStr::new("nim")    => Kind::Mime("text/x-nim"),
+            OsStr::new("ts")     => Kind::Mime("text/typescript"),
+            OsStr::new("p6")     => Kind::Name("Perl6"),
+            OsStr::new("kt")     => Kind::Mime("text/x-kotlin"),
+            OsStr::new("cob")    => Kind::Mime("text/x-cobol"),
+        ));
+        static NAME: Lazy<Regex> = lazy_regex!(r#"\A(.*?)\s*\(.*?\)\z"#);
+
+        macro_rules! with_msg {
+            ($msg:expr) => {
+                ServiceError::from(failure::err_msg($msg).context(
+                    ServiceErrorKind::RecognizeByExtension(ext.to_string_lossy().into_owned()),
+                ))
+            };
+        }
+
+        let kind = KINDS
+            .get(ext)
+            .ok_or_else(|| with_msg!("Unknown extension"))?;
+        if let Kind::Ambiguous(candidates) = kind {
+            return Err(with_msg!(format!(
+                "Ambiguous (candidates: {{ {} }})",
+                candidates
+                    .iter()
+                    .format_with(", ", |s, f| f(&format_args!("????: {:?} (???)", s)))
+            )));
+        }
+        let mut matched = vec![];
+        for option in self.find(selector!("#select-lang > select > option")) {
+            let lang_id = option.attr("value").ok_or_else(ScrapeError::new)?;
+            let mime = option.attr("data-mime").ok_or_else(ScrapeError::new)?;
+            let name = option
+                .find(Text)
+                .next()
+                .ok_or_else(ScrapeError::new)?
+                .text();
+            match kind {
+                Kind::Ambiguous(_) => unreachable!(),
+                Kind::Mime(s) => if s == &mime {
+                    matched.push((lang_id, name));
+                },
+                Kind::Name(s) => {
+                    let p = {
+                        let caps = NAME.captures(&name).ok_or_else(ScrapeError::new)?;
+                        s == &&caps[1]
+                    };
+                    if p {
+                        matched.push((lang_id, name));
+                    }
+                }
+            }
+        }
+        if matched.len() == 1 {
+            Ok(matched[0].0.to_owned())
+        } else {
+            Err(with_msg!(format!(
+                "Candidates:\n{}",
+                matched
+                    .iter()
+                    .format_with("", |(n, s), f| f(&format_args!("  {}: {:?}\n", n, s)))
+            )))
+        }
     }
 }
 

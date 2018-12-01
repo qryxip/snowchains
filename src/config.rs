@@ -30,6 +30,53 @@ pub(crate) fn init(
     directory: &AbsPath,
     session_cookies: &str,
 ) -> FileResult<()> {
+    #[cfg(not(windows))]
+    static SHELL: &str = "[$SHELL, -c]";
+    #[cfg(windows)]
+    static SHELL: &str = r"['C:\Windows\cmd.exe', /C]";
+    #[cfg(not(windows))]
+    static EXE: &str = "";
+    #[cfg(windows)]
+    static EXE: &str = ".exe";
+    #[cfg(not(windows))]
+    static VENV_PYTHON3: &str = "./venv/bin/python3";
+    #[cfg(windows)]
+    static VENV_PYTHON3: &str = "./venv/Scripts/python.exe";
+    #[cfg(not(windows))]
+    static CRLF_TO_LF_TRUE: &str = "";
+    #[cfg(windows)]
+    static CRLF_TO_LF_TRUE: &str = "\n      crlf_to_lf: true";
+    #[cfg(not(windows))]
+    static CRLF_TO_LF_FALSE: &str = "";
+    #[cfg(windows)]
+    static CRLF_TO_LF_FALSE: &str = "\n      # crlf_to_lf: false";
+    #[cfg(not(windows))]
+    static CSHARP: &str = r#"  c#:
+    src: cs/{Pascal}/{Pascal}.cs
+    compile:
+      bin: cs/{Pascal}/bin/Release/{Pascal}.exe
+      command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
+      working_directory: cs
+    run:
+      command: [mono, $bin]
+      working_directory: cs
+    language_ids:
+      # atcoder: 3006        # "C# (Mono x.x.x.x)"
+      yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)""#;
+    #[cfg(windows)]
+    static CSHARP: &str = r#"  c#:
+    src: cs/{Pascal}/{Pascal}.cs
+    compile:
+      bin: cs/{Pascal}/bin/Release/{Pascal}.exe
+      command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
+      working_directory: cs
+    run:
+      command: [$bin]
+      working_directory: cs
+      crlf_to_lf: true
+    language_ids:
+      # atcoder: 3006   # "C# (Mono x.x.x.x)"
+      yukicoder: csharp # "C# (csc x.x.x.x)""#;
     let config = format!(
         r#"---
 service: atcoder
@@ -95,12 +142,12 @@ services:
   hackerrank:
     # language: c++
     variables:
-      rust_version: 1.21.0
+      rust_version: 1.29.1
       java_class: Main
   yukicoder:
     # language: c++
     variables:
-      rust_version: 1.28.0
+      rust_version: 1.30.1
       java_class: Main
   other:
     # language: c++
@@ -112,8 +159,7 @@ interactive:
     src: testers/py/test-{{kebab}}.py
     run:
       command: [{venv_python3}, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
-      working_directory: testers/py
-      {crlf_to_lf}
+      working_directory: testers/py{crlf_to_lf_true}
   haskell:
     src: testers/hs/app/Test{{Pascal}}.hs
     compile:
@@ -122,8 +168,7 @@ interactive:
       working_directory: testers/hs
     run:
       command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
-      working_directory: testers/hs
-      # crlf_to_lf: false
+      working_directory: testers/hs{crlf_to_lf_false}
 
 languages:
   c++:
@@ -134,24 +179,22 @@ languages:
       working_directory: cpp # default: "."
     run:
       command: [$bin]
-      working_directory: cpp # default: "."
-      {crlf_to_lf}
+      working_directory: cpp # default: "."{crlf_to_lf_true}
     language_ids:            # optional
       atcoder: 3003          # "C++14 (GCC x.x.x)"
       yukicoder: cpp14       # "C++14 (gcc x.x.x)"
   rust:
     src: rs/src/bin/{{kebab}}.rs
     compile:
-      bin: rs/target/release/{{kebab}}{exe}
+      bin: rs/target/manually/{{kebab}}{exe}
       command: [rustc, +$rust_version, -o, $bin, $src]
       working_directory: rs
     run:
       command: [$bin]
-      working_directory: rs
-      # crlf_to_lf: false
-    language_ids:
-      atcoder: 3504
-      yukicoder: rust
+      working_directory: rs{crlf_to_lf_false}
+    # language_ids:
+    #   atcoder: 3504   # "Rust (x.x.x)"
+    #   yukicoder: rust # "Rust (x.x.x)"
   go:
     src: go/{{kebab}}.go
     compile:
@@ -160,11 +203,10 @@ languages:
       working_directory: go
     run:
       command: [$bin]
-      working_directory: go
-      # crlf_to_lf: false
-    language_ids:
-      atcoder: 3013
-      yukicoder: go
+      working_directory: go{crlf_to_lf_false}
+    # language_ids:
+    #   atcoder: 3013 # "Go (x.x)"
+    #   yukicoder: go # "Go (x.x.x)"
   haskell:
     src: hs/app/{{Pascal}}.hs
     compile:
@@ -173,29 +215,26 @@ languages:
       working_directory: hs
     run:
       command: [$bin]
-      working_directory: hs
-      # crlf_to_lf: false
-    language_ids:
-      atcoder: 3014
-      yukicoder: haskell
+      working_directory: hs{crlf_to_lf_false}
+    # language_ids:
+    #   atcoder: 3014      # "Haskell (GHC x.x.x)"
+    #   yukicoder: haskell # "Haskell (x.x.x)"
   bash:
     src: bash/{{kebab}}.bash
     run:
       command: [bash, $src]
-      working_directory: bash
-      # crlf_to_lf: false
-    language_ids:
-      atcoder: 3001
-      yukicoder: sh
+      working_directory: bash{crlf_to_lf_false}
+    # language_ids:
+    #   atcoder: 3001 # "Bash (GNU Bash vx.x.x)"
+    #   yukicoder: sh # "Bash (Bash x.x.x)"
   python3:
     src: py/{{kebab}}.py
     run:
       command: [{venv_python3}, $src]
-      working_directory: py
-      {crlf_to_lf}
+      working_directory: py{crlf_to_lf_true}
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
-      yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x)"
+      yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x + scipy x.x.x)"
   java:
     src: java/src/main/java/{{Pascal}}.java
     compile:
@@ -204,8 +243,7 @@ languages:
       working_directory: java
     run:
       command: [java, -classpath, ./build/classes/java/main, '{{Pascal}}']
-      working_directory: java
-      {crlf_to_lf}
+      working_directory: java{crlf_to_lf_true}
     replace:
       regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
       match_group: 2
@@ -213,8 +251,8 @@ languages:
       submit: $java_class
       all_matched: false
     language_ids:
-      atcoder: 3016
-      yukicoder: java8
+      atcoder: 3016    # "Java8 (OpenJDK 1.8.x)"
+      # atcoder: java8 # "Java8 (openjdk 1.8.x.x)"
   scala:
     src: scala/src/main/scala/{{Pascal}}.scala
     compile:
@@ -223,78 +261,30 @@ languages:
       working_directory: scala
     run:
       command: [scala, -classpath, ./target/scala-2.12/classes, '{{Pascal}}']
-      working_directory: scala
-      {crlf_to_lf}
+      working_directory: scala{crlf_to_lf_true}
     replace:
       regex: /^\s*object\s+([A-Z][a-zA-Z0-9_]*).*$/
       match_group: 1
       local: '{{Pascal}}'
       submit: $java_class
       all_matched: false
-    language_ids:
-      atcoder: 3025
-      yukicoder: scala
+    # language_ids:
+    #   atcoder: 3016  # "Scala (x.x.x)"
+    #   atcoder: scala # "Scala(Beta) (x.x.x)"
 {csharp}
   text:
     src: txt/{{snake}}.txt
     run:
       command: [cat, $src]
-      working_directory: txt
-      # crlf_to_lf: false
-    language_ids:
-      atcoder: 3027
-      yukicoder: text
+      working_directory: txt{crlf_to_lf_false}
 "#,
         session_cookies = yaml::escape_string(session_cookies),
-        shell = if cfg!(windows) {
-            r"['C:\Windows\cmd.exe', /C]"
-        } else {
-            "[$SHELL, -c]"
-        },
-        exe = if cfg!(windows) {
-            ".exe"
-        } else {
-            ""
-        },
-        venv_python3 = if cfg!(windows) {
-            "./venv/Scripts/python.exe"
-        } else {
-            "./venv/bin/python3"
-        },
-        crlf_to_lf = if cfg!(windows) {
-            "crlf_to_lf: true"
-        } else {
-            "# crlf_to_lf: false"
-        },
-        csharp = if cfg!(windows) {
-            r#"  c#:
-    src: cs/{Pascal}/{Pascal}.cs
-    compile:
-      bin: cs/{Pascal}/bin/Release/{Pascal}.exe
-      command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
-      working_directory: cs
-    run:
-      command: [$bin]
-      working_directory: cs
-      crlf_to_lf: true
-    language_ids:
-      atcoder: 3006     # "C# (Mono x.x.x.x)"
-      yukicoder: csharp # "C# (csc x.x.x.x)""#
-        } else {
-            r#"  c#:
-    src: cs/{Pascal}/{Pascal}.cs
-    compile:
-      bin: cs/{Pascal}/bin/Release/{Pascal}.exe
-      command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
-      working_directory: cs
-    run:
-      command: [mono, $bin]
-      working_directory: cs
-      # crlf_to_lf: false
-    language_ids:
-      atcoder: 3006          # "C# (Mono x.x.x.x)"
-      yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)""#
-        }
+        shell = SHELL,
+        exe = EXE,
+        venv_python3 = VENV_PYTHON3,
+        crlf_to_lf_true = CRLF_TO_LF_TRUE,
+        crlf_to_lf_false = CRLF_TO_LF_FALSE,
+        csharp = CSHARP,
     );
     let path = directory.join(CONFIG_FILE_NAME);
     crate::fs::write(&path, config.as_bytes())?;
@@ -534,12 +524,9 @@ impl Config {
         Ok(replacers)
     }
 
-    pub(crate) fn lang_id(&self, service: ServiceName, lang: Option<&str>) -> ConfigResult<&str> {
-        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
-        lang.language_ids
-            .get(&service)
-            .map(String::as_str)
-            .ok_or_else(|| ConfigErrorKind::PropertyNotSet("language_ids.atcoder").into())
+    pub(crate) fn lang_id(&self, service: ServiceName, lang: Option<&str>) -> Option<&str> {
+        let lang = find_language(&self.languages, self.lang_name(lang).ok()?).ok()?;
+        lang.language_ids.get(&service).map(String::as_str)
     }
 
     pub(crate) fn solver_compilation(
