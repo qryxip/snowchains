@@ -349,7 +349,8 @@ pub(crate) fn switch(
         .and_then(|new_yaml| {
             let new_config = serde_yaml::from_str(&new_yaml)?;
             Ok((new_yaml, new_config))
-        }).or_else::<io::Error, _>(|warning| {
+        })
+        .or_else::<io::Error, _>(|warning| {
             stderr.with_reset(|o| writeln!(o.fg(11)?, "{}", warning))?;
             stderr.flush()?;
             let mut new_config = serde_yaml::from_str::<Config>(&old_yaml)
@@ -373,10 +374,10 @@ pub(crate) fn switch(
         c1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
         l1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
     ]
-        .iter()
-        .cloned()
-        .max()
-        .unwrap();
+    .iter()
+    .cloned()
+    .max()
+    .unwrap();
     print_change(&mut stdout, "service:  ", w, &s1, &s2)?;
     print_change(&mut stdout, "contest:  ", w, &c1, &c2)?;
     print_change(&mut stdout, "language: ", w, &l1, &l2)?;
@@ -566,7 +567,8 @@ impl Config {
                     &compile.working_directory,
                     &lang.src,
                     &compile.bin,
-                ).insert_strings(&self.vars_for_langs(None))
+                )
+                .insert_strings(&self.vars_for_langs(None))
         })
     }
 
@@ -580,7 +582,8 @@ impl Config {
                 &lang.src,
                 lang.compile.as_ref().map(|c| &c.bin),
                 lang.run.crlf_to_lf,
-            ).insert_strings(&self.vars_for_langs(None))
+            )
+            .insert_strings(&self.vars_for_langs(None))
     }
 
     fn lang_name<'a>(&'a self, name: Option<&'a str>) -> ConfigResult<&'a str> {
@@ -589,7 +592,8 @@ impl Config {
                 .get(&self.service)
                 .and_then(|s| s.language.as_ref())
                 .map(String::as_str)
-        }).or_else(|| self.language.as_ref().map(String::as_str))
+        })
+        .or_else(|| self.language.as_ref().map(String::as_str))
         .ok_or_else(|| ConfigErrorKind::PropertyNotSet("language").into())
     }
 
@@ -628,10 +632,7 @@ pub struct Console {
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Session {
-    #[serde(
-        serialize_with = "time::ser_secs",
-        deserialize_with = "time::de_secs",
-    )]
+    #[serde(serialize_with = "time::ser_secs", deserialize_with = "time::de_secs")]
     timeout: Option<Duration>,
     silent: bool,
     cookies: TemplateBuilder<AbsPathBuf>,

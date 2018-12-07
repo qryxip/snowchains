@@ -6,6 +6,7 @@ license = "MIT"
 authors = ["Ryo Yamashita <wariuni@gmail.com>"]
 readme = "README.md"
 repository = "https://github.com/wariuni/snowchains"
+edition = "2018"
 
 [dependencies]
 snowchains_proc_macros = { path = "./proc_macros" }
@@ -41,14 +42,14 @@ serde = "1.0.80"
 serde_derive = "1.0.80"
 serde_json = "1.0.33"
 serde_urlencoded = "0.5.4"
-serde_yaml = "0.8.7"
+serde_yaml = "0.8.8"
 structopt = { version = "0.2.13", features = ["wrap_help"] }
-strum = "0.11.0"
-strum_macros = "0.11.0"
+strum = "0.12.0"
+strum_macros = "0.12.0"
 tokio = "0.1.13"
 tokio-process = "0.2.3"
 tokio-signal = "0.2.7"
-toml = "0.4.9"
+toml = "0.4.10"
 unicode-width = "0.1.5"
 url = "1.7.2"
 webbrowser = "0.3.1"

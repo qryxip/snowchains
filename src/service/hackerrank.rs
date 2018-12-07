@@ -128,7 +128,8 @@ impl<T: Term> Hackerrank<T> {
                 "login": username,
                 "password": password,
                 "remember_me": true
-            }))?.json::<LoginResponse>(&mut self.runtime)?
+            }))?
+            .json::<LoginResponse>(&mut self.runtime)?
             .status;
         Ok(status)
     }
@@ -171,7 +172,8 @@ impl<T: Term> Hackerrank<T> {
                     self.get(&format!("/rest/contests/master/challenges/{}", problem))
                         .recv_json::<ProblemQueryResponse>()
                         .map(|r| r.model)
-                }).collect::<ServiceResult<Vec<_>>>()?,
+                })
+                .collect::<ServiceResult<Vec<_>>>()?,
             (HackerrankContest::Contest(contest), problems) => {
                 self.login(LoginOption::NotNecessary)?;
                 self.get(&format!("/rest/contests/{}/challenges", contest))
@@ -181,7 +183,8 @@ impl<T: Term> Hackerrank<T> {
                     .filter(|model| match problems {
                         None => true,
                         Some(problems) => problems.contains(&model.slug),
-                    }).map(|model| {
+                    })
+                    .map(|model| {
                         if model.public_test_cases {
                             Ok(model)
                         } else {
@@ -191,7 +194,8 @@ impl<T: Term> Hackerrank<T> {
                                 .recv_json::<ProblemQueryResponse>()
                                 .map(|r| r.model)
                         }
-                    }).collect::<ServiceResult<Vec<_>>>()?
+                    })
+                    .collect::<ServiceResult<Vec<_>>>()?
             }
         };
 
@@ -257,7 +261,8 @@ impl<T: Term> Hackerrank<T> {
                             .iter()
                             .map(|problem| format!("{}/challenges/{}", contest, problem))
                             .collect::<Vec<_>>()
-                    }).collect::<Vec<_>>();
+                    })
+                    .collect::<Vec<_>>();
             };
             static URL_SUF: &str = "/download_testcases";
             let cookie = self.session.cookies_to_header_value()?;
@@ -269,7 +274,8 @@ impl<T: Term> Hackerrank<T> {
                 destinations,
                 names: &names,
                 cookie,
-            }.download()?;
+            }
+            .download()?;
         }
         if *open_browser {
             for url in browser_urls {
@@ -366,7 +372,8 @@ impl Extract for Document {
                     pre.find(selector!("span.err").child(Text))
                         .map(|text| text.text())
                         .join("")
-                }).collect()
+                })
+                .collect()
         }
 
         let inputs = extract_item(self, selector!(".challenge_sample_input pre"));

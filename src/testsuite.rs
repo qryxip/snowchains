@@ -159,7 +159,7 @@ pub(crate) struct TestCaseLoader<'a> {
     tester_commands: HashMap<String, Template<JudgingCommand>>,
 }
 
-impl<'a> TestCaseLoader<'a> {
+impl TestCaseLoader<'_> {
     pub fn load_merging(&self, problem: &str) -> TestSuiteResult<(TestCases, String)> {
         fn format_paths(paths: &[impl AsRef<str>]) -> String {
             let mut pref_common = "".to_owned();
@@ -223,7 +223,8 @@ impl<'a> TestCaseLoader<'a> {
                     .insert_string("extension", ext.to_string())
                     .expand(problem)
                     .map(|path| (path, ext))
-            }).collect::<ExpandTemplateResult<Vec<_>>>()?;
+            })
+            .collect::<ExpandTemplateResult<Vec<_>>>()?;
 
         let existing_paths = all_paths
             .iter()
@@ -333,7 +334,7 @@ pub(crate) struct ZipConfig {
     #[serde(
         serialize_with = "time::ser_millis",
         deserialize_with = "time::de_secs",
-        skip_serializing_if = "Option::is_none",
+        skip_serializing_if = "Option::is_none"
     )]
     timelimit: Option<Duration>,
     #[serde(rename = "match")]
@@ -385,7 +386,8 @@ impl ZipEntries {
                     .get(self.input.match_group)
                     .ok_or_else(|| {
                         TestSuiteErrorKind::RegexGroupOutOfBounds(self.input.match_group)
-                    })?.as_str()
+                    })?
+                    .as_str()
                     .to_owned();
                 let content = if self.input.crlf_to_lf && content.contains("\r\n") {
                     content.replace("\r\n", "\n")
@@ -403,7 +405,8 @@ impl ZipEntries {
                     .get(self.output.match_group)
                     .ok_or_else(|| {
                         TestSuiteErrorKind::RegexGroupOutOfBounds(self.output.match_group)
-                    })?.as_str()
+                    })?
+                    .as_str()
                     .to_owned();
                 let content = if self.output.crlf_to_lf && content.contains("\r\n") {
                     content.replace("\r\n", "\n")
@@ -425,7 +428,8 @@ impl ZipEntries {
                 } else {
                     None
                 }
-            }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
         for sorting in &self.sort {
             match sorting {
                 ZipEntriesSorting::Dictionary => cases.sort_by(|(s1, _, _), (s2, _, _)| s1.cmp(s2)),
@@ -449,7 +453,8 @@ impl ZipEntries {
                     Some(&output),
                     output_match,
                 )
-            }).collect();
+            })
+            .collect();
         Ok(cases)
     }
 }
@@ -516,7 +521,8 @@ impl TestSuite {
             TestSuite::Unsubmittable => {
                 out.with_reset(|o| o.fg(10)?.write_str("(unsubmittable problem)\n"))
             }
-        }.map_err(Into::into)
+        }
+        .map_err(Into::into)
     }
 
     fn to_string_pretty(&self, ext: SerializableExtension) -> TestSuiteResult<String> {
@@ -587,7 +593,7 @@ struct SimpleSuiteSchemaHead {
     #[serde(
         serialize_with = "time::ser_millis",
         deserialize_with = "time::de_secs",
-        skip_serializing_if = "Option::is_none",
+        skip_serializing_if = "Option::is_none"
     )]
     timelimit: Option<Duration>,
     #[serde(rename = "match", default)]
@@ -647,7 +653,8 @@ impl SimpleSuite {
                     case.output.as_ref().map(String::as_str),
                     output_match,
                 )
-            }).collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
     }
 
     fn to_string_pretty(&self, ext: SerializableExtension) -> TestSuiteResult<String> {
@@ -660,9 +667,9 @@ impl SimpleSuite {
         }
 
         fn is_valid(s: &str) -> bool {
-            s.ends_with('\n') && s
-                .chars()
-                .all(|c| [' ', '\n'].contains(&c) || (!c.is_whitespace() && !c.is_control()))
+            s.ends_with('\n')
+                && s.chars()
+                    .all(|c| [' ', '\n'].contains(&c) || (!c.is_whitespace() && !c.is_control()))
         }
 
         match ext {
@@ -713,7 +720,7 @@ pub(crate) struct InteractiveSuite {
     #[serde(
         serialize_with = "time::ser_millis",
         deserialize_with = "time::de_secs",
-        skip_serializing_if = "Option::is_none",
+        skip_serializing_if = "Option::is_none"
     )]
     timelimit: Option<Duration>,
     tester: Option<String>,

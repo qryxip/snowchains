@@ -7,7 +7,6 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use zip::ZipArchive;
 
-use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Seek as _Seek, SeekFrom, Write as _Write};
 
@@ -75,7 +74,8 @@ pub(crate) fn find_path(filename: &'static str, start: &AbsPath) -> FileResult<A
             break Err(FileErrorKind::Find {
                 filename,
                 start: start.to_owned(),
-            }.into());
+            }
+            .into());
         }
     }
 }
@@ -133,39 +133,5 @@ impl LockedFile {
 
         write_bincode(&mut self.inner, value)
             .map_err(|e| e.context(FileErrorKind::Write(self.path.clone())).into())
-    }
-}
-
-trait IoContext {
-    fn io_context<E: fmt::Display + fmt::Debug + Send + Sync + 'static, F: FnOnce() -> E>(
-        self,
-        f: F,
-    ) -> Self;
-}
-
-impl<T> IoContext for io::Result<T> {
-    fn io_context<E: fmt::Display + fmt::Debug + Send + Sync + 'static, F: FnOnce() -> E>(
-        self,
-        f: F,
-    ) -> Self {
-        #[derive(Debug)]
-        struct IoContext<E> {
-            ctx: E,
-            source: io::Error,
-        }
-
-        impl<E: fmt::Display> fmt::Display for IoContext<E> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                self.ctx.fmt(f)
-            }
-        }
-
-        impl<E: fmt::Display + fmt::Debug> std::error::Error for IoContext<E> {
-            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-                Some(&self.source)
-            }
-        }
-
-        self.map_err(|source| io::Error::new(source.kind(), IoContext { ctx: f(), source }))
     }
 }

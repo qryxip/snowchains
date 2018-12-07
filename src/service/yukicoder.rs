@@ -173,7 +173,7 @@ impl<T: Term> Yukicoder<T> {
                         nos.push(problem.clone());
                     }
                 }
-                let mut stderr = self.stderr();
+                let stderr = self.stderr();
                 if !not_found.is_empty() {
                     stderr.with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
                     stderr.flush()?;
@@ -215,7 +215,8 @@ impl<T: Term> Yukicoder<T> {
                 destinations,
                 names: &nos,
                 cookie,
-            }.download()?;
+            }
+            .download()?;
         }
         if *open_browser {
             for (url, _, _, _) in &outputs {
@@ -374,7 +375,8 @@ impl<T: Term> Yukicoder<T> {
             code.len(),
             res.status(),
             location.map(ToOwned::to_owned),
-        ).into())
+        )
+        .into())
     }
 
     fn filter_solved<'b>(

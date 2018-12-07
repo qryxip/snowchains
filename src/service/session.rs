@@ -291,7 +291,8 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         Self {
             inner: self.inner.map(|inner| inner.form(form)),
             ..self
-        }.send()
+        }
+        .send()
     }
 
     pub(crate) fn send_json(
@@ -301,7 +302,8 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         Self {
             inner: self.inner.map(|inner| inner.json(json)),
             ..self
-        }.send()
+        }
+        .send()
     }
 
     pub(crate) fn send_multipart(self, mut form: PreparedFields) -> ServiceResult<self::Response> {
@@ -317,7 +319,8 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
                     .body(content)
             }),
             ..self
-        }.send()
+        }
+        .send()
     }
 
     pub(crate) fn recv_html(self) -> ServiceResult<Document> {
@@ -489,7 +492,8 @@ impl ResponseExt for reqwest::r#async::Response {
                 self.url().to_owned(),
                 self.status(),
                 expected,
-            ).into())
+            )
+            .into())
         }
     }
 }
@@ -514,7 +518,8 @@ impl UrlBase {
                     None => "".to_owned(),
                 },
                 url,
-            ).into();
+            )
+            .into();
         }
         Url::parse(&url).map_err(|e| {
             e.context(ServiceErrorKind::ParseUrl(url.into_owned()))

@@ -181,7 +181,8 @@ pub(self) fn reqwest_client(
     match timeout.into() {
         None => builder,
         Some(timeout) => builder.timeout(timeout),
-    }.build()
+    }
+    .build()
 }
 
 pub(crate) struct DownloadProps<C: Contest> {

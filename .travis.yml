@@ -42,10 +42,6 @@ install:
 
 script:
   - cargo fmt --all -- --check
-  # A hack to prevent clippy from checking dependencies
-  - sh -c 'cd ./proc_macros && cargo check'
-  - cargo check --all-targets
-  - find ./src ./tests ./proc_macros/src -type f | xargs touch
   - sh -c 'cd ./proc_macros && cargo clippy -- -D warnings'
   - cargo clippy --all-targets -- -D warnings
   - |

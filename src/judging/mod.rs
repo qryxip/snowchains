@@ -167,7 +167,8 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
                 stderr.flush()?;
                 spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge)?;
                 Ok((i, name, outcome))
-            }).collect()
+            })
+            .collect()
             .wait()?;
         if stderr.supports_color() {
             writeln!(stderr)?;
@@ -249,11 +250,11 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
     };
 
     if let Some(solver_compilation) = solver_compilation {
-        solver_compilation.run((&mut stdout, &mut stderr), force_compile)?;
+        solver_compilation.run(&mut stdout, &mut stderr, force_compile)?;
         writeln!(stdout)?;
     }
     for tester_compilation in tester_compilations {
-        tester_compilation.run((&mut stdout, &mut stderr), force_compile)?;
+        tester_compilation.run(&mut stdout, &mut stderr, force_compile)?;
         writeln!(stdout)?;
     }
 

@@ -126,7 +126,8 @@ impl Urls {
             .map(|name| {
                 let url = format!("{}{}{}", self.pref, name, self.suf);
                 Url::parse(&url).map_err(|e| e.context(ServiceErrorKind::ParseUrl(url)).into())
-            }).collect()
+            })
+            .collect()
     }
 }
 

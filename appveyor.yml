@@ -33,10 +33,6 @@ build: false
 
 test_script:
   - cargo fmt --all -- --check
-  # A hack to prevent clippy from checking dependencies
-  - cmd /C "cd .\proc_macros && cargo check"
-  - cargo check --all-targets
-  - ps: Get-Childitem -File -Recurse .\src,.\tests,.\proc_macros\src | ForEach-Object { Set-ItemProperty -Path $_.FullName -Name LastWriteTime -Value $(Get-Date) }
   - cmd /C "cd .\proc_macros && cargo clippy -- -D warnings"
   - cargo clippy --all-targets -- -D warnings
   - ps: $env:targets = If (Test-Path env:ATCODER_USERNAME) { 'all' } else { 'lib' }

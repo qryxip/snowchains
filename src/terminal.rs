@@ -138,7 +138,7 @@ pub trait StandardOutput: Write {
     fn windows_handle_ref() -> Option<winapi_util::HandleRef>;
 }
 
-impl<'a> StandardOutput for BufWriter<StdoutLock<'a>> {
+impl StandardOutput for BufWriter<StdoutLock<'_>> {
     fn process_redirection() -> process::Stdio {
         process::Stdio::inherit()
     }
@@ -158,7 +158,7 @@ impl<'a> StandardOutput for BufWriter<StdoutLock<'a>> {
     }
 }
 
-impl<'a> StandardOutput for BufWriter<StderrLock<'a>> {
+impl StandardOutput for BufWriter<StderrLock<'_>> {
     fn process_redirection() -> process::Stdio {
         process::Stdio::inherit()
     }
@@ -467,8 +467,9 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
                     EnvKind::DumbOrCygwin => false,
                     EnvKind::Msys => W::is_tty(),
                     EnvKind::PossiblyWinConsole => {
-                        W::is_tty() && W::windows_handle_ref()
-                            .map_or(false, |h| virtual_terminal_processing_enabled(&h))
+                        W::is_tty()
+                            && W::windows_handle_ref()
+                                .map_or(false, |h| virtual_terminal_processing_enabled(&h))
                     }
                 }
             }

@@ -44,7 +44,8 @@ pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
                 input,
                 diff: TextDiff::new(expected, &stdout),
                 stderr: Text::exact(""),
-            }.into();
+            }
+            .into();
         }
     }
     SimpleOutcomeInner::Accepted {
@@ -53,7 +54,8 @@ pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
         example,
         stdout,
         stderr: Text::exact(""),
-    }.into()
+    }
+    .into()
 }
 
 pub(super) fn judge(
@@ -103,7 +105,8 @@ impl Future for Judge {
                         ExpectedStdout::Exact(expected) => Some(Text::exact(&expected)),
                         ExpectedStdout::Float { string, .. } => Some(Text::float(string, None)),
                     },
-                }.into(),
+                }
+                .into(),
             ));
         }
         try_ready!(self.stdout.poll_read());
@@ -321,7 +324,8 @@ impl CommandOutcome {
                 stdout,
                 stderr,
             }
-        }.into()
+        }
+        .into()
     }
 }
 

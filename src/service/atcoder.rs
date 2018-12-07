@@ -209,14 +209,16 @@ impl<T: Term> Atcoder<T> {
             .filter(|(name, _)| match problems.as_ref() {
                 None => true,
                 Some(problems) => problems.iter().any(|p| p == name),
-            }).map(|(name, url)| -> ServiceResult<_> {
+            })
+            .map(|(name, url)| -> ServiceResult<_> {
                 let suite = match contest.preset_suite() {
                     Some(suite) => suite,
                     None => self.get(&url).recv_html()?.extract_as_suite()?,
                 };
                 let path = destinations.scraping(&name)?;
                 Ok((url, name, suite, path))
-            }).collect::<ServiceResult<Vec<_>>>()?;
+            })
+            .collect::<ServiceResult<Vec<_>>>()?;
         let mut not_found = match problems.as_ref() {
             None => vec![],
             Some(problems) => problems.iter().collect(),
@@ -527,7 +529,8 @@ impl AtcoderContest {
             AtcoderContest::Arc(19) => Some(InteractiveSuite::new(Duration::from_secs(2))),
             AtcoderContest::Arc(21) => Some(InteractiveSuite::new(Duration::from_secs(4))),
             _ => None,
-        }.map(Into::into)
+        }
+        .map(Into::into)
     }
 }
 
@@ -757,22 +760,27 @@ impl Extract for Document {
         fn parse_zenkaku<T: FromStr>(s: &str) -> Result<T, T::Err> {
             match s.parse() {
                 Ok(v) => Ok(v),
-                Err(e) => if s.chars().all(|c| '０' <= c && c <= '９') {
-                    s.chars()
-                        .map(|c| {
-                            char::from((u32::from(c) - u32::from('０') + u32::from('0')) as u8)
-                        }).collect::<String>()
-                        .parse()
-                } else {
-                    Err(e)
-                },
+                Err(e) => {
+                    if s.chars().all(|c| '０' <= c && c <= '９') {
+                        s.chars()
+                            .map(|c| {
+                                char::from((u32::from(c) - u32::from('０') + u32::from('0')) as u8)
+                            })
+                            .collect::<String>()
+                            .parse()
+                    } else {
+                        Err(e)
+                    }
+                }
             }
         }
 
         fn is_valid_text(s: &str) -> bool {
-            s == "\n" || ![' ', '\n'].iter().any(|&c| s.starts_with(c)) && s
-                .chars()
-                .all(|c| c.is_ascii() && (c.is_ascii_whitespace() == [' ', '\n'].contains(&c)))
+            s == "\n"
+                || ![' ', '\n'].iter().any(|&c| s.starts_with(c))
+                    && s.chars().all(|c| {
+                        c.is_ascii() && (c.is_ascii_whitespace() == [' ', '\n'].contains(&c))
+                    })
         }
 
         fn extract_timelimit(this: &Document) -> Option<Duration> {
@@ -833,7 +841,8 @@ impl Extract for Document {
             let num_pages = self
                 .find(selector!(
                     "#main-container > div.row > div.text-center > ul.pagination > li",
-                )).count() as u32;
+                ))
+                .count() as u32;
             let mut submissions = vec![];
             let pred = selector!(
                 "#main-container > div.row > div.col-sm-12 > div.panel-submission
@@ -862,7 +871,8 @@ impl Extract for Document {
                         let text = a.find(Text).next()?.text();
                         guard!(["詳細", "Detail"].contains(&text.as_str()));
                         a.attr("href").map(ToOwned::to_owned)
-                    }).next()?;
+                    })
+                    .next()?;
                 submissions.push(Submission {
                     task_name,
                     task_screen_name,
@@ -1000,9 +1010,11 @@ impl Extract for Document {
                 .text();
             match kind {
                 Kind::Ambiguous(_) => unreachable!(),
-                Kind::Mime(s) => if s == &mime {
-                    matched.push((lang_id, name));
-                },
+                Kind::Mime(s) => {
+                    if s == &mime {
+                        matched.push((lang_id, name));
+                    }
+                }
                 Kind::Name(s) => {
                     let p = {
                         let caps = NAME.captures(&name).ok_or_else(ScrapeError::new)?;

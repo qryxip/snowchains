@@ -38,7 +38,8 @@ fn it_raises_an_error_if_when_login_fails() {
         "it_raises_an_error_when_login_fails",
         common::dummy_credentials(),
         login,
-    ).unwrap_err();
+    )
+    .unwrap_err();
     if_chain! {
         if let Some(snowchains::Error::Service(ServiceError::Context(ctx))) = err.downcast_ref();
         if let ServiceErrorKind::LoginOnTest = ctx.get_context();
@@ -66,7 +67,8 @@ fn it_downloads_testcases_from_master() {
             }
             Ok(())
         },
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 #[test]
@@ -83,7 +85,8 @@ fn it_downloads_testcases_from_hourrank_20() {
             download(app, CONTEST, &[PROBLEM])?;
             common::confirm_zip_exists(&wd, CONTEST, &PROBLEM.to_snake_case()).map_err(Into::into)
         },
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 fn login(app: App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> snowchains::Result<()> {

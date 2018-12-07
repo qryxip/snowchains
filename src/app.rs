@@ -22,29 +22,27 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Debug, StructOpt)]
-#[structopt(
-    usage = "snowchains <i|init> [OPTIONS] [directory]\
-             \n    snowchains <w|switch> [OPTIONS]\
-             \n    snowchains <l|login> [OPTIONS] <service>\
-             \n    snowchains <p|participate> [OPTIONS] <service> <contest>\
-             \n    snowchains <d|download> [FLAGS] [OPTIONS]\
-             \n    snowchains <r|restore> [OPTIONS]\
-             \n    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>\
-             \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>\
-             \n    snowchains show num-cases [OPTIONS] <problem> <extension>\
-             \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
-             \n    snowchains show in [OPTIONS] <problem> <nth>\
-             \n    snowchains show accepts [OPTIONS] <problem> <nth>\
-             \n    snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
-             \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]\
-             \n    snowchains modify match [OPTIONS] <problem> <extension> <match>",
-)]
+#[structopt(usage = "snowchains <i|init> [OPTIONS] [directory]\
+               \n    snowchains <w|switch> [OPTIONS]\
+               \n    snowchains <l|login> [OPTIONS] <service>\
+               \n    snowchains <p|participate> [OPTIONS] <service> <contest>\
+               \n    snowchains <d|download> [FLAGS] [OPTIONS]\
+               \n    snowchains <r|restore> [OPTIONS]\
+               \n    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>\
+               \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>\
+               \n    snowchains show num-cases [OPTIONS] <problem> <extension>\
+               \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
+               \n    snowchains show in [OPTIONS] <problem> <nth>\
+               \n    snowchains show accepts [OPTIONS] <problem> <nth>\
+               \n    snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
+               \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]\
+               \n    snowchains modify match [OPTIONS] <problem> <extension> <match>")]
 pub enum Opt {
     #[structopt(
         about = "Creates a config file (\"snowchains.yaml\")",
         name = "init",
         usage = "snowchains <i|init> [OPTIONS] [directory]",
-        raw(alias = "\"i\"", display_order = "1"),
+        raw(alias = "\"i\"", display_order = "1")
     )]
     Init {
         #[structopt(raw(color_choice = "1"))]
@@ -52,7 +50,7 @@ pub enum Opt {
         #[structopt(
             help = "Directory to create a \"snowchains.yaml\"",
             default_value = ".",
-            parse(from_os_str),
+            parse(from_os_str)
         )]
         directory: PathBuf,
     },
@@ -61,7 +59,7 @@ pub enum Opt {
         about = "Changes attribute values of a config file",
         name = "switch",
         usage = "snowchains <w|switch> [OPTIONS]",
-        raw(alias = "\"w\"", display_order = "2"),
+        raw(alias = "\"w\"", display_order = "2")
     )]
     Switch {
         #[structopt(raw(
@@ -80,7 +78,7 @@ pub enum Opt {
         about = "Logges in to a service",
         name = "login",
         usage = "snowchains <l|login> [OPTIONS] <service>",
-        raw(alias = "\"l\"", display_order = "3"),
+        raw(alias = "\"l\"", display_order = "3")
     )]
     Login {
         #[structopt(raw(color_choice = "1"))]
@@ -93,7 +91,7 @@ pub enum Opt {
         about = "Participates in a contest",
         name = "participate",
         usage = "snowchains <p|participate> [OPTIONS] <service> <contest>",
-        raw(alias = "\"p\"", display_order = "4"),
+        raw(alias = "\"p\"", display_order = "4")
     )]
     Participate {
         #[structopt(raw(color_choice = "1"))]
@@ -108,7 +106,7 @@ pub enum Opt {
         about = "Downloads test cases",
         name = "download",
         usage = "snowchains <d|download> [FLAGS] [OPTIONS]",
-        raw(alias = "\"d\"", display_order = "5"),
+        raw(alias = "\"d\"", display_order = "5")
     )]
     Download {
         #[structopt(raw(open_browser = "1"))]
@@ -127,7 +125,7 @@ pub enum Opt {
         about = "Downloads source files you have submitted",
         name = "restore",
         usage = "snowchains <r|restore> [OPTIONS]",
-        raw(alias = "\"r\"", display_order = "6"),
+        raw(alias = "\"r\"", display_order = "6")
     )]
     Restore {
         #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
@@ -144,7 +142,7 @@ pub enum Opt {
         about = "Tests a binary or script",
         name = "judge",
         usage = "snowchains <j|judge> [FLAGS] [OPTIONS] <problem>",
-        raw(alias = "\"j\"", display_order = "7"),
+        raw(alias = "\"j\"", display_order = "7")
     )]
     Judge {
         #[structopt(raw(force_compile = "1"))]
@@ -155,10 +153,7 @@ pub enum Opt {
         contest: Option<String>,
         #[structopt(raw(language = "3"))]
         language: Option<String>,
-        #[structopt(
-            parse(try_from_str = "parse_non_zero_usize"),
-            raw(jobs = "4"),
-        )]
+        #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "4"))]
         jobs: Option<NonZeroUsize>,
         #[structopt(raw(color_choice = "4"))]
         color_choice: AnsiColorChoice,
@@ -170,7 +165,7 @@ pub enum Opt {
         about = "Submits a source file",
         name = "submit",
         usage = "snowchains <s|submit> [FLAGS] [OPTIONS] <problem>",
-        raw(alias = "\"s\"", display_order = "8"),
+        raw(alias = "\"s\"", display_order = "8")
     )]
     Submit {
         #[structopt(raw(open_browser = "1"))]
@@ -180,13 +175,13 @@ pub enum Opt {
         #[structopt(
             long = "skip-judging",
             help = "Skips judging",
-            raw(conflicts_with = "\"force_compile\"", display_order = "3"),
+            raw(conflicts_with = "\"force_compile\"", display_order = "3")
         )]
         skip_judging: bool,
         #[structopt(
             long = "skip-checking-duplication",
             help = "Submits even if the contest is active and you have already solved the problem",
-            raw(display_order = "4"),
+            raw(display_order = "4")
         )]
         skip_checking_duplication: bool,
         #[structopt(raw(service = "&[\"atcoder\", \"yukicoder\"], Kind::Option(1)"))]
@@ -195,10 +190,7 @@ pub enum Opt {
         contest: Option<String>,
         #[structopt(raw(language = "3"))]
         language: Option<String>,
-        #[structopt(
-            parse(try_from_str = "parse_non_zero_usize"),
-            raw(jobs = "4"),
-        )]
+        #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "4"))]
         jobs: Option<NonZeroUsize>,
         #[structopt(raw(color_choice = "5"))]
         color_choice: AnsiColorChoice,
@@ -213,7 +205,7 @@ pub enum Opt {
                  \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
                  \n    snowchains show in [OPTIONS] <problem> <nth>\
                  \n    snowchains show accepts [OPTIONS] <problem> <nth>",
-        raw(display_order = "9"),
+        raw(display_order = "9")
     )]
     Show(Show),
 
@@ -223,7 +215,7 @@ pub enum Opt {
         usage = "snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
                  \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]\
                  \n    snowchains modify match [OPTIONS] <problem> <extension> <match>",
-        raw(display_order = "10"),
+        raw(display_order = "10")
     )]
     Modify(Modify),
 }
@@ -233,7 +225,7 @@ pub enum Show {
     #[structopt(
         about = "Prints number of test cases (without EOL)",
         name = "num-cases",
-        raw(display_order = "1"),
+        raw(display_order = "1")
     )]
     NumCases {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
@@ -247,7 +239,7 @@ pub enum Show {
     #[structopt(
         about = "Prints timelimit (without EOL)",
         name = "timelimit-millis",
-        raw(display_order = "2"),
+        raw(display_order = "2")
     )]
     TimelimitMillis {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
@@ -260,11 +252,7 @@ pub enum Show {
         nth: usize,
     },
 
-    #[structopt(
-        about = "Prints \"in\" value",
-        name = "in",
-        raw(display_order = "3"),
-    )]
+    #[structopt(about = "Prints \"in\" value", name = "in", raw(display_order = "3"))]
     In {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
         service: Option<ServiceName>,
@@ -279,7 +267,7 @@ pub enum Show {
     #[structopt(
         about = "Tests for a value from stdin (without timelimit)",
         name = "accepts",
-        raw(display_order = "4"),
+        raw(display_order = "4")
     )]
     Accepts {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
@@ -300,7 +288,7 @@ pub enum Modify {
     #[structopt(
         about = "Modifies a `timellimit`",
         name = "timelimit",
-        raw(display_order = "1"),
+        raw(display_order = "1")
     )]
     Timelimit {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
@@ -320,7 +308,7 @@ pub enum Modify {
     #[structopt(
         about = "Appends a test case to a test suite file",
         name = "append",
-        raw(display_order = "2"),
+        raw(display_order = "2")
     )]
     Append {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
@@ -339,11 +327,7 @@ pub enum Modify {
         output: Option<String>,
     },
 
-    #[structopt(
-        about = "Modifies a `match`",
-        name = "match",
-        raw(display_order = "3"),
-    )]
+    #[structopt(about = "Modifies a `match`", name = "match", raw(display_order = "3"))]
     Match {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
         service: Option<ServiceName>,
@@ -367,7 +351,7 @@ pub struct MatchOpts {
     #[structopt(
         name = "match",
         help = "`match` type",
-        raw(possible_values = r#"&["any", "exact", "float"]"#),
+        raw(possible_values = r#"&["any", "exact", "float"]"#)
     )]
     kind: MatchKind,
     #[structopt(

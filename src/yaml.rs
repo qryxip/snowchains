@@ -129,9 +129,11 @@ pub(crate) fn replace_scalars(
                 break Ok(filtered.iter().join("\n"));
             }
             Event::DocumentStart => nests.push(Nest::Document),
-            Event::DocumentEnd => if nests.pop() != Some(Nest::Document) {
-                break Err(ReplaceYamlScalarWarning::UnexpectedElement);
-            },
+            Event::DocumentEnd => {
+                if nests.pop() != Some(Nest::Document) {
+                    break Err(ReplaceYamlScalarWarning::UnexpectedElement);
+                }
+            }
             Event::Scalar(s, t, 0, None) => match nests.pop() {
                 None | Some(Nest::Document) => {
                     break Err(ReplaceYamlScalarWarning::UnexpectedElement);
@@ -149,23 +151,27 @@ pub(crate) fn replace_scalars(
                 }
             },
             Event::SequenceStart(0) => nests.push(Nest::Sequence),
-            Event::SequenceEnd => if nests.pop() == Some(Nest::Sequence) {
-                if let Some(Nest::Key(_)) = nests.last() {
-                    nests.pop();
-                    nests.push(Nest::Mapping);
+            Event::SequenceEnd => {
+                if nests.pop() == Some(Nest::Sequence) {
+                    if let Some(Nest::Key(_)) = nests.last() {
+                        nests.pop();
+                        nests.push(Nest::Mapping);
+                    }
+                } else {
+                    break Err(ReplaceYamlScalarWarning::UnexpectedElement);
                 }
-            } else {
-                break Err(ReplaceYamlScalarWarning::UnexpectedElement);
-            },
+            }
             Event::MappingStart(0) => nests.push(Nest::Mapping),
-            Event::MappingEnd => if nests.pop() == Some(Nest::Mapping) {
-                if let Some(Nest::Key(_)) = nests.last() {
-                    nests.pop();
-                    nests.push(Nest::Mapping);
+            Event::MappingEnd => {
+                if nests.pop() == Some(Nest::Mapping) {
+                    if let Some(Nest::Key(_)) = nests.last() {
+                        nests.pop();
+                        nests.push(Nest::Mapping);
+                    }
+                } else {
+                    break Err(ReplaceYamlScalarWarning::UnexpectedElement);
                 }
-            } else {
-                break Err(ReplaceYamlScalarWarning::UnexpectedElement);
-            },
+            }
             Event::Nothing
             | Event::Alias(_)
             | Event::Scalar(..)

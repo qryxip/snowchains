@@ -1,13 +1,14 @@
 use crate::errors::{JudgeErrorKind, JudgeResult, StdError};
 use crate::path::AbsPathBuf;
 use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
+use crate::util::collections::NonEmptyVec;
 
 use failure::Fail as _Fail;
 use itertools::Itertools as _Itertools;
 use tokio_process::CommandExt as _CommandExt;
 
 use std::borrow::Cow;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -24,8 +25,8 @@ pub(crate) struct CompilationCommand {
 
 impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
-    pub fn new(
-        args: &[impl AsRef<OsStr>],
+    pub(crate) fn new(
+        args: Vec<OsString>,
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
         bin: AbsPathBuf,
@@ -40,7 +41,8 @@ impl CompilationCommand {
     /// Executes the command.
     pub fn run<O: TermOut, E: TermOut>(
         &self,
-        (mut stdout, mut stderr): (O, E),
+        mut stdout: O,
+        mut stderr: E,
         force_compile: bool,
     ) -> JudgeResult<()> {
         if !self.src.exists() {
@@ -53,8 +55,7 @@ impl CompilationCommand {
                 && self.src.metadata()?.modified()? < self.bin.metadata()?.modified()?
             {
                 writeln!(stdout, "{} is up to date.", self.bin.display())?;
-                stdout.flush()?;
-                return Ok(());
+                return stdout.flush().map_err(Into::into);
             }
         } else if let Some(parent) = self.bin.parent() {
             if !parent.exists() {
@@ -77,7 +78,7 @@ impl CompilationCommand {
             .stderr(E::process_redirection());
         let start = Instant::now();
         let status = proc.status().map_err(|e| {
-            StdError::from(e).context(JudgeErrorKind::Command(self.inner.arg0.clone()))
+            StdError::from(e).context(JudgeErrorKind::Command(self.inner.args[0].clone()))
         })?;
         let elapsed = Instant::now() - start;
 
@@ -111,13 +112,7 @@ pub(crate) struct JudgingCommand {
 
 impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
-    ///
-    /// Wraps `command` in `sh` or `cmd` if necessary.
-    pub(crate) fn new(
-        args: &[impl AsRef<OsStr>],
-        working_dir: AbsPathBuf,
-        crlf_to_lf: bool,
-    ) -> Self {
+    pub(crate) fn new(args: Vec<OsString>, working_dir: AbsPathBuf, crlf_to_lf: bool) -> Self {
         JudgingCommand {
             inner: Inner::new(args, working_dir),
             crlf_to_lf,
@@ -163,7 +158,7 @@ impl JudgingCommand {
             .spawn_async()
             .map_err(|e| {
                 StdError::from(e)
-                    .context(JudgeErrorKind::Command(self.inner.arg0.clone()))
+                    .context(JudgeErrorKind::Command(self.inner.args[0].clone()))
                     .into()
             })
     }
@@ -172,54 +167,40 @@ impl JudgingCommand {
 #[cfg_attr(test, derive(Debug))]
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Inner {
-    arg0: OsString,
-    rest_args: Vec<OsString>,
+    args: NonEmptyVec<OsString>,
     working_dir: AbsPathBuf,
 }
 
 impl Inner {
-    fn new(args: &[impl AsRef<OsStr>], working_dir: AbsPathBuf) -> Self {
-        let (mut arg0, rest_args) = if args.is_empty() {
-            (OsString::new(), vec![])
-        } else {
-            let rest_args = args.iter().skip(1).map(|s| s.as_ref().to_owned()).collect();
-            (args[0].as_ref().to_owned(), rest_args)
-        };
+    fn new(args: Vec<OsString>, working_dir: AbsPathBuf) -> Self {
+        let mut args = NonEmptyVec::try_new(args).unwrap_or_default();
         // https://github.com/rust-lang/rust/issues/37519
-        if cfg!(windows) && AsRef::<Path>::as_ref(&arg0).is_relative() {
-            let abs = working_dir.join_canonicalizing_lossy(&arg0);
+        if cfg!(windows) && Path::new(&args[0]).is_relative() {
+            let abs = working_dir.join_canonicalizing_lossy(&args[0]);
             if abs.exists() {
-                arg0 = abs.into();
+                args[0] = abs.into();
             }
         }
-        Self {
-            arg0,
-            rest_args,
-            working_dir,
-        }
+        Self { args, working_dir }
     }
 
     fn format_args(&self) -> Vec<String> {
-        let mut r = vec![format!("{:?}", self.arg0)];
-        for arg in &self.rest_args {
-            r.push(format!("{:?}", arg));
-        }
-        r
+        self.args.iter().map(|s| format!("{:?}", s)).collect()
     }
 
     fn build_checking_wd(&self) -> io::Result<Command> {
-        if self.working_dir.exists() {
-            let mut command = Command::new(&self.arg0);
-            command.args(&self.rest_args).current_dir(&self.working_dir);
-            Ok(command)
-        } else {
+        if let Err(err) = self.working_dir.metadata() {
             Err(io::Error::new(
-                io::ErrorKind::NotFound,
+                err.kind(),
                 format!(
-                    "{} does not exist. Check \"working_directory\" in snowchains.yaml",
-                    self.working_dir.display()
+                    "Failed to access {:?}. Check \"working_directory\" in snowchains.yaml",
+                    self.working_dir,
                 ),
             ))
+        } else {
+            let mut command = Command::new(&self.args[0]);
+            command.args(&self.args[1..]).current_dir(&self.working_dir);
+            Ok(command)
         }
     }
 }

@@ -78,7 +78,8 @@ fn it_scrapes_samples_from_practice() {
             just_confirm_num_samples_and_timelimit(&download_dir, "b", 0, "2000ms");
             Ok(())
         },
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 #[test]
@@ -103,7 +104,8 @@ fn it_scrapes_samples_from_arc058() {
             just_confirm_num_samples_and_timelimit(&download_dir, "f", 3, "5000ms");
             Ok(())
         },
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 fn just_confirm_num_samples_and_timelimit(dir: &Path, name: &str, n: usize, t: &str) {
@@ -166,7 +168,9 @@ if __name__ == '__main__':
                 jobs: None,
                 color_choice: AnsiColorChoice::Never,
                 problem: "a".to_owned(),
-            }).map_err(Into::into)
+            })
+            .map_err(Into::into)
         },
-    ).unwrap();
+    )
+    .unwrap();
 }
