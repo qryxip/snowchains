@@ -32,11 +32,11 @@ fn it_logins() {
 }
 
 #[test]
-fn it_raises_an_when_login_fails() {
+fn it_raises_an_error_when_login_fails() {
     let _ = env_logger::try_init();
     let credentials = common::dummy_credentials();
-    let err =
-        common::test_in_tempdir("it_raises_an_when_login_fails", credentials, login).unwrap_err();
+    let err = common::test_in_tempdir("it_raises_an_error_when_login_fails", credentials, login)
+        .unwrap_err();
     if_chain! {
         if let Some(snowchains::Error::Service(ServiceError::Context(ctx))) = err.downcast_ref();
         if let ServiceErrorKind::LoginOnTest = ctx.get_context();

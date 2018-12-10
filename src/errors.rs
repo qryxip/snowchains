@@ -187,8 +187,6 @@ pub enum TestSuiteErrorKind {
     SuiteIsNotSimple,
     #[display(fmt = "{:?} is unsubmittable", _0)]
     Unsubmittable(AbsPathBuf),
-    #[display(fmt = "Regex group out of bounds: {}", _0)]
-    RegexGroupOutOfBounds(usize),
     #[display(fmt = "Unsupported extension: {:?}", _0)]
     UnsupportedExtension(String),
 }
@@ -313,6 +311,8 @@ pub enum FileErrorKind {
     OpenRw(AbsPathBuf),
     #[display(fmt = "Failed to lock {}", "_0.display()")]
     Lock(AbsPathBuf),
+    #[display(fmt = "Failed to read a zip file")]
+    ReadZip,
     #[display(
         fmt = "Could not find {:?} in {} or any parent directory",
         filename,

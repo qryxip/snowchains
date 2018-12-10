@@ -30,7 +30,7 @@ use std::mem;
 use std::ops::Deref;
 
 #[derive(Debug)]
-pub(crate) struct HttpSession {
+pub(super) struct HttpSession {
     client: reqwest::r#async::Client,
     robots_txts: HashMap<String, String>,
     base: Option<UrlBase>,
@@ -39,7 +39,7 @@ pub(crate) struct HttpSession {
 }
 
 impl HttpSession {
-    pub(crate) fn try_new<'a>(
+    pub(super) fn try_new<'a>(
         mut out: impl WriteAnsi,
         mut runtime: &mut Runtime,
         client: reqwest::r#async::Client,
@@ -90,19 +90,19 @@ impl HttpSession {
         Ok(this)
     }
 
-    pub(crate) fn client(&self) -> reqwest::r#async::Client {
+    pub(super) fn client(&self) -> reqwest::r#async::Client {
         self.client.clone()
     }
 
     /// Whether it has any cookie value.
-    pub(crate) fn has_cookie(&self) -> bool {
+    pub(super) fn has_cookie(&self) -> bool {
         match self.jar.as_ref() {
             Some(jar) => jar.inner.iter().next().is_some(),
             None => false,
         }
     }
 
-    pub(crate) fn cookies_to_header_value(&self) -> ServiceResult<Option<HeaderValue>> {
+    pub(super) fn cookies_to_header_value(&self) -> ServiceResult<Option<HeaderValue>> {
         match self.jar.as_ref().map(AutosavedCookieJar::to_header_value) {
             None => Ok(None),
             Some(Ok(v)) => Ok(Some(v)),
@@ -110,7 +110,7 @@ impl HttpSession {
         }
     }
 
-    pub(crate) fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> ServiceResult<()> {
+    pub(super) fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> ServiceResult<()> {
         match self.jar.as_mut() {
             None => Ok(()),
             Some(jar) => jar.insert_cookie(cookie),
@@ -118,7 +118,7 @@ impl HttpSession {
     }
 
     /// Removes all cookies.
-    pub(crate) fn clear_cookies(&mut self) -> ServiceResult<()> {
+    pub(super) fn clear_cookies(&mut self) -> ServiceResult<()> {
         if let Some(jar) = self.jar.as_mut() {
             jar.inner = CookieJar::new();
             jar.save()?;
@@ -128,7 +128,7 @@ impl HttpSession {
 
     /// If `url` starts with '/' and the base host is present, returns
     /// http(s)://<host><url>.
-    pub(crate) fn resolve_url(&self, url: &str) -> ServiceResult<Url> {
+    pub(super) fn resolve_url(&self, url: &str) -> ServiceResult<Url> {
         match self.base.as_ref() {
             Some(base) => base.with(url),
             None => Url::parse(url)
@@ -138,7 +138,7 @@ impl HttpSession {
 
     /// Opens `url`, which is relative or absolute, with default browser
     /// printing a message.
-    pub(crate) fn open_in_browser(
+    pub(super) fn open_in_browser(
         &mut self,
         url: &str,
         mut out: impl WriteAnsi,
@@ -154,7 +154,7 @@ impl HttpSession {
         }
     }
 
-    pub(crate) fn get<'a, 'b, O: WriteAnsi>(
+    pub(super) fn get<'a, 'b, O: WriteAnsi>(
         &'a mut self,
         url: &str,
         out: O,
@@ -163,7 +163,7 @@ impl HttpSession {
         self.request(url, Method::GET, vec![StatusCode::OK], out, runtime)
     }
 
-    pub(crate) fn post<'a, 'b, O: WriteAnsi>(
+    pub(super) fn post<'a, 'b, O: WriteAnsi>(
         &'a mut self,
         url: &str,
         out: O,
@@ -217,7 +217,7 @@ impl HttpSession {
     }
 }
 
-pub(crate) struct Request<'a, 'b, O: WriteAnsi> {
+pub(super) struct Request<'a, 'b, O: WriteAnsi> {
     inner: ServiceResult<reqwest::r#async::RequestBuilder>,
     out: Option<O>,
     session: &'a mut HttpSession,
@@ -226,7 +226,7 @@ pub(crate) struct Request<'a, 'b, O: WriteAnsi> {
 }
 
 impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
-    pub(crate) fn x_csrf_token(self, token: &str) -> Self {
+    pub(super) fn x_csrf_token(self, token: &str) -> Self {
         Self {
             inner: self.inner.map(|inner| inner.header("X-CSRF-Token", token)),
             ..self
@@ -236,7 +236,7 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
     /// Panics:
     ///
     /// Panics if `statuses` contains `n` such that `n < 100 || 600 <= n`.
-    pub(crate) fn acceptable(self, statuses: &'static [u16]) -> Self {
+    pub(super) fn acceptable(self, statuses: &'static [u16]) -> Self {
         let acceptable = statuses
             .iter()
             .map(|&n| StatusCode::from_u16(n))
@@ -245,7 +245,7 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         Self { acceptable, ..self }
     }
 
-    pub(crate) fn send(self) -> ServiceResult<self::Response> {
+    pub(super) fn send(self) -> ServiceResult<self::Response> {
         self.send_internal().map(|(r, _)| r)
     }
 
@@ -284,7 +284,7 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         Ok((self::Response { inner }, runtime))
     }
 
-    pub(crate) fn send_form(
+    pub(super) fn send_form(
         self,
         form: &(impl Serialize + ?Sized),
     ) -> ServiceResult<self::Response> {
@@ -295,7 +295,7 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         .send()
     }
 
-    pub(crate) fn send_json(
+    pub(super) fn send_json(
         self,
         json: &(impl Serialize + ?Sized),
     ) -> ServiceResult<self::Response> {
@@ -306,7 +306,7 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         .send()
     }
 
-    pub(crate) fn send_multipart(self, mut form: PreparedFields) -> ServiceResult<self::Response> {
+    pub(super) fn send_multipart(self, mut form: PreparedFields) -> ServiceResult<self::Response> {
         let boundary = form.boundary().to_owned();
         let mut content = Vec::with_capacity(form.content_len().unwrap_or(0) as usize);
         form.read_to_end(&mut content)?;
@@ -323,23 +323,23 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         .send()
     }
 
-    pub(crate) fn recv_html(self) -> ServiceResult<Document> {
+    pub(super) fn recv_html(self) -> ServiceResult<Document> {
         let (res, runtime) = self.send_internal()?;
         res.document(runtime)
     }
 
-    pub(crate) fn recv_json<T: DeserializeOwned + Send + Sync + 'static>(self) -> ServiceResult<T> {
+    pub(super) fn recv_json<T: DeserializeOwned + Send + Sync + 'static>(self) -> ServiceResult<T> {
         let (res, runtime) = self.send_internal()?;
         res.json(runtime)
     }
 
-    pub(crate) fn status(self) -> ServiceResult<StatusCode> {
+    pub(super) fn status(self) -> ServiceResult<StatusCode> {
         self.send_internal().map(|(r, _)| r.status())
     }
 }
 
 #[cfg_attr(test, derive(Debug))]
-pub(crate) struct Response {
+pub(super) struct Response {
     inner: reqwest::r#async::Response,
 }
 
@@ -397,11 +397,11 @@ impl Response {
         })
     }
 
-    pub(crate) fn document(self, runtime: &mut Runtime) -> ServiceResult<Document> {
+    pub(super) fn document(self, runtime: &mut Runtime) -> ServiceResult<Document> {
         Ok(Document::from(self.text(runtime)?.as_str()))
     }
 
-    pub(crate) fn json<T: DeserializeOwned + Send + Sync + 'static>(
+    pub(super) fn json<T: DeserializeOwned + Send + Sync + 'static>(
         mut self,
         runtime: &mut Runtime,
     ) -> ServiceResult<T> {
@@ -499,7 +499,7 @@ impl ResponseExt for reqwest::r#async::Response {
 }
 
 #[derive(Debug, new)]
-pub(crate) struct UrlBase {
+pub(super) struct UrlBase {
     host: Host<&'static str>,
     https: bool,
     port: Option<u16>,

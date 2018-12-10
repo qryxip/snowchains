@@ -1,11 +1,11 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
-use crate::service::downloader::ZipDownloader;
+use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, RevelSession,
-    Service, SessionProps, SubmitProps,
+    Contest, DownloadProps, ExtractZip, PrintTargets as _PrintTargets, ProblemNameConversion,
+    RevelSession, Service, SessionProps, SubmitProps, ZipEntries, ZipEntriesSorting,
 };
-use crate::terminal::{Term, WriteAnsi as _WriteAnsi};
+use crate::terminal::{HasTerm, Term, WriteAnsi as _WriteAnsi};
 use crate::testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
@@ -20,14 +20,14 @@ use reqwest::{header, StatusCode};
 use select::document::Document;
 use select::predicate::{Predicate as _Predicate, Text};
 use serde_derive::Deserialize;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Runtime, TaskExecutor};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Write as _Write;
 use std::time::Duration;
-use std::{fmt, io};
+use std::{fmt, io, mem};
 
 pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
     Yukicoder::try_new(sess_props)?.login(true)
@@ -59,11 +59,35 @@ struct Yukicoder<T: Term> {
     credential: RevelSession,
 }
 
-impl<T: Term> Service for Yukicoder<T> {
+impl<T: Term> HasTerm for Yukicoder<T> {
     type Term = T;
 
-    fn requirements(&mut self) -> (&mut T, &mut HttpSession, &mut Runtime) {
-        (&mut self.term, &mut self.session, &mut self.runtime)
+    fn term(&mut self) -> &mut T {
+        &mut self.term
+    }
+}
+
+impl<T: Term> Service for Yukicoder<T> {
+    type Write = T::Stdout;
+
+    fn requirements(&mut self) -> (&mut T::Stdout, &mut HttpSession, &mut Runtime) {
+        (self.term.stdout(), &mut self.session, &mut self.runtime)
+    }
+}
+
+impl<T: Term> DownloadProgress for Yukicoder<T> {
+    type Write = T::Stdout;
+
+    fn requirements(&mut self) -> (&mut T::Stdout, &HttpSession, TaskExecutor) {
+        (self.term.stdout(), &self.session, self.runtime.executor())
+    }
+}
+
+impl<T: Term> ExtractZip for Yukicoder<T> {
+    type Write = T::Stdout;
+
+    fn out(&mut self) -> &mut T::Stdout {
+        self.term.stdout()
     }
 }
 
@@ -92,7 +116,7 @@ impl<T: Term> Yukicoder<T> {
             let mut first = true;
             loop {
                 if first {
-                    if !assure && !self.term.ask_yes_or_no("Login? ", true)? {
+                    if !assure && !self.ask_yes_or_no("Login? ", true)? {
                         break;
                     }
                     writeln!(
@@ -105,7 +129,7 @@ impl<T: Term> Yukicoder<T> {
                     self.stdout().flush()?;
                     first = false;
                 }
-                let revel_session = self.term.prompt_password_stderr("REVEL_SESSION: ")?;
+                let revel_session = self.prompt_password_stderr("REVEL_SESSION: ")?;
                 if self.confirm_revel_session(revel_session)? {
                     break;
                 } else {
@@ -144,7 +168,7 @@ impl<T: Term> Yukicoder<T> {
         let scrape =
             |document: &Document, problem: &str| -> ServiceResult<(TestSuite, SuiteFilePath)> {
                 let suite = document.extract_samples()?;
-                let path = destinations.scraping(problem)?;
+                let path = destinations.expand(problem)?;
                 Ok((suite, path))
             };
         let (mut outputs, mut nos) = (vec![], vec![]);
@@ -198,25 +222,56 @@ impl<T: Term> Yukicoder<T> {
                 }
             }
         }
-        let nos = self.filter_solved(&nos)?;
-        for (_, name, suite, path) in &outputs {
-            suite.save(&name, path, self.stdout())?;
-        }
-        self.stdout().flush()?;
-        if !nos.is_empty() {
-            static URL_PREF: &str = "https://yukicoder.me/problems/no/";
-            static URL_SUF: &str = "/testcase.zip";
-            let cookie = self.session.cookies_to_header_value()?;
-            ZipDownloader {
-                client: self.session.client(),
-                out: self.stdout(),
-                url_pref: URL_PREF,
-                url_suf: URL_SUF,
-                destinations,
-                names: &nos,
-                cookie,
+        let solved_simple_nos = self
+            .filter_solved(&nos)?
+            .into_iter()
+            .filter(|no| {
+                outputs.iter().any(|(_, name, suite, _)| match suite {
+                    TestSuite::Simple(_) => name == *no,
+                    _ => false,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let text_file_paths = if solved_simple_nos.is_empty() {
+            vec![]
+        } else {
+            let urls = solved_simple_nos
+                .iter()
+                .map(|no| format!("https://yukicoder.me/problems/no/{}/testcase.zip", no))
+                .collect::<Vec<_>>();
+            self.download_progress(&urls, &solved_simple_nos)?
+                .into_iter()
+                .zip(&solved_simple_nos)
+                .map(|(zip, &no)| {
+                    static ZIP_ENTRIES: Lazy<ZipEntries> = sync_lazy!(ZipEntries {
+                        in_entry: Regex::new(r"\Atest_in/([a-z0-9_]+)\.txt\z").unwrap(),
+                        in_match_group: 1,
+                        in_crlf_to_lf: true,
+                        out_entry: Regex::new(r"\Atest_out/([a-z0-9_]+)\.txt\z").unwrap(),
+                        out_match_group: 1,
+                        out_crlf_to_lf: true,
+                        sortings: vec![ZipEntriesSorting::Dictionary, ZipEntriesSorting::Number],
+                    });
+                    let paths =
+                        self.extract_zip(no, &zip, &destinations.text_file_dir(no)?, &ZIP_ENTRIES)?;
+                    Ok((no, paths))
+                })
+                .collect::<ServiceResult<Vec<_>>>()?
+        };
+        for (_, name, suite, path) in &mut outputs {
+            for (no, text_file_paths) in &text_file_paths {
+                if name == no {
+                    *suite = match mem::replace(suite, TestSuite::Unsubmittable) {
+                        TestSuite::Simple(suite) => {
+                            suite.remove_cases().paths(text_file_paths.clone()).into()
+                        }
+                        suite => suite,
+                    };
+                    break;
+                }
             }
-            .download()?;
+            suite.save(name, path, self.stdout())?;
         }
         if *open_browser {
             for (url, _, _, _) in &outputs {
@@ -457,9 +512,9 @@ impl fmt::Display for Username {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Username::None => write!(f, "<not logged in>"),
-            Username::Yukicoder(s) => write!(f, "{} (yukicoder)", s),
-            Username::Github(s) => write!(f, "{} (GitHub)", s),
-            Username::ProbablyTwitter(s) => write!(f, "{} (probably Twitter)", s),
+            Username::Yukicoder(s) => write!(f, "{} (yukicoder)", s.trim()),
+            Username::Github(s) => write!(f, "{} (GitHub)", s.trim()),
+            Username::ProbablyTwitter(s) => write!(f, "{} (probably Twitter)", s.trim()),
         }
     }
 }
@@ -536,7 +591,11 @@ impl Extract for Document {
                         };
                         samples.push((input, output));
                     }
-                    let mut suite = SimpleSuite::new(timelimit).cases(samples);
+                    let mut suite = SimpleSuite::new(timelimit).sample_cases(
+                        samples.into_iter(),
+                        |i| format!("サンプル{}", i + 1),
+                        None,
+                    );
                     if kind == ProblemKind::Special {
                         suite = suite.any();
                     }
@@ -604,17 +663,22 @@ mod tests {
         let _ = env_logger::try_init();
         test_extracting_samples(
             "/problems/no/1",
-            SimpleSuite::new(Duration::from_secs(5)).cases(vec![
-                ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
-                ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
-                (
-                    "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
-                     3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
-                     8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
-                     8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
-                    "-1\n",
-                ),
-            ]),
+            SimpleSuite::new(Duration::from_secs(5)).sample_cases(
+                vec![
+                    ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
+                    ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
+                    (
+                        "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
+                         3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
+                         8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
+                         8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
+                        "-1\n",
+                    ),
+                ]
+                .into_iter(),
+                |i| format!("サンプル{}", i + 1),
+                None,
+            ),
         );
     }
 
@@ -629,9 +693,11 @@ mod tests {
         let _ = env_logger::try_init();
         test_extracting_samples(
             "/problems/no/192",
-            SimpleSuite::new(Duration::from_secs(2))
-                .any()
-                .cases(vec![("101\n", None), ("1000\n", None)]),
+            SimpleSuite::new(Duration::from_secs(2)).any().sample_cases(
+                vec![("101\n", None), ("1000\n", None)].into_iter(),
+                |i| format!("サンプル{}", i + 1),
+                None,
+            ),
         );
     }
 

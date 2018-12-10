@@ -7,7 +7,7 @@ use crate::service::{
     SessionProps, SubmitProps,
 };
 use crate::terminal::{AnsiColorChoice, Term};
-use crate::testsuite::{self, SerializableExtension};
+use crate::testsuite::{self, SuiteFileExtension};
 use crate::time;
 
 use log::info;
@@ -300,7 +300,7 @@ pub enum Modify {
         #[structopt(raw(problem = ""))]
         problem: String,
         #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
-        extension: SerializableExtension,
+        extension: SuiteFileExtension,
         #[structopt(help = "Timelimit", parse(try_from_str = "time::parse_secs"))]
         timelimit: Option<Duration>,
     },
@@ -320,7 +320,7 @@ pub enum Modify {
         #[structopt(raw(problem = ""))]
         problem: String,
         #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
-        extension: SerializableExtension,
+        extension: SuiteFileExtension,
         #[structopt(help = "\"input\" value to append")]
         input: String,
         #[structopt(help = "\"expected\" value to append")]
@@ -338,7 +338,7 @@ pub enum Modify {
         #[structopt(raw(problem = ""))]
         problem: String,
         #[structopt(raw(extension = r#"&["json", "toml", "yaml", "yml"]"#))]
-        extension: SerializableExtension,
+        extension: SuiteFileExtension,
         #[structopt(flatten)]
         match_opts: MatchOpts,
     },
@@ -571,7 +571,7 @@ impl<T: Term> App<T> {
                 let config = Config::load(service, contest, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
-                let download_props = DownloadProps::try_new(&config, open_browser, problems)?;
+                let download_props = DownloadProps::new(&config, open_browser, problems);
                 match config.service() {
                     ServiceName::Atcoder => atcoder::download(sess_props, download_props),
                     ServiceName::Hackerrank => hackerrank::download(sess_props, download_props),
@@ -719,7 +719,7 @@ impl<T: Term> App<T> {
                 self.term.apply_conf(config.console());
                 let path = config
                     .download_destinations(Some(extension))
-                    .scraping(&problem)?;
+                    .expand(&problem)?;
                 testsuite::modify_timelimit(self.term.stdout(), &problem, &path, timelimit)?;
             }
             Opt::Modify(Modify::Append {
@@ -736,7 +736,7 @@ impl<T: Term> App<T> {
                 self.term.apply_conf(config.console());
                 let path = config
                     .download_destinations(Some(extension))
-                    .scraping(&problem)?;
+                    .expand(&problem)?;
                 let output = output.as_ref().map(String::as_str);
                 testsuite::modify_append(&problem, &path, &input, output, self.term.stdout())?;
             }
@@ -753,7 +753,7 @@ impl<T: Term> App<T> {
                 self.term.apply_conf(config.console());
                 let path = config
                     .download_destinations(Some(extension))
-                    .scraping(&problem)?;
+                    .expand(&problem)?;
                 let output_match = match_opts.into();
                 testsuite::modify_match(self.term.stdout(), &problem, &path, output_match)?;
             }

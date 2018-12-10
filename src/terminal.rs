@@ -19,6 +19,37 @@ impl<W: Write> WriteSpaces for W {
     }
 }
 
+pub(crate) trait HasTerm {
+    type Term: Term;
+
+    fn term(&mut self) -> &mut Self::Term;
+
+    #[inline]
+    fn stdout(&mut self) -> &mut <Self::Term as Term>::Stdout {
+        self.term().stdout()
+    }
+
+    #[inline]
+    fn stderr(&mut self) -> &mut <Self::Term as Term>::Stderr {
+        self.term().stderr()
+    }
+
+    #[inline]
+    fn ask_yes_or_no(&mut self, mes: &str, default: bool) -> io::Result<bool> {
+        self.term().ask_yes_or_no(mes, default)
+    }
+
+    #[inline]
+    fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
+        self.term().prompt_reply_stderr(prompt)
+    }
+
+    #[inline]
+    fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
+        self.term().prompt_password_stderr(prompt)
+    }
+}
+
 pub trait Term {
     type Stdin: BufRead;
     type Stdout: TermOut;
@@ -122,9 +153,12 @@ impl<'a, W: TermOut + ?Sized> TermOut for &'a mut W {
 
 pub trait StandardOutput: Write {
     fn process_redirection() -> process::Stdio;
+
     fn is_tty() -> bool;
+
     #[cfg(not(windows))]
     fn columns() -> Option<usize>;
+
     #[cfg(windows)]
     fn columns() -> Option<usize> {
         let handle = Self::windows_handle_ref()?;
@@ -134,6 +168,7 @@ pub trait StandardOutput: Write {
             _ => None,
         }
     }
+
     #[cfg(windows)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef>;
 }

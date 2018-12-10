@@ -5,7 +5,6 @@ use failure::{Fail as _Fail, Fallible, ResultExt as _ResultExt};
 use fs2::FileExt as _FileExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use zip::ZipArchive;
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Seek as _Seek, SeekFrom, Write as _Write};
@@ -45,13 +44,6 @@ pub(crate) fn read_yaml<T: DeserializeOwned>(path: &AbsPath) -> FileResult<T> {
         .map_err(failure::Error::from)
         .and_then(|s| serde_yaml::from_str(&s).map_err(|e| StdError::from(e).into()))
         .map_err(|e| e.context(FileErrorKind::Read(path.to_owned())).into())
-}
-
-pub(crate) fn open_zip(path: &AbsPath) -> FileResult<ZipArchive<File>> {
-    File::open(path)
-        .map_err(failure::Error::from)
-        .and_then(|f| ZipArchive::new(f).map_err(|e| StdError::from(e).into()))
-        .map_err(|e| e.context(FileErrorKind::OpenRo(path.to_owned())).into())
 }
 
 pub(crate) fn create_file_and_dirs(path: &AbsPath) -> FileResult<File> {

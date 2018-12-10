@@ -4,7 +4,7 @@ use crate::service::{
     Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProps,
     Service, SessionProps, SubmitProps, UserNameAndPassword,
 };
-use crate::terminal::{Term, WriteAnsi as _WriteAnsi};
+use crate::terminal::{HasTerm, Term, WriteAnsi as _WriteAnsi};
 use crate::testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
 use crate::util::std_unstable::RemoveItem_ as _RemoveItem_;
 
@@ -80,11 +80,19 @@ pub(self) struct Atcoder<T: Term> {
     credentials: UserNameAndPassword,
 }
 
-impl<T: Term> Service for Atcoder<T> {
+impl<T: Term> HasTerm for Atcoder<T> {
     type Term = T;
 
-    fn requirements(&mut self) -> (&mut T, &mut HttpSession, &mut Runtime) {
-        (&mut self.term, &mut self.session, &mut self.runtime)
+    fn term(&mut self) -> &mut T {
+        &mut self.term
+    }
+}
+
+impl<T: Term> Service for Atcoder<T> {
+    type Write = T::Stdout;
+
+    fn requirements(&mut self) -> (&mut T::Stdout, &mut HttpSession, &mut Runtime) {
+        (self.term.stdout(), &mut self.session, &mut self.runtime)
     }
 }
 
@@ -126,8 +134,8 @@ impl<T: Term> Atcoder<T> {
         let (username, password) = match self.credentials.clone() {
             UserNameAndPassword::Some(username, password) => (username.clone(), password.clone()),
             UserNameAndPassword::None => (
-                Rc::new(self.term.prompt_reply_stderr("Username: ")?),
-                Rc::new(self.term.prompt_password_stderr("Password: ")?),
+                Rc::new(self.prompt_reply_stderr("Username: ")?),
+                Rc::new(self.prompt_password_stderr("Password: ")?),
             ),
         };
         let payload = hashmap!(
@@ -215,7 +223,7 @@ impl<T: Term> Atcoder<T> {
                     Some(suite) => suite,
                     None => self.get(&url).recv_html()?.extract_as_suite()?,
                 };
-                let path = destinations.scraping(&name)?;
+                let path = destinations.expand(&name)?;
                 Ok((url, name, suite, path))
             })
             .collect::<ServiceResult<Vec<_>>>()?;
@@ -650,8 +658,8 @@ impl Extract for Document {
             // - https://beta.atcoder.jp/contests/jag2016-domestic/tasks
             // - https://beta.atcoder.jp/contests/chokudai001/tasks/chokudai_001_a
 
-            static IN_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*入力例\s*(\d{1,2})+[.\n]*\z");
-            static OUT_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*出力例\s*(\d{1,2})+[.\n]*\z");
+            static IN_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*入力例\s*(\d{1,2})[.\n]*\z");
+            static OUT_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*出力例\s*(\d{1,2})[.\n]*\z");
             static IN_EN: Lazy<Regex> = lazy_regex!(r"\ASample Input\s?([0-9]{1,2}).*\z");
             static OUT_EN: Lazy<Regex> = lazy_regex!(r"\ASample Output\s?([0-9]{1,2}).*\z");
 
@@ -815,7 +823,9 @@ impl Extract for Document {
         }
         match extract_samples(self) {
             None => Ok(SimpleSuite::new(timelimit).into()),
-            Some(Samples::Simple(samples)) => Ok(SimpleSuite::new(timelimit).cases(samples).into()),
+            Some(Samples::Simple(samples)) => Ok(SimpleSuite::new(timelimit)
+                .sample_cases(samples.into_iter(), |i| format!("Sample {}", i + 1), None)
+                .into()),
             Some(Samples::Interactive) => Ok(InteractiveSuite::new(timelimit).into()),
         }
     }
@@ -1367,9 +1377,12 @@ mod tests {
             assert_eq!(expected_url, actual_url);
             let problem_page = atcoder.get(&actual_url).recv_html().unwrap();
             let expected_timelimit = Duration::from_millis(*expected_timelimit);
-            let expected_suite = TestSuite::from(
-                SimpleSuite::new(expected_timelimit).cases(expected_samples.iter().cloned()),
-            );
+            let expected_suite =
+                TestSuite::from(SimpleSuite::new(expected_timelimit).sample_cases(
+                    expected_samples.iter().cloned(),
+                    |i| format!("Sample {}", i + 1),
+                    None,
+                ));
             let actual_suite = problem_page.extract_as_suite().unwrap();
             assert_eq!(expected_suite, actual_suite);
         }

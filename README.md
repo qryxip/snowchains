@@ -102,52 +102,20 @@ language: c++    # Priorities: <command line argument>, `service._.language`, `l
 console:
   cjk: false
 
+testfile_path: tests/$service/$contest/{snake}.$extension
+
 session:
   timeout: 60s
   silent: false
   cookies: ~/.local/share/snowchains/$service
-
-shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
+  download:
+    extension: yaml
+    text_file_dir: tests/$service/$contest/{{snake}}
 
 judge:
   jobs: 4
-  path: tests/$service/$contest/{snake}.$extension
-  forall: [json, toml, yaml, yml, zip]
-  scrape: yaml
-  zip:
-    timelimit: 2000ms
-    match: exact
-    entries:
-      # AtCoder
-      - in:
-          entry: /\Ain/([a-z0-9_\-]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        out:
-          entry: /\Aout/([a-z0-9_\-]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        sort: [dictionary]
-      # HackerRank
-      - in:
-          entry: /\Ainput/input([0-9]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        out:
-          entry: /\Aoutput/output([0-9]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        sort: [number]
-      # yukicoder
-      - in:
-          entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        out:
-          entry: /\Atest_out/([a-z0-9_]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        sort: [dictionary, number]
+  shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
+  testfile_extensions: [json, toml, yaml, yml]
 
 services:
   atcoder:
@@ -188,7 +156,7 @@ interactive:
       working_directory: testers/hs
       # crlf_to_lf: false
 
-# test files: <testsuite>/<problem>.[json|toml|yaml|yml|zip]
+# test files: <testsuite>/<problem>.[json|toml|yaml|yml]
 # source:     <<src> % <problem>>
 # binary:     <<bin> % <problem>>
 #
@@ -327,19 +295,21 @@ timelimit: 2000ms # optional
 match: exact      # "any", "exact", or "float"
 
 cases:
-  - in: |
+  - name: Sample 1
+    in: |
       1
       2 3
       test
     out: |
       6 test
-  - in: |
+  - name: Sample 2
+    in: |
       72
       128 256
       myonmyon
     out: |
       456 myonmyon
-  # "out" is optional
+  # "name" and "out" are optional
   - in: |
       1000
       1000 1000
@@ -352,6 +322,7 @@ timelimit = '2000ms'
 match = 'exact'
 
 [[cases]]
+name = 'Sample 1'
 in = '''
 1
 2 3
@@ -362,6 +333,7 @@ out = '''
 '''
 
 [[cases]]
+name = 'Sample 2'
 in = '''
 72
 128 256
@@ -391,7 +363,8 @@ match:
     relative_error: 1e-9
 
 cases:
-  - in: |
+  - name "Sample 1"
+    in: |
       3
       1 -3 2
       -10 30 -20
@@ -411,6 +384,7 @@ absolute_error = 1e-9
 relative_error = 1e-9
 
 [[cases]]
+name = 'Sample 1'
 in = '''
 3
 1 -3 2

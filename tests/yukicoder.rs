@@ -34,7 +34,7 @@ fn it_logins() {
 fn it_raises_an_error_when_login_fails() {
     let _ = env_logger::try_init();
     let err = common::test_in_tempdir(
-        "it_raises_an_error_if_when_login_fails",
+        "it_raises_an_error_when_login_fails",
         common::dummy_credentials(),
         login,
     )
@@ -59,8 +59,8 @@ fn it_downloads_testcases() {
         |app| -> Fallible<()> {
             static CONTEST: &str = "no";
             let wd = app.working_dir.clone();
-            download(app, CONTEST, &["1", "2", "3"])?;
-            confirm_num_cases(&wd, CONTEST, &[("1", 3), ("2", 4), ("3", 3)]);
+            download(app, CONTEST, &["3", "725", "726"])?;
+            confirm_num_cases(&wd, CONTEST, &[("3", 31), ("725", 9), ("726", 25)]);
             Ok(())
         },
     )

@@ -132,12 +132,3 @@ pub fn confirm_num_cases(
         assert_eq!(expected_num_cases, suite.cases.len());
     }
 }
-
-pub fn confirm_zip_exists(wd: &AbsPath, contest: &str, problem: &str) -> io::Result<()> {
-    let path = wd
-        .join("tests")
-        .join("hackerrank")
-        .join(contest)
-        .join(format!("{}.zip", problem));
-    ::std::fs::metadata(&path).map(|_| ())
-}

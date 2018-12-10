@@ -231,6 +231,12 @@ impl Into<OsString> for AbsPathBuf {
     }
 }
 
+impl Into<PathBuf> for AbsPathBuf {
+    fn into(self) -> PathBuf {
+        self.inner
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AbsPath, AbsPathBuf};

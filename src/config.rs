@@ -5,9 +5,7 @@ use crate::replacer::{CodeReplacer, CodeReplacerConf};
 use crate::service::ServiceName;
 use crate::template::{Template, TemplateBuilder};
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
-use crate::testsuite::{
-    DownloadDestinations, SerializableExtension, SuiteFileExtension, TestCaseLoader, ZipConfig,
-};
+use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
 use crate::{time, yaml};
 
 use maplit::hashmap;
@@ -86,52 +84,20 @@ language: c++
 console:
   cjk: false
 
+testfile_path: tests/$service/$contest/{{snake}}.$extension
+
 session:
   timeout: 60s
   silent: false
   cookies: {session_cookies}
-
-shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
+  download:
+    extension: yaml
+    text_file_dir: tests/$service/$contest/{{snake}}
 
 judge:
   jobs: 4
-  path: tests/$service/$contest/{{snake}}.$extension
-  forall: [json, toml, yaml, yml, zip]
-  scrape: yaml
-  zip:
-    timelimit: 2000ms
-    match: exact
-    entries:
-      # AtCoder
-      - in:
-          entry: /\Ain/([a-z0-9_\-]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        out:
-          entry: /\Aout/([a-z0-9_\-]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        sort: [dictionary]
-      # HackerRank
-      - in:
-          entry: /\Ainput/input([0-9]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        out:
-          entry: /\Aoutput/output([0-9]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        sort: [number]
-      # yukicoder
-      - in:
-          entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        out:
-          entry: /\Atest_out/([a-z0-9_]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        sort: [dictionary, number]
+  shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
+  testfile_extensions: [json, toml, yaml, yml]
 
 services:
   atcoder:
@@ -396,8 +362,8 @@ pub(crate) struct Config {
     language: Option<String>,
     #[serde(default)]
     console: Console,
+    testfile_path: TemplateBuilder<AbsPathBuf>,
     session: Session,
-    shell: Vec<TemplateBuilder<OsString>>,
     judge: Judge,
     #[serde(default)]
     services: BTreeMap<ServiceName, ServiceConfig>,
@@ -459,29 +425,33 @@ impl Config {
 
     pub(crate) fn download_destinations(
         &self,
-        ext: Option<SerializableExtension>,
+        ext: Option<SuiteFileExtension>,
     ) -> DownloadDestinations {
-        let template = self
-            .judge
-            .path
+        let scraped = self
+            .testfile_path
             .build(&self.base_dir)
             .insert_string("service", self.service.as_static())
             .insert_string("contest", &self.contest);
-        let ext = ext.unwrap_or(self.judge.scrape);
-        DownloadDestinations::new(template, ext)
+        let text_file_dir = self
+            .session
+            .download
+            .text_file_dir
+            .build(&self.base_dir)
+            .insert_string("service", self.service.as_static())
+            .insert_string("contest", &self.contest);
+        let ext = ext.unwrap_or(self.session.download.extension);
+        DownloadDestinations::new(scraped, text_file_dir, ext)
     }
 
     pub(crate) fn testcase_loader(&self) -> TestCaseLoader {
         let path = self
-            .judge
-            .path
+            .testfile_path
             .build(&self.base_dir)
             .insert_string("service", self.service.as_static())
             .insert_string("contest", &self.contest);
         TestCaseLoader::new(
             path,
-            &self.judge.forall,
-            &self.judge.zip,
+            &self.judge.testfile_extensions,
             self.interactive_tester_compilations(),
             self.interactive_testers(),
         )
@@ -563,7 +533,7 @@ impl Config {
                 .command
                 .build(
                     &self.base_dir,
-                    &self.shell,
+                    &self.judge.shell,
                     &compile.working_directory,
                     &lang.src,
                     &compile.bin,
@@ -577,7 +547,7 @@ impl Config {
             .command
             .build(
                 &self.base_dir,
-                &self.shell,
+                &self.judge.shell,
                 &lang.run.working_directory,
                 &lang.src,
                 lang.compile.as_ref().map(|c| &c.bin),
@@ -632,19 +602,28 @@ pub struct Console {
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Session {
-    #[serde(serialize_with = "time::ser_secs", deserialize_with = "time::de_secs")]
+    #[serde(
+        serialize_with = "time::ser_secs",
+        deserialize_with = "time::de_secs",
+        default
+    )]
     timeout: Option<Duration>,
     silent: bool,
     cookies: TemplateBuilder<AbsPathBuf>,
+    download: Download,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Download {
+    extension: SuiteFileExtension,
+    text_file_dir: TemplateBuilder<AbsPathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Judge {
     jobs: NonZeroUsize,
-    path: TemplateBuilder<AbsPathBuf>,
-    forall: BTreeSet<SuiteFileExtension>,
-    scrape: SerializableExtension,
-    zip: ZipConfig,
+    shell: Vec<TemplateBuilder<OsString>>,
+    testfile_extensions: BTreeSet<SuiteFileExtension>,
 }
 
 #[derive(Serialize, Deserialize)]

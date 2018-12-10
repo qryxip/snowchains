@@ -4,30 +4,42 @@ pub(crate) mod atcoder;
 pub(crate) mod hackerrank;
 pub(crate) mod yukicoder;
 
-pub(self) mod downloader;
+pub(self) mod download;
 
 use crate::config::Config;
-use crate::errors::ServiceResult;
-use crate::path::AbsPathBuf;
+use crate::errors::{FileErrorKind, FileResult, ServiceResult};
+use crate::path::{AbsPath, AbsPathBuf};
 use crate::replacer::CodeReplacer;
 use crate::service::session::{HttpSession, UrlBase};
 use crate::template::Template;
 use crate::terminal::{Term, WriteAnsi};
 use crate::testsuite::DownloadDestinations;
+use crate::util;
 
+use failure::ResultExt as _ResultExt;
 use heck::KebabCase as _KebabCase;
+use maplit::hashmap;
+use rayon::iter::{
+    IntoParallelIterator as _IntoParalleIterator, ParallelIterator as _ParallelIterator,
+};
+use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::RedirectPolicy;
 use serde_derive::{Deserialize, Serialize};
 use strum_macros::{AsStaticStr, EnumString};
 use tokio::runtime::Runtime;
 use url::Host;
+use zip::result::ZipResult;
+use zip::ZipArchive;
 
 use std::collections::HashMap;
+use std::io::{self, Cursor, Write as _Write};
 use std::ops::Deref;
+use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{fmt, io, slice};
+use std::{cmp, fmt, mem, slice};
 
 #[derive(
     Clone,
@@ -75,32 +87,158 @@ impl ServiceName {
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
 
 pub(self) trait Service {
-    type Term: Term;
+    type Write: WriteAnsi;
 
-    fn requirements(&mut self) -> (&mut Self::Term, &mut HttpSession, &mut Runtime);
+    fn requirements(&mut self) -> (&mut Self::Write, &mut HttpSession, &mut Runtime);
 
-    fn stdout(&mut self) -> &mut <Self::Term as Term>::Stdout {
-        self.requirements().0.stdout()
+    fn get(&mut self, url: &str) -> session::Request<&mut Self::Write> {
+        let (out, sess, runtime) = self.requirements();
+        sess.get(url, out, runtime)
     }
 
-    fn stderr(&mut self) -> &mut <Self::Term as Term>::Stderr {
-        self.requirements().0.stderr()
-    }
-
-    fn get(&mut self, url: &str) -> session::Request<&mut <Self::Term as Term>::Stdout> {
-        let (term, sess, runtime) = self.requirements();
-        sess.get(url, term.stdout(), runtime)
-    }
-
-    fn post(&mut self, url: &str) -> session::Request<&mut <Self::Term as Term>::Stdout> {
-        let (term, sess, runtime) = self.requirements();
-        sess.post(url, term.stdout(), runtime)
+    fn post(&mut self, url: &str) -> session::Request<&mut Self::Write> {
+        let (out, sess, runtime) = self.requirements();
+        sess.post(url, out, runtime)
     }
 
     fn open_in_browser(&mut self, url: &str) -> ServiceResult<()> {
-        let (term, sess, _) = self.requirements();
-        sess.open_in_browser(url, term.stdout())
+        let (out, sess, _) = self.requirements();
+        sess.open_in_browser(url, out)
     }
+}
+
+pub(self) trait ExtractZip {
+    type Write: WriteAnsi;
+
+    fn out(&mut self) -> &mut Self::Write;
+
+    fn extract_zip(
+        &mut self,
+        name: &str,
+        zip: &[u8],
+        dir: &AbsPath,
+        entries: &'static ZipEntries,
+    ) -> FileResult<Vec<(String, AbsPathBuf, AbsPathBuf)>> {
+        let out = self.out();
+        let ZipEntries {
+            in_entry,
+            in_match_group,
+            in_crlf_to_lf,
+            out_entry,
+            out_match_group,
+            out_crlf_to_lf,
+            sortings,
+        } = entries;
+
+        out.with_reset(|o| o.bold()?.write_str(name))?;
+        out.write_str(": Unzipping...\n")?;
+        out.flush()?;
+
+        let zip = ZipArchive::new(Cursor::new(zip)).with_context(|_| FileErrorKind::ReadZip)?;
+        let pairs = Arc::new(Mutex::new(hashmap!()));
+
+        (0..zip.len())
+            .into_par_iter()
+            .map(|i| {
+                let mut zip = zip.clone();
+                let (filename, content) = {
+                    let file = zip.by_index(i)?;
+                    let filename = file.sanitized_name().to_string_lossy().into_owned();
+                    let cap = file.size() as usize + 1;
+                    let content = util::string_from_read(file, cap)?;
+                    (filename, content)
+                };
+                if let Some(caps) = in_entry.captures(&filename) {
+                    let name = caps.get(*in_match_group).unwrap().as_str().to_owned();
+                    let content = if *in_crlf_to_lf && content.contains("\r\n") {
+                        content.replace("\r\n", "\n")
+                    } else {
+                        content
+                    };
+                    let filename = PathBuf::from(&filename);
+                    let mut pairs = pairs.lock().unwrap();
+                    if let Some((_, output)) = pairs.remove(&name) {
+                        pairs.insert(name, (Some((filename, content)), output));
+                    } else {
+                        pairs.insert(name, (Some((filename, content)), None));
+                    }
+                } else if let Some(caps) = out_entry.captures(&filename) {
+                    let name = caps.get(*out_match_group).unwrap().as_str().to_owned();
+                    let content = if *out_crlf_to_lf && content.contains("\r\n") {
+                        content.replace("\r\n", "\n")
+                    } else {
+                        content
+                    };
+                    let filename = PathBuf::from(filename);
+                    let mut pairs = pairs.lock().unwrap();
+                    if let Some((input, _)) = pairs.remove(&name) {
+                        pairs.insert(name, (input, Some((filename, content))));
+                    } else {
+                        pairs.insert(name, (None, Some((filename, content))));
+                    }
+                }
+                Ok(())
+            })
+            .collect::<ZipResult<()>>()
+            .with_context(|_| FileErrorKind::ReadZip)?;
+
+        let mut cases = mem::replace::<HashMap<_, _>>(&mut pairs.lock().unwrap(), hashmap!())
+            .into_iter()
+            .filter_map(|(name, (input, output))| match (input, output) {
+                (Some(input), Some(output)) => Some((name, input, output)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        for sorting in sortings {
+            match sorting {
+                ZipEntriesSorting::Dictionary => cases.sort_by(|(s1, _, _), (s2, _, _)| s1.cmp(s2)),
+                ZipEntriesSorting::Number => cases.sort_by(|(s1, _, _), (s2, _, _)| {
+                    match (s1.parse::<usize>(), s2.parse::<usize>()) {
+                        (Ok(n1), Ok(n2)) => n1.cmp(&n2),
+                        (Ok(_), Err(_)) => cmp::Ordering::Less,
+                        (Err(_), Ok(_)) => cmp::Ordering::Greater,
+                        (Err(_), Err(_)) => cmp::Ordering::Equal,
+                    }
+                }),
+            }
+        }
+
+        let ret = cases
+            .into_iter()
+            .map(|(name, (in_path, in_content), (out_path, out_content))| {
+                let (in_path, out_path) = (dir.join(in_path), dir.join(out_path));
+                crate::fs::write(&in_path, in_content.as_ref())?;
+                crate::fs::write(&out_path, out_content.as_ref())?;
+                Ok((name, in_path, out_path))
+            })
+            .collect::<FileResult<Vec<_>>>()?;
+
+        out.with_reset(|o| o.bold()?.write_str(name))?;
+        writeln!(
+            out,
+            ": Saved {} to {}",
+            plural!(ret.len(), "file", "files"),
+            dir.display(),
+        )?;
+
+        Ok(ret)
+    }
+}
+
+pub(self) struct ZipEntries {
+    pub(self) in_entry: Regex,
+    pub(self) in_match_group: usize,
+    pub(self) in_crlf_to_lf: bool,
+    pub(self) out_entry: Regex,
+    pub(self) out_match_group: usize,
+    pub(self) out_crlf_to_lf: bool,
+    pub(self) sortings: Vec<ZipEntriesSorting>,
+}
+
+pub(self) enum ZipEntriesSorting {
+    Dictionary,
+    Number,
 }
 
 #[derive(Clone)]
@@ -170,7 +308,7 @@ impl<T: Term> SessionProps<T> {
 pub(self) fn reqwest_client(
     timeout: impl Into<Option<Duration>>,
 ) -> reqwest::Result<reqwest::r#async::Client> {
-    let builder = reqwest::r#async::Client::builder()
+    let mut builder = reqwest::r#async::Client::builder()
         .redirect(RedirectPolicy::none())
         .referer(false)
         .default_headers({
@@ -178,11 +316,10 @@ pub(self) fn reqwest_client(
             headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());
             headers
         });
-    match timeout.into() {
-        None => builder,
-        Some(timeout) => builder.timeout(timeout),
+    if let Some(timeout) = timeout.into() {
+        builder = builder.timeout(timeout);
     }
-    .build()
+    builder.build()
 }
 
 pub(crate) struct DownloadProps<C: Contest> {
@@ -193,22 +330,17 @@ pub(crate) struct DownloadProps<C: Contest> {
 }
 
 impl DownloadProps<String> {
-    pub(crate) fn try_new(
-        config: &Config,
-        open_browser: bool,
-        problems: Vec<String>,
-    ) -> crate::Result<Self> {
-        let destinations = config.download_destinations(None);
-        Ok(Self {
+    pub(crate) fn new(config: &Config, open_browser: bool, problems: Vec<String>) -> Self {
+        Self {
             contest: config.contest().to_owned(),
             problems: if problems.is_empty() {
                 None
             } else {
                 Some(problems)
             },
-            destinations,
+            destinations: config.download_destinations(None),
             open_browser,
-        })
+        }
     }
 
     pub(self) fn convert_contest_and_problems<C: Contest>(

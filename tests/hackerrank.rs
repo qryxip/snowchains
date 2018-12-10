@@ -15,6 +15,7 @@ mod common;
 
 use snowchains::app::App;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
+use snowchains::path::AbsPath;
 use snowchains::service::ServiceName;
 use snowchains::terminal::TermImpl;
 
@@ -32,7 +33,7 @@ fn it_logins() {
 }
 
 #[test]
-fn it_raises_an_error_if_when_login_fails() {
+fn it_raises_an_error_when_login_fails() {
     let _ = env_logger::try_init();
     let err = common::test_in_tempdir(
         "it_raises_an_error_when_login_fails",
@@ -59,12 +60,13 @@ fn it_downloads_testcases_from_master() {
         credentials,
         |app| -> Fallible<()> {
             static CONTEST: &str = "master";
-            static PROBLEMS: &[&str] = &["solve-me-first", "simple-array-sum"];
             let wd = app.working_dir.clone();
-            download(app, CONTEST, PROBLEMS)?;
-            for problem in PROBLEMS {
-                common::confirm_zip_exists(&wd, CONTEST, &problem.to_snake_case())?;
-            }
+            download(app, CONTEST, &["solve-me-first", "simple-array-sum"])?;
+            confirm_num_cases(
+                &wd,
+                CONTEST,
+                &[("solve_me_first", 2), ("simple_array_sum", 1)],
+            );
             Ok(())
         },
     )
@@ -83,7 +85,8 @@ fn it_downloads_testcases_from_hourrank_20() {
             static PROBLEM: &str = "hot-and-cold";
             let wd = app.working_dir.clone();
             download(app, CONTEST, &[PROBLEM])?;
-            common::confirm_zip_exists(&wd, CONTEST, &PROBLEM.to_snake_case()).map_err(Into::into)
+            confirm_num_cases(&wd, CONTEST, &[(&PROBLEM.to_snake_case(), 57)]);
+            Ok(())
         },
     )
     .unwrap();
@@ -99,4 +102,8 @@ fn download(
     problems: &[&str],
 ) -> snowchains::Result<()> {
     common::download(app, ServiceName::Hackerrank, contest, problems)
+}
+
+fn confirm_num_cases(wd: &AbsPath, contest: &str, pairs: &[(&str, usize)]) {
+    common::confirm_num_cases(wd, ServiceName::Hackerrank, contest, pairs)
 }

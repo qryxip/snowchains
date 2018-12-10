@@ -1,22 +1,25 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
-use crate::service::downloader::ZipDownloader;
+use crate::service::download::DownloadProgress;
 use crate::service::session::{self, HttpSession};
 use crate::service::{
-    Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, Service,
-    SessionProps, UserNameAndPassword,
+    Contest, DownloadProps, ExtractZip, PrintTargets as _PrintTargets, ProblemNameConversion,
+    Service, SessionProps, UserNameAndPassword, ZipEntries, ZipEntriesSorting,
 };
-use crate::terminal::{Term, WriteAnsi};
+use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{SimpleSuite, TestSuite};
 
 use itertools::Itertools as _Itertools;
 use log::warn;
+use once_cell::sync::Lazy;
+use once_cell::sync_lazy;
+use regex::Regex;
 use reqwest::StatusCode;
 use select::document::Document;
 use select::predicate::{Predicate, Text};
 use serde::{Deserialize, Deserializer};
 use serde_derive::Deserialize;
 use serde_json::json;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Runtime, TaskExecutor};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -44,11 +47,35 @@ struct Hackerrank<T: Term> {
     credentials: UserNameAndPassword,
 }
 
-impl<T: Term> Service for Hackerrank<T> {
+impl<T: Term> HasTerm for Hackerrank<T> {
     type Term = T;
 
-    fn requirements(&mut self) -> (&mut T, &mut HttpSession, &mut Runtime) {
-        (&mut self.term, &mut self.session, &mut self.runtime)
+    fn term(&mut self) -> &mut T {
+        &mut self.term
+    }
+}
+
+impl<T: Term> Service for Hackerrank<T> {
+    type Write = T::Stdout;
+
+    fn requirements(&mut self) -> (&mut T::Stdout, &mut HttpSession, &mut Runtime) {
+        (self.term.stdout(), &mut self.session, &mut self.runtime)
+    }
+}
+
+impl<T: Term> DownloadProgress for Hackerrank<T> {
+    type Write = T::Stdout;
+
+    fn requirements(&mut self) -> (&mut T::Stdout, &HttpSession, TaskExecutor) {
+        (self.term.stdout(), &self.session, self.runtime.executor())
+    }
+}
+
+impl<T: Term> ExtractZip for Hackerrank<T> {
+    type Write = T::Stdout;
+
+    fn out(&mut self) -> &mut T::Stdout {
+        self.term.stdout()
     }
 }
 
@@ -77,15 +104,15 @@ impl<T: Term> Hackerrank<T> {
                         (username.clone(), password.clone(), true)
                     }
                     UserNameAndPassword::None => (
-                        Rc::new(self.term.prompt_reply_stderr("Username: ")?),
-                        Rc::new(self.term.prompt_password_stderr("Password: ")?),
+                        Rc::new(self.prompt_reply_stderr("Username: ")?),
+                        Rc::new(self.prompt_password_stderr("Password: ")?),
                         false,
                     ),
                 }
             };
             if option == LoginOption::NotNecessary
                 && !on_test
-                && !self.term.ask_yes_or_no("Login? ", false)?
+                && !self.ask_yes_or_no("Login? ", false)?
             {
                 return Ok(());
             }
@@ -97,8 +124,8 @@ impl<T: Term> Hackerrank<T> {
                 if on_test {
                     return Err(ServiceErrorKind::LoginOnTest.into());
                 }
-                username = Rc::new(self.term.prompt_reply_stderr("Username: ")?);
-                password = Rc::new(self.term.prompt_password_stderr("Password: ")?);
+                username = Rc::new(self.prompt_reply_stderr("Username: ")?);
+                password = Rc::new(self.prompt_password_stderr("Password: ")?);
                 writeln!(self.stderr(), "Failed to login. Try again.")?;
                 self.stderr().flush()?;
                 self.session.clear_cookies()?;
@@ -227,7 +254,7 @@ impl<T: Term> Hackerrank<T> {
                     .or_insert_with(|| vec![problem]);
             } else if let Some(body_html) = model.body_html {
                 let suite = Document::from(body_html.as_str()).extract_samples()?;
-                let path = destinations.scraping(&model.slug)?;
+                let path = destinations.expand(&model.slug)?;
                 scraped.push((model.slug, suite, path));
             } else if !model.can_be_viewed {
                 cannot_view.push(model.slug);
@@ -264,18 +291,32 @@ impl<T: Term> Hackerrank<T> {
                     })
                     .collect::<Vec<_>>();
             };
-            static URL_SUF: &str = "/download_testcases";
-            let cookie = self.session.cookies_to_header_value()?;
-            ZipDownloader {
-                client: self.session.client(),
-                out: self.stdout(),
-                url_pref: &url_pref,
-                url_suf: URL_SUF,
-                destinations,
-                names: &names,
-                cookie,
+            let urls = names
+                .iter()
+                .map(|name| format!("{}{}/download_testcases", url_pref, name))
+                .collect::<Vec<_>>();
+            for (zip, name) in self
+                .download_progress(&urls, &names)?
+                .into_iter()
+                .zip(&names)
+            {
+                static ZIP_ENTRIES: Lazy<ZipEntries> = sync_lazy!(ZipEntries {
+                    in_entry: Regex::new(r"\Ainput/input([0-9]+)\.txt\z").unwrap(),
+                    in_match_group: 1,
+                    in_crlf_to_lf: true,
+                    out_entry: Regex::new(r"\Aoutput/output([0-9]+)\.txt\z").unwrap(),
+                    out_match_group: 1,
+                    out_crlf_to_lf: true,
+                    sortings: vec![ZipEntriesSorting::Number],
+                });
+                let paths =
+                    self.extract_zip(name, &zip, &destinations.text_file_dir(name)?, &ZIP_ENTRIES)?;
+                TestSuite::from(SimpleSuite::new(None).paths(paths)).save(
+                    name,
+                    &destinations.expand(name)?,
+                    self.stdout(),
+                )?
             }
-            .download()?;
         }
         if *open_browser {
             for url in browser_urls {
@@ -382,7 +423,9 @@ impl Extract for Document {
             return Err(ScrapeError::new());
         }
         let samples = inputs.into_iter().zip(outputs);
-        Ok(SimpleSuite::new(None).cases(samples).into())
+        Ok(SimpleSuite::new(None)
+            .sample_cases(samples, |i| format!("Sample {}", i), Some("Sample"))
+            .into())
     }
 }
 
@@ -403,11 +446,18 @@ mod tests {
 
     #[test]
     fn it_scrapes_samples() {
-        let expected = TestSuite::from(SimpleSuite::new(None).cases(vec![
-            ("50 40 70 60", "YES"),
-            ("55 66 66 77", "YES"),
-            ("80 80 40 40", "NO"),
-        ]));
+        let expected = TestSuite::from(
+            SimpleSuite::new(None).sample_cases(
+                vec![
+                    ("50 40 70 60", "YES"),
+                    ("55 66 66 77", "YES"),
+                    ("80 80 40 40", "NO"),
+                ]
+                .into_iter(),
+                |i| format!("Sample {}", i),
+                Some("Sample"),
+            ),
+        );
         let actual = {
             let mut hackerrank = start().unwrap();
             let json = hackerrank
