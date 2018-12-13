@@ -24,6 +24,12 @@ impl AbsPath {
         }
     }
 
+    pub(crate) fn with_extension(&self, extension: impl AsRef<OsStr>) -> AbsPathBuf {
+        AbsPathBuf {
+            inner: self.inner.with_extension(extension),
+        }
+    }
+
     pub(crate) fn join_canonicalizing_lossy(&self, path: impl AsRef<Path>) -> AbsPathBuf {
         let r = AbsPathBuf {
             inner: self.inner.join(path),

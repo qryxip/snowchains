@@ -20,6 +20,15 @@ pub(crate) fn write(path: &AbsPath, contents: &[u8]) -> FileResult<()> {
         .map_err(|e| e.context(FileErrorKind::Write(path.to_owned())).into())
 }
 
+pub(crate) fn write_json_pretty(
+    path: &AbsPath,
+    json: &(impl Serialize + ?Sized),
+) -> FileResult<()> {
+    let json = serde_json::to_string_pretty(json)
+        .with_context(|_| FileErrorKind::Write(path.to_owned()))?;
+    write(path, json.as_bytes())
+}
+
 pub(crate) fn read_to_string(path: &AbsPath) -> FileResult<String> {
     std::fs::read_to_string(path)
         .map_err(|e| e.context(FileErrorKind::Read(path.to_owned())).into())

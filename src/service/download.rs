@@ -20,11 +20,12 @@ pub(super) trait DownloadProgress {
 
     /// # Panics
     ///
-    /// Panics if `urls.len() > alt_names.len()`.
+    /// Panics if the lengths are different.
     fn download_progress(
         &mut self,
         urls: &[impl AsRef<str>],
         alt_names: &[impl AsRef<str>],
+        alt_reqs: Option<Vec<reqwest::r#async::RequestBuilder>>,
     ) -> ServiceResult<Vec<Vec<u8>>> {
         fn align(names: &[impl AsRef<str>], str_width: fn(&str) -> usize) -> (usize, Vec<String>) {
             let name_len = names
@@ -49,19 +50,19 @@ pub(super) trait DownloadProgress {
                     out,
                     "{}.{} GiB",
                     n / 0x70_000_000,
-                    (n % 0x70_000_000) / 0x6_666_666,
+                    (n % 0x70_000_000) / 0xb_333_334,
                 )
             } else if n >= 0x100_000 {
                 write!(
                     out,
                     "{:>4}.{} MiB",
                     n / 0x100_000,
-                    (n % 0x100_000) / 0x19999
+                    (n % 0x100_000) / 0x20000
                 )
             } else if n >= 0x400 {
-                write!(out, "{:>4}.{} KiB", n / 0x400, (n % 0x400) / 0x66)
+                write!(out, "{:>4}.{} KiB", n / 0x400, (n % 0x400) / 0x67)
             } else {
-                write!(out, "  {:>4}   B", n)
+                write!(out, "  {:>4} B  ", n)
             }
         }
 
@@ -78,16 +79,22 @@ pub(super) trait DownloadProgress {
                     .map_err(|(e, _)| e)
                     .and_then(|_| Err(io::Error::new(io::ErrorKind::Interrupted, "Interrupted"))),
                 write_order_tx,
-                progresses: urls
-                    .iter()
-                    .map(|url| {
-                        let mut req = client.get(url.as_ref());
-                        if let Some(cookie) = &cookie {
-                            req = req.header(header::COOKIE, cookie.clone());
-                        }
-                        Progress::Response(req.send())
-                    })
-                    .collect::<Vec<_>>(),
+                progresses: match alt_reqs {
+                    None => urls
+                        .iter()
+                        .map(|url| {
+                            let mut req = client.get(url.as_ref());
+                            if let Some(cookie) = &cookie {
+                                req = req.header(header::COOKIE, cookie.clone());
+                            }
+                            Progress::Response(req.send())
+                        })
+                        .collect(),
+                    Some(reqs) => reqs
+                        .into_iter()
+                        .map(|r| Progress::Response(r.send()))
+                        .collect(),
+                },
                 last_refreshed: None,
                 min_refresh_interval: Duration::from_millis(100),
                 started: Instant::now(),
@@ -117,8 +124,8 @@ pub(super) trait DownloadProgress {
                     WriteOrder::CursorUp(n) => write!(out, "\x1b[{}A", n),
                     WriteOrder::NextLineAndKillLine => write!(out, "\x1b[1E\x1b[2K"),
                     WriteOrder::Lf => writeln!(out),
-                    WriteOrder::WaitingResponse if columns >= 19 => {
-                        write!(out, "Waiting response...")
+                    WriteOrder::WaitingResponse(i) if columns >= name_len + 21 => {
+                        write!(out, "\x1b[1m{}\x1b[0m  Waiting response...", names[*i])
                     }
                     WriteOrder::SizeUnknown(i, t, n) if columns >= name_len + bar_size + 19 => {
                         write!(out, "\x1b[1m{}\x1b[0m  ???% ", names[*i])?;
@@ -146,7 +153,7 @@ pub(super) trait DownloadProgress {
                                 write!(out, "{}", c)
                             }?;
                         }
-                        out.write_str("]")?;
+                        out.write_str("] ")?;
                         write_size(&mut out, *n)?;
                         out.write_str(" ")?;
                         write!(out, "{:<02}:{:<02}", t.as_secs() / 60, t.as_secs() % 60)
@@ -183,7 +190,7 @@ enum WriteOrder {
     CursorUp(usize),
     NextLineAndKillLine,
     Lf,
-    WaitingResponse,
+    WaitingResponse(usize),
     SizeUnknown(usize, Duration, usize),
     SizeKnown(usize, Duration, usize, usize),
     Finished(usize, Duration, usize),
@@ -320,7 +327,7 @@ impl<
                 };
                 self.write_order_tx.unbounded_send(order).unwrap();
                 let order = match progress {
-                    Progress::Response(_) => WriteOrder::WaitingResponse,
+                    Progress::Response(_) => WriteOrder::WaitingResponse(i),
                     Progress::Body(progress) => match (progress.buf.len(), progress.content_len) {
                         (n, None) => WriteOrder::SizeUnknown(i, elapsed, n),
                         (n, Some(d)) => WriteOrder::SizeKnown(i, elapsed, n, d),

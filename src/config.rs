@@ -9,6 +9,8 @@ use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader}
 use crate::{time, yaml};
 
 use maplit::hashmap;
+use serde::ser::SerializeMap as _SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use strum::AsStaticRef as _AsStaticRef;
 
@@ -27,6 +29,8 @@ pub(crate) fn init(
     mut stdout: impl Write,
     directory: &AbsPath,
     session_cookies: &str,
+    session_dropbox_auth: &str,
+    enable_session_dropbox: bool,
 ) -> FileResult<()> {
     #[cfg(not(windows))]
     static SHELL: &str = "[$SHELL, -c]";
@@ -90,6 +94,7 @@ session:
   timeout: 60s
   silent: false
   cookies: {session_cookies}
+  {session_dropbox}
   download:
     extension: yaml
     text_file_dir: tests/$service/$contest/{{snake}}
@@ -245,6 +250,12 @@ languages:
       working_directory: txt{crlf_to_lf_false}
 "#,
         session_cookies = yaml::escape_string(session_cookies),
+        session_dropbox = format_args!(
+            "{f}{c}dropbox:\n  {c}  auth: {p}",
+            f = if enable_session_dropbox { "" } else { "dropbox : false\n  " },
+            c = if enable_session_dropbox { "" } else { "# " },
+            p = yaml::escape_string(session_dropbox_auth),
+        ),
         shell = SHELL,
         exe = EXE,
         venv_python3 = VENV_PYTHON3,
@@ -417,6 +428,16 @@ impl Config {
             .cookies
             .build(&self.base_dir)
             .strings(hashmap!("service".to_owned() => self.service.to_string()))
+    }
+
+    pub(crate) fn session_dropbox_auth(&self) -> Option<Template<AbsPathBuf>> {
+        match &self.session.dropbox {
+            Dropbox::None => None,
+            Dropbox::Some { auth } => Some(
+                auth.build(&self.base_dir)
+                    .strings(hashmap!("service".to_owned() => self.service.to_string())),
+            ),
+        }
     }
 
     pub(crate) fn judge_jobs(&self) -> NonZeroUsize {
@@ -608,9 +629,55 @@ pub(crate) struct Session {
         default
     )]
     timeout: Option<Duration>,
+    #[serde(default)]
     silent: bool,
     cookies: TemplateBuilder<AbsPathBuf>,
+    #[serde(default)]
+    dropbox: Dropbox,
     download: Download,
+}
+
+enum Dropbox {
+    None,
+    Some { auth: TemplateBuilder<AbsPathBuf> },
+}
+
+impl Default for Dropbox {
+    fn default() -> Self {
+        Dropbox::None
+    }
+}
+
+impl Serialize for Dropbox {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        match self {
+            Dropbox::None => serializer.serialize_bool(false),
+            Dropbox::Some { auth } => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("auth", auth)?;
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Dropbox {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Bool(bool),
+            Some { auth: TemplateBuilder<AbsPathBuf> },
+        }
+
+        match Repr::deserialize(deserializer)? {
+            Repr::Bool(true) => Err(serde::de::Error::custom(
+                "expected `false` or `{ auth: <string> }`",
+            )),
+            Repr::Bool(false) => Ok(Dropbox::None),
+            Repr::Some { auth } => Ok(Dropbox::Some { auth }),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]

@@ -106,8 +106,8 @@ impl<T: Term> Yukicoder<T> {
     }
 
     fn login(&mut self, assure: bool) -> ServiceResult<()> {
-        if let RevelSession::Some(revel_session) = self.credential.clone() {
-            if !self.confirm_revel_session(revel_session.as_ref().clone())? {
+        if let RevelSession::Some(revel_session) = self.credential.take() {
+            if !self.confirm_revel_session(revel_session)? {
                 return Err(ServiceErrorKind::LoginOnTest.into());
             }
         }
@@ -240,7 +240,7 @@ impl<T: Term> Yukicoder<T> {
                 .iter()
                 .map(|no| format!("https://yukicoder.me/problems/no/{}/testcase.zip", no))
                 .collect::<Vec<_>>();
-            self.download_progress(&urls, &solved_simple_nos)?
+            self.download_progress(&urls, &solved_simple_nos, None)?
                 .into_iter()
                 .zip(&solved_simple_nos)
                 .map(|(zip, &no)| {
@@ -264,7 +264,7 @@ impl<T: Term> Yukicoder<T> {
                 if name == no {
                     *suite = match mem::replace(suite, TestSuite::Unsubmittable) {
                         TestSuite::Simple(suite) => {
-                            suite.remove_cases().paths(text_file_paths.clone()).into()
+                            suite.without_cases().paths(text_file_paths.clone()).into()
                         }
                         suite => suite,
                     };

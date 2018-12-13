@@ -36,7 +36,6 @@ use std::collections::HashMap;
 use std::io::{self, Cursor, Write as _Write};
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{cmp, fmt, mem, slice};
@@ -261,7 +260,7 @@ impl Default for Credentials {
 #[derive(Clone)]
 pub enum UserNameAndPassword {
     None,
-    Some(Rc<String>, Rc<String>),
+    Some(String, String),
 }
 
 impl UserNameAndPassword {
@@ -271,18 +270,29 @@ impl UserNameAndPassword {
             UserNameAndPassword::Some(..) => true,
         }
     }
+
+    pub(self) fn take(&mut self) -> Self {
+        mem::replace(self, UserNameAndPassword::None)
+    }
 }
 
 #[derive(Clone)]
 pub enum RevelSession {
     None,
-    Some(Rc<String>),
+    Some(String),
+}
+
+impl RevelSession {
+    pub(self) fn take(&mut self) -> Self {
+        mem::replace(self, RevelSession::None)
+    }
 }
 
 pub(crate) struct SessionProps<T: Term> {
     pub(crate) term: T,
     pub(crate) domain: Option<&'static str>,
     pub(crate) cookies_path: AbsPathBuf,
+    pub(crate) dropbox_path: Option<AbsPathBuf>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) silent: bool,
     pub(crate) credentials: Credentials,

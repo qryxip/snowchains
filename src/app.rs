@@ -503,6 +503,8 @@ fn parse_non_zero_usize(s: &str) -> std::result::Result<NonZeroUsize, String> {
 pub struct App<T: Term> {
     pub working_dir: AbsPathBuf,
     pub cookies_on_init: String,
+    pub dropbox_auth_on_init: String,
+    pub enable_dropbox_on_init: bool,
     pub credentials: Credentials,
     pub term: T,
 }
@@ -511,7 +513,6 @@ impl<T: Term> App<T> {
     pub fn run(&mut self, opt: Opt) -> crate::Result<()> {
         info!("Opt = {:?}", opt);
         let working_dir = self.working_dir.clone();
-        let cookies_on_init = self.cookies_on_init.clone();
         match opt {
             Opt::Init {
                 color_choice,
@@ -519,7 +520,13 @@ impl<T: Term> App<T> {
             } => {
                 let wd = working_dir.join_canonicalizing_lossy(&directory);
                 self.term.attempt_enable_ansi(color_choice);
-                config::init(self.term.stdout(), &wd, &cookies_on_init)?;
+                config::init(
+                    self.term.stdout(),
+                    &wd,
+                    &self.cookies_on_init,
+                    &self.dropbox_auth_on_init,
+                    self.enable_dropbox_on_init,
+                )?;
             }
             Opt::Switch {
                 service,
@@ -763,10 +770,14 @@ impl<T: Term> App<T> {
 
     fn sess_props(&mut self, config: &Config) -> ExpandTemplateResult<SessionProps<&mut T>> {
         let cookies_path = config.session_cookies().expand("")?;
+        let dropbox_path = config
+            .session_dropbox_auth()
+            .map_or(Ok(None), |p| p.expand("").map(Some))?;
         Ok(SessionProps {
             term: &mut self.term,
             domain: config.service().domain(),
             cookies_path,
+            dropbox_path,
             timeout: config.session_timeout(),
             silent: config.session_silent(),
             credentials: self.credentials.clone(),

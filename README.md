@@ -108,6 +108,9 @@ session:
   timeout: 60s
   silent: false
   cookies: ~/.local/share/snowchains/$service
+  dropbox: false
+  # dropbox:
+  #   auth: ~/.local/share/snowchains/dropbox.json
   download:
     extension: yaml
     text_file_dir: tests/$service/$contest/{{snake}}

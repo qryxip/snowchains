@@ -11,9 +11,7 @@ extern crate tempdir;
 
 mod common;
 
-use if_chain::if_chain;
 use snowchains::app::{App, Opt};
-use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceName;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
@@ -29,22 +27,6 @@ fn it_logins() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();
     common::test_in_tempdir("it_logins", credentials, login).unwrap();
-}
-
-#[test]
-fn it_raises_an_error_when_login_fails() {
-    let _ = env_logger::try_init();
-    let credentials = common::dummy_credentials();
-    let err = common::test_in_tempdir("it_raises_an_error_when_login_fails", credentials, login)
-        .unwrap_err();
-    if_chain! {
-        if let Some(snowchains::Error::Service(ServiceError::Context(ctx))) = err.downcast_ref();
-        if let ServiceErrorKind::LoginOnTest = ctx.get_context();
-        then {
-        } else {
-            panic!("{:?}", err);
-        }
-    }
 }
 
 fn login(mut app: App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> snowchains::Result<()> {
@@ -83,25 +65,49 @@ fn it_scrapes_samples_from_practice() {
 }
 
 #[test]
-fn it_scrapes_samples_from_arc058() {
+fn it_scrapes_samples_from_abc100() {
     let _ = env_logger::try_init();
     let credentials = common::credentials_from_env_vars().unwrap();
     common::test_in_tempdir(
-        "it_scrapes_samples_from_arc058",
+        "it_scrapes_samples_from_abc100",
         credentials,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download {
                 open_browser: false,
                 service: Some(ServiceName::Atcoder),
-                contest: Some("arc058".to_owned()),
+                contest: Some("abc100".to_owned()),
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
             })?;
-            let download_dir = app.working_dir.join("tests").join("atcoder").join("arc058");
-            just_confirm_num_samples_and_timelimit(&download_dir, "c", 2, "2000ms");
+            let download_dir = app.working_dir.join("tests").join("atcoder").join("abc100");
+            just_confirm_num_samples_and_timelimit(&download_dir, "a", 3, "2000ms");
+            just_confirm_num_samples_and_timelimit(&download_dir, "b", 3, "2000ms");
+            just_confirm_num_samples_and_timelimit(&download_dir, "c", 3, "2000ms");
             just_confirm_num_samples_and_timelimit(&download_dir, "d", 4, "2000ms");
-            just_confirm_num_samples_and_timelimit(&download_dir, "e", 4, "4000ms");
-            just_confirm_num_samples_and_timelimit(&download_dir, "f", 3, "5000ms");
+            Ok(())
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn it_scrapes_samples_and_download_files_from_abc099_a() {
+    let _ = env_logger::try_init();
+    let credentials = common::credentials_from_env_vars().unwrap();
+    common::test_in_tempdir(
+        "it_scrapes_samples_and_download_files_from_abc099_a",
+        credentials,
+        |mut app| -> snowchains::Result<()> {
+            app.run(Opt::Download {
+                open_browser: false,
+                service: Some(ServiceName::Atcoder),
+                contest: Some("abc099".to_owned()),
+                problems: vec!["a".to_owned()],
+                color_choice: AnsiColorChoice::Never,
+            })?;
+            // "ARC058_ABC042"
+            let download_dir = app.working_dir.join("tests").join("atcoder").join("abc099");
+            just_confirm_num_samples_and_timelimit(&download_dir, "a", 9, "2000ms");
             Ok(())
         },
     )

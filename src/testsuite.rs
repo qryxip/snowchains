@@ -464,25 +464,30 @@ impl SimpleSuite {
         self
     }
 
+    pub(crate) fn push_path(&mut self, name: String, in_path: AbsPathBuf, out_path: AbsPathBuf) {
+        self.cases.push(SimpleSuiteSchemaCase {
+            name: Some(name),
+            input: SimpleSuiteText::Path {
+                path: in_path.into(),
+            },
+            output: Some(SimpleSuiteText::Path {
+                path: out_path.into(),
+            }),
+        });
+    }
+
     pub(crate) fn paths(mut self, paths: Vec<(String, AbsPathBuf, AbsPathBuf)>) -> Self {
-        self.cases
-            .extend(
-                paths
-                    .into_iter()
-                    .map(|(name, in_path, out_path)| SimpleSuiteSchemaCase {
-                        name: Some(name),
-                        input: SimpleSuiteText::Path {
-                            path: in_path.into(),
-                        },
-                        output: Some(SimpleSuiteText::Path {
-                            path: out_path.into(),
-                        }),
-                    }),
-            );
+        for (name, in_path, out_path) in paths {
+            self.push_path(name, in_path, out_path);
+        }
         self
     }
 
-    pub(crate) fn remove_cases(mut self) -> Self {
+    pub(crate) fn clear_cases(&mut self) {
+        self.cases.clear();
+    }
+
+    pub(crate) fn without_cases(mut self) -> Self {
         self.cases.clear();
         self
     }

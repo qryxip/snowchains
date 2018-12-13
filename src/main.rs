@@ -61,6 +61,15 @@ fn run(opt: Opt, term: impl Term) -> snowchains::Result<()> {
             None => "~/.local/share/snowchains/$service".to_owned(),
             Some(d) => d.join("snowchains").join("$service").display().to_string(),
         },
+        dropbox_auth_on_init: match dirs::data_local_dir() {
+            None => "~/.local/share/snowchains/dropbox.json".to_owned(),
+            Some(d) => d
+                .join("snowchains")
+                .join("dropbox.json")
+                .display()
+                .to_string(),
+        },
+        enable_dropbox_on_init: false,
         credentials: Credentials::default(),
         term,
     }

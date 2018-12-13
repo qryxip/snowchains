@@ -25,7 +25,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{self, Write as _Write};
-use std::rc::Rc;
 
 pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
     Hackerrank::try_new(sess_props)?.login(LoginOption::Explicit)
@@ -99,13 +98,11 @@ impl<T: Term> Hackerrank<T> {
             self.stderr().flush()?;
         } else if res.status() == StatusCode::OK {
             let (mut username, mut password, on_test) = {
-                match self.credentials.clone() {
-                    UserNameAndPassword::Some(username, password) => {
-                        (username.clone(), password.clone(), true)
-                    }
+                match self.credentials.take() {
+                    UserNameAndPassword::Some(username, password) => (username, password, true),
                     UserNameAndPassword::None => (
-                        Rc::new(self.prompt_reply_stderr("Username: ")?),
-                        Rc::new(self.prompt_password_stderr("Password: ")?),
+                        self.prompt_reply_stderr("Username: ")?,
+                        self.prompt_password_stderr("Password: ")?,
                         false,
                     ),
                 }
@@ -124,8 +121,8 @@ impl<T: Term> Hackerrank<T> {
                 if on_test {
                     return Err(ServiceErrorKind::LoginOnTest.into());
                 }
-                username = Rc::new(self.prompt_reply_stderr("Username: ")?);
-                password = Rc::new(self.prompt_password_stderr("Password: ")?);
+                username = self.prompt_reply_stderr("Username: ")?;
+                password = self.prompt_password_stderr("Password: ")?;
                 writeln!(self.stderr(), "Failed to login. Try again.")?;
                 self.stderr().flush()?;
                 self.session.clear_cookies()?;
@@ -296,7 +293,7 @@ impl<T: Term> Hackerrank<T> {
                 .map(|name| format!("{}{}/download_testcases", url_pref, name))
                 .collect::<Vec<_>>();
             for (zip, name) in self
-                .download_progress(&urls, &names)?
+                .download_progress(&urls, &names, None)?
                 .into_iter()
                 .zip(&names)
             {

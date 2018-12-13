@@ -24,7 +24,7 @@ use url::{Host, Url};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt::Write as _FmtWrite;
+use std::fmt::{self, Write as _Write};
 use std::io::{self, Read as _Read};
 use std::mem;
 use std::ops::Deref;
@@ -186,6 +186,7 @@ impl HttpSession {
             session: self,
             runtime,
             acceptable,
+            no_cookie: false,
         }
     }
 
@@ -196,11 +197,7 @@ impl HttpSession {
     ) -> ServiceResult<reqwest::r#async::RequestBuilder> {
         let url = self.resolve_url(url)?;
         self.assert_not_forbidden_by_robots_txt(&url)?;
-        let mut req = self.client.request(method, url.as_str());
-        if let Some(jar) = self.jar.as_ref() {
-            req = req.header(header::COOKIE, jar.to_header_value()?);
-        }
-        Ok(req)
+        Ok(self.client().request(method, url.as_str()))
     }
 
     fn assert_not_forbidden_by_robots_txt(&self, url: &Url) -> ServiceResult<()> {
@@ -223,14 +220,45 @@ pub(super) struct Request<'a, 'b, O: WriteAnsi> {
     session: &'a mut HttpSession,
     runtime: &'b mut Runtime,
     acceptable: Vec<StatusCode>,
+    no_cookie: bool,
 }
 
 impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
+    pub(super) fn basic_auth(
+        self,
+        username: impl fmt::Display,
+        password: Option<impl fmt::Display>,
+    ) -> Self {
+        Self {
+            inner: self.inner.map(|inner| inner.basic_auth(username, password)),
+            ..self
+        }
+    }
+
+    pub(super) fn bearer_auth(self, token: impl fmt::Display) -> Self {
+        Self {
+            inner: self
+                .inner
+                .map(|inner| inner.header(header::AUTHORIZATION, format!("Bearer {}", token))),
+            ..self
+        }
+    }
+
     pub(super) fn x_csrf_token(self, token: &str) -> Self {
         Self {
             inner: self.inner.map(|inner| inner.header("X-CSRF-Token", token)),
             ..self
         }
+    }
+
+    pub(super) fn form(mut self, form: &(impl Serialize + ?Sized)) -> Self {
+        self.inner = self.inner.map(|inner| inner.form(form));
+        self
+    }
+
+    pub(super) fn json(mut self, json: &(impl Serialize + ?Sized)) -> Self {
+        self.inner = self.inner.map(|inner| inner.json(json));
+        self
     }
 
     /// Panics:
@@ -245,12 +273,23 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         Self { acceptable, ..self }
     }
 
+    pub(super) fn no_cookie(mut self) -> Self {
+        self.no_cookie = true;
+        self
+    }
+
     pub(super) fn send(self) -> ServiceResult<self::Response> {
         self.send_internal().map(|(r, _)| r)
     }
 
     fn send_internal(mut self) -> ServiceResult<(self::Response, &'b mut Runtime)> {
-        let req = self.inner?.build()?;
+        let mut req = self.inner?;
+        if !self.no_cookie {
+            if let Some(jar) = self.session.jar.as_ref() {
+                req = req.header(header::COOKIE, jar.to_header_value()?);
+            }
+        }
+        let req = req.build()?;
         let client = &self.session.client;
         let runtime = self.runtime;
         req.log_method();
@@ -277,8 +316,10 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
             res.echo_status(&self.acceptable, out)?;
         }
         res.log_status();
-        if let Some(jar) = self.session.jar.as_mut() {
-            jar.update(&res)?;
+        if !self.no_cookie {
+            if let Some(jar) = self.session.jar.as_mut() {
+                jar.update(&res)?;
+            }
         }
         let inner = res.filter_by_status(self.acceptable)?;
         Ok((self::Response { inner }, runtime))
@@ -288,22 +329,14 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         self,
         form: &(impl Serialize + ?Sized),
     ) -> ServiceResult<self::Response> {
-        Self {
-            inner: self.inner.map(|inner| inner.form(form)),
-            ..self
-        }
-        .send()
+        self.form(form).send()
     }
 
     pub(super) fn send_json(
         self,
         json: &(impl Serialize + ?Sized),
     ) -> ServiceResult<self::Response> {
-        Self {
-            inner: self.inner.map(|inner| inner.json(json)),
-            ..self
-        }
-        .send()
+        self.json(json).send()
     }
 
     pub(super) fn send_multipart(self, mut form: PreparedFields) -> ServiceResult<self::Response> {
