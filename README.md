@@ -101,6 +101,7 @@ language: c++    # Priorities: <command line argument>, `service._.language`, `l
 
 console:
   cjk: false
+  # alt_width: 100
 
 testfile_path: tests/$service/$contest/{snake}.$extension
 

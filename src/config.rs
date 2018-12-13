@@ -33,6 +33,10 @@ pub(crate) fn init(
     enable_session_dropbox: bool,
 ) -> FileResult<()> {
     #[cfg(not(windows))]
+    static CONSOLE_ALT_WIDTH: &str = "";
+    #[cfg(windows)]
+    static CONSOLE_ALT_WIDTH: &str = "\n  # alt_width: 100";
+    #[cfg(not(windows))]
     static SHELL: &str = "[$SHELL, -c]";
     #[cfg(windows)]
     static SHELL: &str = r"['C:\Windows\cmd.exe', /C]";
@@ -86,7 +90,7 @@ contest: arc100
 language: c++
 
 console:
-  cjk: false
+  cjk: false{console_alt_width}
 
 testfile_path: tests/$service/$contest/{{snake}}.$extension
 
@@ -249,6 +253,7 @@ languages:
       command: [cat, $src]
       working_directory: txt{crlf_to_lf_false}
 "#,
+        console_alt_width = CONSOLE_ALT_WIDTH,
         session_cookies = yaml::escape_string(session_cookies),
         session_dropbox = format_args!(
             "{f}{c}dropbox:\n  {c}  auth: {p}",
@@ -619,6 +624,7 @@ fn find_language<'a>(
 pub struct Console {
     #[serde(default)]
     pub(crate) cjk: bool,
+    pub(crate) alt_width: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize)]

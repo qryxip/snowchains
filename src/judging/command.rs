@@ -208,7 +208,7 @@ impl Inner {
 fn write_info<O: TermOut>(mut out: O, title: &str, rest: &[impl AsRef<str>]) -> io::Result<()> {
     out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
     out.write_str(" ")?;
-    if let Some(w) = O::columns() {
+    if let Some(w) = out.columns() {
         let o = out.str_width(title) + 1;
         let mut x = 0;
         macro_rules! next_line {

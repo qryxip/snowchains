@@ -102,9 +102,11 @@ pub(super) trait DownloadProgress {
             &executor,
         );
 
+        const ALT_COLUMNS: usize = 100;
+
         let (name_len, names) = {
             let (url_len, urls) = align(urls, out.str_width_fn());
-            if Self::Write::columns().unwrap_or(0) < url_len + 63 {
+            if out.columns().unwrap_or(ALT_COLUMNS) < url_len + 63 {
                 align(alt_names, out.str_width_fn())
             } else {
                 (url_len, urls)
@@ -116,10 +118,10 @@ pub(super) trait DownloadProgress {
         write_order_rx
             .then(|order| {
                 // TODO: SIGWINCH
-                let columns = match Self::Write::columns() {
-                    Some(columns) if out.supports_color() => columns,
-                    _ => return writeln!(out, "order: {:?}", order),
-                };
+                if !out.supports_color() {
+                    return Ok(());
+                }
+                let columns = out.columns().unwrap_or(ALT_COLUMNS);
                 match &order.unwrap() {
                     WriteOrder::CursorUp(n) => write!(out, "\x1b[{}A", n),
                     WriteOrder::NextLineAndKillLine => write!(out, "\x1b[1E\x1b[2K"),
@@ -185,7 +187,6 @@ pub(super) trait DownloadProgress {
     }
 }
 
-#[derive(Debug)]
 enum WriteOrder {
     CursorUp(usize),
     NextLineAndKillLine,

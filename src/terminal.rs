@@ -106,7 +106,7 @@ impl<'a, T: Term + ?Sized> Term for &'a mut T {
 
 pub trait TermOut: WriteAnsi {
     fn process_redirection() -> process::Stdio;
-    fn columns() -> Option<usize>;
+    fn columns(&self) -> Option<usize>;
     fn str_width_fn(&self) -> fn(&str) -> usize;
     fn char_width_fn(&self) -> fn(char) -> Option<usize>;
     fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice);
@@ -128,8 +128,8 @@ impl<'a, W: TermOut + ?Sized> TermOut for &'a mut W {
         W::process_redirection()
     }
 
-    fn columns() -> Option<usize> {
-        W::columns()
+    fn columns(&self) -> Option<usize> {
+        (**self).columns()
     }
 
     #[inline]
@@ -405,6 +405,7 @@ pub struct TermOutImpl<W: StandardOutput> {
     supports_color: bool,
     str_width_fn: fn(&str) -> usize,
     char_width_fn: fn(char) -> Option<usize>,
+    alt_columns: Option<usize>,
 }
 
 impl<W: StandardOutput> TermOutImpl<W> {
@@ -414,6 +415,7 @@ impl<W: StandardOutput> TermOutImpl<W> {
             supports_color: false,
             str_width_fn: <str as UnicodeWidthStr>::width,
             char_width_fn: <char as UnicodeWidthChar>::width,
+            alt_columns: None,
         }
     }
 }
@@ -442,8 +444,8 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
         W::process_redirection()
     }
 
-    fn columns() -> Option<usize> {
-        W::columns()
+    fn columns(&self) -> Option<usize> {
+        W::columns().or(self.alt_columns)
     }
 
     #[inline]
@@ -519,6 +521,7 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
             self.str_width_fn = <str as UnicodeWidthStr>::width;
             self.char_width_fn = <char as UnicodeWidthChar>::width;
         }
+        self.alt_columns = conf.alt_width;
     }
 }
 
