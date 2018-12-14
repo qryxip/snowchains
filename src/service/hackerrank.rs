@@ -92,7 +92,7 @@ impl<T: Term> Hackerrank<T> {
     }
 
     fn login(&mut self, option: LoginOption) -> ServiceResult<()> {
-        let mut res = self.get("/login").acceptable(&[200, 302]).send()?;
+        let mut res = self.get("/auth/login").acceptable(&[200, 302]).send()?;
         if res.status() == StatusCode::FOUND && option == LoginOption::Explicit {
             writeln!(self.stderr(), "Already signed in.")?;
             self.stderr().flush()?;
