@@ -19,6 +19,37 @@ impl<W: Write> WriteSpaces for W {
     }
 }
 
+pub(crate) trait HasTerm {
+    type Term: Term;
+
+    fn term(&mut self) -> &mut Self::Term;
+
+    #[inline]
+    fn stdout(&mut self) -> &mut <Self::Term as Term>::Stdout {
+        self.term().stdout()
+    }
+
+    #[inline]
+    fn stderr(&mut self) -> &mut <Self::Term as Term>::Stderr {
+        self.term().stderr()
+    }
+
+    #[inline]
+    fn ask_yes_or_no(&mut self, mes: &str, default: bool) -> io::Result<bool> {
+        self.term().ask_yes_or_no(mes, default)
+    }
+
+    #[inline]
+    fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
+        self.term().prompt_reply_stderr(prompt)
+    }
+
+    #[inline]
+    fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
+        self.term().prompt_password_stderr(prompt)
+    }
+}
+
 pub trait Term {
     type Stdin: BufRead;
     type Stdout: TermOut;
@@ -75,7 +106,7 @@ impl<'a, T: Term + ?Sized> Term for &'a mut T {
 
 pub trait TermOut: WriteAnsi {
     fn process_redirection() -> process::Stdio;
-    fn columns() -> Option<usize>;
+    fn columns(&self) -> Option<usize>;
     fn str_width_fn(&self) -> fn(&str) -> usize;
     fn char_width_fn(&self) -> fn(char) -> Option<usize>;
     fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice);
@@ -97,8 +128,8 @@ impl<'a, W: TermOut + ?Sized> TermOut for &'a mut W {
         W::process_redirection()
     }
 
-    fn columns() -> Option<usize> {
-        W::columns()
+    fn columns(&self) -> Option<usize> {
+        (**self).columns()
     }
 
     #[inline]
@@ -122,9 +153,12 @@ impl<'a, W: TermOut + ?Sized> TermOut for &'a mut W {
 
 pub trait StandardOutput: Write {
     fn process_redirection() -> process::Stdio;
+
     fn is_tty() -> bool;
+
     #[cfg(not(windows))]
     fn columns() -> Option<usize>;
+
     #[cfg(windows)]
     fn columns() -> Option<usize> {
         let handle = Self::windows_handle_ref()?;
@@ -134,11 +168,12 @@ pub trait StandardOutput: Write {
             _ => None,
         }
     }
+
     #[cfg(windows)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef>;
 }
 
-impl<'a> StandardOutput for BufWriter<StdoutLock<'a>> {
+impl StandardOutput for BufWriter<StdoutLock<'_>> {
     fn process_redirection() -> process::Stdio {
         process::Stdio::inherit()
     }
@@ -158,7 +193,7 @@ impl<'a> StandardOutput for BufWriter<StdoutLock<'a>> {
     }
 }
 
-impl<'a> StandardOutput for BufWriter<StderrLock<'a>> {
+impl StandardOutput for BufWriter<StderrLock<'_>> {
     fn process_redirection() -> process::Stdio {
         process::Stdio::inherit()
     }
@@ -370,6 +405,7 @@ pub struct TermOutImpl<W: StandardOutput> {
     supports_color: bool,
     str_width_fn: fn(&str) -> usize,
     char_width_fn: fn(char) -> Option<usize>,
+    alt_columns: Option<usize>,
 }
 
 impl<W: StandardOutput> TermOutImpl<W> {
@@ -379,6 +415,7 @@ impl<W: StandardOutput> TermOutImpl<W> {
             supports_color: false,
             str_width_fn: <str as UnicodeWidthStr>::width,
             char_width_fn: <char as UnicodeWidthChar>::width,
+            alt_columns: None,
         }
     }
 }
@@ -407,8 +444,8 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
         W::process_redirection()
     }
 
-    fn columns() -> Option<usize> {
-        W::columns()
+    fn columns(&self) -> Option<usize> {
+        W::columns().or(self.alt_columns)
     }
 
     #[inline]
@@ -467,8 +504,9 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
                     EnvKind::DumbOrCygwin => false,
                     EnvKind::Msys => W::is_tty(),
                     EnvKind::PossiblyWinConsole => {
-                        W::is_tty() && W::windows_handle_ref()
-                            .map_or(false, |h| virtual_terminal_processing_enabled(&h))
+                        W::is_tty()
+                            && W::windows_handle_ref()
+                                .map_or(false, |h| virtual_terminal_processing_enabled(&h))
                     }
                 }
             }
@@ -483,6 +521,7 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
             self.str_width_fn = <str as UnicodeWidthStr>::width;
             self.char_width_fn = <char as UnicodeWidthChar>::width;
         }
+        self.alt_columns = conf.alt_width;
     }
 }
 

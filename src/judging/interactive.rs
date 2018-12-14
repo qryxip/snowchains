@@ -4,6 +4,7 @@ use crate::judging::{JudgingCommand, Outcome};
 use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
 use crate::testsuite::InteractiveCase;
 use crate::time::MillisRoundedUp as _MillisRoundedUp;
+use crate::util::collections::NonEmptyVec;
 
 use derive_new::new;
 use futures::{task, try_ready, Async, Future, Poll, Stream};
@@ -11,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{cmp, fmt, io, mem, slice, str};
+use std::{cmp, fmt, io, mem, str};
 
 pub(super) fn judge(
     case: &InteractiveCase,
@@ -36,9 +37,10 @@ pub(super) fn judge(
         solver_stderr: Reading::new(s_stderr, start, s_trim_crlf, Output::SolverStderr),
         tester_status: Waiting::new(tester, start, deadline, Output::TesterTerminated),
         solver_status: Waiting::new(solver, start, deadline, Output::SolverTerminated),
-    }.collect();
+    }
+    .collect();
     Ok(stream.map(|outputs| InteractiveOutcome {
-        outputs: NonEmptyVec::new(outputs),
+        outputs: NonEmptyVec::try_new(outputs).unwrap(),
     }))
 }
 
@@ -456,35 +458,5 @@ impl Output {
             | Output::TesterTerminated(_, _, time)
             | Output::TimelimitExceeded(time) => *time,
         }
-    }
-}
-
-struct NonEmptyVec<T>(Vec<T>);
-
-impl<T> NonEmptyVec<T> {
-    fn new(inner: Vec<T>) -> Self {
-        debug_assert!(!inner.is_empty());
-        NonEmptyVec(inner)
-    }
-
-    fn last(&self) -> &T {
-        self.0.last().unwrap()
-    }
-
-    fn iter(&self) -> slice::Iter<T> {
-        self.0.iter()
-    }
-
-    fn max<R: Ord>(&self, f: impl Fn(&T) -> R) -> R {
-        self.0.iter().map(&f).max().unwrap()
-    }
-}
-
-impl<'a, T> IntoIterator for &'a NonEmptyVec<T> {
-    type Item = &'a T;
-    type IntoIter = slice::Iter<'a, T>;
-
-    fn into_iter(self) -> slice::Iter<'a, T> {
-        self.0.iter()
     }
 }

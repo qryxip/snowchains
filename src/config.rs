@@ -5,12 +5,12 @@ use crate::replacer::{CodeReplacer, CodeReplacerConf};
 use crate::service::ServiceName;
 use crate::template::{Template, TemplateBuilder};
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
-use crate::testsuite::{
-    DownloadDestinations, SerializableExtension, SuiteFileExtension, TestCaseLoader, ZipConfig,
-};
+use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
 use crate::{time, yaml};
 
 use maplit::hashmap;
+use serde::ser::SerializeMap as _SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use strum::AsStaticRef as _AsStaticRef;
 
@@ -29,7 +29,13 @@ pub(crate) fn init(
     mut stdout: impl Write,
     directory: &AbsPath,
     session_cookies: &str,
+    session_dropbox_auth: &str,
+    enable_session_dropbox: bool,
 ) -> FileResult<()> {
+    #[cfg(not(windows))]
+    static CONSOLE_ALT_WIDTH: &str = "";
+    #[cfg(windows)]
+    static CONSOLE_ALT_WIDTH: &str = "\n  # alt_width: 100";
     #[cfg(not(windows))]
     static SHELL: &str = "[$SHELL, -c]";
     #[cfg(windows)]
@@ -84,54 +90,23 @@ contest: arc100
 language: c++
 
 console:
-  cjk: false
+  cjk: false{console_alt_width}
+
+testfile_path: tests/$service/$contest/{{snake}}.$extension
 
 session:
   timeout: 60s
   silent: false
   cookies: {session_cookies}
-
-shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
+  {session_dropbox}
+  download:
+    extension: yaml
+    text_file_dir: tests/$service/$contest/{{snake}}
 
 judge:
   jobs: 4
-  path: tests/$service/$contest/{{snake}}.$extension
-  forall: [json, toml, yaml, yml, zip]
-  scrape: yaml
-  zip:
-    timelimit: 2000ms
-    match: exact
-    entries:
-      # AtCoder
-      - in:
-          entry: /\Ain/([a-z0-9_\-]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        out:
-          entry: /\Aout/([a-z0-9_\-]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        sort: [dictionary]
-      # HackerRank
-      - in:
-          entry: /\Ainput/input([0-9]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        out:
-          entry: /\Aoutput/output([0-9]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        sort: [number]
-      # yukicoder
-      - in:
-          entry: /\Atest_in/([a-z0-9_]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        out:
-          entry: /\Atest_out/([a-z0-9_]+)\.txt\z/
-          match_group: 1
-          crlf_to_lf: true
-        sort: [dictionary, number]
+  shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
+  testfile_extensions: [json, toml, yaml, yml]
 
 services:
   atcoder:
@@ -278,7 +253,14 @@ languages:
       command: [cat, $src]
       working_directory: txt{crlf_to_lf_false}
 "#,
+        console_alt_width = CONSOLE_ALT_WIDTH,
         session_cookies = yaml::escape_string(session_cookies),
+        session_dropbox = format_args!(
+            "{f}{c}dropbox:\n  {c}  auth: {p}",
+            f = if enable_session_dropbox { "" } else { "dropbox : false\n  " },
+            c = if enable_session_dropbox { "" } else { "# " },
+            p = yaml::escape_string(session_dropbox_auth),
+        ),
         shell = SHELL,
         exe = EXE,
         venv_python3 = VENV_PYTHON3,
@@ -349,7 +331,8 @@ pub(crate) fn switch(
         .and_then(|new_yaml| {
             let new_config = serde_yaml::from_str(&new_yaml)?;
             Ok((new_yaml, new_config))
-        }).or_else::<io::Error, _>(|warning| {
+        })
+        .or_else::<io::Error, _>(|warning| {
             stderr.with_reset(|o| writeln!(o.fg(11)?, "{}", warning))?;
             stderr.flush()?;
             let mut new_config = serde_yaml::from_str::<Config>(&old_yaml)
@@ -373,10 +356,10 @@ pub(crate) fn switch(
         c1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
         l1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
     ]
-        .iter()
-        .cloned()
-        .max()
-        .unwrap();
+    .iter()
+    .cloned()
+    .max()
+    .unwrap();
     print_change(&mut stdout, "service:  ", w, &s1, &s2)?;
     print_change(&mut stdout, "contest:  ", w, &c1, &c2)?;
     print_change(&mut stdout, "language: ", w, &l1, &l2)?;
@@ -395,8 +378,8 @@ pub(crate) struct Config {
     language: Option<String>,
     #[serde(default)]
     console: Console,
+    testfile_path: TemplateBuilder<AbsPathBuf>,
     session: Session,
-    shell: Vec<TemplateBuilder<OsString>>,
     judge: Judge,
     #[serde(default)]
     services: BTreeMap<ServiceName, ServiceConfig>,
@@ -452,35 +435,49 @@ impl Config {
             .strings(hashmap!("service".to_owned() => self.service.to_string()))
     }
 
+    pub(crate) fn session_dropbox_auth(&self) -> Option<Template<AbsPathBuf>> {
+        match &self.session.dropbox {
+            Dropbox::None => None,
+            Dropbox::Some { auth } => Some(
+                auth.build(&self.base_dir)
+                    .strings(hashmap!("service".to_owned() => self.service.to_string())),
+            ),
+        }
+    }
+
     pub(crate) fn judge_jobs(&self) -> NonZeroUsize {
         self.judge.jobs
     }
 
     pub(crate) fn download_destinations(
         &self,
-        ext: Option<SerializableExtension>,
+        ext: Option<SuiteFileExtension>,
     ) -> DownloadDestinations {
-        let template = self
-            .judge
-            .path
+        let scraped = self
+            .testfile_path
             .build(&self.base_dir)
             .insert_string("service", self.service.as_static())
             .insert_string("contest", &self.contest);
-        let ext = ext.unwrap_or(self.judge.scrape);
-        DownloadDestinations::new(template, ext)
+        let text_file_dir = self
+            .session
+            .download
+            .text_file_dir
+            .build(&self.base_dir)
+            .insert_string("service", self.service.as_static())
+            .insert_string("contest", &self.contest);
+        let ext = ext.unwrap_or(self.session.download.extension);
+        DownloadDestinations::new(scraped, text_file_dir, ext)
     }
 
     pub(crate) fn testcase_loader(&self) -> TestCaseLoader {
         let path = self
-            .judge
-            .path
+            .testfile_path
             .build(&self.base_dir)
             .insert_string("service", self.service.as_static())
             .insert_string("contest", &self.contest);
         TestCaseLoader::new(
             path,
-            &self.judge.forall,
-            &self.judge.zip,
+            &self.judge.testfile_extensions,
             self.interactive_tester_compilations(),
             self.interactive_testers(),
         )
@@ -562,11 +559,12 @@ impl Config {
                 .command
                 .build(
                     &self.base_dir,
-                    &self.shell,
+                    &self.judge.shell,
                     &compile.working_directory,
                     &lang.src,
                     &compile.bin,
-                ).insert_strings(&self.vars_for_langs(None))
+                )
+                .insert_strings(&self.vars_for_langs(None))
         })
     }
 
@@ -575,12 +573,13 @@ impl Config {
             .command
             .build(
                 &self.base_dir,
-                &self.shell,
+                &self.judge.shell,
                 &lang.run.working_directory,
                 &lang.src,
                 lang.compile.as_ref().map(|c| &c.bin),
                 lang.run.crlf_to_lf,
-            ).insert_strings(&self.vars_for_langs(None))
+            )
+            .insert_strings(&self.vars_for_langs(None))
     }
 
     fn lang_name<'a>(&'a self, name: Option<&'a str>) -> ConfigResult<&'a str> {
@@ -589,7 +588,8 @@ impl Config {
                 .get(&self.service)
                 .and_then(|s| s.language.as_ref())
                 .map(String::as_str)
-        }).or_else(|| self.language.as_ref().map(String::as_str))
+        })
+        .or_else(|| self.language.as_ref().map(String::as_str))
         .ok_or_else(|| ConfigErrorKind::PropertyNotSet("language").into())
     }
 
@@ -624,6 +624,7 @@ fn find_language<'a>(
 pub struct Console {
     #[serde(default)]
     pub(crate) cjk: bool,
+    pub(crate) alt_width: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -631,19 +632,71 @@ pub(crate) struct Session {
     #[serde(
         serialize_with = "time::ser_secs",
         deserialize_with = "time::de_secs",
+        default
     )]
     timeout: Option<Duration>,
+    #[serde(default)]
     silent: bool,
     cookies: TemplateBuilder<AbsPathBuf>,
+    #[serde(default)]
+    dropbox: Dropbox,
+    download: Download,
+}
+
+enum Dropbox {
+    None,
+    Some { auth: TemplateBuilder<AbsPathBuf> },
+}
+
+impl Default for Dropbox {
+    fn default() -> Self {
+        Dropbox::None
+    }
+}
+
+impl Serialize for Dropbox {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        match self {
+            Dropbox::None => serializer.serialize_bool(false),
+            Dropbox::Some { auth } => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("auth", auth)?;
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Dropbox {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Bool(bool),
+            Some { auth: TemplateBuilder<AbsPathBuf> },
+        }
+
+        match Repr::deserialize(deserializer)? {
+            Repr::Bool(true) => Err(serde::de::Error::custom(
+                "expected `false` or `{ auth: <string> }`",
+            )),
+            Repr::Bool(false) => Ok(Dropbox::None),
+            Repr::Some { auth } => Ok(Dropbox::Some { auth }),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct Download {
+    extension: SuiteFileExtension,
+    text_file_dir: TemplateBuilder<AbsPathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Judge {
     jobs: NonZeroUsize,
-    path: TemplateBuilder<AbsPathBuf>,
-    forall: BTreeSet<SuiteFileExtension>,
-    scrape: SerializableExtension,
-    zip: ZipConfig,
+    shell: Vec<TemplateBuilder<OsString>>,
+    testfile_extensions: BTreeSet<SuiteFileExtension>,
 }
 
 #[derive(Serialize, Deserialize)]

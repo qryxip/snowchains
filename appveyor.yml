@@ -12,6 +12,8 @@ environment:
       secure: koc3zc/wQPQvMQj1hJCjKQ==
     ATCODER_PASSWORD:
       secure: zndOc4jqvw5aigjpDnoUSEycIHdwddCYtI8gh/o2yBvDnL3GIT0ea0YavFmdMDMA
+    DROPBOX_ACCESS_TOKEN:
+      secure: raJjp7/0JOOrG5bJDGVFFA+HLPqkxG4b3+XnxY7ZZSisX/x6pOTCEuJ8Yb//ejTfJk4h8DIT1lDwIVf9C2lnvvtlJQSEb9bPt6VCBL98xN4=
     HACKERRANK_USERNAME:
       secure: H8+ut9G/t8aUFXYcBHGA/VRYHBZ0jDA/vnNYTUlbZ+Q=
     HACKERRANK_PASSWORD:
@@ -33,10 +35,6 @@ build: false
 
 test_script:
   - cargo fmt --all -- --check
-  # A hack to prevent clippy from checking dependencies
-  - cmd /C "cd .\proc_macros && cargo check"
-  - cargo check --all-targets
-  - ps: Get-Childitem -File -Recurse .\src,.\tests,.\proc_macros\src | ForEach-Object { Set-ItemProperty -Path $_.FullName -Name LastWriteTime -Value $(Get-Date) }
   - cmd /C "cd .\proc_macros && cargo clippy -- -D warnings"
   - cargo clippy --all-targets -- -D warnings
   - ps: $env:targets = If (Test-Path env:ATCODER_USERNAME) { 'all' } else { 'lib' }

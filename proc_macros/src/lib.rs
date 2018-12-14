@@ -1,11 +1,6 @@
-#![recursion_limit = "512"]
+#![recursion_limit = "256"]
 
-extern crate combine;
-extern crate if_chain;
 extern crate proc_macro;
-extern crate proc_macro2;
-extern crate quote;
-extern crate syn;
 
 use combine::Parser;
 use if_chain::if_chain;
@@ -50,15 +45,15 @@ pub fn derive_double_from(input: proc_macro::TokenStream) -> proc_macro::TokenSt
         let from_ty = from_ty?;
         match &variant.fields {
             Fields::Unnamed(FieldsUnnamed { unnamed, .. }) if unnamed.len() == 1 => Some(quote!(
-                        #[automatically_derived]
-                        impl #impl_generics From<#from_ty> for #name #ty_generics
-                            #where_clause
-                        {
-                            fn from(from: #from_ty) -> Self {
-                                #name::#variant_ident(from.into())
-                            }
-                        }
-                    )),
+                #[automatically_derived]
+                impl #impl_generics From<#from_ty> for #name #ty_generics
+                    #where_clause
+                {
+                    fn from(from: #from_ty) -> Self {
+                        #name::#variant_ident(from.into())
+                    }
+                }
+            )),
             Fields::Unnamed(_) => panic!("tuples not supported"),
             Fields::Named(_) => panic!("named fields not supported"),
             Fields::Unit => panic!("unit fields not supported"),
@@ -248,7 +243,8 @@ pub fn def_gen_predicate(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         fn gen() -> impl ::select::predicate::Predicate {
             #pred
         }
-    ).into()
+    )
+    .into()
 }
 
 fn parse_selector(input: &str) -> std::result::Result<impl ToTokens, String> {
@@ -292,7 +288,8 @@ fn parse_selector(input: &str) -> std::result::Result<impl ToTokens, String> {
         .skip(char('"'))
         .and(many1(satisfy::<&str, _>(|c| {
             !(c.is_whitespace() || c == '"' || c == '\\')
-        }))).skip(spaces())
+        })))
+        .skip(spaces())
         .skip(string("\"]"))
         .map(|(k, v)| Token::AttrEq(k, v));
     let or = op(',').map(|_| Token::Or);
@@ -307,7 +304,8 @@ fn parse_selector(input: &str) -> std::result::Result<impl ToTokens, String> {
         attempt(or),
         attempt(child),
         descendant,
-    ))).skip(eof())
+    )))
+    .skip(eof())
     .parse(input)
     .map(|(ts, _)| ts)
     .map_err(|_| format!("Failed to parse {:?}", input))?;

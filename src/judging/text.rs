@@ -46,7 +46,8 @@ impl Text {
             let cr = many1::<String, _>(char('\r')).map(|s| Word::Cr(s.len()));
             let codepoints = many1::<String, _>(satisfy(|c: char| {
                 ![' ', '\t', '\r', '\n'].contains(&c) && (c.is_whitespace() || c.is_control())
-            })).map(|s| {
+            }))
+            .map(|s| {
                 Word::CodePoints(Arc::new(s.chars().fold("".to_owned(), |mut s, c| {
                     write!(s, "{}", c.escape_unicode()).unwrap();
                     s

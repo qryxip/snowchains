@@ -1,11 +1,15 @@
-use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
+use crate::errors::{
+    FileResult, ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult,
+};
+use crate::path::AbsPath;
+use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProps,
     Service, SessionProps, SubmitProps, UserNameAndPassword,
 };
-use crate::terminal::{Term, WriteAnsi as _WriteAnsi};
-use crate::testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
+use crate::terminal::{HasTerm, Term, WriteAnsi as _WriteAnsi};
+use crate::testsuite::{DownloadDestinations, InteractiveSuite, SimpleSuite, TestSuite};
 use crate::util::std_unstable::RemoveItem_ as _RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
@@ -18,20 +22,29 @@ use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
 use select::predicate::{Predicate, Text};
-use tokio::runtime::Runtime;
+use serde_derive::{Deserialize, Serialize};
+use serde_json::json;
+use tokio::runtime::{Runtime, TaskExecutor};
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::io::Write as _Write;
-use std::rc::Rc;
+use std::ops::Deref;
+use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 use std::vec;
 
 /// Logins to "beta.atcoder.jp".
-pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
-    Atcoder::try_new(sess_props)?.login_if_not(true)
+pub(crate) fn login(mut sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
+    let dropbox_path = sess_props.dropbox_path.take();
+    let mut atcoder = Atcoder::try_new(sess_props)?;
+    atcoder.login_if_not(true)?;
+    if let Some(dropbox_path) = dropbox_path {
+        atcoder.auth_dropbox(&dropbox_path, true)?;
+    }
+    Ok(())
 }
 
 /// Participates in a `contest_name`.
@@ -48,9 +61,11 @@ pub(crate) fn download(
     mut sess_props: SessionProps<impl Term>,
     download_props: DownloadProps<String>,
 ) -> ServiceResult<()> {
+    let dropbox_path = sess_props.dropbox_path.take();
+    let dropbox_path = dropbox_path.as_ref().map(Deref::deref);
     let download_props = download_props.convert_contest_and_problems(ProblemNameConversion::Upper);
     download_props.print_targets(sess_props.term.stdout())?;
-    Atcoder::try_new(sess_props)?.download(&download_props)
+    Atcoder::try_new(sess_props)?.download(&download_props, dropbox_path)
 }
 
 /// Downloads submitted source codes.
@@ -80,11 +95,27 @@ pub(self) struct Atcoder<T: Term> {
     credentials: UserNameAndPassword,
 }
 
-impl<T: Term> Service for Atcoder<T> {
+impl<T: Term> HasTerm for Atcoder<T> {
     type Term = T;
 
-    fn requirements(&mut self) -> (&mut T, &mut HttpSession, &mut Runtime) {
-        (&mut self.term, &mut self.session, &mut self.runtime)
+    fn term(&mut self) -> &mut T {
+        &mut self.term
+    }
+}
+
+impl<T: Term> Service for Atcoder<T> {
+    type Write = T::Stdout;
+
+    fn requirements(&mut self) -> (&mut T::Stdout, &mut HttpSession, &mut Runtime) {
+        (self.term.stdout(), &mut self.session, &mut self.runtime)
+    }
+}
+
+impl<T: Term> DownloadProgress for Atcoder<T> {
+    type Write = T::Stdout;
+
+    fn requirements(&mut self) -> (&mut T::Stdout, &HttpSession, TaskExecutor) {
+        (self.term.stdout(), &self.session, self.runtime.executor())
     }
 }
 
@@ -101,11 +132,11 @@ impl<T: Term> Atcoder<T> {
         })
     }
 
-    fn login_if_not(&mut self, eprints_message_if_already_logged_in: bool) -> ServiceResult<()> {
+    fn login_if_not(&mut self, explicit: bool) -> ServiceResult<()> {
         if self.session.has_cookie() {
             let status = self.get("/settings").acceptable(&[200, 302]).status()?;
             if status == StatusCode::OK {
-                if eprints_message_if_already_logged_in {
+                if explicit {
                     writeln!(self.stderr(), "Already logged in.")?;
                     self.stderr().flush()?;
                 }
@@ -123,11 +154,11 @@ impl<T: Term> Atcoder<T> {
 
     fn try_logging_in(&mut self) -> ServiceResult<bool> {
         let token = self.get("/login").recv_html()?.extract_csrf_token()?;
-        let (username, password) = match self.credentials.clone() {
-            UserNameAndPassword::Some(username, password) => (username.clone(), password.clone()),
+        let (username, password) = match self.credentials.take() {
+            UserNameAndPassword::Some(username, password) => (username, password),
             UserNameAndPassword::None => (
-                Rc::new(self.term.prompt_reply_stderr("Username: ")?),
-                Rc::new(self.term.prompt_password_stderr("Password: ")?),
+                self.prompt_reply_stderr("Username: ")?,
+                self.prompt_password_stderr("Password: ")?,
             ),
         };
         let payload = hashmap!(
@@ -145,6 +176,62 @@ impl<T: Term> Atcoder<T> {
             return Err(ServiceErrorKind::LoginOnTest.into());
         }
         Ok(success)
+    }
+
+    fn auth_dropbox(&mut self, auth_path: &AbsPath, explicit: bool) -> ServiceResult<String> {
+        static CLIENT_ID: &str = "6h5mn3yn8o3qbk3";
+        static CLIENT_SECRET: &str = "g2p59fafm3d0lnz";
+
+        #[derive(Serialize, Deserialize)]
+        struct AuthToken {
+            access_token: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            token_type: Option<TokenType>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            account_id: Option<String>,
+        }
+
+        #[derive(Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum TokenType {
+            Bearer,
+        }
+
+        if auth_path.exists() {
+            let auth = crate::fs::read_json::<AuthToken>(auth_path)?;
+            let status = self
+                .post("https://api.dropboxapi.com/2/users/get_current_account")
+                .acceptable(&[200, 401])
+                .no_cookie()
+                .bearer_auth(&auth.access_token)
+                .send()?
+                .status();
+            if status == 200 {
+                if explicit {
+                    self.stderr().write_str("Already authorized.\n")?;
+                    self.stderr().flush()?;
+                }
+                return Ok(auth.access_token);
+            }
+            self.stderr().write_str("Invalid `accesss_token`.\n")?;
+            self.stderr().flush()?;
+        }
+        self.open_in_browser(&format!(
+            "https://dropbox.com/oauth2/authorize?response_type=code&client_id={}",
+            CLIENT_ID,
+        ))?;
+        let code = self.prompt_password_stderr("Authorization code: ")?;
+        let auth = self
+            .post("https://api.dropboxapi.com/oauth2/token")
+            .acceptable(&[200])
+            .no_cookie()
+            .basic_auth(CLIENT_ID, Some(CLIENT_SECRET))
+            .form(&hashmap!("code" => code.as_str(), "grant_type" => "authorization_code"))
+            .recv_json::<AuthToken>()?;
+        crate::fs::write_json_pretty(auth_path, &auth)?;
+        writeln!(self.stdout(), "Wrote to {}", auth_path.display())?;
+        self.stdout().flush()?;
+        Ok(auth.access_token)
     }
 
     fn register_explicitly(&mut self, contest: &AtcoderContest) -> ServiceResult<()> {
@@ -195,32 +282,48 @@ impl<T: Term> Atcoder<T> {
         Ok(())
     }
 
-    fn download(&mut self, prop: &DownloadProps<AtcoderContest>) -> ServiceResult<()> {
+    fn download(
+        &mut self,
+        props: &DownloadProps<AtcoderContest>,
+        dropbox_path: Option<&AbsPath>,
+    ) -> ServiceResult<()> {
         let DownloadProps {
             contest,
             problems,
             destinations,
             open_browser,
-        } = prop;
-        let outputs = self
+        } = props;
+        let names_and_urls = self
             .fetch_tasks_page(contest)?
             .extract_task_urls_with_names()?
             .into_iter()
             .filter(|(name, _)| match problems.as_ref() {
                 None => true,
                 Some(problems) => problems.iter().any(|p| p == name),
-            }).map(|(name, url)| -> ServiceResult<_> {
+            })
+            .collect::<Vec<_>>();
+        let mut outputs = names_and_urls
+            .into_iter()
+            .map(|(name, url)| -> ServiceResult<_> {
                 let suite = match contest.preset_suite() {
                     Some(suite) => suite,
                     None => self.get(&url).recv_html()?.extract_as_suite()?,
                 };
-                let path = destinations.scraping(&name)?;
+                let path = destinations.expand(&name)?;
                 Ok((url, name, suite, path))
-            }).collect::<ServiceResult<Vec<_>>>()?;
+            })
+            .collect::<ServiceResult<Vec<_>>>()?;
         let mut not_found = match problems.as_ref() {
             None => vec![],
             Some(problems) => problems.iter().collect(),
         };
+        if let Some(dropbox_path) = dropbox_path {
+            let suites = outputs
+                .iter_mut()
+                .map(|(_, name, suite, _)| (name.as_str(), suite))
+                .collect::<BTreeMap<&str, &mut TestSuite>>();
+            self.download_from_dropbox(dropbox_path, &contest.slug(), suites, destinations)?;
+        }
         for (_, name, suite, path) in &outputs {
             suite.save(&name, path, self.stdout())?;
             not_found.remove_item_(&name);
@@ -238,6 +341,174 @@ impl<T: Term> Atcoder<T> {
             }
         }
         Ok(())
+    }
+
+    fn download_from_dropbox(
+        &mut self,
+        auth_path: &AbsPath,
+        contest_slug: &str,
+        mut suites: BTreeMap<&str, &mut TestSuite>,
+        destinations: &DownloadDestinations,
+    ) -> ServiceResult<()> {
+        static URL: &str =
+            "https://www.dropbox.com/sh/arnpe0ef5wds8cv/AAAk_SECQ2Nc6SVGii3rHX6Fa?dl=0";
+
+        #[derive(Deserialize)]
+        struct ListFolder {
+            entries: Vec<ListFolderEntry>,
+        }
+
+        #[derive(Deserialize)]
+        struct ListFolderEntry {
+            name: String,
+        }
+
+        fn confirm_folders_exist<'a>(
+            this: &mut Atcoder<impl Term>,
+            token: &str,
+            contest_slug: &str,
+            mut problems: impl Iterator<Item = &'a str>,
+        ) -> ServiceResult<bool> {
+            #[derive(Deserialize)]
+            #[serde(untagged)]
+            enum ListFolderResult {
+                Ok(ListFolder),
+                Err(ErrorWithSummary),
+            }
+
+            #[derive(Deserialize)]
+            struct ErrorWithSummary {}
+
+            let result = this
+                .post("https://api.dropboxapi.com/2/files/list_folder")
+                .bearer_auth(token)
+                .acceptable(&[200, 409])
+                .no_cookie()
+                .json(&json!({
+                    "shared_link": { "url": URL },
+                    "path": format!("/{}", contest_slug)
+                }))
+                .recv_json::<ListFolderResult>()?;
+            Ok(match result {
+                ListFolderResult::Ok(ok) => {
+                    let names = ok
+                        .entries
+                        .iter()
+                        .map(|e| e.name.as_str())
+                        .collect::<HashSet<_>>();
+                    problems.all(|p| names.contains(p))
+                }
+                ListFolderResult::Err(_) => false,
+            })
+        }
+
+        fn list_folder(
+            this: &mut Atcoder<impl Term>,
+            token: &str,
+            path: &str,
+        ) -> ServiceResult<ListFolder> {
+            this.post("https://api.dropboxapi.com/2/files/list_folder")
+                .bearer_auth(token)
+                .acceptable(&[200])
+                .no_cookie()
+                .json(&json!({ "shared_link": { "url": URL }, "path": path }))
+                .recv_json()
+        }
+
+        fn download_files(
+            this: &mut Atcoder<impl Term>,
+            token: &str,
+            prefix: &str,
+            entries: &[ListFolderEntry],
+        ) -> ServiceResult<HashMap<String, Vec<u8>>> {
+            static ENDPOINT: &str = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
+            let filenames = entries.iter().map(|e| &e.name).collect::<Vec<_>>();
+            let urls = vec![ENDPOINT; filenames.len()];
+            let client = this.session.client();
+            let alt_reqs = filenames
+                .iter()
+                .map(|filename| {
+                    client
+                        .post(ENDPOINT)
+                        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+                        .header(
+                            "Dropbox-API-Arg",
+                            json!({ "url": URL, "path": format!("{}/{}", prefix, filename) })
+                                .to_string(),
+                        )
+                })
+                .collect();
+            let files = this.download_progress(&urls, &filenames, Some(alt_reqs))?;
+            Ok(files
+                .into_iter()
+                .zip_eq(filenames)
+                .map(|(content, filename)| {
+                    let stem = Path::new(&filename)
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_str()
+                        .unwrap()
+                        .to_owned();
+                    (stem, content)
+                })
+                .collect())
+        }
+
+        let token = self.auth_dropbox(auth_path, false)?;
+        if !confirm_folders_exist(self, &token, &contest_slug, suites.keys().cloned())? {
+            return Ok(());
+        }
+        let contents = suites
+            .iter()
+            .filter_map(|(problem, suite)| match suite {
+                TestSuite::Unsubmittable => None,
+                _ => Some(problem),
+            })
+            .map(|problem| {
+                let in_dir = format!("/{}/{}/in", contest_slug, problem);
+                let entries = list_folder(self, &token, &in_dir)?.entries;
+                let in_contents = download_files(self, &token, &in_dir, &entries)?;
+                let out_dir = format!("/{}/{}/out", contest_slug, problem);
+                let entries = list_folder(self, &token, &out_dir)?.entries;
+                let mut out_contents = download_files(self, &token, &out_dir, &entries)?;
+                // https://mobile.twitter.com/a3VtYQo/status/1048893042785013761
+                let contents = in_contents
+                    .into_iter()
+                    .filter_map(|(name, i)| out_contents.remove(&name).map(|o| (name, (i, o))))
+                    .collect::<BTreeMap<_, _>>();
+                Ok((problem.to_owned(), contents))
+            })
+            .collect::<ServiceResult<BTreeMap<_, _>>>()?;
+        for (problem, contents) in contents {
+            let dir = destinations.text_file_dir(problem)?;
+            let (in_dir, out_dir) = (dir.join("in"), dir.join("out"));
+            let contents_len = contents.len();
+            let paths = contents
+                .into_iter()
+                .map(|(case_name, (input, output))| {
+                    let in_path = in_dir.join(&case_name).with_extension("txt");
+                    let out_path = out_dir.join(&case_name).with_extension("txt");
+                    crate::fs::write(&in_path, &input)?;
+                    crate::fs::write(&out_path, &output)?;
+                    Ok((case_name, (in_path, out_path)))
+                })
+                .collect::<FileResult<BTreeMap<_, _>>>()?;
+            self.stdout()
+                .with_reset(|o| write!(o.bold()?, "{}", problem))?;
+            writeln!(
+                self.stdout(),
+                ": Saved {} to {}",
+                plural!(contents_len, "file", "files"),
+                dir.display(),
+            )?;
+            if let Some(TestSuite::Simple(suite)) = suites.get_mut(problem) {
+                suite.clear_cases();
+                for (case_name, (in_path, out_path)) in paths {
+                    suite.push_path(case_name, in_path, out_path);
+                }
+            }
+        }
+        self.stdout().flush().map_err(Into::into)
     }
 
     fn restore(&mut self, prop: &RestoreProps<AtcoderContest>) -> ServiceResult<()> {
@@ -491,19 +762,22 @@ impl AtcoderContest {
         }
     }
 
-    fn url_top(&self) -> String {
-        static BASE: &'static str = "/contests/";
+    fn slug(&self) -> Cow<str> {
         match self {
-            AtcoderContest::Practice => format!("{}practice", BASE),
-            AtcoderContest::Apg4b => format!("{}apg4b", BASE),
-            AtcoderContest::Abc(n) => format!("{}abc{:>03}", BASE, n),
-            AtcoderContest::Arc(n) => format!("{}arc{:>03}", BASE, n),
-            AtcoderContest::Agc(n) => format!("{}agc{:>03}", BASE, n),
-            AtcoderContest::Atc(n) => format!("{}atc{:>03}", BASE, n),
-            AtcoderContest::Apc(n) => format!("{}apc{:>03}", BASE, n),
-            AtcoderContest::ChokudaiS(n) => format!("{}chokudai_s{:>03}", BASE, n),
-            AtcoderContest::Other(s) => format!("{}{}", BASE, s),
+            AtcoderContest::Practice => "practice".into(),
+            AtcoderContest::Apg4b => "apg4b".into(),
+            AtcoderContest::Abc(n) => format!("abc{:>03}", n).into(),
+            AtcoderContest::Arc(n) => format!("arc{:>03}", n).into(),
+            AtcoderContest::Agc(n) => format!("agc{:>03}", n).into(),
+            AtcoderContest::Atc(n) => format!("atc{:>03}", n).into(),
+            AtcoderContest::Apc(n) => format!("apc{:>03}", n).into(),
+            AtcoderContest::ChokudaiS(n) => format!("chokudai_s{:>03}", n).into(),
+            AtcoderContest::Other(s) => s.into(),
         }
+    }
+
+    fn url_top(&self) -> String {
+        format!("/contests/{}", self.slug())
     }
 
     fn url_tasks(&self) -> String {
@@ -527,7 +801,8 @@ impl AtcoderContest {
             AtcoderContest::Arc(19) => Some(InteractiveSuite::new(Duration::from_secs(2))),
             AtcoderContest::Arc(21) => Some(InteractiveSuite::new(Duration::from_secs(4))),
             _ => None,
-        }.map(Into::into)
+        }
+        .map(Into::into)
     }
 }
 
@@ -647,8 +922,8 @@ impl Extract for Document {
             // - https://beta.atcoder.jp/contests/jag2016-domestic/tasks
             // - https://beta.atcoder.jp/contests/chokudai001/tasks/chokudai_001_a
 
-            static IN_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*入力例\s*(\d{1,2})+[.\n]*\z");
-            static OUT_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*出力例\s*(\d{1,2})+[.\n]*\z");
+            static IN_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*入力例\s*(\d{1,2})[.\n]*\z");
+            static OUT_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*出力例\s*(\d{1,2})[.\n]*\z");
             static IN_EN: Lazy<Regex> = lazy_regex!(r"\ASample Input\s?([0-9]{1,2}).*\z");
             static OUT_EN: Lazy<Regex> = lazy_regex!(r"\ASample Output\s?([0-9]{1,2}).*\z");
 
@@ -757,22 +1032,27 @@ impl Extract for Document {
         fn parse_zenkaku<T: FromStr>(s: &str) -> Result<T, T::Err> {
             match s.parse() {
                 Ok(v) => Ok(v),
-                Err(e) => if s.chars().all(|c| '０' <= c && c <= '９') {
-                    s.chars()
-                        .map(|c| {
-                            char::from((u32::from(c) - u32::from('０') + u32::from('0')) as u8)
-                        }).collect::<String>()
-                        .parse()
-                } else {
-                    Err(e)
-                },
+                Err(e) => {
+                    if s.chars().all(|c| '０' <= c && c <= '９') {
+                        s.chars()
+                            .map(|c| {
+                                char::from((u32::from(c) - u32::from('０') + u32::from('0')) as u8)
+                            })
+                            .collect::<String>()
+                            .parse()
+                    } else {
+                        Err(e)
+                    }
+                }
             }
         }
 
         fn is_valid_text(s: &str) -> bool {
-            s == "\n" || ![' ', '\n'].iter().any(|&c| s.starts_with(c)) && s
-                .chars()
-                .all(|c| c.is_ascii() && (c.is_ascii_whitespace() == [' ', '\n'].contains(&c)))
+            s == "\n"
+                || ![' ', '\n'].iter().any(|&c| s.starts_with(c))
+                    && s.chars().all(|c| {
+                        c.is_ascii() && (c.is_ascii_whitespace() == [' ', '\n'].contains(&c))
+                    })
         }
 
         fn extract_timelimit(this: &Document) -> Option<Duration> {
@@ -807,7 +1087,9 @@ impl Extract for Document {
         }
         match extract_samples(self) {
             None => Ok(SimpleSuite::new(timelimit).into()),
-            Some(Samples::Simple(samples)) => Ok(SimpleSuite::new(timelimit).cases(samples).into()),
+            Some(Samples::Simple(samples)) => Ok(SimpleSuite::new(timelimit)
+                .sample_cases(samples.into_iter(), |i| format!("Sample {}", i + 1), None)
+                .into()),
             Some(Samples::Interactive) => Ok(InteractiveSuite::new(timelimit).into()),
         }
     }
@@ -833,7 +1115,8 @@ impl Extract for Document {
             let num_pages = self
                 .find(selector!(
                     "#main-container > div.row > div.text-center > ul.pagination > li",
-                )).count() as u32;
+                ))
+                .count() as u32;
             let mut submissions = vec![];
             let pred = selector!(
                 "#main-container > div.row > div.col-sm-12 > div.panel-submission
@@ -862,7 +1145,8 @@ impl Extract for Document {
                         let text = a.find(Text).next()?.text();
                         guard!(["詳細", "Detail"].contains(&text.as_str()));
                         a.attr("href").map(ToOwned::to_owned)
-                    }).next()?;
+                    })
+                    .next()?;
                 submissions.push(Submission {
                     task_name,
                     task_screen_name,
@@ -1000,9 +1284,11 @@ impl Extract for Document {
                 .text();
             match kind {
                 Kind::Ambiguous(_) => unreachable!(),
-                Kind::Mime(s) => if s == &mime {
-                    matched.push((lang_id, name));
-                },
+                Kind::Mime(s) => {
+                    if s == &mime {
+                        matched.push((lang_id, name));
+                    }
+                }
                 Kind::Name(s) => {
                     let p = {
                         let caps = NAME.captures(&name).ok_or_else(ScrapeError::new)?;
@@ -1036,6 +1322,7 @@ mod tests {
     use crate::terminal::{Term, TermImpl};
     use crate::testsuite::{SimpleSuite, TestSuite};
 
+    use itertools::Itertools as _Itertools;
     use tokio::runtime::Runtime;
     use url::Host;
 
@@ -1057,7 +1344,7 @@ mod tests {
         ];
         assert_eq!(EXPECTED.len(), urls_and_names.len());
         for ((actual_name, actual_url), &(expected_name, expected_url)) in
-            urls_and_names.into_iter().zip(EXPECTED)
+            urls_and_names.into_iter().zip_eq(EXPECTED)
         {
             assert_eq!(expected_name, actual_name);
             assert_eq!(expected_url, actual_url);
@@ -1349,15 +1636,18 @@ mod tests {
         for (
             (actual_name, actual_url),
             (expected_name, expected_url, expected_timelimit, expected_samples),
-        ) in urls_and_names.iter().zip(expected.iter())
+        ) in urls_and_names.iter().zip_eq(expected.iter())
         {
             assert_eq!(expected_name, actual_name);
             assert_eq!(expected_url, actual_url);
             let problem_page = atcoder.get(&actual_url).recv_html().unwrap();
             let expected_timelimit = Duration::from_millis(*expected_timelimit);
-            let expected_suite = TestSuite::from(
-                SimpleSuite::new(expected_timelimit).cases(expected_samples.iter().cloned()),
-            );
+            let expected_suite =
+                TestSuite::from(SimpleSuite::new(expected_timelimit).sample_cases(
+                    expected_samples.iter().cloned(),
+                    |i| format!("Sample {}", i + 1),
+                    None,
+                ));
             let actual_suite = problem_page.extract_as_suite().unwrap();
             assert_eq!(expected_suite, actual_suite);
         }

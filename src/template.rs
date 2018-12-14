@@ -164,7 +164,7 @@ impl Template<CompilationCommand> {
         let src = src.expand_as_path(problem, base_dir, strings)?;
         let bin = bin.expand_as_path(problem, base_dir, strings)?;
         let args = {
-            let mut os_strings = hashmap!("src" => src.as_os_str(), "bin" => bin.as_os_str());
+            let os_strings = hashmap!("src" => src.as_os_str(), "bin" => bin.as_os_str());
             match &self.inner {
                 CommandTemplateInner::Args(args) => Cow::Borrowed(args),
                 CommandTemplateInner::Shell(arg) => {
@@ -172,11 +172,12 @@ impl Template<CompilationCommand> {
                     args.push(arg.clone());
                     Cow::Owned(args)
                 }
-            }.iter()
+            }
+            .iter()
             .map(|arg| arg.expand_as_os_string(problem, strings, &os_strings))
             .collect::<ExpandTemplateResult<Vec<_>>>()?
         };
-        Ok(CompilationCommand::new(&args, wd, src, bin))
+        Ok(CompilationCommand::new(args, wd, src, bin))
     }
 }
 
@@ -209,11 +210,12 @@ impl Template<JudgingCommand> {
                     args.push(arg.clone());
                     Cow::Owned(args)
                 }
-            }.iter()
+            }
+            .iter()
             .map(|arg| arg.expand_as_os_string(problem, strings, &os_strings))
             .collect::<ExpandTemplateResult<Vec<_>>>()?
         };
-        Ok(JudgingCommand::new(&args, wd, *crlf_to_lf))
+        Ok(JudgingCommand::new(args, wd, *crlf_to_lf))
     }
 }
 
@@ -298,7 +300,8 @@ impl FromStr for Tokens {
                 alpha_num().and(many(alpha_num().or(char('_')))),
                 char('_').and(many1(alpha_num().or(char('_')))),
                 char('*').and(many(satisfy(|_| false))),
-            ))).map(|(h, t): (_, String)| Token::Var(format!("{}{}", h, t)));
+            )))
+            .map(|(h, t): (_, String)| Token::Var(format!("{}{}", h, t)));
         many(choice((
             plain,
             attempt(escape("$$", "$")),
@@ -306,7 +309,8 @@ impl FromStr for Tokens {
             attempt(escape("}}", "}")),
             problem,
             var,
-        ))).skip(eof())
+        )))
+        .skip(eof())
         .parse(input)
         .map(|(tokens, _)| Tokens(tokens))
         .map_err(|_| ParseTemplateError {
@@ -319,13 +323,15 @@ impl fmt::Display for Tokens {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for token in &self.0 {
             match token {
-                Token::Text(s) => for c in s.chars() {
-                    if ['$', '{', '}'].contains(&c) {
-                        write!(f, "{}{}", c, c)
-                    } else {
-                        write!(f, "{}", c)
-                    }?;
-                },
+                Token::Text(s) => {
+                    for c in s.chars() {
+                        if ['$', '{', '}'].contains(&c) {
+                            write!(f, "{}{}", c, c)
+                        } else {
+                            write!(f, "{}", c)
+                        }?;
+                    }
+                }
                 Token::Problem(s) => write!(f, "{{{}}}", s)?,
                 Token::Var(s) => write!(f, "${}", s)?,
             }
@@ -458,7 +464,8 @@ impl Tokens {
                             tokens: self.clone(),
                             problem: problem.to_owned(),
                             base_dir: base_dir.to_owned(),
-                        }).into()
+                        })
+                        .into()
                 })
             })
     }
@@ -654,7 +661,8 @@ mod tests {
                     .strings(hashmap!(
                         "service".to_owned() => "Service".to_owned(),
                         "contest".to_owned() => "Contest".to_owned()
-                    )).expand("")
+                    ))
+                    .expand("")
                     .unwrap()
             }
             test!("snowchains/$service/$contest" => "snowchains/Service/Contest");

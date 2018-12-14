@@ -44,7 +44,8 @@ pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
                 input,
                 diff: TextDiff::new(expected, &stdout),
                 stderr: Text::exact(""),
-            }.into();
+            }
+            .into();
         }
     }
     SimpleOutcomeInner::Accepted {
@@ -53,7 +54,8 @@ pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
         example,
         stdout,
         stderr: Text::exact(""),
-    }.into()
+    }
+    .into()
 }
 
 pub(super) fn judge(
@@ -92,9 +94,12 @@ impl Future for Judge {
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<SimpleOutcome, io::Error> {
-        try_ready!(self.stdin.poll_write(self.input.as_bytes()));
-        if let Err(timelimit) = try_ready!(self.status.poll_wait()) {
-            return Ok(Async::Ready(
+        match self.status.poll_wait()? {
+            Async::NotReady => {
+                try_ready!(self.stdin.poll_write(self.input.as_bytes()));
+                Ok(Async::NotReady)
+            }
+            Async::Ready(Err(timelimit)) => Ok(Async::Ready(
                 SimpleOutcomeInner::TimelimitExceeded {
                     timelimit,
                     input: Text::exact(&self.input),
@@ -103,21 +108,23 @@ impl Future for Judge {
                         ExpectedStdout::Exact(expected) => Some(Text::exact(&expected)),
                         ExpectedStdout::Float { string, .. } => Some(Text::float(string, None)),
                     },
-                }.into(),
-            ));
+                }
+                .into(),
+            )),
+            Async::Ready(Ok(())) => {
+                try_ready!(self.stdout.poll_read());
+                try_ready!(self.stderr.poll_read());
+                let (status, elapsed) = self.status.unwrap();
+                let outcome = CommandOutcome {
+                    status,
+                    elapsed,
+                    input: self.input.clone(),
+                    stdout: Arc::new(self.stdout.unwrap()),
+                    stderr: Arc::new(self.stderr.unwrap()),
+                };
+                Ok(Async::Ready(outcome.compare(&self.expected)))
+            }
         }
-        try_ready!(self.stdout.poll_read());
-        try_ready!(self.stderr.poll_read());
-
-        let (status, elapsed) = self.status.unwrap();
-        let outcome = CommandOutcome {
-            status,
-            elapsed,
-            input: self.input.clone(),
-            stdout: Arc::new(self.stdout.unwrap()),
-            stderr: Arc::new(self.stderr.unwrap()),
-        };
-        Ok(Async::Ready(outcome.compare(&self.expected)))
     }
 }
 
@@ -321,7 +328,8 @@ impl CommandOutcome {
                 stdout,
                 stderr,
             }
-        }.into()
+        }
+        .into()
     }
 }
 

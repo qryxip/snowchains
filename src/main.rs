@@ -24,8 +24,8 @@ fn main() -> Fallible<()> {
     let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
     let mut term = TermImpl::new(&stdin, &stdout, &stderr);
     if let Err(err) = run(opt, &mut term) {
-        term.stdout().flush()?;
-        let mut stderr = term.stderr();
+        let (_, stdout, stderr) = term.split_mut();
+        stdout.flush()?;
         writeln!(stderr)?;
         for (i, cause) in Fail::iter_chain(&err).enumerate() {
             let head = if i == 0 && err.cause().is_none() {
@@ -61,7 +61,17 @@ fn run(opt: Opt, term: impl Term) -> snowchains::Result<()> {
             None => "~/.local/share/snowchains/$service".to_owned(),
             Some(d) => d.join("snowchains").join("$service").display().to_string(),
         },
+        dropbox_auth_on_init: match dirs::data_local_dir() {
+            None => "~/.local/share/snowchains/dropbox.json".to_owned(),
+            Some(d) => d
+                .join("snowchains")
+                .join("dropbox.json")
+                .display()
+                .to_string(),
+        },
+        enable_dropbox_on_init: false,
         credentials: Credentials::default(),
         term,
-    }.run(opt)
+    }
+    .run(opt)
 }

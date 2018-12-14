@@ -61,16 +61,12 @@ pub enum ServiceError {
 pub enum ServiceErrorKind {
     #[display(
         fmt = "Received non UTF-8 content (encoding = {:?})",
-        r#"_0.as_ref().map(String::as_str).unwrap_or("<none>")"#,
+        r#"_0.as_ref().map(String::as_str).unwrap_or("<none>")"#
     )]
     NonUtf8Content(Option<String>),
     #[display(fmt = "Failed to parse a URL: {:?}", _0)]
     ParseUrl(String),
-    #[display(
-        fmt = "Failed to parse a cookie in {}: {:?}",
-        "_0.display()",
-        _1,
-    )]
+    #[display(fmt = "Failed to parse a cookie in {}: {:?}", "_0.display()", _1)]
     ParseCookieFromPath(AbsPathBuf, String),
     #[display(fmt = "Failed to parse a cookie from {}: {:?}", _0, _1)]
     ParseCookieFromUrl(Url, HeaderValue),
@@ -84,7 +80,7 @@ pub enum ServiceErrorKind {
         fmt = "{}: Unexpected HTTP status code {} (expected [{}])",
         _0,
         _1,
-        "_2.iter().format(\", \")",
+        "_2.iter().format(\", \")"
     )]
     UnexpectedStatusCode(Url, StatusCode, Vec<StatusCode>),
     #[display(
@@ -92,7 +88,7 @@ pub enum ServiceErrorKind {
         r#"match _0.code() {
                Some(c) => format!("with code {}", c),
                None => "without code".to_owned(),
-           }"#,
+           }"#
     )]
     Webbrowser(ExitStatus),
     #[display(fmt = r#"Found an accepted submission. Add "--skip-checking-duplication" ("-d")"#)]
@@ -112,7 +108,7 @@ pub enum ServiceErrorKind {
         _0,
         _1,
         "_2.as_u16()",
-        r#"_3.as_ref().map(|s| format!("{:?}", s)).unwrap_or_else(|| "<none>".to_owned())"#,
+        r#"_3.as_ref().map(|s| format!("{:?}", s)).unwrap_or_else(|| "<none>".to_owned())"#
     )]
     SubmissionRejected(String, usize, StatusCode, Option<String>),
     #[display(fmt = "Failed to login")]
@@ -155,14 +151,14 @@ pub enum JudgeErrorKind {
         r#"match _0.code() {
              Some(c) => format!("with code {}", c),
              None => "without code".to_owned(),
-           }"#,
+           }"#
     )]
     Compile(ExitStatus),
     #[display(
         fmt = "{}/{} Test{} failed",
         _0,
         _1,
-        r#"if *_0 > 0 { "s" } else { "" }"#,
+        r#"if *_0 > 0 { "s" } else { "" }"#
     )]
     TestFailed(usize, usize),
 }
@@ -183,10 +179,7 @@ pub enum TestSuiteError {
 pub enum TestSuiteErrorKind {
     #[display(fmt = "Failed to serialize the data")]
     Serialize,
-    #[display(
-        fmt = "None of {} exists. Execute \"download\" command first",
-        _0,
-    )]
+    #[display(fmt = "None of {} exists. Execute \"download\" command first", _0)]
     NoFile(String),
     #[display(fmt = "Different types of suites")]
     DifferentTypesOfSuites,
@@ -194,8 +187,6 @@ pub enum TestSuiteErrorKind {
     SuiteIsNotSimple,
     #[display(fmt = "{:?} is unsubmittable", _0)]
     Unsubmittable(AbsPathBuf),
-    #[display(fmt = "Regex group out of bounds: {}", _0)]
-    RegexGroupOutOfBounds(usize),
     #[display(fmt = "Unsupported extension: {:?}", _0)]
     UnsupportedExtension(String),
 }
@@ -263,20 +254,20 @@ pub enum ExpandTemplateErrorKind {
     #[display(
         fmt = "Failed to expand ({:?} % {:?}) as a UTF-8 string",
         tokens,
-        problem,
+        problem
     )]
     Str { tokens: Tokens, problem: String },
     #[display(
         fmt = "Failed to expand ({:?} % {:?}) as a non UTF-8 string",
         tokens,
-        problem,
+        problem
     )]
     OsStr { tokens: Tokens, problem: String },
     #[display(
         fmt = "Failed to expand ({} </> ({:?} % {:?})) as a non UTF-8 string",
         "base_dir.display()",
         tokens,
-        problem,
+        problem
     )]
     Path {
         tokens: Tokens,
@@ -286,7 +277,7 @@ pub enum ExpandTemplateErrorKind {
     #[display(
         fmt = "Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
                \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"",
-        _0,
+        _0
     )]
     UnknownSpecifier(String),
     #[display(fmt = "The environment variable {} is not present", _0)]
@@ -314,22 +305,18 @@ pub enum FileErrorKind {
     CreateDir(AbsPathBuf),
     #[display(fmt = "Failed to open {} in read-only mode", "_0.display()")]
     OpenRo(AbsPathBuf),
-    #[display(
-        fmt = "Failed to open/create {} in write-only mode",
-        "_0.display()",
-    )]
+    #[display(fmt = "Failed to open/create {} in write-only mode", "_0.display()")]
     OpenWo(AbsPathBuf),
-    #[display(
-        fmt = "Failed to open/create {} in read/write mode",
-        "_0.display()",
-    )]
+    #[display(fmt = "Failed to open/create {} in read/write mode", "_0.display()")]
     OpenRw(AbsPathBuf),
     #[display(fmt = "Failed to lock {}", "_0.display()")]
     Lock(AbsPathBuf),
+    #[display(fmt = "Failed to read a zip file")]
+    ReadZip,
     #[display(
         fmt = "Could not find {:?} in {} or any parent directory",
         filename,
-        "start.display()",
+        "start.display()"
     )]
     Find {
         filename: &'static str,

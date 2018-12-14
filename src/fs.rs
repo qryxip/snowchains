@@ -5,9 +5,7 @@ use failure::{Fail as _Fail, Fallible, ResultExt as _ResultExt};
 use fs2::FileExt as _FileExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use zip::ZipArchive;
 
-use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Seek as _Seek, SeekFrom, Write as _Write};
 
@@ -20,6 +18,15 @@ pub(crate) fn write(path: &AbsPath, contents: &[u8]) -> FileResult<()> {
     create_file_and_dirs(path)?
         .write_all(contents)
         .map_err(|e| e.context(FileErrorKind::Write(path.to_owned())).into())
+}
+
+pub(crate) fn write_json_pretty(
+    path: &AbsPath,
+    json: &(impl Serialize + ?Sized),
+) -> FileResult<()> {
+    let json = serde_json::to_string_pretty(json)
+        .with_context(|_| FileErrorKind::Write(path.to_owned()))?;
+    write(path, json.as_bytes())
 }
 
 pub(crate) fn read_to_string(path: &AbsPath) -> FileResult<String> {
@@ -48,13 +55,6 @@ pub(crate) fn read_yaml<T: DeserializeOwned>(path: &AbsPath) -> FileResult<T> {
         .map_err(|e| e.context(FileErrorKind::Read(path.to_owned())).into())
 }
 
-pub(crate) fn open_zip(path: &AbsPath) -> FileResult<ZipArchive<File>> {
-    File::open(path)
-        .map_err(failure::Error::from)
-        .and_then(|f| ZipArchive::new(f).map_err(|e| StdError::from(e).into()))
-        .map_err(|e| e.context(FileErrorKind::OpenRo(path.to_owned())).into())
-}
-
 pub(crate) fn create_file_and_dirs(path: &AbsPath) -> FileResult<File> {
     if let Some(dir) = path.parent() {
         if !dir.exists() {
@@ -75,7 +75,8 @@ pub(crate) fn find_path(filename: &'static str, start: &AbsPath) -> FileResult<A
             break Err(FileErrorKind::Find {
                 filename,
                 start: start.to_owned(),
-            }.into());
+            }
+            .into());
         }
     }
 }
@@ -133,39 +134,5 @@ impl LockedFile {
 
         write_bincode(&mut self.inner, value)
             .map_err(|e| e.context(FileErrorKind::Write(self.path.clone())).into())
-    }
-}
-
-trait IoContext {
-    fn io_context<E: fmt::Display + fmt::Debug + Send + Sync + 'static, F: FnOnce() -> E>(
-        self,
-        f: F,
-    ) -> Self;
-}
-
-impl<T> IoContext for io::Result<T> {
-    fn io_context<E: fmt::Display + fmt::Debug + Send + Sync + 'static, F: FnOnce() -> E>(
-        self,
-        f: F,
-    ) -> Self {
-        #[derive(Debug)]
-        struct IoContext<E> {
-            ctx: E,
-            source: io::Error,
-        }
-
-        impl<E: fmt::Display> fmt::Display for IoContext<E> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                self.ctx.fmt(f)
-            }
-        }
-
-        impl<E: fmt::Display + fmt::Debug> std::error::Error for IoContext<E> {
-            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-                Some(&self.source)
-            }
-        }
-
-        self.map_err(|source| io::Error::new(source.kind(), IoContext { ctx: f(), source }))
     }
 }

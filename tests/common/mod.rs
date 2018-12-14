@@ -8,13 +8,13 @@ use snowchains::terminal::{AnsiColorChoice, TermImpl};
 use failure::Fallible;
 use if_chain::if_chain;
 use serde_derive::Deserialize;
+use serde_json::json;
 use strum::AsStaticRef as _AsStaticRef;
 use tempdir::TempDir;
 
 use std::fs::File;
 use std::panic::UnwindSafe;
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::{env, io, panic};
 
 pub fn test_in_tempdir<E: Into<failure::Error>>(
@@ -26,8 +26,10 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     let tempdir_path = tempdir.path().to_owned();
     let result = panic::catch_unwind(move || -> Fallible<()> {
         let mut app = App {
-            working_dir: AbsPathBuf::new_or_panic(tempdir_path),
+            working_dir: AbsPathBuf::new_or_panic(tempdir_path.clone()),
             cookies_on_init: "$service".to_owned(),
+            dropbox_auth_on_init: "dropbox.json".to_owned(),
+            enable_dropbox_on_init: true,
             credentials,
             term: TermImpl::null(),
         };
@@ -35,6 +37,10 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
             color_choice: AnsiColorChoice::Never,
             directory: PathBuf::from("."),
         })?;
+        serde_json::to_writer(
+            File::create(tempdir_path.join("dropbox.json"))?,
+            &json!({ "access_token": env("DROPBOX_ACCESS_TOKEN")? }),
+        )?;
         f(app).map_err(Into::into)
     });
     tempdir.close().unwrap();
@@ -45,25 +51,6 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
 }
 
 pub fn credentials_from_env_vars() -> Fallible<Credentials> {
-    fn env(name: &'static str) -> Fallible<Rc<String>> {
-        let output = std::process::Command::new("envchain")
-            .args(&["snowchains", "sh", "-c"])
-            .arg(format!("printf %s ${}", name))
-            .output();
-        if_chain! {
-            if let Ok(std::process::Output { status, stdout, .. }) = output;
-            if status.success() && !stdout.is_empty();
-            if let Ok(stdout) = String::from_utf8(stdout);
-            then {
-                Ok(Rc::new(stdout))
-            } else {
-                env::var(name)
-                    .map(Rc::new)
-                    .map_err(|e| failure::err_msg(format!("Failed to read {:?}: {}", name, e)))
-            }
-        }
-    }
-
     let atcoder_username = env("ATCODER_USERNAME")?;
     let atcoder_password = env("ATCODER_PASSWORD")?;
     let hackerrank_username = env("HACKERRANK_USERNAME")?;
@@ -77,11 +64,29 @@ pub fn credentials_from_env_vars() -> Fallible<Credentials> {
 }
 
 pub fn dummy_credentials() -> Credentials {
-    let dummy = Rc::new(" ".to_owned());
+    let dummy = "".to_owned();
     Credentials {
         atcoder: UserNameAndPassword::Some(dummy.clone(), dummy.clone()),
         hackerrank: UserNameAndPassword::Some(dummy.clone(), dummy.clone()),
         yukicoder: RevelSession::Some(dummy),
+    }
+}
+
+fn env(name: &'static str) -> Fallible<String> {
+    let output = std::process::Command::new("envchain")
+        .args(&["snowchains", "sh", "-c"])
+        .arg(format!("printf %s ${}", name))
+        .output();
+    if_chain! {
+        if let Ok(std::process::Output { status, stdout, .. }) = output;
+        if status.success() && !stdout.is_empty();
+        if let Ok(stdout) = String::from_utf8(stdout);
+        then {
+            Ok(stdout)
+        } else {
+            env::var(name)
+                .map_err(|e| failure::err_msg(format!("Failed to read {:?}: {}", name, e)))
+        }
     }
 }
 
@@ -131,13 +136,4 @@ pub fn confirm_num_cases(
         let suite = serde_yaml::from_reader::<_, SimpleSuite>(file).unwrap();
         assert_eq!(expected_num_cases, suite.cases.len());
     }
-}
-
-pub fn confirm_zip_exists(wd: &AbsPath, contest: &str, problem: &str) -> io::Result<()> {
-    let path = wd
-        .join("tests")
-        .join("hackerrank")
-        .join(contest)
-        .join(format!("{}.zip", problem));
-    ::std::fs::metadata(&path).map(|_| ())
 }
