@@ -8,6 +8,7 @@ use itertools::Itertools as _Itertools;
 use tokio_process::CommandExt as _CommandExt;
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io;
 use std::path::Path;
@@ -30,12 +31,11 @@ impl CompilationCommand {
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
         bin: AbsPathBuf,
+        envs: HashMap<OsString, OsString>,
     ) -> Self {
-        Self {
-            inner: Inner::new(args, working_dir),
-            src,
-            bin,
-        }
+        let envs = envs.into_iter().collect();
+        let inner = Inner::new(args, working_dir, envs);
+        Self { inner, src, bin }
     }
 
     /// Executes the command.
@@ -112,9 +112,14 @@ pub(crate) struct JudgingCommand {
 
 impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
-    pub(crate) fn new(args: Vec<OsString>, working_dir: AbsPathBuf, crlf_to_lf: bool) -> Self {
+    pub(crate) fn new(
+        args: Vec<OsString>,
+        working_dir: AbsPathBuf,
+        crlf_to_lf: bool,
+        envs: HashMap<OsString, OsString>,
+    ) -> Self {
         JudgingCommand {
-            inner: Inner::new(args, working_dir),
+            inner: Inner::new(args, working_dir, envs),
             crlf_to_lf,
         }
     }
@@ -169,10 +174,15 @@ impl JudgingCommand {
 struct Inner {
     args: NonEmptyVec<OsString>,
     working_dir: AbsPathBuf,
+    envs: Vec<(OsString, OsString)>,
 }
 
 impl Inner {
-    fn new(args: Vec<OsString>, working_dir: AbsPathBuf) -> Self {
+    fn new(
+        args: Vec<OsString>,
+        working_dir: AbsPathBuf,
+        envs: HashMap<OsString, OsString>,
+    ) -> Self {
         let mut args = NonEmptyVec::try_new(args).unwrap_or_default();
         // https://github.com/rust-lang/rust/issues/37519
         if cfg!(windows) && Path::new(&args[0]).is_relative() {
@@ -181,7 +191,11 @@ impl Inner {
                 args[0] = abs.into();
             }
         }
-        Self { args, working_dir }
+        Self {
+            args,
+            working_dir,
+            envs: envs.into_iter().collect(),
+        }
     }
 
     fn format_args(&self) -> Vec<String> {
@@ -200,6 +214,7 @@ impl Inner {
         } else {
             let mut command = Command::new(&self.args[0]);
             command.args(&self.args[1..]).current_dir(&self.working_dir);
+            command.envs(self.envs.iter().map(|(k, v)| (k, v)));
             Ok(command)
         }
     }

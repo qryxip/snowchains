@@ -118,8 +118,11 @@ session:
 
 judge:
   jobs: 4
-  shell: [$SHELL, -c] # Used if `languages._.[compile|run].command` is a single string.
   testfile_extensions: [json, toml, yaml, yml]
+  shell:
+    bash: [/bin/bash, -c, $command]
+    # cmd: ['C:\Windows\cmd.exe', /C, $command]
+    # ps: [powershell, -Command, $command]
 
 services:
   atcoder:

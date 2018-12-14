@@ -274,6 +274,8 @@ pub enum ExpandTemplateErrorKind {
         problem: String,
         base_dir: AbsPathBuf,
     },
+    #[display(fmt = "{:?} not found in the config", _0)]
+    NoSuchShell(String),
     #[display(
         fmt = "Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
                \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"",

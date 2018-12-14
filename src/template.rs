@@ -1,6 +1,7 @@
 use crate::errors::{ExpandTemplateErrorKind, ExpandTemplateResult, StdError};
 use crate::judging::command::{CompilationCommand, JudgingCommand};
 use crate::path::{AbsPath, AbsPathBuf};
+use crate::util::collections::SingleKeyValue;
 
 use combine::Parser;
 use failure::{Fail as _Fail, ResultExt as _ResultExt};
@@ -61,7 +62,7 @@ impl TemplateBuilder<CompilationCommand> {
     pub fn build(
         &self,
         base_dir: &AbsPath,
-        shell: &[TemplateBuilder<OsString>],
+        shell: &HashMap<String, Vec<TemplateBuilder<OsString>>>,
         wd: &TemplateBuilder<AbsPathBuf>,
         src: &TemplateBuilder<AbsPathBuf>,
         bin: &TemplateBuilder<AbsPathBuf>,
@@ -70,7 +71,10 @@ impl TemplateBuilder<CompilationCommand> {
             inner: self.0.clone(),
             requirements: CompilationCommandRequirements {
                 base_dir: base_dir.to_owned(),
-                shell: shell.iter().map(|t| t.0.clone()).collect(),
+                shell: shell
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.iter().map(|t| t.0.clone()).collect()))
+                    .collect(),
                 working_dir: wd.0.clone(),
                 src: src.0.clone(),
                 bin: bin.0.clone(),
@@ -84,7 +88,7 @@ impl TemplateBuilder<JudgingCommand> {
     pub fn build(
         &self,
         base_dir: &AbsPath,
-        shell: &[TemplateBuilder<OsString>],
+        shell: &HashMap<String, Vec<TemplateBuilder<OsString>>>,
         wd: &TemplateBuilder<AbsPathBuf>,
         src: &TemplateBuilder<AbsPathBuf>,
         bin: Option<&TemplateBuilder<AbsPathBuf>>,
@@ -94,7 +98,10 @@ impl TemplateBuilder<JudgingCommand> {
             inner: self.0.clone(),
             requirements: JudgingCommandRequirements {
                 base_dir: base_dir.to_owned(),
-                shell: shell.iter().map(|t| t.0.clone()).collect(),
+                shell: shell
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.iter().map(|t| t.0.clone()).collect()))
+                    .collect(),
                 working_dir: wd.0.clone(),
                 src: src.0.clone(),
                 bin: bin.map(|bin| bin.0.clone()),
@@ -163,21 +170,27 @@ impl Template<CompilationCommand> {
         let wd = working_dir.expand_as_path(problem, base_dir, strings)?;
         let src = src.expand_as_path(problem, base_dir, strings)?;
         let bin = bin.expand_as_path(problem, base_dir, strings)?;
-        let args = {
-            let os_strings = hashmap!("src" => src.as_os_str(), "bin" => bin.as_os_str());
-            match &self.inner {
-                CommandTemplateInner::Args(args) => Cow::Borrowed(args),
-                CommandTemplateInner::Shell(arg) => {
-                    let mut args = shell.to_vec();
-                    args.push(arg.clone());
-                    Cow::Owned(args)
+        let os_strings = hashmap!("src" => src.as_os_str(), "bin" => bin.as_os_str());
+        let mut args = vec![];
+        match &self.inner {
+            CommandTemplateInner::Args(ss) => {
+                for s in ss {
+                    args.push(s.expand_as_os_string(problem, strings, &os_strings)?);
                 }
             }
-            .iter()
-            .map(|arg| arg.expand_as_os_string(problem, strings, &os_strings))
-            .collect::<ExpandTemplateResult<Vec<_>>>()?
-        };
-        Ok(CompilationCommand::new(args, wd, src, bin))
+            CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
+                let mut os_strings = os_strings.clone();
+                os_strings.insert("command", value.as_ref());
+                let shell = shell
+                    .get(key)
+                    .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
+                for s in shell {
+                    args.push(s.expand_as_os_string(problem, strings, &os_strings)?);
+                }
+            }
+        }
+        let envs = setup_env_vars(problem, strings, &os_strings);
+        Ok(CompilationCommand::new(args, wd, src, bin, envs))
     }
 }
 
@@ -198,24 +211,30 @@ impl Template<JudgingCommand> {
             None => None,
             Some(bin) => Some(bin.expand_as_path(problem, base_dir, strings)?),
         };
-        let args = {
-            let mut os_strings = hashmap!("src" => src.as_os_str());
-            if let Some(bin) = bin.as_ref() {
-                os_strings.insert("bin", bin.as_os_str());
-            }
-            match &self.inner {
-                CommandTemplateInner::Args(args) => Cow::Borrowed(args),
-                CommandTemplateInner::Shell(arg) => {
-                    let mut args = shell.to_vec();
-                    args.push(arg.clone());
-                    Cow::Owned(args)
+        let mut os_strings = hashmap!("src" => src.as_os_str());
+        if let Some(bin) = bin.as_ref() {
+            os_strings.insert("bin", bin.as_os_str());
+        }
+        let mut args = vec![];
+        match &self.inner {
+            CommandTemplateInner::Args(ss) => {
+                for s in ss {
+                    args.push(s.expand_as_os_string(problem, strings, &os_strings)?);
                 }
             }
-            .iter()
-            .map(|arg| arg.expand_as_os_string(problem, strings, &os_strings))
-            .collect::<ExpandTemplateResult<Vec<_>>>()?
-        };
-        Ok(JudgingCommand::new(args, wd, *crlf_to_lf))
+            CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
+                let mut os_strings = os_strings.clone();
+                os_strings.insert("command", value.as_ref());
+                let shell = shell
+                    .get(key)
+                    .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
+                for s in shell {
+                    args.push(s.expand_as_os_string(problem, strings, &os_strings)?);
+                }
+            }
+        }
+        let envs = setup_env_vars(problem, strings, &os_strings);
+        Ok(JudgingCommand::new(args, wd, *crlf_to_lf, envs))
     }
 }
 
@@ -495,18 +514,56 @@ fn apply_specifier<'a>(problem: &'a str, specifier: &str) -> ExpandTemplateResul
     }
 }
 
+fn setup_env_vars(
+    problem: &str,
+    strings: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<str>>,
+    os_strings: &HashMap<&'static str, impl AsRef<OsStr>>,
+) -> HashMap<OsString, OsString> {
+    let mut ret = hashmap!(
+        "problem".to_owned().into()           => problem.to_owned().into(),
+        "PROBLEM".to_owned().into()           => problem.to_owned().into(),
+        "problem_lower".to_owned().into()     => problem.to_lowercase().into(),
+        "PROBLEM_LOWER".to_owned().into()     => problem.to_lowercase().into(),
+        "problem_upper".to_owned().into()     => problem.to_uppercase().into(),
+        "PROBLEM_UPPER".to_owned().into()     => problem.to_uppercase().into(),
+        "problem_kebab".to_owned().into()     => problem.to_kebab_case().into(),
+        "PROBLEM_KEBAB".to_owned().into()     => problem.to_kebab_case().into(),
+        "problem_snake".to_owned().into()     => problem.to_snake_case().into(),
+        "PROBLEM_SNAKE".to_owned().into()     => problem.to_snake_case().into(),
+        "problem_screaming".to_owned().into() => problem.to_shouty_snake_case().into(),
+        "PROBLEM_SCREAMING".to_owned().into() => problem.to_shouty_snake_case().into(),
+        "problem_mixed".to_owned().into()     => problem.to_mixed_case().into(),
+        "PROBLEM_MIXED".to_owned().into()     => problem.to_mixed_case().into(),
+        "problem_pascal".to_owned().into()    => problem.to_camel_case().into(),
+        "PROBLEM_PASCAL".to_owned().into()    => problem.to_camel_case().into(),
+        "problem_title".to_owned().into()     => problem.to_title_case().into(),
+        "PROBLEM_TITLE".to_owned().into()     => problem.to_title_case().into(),
+    );
+    for (name, value) in strings {
+        let value = OsString::from(value.as_ref());
+        ret.insert(name.borrow().into(), value.clone());
+        ret.insert(name.borrow().to_uppercase().into(), value);
+    }
+    for (name, value) in os_strings {
+        let value = value.as_ref().to_owned();
+        ret.insert(name.into(), value.clone());
+        ret.insert(name.to_uppercase().into(), value);
+    }
+    ret
+}
+
 #[cfg_attr(test, derive(Debug, PartialEq))]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum CommandTemplateInner {
-    Shell(Tokens),
     Args(Vec<Tokens>),
+    Shell(SingleKeyValue<String, String>),
 }
 
 #[derive(Clone)]
 pub(crate) struct CompilationCommandRequirements {
     base_dir: AbsPathBuf,
-    shell: Vec<Tokens>,
+    shell: HashMap<String, Vec<Tokens>>,
     working_dir: Tokens,
     src: Tokens,
     bin: Tokens,
@@ -515,7 +572,7 @@ pub(crate) struct CompilationCommandRequirements {
 #[derive(Clone)]
 pub(crate) struct JudgingCommandRequirements {
     base_dir: AbsPathBuf,
-    shell: Vec<Tokens>,
+    shell: HashMap<String, Vec<Tokens>>,
     working_dir: Tokens,
     src: Tokens,
     bin: Option<Tokens>,

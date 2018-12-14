@@ -52,7 +52,7 @@ tokio-signal = "0.2.7"
 toml = "0.4.10"
 unicode-width = "0.1.5"
 url = "1.7.2"
-webbrowser = { git = "https://github.com/wariuni/webbrowser-rs", rev = "27ce48d6083018003a257b47593dda3133c85a82" }
+webbrowser = { git = "https://github.com/wariuni/webbrowser-rs", rev = "9294ddc5addfce24dd3629c56dada554c058c45a" }
 yaml-rust = "0.4.2"
 zip = "0.5.0"
 

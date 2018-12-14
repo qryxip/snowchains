@@ -37,9 +37,10 @@ pub(crate) fn init(
     #[cfg(windows)]
     static CONSOLE_ALT_WIDTH: &str = "\n  # alt_width: 100";
     #[cfg(not(windows))]
-    static SHELL: &str = "[$SHELL, -c]";
+    static SHELL: &str = "bash: [/bin/bash, -c, $command]";
     #[cfg(windows)]
-    static SHELL: &str = r"['C:\Windows\cmd.exe', /C]";
+    static SHELL: &str = "cmd: ['C:\\Windows\\cmd.exe', /C, $command]\n    \
+                          ps: [powershell, -Command, $command]";
     #[cfg(not(windows))]
     static EXE: &str = "";
     #[cfg(windows)]
@@ -105,8 +106,9 @@ session:
 
 judge:
   jobs: 4
-  shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
   testfile_extensions: [json, toml, yaml, yml]
+  shell:
+    {shell}
 
 services:
   atcoder:
@@ -695,8 +697,8 @@ struct Download {
 #[derive(Serialize, Deserialize)]
 struct Judge {
     jobs: NonZeroUsize,
-    shell: Vec<TemplateBuilder<OsString>>,
     testfile_extensions: BTreeSet<SuiteFileExtension>,
+    shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
 }
 
 #[derive(Serialize, Deserialize)]
