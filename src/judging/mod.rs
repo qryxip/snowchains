@@ -89,6 +89,24 @@ pub(crate) fn accepts(
     }
 }
 
+pub(crate) fn only_transpile(
+    stdout: impl TermOut,
+    stderr: impl TermOut,
+    config: &Config,
+    problem: &str,
+    language: Option<&str>,
+    force: bool,
+) -> JudgeResult<bool> {
+    match config.solver_transpilation(language)? {
+        None => Ok(false),
+        Some(transpilation) => {
+            let transpilation = transpilation.expand(problem)?;
+            transpilation.run(stdout, stderr, force)?;
+            Ok(true)
+        }
+    }
+}
+
 /// Executes the tests.
 ///
 /// # Errors
@@ -242,19 +260,32 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
 
     let (cases, paths_formatted) = config.testcase_loader().load_merging(problem)?;
     let jobs = jobs.unwrap_or_else(|| config.judge_jobs());
+    let tester_transpilations = cases.interactive_tester_transpilations();
     let tester_compilations = cases.interactive_tester_compilations();
     let solver = config.solver(language)?.expand(&problem)?;
+    let solver_transpilation = match config.solver_transpilation(language)? {
+        Some(transpilation) => Some(transpilation.expand(&problem)?),
+        None => None,
+    };
     let solver_compilation = match config.solver_compilation(language)? {
         Some(compilation) => Some(compilation.expand(&problem)?),
         None => None,
     };
 
-    if let Some(solver_compilation) = solver_compilation {
-        solver_compilation.run(&mut stdout, &mut stderr, force_compile)?;
+    for tester_transpilation in tester_transpilations {
+        tester_transpilation.run(&mut stdout, &mut stderr, force_compile)?;
         writeln!(stdout)?;
     }
     for tester_compilation in tester_compilations {
         tester_compilation.run(&mut stdout, &mut stderr, force_compile)?;
+        writeln!(stdout)?;
+    }
+    if let Some(solver_transpilation) = solver_transpilation {
+        solver_transpilation.run(&mut stdout, &mut stderr, force_compile)?;
+        writeln!(stdout)?;
+    }
+    if let Some(solver_compilation) = solver_compilation {
+        solver_compilation.run(&mut stdout, &mut stderr, force_compile)?;
         writeln!(stdout)?;
     }
 

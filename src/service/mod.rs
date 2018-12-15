@@ -9,7 +9,6 @@ pub(self) mod download;
 use crate::config::Config;
 use crate::errors::{FileErrorKind, FileResult, ServiceResult};
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::replacer::CodeReplacer;
 use crate::service::session::{HttpSession, UrlBase};
 use crate::template::Template;
 use crate::terminal::{Term, WriteAnsi};
@@ -384,13 +383,11 @@ pub(crate) struct RestoreProps<'a, C: Contest> {
     pub(self) contest: C,
     pub(self) problems: Option<Vec<String>>,
     pub(self) src_paths: HashMap<&'a str, Template<AbsPathBuf>>,
-    pub(self) replacers: HashMap<&'a str, CodeReplacer>,
 }
 
 impl<'a> RestoreProps<'a, String> {
-    pub(crate) fn try_new(config: &'a Config, problems: Vec<String>) -> crate::Result<Self> {
-        let replacers = config.code_replacers_on_atcoder()?;
-        Ok(Self {
+    pub(crate) fn new(config: &'a Config, problems: Vec<String>) -> Self {
+        Self {
             contest: config.contest().to_owned(),
             problems: if problems.is_empty() {
                 None
@@ -398,8 +395,7 @@ impl<'a> RestoreProps<'a, String> {
                 Some(problems)
             },
             src_paths: config.src_paths(),
-            replacers,
-        })
+        }
     }
 
     pub(self) fn convert_contest_and_problems<C: Contest>(
@@ -412,7 +408,6 @@ impl<'a> RestoreProps<'a, String> {
                 .problems
                 .map(|ps| ps.into_iter().map(|p| conversion.convert(&p)).collect()),
             src_paths: self.src_paths,
-            replacers: self.replacers,
         }
     }
 }
@@ -434,7 +429,6 @@ pub(crate) struct SubmitProps<C: Contest> {
     pub(self) problem: String,
     pub(self) lang_id: Option<String>,
     pub(self) src_path: AbsPathBuf,
-    pub(self) replacer: Option<CodeReplacer>,
     pub(self) open_browser: bool,
     pub(self) skip_checking_if_accepted: bool,
 }
@@ -450,14 +444,12 @@ impl SubmitProps<String> {
         let service = config.service();
         let contest = config.contest().to_owned();
         let src_path = config.src_to_submit(language)?.expand(&problem)?;
-        let replacer = config.code_replacer(language)?;
         let lang_id = config.lang_id(service, language).map(ToOwned::to_owned);
         Ok(Self {
             contest,
             problem,
             lang_id,
             src_path,
-            replacer,
             open_browser,
             skip_checking_if_accepted,
         })
@@ -472,7 +464,6 @@ impl SubmitProps<String> {
             problem: conversion.convert(&self.problem),
             lang_id: self.lang_id,
             src_path: self.src_path,
-            replacer: self.replacer,
             open_browser: self.open_browser,
             skip_checking_if_accepted: self.skip_checking_if_accepted,
         }

@@ -511,7 +511,7 @@ impl<T: Term> Atcoder<T> {
         self.stdout().flush().map_err(Into::into)
     }
 
-    fn restore(&mut self, prop: &RestoreProps<AtcoderContest>) -> ServiceResult<()> {
+    fn restore(&mut self, props: &RestoreProps<AtcoderContest>) -> ServiceResult<()> {
         fn collect_urls(
             detail_urls: &mut HashMap<(String, String), String>,
             submissions: vec::IntoIter<Submission>,
@@ -528,8 +528,7 @@ impl<T: Term> Atcoder<T> {
             contest,
             problems,
             src_paths,
-            replacers,
-        } = prop;
+        } = props;
         let first_page = self.get(&contest.url_submissions_me(1)).recv_html()?;
         let (submissions, num_pages) = first_page.extract_submissions()?;
         let mut detail_urls = HashMap::new();
@@ -551,12 +550,6 @@ impl<T: Term> Atcoder<T> {
             let lang_id = first_page.extract_lang_id_by_name(&lang_name)?;
             if let Some(path_template) = src_paths.get(lang_id.as_str()) {
                 let path = path_template.expand(&task_name.to_lowercase())?;
-                let code = match replacers.get(lang_id.as_str()) {
-                    Some(replacer) => {
-                        replacer.replace_from_submission_to_local(&task_name, &code)?
-                    }
-                    None => code,
-                };
                 crate::fs::write(&path, code.as_bytes())?;
                 results.push((task_name, lang_name, lang_id, path));
             } else {
@@ -598,7 +591,6 @@ impl<T: Term> Atcoder<T> {
             problem,
             lang_id,
             src_path,
-            replacer,
             open_browser,
             skip_checking_if_accepted,
         } = props;
@@ -642,12 +634,6 @@ impl<T: Term> Atcoder<T> {
                 }
 
                 let source_code = crate::fs::read_to_string(src_path)?;
-                let source_code = match replacer {
-                    Some(replacer) => {
-                        replacer.replace_from_local_to_submission(&problem, &source_code)?
-                    }
-                    None => source_code,
-                };
                 let document = self.get(&url).recv_html()?;
                 let csrf_token = document.extract_csrf_token()?;
                 let lang_id = match lang_id.as_ref() {

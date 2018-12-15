@@ -339,7 +339,6 @@ impl<T: Term> Yukicoder<T> {
             problem,
             lang_id,
             src_path,
-            replacer,
             open_browser,
             skip_checking_if_accepted,
         } = props;
@@ -368,10 +367,6 @@ impl<T: Term> Yukicoder<T> {
             Some(lang_id) => Cow::from(lang_id.as_str()),
         };
         let code = crate::fs::read_to_string(src_path)?;
-        let code = match replacer {
-            Some(replacer) => replacer.replace_from_local_to_submission(&problem, &code)?,
-            None => code,
-        };
 
         self.login(true)?;
         let mut url = match contest {

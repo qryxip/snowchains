@@ -43,7 +43,6 @@ pub(crate) type ServiceResult<T> = std::result::Result<T, ServiceError>;
 pub enum ServiceError {
     Context(failure::Context<ServiceErrorKind>),
     Scrape(ScrapeError),
-    ReplaceCode(ReplaceCodeError),
     TestSuite(TestSuiteError),
     ExpandTemplate(ExpandTemplateError),
     File(FileError),
@@ -147,13 +146,17 @@ pub enum JudgeErrorKind {
     #[display(fmt = "Failed to execute {:?}", _0)]
     Command(OsString),
     #[display(
-        fmt = "The compilation command terminated abnormally {}",
-        r#"match _0.code() {
+        fmt = "The {} command terminated abnormally {}",
+        noun,
+        r#"match status.code() {
              Some(c) => format!("with code {}", c),
              None => "without code".to_owned(),
            }"#
     )]
-    Compile(ExitStatus),
+    Build {
+        noun: &'static str,
+        status: ExitStatus,
+    },
     #[display(
         fmt = "{}/{} Test{} failed",
         _0,
@@ -220,30 +223,6 @@ pub enum ConfigErrorKind {
     PropertyNotSet(&'static str),
 }
 
-pub(crate) type ReplaceCodeResult<T> = std::result::Result<T, ReplaceCodeError>;
-
-#[derive(Debug, FailPair)]
-pub struct ReplaceCodeError(failure::Context<ReplaceCodeErrorKind>);
-
-impl ReplaceCodeError {
-    #[cfg(test)]
-    pub(crate) fn kind(&self) -> &ReplaceCodeErrorKind {
-        self.0.get_context()
-    }
-}
-
-#[derive(Debug, derive_more::Display)]
-pub enum ReplaceCodeErrorKind {
-    #[display(fmt = "Failed to expand `{}`", _0)]
-    ExpandTemplate(&'static str),
-    #[display(fmt = "The source code is not valid UTF-8")]
-    InvalidUtf8,
-    #[display(fmt = "Regex group out of bounds: {}", _0)]
-    RegexGroupOutOfBounds(usize),
-    #[display(fmt = "No match: {:?}", _0)]
-    NoMatch(String),
-}
-
 pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateError>;
 
 #[derive(Debug, FailPair)]
@@ -251,12 +230,6 @@ pub struct ExpandTemplateError(failure::Context<ExpandTemplateErrorKind>);
 
 #[derive(Debug, derive_more::Display, Fail)]
 pub enum ExpandTemplateErrorKind {
-    #[display(
-        fmt = "Failed to expand ({:?} % {:?}) as a UTF-8 string",
-        tokens,
-        problem
-    )]
-    Str { tokens: Tokens, problem: String },
     #[display(
         fmt = "Failed to expand ({:?} % {:?}) as a non UTF-8 string",
         tokens,

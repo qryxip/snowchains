@@ -170,20 +170,29 @@ pub enum Opt {
     Submit {
         #[structopt(raw(open_browser = "1"))]
         open_browser: bool,
-        #[structopt(raw(force_compile = "2", conflicts_with = "\"skip_judging\""))]
+        #[structopt(raw(conflicts_with = "\"no_judge\"", force_compile = "2"))]
         force_compile: bool,
         #[structopt(
-            long = "skip-judging",
-            help = "Skips judging",
-            raw(conflicts_with = "\"force_compile\"", display_order = "3")
+            long = "only-transpile",
+            help = "Transpile the source code but not compile",
+            raw(conflicts_with = "\"no_judge\"", display_order = "3")
         )]
-        skip_judging: bool,
+        only_transpile: bool,
         #[structopt(
-            long = "skip-checking-duplication",
-            help = "Submits even if the contest is active and you have already solved the problem",
-            raw(display_order = "4")
+            long = "no-judge",
+            help = "Skips testing",
+            raw(
+                conflicts_with_all = r#"&["force_compile", "only_transpile"]"#,
+                display_order = "4"
+            )
         )]
-        skip_checking_duplication: bool,
+        no_judge: bool,
+        #[structopt(
+            long = "no-check-duplication",
+            help = "Submits even if the contest is active and you have already solved the problem",
+            raw(display_order = "5")
+        )]
+        no_check_duplication: bool,
         #[structopt(raw(service = "&[\"atcoder\", \"yukicoder\"], Kind::Option(1)"))]
         service: Option<ServiceName>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -411,7 +420,7 @@ trait ArgExt {
 impl ArgExt for Arg<'static, 'static> {
     fn force_compile(self, order: usize) -> Self {
         self.long("force-compile")
-            .help("Force to compile")
+            .help("Force to transpile and to compile")
             .display_order(order)
     }
 
@@ -596,7 +605,7 @@ impl<T: Term> App<T> {
                 let config = Config::load(service, contest, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
-                let restore_props = RestoreProps::try_new(&config, problems)?;
+                let restore_props = RestoreProps::new(&config, problems);
                 match config.service() {
                     ServiceName::Atcoder => atcoder::restore(sess_props, restore_props)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
@@ -628,8 +637,9 @@ impl<T: Term> App<T> {
             Opt::Submit {
                 open_browser,
                 force_compile,
-                skip_judging,
-                skip_checking_duplication,
+                only_transpile,
+                no_judge,
+                no_check_duplication,
                 language,
                 service,
                 contest,
@@ -641,7 +651,19 @@ impl<T: Term> App<T> {
                 self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest, &working_dir)?;
                 self.term.apply_conf(config.console());
-                if !skip_judging {
+                if only_transpile {
+                    let (_, mut stdout, stderr) = self.term.split_mut();
+                    if judging::only_transpile(
+                        &mut stdout,
+                        stderr,
+                        &config,
+                        &problem,
+                        language,
+                        force_compile,
+                    )? {
+                        writeln!(stdout)?;
+                    }
+                } else if !no_judge {
                     let (_, mut stdout, stderr) = self.term.split_mut();
                     judging::judge(JudgeParams {
                         stdout: &mut stdout,
@@ -660,7 +682,7 @@ impl<T: Term> App<T> {
                     problem.clone(),
                     language,
                     open_browser,
-                    skip_checking_duplication,
+                    no_check_duplication,
                 )?;
                 match config.service() {
                     ServiceName::Atcoder => atcoder::submit(sess_props, submit_props)?,

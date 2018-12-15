@@ -2,7 +2,7 @@ use crate::errors::{
     ConfigError, ConfigErrorKind, ExpandTemplateResult, FileResult, StdError, TestSuiteErrorKind,
     TestSuiteResult,
 };
-use crate::judging::command::{CompilationCommand, JudgingCommand};
+use crate::judging::command::{CompilationCommand, JudgingCommand, TranspilationCommand};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
 use crate::terminal::WriteAnsi;
@@ -98,6 +98,7 @@ impl FromStr for SuiteFileExtension {
 pub(crate) struct TestCaseLoader<'a> {
     template: Template<AbsPathBuf>,
     extensions: &'a BTreeSet<SuiteFileExtension>,
+    tester_transpilations: HashMap<String, Template<TranspilationCommand>>,
     tester_compilacions: HashMap<String, Template<CompilationCommand>>,
     tester_commands: HashMap<String, Template<JudgingCommand>>,
 }
@@ -190,6 +191,7 @@ impl TestCaseLoader<'_> {
                 TestSuite::Simple(suite) => simple_cases.extend(suite.cases_named(&path.path)?),
                 TestSuite::Interactive(suite) => {
                     interactive_cases.extend(suite.cases_named(
+                        &self.tester_transpilations,
                         &self.tester_compilacions,
                         &self.tester_commands,
                         &filename,
@@ -629,6 +631,7 @@ impl InteractiveSuite {
 
     fn cases_named(
         &self,
+        tester_transpilations: &HashMap<String, Template<TranspilationCommand>>,
         tester_compilations: &HashMap<String, Template<CompilationCommand>>,
         tester_commands: &HashMap<String, Template<JudgingCommand>>,
         filename: &str,
@@ -646,6 +649,14 @@ impl InteractiveSuite {
                 EitherOrBoth::Left((j, arg)) => ((j + i).to_string(), arg.clone()),
                 EitherOrBoth::Right(i) => (i.to_string(), "".to_owned()),
             }));
+            let tester_transpilation = match tester_transpilations
+                .get(lang)
+                .map(|t| t.clone().expand(&problem))
+            {
+                None => Ok(None),
+                Some(Err(err)) => Err(err),
+                Some(Ok(comp)) => Ok(Some(Arc::new(comp))),
+            }?;
             let tester_compilation = match tester_compilations
                 .get(lang)
                 .map(|t| t.clone().expand(&problem))
@@ -663,6 +674,7 @@ impl InteractiveSuite {
             cases.push(InteractiveCase {
                 name: Arc::new(format!("{}[{}]", filename, i)),
                 tester: Arc::new(tester),
+                tester_transpilation,
                 tester_compilation,
                 timelimit: self.timelimit,
             });
@@ -695,7 +707,17 @@ pub(crate) enum TestCases {
 }
 
 impl TestCases {
-    pub fn interactive_tester_compilations(&self) -> HashSet<Arc<CompilationCommand>> {
+    pub(crate) fn interactive_tester_transpilations(&self) -> HashSet<Arc<TranspilationCommand>> {
+        match self {
+            TestCases::Simple(_) => hashset!(),
+            TestCases::Interactive(cases) => cases
+                .iter()
+                .filter_map(|case| case.tester_transpilation.clone())
+                .collect(),
+        }
+    }
+
+    pub(crate) fn interactive_tester_compilations(&self) -> HashSet<Arc<CompilationCommand>> {
         match self {
             TestCases::Simple(_) => hashset!(),
             TestCases::Interactive(cases) => {
@@ -819,6 +841,7 @@ pub(crate) struct InteractiveCase {
     name: Arc<String>,
     timelimit: Option<Duration>,
     tester: Arc<JudgingCommand>,
+    tester_transpilation: Option<Arc<TranspilationCommand>>,
     tester_compilation: Option<Arc<CompilationCommand>>,
 }
 

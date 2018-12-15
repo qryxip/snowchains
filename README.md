@@ -129,17 +129,14 @@ services:
     # language: c++
     variables:
       rust_version: 1.15.1
-      java_class: Main
   hackerrank:
     # language: c++
     variables:
       rust_version: 1.29.1
-      java_class: Main
   yukicoder:
     # language: c++
     variables:
       rust_version: 1.30.1
-      java_class: Main
   other:
     # language: c++
     variables:
@@ -240,23 +237,23 @@ languages:
       yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x + scipy x.x.x)"
   java:
     src: java/src/main/java/{Pascal}.java
+    transpile:
+      transpiled: java/build/replaced/{lower}/src/Main.java
+      command:
+        bash: cat "$SRC" | sed -r "s/class\s+$PROBLEM_PASCAL/class Main/g" > "$TRANSPILED"
+        # ps: cat ${env:SRC} | % { $_ -replace "class\s+${env:PROBLEM_PASCAL}", "class Main" } | sc ${env:TRANSPILED}
+      working_directory: java
     compile:
-      bin: java/build/classes/java/main/{Pascal}.class
-      command: [javac, -d, ./build/classes/java/main, $src]
+      bin: java/build/replaced/{lower}/classes/Main.class
+      command: [javac, -d, './build/replaced/{lower}/classes', $transpiled]
       working_directory: java
     run:
-      command: [java, -classpath, ./build/classes/java/main, '{Pascal}']
+      command: [java, -classpath, './build/replaced/{lower}/classes', Main]
       working_directory: java
       # crlf_to_lf: false
-    replace:
-      regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
-      regex_group: 2
-      local: '{Pascal}'
-      submit: $java_class
-      all_matched: false
     language_ids:
       atcoder: 3016      # "Java8 (OpenJDK 1.8.x)"
-      # yukicoder: java8 # "Java8 (openjdk 1.8.x)"
+      # yukicoder: java8 # "Java8 (openjdk 1.8.x.x)"
   # c#:
   #   src: cs/{Pascal}/{Pascal}.cs
   #   compile:
@@ -463,33 +460,33 @@ if __name__ == '__main__':
 ```
 
 ```haskell
-{-# LANGUAGE LambdaCase #-}
-
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
-import Control.Monad      (forM_)
-import Data.List          (elemIndex)
-import Data.Maybe         (fromMaybe)
-import System.Environment (getArgs)
-import System.Exit        (die, exitSuccess)
-import System.IO          (hFlush, stdout)
-import Text.Printf        (printf)
+import           RIO
+import qualified RIO.ByteString     as B
+import           RIO.List
+import           RIO.List.Partial
+import           System.Environment
+import           System.Exit
+import           System.IO
+import           Text.Printf
 
 main :: IO ()
 main = do
+  RIO.hSetBuffering stdout LineBuffering
   bs <- (!! 0) <$> getArgs
   let n                   = length bs
       q                   = if n == 5 then 7 else 100 :: Int
-      reply c1 c2         = putStrLn (if weightBy c1 < weightBy c2 then "<" else ">") >> hFlush stdout
+      reply c1 c2         = B.putStr (if weight c1 < weight c2 then "<\n" else ">\n")
       judge a | a == bs   = exitSuccess
               | otherwise = die "wrong"
-      weightBy c          = fromMaybe (error "out of bounds") (c `elemIndex` bs)
-  printf "%d %d\n" n q >> hFlush stdout
+      weight c            = fromMaybe (error "out of bounds") (c `elemIndex` bs)
+  printf "%d %d\n" n q
   forM_ [1..q] $ \_ -> words <$> getLine >>= \case
     ["?", [c1], [c2]] -> reply c1 c2
     ["!", a]          -> judge a
     _                 -> error "invalid"
-  words <$> getLine >>= \case
-    ["!", a] -> judge a
-    _        -> error "answer me"
 ```
