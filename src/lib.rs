@@ -12,7 +12,6 @@ pub mod terminal;
 mod config;
 mod fs;
 mod judging;
-mod replacer;
 mod template;
 mod testsuite;
 mod time;

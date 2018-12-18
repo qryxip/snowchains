@@ -166,8 +166,9 @@ if __name__ == '__main__':
             app.run(Opt::Submit {
                 open_browser: false,
                 force_compile: false,
-                skip_judging: true,
-                skip_checking_duplication: false,
+                only_transpile: false,
+                no_judge: true,
+                no_check_duplication: false,
                 service: Some(ServiceName::Atcoder),
                 contest: Some("practice".to_owned()),
                 language: Some("python3".to_owned()),

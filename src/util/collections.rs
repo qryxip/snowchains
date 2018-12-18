@@ -1,3 +1,9 @@
+use serde::ser::SerializeMap as _SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use std::cmp::Ord;
+
+use std::collections::BTreeMap;
 use std::ops::{Index, IndexMut};
 use std::slice::{self, SliceIndex};
 
@@ -53,5 +59,34 @@ impl<'a, T> IntoIterator for &'a NonEmptyVec<T> {
 
     fn into_iter(self) -> slice::Iter<'a, T> {
         self.0.iter()
+    }
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Clone)]
+pub(crate) struct SingleKeyValue<K, V> {
+    pub(crate) key: K,
+    pub(crate) value: V,
+}
+
+impl<K: Serialize, V: Serialize> Serialize for SingleKeyValue<K, V> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(1))?;
+        map.serialize_entry(&self.key, &self.value)?;
+        map.end()
+    }
+}
+
+impl<'de, K: Ord + Deserialize<'de>, V: Deserialize<'de>> Deserialize<'de>
+    for SingleKeyValue<K, V>
+{
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        let map = BTreeMap::<K, V>::deserialize(deserializer)?;
+        if map.len() == 1 {
+            let (key, value) = map.into_iter().next().unwrap();
+            Ok(Self { key, value })
+        } else {
+            Err(serde::de::Error::custom("expected single key-value pair"))
+        }
     }
 }

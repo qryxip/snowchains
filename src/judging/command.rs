@@ -8,19 +8,59 @@ use itertools::Itertools as _Itertools;
 use tokio_process::CommandExt as _CommandExt;
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
+
+/// Transpilation command.
+#[cfg_attr(test, derive(Debug))]
+#[derive(PartialEq, Eq, Hash)]
+pub(crate) struct TranspilationCommand {
+    repr: BuildCommand,
+}
+
+impl TranspilationCommand {
+    /// Constructs a new `TranspilationCommand`.
+    pub(crate) fn new(
+        args: Vec<OsString>,
+        working_dir: AbsPathBuf,
+        src: AbsPathBuf,
+        transpiled: AbsPathBuf,
+        envs: HashMap<OsString, OsString>,
+    ) -> Self {
+        Self {
+            repr: BuildCommand::new(args, working_dir, src, transpiled, envs),
+        }
+    }
+
+    /// Executes the command.
+    pub(crate) fn run(
+        &self,
+        stdout: impl TermOut,
+        stderr: impl TermOut,
+        force: bool,
+    ) -> JudgeResult<()> {
+        let messages = Messages {
+            command: "Transpilation Command:",
+            wd: "Working directory:    ",
+            finished: "Finished transpiling",
+        };
+        let error = |status| JudgeErrorKind::Build {
+            noun: "transpilation",
+            status,
+        };
+        self.repr.run(stdout, stderr, force, messages, error)
+    }
+}
 
 /// Compilation command.
 #[cfg_attr(test, derive(Debug))]
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct CompilationCommand {
-    inner: Inner,
-    src: AbsPathBuf,
-    bin: AbsPathBuf,
+    repr: BuildCommand,
 }
 
 impl CompilationCommand {
@@ -30,34 +70,80 @@ impl CompilationCommand {
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
         bin: AbsPathBuf,
+        envs: HashMap<OsString, OsString>,
     ) -> Self {
         Self {
-            inner: Inner::new(args, working_dir),
-            src,
-            bin,
+            repr: BuildCommand::new(args, working_dir, src, bin, envs),
         }
     }
 
     /// Executes the command.
-    pub fn run<O: TermOut, E: TermOut>(
+    pub(crate) fn run(
+        &self,
+        stdout: impl TermOut,
+        stderr: impl TermOut,
+        force: bool,
+    ) -> JudgeResult<()> {
+        let messages = Messages {
+            command: "Compilation Command:",
+            wd: "Working directory:  ",
+            finished: "Finished compiling",
+        };
+        let error = |status| JudgeErrorKind::Build {
+            noun: "compilation",
+            status,
+        };
+        self.repr.run(stdout, stderr, force, messages, error)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Messages {
+    command: &'static str,
+    wd: &'static str,
+    finished: &'static str,
+}
+
+#[cfg_attr(test, derive(Debug))]
+#[derive(PartialEq, Eq, Hash)]
+struct BuildCommand {
+    inner: Inner,
+    src: AbsPathBuf,
+    target: AbsPathBuf,
+}
+
+impl BuildCommand {
+    fn new(
+        args: Vec<OsString>,
+        working_dir: AbsPathBuf,
+        src: AbsPathBuf,
+        target: AbsPathBuf,
+        envs: HashMap<OsString, OsString>,
+    ) -> Self {
+        let envs = envs.into_iter().collect();
+        let inner = Inner::new(args, working_dir, envs);
+        Self { inner, src, target }
+    }
+
+    fn run<O: TermOut, E: TermOut>(
         &self,
         mut stdout: O,
         mut stderr: E,
-        force_compile: bool,
+        force: bool,
+        messages: Messages,
+        error: fn(ExitStatus) -> JudgeErrorKind,
     ) -> JudgeResult<()> {
         if !self.src.exists() {
             stderr
                 .with_reset(|o| writeln!(o.fg(11)?, "Warning: {} not found", self.src.display()))?;
             stderr.flush()?;
         }
-        if self.src.exists() && self.bin.exists() {
-            if !force_compile
-                && self.src.metadata()?.modified()? < self.bin.metadata()?.modified()?
-            {
-                writeln!(stdout, "{} is up to date.", self.bin.display())?;
+        if self.src.exists() && self.target.exists() {
+            if !force && self.src.metadata()?.modified()? < self.target.metadata()?.modified()? {
+                writeln!(stdout, "{} is up to date.", self.target.display())?;
                 return stdout.flush().map_err(Into::into);
             }
-        } else if let Some(parent) = self.bin.parent() {
+        } else if let Some(parent) = self.target.parent() {
             if !parent.exists() {
                 crate::fs::create_dir_all(&parent)?;
                 writeln!(stdout, "Created {}", parent.display())?;
@@ -67,8 +153,8 @@ impl CompilationCommand {
 
         let args = self.inner.format_args();
         let wd = self.inner.working_dir.display().to_string();
-        write_info(&mut stdout, "Compilation Command:", &args)?;
-        write_info(&mut stdout, "Working directory:  ", &[&wd])?;
+        write_info(&mut stdout, messages.command, &args)?;
+        write_info(&mut stdout, messages.wd, &[&wd])?;
         writeln!(stdout)?;
         stdout.flush()?;
 
@@ -83,22 +169,22 @@ impl CompilationCommand {
         let elapsed = Instant::now() - start;
 
         let (mes, color) = match status.code() {
-            Some(0) => (Cow::from("Finished compiling"), 10),
+            Some(0) => (Cow::from(messages.finished), 10),
             Some(code) => (Cow::from(format!("Exited with {}", code)), 9),
             None => (Cow::from("Exited without code"), 11),
         };
         stdout.with_reset(|o| writeln!(o.fg(color)?.bold()?, "{} in {:?}.", mes, elapsed))?;
 
         if status.success() {
-            if !self.bin.exists() {
+            if !self.target.exists() {
                 stderr.with_reset(|o| {
-                    writeln!(o.fg(11)?, "Warning: {} not created", self.bin.display())
+                    writeln!(o.fg(11)?, "Warning: {} not created", self.target.display())
                 })?;
                 stderr.flush()?;
             }
             Ok(())
         } else {
-            Err(JudgeErrorKind::Compile(status).into())
+            Err(error(status).into())
         }
     }
 }
@@ -112,9 +198,14 @@ pub(crate) struct JudgingCommand {
 
 impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
-    pub(crate) fn new(args: Vec<OsString>, working_dir: AbsPathBuf, crlf_to_lf: bool) -> Self {
+    pub(crate) fn new(
+        args: Vec<OsString>,
+        working_dir: AbsPathBuf,
+        crlf_to_lf: bool,
+        envs: HashMap<OsString, OsString>,
+    ) -> Self {
         JudgingCommand {
-            inner: Inner::new(args, working_dir),
+            inner: Inner::new(args, working_dir, envs),
             crlf_to_lf,
         }
     }
@@ -169,10 +260,15 @@ impl JudgingCommand {
 struct Inner {
     args: NonEmptyVec<OsString>,
     working_dir: AbsPathBuf,
+    envs: Vec<(OsString, OsString)>,
 }
 
 impl Inner {
-    fn new(args: Vec<OsString>, working_dir: AbsPathBuf) -> Self {
+    fn new(
+        args: Vec<OsString>,
+        working_dir: AbsPathBuf,
+        envs: HashMap<OsString, OsString>,
+    ) -> Self {
         let mut args = NonEmptyVec::try_new(args).unwrap_or_default();
         // https://github.com/rust-lang/rust/issues/37519
         if cfg!(windows) && Path::new(&args[0]).is_relative() {
@@ -181,7 +277,11 @@ impl Inner {
                 args[0] = abs.into();
             }
         }
-        Self { args, working_dir }
+        Self {
+            args,
+            working_dir,
+            envs: envs.into_iter().collect(),
+        }
     }
 
     fn format_args(&self) -> Vec<String> {
@@ -200,6 +300,7 @@ impl Inner {
         } else {
             let mut command = Command::new(&self.args[0]);
             command.args(&self.args[1..]).current_dir(&self.working_dir);
+            command.envs(self.envs.iter().map(|(k, v)| (k, v)));
             Ok(command)
         }
     }

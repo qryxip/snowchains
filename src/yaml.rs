@@ -1,8 +1,6 @@
 use derive_more::From;
 use itertools::Itertools as _Itertools;
 use maplit::{btreeset, hashmap};
-use regex::Regex;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use yaml_rust::parser::{Event, Parser};
 use yaml_rust::scanner::{ScanError, Scanner, TScalarStyle, Token, TokenType};
 use yaml_rust::{Yaml, YamlEmitter};
@@ -10,26 +8,6 @@ use yaml_rust::{Yaml, YamlEmitter};
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::{cmp, str};
-
-pub(crate) fn serialize_regex<S: Serializer>(
-    regex: &Regex,
-    serializer: S,
-) -> std::result::Result<S::Ok, S::Error> {
-    format!("/{}/", regex).serialize(serializer)
-}
-
-pub(crate) fn deserialize_regex<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> std::result::Result<Regex, D::Error> {
-    let regex = String::deserialize(deserializer)?;
-    let regex = if regex.starts_with('/') && regex.ends_with('/') {
-        let n = regex.len();
-        unsafe { str::from_utf8_unchecked(&regex.as_bytes()[1..n - 1]) }
-    } else {
-        &regex
-    };
-    Regex::new(&regex).map_err(serde::de::Error::custom)
-}
 
 pub(crate) fn escape_string(s: &str) -> Cow<str> {
     if s.parse::<i64>().is_ok() || s.parse::<f64>().is_ok() {

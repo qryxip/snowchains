@@ -1,9 +1,11 @@
 use crate::errors::{ConfigErrorKind, ConfigResult, FileResult};
-use crate::judging::command::{CompilationCommand, JudgingCommand};
+use crate::judging::command::{CompilationCommand, JudgingCommand, TranspilationCommand};
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::replacer::{CodeReplacer, CodeReplacerConf};
 use crate::service::ServiceName;
-use crate::template::{Template, TemplateBuilder};
+use crate::template::{
+    CompilationCommandRequirements, JudgingCommandRequirements, Template, TemplateBuilder,
+    TranspilationCommandRequirements,
+};
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
 use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
 use crate::{time, yaml};
@@ -37,9 +39,10 @@ pub(crate) fn init(
     #[cfg(windows)]
     static CONSOLE_ALT_WIDTH: &str = "\n  # alt_width: 100";
     #[cfg(not(windows))]
-    static SHELL: &str = "[$SHELL, -c]";
+    static SHELL: &str = "bash: [/bin/bash, -c, $command]";
     #[cfg(windows)]
-    static SHELL: &str = r"['C:\Windows\cmd.exe', /C]";
+    static SHELL: &str = "cmd: ['C:\\Windows\\cmd.exe', /C, $command]\n    \
+                          ps: [powershell, -Command, $command]";
     #[cfg(not(windows))]
     static EXE: &str = "";
     #[cfg(windows)]
@@ -48,6 +51,22 @@ pub(crate) fn init(
     static VENV_PYTHON3: &str = "./venv/bin/python3";
     #[cfg(windows)]
     static VENV_PYTHON3: &str = "./venv/Scripts/python.exe";
+    #[cfg(not(windows))]
+    static TRANSPILE_JAVA: &str =
+        r#"bash: cat "$SRC" | sed -r "s/class\s+$PROBLEM_PASCAL/class Main/g" > "$TRANSPILED""#;
+    #[cfg(windows)]
+    static TRANSPILE_JAVA: &str =
+        "ps: cat ${env:SRC} | \
+         % { $_ -replace \"class\\s+${env:PROBLEM_PASCAL}\", \"class Main\" } | \
+         sc ${env:TRANSPILED}";
+    #[cfg(not(windows))]
+    static TRANSPILE_SCALA: &str =
+        r#"bash: cat "$SRC" | sed -r "s/object\s+$PROBLEM_PASCAL/object Main/g" > "$TRANSPILED""#;
+    #[cfg(windows)]
+    static TRANSPILE_SCALA: &str =
+        "ps: cat ${env:SRC} | \
+         % { $_ -replace \"object\\s+${env:PROBLEM_PASCAL}\", \"object Main\" } | \
+         sc ${env:TRANSPILED}";
     #[cfg(not(windows))]
     static CRLF_TO_LF_TRUE: &str = "";
     #[cfg(windows)]
@@ -105,25 +124,23 @@ session:
 
 judge:
   jobs: 4
-  shell: {shell} # Used if `languages._.[compile|run].command` is a single string.
   testfile_extensions: [json, toml, yaml, yml]
+  shell:
+    {shell}
 
 services:
   atcoder:
     # language: c++
     variables:
       rust_version: 1.15.1
-      java_class: Main
   hackerrank:
     # language: c++
     variables:
       rust_version: 1.29.1
-      java_class: Main
   yukicoder:
     # language: c++
     variables:
       rust_version: 1.30.1
-      java_class: Main
   other:
     # language: c++
     variables:
@@ -212,40 +229,38 @@ languages:
       yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x + scipy x.x.x)"
   java:
     src: java/src/main/java/{{Pascal}}.java
+    transpile:
+      transpiled: java/build/replaced/{{lower}}/src/Main.java
+      command:
+        {transpile_java}
+      working_directory: java
     compile:
-      bin: java/build/classes/java/main/{{Pascal}}.class
-      command: [javac, -d, ./build/classes/java/main, $src]
+      bin: java/build/replaced/{{lower}}/classes/Main.class
+      command: [javac, -d, './build/replaced/{{lower}}/classes', $transpiled]
       working_directory: java
     run:
-      command: [java, -classpath, ./build/classes/java/main, '{{Pascal}}']
+      command: [java, -classpath, './build/replaced/{{lower}}/classes', Main]
       working_directory: java{crlf_to_lf_true}
-    replace:
-      regex: /^\s*public(\s+final)?\s+class\s+([A-Z][a-zA-Z0-9_]*).*$/
-      match_group: 2
-      local: '{{Pascal}}'
-      submit: $java_class
-      all_matched: false
     language_ids:
-      atcoder: 3016    # "Java8 (OpenJDK 1.8.x)"
-      # atcoder: java8 # "Java8 (openjdk 1.8.x.x)"
+      atcoder: 3016      # "Java8 (OpenJDK 1.8.x)"
+      # yukicoder: java8 # "Java8 (openjdk 1.8.x.x)"
   scala:
     src: scala/src/main/scala/{{Pascal}}.scala
+    transpile:
+      transpiled: scala/target/replaced/{{lower}}/src/Main.scala
+      command:
+        {transpile_scala}
+      working_directory: scala
     compile:
-      bin: scala/target/scala-2.12/classes/{{Pascal}}.class
-      command: [scalac, -optimise, -d, ./target/scala-2.12/classes, $src]
+      bin: scala/target/replaced/{{lower}}/classes/Main.class
+      command: [scalac, -optimise, -d, './target/replaced/{{lower}}/classes', $transpiled]
       working_directory: scala
     run:
-      command: [scala, -classpath, ./target/scala-2.12/classes, '{{Pascal}}']
+      command: [scala, -classpath, './target/replaced/{{lower}}/classes', Main]
       working_directory: scala{crlf_to_lf_true}
-    replace:
-      regex: /^\s*object\s+([A-Z][a-zA-Z0-9_]*).*$/
-      match_group: 1
-      local: '{{Pascal}}'
-      submit: $java_class
-      all_matched: false
     # language_ids:
-    #   atcoder: 3016  # "Scala (x.x.x)"
-    #   atcoder: scala # "Scala(Beta) (x.x.x)"
+    #   atcoder: 3016    # "Scala (x.x.x)"
+    #   yukicoder: scala # "Scala(Beta) (x.x.x)"
 {csharp}
   text:
     src: txt/{{snake}}.txt
@@ -264,6 +279,8 @@ languages:
         shell = SHELL,
         exe = EXE,
         venv_python3 = VENV_PYTHON3,
+        transpile_java = TRANSPILE_JAVA,
+        transpile_scala = TRANSPILE_SCALA,
         crlf_to_lf_true = CRLF_TO_LF_TRUE,
         crlf_to_lf_false = CRLF_TO_LF_FALSE,
         csharp = CSHARP,
@@ -431,7 +448,7 @@ impl Config {
     pub(crate) fn session_cookies(&self) -> Template<AbsPathBuf> {
         self.session
             .cookies
-            .build(&self.base_dir)
+            .build(self.base_dir.clone())
             .strings(hashmap!("service".to_owned() => self.service.to_string()))
     }
 
@@ -439,7 +456,7 @@ impl Config {
         match &self.session.dropbox {
             Dropbox::None => None,
             Dropbox::Some { auth } => Some(
-                auth.build(&self.base_dir)
+                auth.build(self.base_dir.clone())
                     .strings(hashmap!("service".to_owned() => self.service.to_string())),
             ),
         }
@@ -455,14 +472,14 @@ impl Config {
     ) -> DownloadDestinations {
         let scraped = self
             .testfile_path
-            .build(&self.base_dir)
+            .build(self.base_dir.clone())
             .insert_string("service", self.service.as_static())
             .insert_string("contest", &self.contest);
         let text_file_dir = self
             .session
             .download
             .text_file_dir
-            .build(&self.base_dir)
+            .build(self.base_dir.clone())
             .insert_string("service", self.service.as_static())
             .insert_string("contest", &self.contest);
         let ext = ext.unwrap_or(self.session.download.extension);
@@ -472,12 +489,13 @@ impl Config {
     pub(crate) fn testcase_loader(&self) -> TestCaseLoader {
         let path = self
             .testfile_path
-            .build(&self.base_dir)
+            .build(self.base_dir.clone())
             .insert_string("service", self.service.as_static())
             .insert_string("contest", &self.contest);
         TestCaseLoader::new(
             path,
             &self.judge.testfile_extensions,
+            self.interactive_tester_transpilations(),
             self.interactive_tester_compilations(),
             self.interactive_testers(),
         )
@@ -488,7 +506,7 @@ impl Config {
         let mut templates = hashmap!();
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.get(&ServiceName::Atcoder) {
-                let template = lang.src.build(&self.base_dir).insert_strings(&vars);
+                let template = lang.src.build(self.base_dir.clone()).insert_strings(&vars);
                 templates.insert(lang_id.as_str(), template);
             }
         }
@@ -497,28 +515,12 @@ impl Config {
 
     pub(crate) fn src_to_submit(&self, lang: Option<&str>) -> ConfigResult<Template<AbsPathBuf>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
-        let vars = self.vars_for_langs(None);
-        Ok(lang.src.build(&self.base_dir).insert_strings(&vars))
-    }
-
-    pub(crate) fn code_replacer(&self, lang: Option<&str>) -> ConfigResult<Option<CodeReplacer>> {
-        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
-        let vars = self.vars_for_langs(None);
-        Ok(lang.replace.as_ref().map(|r| r.build(&vars)))
-    }
-
-    pub(crate) fn code_replacers_on_atcoder(&self) -> ConfigResult<HashMap<&str, CodeReplacer>> {
-        let mut replacers = hashmap!();
-        for lang in self.languages.values() {
-            if let Some(lang_id) = lang.language_ids.get(&ServiceName::Atcoder) {
-                if let Some(replacer) = &lang.replace {
-                    let vars = self.vars_for_langs(ServiceName::Atcoder);
-                    let replacer = replacer.build(&vars);
-                    replacers.insert(lang_id.as_str(), replacer);
-                }
-            }
-        }
-        Ok(replacers)
+        let builder = match &lang.transpile {
+            None => &lang.src,
+            Some(transpile) => &transpile.transpiled,
+        };
+        let (base_dir, vars) = (self.base_dir.clone(), self.vars_for_langs(None));
+        Ok(builder.build(base_dir).insert_strings(&vars))
     }
 
     pub(crate) fn lang_id(&self, service: ServiceName, lang: Option<&str>) -> Option<&str> {
@@ -534,9 +536,27 @@ impl Config {
         Ok(self.compilation_command(lang))
     }
 
+    pub(crate) fn solver_transpilation(
+        &self,
+        lang: Option<&str>,
+    ) -> ConfigResult<Option<Template<TranspilationCommand>>> {
+        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
+        Ok(self.transpilation_command(lang))
+    }
+
     pub(crate) fn solver(&self, lang: Option<&str>) -> ConfigResult<Template<JudgingCommand>> {
         let lang = find_language(&self.languages, self.lang_name(lang)?)?;
         Ok(self.judge_command(lang))
+    }
+
+    fn interactive_tester_transpilations(&self) -> HashMap<String, Template<TranspilationCommand>> {
+        self.interactive
+            .iter()
+            .filter_map(|(name, conf)| {
+                self.transpilation_command(conf)
+                    .map(|t| (name.to_owned(), t))
+            })
+            .collect()
     }
 
     fn interactive_tester_compilations(&self) -> HashMap<String, Template<CompilationCommand>> {
@@ -553,17 +573,33 @@ impl Config {
             .collect()
     }
 
+    fn transpilation_command(&self, lang: &Language) -> Option<Template<TranspilationCommand>> {
+        lang.transpile.as_ref().map(|transpile| {
+            transpile
+                .command
+                .build(TranspilationCommandRequirements {
+                    base_dir: self.base_dir.clone(),
+                    shell: self.judge.shell.clone(),
+                    working_dir: transpile.working_directory.clone(),
+                    src: lang.src.clone(),
+                    transpiled: transpile.transpiled.clone(),
+                })
+                .insert_strings(&self.vars_for_langs(None))
+        })
+    }
+
     fn compilation_command(&self, lang: &Language) -> Option<Template<CompilationCommand>> {
         lang.compile.as_ref().map(|compile| {
             compile
                 .command
-                .build(
-                    &self.base_dir,
-                    &self.judge.shell,
-                    &compile.working_directory,
-                    &lang.src,
-                    &compile.bin,
-                )
+                .build(CompilationCommandRequirements {
+                    base_dir: self.base_dir.clone(),
+                    shell: self.judge.shell.clone(),
+                    working_dir: compile.working_directory.clone(),
+                    src: lang.src.clone(),
+                    transpiled: lang.transpile.as_ref().map(|e| e.transpiled.clone()),
+                    bin: compile.bin.clone(),
+                })
                 .insert_strings(&self.vars_for_langs(None))
         })
     }
@@ -571,14 +607,15 @@ impl Config {
     fn judge_command(&self, lang: &Language) -> Template<JudgingCommand> {
         lang.run
             .command
-            .build(
-                &self.base_dir,
-                &self.judge.shell,
-                &lang.run.working_directory,
-                &lang.src,
-                lang.compile.as_ref().map(|c| &c.bin),
-                lang.run.crlf_to_lf,
-            )
+            .build(JudgingCommandRequirements {
+                base_dir: self.base_dir.clone(),
+                shell: self.judge.shell.clone(),
+                working_dir: lang.run.working_directory.clone(),
+                src: lang.src.clone(),
+                bin: lang.compile.as_ref().map(|e| e.bin.clone()),
+                transpiled: lang.transpile.as_ref().map(|e| e.transpiled.clone()),
+                crlf_to_lf: lang.run.crlf_to_lf,
+            })
             .insert_strings(&self.vars_for_langs(None))
     }
 
@@ -695,8 +732,8 @@ struct Download {
 #[derive(Serialize, Deserialize)]
 struct Judge {
     jobs: NonZeroUsize,
-    shell: Vec<TemplateBuilder<OsString>>,
     testfile_extensions: BTreeSet<SuiteFileExtension>,
+    shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -709,11 +746,20 @@ struct ServiceConfig {
 struct Language {
     src: TemplateBuilder<AbsPathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    transpile: Option<Transpile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     compile: Option<Compile>,
     run: Run,
-    replace: Option<CodeReplacerConf>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     language_ids: BTreeMap<ServiceName, String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Transpile {
+    transpiled: TemplateBuilder<AbsPathBuf>,
+    command: TemplateBuilder<TranspilationCommand>,
+    #[serde(default)]
+    working_directory: TemplateBuilder<AbsPathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]

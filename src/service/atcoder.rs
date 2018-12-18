@@ -36,7 +36,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::vec;
 
-/// Logins to "beta.atcoder.jp".
+/// Logins to "atcoder.jp".
 pub(crate) fn login(mut sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
     let dropbox_path = sess_props.dropbox_path.take();
     let mut atcoder = Atcoder::try_new(sess_props)?;
@@ -511,7 +511,7 @@ impl<T: Term> Atcoder<T> {
         self.stdout().flush().map_err(Into::into)
     }
 
-    fn restore(&mut self, prop: &RestoreProps<AtcoderContest>) -> ServiceResult<()> {
+    fn restore(&mut self, props: &RestoreProps<AtcoderContest>) -> ServiceResult<()> {
         fn collect_urls(
             detail_urls: &mut HashMap<(String, String), String>,
             submissions: vec::IntoIter<Submission>,
@@ -528,8 +528,7 @@ impl<T: Term> Atcoder<T> {
             contest,
             problems,
             src_paths,
-            replacers,
-        } = prop;
+        } = props;
         let first_page = self.get(&contest.url_submissions_me(1)).recv_html()?;
         let (submissions, num_pages) = first_page.extract_submissions()?;
         let mut detail_urls = HashMap::new();
@@ -551,12 +550,6 @@ impl<T: Term> Atcoder<T> {
             let lang_id = first_page.extract_lang_id_by_name(&lang_name)?;
             if let Some(path_template) = src_paths.get(lang_id.as_str()) {
                 let path = path_template.expand(&task_name.to_lowercase())?;
-                let code = match replacers.get(lang_id.as_str()) {
-                    Some(replacer) => {
-                        replacer.replace_from_submission_to_local(&task_name, &code)?
-                    }
-                    None => code,
-                };
                 crate::fs::write(&path, code.as_bytes())?;
                 results.push((task_name, lang_name, lang_id, path));
             } else {
@@ -598,7 +591,6 @@ impl<T: Term> Atcoder<T> {
             problem,
             lang_id,
             src_path,
-            replacer,
             open_browser,
             skip_checking_if_accepted,
         } = props;
@@ -642,12 +634,6 @@ impl<T: Term> Atcoder<T> {
                 }
 
                 let source_code = crate::fs::read_to_string(src_path)?;
-                let source_code = match replacer {
-                    Some(replacer) => {
-                        replacer.replace_from_local_to_submission(&problem, &source_code)?
-                    }
-                    None => source_code,
-                };
                 let document = self.get(&url).recv_html()?;
                 let csrf_token = document.extract_csrf_token()?;
                 let lang_id = match lang_id.as_ref() {
@@ -912,15 +898,15 @@ impl Extract for Document {
 
         fn extract_samples(this: &Document) -> Option<Samples> {
             // Interactive problems:
-            // - ARC070/F https://beta.atcoder.jp/contests/arc070/tasks/arc070_d
-            // - ARC078/E https://beta.atcoder.jp/contests/arc078/tasks/arc078_c
-            // - APC001/C https://beta.atcoder.jp/contests/apc001/tasks/apc001_c
+            // - ARC070/F https://atcoder.jp/contests/arc070/tasks/arc070_d
+            // - ARC078/E https://atcoder.jp/contests/arc078/tasks/arc078_c
+            // - APC001/C https://atcoder.jp/contests/apc001/tasks/apc001_c
             // TODO:
-            // - https://beta.atcoder.jp/contests/arc019/tasks/arc019_4 (interactive)
-            // - https://beta.atcoder.jp/contests/arc021/tasks/arc021_4 (interactive)
-            // - https://beta.atcoder.jp/contests/cf17-final-open/tasks/cf17_final_f
-            // - https://beta.atcoder.jp/contests/jag2016-domestic/tasks
-            // - https://beta.atcoder.jp/contests/chokudai001/tasks/chokudai_001_a
+            // - https://atcoder.jp/contests/arc019/tasks/arc019_4 (interactive)
+            // - https://atcoder.jp/contests/arc021/tasks/arc021_4 (interactive)
+            // - https://atcoder.jp/contests/cf17-final-open/tasks/cf17_final_f
+            // - https://atcoder.jp/contests/jag2016-domestic/tasks
+            // - https://atcoder.jp/contests/chokudai001/tasks/chokudai_001_a
 
             static IN_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*入力例\s*(\d{1,2})[.\n]*\z");
             static OUT_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*出力例\s*(\d{1,2})[.\n]*\z");
@@ -1685,7 +1671,7 @@ mod tests {
 
     fn start() -> ServiceResult<Atcoder<impl Term>> {
         let client = service::reqwest_client(Duration::from_secs(60))?;
-        let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
+        let base = UrlBase::new(Host::Domain("atcoder.jp"), true, None);
         let mut term = TermImpl::null();
         let mut runtime = Runtime::new()?;
         let session = HttpSession::try_new(term.stdout(), &mut runtime, client, base, None, true)?;
