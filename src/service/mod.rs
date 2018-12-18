@@ -74,7 +74,7 @@ impl Default for ServiceName {
 impl ServiceName {
     pub(crate) fn domain(self) -> Option<&'static str> {
         match self {
-            ServiceName::Atcoder => Some("beta.atcoder.jp"),
+            ServiceName::Atcoder => Some("atcoder.jp"),
             ServiceName::Hackerrank => Some("www.hackerrank.com"),
             ServiceName::Yukicoder => Some("yukicoder.me"),
             ServiceName::Other => None,

@@ -36,7 +36,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::vec;
 
-/// Logins to "beta.atcoder.jp".
+/// Logins to "atcoder.jp".
 pub(crate) fn login(mut sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
     let dropbox_path = sess_props.dropbox_path.take();
     let mut atcoder = Atcoder::try_new(sess_props)?;
@@ -898,15 +898,15 @@ impl Extract for Document {
 
         fn extract_samples(this: &Document) -> Option<Samples> {
             // Interactive problems:
-            // - ARC070/F https://beta.atcoder.jp/contests/arc070/tasks/arc070_d
-            // - ARC078/E https://beta.atcoder.jp/contests/arc078/tasks/arc078_c
-            // - APC001/C https://beta.atcoder.jp/contests/apc001/tasks/apc001_c
+            // - ARC070/F https://atcoder.jp/contests/arc070/tasks/arc070_d
+            // - ARC078/E https://atcoder.jp/contests/arc078/tasks/arc078_c
+            // - APC001/C https://atcoder.jp/contests/apc001/tasks/apc001_c
             // TODO:
-            // - https://beta.atcoder.jp/contests/arc019/tasks/arc019_4 (interactive)
-            // - https://beta.atcoder.jp/contests/arc021/tasks/arc021_4 (interactive)
-            // - https://beta.atcoder.jp/contests/cf17-final-open/tasks/cf17_final_f
-            // - https://beta.atcoder.jp/contests/jag2016-domestic/tasks
-            // - https://beta.atcoder.jp/contests/chokudai001/tasks/chokudai_001_a
+            // - https://atcoder.jp/contests/arc019/tasks/arc019_4 (interactive)
+            // - https://atcoder.jp/contests/arc021/tasks/arc021_4 (interactive)
+            // - https://atcoder.jp/contests/cf17-final-open/tasks/cf17_final_f
+            // - https://atcoder.jp/contests/jag2016-domestic/tasks
+            // - https://atcoder.jp/contests/chokudai001/tasks/chokudai_001_a
 
             static IN_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*入力例\s*(\d{1,2})[.\n]*\z");
             static OUT_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*出力例\s*(\d{1,2})[.\n]*\z");
@@ -1671,7 +1671,7 @@ mod tests {
 
     fn start() -> ServiceResult<Atcoder<impl Term>> {
         let client = service::reqwest_client(Duration::from_secs(60))?;
-        let base = UrlBase::new(Host::Domain("beta.atcoder.jp"), true, None);
+        let base = UrlBase::new(Host::Domain("atcoder.jp"), true, None);
         let mut term = TermImpl::null();
         let mut runtime = Runtime::new()?;
         let session = HttpSession::try_new(term.stdout(), &mut runtime, client, base, None, true)?;

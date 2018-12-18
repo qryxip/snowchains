@@ -15,7 +15,7 @@ Tools for online programming contests.
 
 |                         | Target                                       | "contest" attribute | Scrape samples  | Download system tests | Submit          |
 | :---------------------- | :------------------------------------------- | :------------------ | :-------------: | :-------------------: | :-------------: |
-| AtCoder Beta            | `beta.atcoder.jp/contests/{}`                | `.*`                | ✓               | ⨉                     | ✓               |
+| AtCoder                 | `atcoder.jp/contests/{}`                     | `.*`                | ✓               | ⨉                     | ✓               |
 | HackerRank (Problems)   | `www.hackerrank.com/challenges/{}`           | `master`            | ✓               | ✓                     | Not implemented |
 | HackerRank (Contests)   | `www.hackerrank.com/contests/{}/challenges/` | `(?!master)`        | ✓               | ✓                     | Not implemented |
 | yukicoder (Problems)    | `yukicoder.me/problems/no/{}`                | `no`                | ✓               | ✓                     | ✓               |
@@ -290,7 +290,7 @@ languages:
 
 ### Simple (one input, one output)
 
-<https://beta.atcoder.jp/contests/practice/tasks/practice_1>
+<https://atcoder.jp/contests/practice/tasks/practice_1>
 
 ```yaml
 ---
@@ -355,7 +355,7 @@ oooooooooooooo
 '''
 ```
 
-<https://beta.atcoder.jp/contests/tricky/tasks/tricky_2>
+<https://atcoder.jp/contests/tricky/tasks/tricky_2>
 
 ```yaml
 ---
@@ -404,7 +404,7 @@ out = '''
 
 ### Interactive
 
-<https://beta.atcoder.jp/contests/practice/tasks/practice_2>
+<https://atcoder.jp/contests/practice/tasks/practice_2>
 
 ```yaml
 ---
