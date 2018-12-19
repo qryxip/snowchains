@@ -34,7 +34,6 @@ use zip::ZipArchive;
 use std::collections::HashMap;
 use std::io::{self, Cursor, Write as _Write};
 use std::ops::Deref;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{cmp, fmt, mem, slice};
@@ -139,12 +138,13 @@ pub(self) trait ExtractZip {
             .into_par_iter()
             .map(|i| {
                 let mut zip = zip.clone();
-                let (filename, content) = {
+                let (filename, filename_sanitized, content) = {
                     let file = zip.by_index(i)?;
-                    let filename = file.sanitized_name().to_string_lossy().into_owned();
+                    let filename = file.name().to_owned();
+                    let filename_sanitized = file.sanitized_name();
                     let cap = file.size() as usize + 1;
                     let content = util::string_from_read(file, cap)?;
-                    (filename, content)
+                    (filename, filename_sanitized, content)
                 };
                 if let Some(caps) = in_entry.captures(&filename) {
                     let name = caps.get(*in_match_group).unwrap().as_str().to_owned();
@@ -153,12 +153,11 @@ pub(self) trait ExtractZip {
                     } else {
                         content
                     };
-                    let filename = PathBuf::from(&filename);
                     let mut pairs = pairs.lock().unwrap();
                     if let Some((_, output)) = pairs.remove(&name) {
-                        pairs.insert(name, (Some((filename, content)), output));
+                        pairs.insert(name, (Some((filename_sanitized, content)), output));
                     } else {
-                        pairs.insert(name, (Some((filename, content)), None));
+                        pairs.insert(name, (Some((filename_sanitized, content)), None));
                     }
                 } else if let Some(caps) = out_entry.captures(&filename) {
                     let name = caps.get(*out_match_group).unwrap().as_str().to_owned();
@@ -167,12 +166,11 @@ pub(self) trait ExtractZip {
                     } else {
                         content
                     };
-                    let filename = PathBuf::from(filename);
                     let mut pairs = pairs.lock().unwrap();
                     if let Some((input, _)) = pairs.remove(&name) {
-                        pairs.insert(name, (input, Some((filename, content))));
+                        pairs.insert(name, (input, Some((filename_sanitized, content))));
                     } else {
-                        pairs.insert(name, (None, Some((filename, content))));
+                        pairs.insert(name, (None, Some((filename_sanitized, content))));
                     }
                 }
                 Ok(())
