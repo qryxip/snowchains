@@ -11,6 +11,7 @@ use crate::testsuite::{SimpleCase, TestCase, TestCases};
 use crate::util::std_unstable::AsMillis_;
 
 use futures::{Future, Sink as _Sink, Stream as _Stream};
+use itertools::Itertools;
 use tokio::runtime::Runtime;
 
 use std::io::{self, BufRead};
@@ -130,7 +131,7 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
 
         let mut cases = names
             .into_iter()
-            .zip(cases)
+            .zip_eq(cases)
             .enumerate()
             .map(|(i, (name, case))| (i, name, case));
 

@@ -242,7 +242,7 @@ impl<T: Term> Yukicoder<T> {
                 .collect::<Vec<_>>();
             self.download_progress(&urls, &solved_simple_nos, None)?
                 .into_iter()
-                .zip(&solved_simple_nos)
+                .zip_eq(&solved_simple_nos)
                 .map(|(zip, &no)| {
                     static ZIP_ENTRIES: Lazy<ZipEntries> = sync_lazy!(ZipEntries {
                         in_entry: Regex::new(r"\Atest_in/([a-z0-9_]+)\.txt\z").unwrap(),

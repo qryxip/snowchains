@@ -147,7 +147,7 @@ pub(self) trait ExtractZip {
                     (filename, filename_sanitized, content)
                 };
                 if let Some(caps) = in_entry.captures(&filename) {
-                    let name = caps.get(*in_match_group).unwrap().as_str().to_owned();
+                    let name = caps[*in_match_group].to_owned();
                     let content = if *in_crlf_to_lf && content.contains("\r\n") {
                         content.replace("\r\n", "\n")
                     } else {
@@ -160,7 +160,7 @@ pub(self) trait ExtractZip {
                         pairs.insert(name, (Some((filename_sanitized, content)), None));
                     }
                 } else if let Some(caps) = out_entry.captures(&filename) {
-                    let name = caps.get(*out_match_group).unwrap().as_str().to_owned();
+                    let name = caps[*out_match_group].to_owned();
                     let content = if *out_crlf_to_lf && content.contains("\r\n") {
                         content.replace("\r\n", "\n")
                     } else {

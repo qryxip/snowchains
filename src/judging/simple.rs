@@ -8,6 +8,7 @@ use crate::time::MillisRoundedUp as _MillisRoundedUp;
 
 use derive_more::From;
 use futures::{task, try_ready, Async, Future, Poll};
+use itertools::Itertools as _Itertools;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use std::process::ExitStatus;
@@ -501,7 +502,7 @@ impl TextDiff {
     fn new(left: &Text, right: &Text) -> Self {
         if left.lines().len() == right.lines().len() {
             let mut lines = vec![];
-            for (left, right) in left.lines().iter().zip(right.lines()) {
+            for (left, right) in left.lines().iter().zip_eq(right.lines()) {
                 let (mut l_diffs, mut r_diffs) = (vec![], vec![]);
                 for diff in diff::slice(left.words(), right.words()) {
                     match diff {
