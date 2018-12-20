@@ -2,7 +2,7 @@ use crate::errors::JudgeResult;
 use crate::judging::command::JudgingCommand;
 use crate::judging::text::{Line, PrintAligned, Text, Width, Word};
 use crate::judging::Outcome;
-use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
+use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
 use crate::testsuite::{ExpectedStdout, SimpleCase};
 use crate::time::MillisRoundedUp as _MillisRoundedUp;
 
@@ -381,38 +381,57 @@ impl Outcome for SimpleOutcome {
         }
     }
 
-    fn print_details(&self, mut out: impl TermOut) -> io::Result<()> {
-        fn print_section(mut out: impl TermOut, title: &str, text: &Text) -> io::Result<()> {
-            out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
-            out.write_str("\n")?;
-            if text.is_empty() {
-                out.with_reset(|o| o.fg(11)?.bold()?.write_str("EMPTY\n"))
-            } else {
-                text.print_all(out)
-            }
+    fn print_details(&self, display_limit: Option<usize>, out: impl TermOut) -> io::Result<()> {
+        struct Writer<W: WriteAnsi> {
+            out: W,
+            display_limit: Option<usize>,
         }
 
-        fn print_section_unless_empty<'a>(
-            mut out: impl TermOut,
-            title: &str,
-            text: impl Into<Option<&'a Text>>,
-        ) -> io::Result<()> {
-            if let Some(text) = text.into() {
-                if !text.is_empty() {
-                    out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
-                    out.write_str("\n")?;
-                    text.print_all(out)?;
+        impl<W: TermOut> Writer<W> {
+            fn write_section(&mut self, title: &str, text: &Text) -> io::Result<()> {
+                let (out, display_limit) = (&mut self.out, self.display_limit);
+                out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+                out.write_str("\n")?;
+                if text.is_empty() {
+                    out.with_reset(|o| o.fg(11)?.bold()?.write_str("EMPTY\n"))
+                } else if display_limit.map_or(false, |l| text.size() > l) {
+                    super::writeln_size(out, text.size())
+                } else {
+                    text.print_all(out)
                 }
             }
-            Ok(())
+
+            fn write_section_unless_empty<'a>(
+                &mut self,
+                title: &str,
+                text: impl Into<Option<&'a Text>>,
+            ) -> io::Result<()> {
+                if let Some(text) = text.into() {
+                    let (out, display_limit) = (&mut self.out, self.display_limit);
+                    out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+                    out.write_str("\n")?;
+                    if display_limit.map_or(false, |l| text.size() > l) {
+                        super::writeln_size(out, text.size())?;
+                    } else if !text.is_empty() {
+                        text.print_all(out)?;
+                    }
+                }
+                Ok(())
+            }
+
+            fn write_diff(&mut self, title: &str, diff: &TextDiff) -> io::Result<()> {
+                let (out, display_limit) = (&mut self.out, self.display_limit);
+                out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+                out.write_str("\n")?;
+                if display_limit.map_or(false, |l| diff.size() > l) {
+                    super::writeln_size(out, diff.size())
+                } else {
+                    diff.print(out)
+                }
+            }
         }
 
-        fn print_diff(mut out: impl TermOut, title: &str, diff: &TextDiff) -> io::Result<()> {
-            out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
-            out.write_str("\n")?;
-            diff.print(out)
-        }
-
+        let mut wtr = Writer { out, display_limit };
         match &self.inner {
             SimpleOutcomeInner::Accepted {
                 input,
@@ -421,16 +440,16 @@ impl Outcome for SimpleOutcome {
                 stderr,
                 ..
             } => {
-                print_section(&mut out, "input:", input)?;
-                print_section_unless_empty(&mut out, "example:", example.as_ref())?;
-                print_section(&mut out, "stdout:", stdout)?;
-                print_section_unless_empty(&mut out, "stderr:", stderr)
+                wtr.write_section("input:", input)?;
+                wtr.write_section_unless_empty("example:", example.as_ref())?;
+                wtr.write_section("stdout:", stdout)?;
+                wtr.write_section_unless_empty("stderr:", stderr)
             }
             SimpleOutcomeInner::TimelimitExceeded {
                 input, expected, ..
             } => {
-                print_section(&mut out, "input:", input)?;
-                print_section_unless_empty(&mut out, "expected:", expected.as_ref())
+                wtr.write_section("input:", input)?;
+                wtr.write_section_unless_empty("expected:", expected.as_ref())
             }
             SimpleOutcomeInner::WrongAnswer {
                 input,
@@ -438,9 +457,9 @@ impl Outcome for SimpleOutcome {
                 stderr,
                 ..
             } => {
-                print_section(&mut out, "input:", input)?;
-                print_diff(&mut out, "diff:", diff)?;
-                print_section_unless_empty(&mut out, "stderr:", stderr)
+                wtr.write_section("input:", input)?;
+                wtr.write_diff("diff:", diff)?;
+                wtr.write_section_unless_empty("stderr:", stderr)
             }
             SimpleOutcomeInner::RuntimeError {
                 input,
@@ -449,10 +468,10 @@ impl Outcome for SimpleOutcome {
                 stderr,
                 ..
             } => {
-                print_section(&mut out, "input:", input)?;
-                print_section_unless_empty(&mut out, "expected:", expected.as_ref())?;
-                print_section_unless_empty(&mut out, "stdout:", stdout)?;
-                print_section(&mut out, "stderr:", stderr)
+                wtr.write_section("input:", input)?;
+                wtr.write_section_unless_empty("expected:", expected.as_ref())?;
+                wtr.write_section_unless_empty("stdout:", stdout)?;
+                wtr.write_section("stderr:", stderr)
             }
         }
     }
@@ -491,15 +510,18 @@ enum SimpleOutcomeInner {
 #[cfg_attr(test, derive(Debug))]
 pub(super) enum TextDiff {
     SameNumLines {
+        size: usize,
         lines: Vec<(LineDiffDetialed, LineDiffDetialed)>,
     },
     Lines {
+        size: usize,
         lines: Vec<(LineDiff, LineDiff)>,
     },
 }
 
 impl TextDiff {
     fn new(left: &Text, right: &Text) -> Self {
+        let size = cmp::max(left.size(), right.size());
         if left.lines().len() == right.lines().len() {
             let mut lines = vec![];
             for (left, right) in left.lines().iter().zip_eq(right.lines()) {
@@ -516,7 +538,7 @@ impl TextDiff {
                 }
                 lines.push((Line::new(l_diffs), Line::new(r_diffs)));
             }
-            TextDiff::SameNumLines { lines }
+            TextDiff::SameNumLines { size, lines }
         } else {
             #[derive(Default)]
             struct St {
@@ -563,7 +585,17 @@ impl TextDiff {
                 }
             }
             st.clean_up();
-            TextDiff::Lines { lines: st.lines }
+            TextDiff::Lines {
+                size,
+                lines: st.lines,
+            }
+        }
+    }
+
+    fn size(&self) -> usize {
+        match self {
+            TextDiff::SameNumLines { size, .. } => *size,
+            TextDiff::Lines { size, .. } => *size,
         }
     }
 
@@ -599,8 +631,8 @@ impl TextDiff {
         }
 
         match self {
-            TextDiff::SameNumLines { lines } => print(lines, out),
-            TextDiff::Lines { lines } => print(lines, out),
+            TextDiff::SameNumLines { lines, .. } => print(lines, out),
+            TextDiff::Lines { lines, .. } => print(lines, out),
         }
     }
 }

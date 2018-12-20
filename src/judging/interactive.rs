@@ -336,7 +336,7 @@ impl Outcome for InteractiveOutcome {
         }
     }
 
-    fn print_details(&self, mut out: impl TermOut) -> io::Result<()> {
+    fn print_details(&self, display_limit: Option<usize>, mut out: impl TermOut) -> io::Result<()> {
         fn print_str_left_aligned(
             mut out: impl TermOut,
             color: Option<u8>,
@@ -363,6 +363,11 @@ impl Outcome for InteractiveOutcome {
             }
             let line_width = line.width(out.str_width_fn());
             out.write_spaces(cmp::max(width, line_width) - line_width)
+        }
+
+        let size = self.outputs.iter().map(Output::size).sum();
+        if display_limit.map_or(false, |l| l > size) {
+            return super::writeln_size(out, size);
         }
 
         let str_width = out.str_width_fn();
@@ -445,6 +450,18 @@ impl Output {
             }
             Output::TimelimitExceeded(_) => false,
             _ => true,
+        }
+    }
+
+    fn size(&self) -> usize {
+        match self {
+            Output::SolverStdout(text, _)
+            | Output::SolverStderr(text, _)
+            | Output::SolverTerminated(_, text, _)
+            | Output::TesterStdout(text, _)
+            | Output::TesterStderr(text, _)
+            | Output::TesterTerminated(_, text, _) => text.size(),
+            Output::TimelimitExceeded(_) => 0,
         }
     }
 

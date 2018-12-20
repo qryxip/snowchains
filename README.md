@@ -119,6 +119,7 @@ session:
 judge:
   jobs: 4
   testfile_extensions: [json, toml, yaml, yml]
+  display_limit: 1KiB
   shell:
     bash: [/bin/bash, -c, $command]
     # cmd: ['C:\Windows\cmd.exe', /C, $command]

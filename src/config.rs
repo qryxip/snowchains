@@ -125,6 +125,7 @@ session:
 judge:
   jobs: 4
   testfile_extensions: [json, toml, yaml, yml]
+  display_limit: 1KiB
   shell:
     {shell}
 
@@ -466,6 +467,10 @@ impl Config {
         self.judge.jobs
     }
 
+    pub(crate) fn judge_display_limit(&self) -> Option<usize> {
+        self.judge.display_limit
+    }
+
     pub(crate) fn download_destinations(
         &self,
         ext: Option<SuiteFileExtension>,
@@ -733,7 +738,52 @@ struct Download {
 struct Judge {
     jobs: NonZeroUsize,
     testfile_extensions: BTreeSet<SuiteFileExtension>,
+    #[serde(serialize_with = "ser_size", deserialize_with = "de_size", default)]
+    display_limit: Option<usize>,
     shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn ser_size<S: Serializer>(
+    size: &Option<usize>,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    size.map(|size| size.to_string()).serialize(serializer)
+}
+
+fn de_size<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<usize>, D::Error> {
+    fn extract_unit(s: &str) -> (&str, f64) {
+        if s.ends_with("GiB") {
+            (&s[..s.len() - 3], f64::from(0x40_000_000))
+        } else if s.ends_with("GB") {
+            (&s[..s.len() - 2], f64::from(1_000_000_000))
+        } else if s.ends_with("MiB") {
+            (&s[..s.len() - 3], f64::from(0x100_000))
+        } else if s.ends_with("MB") {
+            (&s[..s.len() - 2], f64::from(1_000_000))
+        } else if s.ends_with("KiB") {
+            (&s[..s.len() - 3], f64::from(0x400))
+        } else if s.ends_with("KB") {
+            (&s[..s.len() - 2], 1000.0)
+        } else if s.ends_with('B') {
+            (&s[..s.len() - 1], 1.0)
+        } else {
+            (s, 1.0)
+        }
+    }
+
+    match Option::<String>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(s) => {
+            let (s, k) = extract_unit(s.trim());
+            match s.parse::<f64>() {
+                Ok(l) => Ok(Some((k * l) as usize)),
+                Err(_) => Err(serde::de::Error::custom("invalid format")),
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
