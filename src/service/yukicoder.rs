@@ -163,6 +163,7 @@ impl<T: Term> Yukicoder<T> {
             problems,
             destinations,
             open_browser,
+            only_scraped,
         } = download_props;
         self.login(false)?;
         let scrape =
@@ -222,16 +223,19 @@ impl<T: Term> Yukicoder<T> {
                 }
             }
         }
-        let solved_simple_nos = self
-            .filter_solved(&nos)?
-            .into_iter()
-            .filter(|no| {
-                outputs.iter().any(|(_, name, suite, _)| match suite {
-                    TestSuite::Simple(_) => name == *no,
-                    _ => false,
+        let solved_simple_nos = if *only_scraped {
+            vec![]
+        } else {
+            self.filter_solved(&nos)?
+                .into_iter()
+                .filter(|no| {
+                    outputs.iter().any(|(_, name, suite, _)| match suite {
+                        TestSuite::Simple(_) => name == *no,
+                        _ => false,
+                    })
                 })
-            })
-            .collect::<Vec<_>>();
+                .collect()
+        };
 
         let text_file_paths = if solved_simple_nos.is_empty() {
             vec![]

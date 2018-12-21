@@ -330,26 +330,14 @@ pub(self) fn reqwest_client(
 }
 
 pub(crate) struct DownloadProps<C: Contest> {
-    pub(self) contest: C,
-    pub(self) problems: Option<Vec<String>>,
-    pub(self) destinations: DownloadDestinations,
-    pub(self) open_browser: bool,
+    pub(crate) contest: C,
+    pub(crate) problems: Option<Vec<String>>,
+    pub(crate) destinations: DownloadDestinations,
+    pub(crate) open_browser: bool,
+    pub(crate) only_scraped: bool,
 }
 
 impl DownloadProps<String> {
-    pub(crate) fn new(config: &Config, open_browser: bool, problems: Vec<String>) -> Self {
-        Self {
-            contest: config.contest().to_owned(),
-            problems: if problems.is_empty() {
-                None
-            } else {
-                Some(problems)
-            },
-            destinations: config.download_destinations(None),
-            open_browser,
-        }
-    }
-
     pub(self) fn convert_contest_and_problems<C: Contest>(
         self,
         conversion: ProblemNameConversion,
@@ -361,6 +349,7 @@ impl DownloadProps<String> {
                 .map(|ps| ps.into_iter().map(|p| conversion.convert(&p)).collect()),
             destinations: self.destinations,
             open_browser: self.open_browser,
+            only_scraped: self.only_scraped,
         }
     }
 }

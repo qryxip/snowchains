@@ -292,6 +292,7 @@ impl<T: Term> Atcoder<T> {
             problems,
             destinations,
             open_browser,
+            only_scraped,
         } = props;
         let names_and_urls = self
             .fetch_tasks_page(contest)?
@@ -317,12 +318,14 @@ impl<T: Term> Atcoder<T> {
             None => vec![],
             Some(problems) => problems.iter().collect(),
         };
-        if let Some(dropbox_path) = dropbox_path {
-            let suites = outputs
-                .iter_mut()
-                .map(|(_, name, suite, _)| (name.as_str(), suite))
-                .collect::<BTreeMap<&str, &mut TestSuite>>();
-            self.download_from_dropbox(dropbox_path, &contest.slug(), suites, destinations)?;
+        if !*only_scraped {
+            if let Some(dropbox_path) = dropbox_path {
+                let suites = outputs
+                    .iter_mut()
+                    .map(|(_, name, suite, _)| (name.as_str(), suite))
+                    .collect::<BTreeMap<&str, &mut TestSuite>>();
+                self.download_from_dropbox(dropbox_path, &contest.slug(), suites, destinations)?;
+            }
         }
         for (_, name, suite, path) in &outputs {
             suite.save(&name, path, self.stdout())?;

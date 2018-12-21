@@ -111,6 +111,12 @@ pub enum Opt {
     Download {
         #[structopt(raw(open_browser = "1"))]
         open_browser: bool,
+        #[structopt(
+            long = "only-scraped",
+            help = "Does not download official test cases",
+            raw(display_order = "2")
+        )]
+        only_scraped: bool,
         #[structopt(raw(service = r#"&["atcoder", "hackerrank", "yukicoder"], Kind::Option(1)"#))]
         service: Option<ServiceName>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -578,6 +584,7 @@ impl<T: Term> App<T> {
             }
             Opt::Download {
                 open_browser,
+                only_scraped,
                 service,
                 contest,
                 problems,
@@ -587,7 +594,17 @@ impl<T: Term> App<T> {
                 let config = Config::load(service, contest, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
-                let download_props = DownloadProps::new(&config, open_browser, problems);
+                let download_props = DownloadProps {
+                    contest: config.contest().to_owned(),
+                    problems: if problems.is_empty() {
+                        None
+                    } else {
+                        Some(problems)
+                    },
+                    destinations: config.download_destinations(None),
+                    open_browser,
+                    only_scraped,
+                };
                 match config.service() {
                     ServiceName::Atcoder => atcoder::download(sess_props, download_props),
                     ServiceName::Hackerrank => hackerrank::download(sess_props, download_props),

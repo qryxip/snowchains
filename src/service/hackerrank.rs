@@ -183,6 +183,7 @@ impl<T: Term> Hackerrank<T> {
             problems,
             destinations,
             open_browser,
+            only_scraped,
         } = download_props;
         let problems = problems.as_ref();
 
@@ -258,6 +259,9 @@ impl<T: Term> Hackerrank<T> {
             } else {
                 warn!("{:?}", model);
             }
+        }
+        if *only_scraped {
+            zip_targets.clear();
         }
 
         warn_unless_empty(self.stderr(), &cannot_view, "cannot be viewed")?;
