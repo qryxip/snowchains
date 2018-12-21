@@ -123,8 +123,8 @@ session:
     text_file_dir: tests/$service/$contest/{{snake}}
 
 judge:
-  jobs: 4
   testfile_extensions: [json, toml, yaml, yml]
+  # jobs: {jobs}
   display_limit: 1KiB
   shell:
     {shell}
@@ -277,6 +277,7 @@ languages:
             c = if enable_session_dropbox { "" } else { "# " },
             p = yaml::escape_string(session_dropbox_auth),
         ),
+        jobs = num_cpus::get(),
         shell = SHELL,
         exe = EXE,
         venv_python3 = VENV_PYTHON3,
@@ -463,7 +464,7 @@ impl Config {
         }
     }
 
-    pub(crate) fn judge_jobs(&self) -> NonZeroUsize {
+    pub(crate) fn judge_jobs(&self) -> Option<NonZeroUsize> {
         self.judge.jobs
     }
 
@@ -736,8 +737,8 @@ struct Download {
 
 #[derive(Serialize, Deserialize)]
 struct Judge {
-    jobs: NonZeroUsize,
     testfile_extensions: BTreeSet<SuiteFileExtension>,
+    jobs: Option<NonZeroUsize>,
     #[serde(serialize_with = "ser_size", deserialize_with = "de_size", default)]
     display_limit: Option<usize>,
     shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,

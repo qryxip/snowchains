@@ -262,7 +262,9 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
     } = params;
 
     let (cases, paths_formatted) = config.testcase_loader().load_merging(problem)?;
-    let jobs = jobs.unwrap_or_else(|| config.judge_jobs());
+    let jobs = jobs
+        .or_else(|| config.judge_jobs())
+        .unwrap_or_else(|| NonZeroUsize::new(1).unwrap());
     let display_limit = config.judge_display_limit();
     let tester_transpilations = cases.interactive_tester_transpilations();
     let tester_compilations = cases.interactive_tester_compilations();
