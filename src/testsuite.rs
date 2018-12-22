@@ -564,7 +564,7 @@ impl SimpleSuite {
                                 _ => false,
                             },
                         );
-                if all_valid {
+                if !cases.is_empty() && all_valid {
                     r = serde_yaml::to_string(&WithType::new(&self.head)).ser_context()?;
                     r += "\ncases:\n";
                     for SimpleSuiteSchemaCase {

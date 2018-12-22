@@ -6,11 +6,12 @@ mod text;
 use crate::config::Config;
 use crate::errors::{JudgeErrorKind, JudgeResult, TestSuiteResult};
 use crate::judging::command::JudgingCommand;
-use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
+use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
 use crate::testsuite::{SimpleCase, TestCase, TestCases};
 use crate::util::std_unstable::AsMillis_;
 
 use futures::{Future, Sink as _Sink, Stream as _Stream};
+use itertools::Itertools;
 use tokio::runtime::Runtime;
 
 use std::io::{self, BufRead};
@@ -78,7 +79,7 @@ pub(crate) fn accepts(
             stdin.read_to_string(&mut output)?;
             let outcome = simple::accepts(&case, &output);
             if outcome.failure() {
-                outcome.print_details(&mut stderr)?;
+                outcome.print_details(config.judge_display_limit(), &mut stderr)?;
                 stderr.flush()?;
                 Err(JudgeErrorKind::TestFailed(1, 1).into())
             } else {
@@ -118,8 +119,10 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
         O: Outcome + Send + 'static,
         F: Future<Item = O, Error = io::Error> + Send + 'static,
     >(
-        (mut stdout, mut stderr): (impl TermOut, impl TermOut),
+        mut stdout: impl TermOut,
+        mut stderr: impl TermOut,
         jobs: NonZeroUsize,
+        display_limit: Option<usize>,
         cases: Vec<C>,
         solver: &Arc<JudgingCommand>,
         judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<F>,
@@ -130,7 +133,7 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
 
         let mut cases = names
             .into_iter()
-            .zip(cases)
+            .zip_eq(cases)
             .enumerate()
             .map(|(i, (name, case))| (i, name, case));
 
@@ -210,7 +213,7 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
             for (i, name, outcome) in outcomes {
                 writeln!(stdout)?;
                 outcome.print_title(&mut stdout, i + 1, num_cases, &name, None)?;
-                outcome.print_details(&mut stdout)?;
+                outcome.print_details(display_limit, &mut stdout)?;
             }
             stdout.flush()?;
             Err(JudgeErrorKind::TestFailed(num_failures, num_cases).into())
@@ -259,7 +262,10 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
     } = params;
 
     let (cases, paths_formatted) = config.testcase_loader().load_merging(problem)?;
-    let jobs = jobs.unwrap_or_else(|| config.judge_jobs());
+    let jobs = jobs
+        .or_else(|| config.judge_jobs())
+        .unwrap_or_else(|| NonZeroUsize::new(1).unwrap());
+    let display_limit = config.judge_display_limit();
     let tester_transpilations = cases.interactive_tester_transpilations();
     let tester_compilations = cases.interactive_tester_compilations();
     let solver = config.solver(language)?.expand(&problem)?;
@@ -292,10 +298,26 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
     solver.write_info(&mut stdout, &paths_formatted)?;
     stdout.flush()?;
 
-    let (out, solver) = ((stdout, stderr), Arc::new(solver));
+    let solver = Arc::new(solver);
     match cases {
-        TestCases::Simple(cases) => judge_all(out, jobs, cases, &solver, simple::judge),
-        TestCases::Interactive(cases) => judge_all(out, jobs, cases, &solver, interactive::judge),
+        TestCases::Simple(cases) => judge_all(
+            stdout,
+            stderr,
+            jobs,
+            display_limit,
+            cases,
+            &solver,
+            simple::judge,
+        ),
+        TestCases::Interactive(cases) => judge_all(
+            stdout,
+            stderr,
+            jobs,
+            display_limit,
+            cases,
+            &solver,
+            interactive::judge,
+        ),
     }
 }
 
@@ -312,7 +334,7 @@ pub(crate) struct JudgeParams<'a, O: TermOut, E: TermOut> {
 pub(self) trait Outcome: fmt::Display {
     fn failure(&self) -> bool;
     fn color(&self) -> u8;
-    fn print_details(&self, out: impl TermOut) -> io::Result<()>;
+    fn print_details(&self, display_limit: Option<usize>, out: impl TermOut) -> io::Result<()>;
 
     fn print_title(
         &self,
@@ -346,4 +368,20 @@ impl DisplayableNum for usize {
         }
         r
     }
+}
+
+pub(self) fn writeln_size(mut out: impl WriteAnsi, size: usize) -> io::Result<()> {
+    let gib = size / 2usize.pow(30);
+    let mib = (size / 2usize.pow(20)) & 0x3ff;
+    let kib = (size / 2usize.pow(10)) & 0x3ff;
+    let b = size & 0x3ff;
+    out.with_reset(|out| {
+        out.fg(11)?.bold()?;
+        match (gib, mib, kib, b) {
+            (0, 0, 0, b) => writeln!(out, "{}B", b),
+            (0, 0, k, b) => writeln!(out, "{}.{}KiB", k, b / 0x67),
+            (0, m, k, _) => writeln!(out, "{}.{}MiB", m, k / 0x67),
+            (g, m, _, _) => writeln!(out, "{}.{}GiB", g, m / 0x67),
+        }
+    })
 }

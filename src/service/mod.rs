@@ -34,7 +34,6 @@ use zip::ZipArchive;
 use std::collections::HashMap;
 use std::io::{self, Cursor, Write as _Write};
 use std::ops::Deref;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{cmp, fmt, mem, slice};
@@ -139,40 +138,39 @@ pub(self) trait ExtractZip {
             .into_par_iter()
             .map(|i| {
                 let mut zip = zip.clone();
-                let (filename, content) = {
+                let (filename, filename_sanitized, content) = {
                     let file = zip.by_index(i)?;
-                    let filename = file.sanitized_name().to_string_lossy().into_owned();
+                    let filename = file.name().to_owned();
+                    let filename_sanitized = file.sanitized_name();
                     let cap = file.size() as usize + 1;
                     let content = util::string_from_read(file, cap)?;
-                    (filename, content)
+                    (filename, filename_sanitized, content)
                 };
                 if let Some(caps) = in_entry.captures(&filename) {
-                    let name = caps.get(*in_match_group).unwrap().as_str().to_owned();
+                    let name = caps[*in_match_group].to_owned();
                     let content = if *in_crlf_to_lf && content.contains("\r\n") {
                         content.replace("\r\n", "\n")
                     } else {
                         content
                     };
-                    let filename = PathBuf::from(&filename);
                     let mut pairs = pairs.lock().unwrap();
                     if let Some((_, output)) = pairs.remove(&name) {
-                        pairs.insert(name, (Some((filename, content)), output));
+                        pairs.insert(name, (Some((filename_sanitized, content)), output));
                     } else {
-                        pairs.insert(name, (Some((filename, content)), None));
+                        pairs.insert(name, (Some((filename_sanitized, content)), None));
                     }
                 } else if let Some(caps) = out_entry.captures(&filename) {
-                    let name = caps.get(*out_match_group).unwrap().as_str().to_owned();
+                    let name = caps[*out_match_group].to_owned();
                     let content = if *out_crlf_to_lf && content.contains("\r\n") {
                         content.replace("\r\n", "\n")
                     } else {
                         content
                     };
-                    let filename = PathBuf::from(filename);
                     let mut pairs = pairs.lock().unwrap();
                     if let Some((input, _)) = pairs.remove(&name) {
-                        pairs.insert(name, (input, Some((filename, content))));
+                        pairs.insert(name, (input, Some((filename_sanitized, content))));
                     } else {
-                        pairs.insert(name, (None, Some((filename, content))));
+                        pairs.insert(name, (None, Some((filename_sanitized, content))));
                     }
                 }
                 Ok(())
@@ -332,26 +330,14 @@ pub(self) fn reqwest_client(
 }
 
 pub(crate) struct DownloadProps<C: Contest> {
-    pub(self) contest: C,
-    pub(self) problems: Option<Vec<String>>,
-    pub(self) destinations: DownloadDestinations,
-    pub(self) open_browser: bool,
+    pub(crate) contest: C,
+    pub(crate) problems: Option<Vec<String>>,
+    pub(crate) destinations: DownloadDestinations,
+    pub(crate) open_browser: bool,
+    pub(crate) only_scraped: bool,
 }
 
 impl DownloadProps<String> {
-    pub(crate) fn new(config: &Config, open_browser: bool, problems: Vec<String>) -> Self {
-        Self {
-            contest: config.contest().to_owned(),
-            problems: if problems.is_empty() {
-                None
-            } else {
-                Some(problems)
-            },
-            destinations: config.download_destinations(None),
-            open_browser,
-        }
-    }
-
     pub(self) fn convert_contest_and_problems<C: Contest>(
         self,
         conversion: ProblemNameConversion,
@@ -363,6 +349,7 @@ impl DownloadProps<String> {
                 .map(|ps| ps.into_iter().map(|p| conversion.convert(&p)).collect()),
             destinations: self.destinations,
             open_browser: self.open_browser,
+            only_scraped: self.only_scraped,
         }
     }
 }

@@ -1,44 +1,55 @@
 dist: trusty
 language: rust
 sudo: true
+addons:
+  apt:
+    packages:
+      - libssl-dev
 
 rust:
   - stable
 
 env:
   global:
-    - TARGET=snowchains
     - RUST_BACKTRACE=full
-    - secure: "A5yvisGqB44Y32RQf0PjohykmnMqP+fJoG+aQGlsuLiiqhPpIdiojHMOrqaPJ+vI7ckTxF4KiCut8ZNCrSyyLl5oyuzWuJggv2P/+R2Hvo9iI17pXk+4iTfFg4ZCtEiK1lbTmQP/W5oBXVh077VIYGSkCvJTwISrwEyUjqH/JOJTEZdBXYa8qXYvFLUm0bNvi9UhxJcTHTbT9ieaL8Zkil/A9I2KpgIc5uv5vU0QIwPH2gh7m3NgJWV5msQIpAaSt/W1H+kk50UBbzuYw4uJLuzSLMF2UTNrORhQXqnVZuCuLfO4BgM/YrO9tGTg02wRAGxlbqr6IdWd9AaOvPXVIuezGIeixID+GYld6t4G8mngIG9gxbvxxzjZOjCZCvGFapK+Z8vLm05KEy8SIilnj1nF3C/V/ZJOtBAqR1vOhx6lowW62tbCNHTnqBPpprzrbV+ok+w6eFr8bM1E1m+fxFbOrCru3nV6yDYIhPwQDlCLbnKERu/VouIQlrNAjISgM8aVhZW0fzY9ASl+rKFYTJVV47t4sxtdqSTyqe3E4ALX7iKmj7cwFn+DualSkGob1T1jC/ROmYD4VfEXjjqnf+Kt3AOOaydkguoo3imvW9zP+/jGzvVlcJXGJxpqZI3XWJrxD7qWr8tPzqIxvdlsbSu9YIxpydxKhAAWTCU2pZI="
-    - secure: "aasanQPpJeFF8sdD7boa8mIh9howkSJ/AcYzSQeNYue4Frb2mWQFMQFWFGcNzitgyZedunt5BaO21EAt/YX1ZB8SCpOExG12QqngEb3XoKg0ws4G3U5fcTVffIE+uX+aCX/Y7zgvfTQtsqB20uHO5vzt7Uca3JWjGWpzYCeRpjviJC/ZdrlIAdu665tFr4yKpvHOHF8N+ICqZ05I6egKGcKP2vhzoZNWvO/K1E+js08fTfUOyuQHWqFB2evtZPnkOJdGwDC7OeFV17wUy2eAkUrsAzHcCDho5XndQf4hBe+bTqSBXXDj4aSwkS+EFrgG06DWqF6yEgKwzVNxGToE+AK71Ig/eLM/s6qR+kWkncVEGzTUyLJBHD19NB3fhUlZdvIC0daU7ex7mO0dXwPFQgnpV+HiJAVyM4rbLcSvQ5o7ha3O92G0UCHc9VXxAWmPZrbtABF9iEeyT3BnXdOK3BH3eX8itFiaC3Ej0SA8WIGgU8k2Y6v+frDGyCeCD6DEEcpZl/4GWS0hUEUC4Zuvi6Ape5mKqwITDOvRQP4+i9dQrvuM7euobKKXOOusLoeZxYAUjf6ZGfGU7zKSttdRb4NNPyfEdH/9v9IJ+t1ZlUT9DVf/xnxw69rj4mLm+Rry0XP3u4QvVGasHecWHfX1HpjiPAcdY7+KlB437pE9QtI="
-    - secure: "emgGIZerbiMdZbnMxrw1XGMHNMyQwJuNMk8kyedBAMt0LM9okccLJ7h2odqufhacZQ/Avk3Fnj4xM5EoG/HRm4msC7lgdtuWh9xSt/cq9/Hp1vXcHVgHvce86wREOfFk8urIDRRa3mspkxnmPgakjikaLPI/uWIUgCgSDHINk7kDgUbaLIZuZW/ND/eW0GSJs7ZtltX8l25b1ukoboiRkCJdD70SVBzdpLXwjUy6rp9b4uMoYdLu6Ls8sXNud/Eqko+t/9tymXi4WIp0DtObOeXteRU0mZbUyzH2xXEzIcRZvDzGo/LMmo8KA6aVWh1nzlNM6WtYxs0dRRhqnt22FrjvaUp0lbKMu9NrvG7kVGu1aOeaG7p6A9eOfZIxanqIndimUnBCJ/hAKwLfE6JfnSt+KDZQKtKGfXafymAkZNcaSvdaaDZvrIzrsbfxXbxKNh+JrlV6YGEiwazYq3ki4sqzgsz50HcOWRu9piAor+W2pXuqmj84wk6Wt8kt23IjfsUeqCZBaKpZWpR9WjGJVzb4YHuRDO1/0j0si6bgJ/09tK4sDpkiJmamWJT3DajEZZnB2nzc+FhGip4LlGusHRdDOG1kYYRTBzz34xj6SUgewMxscu0wdEDhYrlaAb9bYbc80I4Yw/uAZbn9h15MO+DzXKLuC5u9/15tAlU2SKI="
-    - secure: "K+qMo8RKTYmhGR1GsKNUlTzf+Wh/WOEOaoEO+PBJ7TuoJfRSqkC03XKT4QtLixXF8UYahLB0RvH/b3gIkcUcwdLNVAfVe0OmLlyskqNPfbW6NG6mcslc6bYabPb0XD9ARrI9XhHR/EDIRQIzdIy04kVLgSI6ChDGwfqsZrZa4cHD8gAFJf5RLi4NO0pO5D0g15ZpVtvkJvBA0d8+87iYCI3EOGFy7LSP0B4p+gcmMujmBhcWJID77EOEr5sJZExlDgHNujC1KVwuzt2uQdrQKqvSXYZKlF43nwLkXSbGVQNydYUCzWGAgqrH6G0Tk4rjXNOFUurIB7FSiV0GzcOFoRRWyCUqtIXH5fPhw7/DSe5tyHE4HN93SbENhTKqKtNITj6LOzcE+T3X0CDHgYJFJ8d7giDS/JhLZDucURkxrvKLBeyOp5+1Y6YmYfD8Fgl7C1Wh3Elnwo4jcJu2gj1ReHhtAB4HEkPhZkRV6nf2O0Rf5I0w4exkPeW0z5RhhvKcqKXkh1VB4tUSuKf+KnjygXDDi/k4qeHbjRJKtGkmCdej5JS5ZY8bkEUzVq13jqfWA8wRlZwa3Zn+ybPvJIndaIfCIkkRJ+fsJFNiLVgaKzIkAZJAki++6AwNB5bF1U9YZuF334qbfLuT2BXIBN2IfcC7nAweGDGmtAe2mHM9tCg="
-    - secure: "ZJcbftrLWXVFp6E8aIAHOKrU0hCGpoEiaQB0roqJeOeNG+mfuT5TtITqZKBf7r4j1YdX0dowmbGSKb+jU7Xh5surwywh11OqG34lo+7fr4zGttoQDKB/s0o18ipoqfhT/E8kDmuaHHtwezdfVzdr6rE2wTyXBWvbyiFYjh+hgHerAf8itxaa4uxbdWY5kBfPq6sA7+MXzVrbi/mkaKLFNowgEGQUMDzkht0lSqpFIWv/ivNne21oDDWjQcGJy/VZvypaKaSltPzNmygrHoYtz8nEzQo6tuGRbK6ThY2WYKh2STNG2acxlMMYveiq4SHIcm4j8DMiynFUeG9J822kelPtGn0YcZwvQdVYmBPSRVD67akVNpH9V4019Q32yhmziewtOTGLkWYzSkOUheyTacp+AGuIXBO/LN1kltWnFTjGqP2AhpVWrI6apoS4XOuev4mxupcoj5KPse9TGImukkB9agkvckeOzD1meQeFTTPXarrBN3kgfOgX79+UBknAR/9eSJFVBRTQSUX1UcXH3o3wkRUoAIVl6u6z5AHK0qiQ5gtYpc1LyHKDlQf2Z7+bsVr028EPeYPZivY3XBYUwFtpgHHKEsjWiulod1iTsscHVkt7hWR9mGuy+pD2DW93t2Q2UI7NlT+BQ1V+0V72GmaALyUm54CxUIrWs4wGK2g="
-    - secure: "SQTThnhlVz5iLwa5SbDbsDtNm+lURRLTpuw/1IwnSmtC8pcMNlw56HK8n8PQj2H8LyEQUr/q7hum1/XmOg9Ex3sYh3VdXO59xoZwuImd33uHACNDISzZxJ+jHHwUFMgo32R0Lkz7oNQwMoiK0qjXDESk0thaS8GBW2JBdRH9bpNRup3ukoJtkI1LYyXb5aZ3gKMGXUv0iGJYxnaq4Tkhf6+TZd5G8SdQtaDu2G29gW8GEfpdC186XpiF/reMS6Cu3u2NWd3Se1M0JVBdcqau95ti5fBe6iEmzZzRWo0ac0ODOIDC5cMBC+nCUeHU86eX0uw9cAi4ZN1ehnIIPPK0swYyDaEsYzHqRRkmZPfSIevVTsv18mv7yTKfZ+vB1MD7mqrIzvQUiKlHhJkKiVmLNhYnLJ3bXgkiPDz8q6I4Tv703bYYSm2CFko2fVWYAhDZDGZ7H71S9oBTXTKZmZTk2napLV9YMcnDFPiikDadU5gED1qEPJH/Hi023X9LqrRzjktATO5EmletBfMg/H+dTGz0AvkeGO0os5lZOJOGpcZQypauphdmcXPc/LPnmEXaKr0oipcNkV0oeya+7KCMSejDc+C+OTPx3PO2jV4TrOlG6ATbynrhRzT1dDd6/phQC0a1aBLnuDOWDDojHkvy+cYo/US8bkUOzy0lOz9Aa1o="
+    - secure: "Pd/1aneEheqb/Wh43n70bSoiWQqcPHJTM5UkTwdvur1DNgab7G+qRRU6P27/9wPo9fkvc7+NfN6SEerX9sJu1pSVou/3b1l9cAqcgNWYln5dSOSmOU1x7LDOoVZxJrHBHxdQTMWW3LDsKHNrn/lRLVOkHba7QLf4AxAvC+oil8F02jnAMh8kaU5cPMrQ7Y+nF+qk1SXC5Sat1WnW5IamWN6pkh+YKQ8potA5C4Or3mN905hyqkKz1xyDq7pmpVjvM3eoMAWHQ6v94l5bqoUMfc9LBsPukYPpBbcbR9skuRJYehvw110LzPc1QQhdIrrWqXGKckeEPu+A87sRbVQor6lwKHVaOfmQOnbzUYOTqxPMMVNCvlAsy6DbfnLb7oUIwtS4cZipjmPxybAo5EsBip7ksg+st9jnEW9vW376TlNgu/2kgKGBWOJC05lC+o/YPC7ISa99Ls/+ctZWQps16Zal0nemsmmAytpvBGYwB0zooD0ow4M5I7k26qiZxorXnGcx7ZVkHOiOT4jGc09YMrJgp+0/wZ+5uci6BvW1e/jgz7scIMLGYIkUr0la7QUL2hsvABqFPHf4lHMJqhn6og4CqbRDQLSm6cLjL9pjKucQG4xcBC2Vmvo2br24Cfom6FoX64j5brp7/m02y7/wWptH+/hcIXsztlmLsS/S79Q="
+    - secure: "rd1UiLdzPPMuH/CwQPkYBQSv/CvR2mXkDGANkvOpaGC4Ch0NQoaG+/LWylN/8GCEaWjkBkHvTqNvxcGqjt+MCbHmVoUPZ0T30HBxaLWE725r57bKi+yk6CT6g7YCqlMXMabaCMo07AjDKnIt0LrbBmdU7PFuYCZTkIu0Sl/DN/c+ZG1P5+n/m3J3L9MxVabTmfvs8xsxIBOjlPGxmOX7C7fgeDSVRcSjwvE7lZBZF5hVupXrsAgnU/Ts0K2i6EaMkC5Zj4A7KUNtK2sV9ucssdceemD+rG4TSdnc4wZbkxi/eyYdKVvY1WPo8vp0brC89ftmEMzGgt4Gcat1pNz5aNL3wXf6kPEmIQbWbYud2tEXti0X6hZIwiA0RO4o8i2dSH62M/SsOuyxGYzN+QEbeVOnLVljfFW59J3v5VcJCm5Ce9zswCJ9xRwlbG+D/UleCgn7Weq66Ke4VUlPoD5Xi9CWoV8gjhh0hZd9P/UeQ1wdUCt9lZNrUSPUMEBT2h2X+sru0zQ/+QoRgcHqbxp1ZVTTCWXBIOZA4Q5sTdh2OPtkzVv/yCEVoWqySi8zxEE9GommMeFUlQK8ZCa/kqA3TW57vYaBQPaCVxYCPJDSpcwkHeKwGQizT4MYjRaiSs9L0koeKh19jYPooa8N3wTo6p/6sZumPIubHJTlLkt1vdk="
+    - secure: "o2T1i38r32YQW9W38xVFxp/0nZdkvkgb/LY8/co/a/RtXcKw6yY2cRBBYwaTIuUG8pVx/ilITBLE0iOHfwI9wKqOPD3/iYSQyY4liVyP/hlrikxewjMJQuxQ9Ul55d4Ik+XqGpCE/+i30Ct/TbTqp7ltKl7adShfMaryzZJ3HvuTmg6wiKDQDmlRRRqGJPPYs2qqGSQ2s7tAlESU413cLiCNFra96WqQYrVWgt7zvpf1uf+8EHq9SGxt9zvY9UKiZwqzglMvP4HO8T0km20B3Qjo6zW4e99YS7JmkVl04CA62kd8OyAn4x/fNSRug7+uyqW3ypVwo1/cP8/pnQUnYE+CvE/JuVUPMU5/GNTYCQogN3jUh54b67fxm03tTGxB1IcF23Kt/bWtFePsUfwdM2Dyc7mZ28zWgroIXGe9FGpn0sZEw/PzQALF5I9dRuk0AnnQnvXN6U77zaDd/IoO6fjrF02FTnIRoTAxEojdxVDTedKORw4K3WAXy10IAmo522/tFQS809Edyg2m/KxPyvjuZqHW9vJnAAquVlYuwQc65pCU87B1J57FKkZP2+/X2h9C53BrEAH1ELRuubetu+5eW+Vr/3jowlzLpmC84dDb3RZCPICDBGNYv+v5ilewSQwSVstshcEJYOPon0KVKuJzBvxGbJSbXfoJEzyu+8U="
+    - secure: "p4kQ4NcjRQaM32Mond+mkEKNDV4j6K68XYofvhOhH+iWsicuNqLWYIuaxjEGLVdDrUtk9qaNGog0ys9lnkEyFa/9WCdUEN+g2cSBR4NowDGIg4aBvobPW66wlZM6ZJptst0t/FNtbjXt/agDvSsB3bs1gYnuLA7QjvhwIXBLeH2uVhfYMaPlZxXkeHNHAIymCKysFc2q0AVQOXzPn4KrlAYnN1aeKooZvWZdAgw6SQUF5EBbTM8wiP3emJSCERdmwvh1H5rTxVN5DMBB1PZZ8OMAQA4c7zLAFJHcIAfm/FzQiOSn4N7n19mcDT400sNv+g38Smf4tbhx2EPB+G9Ao/rZpc1Qx4+xqnWLyjJN8VyrWYv/eE2ARdQ1Q9LejAIOfsTdSmpTyorzXPl9cxKj1oolqChHhtIP36OT8pynxc3UalL6MGNoLUaoBreOqRrw9fzbssSbiuAlr8s6z4eatKmz7QmxpTTVjj3kWD7fbiGnt89LXcEgoW2PEbwIO3BHHV38WiMO9g/l+cAmrOcACEJSS6x9v5E4VWXwsI1/JgrPGFqTSGpx7SuYzuqis9zFzondJ1Hzrgeyy4wcm6b2f99teplVyev2XgdP1dKorveEUSP69+TIUGrCIGmJ2sLw/Rpy6aRl70ryBqUTZchSJlzxU21okp5sLH1sdDDG3Yo="
+    - secure: "aMdRt1SQlKqozFQDjm9hZxNZW4w48nIIZ75erJ2fkS32oDmmBcMjwt+lt8IeZ7IT45r1HYYjXyeVVVEFbswbG85WNBWRj9lVVH4P6k8DPRbk+ywZU39hBwfRE9crZJ+dxk+0V6sVULGts88wWTFYFt/FS07pfLiV4mrQJPpT94/Nho+8Yjk4sNYO13wwESEtLy3Maqp12qDPUyMA7kMEdhurUMJIClcrYaShyH0Wg1fHyMYnuaS4ubXFo5tvGqg3FSAIoLJz4eIzu+g6wzWjdFkRrPAl/whZt/c+JGPwFEFkVRmMTWTqG/TQGPKMbvtcCY0baoX6cVMNYxH7ckboeMk6nvoEapCq/nydmMybP406daQ4mHFcLc79MXVZylPFRz2Y+n8A8+nJh4BI6d5oINx0cyu+nJjx8SxeWyPRMDU++X3vkSOAUcVnRojrOGq+WUz1NzCMI1KH5ta3pXxHIjgQZES1PVi+IEcDEXK/3CPy+wW6aEWBIMgnFfzVxahzjoevZwxHUqKwLOimd+3zwX/8pnhqxZFoM/TyjeHQZJqMF9Tkx8Yg3GtzMVKY1sjTvpxGILy0yFsuDuo+QfM61CHyKyAty3KF/012g9zhBcxLvjVIS19BtrRfjjG6RQ1U8aS9tzuBSO2XcYhw1H3sHu2ep0bAUdbPbQ2VKc4CxTk="
+    - secure: "bBt9tYr/PLZYRY5MxuSTHGN0Ivf63bEzcL0N6VXsjIw5ykB+5hhqEtgd2HIr80g24hs9etLGFmD1EDW/a/0WESkzXXqC8R6wisx+fRaIuO+5+uW51b3osvn8RTgKTl03zilSym+5dZnyNDpJlnUugj6U+r/gkVgNXMFETZrnUfZjkMz4X02LSglhUhECrxRnxvvVr6WvSF5T2mh0zEdiGskggsM99dUtyMv/fePACzoCyZZ/wIywZcnHtLIqA2c8vnhFI7gtEQcD9gd5uINSxFWljIYOS9CHDC4Jxi7hOxXq4gQcFZbYMlNZOsyuVsi+K1+WPju71XQ5rHBdBG7tR8y79lxdO3NP9ZTkRVfO3c5SA578Vi6OOTCs5hTC7xF9SvmcU828DNEv19mR3LJNnHVBaP42mpPs+fZE7H2tXGpV+wVaERknvmNWgPBv/BcPMzThtBlpJUvbalDb2Vg9egGEsHuiNHw9cJNNqGxeldtvvz9av42wc3kNiA7ghHDCK27T1f6Dy6XRTriEn9eS/UUjeUvyIp3EzkMFg/KaYIF6EzCWNYvFI3qUNtz4faFiNuAV9MG6E7JWzQMZKvMaVnjjdllT5YGXb9WsRmM0Pr17OsbZSG2494dRd2WKqZRlcIA4UXAdRba8V3dGzsBCgTEzHHDNtTuSMY1YmR4DYnE="
 
 matrix:
   include:
     - os: linux
-      env: RUSTUP_HOST=x86_64-unknown-linux-gnu
+      env: |
+        TARGET=snowchains
+        RUSTUP_HOST=x86_64-unknown-linux-gnu
     - os: osx
-      env: RUSTUP_HOST=x86_64-apple-darwin
+      env: |
+        TARGET=snowchains
+        RUSTUP_HOST=x86_64-apple-darwin
+    - os: windows
+      env: |
+        TARGET=snowchains.exe
+        RUSTUP_HOST=x86_64-pc-windows-msvc
 
 install:
   - rustup self update
   - rustup set default-host $RUSTUP_HOST
   - rustup update $TRAVIS_RUST_VERSION
-  - rustup component add clippy-preview rustfmt-preview
+  - rustup component add clippy rustfmt
   - rustc -vV
   - cargo -vV
   - cargo clippy -V
   - rustfmt -V
   - |
     if [ "${RUSTUP_HOST}" = x86_64-unknown-linux-gnu -a "${TRAVIS_BRANCH}" = master -a "${TRAVIS_PULL_REQUEST}" = false ]; then
-      sudo apt-get install -y cmake g++ pkg-config jq libcurl4-openssl-dev libelf-dev libdw-dev binutils-dev &&
-      cargo install cargo-kcov &&
-      cargo kcov --print-install-kcov-sh | sh &&
-      kcov --version &&
-      cargo kcov -V
+      rustup install nightly &&
+      RUSTFLAGS="--cfg procmacro2_semver_exempt" cargo +nightly install cargo-tarpaulin &&
+      rustc +nightly -vV &&
+      cargo +nightly -vV &&
+      cargo +nightly tarpaulin -V
     fi
 
 script:
@@ -46,10 +57,8 @@ script:
   - sh -c 'cd ./proc_macros && cargo clippy -- -D warnings'
   - cargo clippy --all-targets -- -D warnings
   - |
-    if [ -f ~/.cargo/bin/cargo-kcov ]; then
-      rm -r ./target &&
-      cargo kcov --coveralls -- --include-path=./src/,./tests/ &&
-      cargo clean
+    if [ -f ~/.cargo/bin/cargo-tarpaulin ]; then
+      cargo tarpaulin --all --ignored --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
     elif [ "${TRAVIS_SECURE_ENV_VARS}" = true ]; then
       cargo test --all
     else
@@ -61,18 +70,27 @@ before_deploy:
   - tar --help
   - cargo build --release
   - mv ./target/release/$TARGET ./
-  - cd $TRAVIS_BUILD_DIR/../
+  - cd $TRAVIS_BUILD_DIR/..
   - PROJECT="${TRAVIS_REPO_SLUG##*/}"
-  - TAR=$TARGET-$TRAVIS_TAG-$RUSTUP_HOST.tar.gz
-  - tar czvf $TAR $PROJECT/$TARGET $PROJECT/LICENSE $PROJECT/README.md
-  - mv $TAR $TRAVIS_BUILD_DIR/
+  - ZIP="$PROJECT-$TRAVIS_TAG-$RUSTUP_HOST.zip"
+  - TAR="$PROJECT-$TRAVIS_TAG-$RUSTUP_HOST.tar.gz"
+  - FILES="$PROJECT/$TARGET $PROJECT/LICENSE $PROJECT/README.md"
+  - |
+    if [ "${TRAVIS_OS_NAME}" = windows ]; then
+      7z a $ZIP $FILES &&
+      7z l $ZIP &&
+      mv $ZIP $TRAVIS_BUILD_DIR/
+    else
+      tar czvf $TAR $FILES &&
+      mv $TAR $TRAVIS_BUILD_DIR/
+    fi
   - cd $TRAVIS_BUILD_DIR
 
 deploy:
   provider: releases
   api_key:
-    secure: "kGJlDoXsyODaXd4nXLfiAYNp9YbHbf0zSrZkLy3BYIK91jJeWWZGOk5YihINQuBMTu4qJflLwStvaJhKLcJTjfZXMCX08ND2D4kPEcIq9F1Fi4hpe+PuLIO6ox+L7X/veTELIG6iDhCr7en48+7YfziJRQnXkfws6VBiW2UAuPJ3BXeNq8c3rvFlJCcxQ1YUL6IIOXG9iAwb5ejzQXJ+CVVos7PDBHvnF3RP/2cweEevkEutWSFbJD+/9fZ+45tz1DdiqixqyB7ipakfIOLyNnZw9BPgsCisHHz3iYhxTirPkKMCaB8C7C5CZ304Y0KZjer7iAH4xkToUUJwbzRYhFOJw5Hi5xG3l8iHeDd1YC2f+bj+StLQsO6m16XMhwYhmvn2x5eQXf6Iz0D5qKAaS5dgZYQ0oON6kkfUULMAxSKua5KyrtTA9aepHjbnyirMdWq8deotfJ+eTwmsY9jfKnf5QWCPXyXWs9kjotgPPOOeL+fw3cP2MbVj2zP+auGynjrnSv7nyBbHEZuofX8e4VMzE/zvGQoJMuhchckEpdDd3RqQ762IViUU6cgTV15t3Q0JY1issvvNo2S36LRNpNbXJykGPodWK0XN56heYFQqwhXyl5xHY8mVkshKKGtRNLAwm9oBGS20nYt90VBotAWOfWO+GzKjOUvMC2CMUvQ="
-  file: '*.tar.gz'
+    secure: "XAis0lOhyyMU7IjlDVTMcsOolG7ZYwBhKuTxX5pK82dgUmLijxgMVF3zcRifoWUuL9fXiDh6jDUkDPOFyv0SpUauMk5fVqvr7zmRKic1srRBsRFPW9UvOqDx5kg+MeO7NQJPFARyDzwNyl+Sb7WONslFfiysLW4YBruFgQCgaHay0G9icdRq9czJzKqAticLec7421w9bt9Rj3XmuoLck72AWbaT94H/hH0DTNHcZ4bIFfoZVW5D6swSGrUrNxrKQLbd40aJ8tNHZS/PnEnmsu0iS9NXbIwQys5w420MgP2mz3lg4c/FXf//2FjpgmKxFKEEbRnTw+BSjDWKxw2hJv1ojDNxsWymxfVwRdGWj2uXcRz9Lu1d49G1xxjnzak9Y+KYOKkAOeZ7RV0NUGWsUzT14trb7Ug4QEfp9tY1dKbZ4Nuos4+rreBjSyjUF70eXLncwWzNmuPnsmNcPa8jygQAqwAw01XMZu1grSRLmlOUW7eazpwp4WHgd66Hio0Y8mjQwZD+0pbedt1LND939vT/FrlOu6EYbRvCQpJSNBbfVB5ThZzaTrxZhHEq/IgHklSk3OELO0lOTox/jeZ2AKcoV2xZ7rscAUnbb4fJ9cR5IsXHIi2SfLKgGKqt5rlLU0f96C8uG3XUAWz1yi2Gr9afSGDbNYcD1GXPy2IjBH8="
+  file: "*.{tar.gz,zip}"
   file_glob: true
   skip_cleanup: true
   on:
@@ -85,4 +103,4 @@ notifications:
 branches:
   only:
     - master
-    - /^v\d+\.\d+\.\d+.*$/
+    - "/^v\\d+\\.\\d+\\.\\d+.*$/"

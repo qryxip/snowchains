@@ -18,15 +18,16 @@ pub(super) trait PrintAligned: Width {
 #[cfg_attr(test, derive(Debug))]
 #[derive(Clone, PartialEq)]
 pub(super) struct Text {
+    size: usize,
     lines: Vec<Line<Word>>,
 }
 
 impl Text {
-    pub fn exact(s: &str) -> Self {
+    pub(crate) fn exact(s: &str) -> Self {
         Self::new(s, |s| Word::Plain(Arc::new(s)))
     }
 
-    pub fn new(s: &str, on_plain: impl Fn(String) -> Word) -> Self {
+    pub(crate) fn new(s: &str, on_plain: impl Fn(String) -> Word) -> Self {
         use combine::char::char;
         use combine::{choice, eof, many, many1, satisfy};
 
@@ -67,22 +68,27 @@ impl Text {
                     Line { words }
                 })
         };
+        let size = s.len();
         let (mut lines, mut s) = (vec![], s);
         loop {
             let (line, rest_s) = line_parser.parse(s).unwrap();
             lines.push(line);
             s = rest_s;
             if s.is_empty() {
-                break Self { lines };
+                break Self { size, lines };
             }
         }
     }
 
-    pub fn lines(&self) -> &[Line<Word>] {
+    pub(crate) fn size(&self) -> usize {
+        self.size
+    }
+
+    pub(crate) fn lines(&self) -> &[Line<Word>] {
         &self.lines
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.lines.is_empty() || self.lines.len() == 1 && {
             let Line { words } = &self.lines[0];
             match words.as_slice() {
@@ -270,18 +276,21 @@ mod tests {
                           \t  \n";
         assert_eq!(
             Text::exact(S),
-            text(&[
-                &with_spaces(&[plain("a"), plain("b"), plain("1")]),
-                &with_spaces(&[plain("ccc"), plain("2")]),
-                &[lead_trail(2), tab(1), lead_trail(2)],
-            ]),
+            text(
+                18,
+                &[
+                    &with_spaces(&[plain("a"), plain("b"), plain("1")]),
+                    &with_spaces(&[plain("ccc"), plain("2")]),
+                    &[lead_trail(2), tab(1), lead_trail(2)],
+                ]
+            ),
         );
-        assert_eq!(Text::exact(""), text(&[&[Word::Noeol]]));
+        assert_eq!(Text::exact(""), text(0, &[&[Word::Noeol]]));
     }
 
-    fn text(words: &[&[Word]]) -> Text {
+    fn text(size: usize, words: &[&[Word]]) -> Text {
         let lines = words.iter().map(|ws| Line { words: ws.to_vec() }).collect();
-        Text { lines }
+        Text { size, lines }
     }
 
     fn with_spaces(words: &[Word]) -> Vec<Word> {

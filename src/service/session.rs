@@ -642,42 +642,59 @@ mod tests {
     use crate::service::session::{HttpSession, UrlBase};
     use crate::terminal::tests::Ansi;
 
+    use futures::Future as _Future;
     use if_chain::if_chain;
-    use nickel::{Nickel, _middleware_inner, _router_inner, as_block, as_pat, middleware, router};
-    use reqwest::header;
+    use reqwest::StatusCode;
     use tempdir::TempDir;
     use tokio::runtime::Runtime;
     use url::Host;
+    use warp::Filter as _Filter;
 
     use std::io::{self, Cursor};
     use std::net::Ipv4Addr;
+    use std::ops::Deref as _Deref;
     use std::{panic, str};
 
     #[test]
     fn it_works() {
         let _ = env_logger::try_init();
-        let server = {
-            let mut server = Nickel::new();
-            server.utilize(router! {
-                get "/" => |_, mut response| {
-                    response.headers_mut().set(
-                        nickel::hyper::header::SetCookie(vec!["foo=bar".to_owned()]));
-                    ""
-                }
-                get "/robots.txt" => { "User-agent: *\nDisallow: /sensitive" }
+        let filter_ua = warp::filters::header::exact("User-Agent", service::USER_AGENT);
+        let index = warp::path::end()
+            .and(filter_ua)
+            .map(|| warp::reply::with_header(warp::reply(), "Set-Cookie", "foo=bar"));
+        let confirm_cookie = warp::path("confirm-cookie")
+            .and(filter_ua)
+            .and(warp::filters::cookie::cookie("foo"))
+            .map(|value: String| match value.as_ref() {
+                "bar" => warp::reply::with_status("", StatusCode::OK),
+                _ => warp::reply::with_status("", StatusCode::BAD_REQUEST),
             });
-            server.listen("127.0.0.1:2000").unwrap()
-        };
+        let robots_txt = warp::path("robots.txt")
+            .and(filter_ua)
+            .map(|| "User-agent: *\nDisallow: /sensitive");
+        let server = warp::serve(index.or(confirm_cookie).or(robots_txt));
+        let mut runtime = Runtime::new().unwrap();
+        runtime.spawn(server.bind(([127, 0, 0, 1], 2000)));
+        let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
         let result = panic::catch_unwind(|| {
+            let cookies = AbsPathBuf::new_or_panic(tempdir.path().join("cookies"));
             let client = service::reqwest_client(None).unwrap();
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
             let mut wtr = Ansi::new(Cursor::new(Vec::<u8>::new()));
             let mut runtime = Runtime::new().unwrap();
-            let mut sess =
-                HttpSession::try_new(&mut wtr, &mut runtime, client, Some(base), None, false)
-                    .unwrap();
-            let res = sess.get("/", &mut wtr, &mut runtime).send().unwrap();
-            assert!(res.headers().get(header::SET_COOKIE).is_some());
+            let mut sess = HttpSession::try_new(
+                &mut wtr,
+                &mut runtime,
+                client,
+                Some(base),
+                cookies.deref(),
+                false,
+            )
+            .unwrap();
+            sess.get("/", &mut wtr, &mut runtime).send().unwrap();
+            sess.get("/confirm-cookie", &mut wtr, &mut runtime)
+                .send()
+                .unwrap();
             sess.get("/nonexisting", &mut wtr, &mut runtime)
                 .acceptable(&[404])
                 .send()
@@ -699,12 +716,14 @@ mod tests {
                 str::from_utf8(wtr.get_ref().get_ref()).unwrap(),
                 format!(
                     "{get} {robots_txt} ... {expected_200}\n\
-                     {get} {root} ... {expected_200}\n\
+                     {get} {index} ... {expected_200}\n\
+                     {get} {confirm_cookie} ... {expected_200}\n\
                      {get} {nonexisting} ... {expected_404}\n\
                      {get} {nonexisting} ... {unexpected_404}\n",
                     get = "\x1b[1mGET\x1b[0m",
                     robots_txt = "\x1b[38;5;14mhttp://127.0.0.1:2000/robots.txt\x1b[0m",
-                    root = "\x1b[38;5;14mhttp://127.0.0.1:2000/\x1b[0m",
+                    index = "\x1b[38;5;14mhttp://127.0.0.1:2000/\x1b[0m",
+                    confirm_cookie = "\x1b[38;5;14mhttp://127.0.0.1:2000/confirm-cookie\x1b[0m",
                     nonexisting = "\x1b[38;5;14mhttp://127.0.0.1:2000/nonexisting\x1b[0m",
                     expected_200 = "\x1b[38;5;10m\x1b[1m200 OK\x1b[0m",
                     expected_404 = "\x1b[38;5;10m\x1b[1m404 Not Found\x1b[0m",
@@ -712,7 +731,8 @@ mod tests {
                 ),
             );
         });
-        server.detach();
+        runtime.shutdown_now().wait().unwrap();
+        tempdir.close().unwrap();
         result.unwrap_or_else(|p| panic::resume_unwind(p));
     }
 

@@ -46,6 +46,7 @@ fn it_scrapes_samples_from_practice() {
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download {
                 open_browser: false,
+                only_scraped: true,
                 service: Some(ServiceName::Atcoder),
                 contest: Some("practice".to_owned()),
                 problems: vec![],
@@ -74,6 +75,7 @@ fn it_scrapes_samples_from_abc100() {
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download {
                 open_browser: false,
+                only_scraped: true,
                 service: Some(ServiceName::Atcoder),
                 contest: Some("abc100".to_owned()),
                 problems: vec![],
@@ -100,6 +102,7 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() {
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download {
                 open_browser: false,
+                only_scraped: false,
                 service: Some(ServiceName::Atcoder),
                 contest: Some("abc099".to_owned()),
                 problems: vec!["a".to_owned()],

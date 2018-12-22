@@ -1,7 +1,6 @@
 # Snowchains
 
 [![Build Status](https://travis-ci.org/wariuni/snowchains.svg?branch=master)](https://travis-ci.org/wariuni/snowchains)
-[![Build status](https://ci.appveyor.com/api/projects/status/hfc4x704uufkb2sh/branch/master?svg=true)](https://ci.appveyor.com/project/wariuni/snowchains/branch/master)
 [![Coverage Status](https://coveralls.io/repos/github/wariuni/snowchains/badge.svg?branch=master)](https://coveralls.io/github/wariuni/snowchains?branch=master)
 
 Tools for online programming contests.
@@ -119,6 +118,7 @@ session:
 judge:
   jobs: 4
   testfile_extensions: [json, toml, yaml, yml]
+  display_limit: 1KiB
   shell:
     bash: [/bin/bash, -c, $command]
     # cmd: ['C:\Windows\cmd.exe', /C, $command]

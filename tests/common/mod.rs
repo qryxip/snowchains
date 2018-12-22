@@ -108,6 +108,7 @@ pub fn download(
 ) -> snowchains::Result<()> {
     app.run(Opt::Download {
         open_browser: false,
+        only_scraped: false,
         service: Some(service),
         contest: Some(contest.to_owned()),
         problems: problems.iter().map(|&s| s.to_owned()).collect(),

@@ -183,6 +183,7 @@ impl<T: Term> Hackerrank<T> {
             problems,
             destinations,
             open_browser,
+            only_scraped,
         } = download_props;
         let problems = problems.as_ref();
 
@@ -259,6 +260,9 @@ impl<T: Term> Hackerrank<T> {
                 warn!("{:?}", model);
             }
         }
+        if *only_scraped {
+            zip_targets.clear();
+        }
 
         warn_unless_empty(self.stderr(), &cannot_view, "cannot be viewed")?;
 
@@ -295,7 +299,7 @@ impl<T: Term> Hackerrank<T> {
             for (zip, name) in self
                 .download_progress(&urls, &names, None)?
                 .into_iter()
-                .zip(&names)
+                .zip_eq(&names)
             {
                 static ZIP_ENTRIES: Lazy<ZipEntries> = sync_lazy!(ZipEntries {
                     in_entry: Regex::new(r"\Ainput/input([0-9]+)\.txt\z").unwrap(),
@@ -419,7 +423,7 @@ impl Extract for Document {
         if inputs.len() != outputs.len() || inputs.is_empty() {
             return Err(ScrapeError::new());
         }
-        let samples = inputs.into_iter().zip(outputs);
+        let samples = inputs.into_iter().zip_eq(outputs);
         Ok(SimpleSuite::new(None)
             .sample_cases(samples, |i| format!("Sample {}", i), Some("Sample"))
             .into())
