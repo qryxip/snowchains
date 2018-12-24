@@ -53,7 +53,8 @@ install:
     fi
 
 script:
-  - cargo fmt --all -- --check
+  - cargo fmt -- --check
+  - rustfmt --check ./proc_macros/src/lib.rs
   - sh -c 'cd ./proc_macros && cargo clippy -- -D warnings'
   - cargo clippy --all-targets -- -D warnings
   - |
