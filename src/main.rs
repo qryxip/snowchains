@@ -1,11 +1,3 @@
-extern crate snowchains;
-
-extern crate ctrlc;
-extern crate dirs;
-extern crate env_logger;
-extern crate failure;
-extern crate structopt;
-
 use snowchains::app::{App, Opt};
 use snowchains::path::AbsPathBuf;
 use snowchains::service::Credentials;

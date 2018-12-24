@@ -17,7 +17,7 @@ use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::fmt::Write as _Write;
+use std::fmt::Write as _FmtWrite;
 use std::iter::FromIterator as _FromIterator;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -368,6 +368,11 @@ impl TestSuite {
             }
             _ => Err(TestSuiteErrorKind::SuiteIsNotSimple.into()),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn md5(&self) -> serde_json::Result<md5::Digest> {
+        serde_json::to_string_pretty(self).map(md5::compute)
     }
 }
 

@@ -242,9 +242,9 @@ impl<T: Term> Hackerrank<T> {
         for model in models {
             browser_urls.push(format!(
                 "/contests/{}/challenges/{}/problem",
-                model.contest_slug, model.slug
+                model.contest_slug, model.slug,
             ));
-            if model.public_test_cases {
+            if !*only_scraped && model.public_test_cases {
                 let (contest, problem) = (model.contest_slug, model.slug);
                 zip_targets
                     .entry(contest)
@@ -259,9 +259,6 @@ impl<T: Term> Hackerrank<T> {
             } else {
                 warn!("{:?}", model);
             }
-        }
-        if *only_scraped {
-            zip_targets.clear();
         }
 
         warn_unless_empty(self.stderr(), &cannot_view, "cannot be viewed")?;
@@ -427,61 +424,5 @@ impl Extract for Document {
         Ok(SimpleSuite::new(None)
             .sample_cases(samples, |i| format!("Sample {}", i), Some("Sample"))
             .into())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::errors::ServiceResult;
-    use crate::service::hackerrank::{Extract as _Extract, Hackerrank, ProblemQueryResponse};
-    use crate::service::session::{HttpSession, UrlBase};
-    use crate::service::{self, Service as _Service, UserNameAndPassword};
-    use crate::terminal::{Term, TermImpl};
-    use crate::testsuite::{SimpleSuite, TestSuite};
-
-    use select::document::Document;
-    use tokio::runtime::Runtime;
-    use url::Host;
-
-    use std::time::Duration;
-
-    #[test]
-    fn it_scrapes_samples() {
-        let expected = TestSuite::from(
-            SimpleSuite::new(None).sample_cases(
-                vec![
-                    ("50 40 70 60", "YES"),
-                    ("55 66 66 77", "YES"),
-                    ("80 80 40 40", "NO"),
-                ]
-                .into_iter(),
-                |i| format!("Sample {}", i),
-                Some("Sample"),
-            ),
-        );
-        let actual = {
-            let mut hackerrank = start().unwrap();
-            let json = hackerrank
-                .get("/rest/contests/hourrank-20/challenges/hot-and-cold")
-                .recv_json::<ProblemQueryResponse>()
-                .unwrap();
-            let html = json.model.body_html.unwrap();
-            Document::from(html.as_str()).extract_samples().unwrap()
-        };
-        assert_eq!(expected, actual);
-    }
-
-    fn start() -> ServiceResult<Hackerrank<impl Term>> {
-        let client = service::reqwest_client(Duration::from_secs(60))?;
-        let base = UrlBase::new(Host::Domain("www.hackerrank.com"), true, None);
-        let mut term = TermImpl::null();
-        let mut runtime = Runtime::new()?;
-        let session = HttpSession::try_new(term.stdout(), &mut runtime, client, base, None, true)?;
-        Ok(Hackerrank {
-            term,
-            session,
-            runtime,
-            credentials: UserNameAndPassword::None,
-        })
     }
 }

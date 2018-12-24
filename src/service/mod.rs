@@ -329,6 +329,24 @@ pub(self) fn reqwest_client(
     builder.build()
 }
 
+#[cfg(test)]
+pub(self) fn reqwest_sync_client(
+    timeout: impl Into<Option<Duration>>,
+) -> reqwest::Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .redirect(RedirectPolicy::none())
+        .referer(false)
+        .default_headers({
+            let mut headers = HeaderMap::new();
+            headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());
+            headers
+        });
+    if let Some(timeout) = timeout.into() {
+        builder = builder.timeout(timeout);
+    }
+    builder.build()
+}
+
 pub(crate) struct DownloadProps<C: Contest> {
     pub(crate) contest: C,
     pub(crate) problems: Option<Vec<String>>,
