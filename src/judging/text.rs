@@ -1,9 +1,9 @@
-use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
+use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
 
 use combine::Parser;
 use derive_new::new;
 
-use std::fmt::Write as _Write;
+use std::fmt::Write;
 use std::sync::Arc;
 use std::{cmp, io};
 

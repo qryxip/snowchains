@@ -6,7 +6,7 @@ use snowchains_proc_macros::{DoubleFrom, FailPair, PartialFailPair};
 use chrono::{DateTime, Local};
 use derive_new::new;
 use failure::{Backtrace, Fail};
-use itertools::Itertools as _Itertools;
+use itertools::Itertools;
 use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::StatusCode;
 use url::Url;

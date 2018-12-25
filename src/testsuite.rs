@@ -10,15 +10,15 @@ use crate::{time, yaml};
 
 use derive_more::From;
 use derive_new::new;
-use failure::Fail as _Fail;
-use itertools::{EitherOrBoth, Itertools as _Itertools};
+use failure::Fail;
+use itertools::{EitherOrBoth, Itertools};
 use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::fmt::Write as _FmtWrite;
-use std::iter::FromIterator as _FromIterator;
+use std::fmt::Write;
+use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;

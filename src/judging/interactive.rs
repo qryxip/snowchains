@@ -1,9 +1,9 @@
 use crate::errors::JudgeResult;
-use crate::judging::text::{Line, Text, Width as _Width, Word};
+use crate::judging::text::{Line, Text, Width, Word};
 use crate::judging::{JudgingCommand, Outcome};
-use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
+use crate::terminal::{TermOut, WriteSpaces};
 use crate::testsuite::InteractiveCase;
-use crate::time::MillisRoundedUp as _MillisRoundedUp;
+use crate::time::MillisRoundedUp;
 use crate::util::collections::NonEmptyVec;
 
 use derive_new::new;

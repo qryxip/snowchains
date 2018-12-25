@@ -6,11 +6,11 @@ mod text;
 use crate::config::Config;
 use crate::errors::{JudgeErrorKind, JudgeResult, TestSuiteResult};
 use crate::judging::command::JudgingCommand;
-use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
+use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
 use crate::testsuite::{SimpleCase, TestCase, TestCases};
 use crate::util::std_unstable::AsMillis_;
 
-use futures::{Future, Sink as _Sink, Stream as _Stream};
+use futures::{Future, Sink, Stream};
 use itertools::Itertools;
 use tokio::runtime::Runtime;
 

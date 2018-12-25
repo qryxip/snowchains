@@ -1,7 +1,7 @@
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
-use std::fmt::Write as _Write;
+use std::fmt::Write;
 use std::num::FpCategory;
 use std::time::Duration;
 use std::{cmp, u64};

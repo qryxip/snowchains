@@ -2,13 +2,13 @@ use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
 use crate::service::download::DownloadProgress;
 use crate::service::session::{self, HttpSession};
 use crate::service::{
-    Contest, DownloadProps, ExtractZip, PrintTargets as _PrintTargets, ProblemNameConversion,
-    Service, SessionProps, UserNameAndPassword, ZipEntries, ZipEntriesSorting,
+    Contest, DownloadProps, ExtractZip, PrintTargets, ProblemNameConversion, Service, SessionProps,
+    UserNameAndPassword, ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{SimpleSuite, TestSuite};
 
-use itertools::Itertools as _Itertools;
+use itertools::Itertools;
 use log::warn;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
@@ -24,7 +24,7 @@ use tokio::runtime::{Runtime, TaskExecutor};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{self, Write as _Write};
+use std::io::{self, Write};
 
 pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
     Hackerrank::try_new(sess_props)?.login(LoginOption::Explicit)

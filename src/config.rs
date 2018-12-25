@@ -6,15 +6,15 @@ use crate::template::{
     CompilationCommandRequirements, JudgingCommandRequirements, Template, TemplateBuilder,
     TranspilationCommandRequirements,
 };
-use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
+use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
 use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
 use crate::{time, yaml};
 
 use maplit::hashmap;
-use serde::ser::SerializeMap as _SerializeMap;
+use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
-use strum::AsStaticRef as _AsStaticRef;
+use strum::AsStaticRef;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};

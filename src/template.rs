@@ -4,11 +4,8 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::util::collections::SingleKeyValue;
 
 use combine::Parser;
-use failure::{Fail as _Fail, ResultExt as _ResultExt};
-use heck::{
-    CamelCase as _CamelCase, KebabCase as _KebabCase, MixedCase as _MixedCase,
-    ShoutySnakeCase as _ShoutySnakeCase, SnakeCase as _SnakeCase, TitleCase as _TitleCase,
-};
+use failure::{Fail, ResultExt};
+use heck::{CamelCase, KebabCase, MixedCase, ShoutySnakeCase, SnakeCase, TitleCase};
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

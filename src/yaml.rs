@@ -1,5 +1,5 @@
 use derive_more::From;
-use itertools::Itertools as _Itertools;
+use itertools::Itertools;
 use maplit::{btreeset, hashmap};
 use yaml_rust::parser::{Event, Parser};
 use yaml_rust::scanner::{ScanError, Scanner, TScalarStyle, Token, TokenType};

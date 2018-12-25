@@ -5,16 +5,16 @@ use crate::path::AbsPath;
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProps,
-    Service, SessionProps, SubmitProps, UserNameAndPassword,
+    Contest, DownloadProps, PrintTargets, ProblemNameConversion, RestoreProps, Service,
+    SessionProps, SubmitProps, UserNameAndPassword,
 };
-use crate::terminal::{HasTerm, Term, WriteAnsi as _WriteAnsi};
+use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{DownloadDestinations, InteractiveSuite, SimpleSuite, TestSuite};
-use crate::util::std_unstable::RemoveItem_ as _RemoveItem_;
+use crate::util::std_unstable::RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
-use failure::ResultExt as _ResultExt;
-use itertools::Itertools as _Itertools;
+use failure::ResultExt;
+use itertools::Itertools;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
@@ -29,7 +29,7 @@ use tokio::runtime::{Runtime, TaskExecutor};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
-use std::io::Write as _Write;
+use std::io::Write;
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
@@ -1305,13 +1305,13 @@ impl Extract for Document {
 #[cfg(test)]
 mod tests {
     use crate::errors::ServiceResult;
-    use crate::service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
+    use crate::service::atcoder::{Atcoder, AtcoderContest, Extract};
     use crate::service::session::{HttpSession, UrlBase};
-    use crate::service::{self, Service as _Service, UserNameAndPassword};
+    use crate::service::{self, Service, UserNameAndPassword};
     use crate::terminal::{Term, TermImpl};
     use crate::testsuite::TestSuite;
 
-    use itertools::Itertools as _Itertools;
+    use itertools::Itertools;
     use tokio::runtime::Runtime;
     use url::Host;
 

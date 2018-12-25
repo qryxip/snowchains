@@ -6,8 +6,8 @@ use crate::terminal::WriteAnsi;
 
 use cookie::CookieJar;
 use derive_new::new;
-use failure::{Fail as _Fail, Fallible, ResultExt as _ResultExt};
-use futures::{task, try_ready, Async, Future, Poll, Stream as _Stream};
+use failure::{Fail, Fallible, ResultExt};
+use futures::{task, try_ready, Async, Future, Poll, Stream};
 use log::info;
 use maplit::hashmap;
 use mime::Mime;
@@ -24,8 +24,8 @@ use url::{Host, Url};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt::{self, Write as _Write};
-use std::io::{self, Read as _Read};
+use std::fmt::{self, Write};
+use std::io::{self, Read};
 use std::mem;
 use std::ops::Deref;
 
@@ -642,17 +642,17 @@ mod tests {
     use crate::service::session::{HttpSession, UrlBase};
     use crate::terminal::tests::Ansi;
 
-    use futures::Future as _Future;
+    use futures::Future;
     use if_chain::if_chain;
     use reqwest::StatusCode;
     use tempdir::TempDir;
     use tokio::runtime::Runtime;
     use url::Host;
-    use warp::Filter as _Filter;
+    use warp::Filter;
 
     use std::io::{self, Cursor};
     use std::net::Ipv4Addr;
-    use std::ops::Deref as _Deref;
+    use std::ops::Deref;
     use std::{panic, str};
 
     #[test]

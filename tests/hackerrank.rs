@@ -8,7 +8,7 @@ use snowchains::service::ServiceName;
 use snowchains::terminal::TermImpl;
 
 use failure::Fallible;
-use heck::SnakeCase as _SnakeCase;
+use heck::SnakeCase;
 use if_chain::if_chain;
 
 use std::io;

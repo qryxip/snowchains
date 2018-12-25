@@ -15,12 +15,10 @@ use crate::terminal::{Term, WriteAnsi};
 use crate::testsuite::DownloadDestinations;
 use crate::util;
 
-use failure::ResultExt as _ResultExt;
-use heck::KebabCase as _KebabCase;
+use failure::ResultExt;
+use heck::KebabCase;
 use maplit::hashmap;
-use rayon::iter::{
-    IntoParallelIterator as _IntoParalleIterator, ParallelIterator as _ParallelIterator,
-};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::RedirectPolicy;
@@ -32,7 +30,7 @@ use zip::result::ZipResult;
 use zip::ZipArchive;
 
 use std::collections::HashMap;
-use std::io::{self, Cursor, Write as _Write};
+use std::io::{self, Cursor, Write};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

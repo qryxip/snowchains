@@ -2,15 +2,15 @@ use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, S
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadProps, ExtractZip, PrintTargets as _PrintTargets, ProblemNameConversion,
-    RevelSession, Service, SessionProps, SubmitProps, ZipEntries, ZipEntriesSorting,
+    Contest, DownloadProps, ExtractZip, PrintTargets, ProblemNameConversion, RevelSession, Service,
+    SessionProps, SubmitProps, ZipEntries, ZipEntriesSorting,
 };
-use crate::terminal::{HasTerm, Term, WriteAnsi as _WriteAnsi};
+use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
-use failure::ResultExt as _ResultExt;
-use itertools::Itertools as _Itertools;
+use failure::ResultExt;
+use itertools::Itertools;
 use maplit::hashmap;
 use multipart::client::lazy::Multipart;
 use once_cell::sync::Lazy;
@@ -18,14 +18,14 @@ use once_cell::sync_lazy;
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
-use select::predicate::{Predicate as _Predicate, Text};
+use select::predicate::{Predicate, Text};
 use serde_derive::Deserialize;
 use tokio::runtime::{Runtime, TaskExecutor};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::io::Write as _Write;
+use std::io::Write;
 use std::time::Duration;
 use std::{fmt, io, mem};
 
@@ -645,7 +645,7 @@ impl Extract for Document {
 #[cfg(test)]
 mod tests {
     use crate::service;
-    use crate::service::yukicoder::Extract as _Extract;
+    use crate::service::yukicoder::Extract;
 
     use select::document::Document;
 

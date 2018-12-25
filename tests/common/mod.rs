@@ -9,7 +9,7 @@ use failure::Fallible;
 use if_chain::if_chain;
 use serde_derive::Deserialize;
 use serde_json::json;
-use strum::AsStaticRef as _AsStaticRef;
+use strum::AsStaticRef;
 use tempdir::TempDir;
 
 use std::fs::File;
