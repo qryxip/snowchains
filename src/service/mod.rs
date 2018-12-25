@@ -207,15 +207,13 @@ pub(self) trait ExtractZip {
                 Ok((name, in_path, out_path))
             })
             .collect::<FileResult<Vec<_>>>()?;
-
         out.with_reset(|o| o.bold()?.write_str(name))?;
         writeln!(
             out,
             ": Saved {} to {}",
-            plural!(ret.len(), "file", "files"),
+            plural!(2 * ret.len(), "file", "files"),
             dir.display(),
         )?;
-
         Ok(ret)
     }
 }
