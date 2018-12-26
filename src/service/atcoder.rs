@@ -474,7 +474,6 @@ impl<T: Term> Atcoder<T> {
                 let out_dir = format!("/{}/{}/out", contest_slug, problem);
                 let entries = list_folder(self, &token, &out_dir)?.entries;
                 let mut out_contents = download_files(self, &token, &out_dir, &entries)?;
-                // https://mobile.twitter.com/a3VtYQo/status/1048893042785013761
                 let contents = in_contents
                     .into_iter()
                     .filter_map(|(name, i)| out_contents.remove(&name).map(|o| (name, (i, o))))
@@ -501,7 +500,7 @@ impl<T: Term> Atcoder<T> {
             writeln!(
                 self.stdout(),
                 ": Saved {} to {}",
-                plural!(contents_len, "file", "files"),
+                plural!(2 * contents_len, "file", "files"),
                 dir.display(),
             )?;
             if let Some(TestSuite::Simple(suite)) = suites.get_mut(problem) {

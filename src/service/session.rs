@@ -640,7 +640,7 @@ mod tests {
     use crate::path::AbsPathBuf;
     use crate::service;
     use crate::service::session::{HttpSession, UrlBase};
-    use crate::terminal::tests::Ansi;
+    use crate::terminal::Ansi;
 
     use futures::Future;
     use if_chain::if_chain;

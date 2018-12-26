@@ -32,7 +32,6 @@ where
     }
 }
 
-#[cfg(test)]
 impl<T: Target> FromStr for TemplateBuilder<T>
 where
     T::Inner: FromStr<Err = ParseTemplateError>,

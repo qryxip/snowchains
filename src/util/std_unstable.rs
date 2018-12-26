@@ -23,3 +23,26 @@ impl<T: PartialEq> RemoveItem_ for Vec<T> {
         Some(self.remove(pos))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::util::std_unstable::{AsMillis_, RemoveItem_};
+
+    use std::time::Duration;
+
+    #[test]
+    fn test_as_millis_() {
+        fn test(dur: Duration, expected: u128) {
+            assert_eq!(dur.as_millis_(), expected);
+        }
+
+        test(Duration::from_nanos(999_999), 0);
+        test(Duration::from_nanos(1_000_000), 1);
+    }
+
+    #[test]
+    fn test_remove_item_() {
+        assert_eq!(vec!['a'].remove_item_(&'a'), Some('a'));
+        assert_eq!(vec!['b'].remove_item_(&'a'), None);
+    }
+}

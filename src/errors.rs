@@ -390,7 +390,7 @@ mod tests {
     use std::fmt;
 
     #[test]
-    fn std_error_works() {
+    fn test_std_error() {
         #[derive(Debug, new)]
         struct E {
             value: &'static str,
@@ -409,7 +409,7 @@ mod tests {
 
         impl fmt::Display for E {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "E({:?})", self.value)
+                f.write_str(self.value)
             }
         }
 
@@ -421,18 +421,34 @@ mod tests {
             }
         }
 
-        let e = E::new("foo").chain("bar").chain("baz").chain("qux");
-        let e = StdError::from(e);
+        let err = E::new("foo").chain("bar").chain("baz").chain("qux");
+        let err = StdError::from(err);
         assert_eq!(
-            Fail::iter_chain(&e)
+            Fail::iter_chain(&err)
                 .map(ToString::to_string)
                 .collect::<Vec<_>>(),
             vec![
-                "E(\"qux\")".to_owned(),
-                "E(\"baz\")".to_owned(),
-                "E(\"bar\")".to_owned(),
-                "E(\"foo\")".to_owned(),
-            ]
+                "qux".to_owned(),
+                "baz".to_owned(),
+                "bar".to_owned(),
+                "foo".to_owned(),
+            ],
+        );
+
+        let err = E::new("failed to lookup address information: Name or service not known");
+        let err = err.chain(
+            "http://example.com/: an error occurred trying to connect: \
+             failed to lookup address information: Name or service not known",
+        );
+        let err = StdError::from(err);
+        assert_eq!(
+            Fail::iter_chain(&err)
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            vec![
+                "http://example.com/: an error occurred trying to connect".to_owned(),
+                "failed to lookup address information: Name or service not known".to_owned(),
+            ],
         );
     }
 }

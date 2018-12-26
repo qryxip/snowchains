@@ -33,6 +33,22 @@ pub(crate) fn init(
     session_dropbox_auth: &str,
     enable_session_dropbox: bool,
 ) -> FileResult<()> {
+    let yaml = generate_yaml(
+        session_cookies,
+        session_dropbox_auth,
+        enable_session_dropbox,
+    );
+    let path = directory.join(CONFIG_FILE_NAME);
+    crate::fs::write(&path, yaml.as_bytes())?;
+    writeln!(stdout, "Wrote to {}", path.display())?;
+    stdout.flush().map_err(Into::into)
+}
+
+fn generate_yaml(
+    session_cookies: &str,
+    session_dropbox_auth: &str,
+    enable_session_dropbox: bool,
+) -> String {
     #[cfg(not(windows))]
     static CONSOLE_ALT_WIDTH: &str = "";
     #[cfg(windows)]
@@ -101,7 +117,7 @@ pub(crate) fn init(
     language_ids:
       # atcoder: 3006   # "C# (Mono x.x.x.x)"
       yukicoder: csharp # "C# (csc x.x.x.x)""#;
-    let config = format!(
+    format!(
         r#"---
 service: atcoder
 contest: arc100
@@ -285,11 +301,7 @@ languages:
         crlf_to_lf_true = CRLF_TO_LF_TRUE,
         crlf_to_lf_false = CRLF_TO_LF_FALSE,
         csharp = CSHARP,
-    );
-    let path = directory.join(CONFIG_FILE_NAME);
-    crate::fs::write(&path, config.as_bytes())?;
-    writeln!(stdout, "Wrote to {}", path.display())?;
-    stdout.flush().map_err(Into::into)
+    )
 }
 
 /// Changes attributes.
@@ -301,6 +313,34 @@ pub(crate) fn switch(
     contest: Option<String>,
     language: Option<String>,
 ) -> FileResult<()> {
+    let path = crate::fs::find_path(CONFIG_FILE_NAME, directory)?;
+    let old_yaml = crate::fs::read_to_string(&path)?;
+    let old_config = crate::fs::read_yaml::<Config>(&path)?;
+    stdout.apply_conf(&old_config.console);
+    stderr.apply_conf(&old_config.console);
+    let new_yaml = replace_values(
+        &old_yaml,
+        &old_config,
+        service,
+        contest,
+        language,
+        &mut stdout,
+        stderr,
+    )?;
+    crate::fs::write(&path, new_yaml.as_bytes())?;
+    writeln!(stdout, "Saved to {}", path.display())?;
+    stdout.flush().map_err(Into::into)
+}
+
+fn replace_values(
+    yaml: &str,
+    config: &Config,
+    service: Option<ServiceName>,
+    contest: Option<String>,
+    language: Option<String>,
+    mut stdout: impl TermOut,
+    mut stderr: impl TermOut,
+) -> io::Result<String> {
     fn print_change(
         mut stdout: impl WriteAnsi,
         title: &str,
@@ -318,11 +358,8 @@ pub(crate) fn switch(
         stdout.write_str("\n")
     }
 
-    let path = crate::fs::find_path(CONFIG_FILE_NAME, directory)?;
-    let mut old_yaml = crate::fs::read_to_string(&path)?;
-    let old_config = crate::fs::read_yaml::<Config>(&path)?;
-    stdout.apply_conf(&old_config.console);
-    stderr.apply_conf(&old_config.console);
+    let mut old_yaml = Cow::from(yaml);
+    let old_config = config;
 
     let mut m = hashmap!();
     if let Some(service) = service {
@@ -340,7 +377,7 @@ pub(crate) fn switch(
                 let mut lines = old_yaml.lines().collect::<Vec<_>>();
                 let index = if lines.get(0) == Some(&"---") { 1 } else { 0 };
                 lines.insert(index, &line_to_insert);
-                lines.join("\n")
+                Cow::from(lines.join("\n"))
             };
         }
     }
@@ -381,10 +418,7 @@ pub(crate) fn switch(
     print_change(&mut stdout, "service:  ", w, &s1, &s2)?;
     print_change(&mut stdout, "contest:  ", w, &c1, &c2)?;
     print_change(&mut stdout, "language: ", w, &l1, &l2)?;
-    crate::fs::write(&path, new_yaml.as_bytes())?;
-
-    writeln!(stdout, "Saved to {}", path.display())?;
-    stdout.flush().map_err(Into::into)
+    Ok(new_yaml)
 }
 
 /// Config.
@@ -716,15 +750,17 @@ impl<'de> Deserialize<'de> for Dropbox {
         #[serde(untagged)]
         enum Repr {
             Bool(bool),
-            Some { auth: TemplateBuilder<AbsPathBuf> },
+            Map { auth: String },
         }
 
-        match Repr::deserialize(deserializer)? {
-            Repr::Bool(true) => Err(serde::de::Error::custom(
-                "expected `false` or `{ auth: <string> }`",
-            )),
+        static SCHEMA_ERR: &str = "expected `false` or `{ auth: <string> }`";
+        match Repr::deserialize(deserializer).map_err(|_| serde::de::Error::custom(SCHEMA_ERR))? {
+            Repr::Bool(true) => Err(serde::de::Error::custom(SCHEMA_ERR)),
             Repr::Bool(false) => Ok(Dropbox::None),
-            Repr::Some { auth } => Ok(Dropbox::Some { auth }),
+            Repr::Map { auth } => {
+                let auth = auth.parse().map_err(serde::de::Error::custom)?;
+                Ok(Dropbox::Some { auth })
+            }
         }
     }
 }
@@ -749,12 +785,19 @@ fn ser_size<S: Serializer>(
     size: &Option<usize>,
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error> {
-    size.map(|size| size.to_string()).serialize(serializer)
+    size.as_ref().map(ToString::to_string).serialize(serializer)
 }
 
 fn de_size<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> std::result::Result<Option<usize>, D::Error> {
+    match Option::<String>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(s) => parse_size(&s).map(Some).map_err(serde::de::Error::custom),
+    }
+}
+
+fn parse_size(s: &str) -> std::result::Result<usize, &'static str> {
     fn extract_unit(s: &str) -> (&str, f64) {
         if s.ends_with("GiB") {
             (&s[..s.len() - 3], f64::from(0x40_000_000))
@@ -775,16 +818,15 @@ fn de_size<'de, D: Deserializer<'de>>(
         }
     }
 
-    match Option::<String>::deserialize(deserializer)? {
-        None => Ok(None),
-        Some(s) => {
-            let (s, k) = extract_unit(s.trim());
-            match s.parse::<f64>() {
-                Ok(l) => Ok(Some((k * l) as usize)),
-                Err(_) => Err(serde::de::Error::custom("invalid format")),
-            }
-        }
-    }
+    let (s, k) = extract_unit(s.trim());
+    s.parse::<f64>()
+        .ok()
+        .and_then(|v| {
+            let r = k * v;
+            guard!(r.is_finite() && r.is_sign_positive());
+            Some(r as usize)
+        })
+        .ok_or_else(|| "invalid format")
 }
 
 #[derive(Serialize, Deserialize)]
@@ -828,4 +870,66 @@ struct Run {
     working_directory: TemplateBuilder<AbsPathBuf>,
     #[serde(default)]
     crlf_to_lf: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::{generate_yaml, parse_size, replace_values, Config};
+    use crate::service::ServiceName;
+    use crate::terminal::Ansi;
+
+    use std::io::Cursor;
+    use std::str;
+
+    #[test]
+    fn it_generates_a_valid_yaml() {
+        serde_yaml::from_str::<Config>(&generate_yaml(".", ".", false)).unwrap();
+    }
+
+    #[test]
+    fn test_replace_values() {
+        let mut stdout = Ansi::new(Cursor::new(Vec::<u8>::new()));
+        let mut stderr = Ansi::new(Cursor::new(Vec::<u8>::new()));
+        let yaml = generate_yaml(".", ".", false);
+        let config = serde_yaml::from_str(&yaml).unwrap();
+        let new_yaml = replace_values(
+            &yaml,
+            &config,
+            Some(ServiceName::Yukicoder),
+            Some("no".to_owned()),
+            Some("rust".to_owned()),
+            &mut stdout,
+            &mut stderr,
+        )
+        .unwrap();
+        serde_yaml::from_str::<Config>(&new_yaml).unwrap();
+        let stdout = str::from_utf8(stdout.get_ref().get_ref()).unwrap();
+        let stderr = str::from_utf8(stderr.get_ref().get_ref()).unwrap();
+        assert_eq!(
+            stdout,
+            "service:  \x1b[1m\"atcoder\"\x1b[0m -> \x1b[1m\"yukicoder\"\x1b[0m\n\
+             contest:  \x1b[1m\"arc100\"\x1b[0m  -> \x1b[1m\"no\"\x1b[0m\n\
+             language: \x1b[1m\"c++\"\x1b[0m     -> \x1b[1m\"rust\"\x1b[0m\n",
+        );
+        assert_eq!(stderr, "");
+    }
+
+    #[test]
+    fn test_parse_size() {
+        assert_eq!(parse_size("0"), Ok(0));
+        assert_eq!(parse_size("1B"), Ok(1));
+        assert_eq!(parse_size("1KB"), Ok(10usize.pow(3)));
+        assert_eq!(parse_size("1KiB"), Ok(2usize.pow(10)));
+        assert_eq!(parse_size("1MB"), Ok(10usize.pow(6)));
+        assert_eq!(parse_size("1MiB"), Ok(2usize.pow(20)));
+        assert_eq!(parse_size("1GB"), Ok(10usize.pow(9)));
+        assert_eq!(parse_size("1GiB"), Ok(2usize.pow(30)));
+        assert_eq!(parse_size("4.2KB"), Ok(4200));
+        assert_eq!(parse_size("4.2KiB"), Ok(4300));
+        assert_eq!(parse_size("1b"), Err("invalid format"));
+        assert_eq!(parse_size("B"), Err("invalid format"));
+        assert_eq!(parse_size("-0B"), Err("invalid format"));
+        assert_eq!(parse_size("infB"), Err("invalid format"));
+        assert_eq!(parse_size("NaNB"), Err("invalid format"));
+    }
 }

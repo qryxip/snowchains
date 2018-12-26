@@ -143,6 +143,8 @@ impl MillisRoundedUp for Duration {
 
 #[cfg(test)]
 mod tests {
+    use crate::time::MillisRoundedUp;
+
     use std::time::Duration;
     use std::u64;
 
@@ -157,28 +159,43 @@ mod tests {
         test("-NaNs", Err("NaN".to_owned()));
         test("-infs", Err("negative".to_owned()));
         test("-42s", Err("negative".to_owned()));
+        test("1S", Err("invalid or missing unit".to_owned()));
 
-        test("10Ts", Ok(Duration::new(10_000_000_000_000, 0)));
-        test("100Ts", Ok(Duration::new(99_999_999_999_999, 991_611_392)));
-        test("100Es", Ok(Duration::new(u64::MAX, 999_999_999)));
         test("infs", Ok(Duration::new(u64::MAX, 999_999_999)));
         test("+infs", Ok(Duration::new(u64::MAX, 999_999_999)));
+        test("1Ys", Ok(Duration::new(u64::MAX, 999_999_999)));
+        test("1Zs", Ok(Duration::new(u64::MAX, 999_999_999)));
+        test("100Es", Ok(Duration::new(u64::MAX, 999_999_999)));
+        test("1Ps", Ok(Duration::new(999_999_999_999_999, 983_222_784)));
+        test("100Ts", Ok(Duration::new(99_999_999_999_999, 991_611_392)));
+        test("10Ts", Ok(Duration::new(10_000_000_000_000, 0)));
+        test("1Gs", Ok(Duration::new(1_000_000_000, 0)));
+        test("1Ms", Ok(Duration::new(1_000_000, 0)));
+        test("1ks", Ok(Duration::new(1000, 0)));
+        test("1das", Ok(Duration::new(10, 0)));
         test("0s", Ok(Duration::new(0, 0)));
         test(" 10 s ", Ok(Duration::new(10, 0)));
         test("42s", Ok(Duration::new(42, 0)));
         test("123.456s", Ok(Duration::new(123, 456_000_000)));
         test("1E3s", Ok(Duration::new(1000, 0)));
+        test("1ds", Ok(Duration::new(0, 100_000_000)));
+        test("1cs", Ok(Duration::new(0, 10_000_000)));
         test("42ms", Ok(Duration::new(0, 42_000_000)));
         test("123.456ms", Ok(Duration::new(0, 123_456_000)));
         test("1E3ms", Ok(Duration::new(1, 0)));
         test("42μs", Ok(Duration::new(0, 42_000)));
         test("123.456μs", Ok(Duration::new(0, 123_456)));
         test("1E3μs", Ok(Duration::new(0, 1_000_000)));
+        test("1us", Ok(Duration::new(0, 1000)));
         test("42ns", Ok(Duration::new(0, 42)));
         test("123.456ns", Ok(Duration::new(0, 123)));
         test("1E3ns", Ok(Duration::new(0, 1000)));
         test("1000ps", Ok(Duration::new(0, 1)));
         test("100ps", Ok(Duration::new(0, 0)));
+        test("1E6fs", Ok(Duration::new(0, 1)));
+        test("1E9as", Ok(Duration::new(0, 1)));
+        test("1E12zs", Ok(Duration::new(0, 1)));
+        test("1E15ys", Ok(Duration::new(0, 1)));
     }
 
     #[test]
@@ -203,5 +220,19 @@ mod tests {
         test(Duration::from_millis(42), "42ms");
         test(Duration::from_nanos(42), "0.000042ms");
         test(Duration::new(1234, 567_800_000), "1234567.8ms");
+    }
+
+    #[test]
+    fn test_millis_rounded_up() {
+        fn test(dur: Duration, expected: u128) {
+            assert_eq!(dur.millis_rounded_up(), expected);
+        }
+
+        test(Duration::from_nanos(0), 0);
+        test(Duration::from_nanos(1), 1);
+        test(Duration::from_nanos(999_999), 1);
+        test(Duration::from_nanos(1_000_000), 1);
+        test(Duration::from_nanos(1_000_001), 2);
+        test(Duration::from_secs(1), 1000);
     }
 }
