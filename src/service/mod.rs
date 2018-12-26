@@ -23,7 +23,7 @@ use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::RedirectPolicy;
 use serde_derive::{Deserialize, Serialize};
-use strum_macros::{AsStaticStr, EnumString};
+use strum_macros::{EnumString, IntoStaticStr};
 use tokio::runtime::Runtime;
 use url::Host;
 use zip::result::ZipResult;
@@ -45,7 +45,7 @@ use std::{cmp, fmt, mem, slice};
     Ord,
     Debug,
     strum_macros::Display,
-    AsStaticStr,
+    IntoStaticStr,
     EnumString,
     Serialize,
     Deserialize,

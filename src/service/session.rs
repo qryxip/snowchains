@@ -677,7 +677,7 @@ mod tests {
         runtime.spawn(server.bind(([127, 0, 0, 1], 2000)));
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
         let result = panic::catch_unwind(|| {
-            let cookies = AbsPathBuf::new_or_panic(tempdir.path().join("cookies"));
+            let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
             let client = service::reqwest_client(None).unwrap();
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
             let mut wtr = Ansi::new(Cursor::new(Vec::<u8>::new()));
@@ -740,7 +740,7 @@ mod tests {
     fn it_keeps_a_file_locked_while_alive() {
         let _ = env_logger::try_init();
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
-        let path = AbsPathBuf::new_or_panic(tempdir.path().join("cookies"));
+        let path = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
         let path = path.as_path();
         let mut wtr = Ansi::new(io::sink());
         let mut rt = Runtime::new().unwrap();

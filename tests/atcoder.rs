@@ -71,10 +71,10 @@ fn it_scrapes_samples_from_abc100() {
                 color_choice: AnsiColorChoice::Never,
             })?;
             let download_dir = app.working_dir.join("tests").join("atcoder").join("abc100");
-            check_yaml_md5(&download_dir, "a", "2000ms");
-            check_yaml_md5(&download_dir, "b", "2000ms");
-            check_yaml_md5(&download_dir, "c", "2000ms");
-            check_yaml_md5(&download_dir, "d", "2000ms");
+            check_yaml_md5(&download_dir, "a", "f837ca06ddb61a1fd16f16455d30dcdc");
+            check_yaml_md5(&download_dir, "b", "fbe5193dc50506c2b19b2fe0f1e77ccb");
+            check_yaml_md5(&download_dir, "c", "48032dd70e600a2a9f139800a21b2c10");
+            check_yaml_md5(&download_dir, "d", "84b981ce83866152ccef18517255e7b9");
             Ok(())
         },
     )

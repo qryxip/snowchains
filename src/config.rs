@@ -14,7 +14,6 @@ use maplit::hashmap;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
-use strum::AsStaticRef;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -327,7 +326,7 @@ pub(crate) fn switch(
 
     let mut m = hashmap!();
     if let Some(service) = service {
-        m.insert("service", Cow::from(service.as_static()));
+        m.insert("service", Cow::from(<&str>::from(service)));
     }
     if let Some(contest) = contest.as_ref() {
         m.insert("contest", Cow::from(contest.clone()));
@@ -364,8 +363,8 @@ pub(crate) fn switch(
             Ok((new_yaml, new_config))
         })?;
 
-    let s1 = Some(format!("{:?}", old_config.service.as_static()));
-    let s2 = Some(format!("{:?}", new_config.service.as_static()));
+    let s1 = Some(format!("{:?}", <&str>::from(old_config.service)));
+    let s2 = Some(format!("{:?}", <&str>::from(new_config.service)));
     let c1 = Some(format!("{:?}", old_config.contest));
     let c2 = Some(format!("{:?}", new_config.contest));
     let l1 = old_config.language.as_ref().map(|l| format!("{:?}", l));
@@ -479,14 +478,14 @@ impl Config {
         let scraped = self
             .testfile_path
             .build(self.base_dir.clone())
-            .insert_string("service", self.service.as_static())
+            .insert_string("service", <&str>::from(self.service))
             .insert_string("contest", &self.contest);
         let text_file_dir = self
             .session
             .download
             .text_file_dir
             .build(self.base_dir.clone())
-            .insert_string("service", self.service.as_static())
+            .insert_string("service", <&str>::from(self.service))
             .insert_string("contest", &self.contest);
         let ext = ext.unwrap_or(self.session.download.extension);
         DownloadDestinations::new(scraped, text_file_dir, ext)
@@ -496,7 +495,7 @@ impl Config {
         let path = self
             .testfile_path
             .build(self.base_dir.clone())
-            .insert_string("service", self.service.as_static())
+            .insert_string("service", <&str>::from(self.service))
             .insert_string("contest", &self.contest);
         TestCaseLoader::new(
             path,
@@ -641,7 +640,8 @@ impl Config {
             .services
             .get(&service.into().unwrap_or(self.service))
             .map(|s| &s.variables);
-        let mut vars = hashmap!("service" => self.service.as_static(), "contest" => &self.contest);
+        let mut vars =
+            hashmap!("service" => <&str>::from(self.service), "contest" => &self.contest);
         if let Some(vars_in_service) = vars_in_service {
             for (k, v) in vars_in_service {
                 vars.insert(k, v);

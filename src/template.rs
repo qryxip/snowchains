@@ -659,7 +659,7 @@ mod tests {
         fn process_expected(expected: impl AsRef<OsStr>) -> AbsPathBuf {
             let expected = Path::new(expected.as_ref());
             if expected.is_absolute() {
-                AbsPathBuf::new_or_panic(expected)
+                AbsPathBuf::try_new(expected).unwrap()
             } else {
                 base_dir().join(expected)
             }
@@ -709,11 +709,13 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     fn base_dir() -> AbsPathBuf {
-        AbsPathBuf::new_or_panic(if cfg!(windows) {
-            r"C:\basedir"
-        } else {
-            "/basedir"
-        })
+        AbsPathBuf::try_new("/basedir").unwrap()
+    }
+
+    #[cfg(windows)]
+    fn base_dir() -> AbsPathBuf {
+        AbsPathBuf::try_new(r"C:\basedir").unwrap()
     }
 }
