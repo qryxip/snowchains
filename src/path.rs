@@ -72,6 +72,7 @@ impl AbsPath {
     }
 
     #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
     fn canonicalize_lossy(&self) -> Cow<Self> {
         let mut inner = PathBuf::new();
         for s in self.inner.iter() {
@@ -199,6 +200,7 @@ impl Default for AbsPathBuf {
     }
 
     #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
     fn default() -> Self {
         Self {
             inner: PathBuf::from("C:\\"),
