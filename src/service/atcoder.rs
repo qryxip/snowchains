@@ -229,7 +229,7 @@ impl<T: Term> Atcoder<T> {
             .form(&hashmap!("code" => code.as_str(), "grant_type" => "authorization_code"))
             .recv_json::<AuthToken>()?;
         crate::fs::write_json_pretty(auth_path, &auth)?;
-        writeln!(self.stdout(), "Wrote to {}", auth_path.display())?;
+        writeln!(self.stdout(), "Wrote {}", auth_path.display())?;
         self.stdout().flush()?;
         Ok(auth.access_token)
     }

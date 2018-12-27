@@ -40,7 +40,7 @@ pub(crate) fn init(
     );
     let path = directory.join(CONFIG_FILE_NAME);
     crate::fs::write(&path, yaml.as_bytes())?;
-    writeln!(stdout, "Wrote to {}", path.display())?;
+    writeln!(stdout, "Wrote {}", path.display())?;
     stdout.flush().map_err(Into::into)
 }
 
