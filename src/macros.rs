@@ -1,17 +1,7 @@
-pub(crate) trait TryZero {
-    fn zero() -> Self;
-}
-
-impl<T> TryZero for Option<T> {
-    fn zero() -> Self {
-        None
-    }
-}
-
 macro_rules! guard {
     ($p:expr) => {
         if !$p {
-            return crate::macros::TryZero::zero();
+            return ::std::default::Default::default();
         }
     };
 }

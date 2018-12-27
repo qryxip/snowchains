@@ -1,11 +1,11 @@
 use crate::errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::session::HttpSession;
-use crate::terminal::{TermOut, WriteAnsi as _WriteAnsi};
+use crate::terminal::{TermOut, WriteAnsi};
 
-use failure::ResultExt as _ResultExt;
+use failure::ResultExt;
 use futures::sync::mpsc::UnboundedSender;
 use futures::sync::oneshot;
-use futures::{task, Async, Future, Poll, Stream as _Stream};
+use futures::{task, Async, Future, Poll, Stream};
 use reqwest::{header, StatusCode};
 use tokio::runtime::TaskExecutor;
 

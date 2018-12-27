@@ -1,14 +1,3 @@
-extern crate snowchains;
-
-extern crate env_logger;
-extern crate failure;
-extern crate if_chain;
-extern crate serde;
-extern crate serde_derive;
-extern crate serde_yaml;
-extern crate strum;
-extern crate tempdir;
-
 mod common;
 
 use snowchains::app::{App, Opt};
@@ -57,8 +46,8 @@ fn it_scrapes_samples_from_practice() {
                 .join("tests")
                 .join("atcoder")
                 .join("practice");
-            just_confirm_num_samples_and_timelimit(&download_dir, "a", 2, "2000ms");
-            just_confirm_num_samples_and_timelimit(&download_dir, "b", 0, "2000ms");
+            check_yaml_md5(&download_dir, "a", "0ab89f8622931867945de172a7696adb");
+            check_yaml_md5(&download_dir, "b", "ae82294bcef243485432ffd958867396");
             Ok(())
         },
     )
@@ -82,10 +71,10 @@ fn it_scrapes_samples_from_abc100() {
                 color_choice: AnsiColorChoice::Never,
             })?;
             let download_dir = app.working_dir.join("tests").join("atcoder").join("abc100");
-            just_confirm_num_samples_and_timelimit(&download_dir, "a", 3, "2000ms");
-            just_confirm_num_samples_and_timelimit(&download_dir, "b", 3, "2000ms");
-            just_confirm_num_samples_and_timelimit(&download_dir, "c", 3, "2000ms");
-            just_confirm_num_samples_and_timelimit(&download_dir, "d", 4, "2000ms");
+            check_yaml_md5(&download_dir, "a", "f837ca06ddb61a1fd16f16455d30dcdc");
+            check_yaml_md5(&download_dir, "b", "fbe5193dc50506c2b19b2fe0f1e77ccb");
+            check_yaml_md5(&download_dir, "c", "48032dd70e600a2a9f139800a21b2c10");
+            check_yaml_md5(&download_dir, "d", "84b981ce83866152ccef18517255e7b9");
             Ok(())
         },
     )
@@ -115,6 +104,12 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() {
         },
     )
     .unwrap();
+}
+
+fn check_yaml_md5(dir: &Path, name: &str, expected: &str) {
+    let path = dir.join(name).with_extension("yaml");
+    let yaml = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(format!("{:x}", md5::compute(&yaml)), expected);
 }
 
 fn just_confirm_num_samples_and_timelimit(dir: &Path, name: &str, n: usize, t: &str) {

@@ -10,15 +10,15 @@ use crate::{time, yaml};
 
 use derive_more::From;
 use derive_new::new;
-use failure::Fail as _Fail;
-use itertools::{EitherOrBoth, Itertools as _Itertools};
+use failure::Fail;
+use itertools::{EitherOrBoth, Itertools};
 use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::fmt::Write as _Write;
-use std::iter::FromIterator as _FromIterator;
+use std::fmt::Write;
+use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -368,6 +368,11 @@ impl TestSuite {
             }
             _ => Err(TestSuiteErrorKind::SuiteIsNotSimple.into()),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn md5(&self) -> serde_json::Result<md5::Digest> {
+        serde_json::to_string_pretty(self).map(md5::compute)
     }
 }
 

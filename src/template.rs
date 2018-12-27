@@ -4,11 +4,8 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::util::collections::SingleKeyValue;
 
 use combine::Parser;
-use failure::{Fail as _Fail, ResultExt as _ResultExt};
-use heck::{
-    CamelCase as _CamelCase, KebabCase as _KebabCase, MixedCase as _MixedCase,
-    ShoutySnakeCase as _ShoutySnakeCase, SnakeCase as _SnakeCase, TitleCase as _TitleCase,
-};
+use failure::{Fail, ResultExt};
+use heck::{CamelCase, KebabCase, MixedCase, ShoutySnakeCase, SnakeCase, TitleCase};
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -35,7 +32,6 @@ where
     }
 }
 
-#[cfg(test)]
 impl<T: Target> FromStr for TemplateBuilder<T>
 where
     T::Inner: FromStr<Err = ParseTemplateError>,
@@ -662,7 +658,7 @@ mod tests {
         fn process_expected(expected: impl AsRef<OsStr>) -> AbsPathBuf {
             let expected = Path::new(expected.as_ref());
             if expected.is_absolute() {
-                AbsPathBuf::new_or_panic(expected)
+                AbsPathBuf::try_new(expected).unwrap()
             } else {
                 base_dir().join(expected)
             }
@@ -712,11 +708,13 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     fn base_dir() -> AbsPathBuf {
-        AbsPathBuf::new_or_panic(if cfg!(windows) {
-            r"C:\basedir"
-        } else {
-            "/basedir"
-        })
+        AbsPathBuf::try_new("/basedir").unwrap()
+    }
+
+    #[cfg(windows)]
+    fn base_dir() -> AbsPathBuf {
+        AbsPathBuf::try_new(r"C:\basedir").unwrap()
     }
 }

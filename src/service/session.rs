@@ -6,8 +6,8 @@ use crate::terminal::WriteAnsi;
 
 use cookie::CookieJar;
 use derive_new::new;
-use failure::{Fail as _Fail, Fallible, ResultExt as _ResultExt};
-use futures::{task, try_ready, Async, Future, Poll, Stream as _Stream};
+use failure::{Fail, Fallible, ResultExt};
+use futures::{task, try_ready, Async, Future, Poll, Stream};
 use log::info;
 use maplit::hashmap;
 use mime::Mime;
@@ -24,8 +24,8 @@ use url::{Host, Url};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt::{self, Write as _Write};
-use std::io::{self, Read as _Read};
+use std::fmt::{self, Write};
+use std::io::{self, Read};
 use std::mem;
 use std::ops::Deref;
 
@@ -640,19 +640,19 @@ mod tests {
     use crate::path::AbsPathBuf;
     use crate::service;
     use crate::service::session::{HttpSession, UrlBase};
-    use crate::terminal::tests::Ansi;
+    use crate::terminal::Ansi;
 
-    use futures::Future as _Future;
+    use futures::Future;
     use if_chain::if_chain;
     use reqwest::StatusCode;
     use tempdir::TempDir;
     use tokio::runtime::Runtime;
     use url::Host;
-    use warp::Filter as _Filter;
+    use warp::Filter;
 
     use std::io::{self, Cursor};
     use std::net::Ipv4Addr;
-    use std::ops::Deref as _Deref;
+    use std::ops::Deref;
     use std::{panic, str};
 
     #[test]
@@ -677,7 +677,7 @@ mod tests {
         runtime.spawn(server.bind(([127, 0, 0, 1], 2000)));
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
         let result = panic::catch_unwind(|| {
-            let cookies = AbsPathBuf::new_or_panic(tempdir.path().join("cookies"));
+            let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
             let client = service::reqwest_client(None).unwrap();
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
             let mut wtr = Ansi::new(Cursor::new(Vec::<u8>::new()));
@@ -740,7 +740,7 @@ mod tests {
     fn it_keeps_a_file_locked_while_alive() {
         let _ = env_logger::try_init();
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
-        let path = AbsPathBuf::new_or_panic(tempdir.path().join("cookies"));
+        let path = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
         let path = path.as_path();
         let mut wtr = Ansi::new(io::sink());
         let mut rt = Runtime::new().unwrap();

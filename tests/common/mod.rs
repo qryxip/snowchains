@@ -9,7 +9,6 @@ use failure::Fallible;
 use if_chain::if_chain;
 use serde_derive::Deserialize;
 use serde_json::json;
-use strum::AsStaticRef as _AsStaticRef;
 use tempdir::TempDir;
 
 use std::fs::File;
@@ -26,7 +25,7 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     let tempdir_path = tempdir.path().to_owned();
     let result = panic::catch_unwind(move || -> Fallible<()> {
         let mut app = App {
-            working_dir: AbsPathBuf::new_or_panic(tempdir_path.clone()),
+            working_dir: AbsPathBuf::try_new(&tempdir_path).unwrap(),
             cookies_on_init: "$service".to_owned(),
             dropbox_auth_on_init: "dropbox.json".to_owned(),
             enable_dropbox_on_init: true,
@@ -130,7 +129,7 @@ pub fn confirm_num_cases(
     for &(problem, expected_num_cases) in pairs {
         let path = wd
             .join("tests")
-            .join(service.as_static())
+            .join(<&str>::from(service))
             .join(contest)
             .join(format!("{}.yaml", problem));
         let file = File::open(&path).unwrap();

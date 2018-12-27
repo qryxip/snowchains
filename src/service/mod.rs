@@ -15,24 +15,22 @@ use crate::terminal::{Term, WriteAnsi};
 use crate::testsuite::DownloadDestinations;
 use crate::util;
 
-use failure::ResultExt as _ResultExt;
-use heck::KebabCase as _KebabCase;
+use failure::ResultExt;
+use heck::KebabCase;
 use maplit::hashmap;
-use rayon::iter::{
-    IntoParallelIterator as _IntoParalleIterator, ParallelIterator as _ParallelIterator,
-};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::RedirectPolicy;
 use serde_derive::{Deserialize, Serialize};
-use strum_macros::{AsStaticStr, EnumString};
+use strum_macros::{EnumString, IntoStaticStr};
 use tokio::runtime::Runtime;
 use url::Host;
 use zip::result::ZipResult;
 use zip::ZipArchive;
 
 use std::collections::HashMap;
-use std::io::{self, Cursor, Write as _Write};
+use std::io::{self, Cursor, Write};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -47,7 +45,7 @@ use std::{cmp, fmt, mem, slice};
     Ord,
     Debug,
     strum_macros::Display,
-    AsStaticStr,
+    IntoStaticStr,
     EnumString,
     Serialize,
     Deserialize,
@@ -209,15 +207,13 @@ pub(self) trait ExtractZip {
                 Ok((name, in_path, out_path))
             })
             .collect::<FileResult<Vec<_>>>()?;
-
         out.with_reset(|o| o.bold()?.write_str(name))?;
         writeln!(
             out,
             ": Saved {} to {}",
-            plural!(ret.len(), "file", "files"),
+            plural!(2 * ret.len(), "file", "files"),
             dir.display(),
         )?;
-
         Ok(ret)
     }
 }
@@ -316,6 +312,24 @@ pub(self) fn reqwest_client(
     timeout: impl Into<Option<Duration>>,
 ) -> reqwest::Result<reqwest::r#async::Client> {
     let mut builder = reqwest::r#async::Client::builder()
+        .redirect(RedirectPolicy::none())
+        .referer(false)
+        .default_headers({
+            let mut headers = HeaderMap::new();
+            headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());
+            headers
+        });
+    if let Some(timeout) = timeout.into() {
+        builder = builder.timeout(timeout);
+    }
+    builder.build()
+}
+
+#[cfg(test)]
+pub(self) fn reqwest_sync_client(
+    timeout: impl Into<Option<Duration>>,
+) -> reqwest::Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
         .redirect(RedirectPolicy::none())
         .referer(false)
         .default_headers({

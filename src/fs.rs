@@ -1,13 +1,13 @@
 use crate::errors::{FileErrorKind, FileResult, StdError};
 use crate::path::{AbsPath, AbsPathBuf};
 
-use failure::{Fail as _Fail, Fallible, ResultExt as _ResultExt};
-use fs2::FileExt as _FileExt;
+use failure::{Fail, Fallible, ResultExt};
+use fs2::FileExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use std::fs::{File, OpenOptions};
-use std::io::{self, Seek as _Seek, SeekFrom, Write as _Write};
+use std::io::{self, Seek, SeekFrom, Write};
 
 pub(crate) fn create_dir_all(dir: &AbsPath) -> FileResult<()> {
     std::fs::create_dir_all(dir)

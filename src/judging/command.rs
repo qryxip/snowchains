@@ -1,11 +1,11 @@
 use crate::errors::{JudgeErrorKind, JudgeResult, StdError};
 use crate::path::AbsPathBuf;
-use crate::terminal::{TermOut, WriteSpaces as _WriteSpaces};
+use crate::terminal::{TermOut, WriteSpaces};
 use crate::util::collections::NonEmptyVec;
 
-use failure::Fail as _Fail;
-use itertools::Itertools as _Itertools;
-use tokio_process::CommandExt as _CommandExt;
+use failure::Fail;
+use itertools::Itertools;
+use tokio_process::CommandExt;
 
 use std::borrow::Cow;
 use std::collections::HashMap;

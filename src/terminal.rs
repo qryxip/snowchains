@@ -160,6 +160,7 @@ pub trait StandardOutput: Write {
     fn columns() -> Option<usize>;
 
     #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
     fn columns() -> Option<usize> {
         let handle = Self::windows_handle_ref()?;
         let info = winapi_util::console::screen_buffer_info(handle).ok()?;
@@ -188,6 +189,7 @@ impl StandardOutput for BufWriter<StdoutLock<'_>> {
     }
 
     #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
         Some(winapi_util::HandleRef::stdout())
     }
@@ -208,6 +210,7 @@ impl StandardOutput for BufWriter<StderrLock<'_>> {
     }
 
     #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
         Some(winapi_util::HandleRef::stderr())
     }
@@ -228,6 +231,7 @@ impl StandardOutput for io::Sink {
     }
 
     #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
         None
     }
@@ -473,6 +477,7 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
     }
 
     #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
     fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice) {
         fn virtual_terminal_processing_enabled(handle: &winapi_util::HandleRef) -> bool {
             use winapi::um::wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
@@ -525,45 +530,65 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
     }
 }
 
+#[cfg(test)]
+pub(crate) struct Ansi<W: Write>(W);
+
+#[cfg(test)]
+impl<W: Write> Ansi<W> {
+    pub(crate) fn new(wtr: W) -> Self {
+        Ansi(wtr)
+    }
+
+    pub(crate) fn get_ref(&self) -> &W {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+impl<W: Write> Write for Ansi<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
+}
+
+#[cfg(test)]
+impl<W: Write> WriteAnsi for Ansi<W> {
+    fn supports_color(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(test)]
+impl<W: Write> TermOut for Ansi<W> {
+    fn process_redirection() -> process::Stdio {
+        process::Stdio::null()
+    }
+
+    fn columns(&self) -> Option<usize> {
+        None
+    }
+
+    fn str_width_fn(&self) -> fn(&str) -> usize {
+        UnicodeWidthStr::width
+    }
+
+    fn char_width_fn(&self) -> fn(char) -> Option<usize> {
+        UnicodeWidthChar::width
+    }
+
+    fn attempt_enable_ansi(&mut self, _: AnsiColorChoice) {}
+
+    fn apply_conf(&mut self, _: &config::Console) {}
+}
+
 #[derive(Clone, Copy, Debug, strum_macros::Display, EnumString)]
 #[strum(serialize_all = "snake_case")]
 pub enum AnsiColorChoice {
     Never,
     Auto,
     Always,
-}
-
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::WriteAnsi;
-
-    use std::io::{self, Write};
-
-    pub(crate) struct Ansi<W>(W);
-
-    impl<W: Write> Ansi<W> {
-        pub(crate) fn new(wtr: W) -> Self {
-            Ansi(wtr)
-        }
-
-        pub(crate) fn get_ref(&self) -> &W {
-            &self.0
-        }
-    }
-
-    impl<W: Write> Write for Ansi<W> {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.0.write(buf)
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            self.0.flush()
-        }
-    }
-
-    impl<W: Write> WriteAnsi for Ansi<W> {
-        fn supports_color(&self) -> bool {
-            true
-        }
-    }
 }

@@ -2,13 +2,13 @@ use crate::errors::JudgeResult;
 use crate::judging::command::JudgingCommand;
 use crate::judging::text::{Line, PrintAligned, Text, Width, Word};
 use crate::judging::Outcome;
-use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _WriteSpaces};
+use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
 use crate::testsuite::{ExpectedStdout, SimpleCase};
-use crate::time::MillisRoundedUp as _MillisRoundedUp;
+use crate::time::MillisRoundedUp;
 
 use derive_more::From;
 use futures::{task, try_ready, Async, Future, Poll};
-use itertools::Itertools as _Itertools;
+use itertools::Itertools;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use std::process::ExitStatus;

@@ -16,7 +16,7 @@ use structopt::StructOpt;
 use strum_macros::EnumString;
 
 use std::f64;
-use std::io::Write as _Write;
+use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;

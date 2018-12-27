@@ -1,20 +1,14 @@
-extern crate snowchains;
-
-extern crate ctrlc;
-extern crate dirs;
-extern crate env_logger;
-extern crate failure;
-extern crate structopt;
+#![cfg_attr(tarpaulin, skip)]
 
 use snowchains::app::{App, Opt};
 use snowchains::path::AbsPathBuf;
 use snowchains::service::Credentials;
-use snowchains::terminal::{Term, TermImpl, WriteAnsi as _WriteAnsi, WriteSpaces as _WriteSpaces};
+use snowchains::terminal::{Term, TermImpl, WriteAnsi, WriteSpaces};
 
 use failure::{Fail, Fallible};
-use structopt::StructOpt as _StructOpt;
+use structopt::StructOpt;
 
-use std::io::{self, Write as _Write};
+use std::io::{self, Write};
 use std::process;
 
 fn main() -> Fallible<()> {

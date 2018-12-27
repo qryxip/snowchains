@@ -2,15 +2,15 @@ use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, S
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadProps, ExtractZip, PrintTargets as _PrintTargets, ProblemNameConversion,
-    RevelSession, Service, SessionProps, SubmitProps, ZipEntries, ZipEntriesSorting,
+    Contest, DownloadProps, ExtractZip, PrintTargets, ProblemNameConversion, RevelSession, Service,
+    SessionProps, SubmitProps, ZipEntries, ZipEntriesSorting,
 };
-use crate::terminal::{HasTerm, Term, WriteAnsi as _WriteAnsi};
+use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
-use failure::ResultExt as _ResultExt;
-use itertools::Itertools as _Itertools;
+use failure::ResultExt;
+use itertools::Itertools;
 use maplit::hashmap;
 use multipart::client::lazy::Multipart;
 use once_cell::sync::Lazy;
@@ -18,14 +18,14 @@ use once_cell::sync_lazy;
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
-use select::predicate::{Predicate as _Predicate, Text};
+use select::predicate::{Predicate, Text};
 use serde_derive::Deserialize;
 use tokio::runtime::{Runtime, TaskExecutor};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::io::Write as _Write;
+use std::io::Write;
 use std::time::Duration;
 use std::{fmt, io, mem};
 
@@ -644,15 +644,10 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::ServiceResult;
-    use crate::service::session::{HttpSession, UrlBase};
-    use crate::service::yukicoder::{Extract as _Extract, Username, Yukicoder};
-    use crate::service::{self, RevelSession, Service as _Service};
-    use crate::terminal::{Term, TermImpl};
-    use crate::testsuite::{InteractiveSuite, SimpleSuite, TestSuite};
+    use crate::service;
+    use crate::service::yukicoder::Extract;
 
-    use tokio::runtime::Runtime;
-    use url::Host;
+    use select::document::Document;
 
     use std::borrow::Borrow;
     use std::time::Duration;
@@ -660,60 +655,32 @@ mod tests {
     #[test]
     fn it_extracts_samples_from_problem1() {
         let _ = env_logger::try_init();
-        test_extracting_samples(
-            "/problems/no/1",
-            SimpleSuite::new(Duration::from_secs(5)).sample_cases(
-                vec![
-                    ("3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n", "20\n"),
-                    ("3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n", "50\n"),
-                    (
-                        "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n\
-                         3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n\
-                         8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n\
-                         8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
-                        "-1\n",
-                    ),
-                ]
-                .into_iter(),
-                |i| format!("サンプル{}", i + 1),
-                None,
-            ),
-        );
+        test_extracting_samples("/problems/no/1", "9be46c45c46eb98aa85911bb38dee887");
     }
 
     #[test]
     fn it_extracts_samples_from_problem188() {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/188", SimpleSuite::new(Duration::from_secs(1)));
+        test_extracting_samples("/problems/no/188", "1615ec7755f7ad7707f73e0d20262e0a");
     }
 
     #[test]
     fn it_extracts_samples_from_problem192() {
         let _ = env_logger::try_init();
-        test_extracting_samples(
-            "/problems/no/192",
-            SimpleSuite::new(Duration::from_secs(2)).any().sample_cases(
-                vec![("101\n", None), ("1000\n", None)].into_iter(),
-                |i| format!("サンプル{}", i + 1),
-                None,
-            ),
-        );
+        test_extracting_samples("/problems/no/192", "4d0d32b4520f7a8a0bf86c94eb25619e");
     }
 
     #[test]
     fn it_extracts_samples_from_problem246() {
         let _ = env_logger::try_init();
-        test_extracting_samples(
-            "/problems/no/246",
-            InteractiveSuite::new(Duration::from_secs(2)),
-        );
+        test_extracting_samples("/problems/no/246", "f1eab269f69c78671e34303ed37e3e19");
     }
 
-    fn test_extracting_samples(url: &str, expected: impl Into<TestSuite>) {
-        let mut yukicoder = start().unwrap();
-        let document = yukicoder.get(url).recv_html().unwrap();
-        let samples = document.extract_samples().unwrap();
-        assert_eq!(expected.into(), samples);
+    fn test_extracting_samples(rel_url: &str, expected_md5: &str) {
+        let document = get_html(rel_url).unwrap();
+        let suite = document.extract_samples().unwrap();
+        let actual_md5 = suite.md5().unwrap();
+        assert_eq!(format!("{:x}", actual_md5), expected_md5);
     }
 
     #[test]
@@ -727,11 +694,8 @@ mod tests {
             ("F", "/problems/no/196"),
         ];
         let _ = env_logger::try_init();
-        let problems = {
-            let mut yukicoder = start().unwrap();
-            let document = yukicoder.get("/contests/100").recv_html().unwrap();
-            document.extract_problems().unwrap()
-        };
+        let document = get_html("/contests/100").unwrap();
+        let problems = document.extract_problems().unwrap();
         assert_eq!(own_pairs(EXPECTED), problems);
     }
 
@@ -742,18 +706,10 @@ mod tests {
             .collect()
     }
 
-    fn start() -> ServiceResult<Yukicoder<impl Term>> {
-        let client = service::reqwest_client(Duration::from_secs(60))?;
-        let base = UrlBase::new(Host::Domain("yukicoder.me"), true, None);
-        let mut term = TermImpl::null();
-        let mut runtime = Runtime::new()?;
-        let session = HttpSession::try_new(term.stdout(), &mut runtime, client, base, None, true)?;
-        Ok(Yukicoder {
-            term,
-            session,
-            runtime,
-            username: Username::None,
-            credential: RevelSession::None,
-        })
+    fn get_html(rel_url: &str) -> reqwest::Result<Document> {
+        let client = service::reqwest_sync_client(Duration::from_secs(60))?;
+        let url = format!("https://yukicoder.me{}", rel_url);
+        let content = client.get(&url).send()?.text()?;
+        Ok(Document::from(content.as_str()))
     }
 }

@@ -5,16 +5,16 @@ use crate::path::AbsPath;
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadProps, PrintTargets as _PrintTargets, ProblemNameConversion, RestoreProps,
-    Service, SessionProps, SubmitProps, UserNameAndPassword,
+    Contest, DownloadProps, PrintTargets, ProblemNameConversion, RestoreProps, Service,
+    SessionProps, SubmitProps, UserNameAndPassword,
 };
-use crate::terminal::{HasTerm, Term, WriteAnsi as _WriteAnsi};
+use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{DownloadDestinations, InteractiveSuite, SimpleSuite, TestSuite};
-use crate::util::std_unstable::RemoveItem_ as _RemoveItem_;
+use crate::util::std_unstable::RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
-use failure::ResultExt as _ResultExt;
-use itertools::Itertools as _Itertools;
+use failure::ResultExt;
+use itertools::Itertools;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
@@ -29,7 +29,7 @@ use tokio::runtime::{Runtime, TaskExecutor};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
-use std::io::Write as _Write;
+use std::io::Write;
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
@@ -229,7 +229,7 @@ impl<T: Term> Atcoder<T> {
             .form(&hashmap!("code" => code.as_str(), "grant_type" => "authorization_code"))
             .recv_json::<AuthToken>()?;
         crate::fs::write_json_pretty(auth_path, &auth)?;
-        writeln!(self.stdout(), "Wrote to {}", auth_path.display())?;
+        writeln!(self.stdout(), "Wrote {}", auth_path.display())?;
         self.stdout().flush()?;
         Ok(auth.access_token)
     }
@@ -306,7 +306,7 @@ impl<T: Term> Atcoder<T> {
         let mut outputs = names_and_urls
             .into_iter()
             .map(|(name, url)| -> ServiceResult<_> {
-                let suite = match contest.preset_suite() {
+                let suite = match contest.preset_suite(&name) {
                     Some(suite) => suite,
                     None => self.get(&url).recv_html()?.extract_as_suite()?,
                 };
@@ -474,7 +474,6 @@ impl<T: Term> Atcoder<T> {
                 let out_dir = format!("/{}/{}/out", contest_slug, problem);
                 let entries = list_folder(self, &token, &out_dir)?.entries;
                 let mut out_contents = download_files(self, &token, &out_dir, &entries)?;
-                // https://mobile.twitter.com/a3VtYQo/status/1048893042785013761
                 let contents = in_contents
                     .into_iter()
                     .filter_map(|(name, i)| out_contents.remove(&name).map(|o| (name, (i, o))))
@@ -501,7 +500,7 @@ impl<T: Term> Atcoder<T> {
             writeln!(
                 self.stdout(),
                 ": Saved {} to {}",
-                plural!(contents_len, "file", "files"),
+                plural!(2 * contents_len, "file", "files"),
                 dir.display(),
             )?;
             if let Some(TestSuite::Simple(suite)) = suites.get_mut(problem) {
@@ -785,10 +784,10 @@ impl AtcoderContest {
         format!("{}/submissions/me?page={}", self.url_top(), page)
     }
 
-    fn preset_suite(&self) -> Option<TestSuite> {
-        match self {
-            AtcoderContest::Arc(19) => Some(InteractiveSuite::new(Duration::from_secs(2))),
-            AtcoderContest::Arc(21) => Some(InteractiveSuite::new(Duration::from_secs(4))),
+    fn preset_suite(&self, problem: &str) -> Option<TestSuite> {
+        match (self, problem) {
+            (AtcoderContest::Arc(19), "D") => Some(InteractiveSuite::new(Duration::from_secs(2))),
+            (AtcoderContest::Arc(21), "D") => Some(InteractiveSuite::new(Duration::from_secs(4))),
             _ => None,
         }
         .map(Into::into)
@@ -1305,13 +1304,13 @@ impl Extract for Document {
 #[cfg(test)]
 mod tests {
     use crate::errors::ServiceResult;
-    use crate::service::atcoder::{Atcoder, AtcoderContest, Extract as _Extract};
+    use crate::service::atcoder::{Atcoder, AtcoderContest, Extract};
     use crate::service::session::{HttpSession, UrlBase};
-    use crate::service::{self, Service as _Service, UserNameAndPassword};
+    use crate::service::{self, Service, UserNameAndPassword};
     use crate::terminal::{Term, TermImpl};
-    use crate::testsuite::{SimpleSuite, TestSuite};
+    use crate::testsuite::TestSuite;
 
-    use itertools::Itertools as _Itertools;
+    use itertools::Itertools;
     use tokio::runtime::Runtime;
     use url::Host;
 
@@ -1354,30 +1353,13 @@ mod tests {
         }
     }
 
-    #[rustfmt::skip]
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_arc001() {
-        static A: &[(&str, &str)] = &[
-            ("9\n131142143\n", "4 1\n"),
-            ("20\n12341234123412341234\n", "5 5\n"),
-            ("4\n1111\n", "4 0\n"),
-        ];
-        static B: &[(&str, &str)] = &[("7 34\n", "5\n"), ("19 28\n", "2\n"), ("10 10\n", "0\n")];
-        static C: &[(&str, &str)] = &[
-            ("........\n........\n.......Q\n........\n..Q.....\n........\n.Q......\n........\n",
-             "Q.......\n....Q...\n.......Q\n.....Q..\n..Q.....\n......Q.\n.Q......\n...Q....\n"),
-            (".....Q..\n.Q......\n........\n........\n........\nQ.......\n........\n........\n",
-             "No Answer\n"),
-        ];
-        static D: &[(&str, &str)] = &[
-            ("7\n3 3\n2 5\n4 6\n2 3\n3 6\n3 4\n4 6\n2 5\n1 5\n", "8.22677276241436\n"),
-            ("5\n3 3\n0 5\n0 5\n0 5\n0 5\n0 5\n0 5\n", "5\n"),
-        ];
-        static EXPECTED: Expected = &[
-            ("A", "/contests/arc001/tasks/arc001_1", 2000, A),
-            ("B", "/contests/arc001/tasks/arc001_2", 2000, B),
-            ("C", "/contests/arc001/tasks/arc001_3", 2000, C),
-            ("D", "/contests/arc001/tasks/arc001_4", 2000, D),
+        static EXPECTED: &[(&str, &str, &str)] = &[
+            ("A", "arc001_1", "8466355b2cba9d78842672312e9592f0"),
+            ("B", "arc001_2", "cc8617d9244681b1a5a07428671b72d5"),
+            ("C", "arc001_3", "ccd84df8d59e6fe3006e22cbd707c030"),
+            ("D", "arc001_4", "3b3b5ef2224fa728ad3c44a98bcebbb5"),
         ];
         let _ = env_logger::try_init();
         test_sample_extraction("arc001", EXPECTED);
@@ -1385,97 +1367,23 @@ mod tests {
 
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_arc002() {
-        static A: &[(&str, &str)] = &[
-            ("1001\n", "NO\n"),
-            ("2012\n", "YES\n"),
-            ("2100\n", "NO\n"),
-            ("2000\n", "YES\n"),
-        ];
-        static B: &[(&str, &str)] = &[
-            ("2012/05/02\n", "2013/01/01\n"),
-            ("2020/05/02\n", "2020/05/02\n"),
-            ("2088/02/28\n", "2088/02/29\n"),
-        ];
-        static C: &[(&str, &str)] = &[
-            ("4\nABXY\n", "2\n"),
-            ("13\nABABABABXBXBX\n", "7\n"),
-            ("8\nAABBAABB\n", "4\n"),
-        ];
-        static D: &[(&str, &str)] = &[
-            ("3 10\n..o.o.xxx.\n...o.xo.x.\no.xxo..x..\n", "o\n"),
-            ("3 5\n..x..\n.o...\n...x.\n", "x\n"),
-        ];
-        static EXPECTED: Expected = &[
-            ("A", "/contests/arc002/tasks/arc002_1", 2000, A),
-            ("B", "/contests/arc002/tasks/arc002_2", 2000, B),
-            ("C", "/contests/arc002/tasks/arc002_3", 2000, C),
-            ("D", "/contests/arc002/tasks/arc002_4", 2000, D),
+        static EXPECTED: &[(&str, &str, &str)] = &[
+            ("A", "arc002_1", "41397da2ac34f82ef99a875414e3bbe9"),
+            ("B", "arc002_2", "b19aa5ce1ed2695aff295dfd28a6f9dd"),
+            ("C", "arc002_3", "2c9e018f4c37c26ec3ae7441b8ed77a3"),
+            ("D", "arc002_4", "37ccc24feade9f38de167d7479089233"),
         ];
         let _ = env_logger::try_init();
         test_sample_extraction("arc002", EXPECTED);
     }
 
-    #[rustfmt::skip]
-    #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_arc019() {
-        static A: &[(&str, &str)] = &[
-            ("1Z0\n", "120\n"),
-            ("4ZD6O\n", "42060\n"),
-            ("BI9Z\n", "8192\n"),
-        ];
-        static B: &[(&str, &str)] = &[
-            ("ARC\n", "73\n"),
-            ("S\n", "0\n"),
-            ("NOLEMONNOMELON\n", "350\n"),
-        ];
-        static C: &[(&str, &str)] = &[
-            ("5 7 3\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n", "19\n"),
-            ("5 7 2\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n", "21\n"),
-            ("5 7 1\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n", "-1\n"),
-            ("6 35 4\nT...TT.....TT...TTT...TTT..TTG.....\n..T..T.TTT.T..T..E..T..E...TTT.TTT.\n\
-              .TTT.T.....E.TTTTT.TTT.TTT.TTT.....\n.....T.TT.TT.TTTTT.TTT.TTT.TTTTTTT.\n\
-              .TTT.T.TT..T..T..S..T..TTT.TTTTTTT.\n.CTT.E.TTT.TT...TTT...TT.....E.....\n",
-             "94\n"),
-        ];
-        static D: &[(&str, &str)] = &[];
-        static EXPECTED: Expected = &[
-            ("A", "/contests/arc019/tasks/arc019_1", 2000, A),
-            ("B", "/contests/arc019/tasks/arc019_2", 2000, B),
-            ("C", "/contests/arc019/tasks/arc019_3", 2000, C),
-            ("D", "/contests/arc019/tasks/arc019_4", 2000, D),
-        ];
-        let _ = env_logger::try_init();
-        test_sample_extraction("arc019", EXPECTED);
-    }
-
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_arc058() {
-        static C: &[(&str, &str)] = &[
-            ("1000 8\n1 3 4 5 6 7 8 9\n", "2000\n"),
-            ("9999 1\n0\n", "9999\n"),
-        ];
-        static D: &[(&str, &str)] = &[
-            ("2 3 1 1\n", "2\n"),
-            ("10 7 3 4\n", "3570\n"),
-            ("100000 100000 99999 99999\n", "1\n"),
-            ("100000 100000 44444 55555\n", "738162020\n"),
-        ];
-        static E: &[(&str, &str)] = &[
-            ("3 5 7 5\n", "1\n"),
-            ("4 5 7 5\n", "34\n"),
-            ("37 4 2 3\n", "863912418\n"),
-            ("40 5 7 5\n", "562805100\n"),
-        ];
-        static F: &[(&str, &str)] = &[
-            ("3 7\nat\ncoder\ncodar\n", "atcodar\n"),
-            ("3 7\ncoder\ncodar\nat\n", "codarat\n"),
-            ("4 13\nkyuri\nnamida\nzzzzzzz\naaaaaa\n", "namidazzzzzzz\n"),
-        ];
-        static EXPECTED: Expected = &[
-            ("C", "/contests/arc058/tasks/arc058_a", 2000, C),
-            ("D", "/contests/arc058/tasks/arc058_b", 2000, D),
-            ("E", "/contests/arc058/tasks/arc058_c", 4000, E),
-            ("F", "/contests/arc058/tasks/arc058_d", 5000, F),
+        static EXPECTED: &[(&str, &str, &str)] = &[
+            ("C", "arc058_a", "528b8a28f676b64525c24de6e00b2177"),
+            ("D", "arc058_b", "01b562fb301781eeb0b2dfbc399aeb0a"),
+            ("E", "arc058_c", "8f62d4ede8230836d4127de0b4ce5a73"),
+            ("F", "arc058_d", "032cf56b87317058db7948c990a22094"),
         ];
         let _ = env_logger::try_init();
         test_sample_extraction("arc058", EXPECTED);
@@ -1483,193 +1391,68 @@ mod tests {
 
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_abc041() {
-        static A: &[(&str, &str)] = &[
-            ("atcoder\n3\n", "c\n"),
-            ("beginner\n1\n", "b\n"),
-            ("contest\n7\n", "t\n"),
-            ("z\n1\n", "z\n"),
-        ];
-        static B: &[(&str, &str)] = &[
-            ("2 3 4\n", "24\n"),
-            ("10000 1000 100\n", "1000000000\n"),
-            ("100000 1 100000\n", "999999937\n"),
-            ("1000000000 1000000000 1000000000\n", "999999664\n"),
-        ];
-        static C: &[(&str, &str)] = &[
-            ("3\n140 180 160\n", "2\n3\n1\n"),
-            ("2\n1000000000 1\n", "1\n2\n"),
-            ("8\n3 1 4 15 9 2 6 5\n", "4\n5\n7\n8\n3\n1\n6\n2\n"),
-        ];
-        static D: &[(&str, &str)] = &[
-            ("3 2\n2 1\n2 3\n", "2\n"),
-            ("5 5\n1 2\n2 3\n3 5\n1 4\n4 5\n", "3\n"),
-            ("16 1\n1 2\n", "10461394944000\n"),
-        ];
-        static EXPECTED: Expected = &[
-            ("A", "/contests/abc041/tasks/abc041_a", 2000, A),
-            ("B", "/contests/abc041/tasks/abc041_b", 2000, B),
-            ("C", "/contests/abc041/tasks/abc041_c", 2000, C),
-            ("D", "/contests/abc041/tasks/abc041_d", 3000, D),
+        static EXPECTED: &[(&str, &str, &str)] = &[
+            ("A", "abc041_a", "0f31784e3b3ec70b5cb553b7a648a9d3"),
+            ("B", "abc041_b", "6c3c03121c5d81c8d9500045a2cb75a9"),
+            ("C", "abc041_c", "4d927f43351f3d7d9e9b74646c87a088"),
+            ("D", "abc041_d", "042c32342b80ab6ccdb129dee2ee1e5d"),
         ];
         let _ = env_logger::try_init();
         test_sample_extraction("abc041", EXPECTED);
     }
 
-    #[rustfmt::skip]
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_chokudai_s001() {
-        static A: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "5\n"),
-            ("6\n1 2 3 4 5 6\n", "6\n"),
-            ("7\n7 6 5 4 3 2 1\n", "7\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "20\n"),
-        ];
-        static B: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "15\n"),
-            ("6\n1 2 3 4 5 6\n", "21\n"),
-            ("7\n7 6 5 4 3 2 1\n", "28\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "210\n"),
-        ];
-        static C: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "3,1,5,4,2\n"),
-            ("6\n1 2 3 4 5 6\n", "1,2,3,4,5,6\n"),
-            ("7\n7 6 5 4 3 2 1\n", "7,6,5,4,3,2,1\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
-             "19,11,10,7,8,9,17,18,20,4,3,15,16,1,5,14,6,2,13,12\n"),
-        ];
-        static D: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "1 2 3 4 5\n"),
-            ("6\n1 2 3 4 5 6\n", "1 2 3 4 5 6\n"),
-            ("7\n7 6 5 4 3 2 1\n", "1 2 3 4 5 6 7\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n",
-             "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20\n"),
-        ];
-        static E: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "2\n"),
-            ("6\n1 2 3 4 5 6\n", "1\n"),
-            ("7\n7 6 5 4 3 2 1\n", "7\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "14\n"),
-        ];
-        static F: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "2\n"),
-            ("6\n1 2 3 4 5 6\n", "6\n"),
-            ("7\n7 6 5 4 3 2 1\n", "1\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "2\n"),
-        ];
-        static G: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "31542\n"),
-            ("6\n1 2 3 4 5 6\n", "123456\n"),
-            ("7\n7 6 5 4 3 2 1\n", "7654321\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "370453866\n"),
-        ];
-        static H: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "2\n"),
-            ("6\n1 2 3 4 5 6\n", "6\n"),
-            ("7\n7 6 5 4 3 2 1\n", "1\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "6\n"),
-        ];
-        static I: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "1\n"),
-            ("6\n1 2 3 4 5 6\n", "2\n"),
-            ("7\n7 6 5 4 3 2 1\n", "2\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "3\n"),
-        ];
-        static J: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "5\n"),
-            ("6\n1 2 3 4 5 6\n", "0\n"),
-            ("7\n7 6 5 4 3 2 1\n", "21\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "114\n"),
-        ];
-        static K: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "54\n"),
-            ("6\n1 2 3 4 5 6\n", "1\n"),
-            ("7\n7 6 5 4 3 2 1\n", "5040\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "542869439\n"),
-        ];
-        static L: &[(&str, &str)] = &[
-            ("5\n3 1 5 4 2\n", "YES\n"),
-            ("6\n1 2 3 4 5 6\n", "YES\n"),
-            ("7\n7 6 5 4 3 2 1\n", "YES\n"),
-            ("20\n19 11 10 7 8 9 17 18 20 4 3 15 16 1 5 14 6 2 13 12\n", "YES\n"),
-        ];
-        static EXPECTED: Expected = &[
-            ("A", "/contests/chokudai_s001/tasks/chokudai_S001_a", 2000, A),
-            ("B", "/contests/chokudai_s001/tasks/chokudai_S001_b", 2000, B),
-            ("C", "/contests/chokudai_s001/tasks/chokudai_S001_c", 2000, C),
-            ("D", "/contests/chokudai_s001/tasks/chokudai_S001_d", 2000, D),
-            ("E", "/contests/chokudai_s001/tasks/chokudai_S001_e", 2000, E),
-            ("F", "/contests/chokudai_s001/tasks/chokudai_S001_f", 2000, F),
-            ("G", "/contests/chokudai_s001/tasks/chokudai_S001_g", 2000, G),
-            ("H", "/contests/chokudai_s001/tasks/chokudai_S001_h", 2000, H),
-            ("I", "/contests/chokudai_s001/tasks/chokudai_S001_i", 2000, I),
-            ("J", "/contests/chokudai_s001/tasks/chokudai_S001_j", 2000, J),
-            ("K", "/contests/chokudai_s001/tasks/chokudai_S001_k", 2000, K),
-            ("L", "/contests/chokudai_s001/tasks/chokudai_S001_l", 2000, L),
+        static EXPECTED: &[(&str, &str, &str)] = &[
+            ("A", "chokudai_S001_a", "ac1f9f1f348d5934c58afaaefdb2c4a0"),
+            ("B", "chokudai_S001_b", "563863e108d52d70798581260984a933"),
+            ("C", "chokudai_S001_c", "e7c07e7611d800c0b2c4745f0a021831"),
+            ("D", "chokudai_S001_d", "dcd66b22a9bac464012d25f3f5b17469"),
+            ("E", "chokudai_S001_e", "2084c2a1cc1ea15b632e033d1dfacd79"),
+            ("F", "chokudai_S001_f", "130a3beedb2632e9c2526f7b7d1705ba"),
+            ("G", "chokudai_S001_g", "53f07f8be4611c8f46047c62fb26f401"),
+            ("H", "chokudai_S001_h", "a7f1dfa86db6e70a4083717630444fc1"),
+            ("I", "chokudai_S001_i", "25ba264cf4da4145e4fab293732fe742"),
+            ("J", "chokudai_S001_j", "b921ef1e689aa78e261d6526ed7564a5"),
+            ("K", "chokudai_S001_k", "542eb3b4d0c2af32cbb263bbfa5a54e0"),
+            ("L", "chokudai_S001_l", "33aa5b27cfb3e70528c233c427980109"),
         ];
         let _ = env_logger::try_init();
         test_sample_extraction("chokudai_s001", EXPECTED);
     }
 
-    type Expected = &'static [(
-        &'static str,
-        &'static str,
-        u64,
-        &'static [(&'static str, &'static str)],
-    )];
-
-    fn test_sample_extraction(contest: &str, expected: Expected) {
+    fn test_sample_extraction(
+        contest: &str,
+        expected: &'static [(&'static str, &'static str, &'static str)],
+    ) {
         let mut atcoder = start().unwrap();
         let contest = AtcoderContest::new(contest);
         let page = atcoder.fetch_tasks_page(&contest).unwrap();
         let urls_and_names = page.extract_task_urls_with_names().unwrap();
-        for (
-            (actual_name, actual_url),
-            (expected_name, expected_url, expected_timelimit, expected_samples),
-        ) in urls_and_names.iter().zip_eq(expected.iter())
+        for ((actual_name, actual_url), (expected_name, expected_slug, expected_md5)) in
+            urls_and_names.iter().zip_eq(expected.iter())
         {
-            assert_eq!(expected_name, actual_name);
-            assert_eq!(expected_url, actual_url);
+            let expected_url = format!("/contests/{}/tasks/{}", contest.slug(), expected_slug);
+            assert_eq!(actual_name, expected_name);
+            assert_eq!(*actual_url, expected_url);
             let problem_page = atcoder.get(&actual_url).recv_html().unwrap();
-            let expected_timelimit = Duration::from_millis(*expected_timelimit);
-            let expected_suite =
-                TestSuite::from(SimpleSuite::new(expected_timelimit).sample_cases(
-                    expected_samples.iter().cloned(),
-                    |i| format!("Sample {}", i + 1),
-                    None,
-                ));
             let actual_suite = problem_page.extract_as_suite().unwrap();
-            assert_eq!(expected_suite, actual_suite);
+            let actual_md5 = actual_suite.md5().unwrap();
+            assert_eq!(format!("{:x}", actual_md5), *expected_md5);
         }
     }
 
     #[test]
     fn it_extracts_a_submitted_source_code() {
         static URL: &str = "/contests/utpc2011/submissions/2067";
-        static EXPECTED_CODE: &str =
-            "import java.util.*;\n\
-             import java.math.*;\n\
-             import static java.lang.Math.*;\n\
-             import static java.util.Arrays.*;\n\
-             import static java.util.Collections.*;\n\
-             public class Main{\n\
-             \tpublic static void main(String[] args) {\n\
-             \t\tnew Main().run();\n\
-             \t}\n\
-             \tScanner sc = new Scanner(System.in);\n\
-             \tvoid run() {\n\
-             \t\tint m=sc.nextInt(),n=sc.nextInt();\n\
-             \t\tint[] as=new int[m];\n\
-             \t\tfor(int i=0;i<m;i++)for(int j=0;j<n;j++)as[i]+=sc.nextInt();\n\
-             \t\t\tsort(as);\n\
-             \t\t\tSystem.out.println(as[m-1]);\n\
-             \t}\n\
-             }\n\
-             ";
         let _ = env_logger::try_init();
         let mut atcoder = start().unwrap();
         let page = atcoder.get(URL).recv_html().unwrap();
         let code = page.extract_submitted_code().unwrap();
-        assert_eq!(EXPECTED_CODE, code);
+        assert_eq!(
+            format!("{:x}", md5::compute(&code)),
+            "1d805f5f226cd9d6dd90081a47505b7b",
+        );
     }
 
     fn start() -> ServiceResult<Atcoder<impl Term>> {

@@ -72,6 +72,7 @@ impl AbsPath {
     }
 
     #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
     fn canonicalize_lossy(&self) -> Cow<Self> {
         let mut inner = PathBuf::new();
         for s in self.inner.iter() {
@@ -165,19 +166,20 @@ impl AbsPathBuf {
         }
 
         env::current_dir()
-            .map(|inner| Self { inner })
+            .and_then(|inner| {
+                if inner.is_relative() {
+                    Err(io::Error::from(io::ErrorKind::Other))
+                } else {
+                    Ok(Self { inner })
+                }
+            })
             .map_err(|e| io::Error::new(e.kind(), GetcwdError(e)))
     }
 
-    /// # Panics
-    ///
-    /// Panics if `path` is relative.
-    pub fn new_or_panic(path: impl Into<PathBuf>) -> Self {
+    pub fn try_new(path: impl Into<PathBuf>) -> Option<Self> {
         let inner = path.into();
-        if inner.is_relative() {
-            panic!("called `AbsPathBuf::new_or_panic` on a relative path");
-        }
-        Self { inner }
+        guard!(inner.is_absolute());
+        Some(Self { inner })
     }
 
     pub(crate) fn as_path(&self) -> &AbsPath {
@@ -198,6 +200,7 @@ impl Default for AbsPathBuf {
     }
 
     #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
     fn default() -> Self {
         Self {
             inner: PathBuf::from("C:\\"),
