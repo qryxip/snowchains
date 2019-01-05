@@ -1,4 +1,6 @@
-use crate::errors::{JudgeErrorKind, JudgeResult, StdError};
+use crate::errors::{
+    HookCommandErrorKind, HookCommandResult, JudgeErrorKind, JudgeResult, StdError,
+};
 use crate::path::AbsPathBuf;
 use crate::terminal::{TermOut, WriteSpaces};
 use crate::util::collections::NonEmptyVec;
@@ -11,9 +13,67 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io;
+use std::iter::FromIterator;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
+
+pub(crate) struct HookCommands(Option<NonEmptyVec<HookCommand>>);
+
+impl HookCommands {
+    pub(crate) fn run<O: TermOut, E: TermOut>(&self, mut stdout: O) -> HookCommandResult<()> {
+        if let HookCommands(Some(this)) = self {
+            stdout.with_reset(|o| o.bold()?.write_str("Running hooks...\n"))?;
+            stdout.flush()?;
+            this.iter().try_for_each(|c| c.run::<O, E>())?;
+            stdout.with_reset(|o| o.bold()?.write_str("Done.\n"))?;
+            stdout.flush()?;
+        }
+        Ok(())
+    }
+}
+
+impl FromIterator<HookCommand> for HookCommands {
+    fn from_iter<T: IntoIterator<Item = HookCommand>>(iter: T) -> Self {
+        HookCommands(NonEmptyVec::try_new(iter.into_iter().collect()))
+    }
+}
+
+pub(crate) struct HookCommand {
+    inner: Inner,
+}
+
+impl HookCommand {
+    pub(crate) fn new(
+        args: Vec<OsString>,
+        working_dir: AbsPathBuf,
+        envs: HashMap<OsString, OsString>,
+    ) -> Self {
+        Self {
+            inner: Inner::new(args, working_dir, envs),
+        }
+    }
+
+    fn run<O: TermOut, E: TermOut>(&self) -> HookCommandResult<()> {
+        let status = self
+            .inner
+            .build_checking_wd()?
+            .stdin(Stdio::null())
+            .stdout(O::process_redirection())
+            .stderr(E::process_redirection())
+            .status()
+            .map_err(|e| {
+                let arg0 = self.inner.args[0].clone();
+                StdError::from(e).context(HookCommandErrorKind::Start(arg0))
+            })?;
+        if status.success() {
+            Ok(())
+        } else {
+            let arg0 = self.inner.args[0].clone();
+            Err(HookCommandErrorKind::NotSuccess(arg0, status).into())
+        }
+    }
+}
 
 /// Transpilation command.
 #[cfg_attr(test, derive(Debug))]

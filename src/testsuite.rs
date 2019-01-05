@@ -1,8 +1,8 @@
+use crate::command::{CompilationCommand, JudgingCommand, TranspilationCommand};
 use crate::errors::{
     ConfigError, ConfigErrorKind, ExpandTemplateResult, FileResult, StdError, TestSuiteErrorKind,
     TestSuiteResult,
 };
-use crate::judging::command::{CompilationCommand, JudgingCommand, TranspilationCommand};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
 use crate::terminal::WriteAnsi;
@@ -161,10 +161,10 @@ impl TestCaseLoader<'_> {
         let all_paths = self
             .extensions
             .iter()
-            .map(|ext| {
+            .map(|&ext| {
                 self.template
                     .clone()
-                    .insert_string("extension", ext.to_string())
+                    .extension(ext)
                     .expand(problem)
                     .map(|path| (path, ext))
             })
@@ -180,7 +180,7 @@ impl TestCaseLoader<'_> {
         let mut interactive_cases = vec![];
         let mut filepaths = vec![];
 
-        for (path, &extension) in existing_paths {
+        for (path, extension) in existing_paths {
             let filename = path
                 .file_name()
                 .unwrap_or_default()
@@ -246,7 +246,7 @@ impl DownloadDestinations {
         let path = self
             .scraped
             .clone()
-            .insert_string("extension", self.extension.to_string())
+            .extension(self.extension)
             .expand(problem)?;
         Ok(SuiteFilePath::new(&path, self.extension))
     }
@@ -266,6 +266,12 @@ impl SuiteFilePath {
     pub(crate) fn new(path: &AbsPath, extension: SuiteFileExtension) -> Self {
         let path = path.to_owned();
         Self { path, extension }
+    }
+}
+
+impl AsRef<AbsPath> for SuiteFilePath {
+    fn as_ref(&self) -> &AbsPath {
+        &self.path
     }
 }
 
@@ -674,7 +680,7 @@ impl InteractiveSuite {
                 .get(lang)
                 .map(|template| template.clone().clone())
                 .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(lang.to_owned())))?
-                .insert_strings(&m)
+                .envs(Some(&m))
                 .expand(&problem)?;
             cases.push(InteractiveCase {
                 name: Arc::new(format!("{}[{}]", filename, i)),

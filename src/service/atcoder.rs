@@ -5,8 +5,9 @@ use crate::path::AbsPath;
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadProps, PrintTargets, ProblemNameConversion, RestoreProps, Service,
-    SessionProps, SubmitProps, UserNameAndPassword,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, PrintTargets,
+    ProblemNameConversion, RestoreProps, Service, ServiceName, SessionProps, SubmitProps,
+    UserNameAndPassword,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{DownloadDestinations, InteractiveSuite, SimpleSuite, TestSuite};
@@ -60,7 +61,7 @@ pub(crate) fn participate(
 pub(crate) fn download(
     mut sess_props: SessionProps<impl Term>,
     download_props: DownloadProps<String>,
-) -> ServiceResult<()> {
+) -> ServiceResult<DownloadOutcome> {
     let dropbox_path = sess_props.dropbox_path.take();
     let dropbox_path = dropbox_path.as_ref().map(Deref::deref);
     let download_props = download_props.convert_contest_and_problems(ProblemNameConversion::Upper);
@@ -286,12 +287,12 @@ impl<T: Term> Atcoder<T> {
         &mut self,
         props: &DownloadProps<AtcoderContest>,
         dropbox_path: Option<&AbsPath>,
-    ) -> ServiceResult<()> {
+    ) -> ServiceResult<DownloadOutcome> {
         let DownloadProps {
             contest,
             problems,
             destinations,
-            open_browser,
+            open_in_browser,
             only_scraped,
         } = props;
         let names_and_urls = self
@@ -303,32 +304,38 @@ impl<T: Term> Atcoder<T> {
                 Some(problems) => problems.iter().any(|p| p == name),
             })
             .collect::<Vec<_>>();
-        let mut outputs = names_and_urls
-            .into_iter()
-            .map(|(name, url)| -> ServiceResult<_> {
-                let suite = match contest.preset_suite(&name) {
-                    Some(suite) => suite,
-                    None => self.get(&url).recv_html()?.extract_as_suite()?,
-                };
-                let path = destinations.expand(&name)?;
-                Ok((url, name, suite, path))
-            })
-            .collect::<ServiceResult<Vec<_>>>()?;
+        let mut outcome = DownloadOutcome::new(ServiceName::Atcoder, contest, *open_in_browser);
+        for (name, url) in names_and_urls {
+            let suite = match contest.preset_suite(&name) {
+                Some(suite) => suite,
+                None => self.get(&url).recv_html()?.extract_as_suite()?,
+            };
+            let path = destinations.expand(&name)?;
+            let url = self.session.resolve_url(&url)?;
+            outcome.push_problem(name, url, suite, path);
+        }
         let mut not_found = match problems.as_ref() {
             None => vec![],
             Some(problems) => problems.iter().collect(),
         };
         if !*only_scraped {
             if let Some(dropbox_path) = dropbox_path {
-                let suites = outputs
+                let suites = outcome
+                    .problems
                     .iter_mut()
-                    .map(|(_, name, suite, _)| (name.as_str(), suite))
-                    .collect::<BTreeMap<&str, &mut TestSuite>>();
+                    .map(|p| (p.name.as_str(), &mut p.test_suite))
+                    .collect::<BTreeMap<_, _>>();
                 self.download_from_dropbox(dropbox_path, &contest.slug(), suites, destinations)?;
             }
         }
-        for (_, name, suite, path) in &outputs {
-            suite.save(&name, path, self.stdout())?;
+        for DownloadOutcomeProblem {
+            name,
+            test_suite,
+            test_suite_path,
+            ..
+        } in &outcome.problems
+        {
+            test_suite.save(name, test_suite_path, self.stdout())?;
             not_found.remove_item_(&name);
         }
         self.stdout().flush()?;
@@ -337,13 +344,13 @@ impl<T: Term> Atcoder<T> {
                 .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
             self.stderr().flush()?;
         }
-        if *open_browser {
+        if *open_in_browser {
             self.open_in_browser(&contest.url_submissions_me(1))?;
-            for (url, _, _, _) in &outputs {
-                self.open_in_browser(url)?;
+            for DownloadOutcomeProblem { url, .. } in &outcome.problems {
+                self.open_in_browser(url.as_str())?;
             }
         }
-        Ok(())
+        Ok(outcome)
     }
 
     fn download_from_dropbox(
@@ -593,7 +600,7 @@ impl<T: Term> Atcoder<T> {
             problem,
             lang_id,
             src_path,
-            open_browser,
+            open_in_browser,
             skip_checking_if_accepted,
         } = props;
         let tasks_page = self.fetch_tasks_page(&contest)?;
@@ -689,7 +696,7 @@ impl<T: Term> Atcoder<T> {
                     }
                 }
 
-                if *open_browser {
+                if *open_in_browser {
                     self.open_in_browser(&contest.url_submissions_me(1))?;
                 }
                 return Ok(());
@@ -750,20 +757,6 @@ impl AtcoderContest {
         }
     }
 
-    fn slug(&self) -> Cow<str> {
-        match self {
-            AtcoderContest::Practice => "practice".into(),
-            AtcoderContest::Apg4b => "apg4b".into(),
-            AtcoderContest::Abc(n) => format!("abc{:>03}", n).into(),
-            AtcoderContest::Arc(n) => format!("arc{:>03}", n).into(),
-            AtcoderContest::Agc(n) => format!("agc{:>03}", n).into(),
-            AtcoderContest::Atc(n) => format!("atc{:>03}", n).into(),
-            AtcoderContest::Apc(n) => format!("apc{:>03}", n).into(),
-            AtcoderContest::ChokudaiS(n) => format!("chokudai_s{:>03}", n).into(),
-            AtcoderContest::Other(s) => s.into(),
-        }
-    }
-
     fn url_top(&self) -> String {
         format!("/contests/{}", self.slug())
     }
@@ -797,6 +790,20 @@ impl AtcoderContest {
 impl Contest for AtcoderContest {
     fn from_string(s: String) -> Self {
         Self::new(&s)
+    }
+
+    fn slug(&self) -> Cow<str> {
+        match self {
+            AtcoderContest::Practice => "practice".into(),
+            AtcoderContest::Apg4b => "apg4b".into(),
+            AtcoderContest::Abc(n) => format!("abc{:>03}", n).into(),
+            AtcoderContest::Arc(n) => format!("arc{:>03}", n).into(),
+            AtcoderContest::Agc(n) => format!("agc{:>03}", n).into(),
+            AtcoderContest::Atc(n) => format!("atc{:>03}", n).into(),
+            AtcoderContest::Apc(n) => format!("apc{:>03}", n).into(),
+            AtcoderContest::ChokudaiS(n) => format!("chokudai_s{:>03}", n).into(),
+            AtcoderContest::Other(s) => s.into(),
+        }
     }
 }
 
@@ -1306,7 +1313,7 @@ mod tests {
     use crate::errors::ServiceResult;
     use crate::service::atcoder::{Atcoder, AtcoderContest, Extract};
     use crate::service::session::{HttpSession, UrlBase};
-    use crate::service::{self, Service, UserNameAndPassword};
+    use crate::service::{self, Contest, Service, UserNameAndPassword};
     use crate::terminal::{Term, TermImpl};
     use crate::testsuite::TestSuite;
 
@@ -1456,7 +1463,7 @@ mod tests {
     }
 
     fn start() -> ServiceResult<Atcoder<impl Term>> {
-        let client = service::reqwest_client(Duration::from_secs(60))?;
+        let client = service::reqwest_async_client(Duration::from_secs(60))?;
         let base = UrlBase::new(Host::Domain("atcoder.jp"), true, None);
         let mut term = TermImpl::null();
         let mut runtime = Runtime::new()?;

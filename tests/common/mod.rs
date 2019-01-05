@@ -52,12 +52,9 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
 pub fn credentials_from_env_vars() -> Fallible<Credentials> {
     let atcoder_username = env("ATCODER_USERNAME")?;
     let atcoder_password = env("ATCODER_PASSWORD")?;
-    let hackerrank_username = env("HACKERRANK_USERNAME")?;
-    let hackerrank_password = env("HACKERRANK_PASSWORD")?;
     let yukicoder_revel_session = env("YUKICODER_REVEL_SESSION")?;
     Ok(Credentials {
         atcoder: UserNameAndPassword::Some(atcoder_username, atcoder_password),
-        hackerrank: UserNameAndPassword::Some(hackerrank_username, hackerrank_password),
         yukicoder: RevelSession::Some(yukicoder_revel_session),
     })
 }
@@ -66,7 +63,6 @@ pub fn dummy_credentials() -> Credentials {
     let dummy = "".to_owned();
     Credentials {
         atcoder: UserNameAndPassword::Some(dummy.clone(), dummy.clone()),
-        hackerrank: UserNameAndPassword::Some(dummy.clone(), dummy.clone()),
         yukicoder: RevelSession::Some(dummy),
     }
 }
@@ -106,7 +102,7 @@ pub fn download(
     problems: &[&str],
 ) -> snowchains::Result<()> {
     app.run(Opt::Download {
-        open_browser: false,
+        open: false,
         only_scraped: false,
         service: Some(service),
         contest: Some(contest.to_owned()),

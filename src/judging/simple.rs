@@ -1,5 +1,5 @@
+use crate::command::JudgingCommand;
 use crate::errors::JudgeResult;
-use crate::judging::command::JudgingCommand;
 use crate::judging::text::{Line, PrintAligned, Text, Width, Word};
 use crate::judging::Outcome;
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};

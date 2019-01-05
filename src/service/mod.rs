@@ -1,7 +1,6 @@
 pub mod session;
 
 pub(crate) mod atcoder;
-pub(crate) mod hackerrank;
 pub(crate) mod yukicoder;
 
 pub(self) mod download;
@@ -12,23 +11,25 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::session::{HttpSession, UrlBase};
 use crate::template::Template;
 use crate::terminal::{Term, WriteAnsi};
-use crate::testsuite::DownloadDestinations;
+use crate::testsuite::{DownloadDestinations, SuiteFilePath, TestSuite};
 use crate::util;
 
 use failure::ResultExt;
-use heck::KebabCase;
+use heck::{CamelCase, KebabCase, MixedCase, ShoutySnakeCase, SnakeCase, TitleCase};
 use maplit::hashmap;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::RedirectPolicy;
+use serde::{Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use strum_macros::{EnumString, IntoStaticStr};
 use tokio::runtime::Runtime;
-use url::Host;
+use url::{Host, Url};
 use zip::result::ZipResult;
 use zip::ZipArchive;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{self, Cursor, Write};
 use std::ops::Deref;
@@ -54,8 +55,6 @@ use std::{cmp, fmt, mem, slice};
 pub enum ServiceName {
     #[strum(to_string = "atcoder")]
     Atcoder,
-    #[strum(to_string = "hackerrank")]
-    Hackerrank,
     #[strum(to_string = "yukicoder")]
     Yukicoder,
     #[strum(to_string = "other")]
@@ -72,7 +71,6 @@ impl ServiceName {
     pub(crate) fn domain(self) -> Option<&'static str> {
         match self {
             ServiceName::Atcoder => Some("atcoder.jp"),
-            ServiceName::Hackerrank => Some("www.hackerrank.com"),
             ServiceName::Yukicoder => Some("yukicoder.me"),
             ServiceName::Other => None,
         }
@@ -236,7 +234,6 @@ pub(self) enum ZipEntriesSorting {
 #[derive(Clone)]
 pub struct Credentials {
     pub atcoder: UserNameAndPassword,
-    pub hackerrank: UserNameAndPassword,
     pub yukicoder: RevelSession,
 }
 
@@ -244,7 +241,6 @@ impl Default for Credentials {
     fn default() -> Self {
         Self {
             atcoder: UserNameAndPassword::None,
-            hackerrank: UserNameAndPassword::None,
             yukicoder: RevelSession::None,
         }
     }
@@ -281,6 +277,84 @@ impl RevelSession {
     }
 }
 
+#[derive(Serialize)]
+pub(crate) struct DownloadOutcome {
+    service: ServiceName,
+    open_in_browser: bool,
+    contest: DownloadOutcomeContest,
+    pub(self) problems: Vec<DownloadOutcomeProblem>,
+}
+
+#[derive(Serialize)]
+struct DownloadOutcomeContest {
+    slug: String,
+}
+
+#[derive(Serialize)]
+pub(self) struct DownloadOutcomeProblem {
+    #[serde(serialize_with = "ser_as_str")]
+    pub(self) url: Url,
+    pub(self) name: String,
+    name_lower: String,
+    name_upper: String,
+    name_kebab: String,
+    name_snake: String,
+    name_screaming: String,
+    name_mixed: String,
+    name_pascal: String,
+    name_title: String,
+    #[serde(serialize_with = "ser_as_path")]
+    pub(self) test_suite_path: SuiteFilePath,
+    pub(self) test_suite: TestSuite,
+}
+
+fn ser_as_str<S: Serializer>(url: &Url, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+    url.as_str().serialize(serializer)
+}
+
+fn ser_as_path<S: Serializer>(
+    path: &SuiteFilePath,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    AsRef::<AbsPath>::as_ref(path).serialize(serializer)
+}
+
+impl DownloadOutcome {
+    pub(self) fn new(service: ServiceName, contest: &impl Contest, open_in_browser: bool) -> Self {
+        Self {
+            service,
+            open_in_browser,
+            contest: DownloadOutcomeContest {
+                slug: contest.slug().into(),
+            },
+            problems: vec![],
+        }
+    }
+
+    pub(self) fn push_problem(
+        &mut self,
+        name: String,
+        url: Url,
+        suite: TestSuite,
+        path: SuiteFilePath,
+    ) {
+        self.problems.push(DownloadOutcomeProblem {
+            url,
+            name_lower: name.to_lowercase(),
+            name_upper: name.to_uppercase(),
+            name_kebab: name.to_kebab_case(),
+            name_snake: name.to_snake_case(),
+            name_screaming: name.to_shouty_snake_case(),
+            name_mixed: name.to_mixed_case(),
+            name_pascal: name.to_camel_case(),
+            name_title: name.to_title_case(),
+            name,
+            test_suite_path: path,
+            test_suite: suite,
+        })
+    }
+}
+
 pub(crate) struct SessionProps<T: Term> {
     pub(crate) term: T,
     pub(crate) domain: Option<&'static str>,
@@ -293,7 +367,7 @@ pub(crate) struct SessionProps<T: Term> {
 
 impl<T: Term> SessionProps<T> {
     pub(self) fn start_session(&mut self, runtime: &mut Runtime) -> ServiceResult<HttpSession> {
-        let client = reqwest_client(self.timeout)?;
+        let client = reqwest_async_client(self.timeout)?;
         let base = self
             .domain
             .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
@@ -308,7 +382,7 @@ impl<T: Term> SessionProps<T> {
     }
 }
 
-pub(self) fn reqwest_client(
+pub(self) fn reqwest_async_client(
     timeout: impl Into<Option<Duration>>,
 ) -> reqwest::Result<reqwest::r#async::Client> {
     let mut builder = reqwest::r#async::Client::builder()
@@ -347,7 +421,7 @@ pub(crate) struct DownloadProps<C: Contest> {
     pub(crate) contest: C,
     pub(crate) problems: Option<Vec<String>>,
     pub(crate) destinations: DownloadDestinations,
-    pub(crate) open_browser: bool,
+    pub(crate) open_in_browser: bool,
     pub(crate) only_scraped: bool,
 }
 
@@ -362,7 +436,7 @@ impl DownloadProps<String> {
                 .problems
                 .map(|ps| ps.into_iter().map(|p| conversion.convert(&p)).collect()),
             destinations: self.destinations,
-            open_browser: self.open_browser,
+            open_in_browser: self.open_in_browser,
             only_scraped: self.only_scraped,
         }
     }
@@ -430,7 +504,7 @@ pub(crate) struct SubmitProps<C: Contest> {
     pub(self) problem: String,
     pub(self) lang_id: Option<String>,
     pub(self) src_path: AbsPathBuf,
-    pub(self) open_browser: bool,
+    pub(self) open_in_browser: bool,
     pub(self) skip_checking_if_accepted: bool,
 }
 
@@ -438,20 +512,18 @@ impl SubmitProps<String> {
     pub(crate) fn try_new(
         config: &Config,
         problem: String,
-        language: Option<&str>,
-        open_browser: bool,
+        open_in_browser: bool,
         skip_checking_if_accepted: bool,
     ) -> crate::Result<Self> {
-        let service = config.service();
         let contest = config.contest().to_owned();
-        let src_path = config.src_to_submit(language)?.expand(&problem)?;
-        let lang_id = config.lang_id(service, language).map(ToOwned::to_owned);
+        let src_path = config.src_to_submit()?.expand(&problem)?;
+        let lang_id = config.lang_id().map(ToOwned::to_owned);
         Ok(Self {
             contest,
             problem,
             lang_id,
             src_path,
-            open_browser,
+            open_in_browser,
             skip_checking_if_accepted,
         })
     }
@@ -465,7 +537,7 @@ impl SubmitProps<String> {
             problem: conversion.convert(&self.problem),
             lang_id: self.lang_id,
             src_path: self.src_path,
-            open_browser: self.open_browser,
+            open_in_browser: self.open_in_browser,
             skip_checking_if_accepted: self.skip_checking_if_accepted,
         }
     }
@@ -485,25 +557,28 @@ impl<C: Contest> PrintTargets for SubmitProps<C> {
 
 pub(crate) trait Contest: fmt::Display {
     fn from_string(s: String) -> Self;
+    fn slug(&self) -> Cow<str>;
 }
 
 impl Contest for String {
     fn from_string(s: String) -> Self {
         s
     }
+
+    fn slug(&self) -> Cow<str> {
+        self.as_str().into()
+    }
 }
 
 #[derive(Clone, Copy)]
 pub(self) enum ProblemNameConversion {
     Upper,
-    Kebab,
 }
 
 impl ProblemNameConversion {
     fn convert(self, s: &str) -> String {
         match self {
             ProblemNameConversion::Upper => s.to_uppercase(),
-            ProblemNameConversion::Kebab => s.to_kebab_case(),
         }
     }
 }

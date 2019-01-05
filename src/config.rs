@@ -1,10 +1,10 @@
+use crate::command::{CompilationCommand, HookCommands, JudgingCommand, TranspilationCommand};
 use crate::errors::{ConfigErrorKind, ConfigResult, FileResult};
-use crate::judging::command::{CompilationCommand, JudgingCommand, TranspilationCommand};
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::ServiceName;
+use crate::service::{DownloadOutcome, ServiceName};
 use crate::template::{
-    CompilationCommandRequirements, JudgingCommandRequirements, Template, TemplateBuilder,
-    TranspilationCommandRequirements,
+    CompilationCommandRequirements, HookCommandsRequirements, JudgingCommandRequirements, Template,
+    TemplateBuilder, TranspilationCommandRequirements,
 };
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
 use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
@@ -15,12 +15,12 @@ use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
 use std::str;
+use std::sync::Arc;
 use std::time::Duration;
 
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
@@ -53,43 +53,58 @@ fn generate_yaml(
     static CONSOLE_ALT_WIDTH: &str = "";
     #[cfg(windows)]
     static CONSOLE_ALT_WIDTH: &str = "\n  # alt_width: 100";
+
     #[cfg(not(windows))]
-    static SHELL: &str = "bash: [/bin/bash, -c, $command]";
+    static SHELL: &str = "bash: [bash, -c, $command]";
     #[cfg(windows)]
-    static SHELL: &str = "cmd: ['C:\\Windows\\cmd.exe', /C, $command]\n    \
-                          ps: [powershell, -Command, $command]";
+    static SHELL: &str = "cmd: [cmd, /C, $command]\n  ps: [powershell, -Command, $command]";
+
+    #[cfg(not(windows))]
+    static JQ: &str = "bash: echo \"$SNOWCHAINS_RESULT\" | jq";
+    #[cfg(windows)]
+    static JQ: &str = "ps: echo \"${env:SNOWCHAINS_RESULT}\" | jq";
+
     #[cfg(not(windows))]
     static EXE: &str = "";
     #[cfg(windows)]
     static EXE: &str = ".exe";
+
     #[cfg(not(windows))]
     static VENV_PYTHON3: &str = "./venv/bin/python3";
     #[cfg(windows)]
     static VENV_PYTHON3: &str = "./venv/Scripts/python.exe";
+
     #[cfg(not(windows))]
-    static TRANSPILE_JAVA: &str =
-        r#"bash: cat "$SRC" | sed -r "s/class\s+$PROBLEM_PASCAL/class Main/g" > "$TRANSPILED""#;
+    static TRANSPILE_JAVA: &str = "bash: cat \"$SNOWCHAINS_SRC\" | \
+                                   sed -r \"s/class\\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g\" > \
+                                   \"$SNOWCHAINS_TRANSPILED\"";
     #[cfg(windows)]
     static TRANSPILE_JAVA: &str =
-        "ps: cat ${env:SRC} | \
-         % { $_ -replace \"class\\s+${env:PROBLEM_PASCAL}\", \"class Main\" } | \
-         sc ${env:TRANSPILED}";
+        "ps: cat \"${env:SNOWCHAINS_SRC}\" | \
+         % { $_ -replace \"class\\s+${env:SNOWCHAINS_PROBLEM_PASCAL}\", \"class Main\" } | \
+         sc \"${env:SNOWCHAINS_TRANSPILED}\"";
+
     #[cfg(not(windows))]
     static TRANSPILE_SCALA: &str =
-        r#"bash: cat "$SRC" | sed -r "s/object\s+$PROBLEM_PASCAL/object Main/g" > "$TRANSPILED""#;
+        "bash: cat \"$SNOWCHAINS_SRC\" | \
+         sed -r \"s/object\\s+$SNOWCHAINS_PROBLEM_PASCAL/object Main/g\" > \
+         \"$SNOWCHAINS_TRANSPILED\"";
     #[cfg(windows)]
     static TRANSPILE_SCALA: &str =
-        "ps: cat ${env:SRC} | \
-         % { $_ -replace \"object\\s+${env:PROBLEM_PASCAL}\", \"object Main\" } | \
-         sc ${env:TRANSPILED}";
+        "ps: cat \"${env:SNOWCHAINS_SRC}\" | \
+         % { $_ -replace \"object\\s+${env:SNOWCHAINS_PROBLEM_PASCAL}\", \"object Main\" } | \
+         sc \"${env:SNOWCHAINS_TRANSPILED}\"";
+
     #[cfg(not(windows))]
     static CRLF_TO_LF_TRUE: &str = "";
     #[cfg(windows)]
     static CRLF_TO_LF_TRUE: &str = "\n      crlf_to_lf: true";
+
     #[cfg(not(windows))]
     static CRLF_TO_LF_FALSE: &str = "";
     #[cfg(windows)]
     static CRLF_TO_LF_FALSE: &str = "\n      # crlf_to_lf: false";
+
     #[cfg(not(windows))]
     static CSHARP: &str = r#"  c#:
     src: cs/{Pascal}/{Pascal}.cs
@@ -117,6 +132,7 @@ fn generate_yaml(
     language_ids:
       # atcoder: 3006   # "C# (Mono x.x.x.x)"
       yukicoder: csharp # "C# (csc x.x.x.x)""#;
+
     format!(
         r#"---
 service: atcoder
@@ -125,6 +141,9 @@ language: c++
 
 console:
   cjk: false{console_alt_width}
+
+shell:
+  {shell}
 
 testfile_path: tests/$service/$contest/{{snake}}.$extension
 
@@ -141,26 +160,20 @@ judge:
   testfile_extensions: [json, toml, yaml, yml]
   # jobs: {jobs}
   display_limit: 1KiB
-  shell:
-    {shell}
 
-services:
+env:
   atcoder:
-    # language: c++
-    variables:
-      rust_version: 1.15.1
-  hackerrank:
-    # language: c++
-    variables:
-      rust_version: 1.29.1
+    RUST_VERSION: 1.15.1
   yukicoder:
-    # language: c++
-    variables:
-      rust_version: 1.30.1
+    RUST_VERSION: 1.30.1
   other:
-    # language: c++
-    variables:
-      rust_version: stable
+    RUST_VERSION: stable
+
+# hooks:
+#   switch:
+#     - {jq}
+#   download:
+#     - {jq}
 
 interactive:
   python3:
@@ -195,7 +208,7 @@ languages:
     src: rs/src/bin/{{kebab}}.rs
     compile:
       bin: rs/target/manually/{{kebab}}{exe}
-      command: [rustc, +$rust_version, -o, $bin, $src]
+      command: [rustc, +$RUST_VERSION, -o, $bin, $src]
       working_directory: rs
     run:
       command: [$bin]
@@ -294,6 +307,7 @@ languages:
         ),
         jobs = num_cpus::get(),
         shell = SHELL,
+        jq = JQ,
         exe = EXE,
         venv_python3 = VENV_PYTHON3,
         transpile_java = TRANSPILE_JAVA,
@@ -304,6 +318,19 @@ languages:
     )
 }
 
+#[derive(Serialize)]
+pub(crate) struct SwitchOutcome {
+    old: SwitchOutcomeAttrs,
+    new: SwitchOutcomeAttrs,
+}
+
+#[derive(Serialize)]
+struct SwitchOutcomeAttrs {
+    service: ServiceName,
+    contest: String,
+    language: String,
+}
+
 /// Changes attributes.
 pub(crate) fn switch(
     mut stdout: impl TermOut,
@@ -312,13 +339,13 @@ pub(crate) fn switch(
     service: Option<ServiceName>,
     contest: Option<String>,
     language: Option<String>,
-) -> FileResult<()> {
+) -> FileResult<(Config, SwitchOutcome)> {
     let path = crate::fs::find_path(CONFIG_FILE_NAME, directory)?;
     let old_yaml = crate::fs::read_to_string(&path)?;
     let old_config = crate::fs::read_yaml::<Config>(&path)?;
     stdout.apply_conf(&old_config.console);
     stderr.apply_conf(&old_config.console);
-    let new_yaml = replace_values(
+    let (new_yaml, new_config) = replace_values(
         &old_yaml,
         &old_config,
         service,
@@ -328,8 +355,21 @@ pub(crate) fn switch(
         stderr,
     )?;
     crate::fs::write(&path, new_yaml.as_bytes())?;
-    writeln!(stdout, "Saved to {}", path.display())?;
-    stdout.flush().map_err(Into::into)
+    writeln!(stdout, "Wrote {}", path.display())?;
+    stdout.flush()?;
+    let outcome = SwitchOutcome {
+        old: SwitchOutcomeAttrs {
+            service: old_config.service,
+            contest: old_config.contest,
+            language: old_config.language,
+        },
+        new: SwitchOutcomeAttrs {
+            service: new_config.service,
+            contest: new_config.contest.clone(),
+            language: new_config.language.clone(),
+        },
+    };
+    Ok((new_config, outcome))
 }
 
 fn replace_values(
@@ -340,7 +380,7 @@ fn replace_values(
     language: Option<String>,
     mut stdout: impl TermOut,
     mut stderr: impl TermOut,
-) -> io::Result<String> {
+) -> io::Result<(String, Config)> {
     fn print_change(
         mut stdout: impl WriteAnsi,
         title: &str,
@@ -358,31 +398,14 @@ fn replace_values(
         stdout.write_str("\n")
     }
 
-    let mut old_yaml = Cow::from(yaml);
-    let old_config = config;
+    let (old_yaml, old_config) = (yaml, config);
 
     let mut m = hashmap!();
-    if let Some(service) = service {
-        m.insert("service", Cow::from(<&str>::from(service)));
-    }
-    if let Some(contest) = contest.as_ref() {
-        m.insert("contest", Cow::from(contest.clone()));
-    }
-    if let Some(language) = language.as_ref() {
-        if old_config.language.is_some() {
-            m.insert("language", Cow::from(language.clone()));
-        } else {
-            let line_to_insert = format!("language: {}", yaml::escape_string(&language));
-            old_yaml = {
-                let mut lines = old_yaml.lines().collect::<Vec<_>>();
-                let index = if lines.get(0) == Some(&"---") { 1 } else { 0 };
-                lines.insert(index, &line_to_insert);
-                Cow::from(lines.join("\n"))
-            };
-        }
-    }
+    m.extend(service.map(|s| ("service", <&str>::from(s))));
+    m.extend(contest.as_ref().map(|c| ("contest", c.as_ref())));
+    m.extend(language.as_ref().map(|l| ("language", l.as_ref())));
 
-    let (new_yaml, new_config) = yaml::replace_scalars(&old_yaml, &m)
+    let (new_yaml, new_config) = yaml::replace_scalars(old_yaml, &m)
         .and_then(|new_yaml| {
             let new_config = serde_yaml::from_str(&new_yaml)?;
             Ok((new_yaml, new_config))
@@ -390,11 +413,11 @@ fn replace_values(
         .or_else::<io::Error, _>(|warning| {
             stderr.with_reset(|o| writeln!(o.fg(11)?, "{}", warning))?;
             stderr.flush()?;
-            let mut new_config = serde_yaml::from_str::<Config>(&old_yaml)
+            let mut new_config = serde_yaml::from_str::<Config>(old_yaml)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
             new_config.service = service.unwrap_or(new_config.service);
             new_config.contest = contest.unwrap_or(new_config.contest);
-            new_config.language = language.or(new_config.language);
+            new_config.language = language.unwrap_or(new_config.language);
             let new_yaml = serde_yaml::to_string(&new_config)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
             Ok((new_yaml, new_config))
@@ -404,8 +427,8 @@ fn replace_values(
     let s2 = Some(format!("{:?}", <&str>::from(new_config.service)));
     let c1 = Some(format!("{:?}", old_config.contest));
     let c2 = Some(format!("{:?}", new_config.contest));
-    let l1 = old_config.language.as_ref().map(|l| format!("{:?}", l));
-    let l2 = new_config.language.as_ref().map(|l| format!("{:?}", l));
+    let l1 = Some(format!("{:?}", old_config.language));
+    let l2 = Some(format!("{:?}", new_config.language));
     let w = [
         s1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
         c1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
@@ -418,7 +441,7 @@ fn replace_values(
     print_change(&mut stdout, "service:  ", w, &s1, &s2)?;
     print_change(&mut stdout, "contest:  ", w, &c1, &c2)?;
     print_change(&mut stdout, "language: ", w, &l1, &l2)?;
-    Ok(new_yaml)
+    Ok((new_yaml, new_config))
 }
 
 /// Config.
@@ -427,14 +450,18 @@ pub(crate) struct Config {
     #[serde(default)]
     service: ServiceName,
     contest: String,
-    language: Option<String>,
+    language: String,
     #[serde(default)]
     console: Console,
+    #[serde(default)]
+    shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     testfile_path: TemplateBuilder<AbsPathBuf>,
     session: Session,
     judge: Judge,
     #[serde(default)]
-    services: BTreeMap<ServiceName, ServiceConfig>,
+    env: BTreeMap<ServiceName, HashMap<String, String>>,
+    #[serde(default)]
+    hooks: Hooks,
     #[serde(default)]
     interactive: HashMap<String, Language>,
     languages: HashMap<String, Language>,
@@ -446,6 +473,7 @@ impl Config {
     pub(crate) fn load(
         service: impl Into<Option<ServiceName>>,
         contest: impl Into<Option<String>>,
+        language: impl Into<Option<String>>,
         dir: &AbsPath,
     ) -> FileResult<Self> {
         let path = crate::fs::find_path(CONFIG_FILE_NAME, dir)?;
@@ -453,6 +481,7 @@ impl Config {
         config.base_dir = path.parent().unwrap().to_owned();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
+        config.language = language.into().unwrap_or(config.language);
         Ok(config)
     }
 
@@ -484,16 +513,13 @@ impl Config {
         self.session
             .cookies
             .build(self.base_dir.clone())
-            .strings(hashmap!("service".to_owned() => self.service.to_string()))
+            .service(self.service)
     }
 
     pub(crate) fn session_dropbox_auth(&self) -> Option<Template<AbsPathBuf>> {
         match &self.session.dropbox {
             Dropbox::None => None,
-            Dropbox::Some { auth } => Some(
-                auth.build(self.base_dir.clone())
-                    .strings(hashmap!("service".to_owned() => self.service.to_string())),
-            ),
+            Dropbox::Some { auth } => Some(auth.build(self.base_dir.clone()).service(self.service)),
         }
     }
 
@@ -505,6 +531,26 @@ impl Config {
         self.judge.display_limit
     }
 
+    pub(crate) fn switch_hooks(&self, outcome: &SwitchOutcome) -> Template<HookCommands> {
+        self.hooks(|hs| &hs.switch, outcome)
+    }
+
+    pub(crate) fn download_hooks(&self, outcome: &DownloadOutcome) -> Template<HookCommands> {
+        self.hooks(|hs| &hs.download, outcome)
+    }
+
+    fn hooks(
+        &self,
+        f: fn(&Hooks) -> &TemplateBuilder<HookCommands>,
+        outcome: &impl Serialize,
+    ) -> Template<HookCommands> {
+        f(&self.hooks).build(HookCommandsRequirements {
+            base_dir: self.base_dir.clone(),
+            shell: self.shell.clone(),
+            result: Arc::new(serde_json::to_string(outcome)),
+        })
+    }
+
     pub(crate) fn download_destinations(
         &self,
         ext: Option<SuiteFileExtension>,
@@ -512,15 +558,15 @@ impl Config {
         let scraped = self
             .testfile_path
             .build(self.base_dir.clone())
-            .insert_string("service", <&str>::from(self.service))
-            .insert_string("contest", &self.contest);
+            .service(self.service)
+            .contest(&self.contest);
         let text_file_dir = self
             .session
             .download
             .text_file_dir
             .build(self.base_dir.clone())
-            .insert_string("service", <&str>::from(self.service))
-            .insert_string("contest", &self.contest);
+            .service(self.service)
+            .contest(&self.contest);
         let ext = ext.unwrap_or(self.session.download.extension);
         DownloadDestinations::new(scraped, text_file_dir, ext)
     }
@@ -529,8 +575,8 @@ impl Config {
         let path = self
             .testfile_path
             .build(self.base_dir.clone())
-            .insert_string("service", <&str>::from(self.service))
-            .insert_string("contest", &self.contest);
+            .service(self.service)
+            .contest(&self.contest);
         TestCaseLoader::new(
             path,
             &self.judge.testfile_extensions,
@@ -541,50 +587,53 @@ impl Config {
     }
 
     pub(crate) fn src_paths(&self) -> HashMap<&str, Template<AbsPathBuf>> {
-        let vars = self.vars_for_langs(None);
         let mut templates = hashmap!();
         for lang in self.languages.values() {
-            if let Some(lang_id) = lang.language_ids.get(&ServiceName::Atcoder) {
-                let template = lang.src.build(self.base_dir.clone()).insert_strings(&vars);
+            if let Some(lang_id) = lang.language_ids.get(&self.service) {
+                let template = lang
+                    .src
+                    .build(self.base_dir.clone())
+                    .service(self.service)
+                    .contest(&self.contest)
+                    .envs(self.env.get(&self.service));
                 templates.insert(lang_id.as_str(), template);
             }
         }
         templates
     }
 
-    pub(crate) fn src_to_submit(&self, lang: Option<&str>) -> ConfigResult<Template<AbsPathBuf>> {
-        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
+    pub(crate) fn src_to_submit(&self) -> ConfigResult<Template<AbsPathBuf>> {
+        let lang = self.find_language()?;
         let builder = match &lang.transpile {
             None => &lang.src,
             Some(transpile) => &transpile.transpiled,
         };
-        let (base_dir, vars) = (self.base_dir.clone(), self.vars_for_langs(None));
-        Ok(builder.build(base_dir).insert_strings(&vars))
+        Ok(builder
+            .build(self.base_dir.clone())
+            .service(self.service)
+            .contest(&self.contest)
+            .envs(self.env.get(&self.service)))
     }
 
-    pub(crate) fn lang_id(&self, service: ServiceName, lang: Option<&str>) -> Option<&str> {
-        let lang = find_language(&self.languages, self.lang_name(lang).ok()?).ok()?;
-        lang.language_ids.get(&service).map(String::as_str)
+    pub(crate) fn lang_id(&self) -> Option<&str> {
+        let lang = self.find_language().ok()?;
+        lang.language_ids.get(&self.service).map(String::as_str)
     }
 
-    pub(crate) fn solver_compilation(
-        &self,
-        lang: Option<&str>,
-    ) -> ConfigResult<Option<Template<CompilationCommand>>> {
-        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
+    pub(crate) fn solver_compilation(&self) -> ConfigResult<Option<Template<CompilationCommand>>> {
+        let lang = self.find_language()?;
         Ok(self.compilation_command(lang))
     }
 
     pub(crate) fn solver_transpilation(
         &self,
-        lang: Option<&str>,
     ) -> ConfigResult<Option<Template<TranspilationCommand>>> {
-        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
+        let lang = self.find_language()?;
         Ok(self.transpilation_command(lang))
     }
 
-    pub(crate) fn solver(&self, lang: Option<&str>) -> ConfigResult<Template<JudgingCommand>> {
-        let lang = find_language(&self.languages, self.lang_name(lang)?)?;
+    pub(crate) fn solver(&self) -> ConfigResult<Template<JudgingCommand>> {
+        let lang = self.find_language()?;
         Ok(self.judge_command(lang))
     }
 
@@ -618,12 +667,14 @@ impl Config {
                 .command
                 .build(TranspilationCommandRequirements {
                     base_dir: self.base_dir.clone(),
-                    shell: self.judge.shell.clone(),
+                    shell: self.shell.clone(),
                     working_dir: transpile.working_directory.clone(),
                     src: lang.src.clone(),
                     transpiled: transpile.transpiled.clone(),
                 })
-                .insert_strings(&self.vars_for_langs(None))
+                .service(self.service)
+                .contest(&self.contest)
+                .envs(self.env.get(&self.service))
         })
     }
 
@@ -633,13 +684,15 @@ impl Config {
                 .command
                 .build(CompilationCommandRequirements {
                     base_dir: self.base_dir.clone(),
-                    shell: self.judge.shell.clone(),
+                    shell: self.shell.clone(),
                     working_dir: compile.working_directory.clone(),
                     src: lang.src.clone(),
                     transpiled: lang.transpile.as_ref().map(|e| e.transpiled.clone()),
                     bin: compile.bin.clone(),
                 })
-                .insert_strings(&self.vars_for_langs(None))
+                .service(self.service)
+                .contest(&self.contest)
+                .envs(self.env.get(&self.service))
         })
     }
 
@@ -648,53 +701,23 @@ impl Config {
             .command
             .build(JudgingCommandRequirements {
                 base_dir: self.base_dir.clone(),
-                shell: self.judge.shell.clone(),
+                shell: self.shell.clone(),
                 working_dir: lang.run.working_directory.clone(),
                 src: lang.src.clone(),
                 bin: lang.compile.as_ref().map(|e| e.bin.clone()),
                 transpiled: lang.transpile.as_ref().map(|e| e.transpiled.clone()),
                 crlf_to_lf: lang.run.crlf_to_lf,
             })
-            .insert_strings(&self.vars_for_langs(None))
+            .service(self.service)
+            .contest(&self.contest)
+            .envs(self.env.get(&self.service))
     }
 
-    fn lang_name<'a>(&'a self, name: Option<&'a str>) -> ConfigResult<&'a str> {
-        name.or_else(|| {
-            self.services
-                .get(&self.service)
-                .and_then(|s| s.language.as_ref())
-                .map(String::as_str)
-        })
-        .or_else(|| self.language.as_ref().map(String::as_str))
-        .ok_or_else(|| ConfigErrorKind::PropertyNotSet("language").into())
+    fn find_language(&self) -> ConfigResult<&Language> {
+        self.languages
+            .get(&self.language)
+            .ok_or_else(|| ConfigErrorKind::NoSuchLanguage(self.language.clone()).into())
     }
-
-    fn vars_for_langs(&self, service: impl Into<Option<ServiceName>>) -> HashMap<&str, &str> {
-        let vars_in_service = self
-            .services
-            .get(&service.into().unwrap_or(self.service))
-            .map(|s| &s.variables);
-        let mut vars =
-            hashmap!("service" => <&str>::from(self.service), "contest" => &self.contest);
-        if let Some(vars_in_service) = vars_in_service {
-            for (k, v) in vars_in_service {
-                vars.insert(k, v);
-            }
-        }
-        vars
-    }
-}
-
-fn find_language<'a>(
-    langs: &HashMap<String, Language>,
-    default_lang: impl Into<Option<&'a str>>,
-) -> ConfigResult<&Language> {
-    let name = default_lang
-        .into()
-        .ok_or_else(|| ConfigErrorKind::LanguageNotSpecified)?;
-    langs
-        .get(name)
-        .ok_or_else(|| ConfigErrorKind::NoSuchLanguage(name.to_owned()).into())
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -777,7 +800,6 @@ struct Judge {
     jobs: Option<NonZeroUsize>,
     #[serde(serialize_with = "ser_size", deserialize_with = "de_size", default)]
     display_limit: Option<usize>,
-    shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -833,6 +855,24 @@ fn parse_size(s: &str) -> std::result::Result<usize, &'static str> {
 struct ServiceConfig {
     language: Option<String>,
     variables: HashMap<String, String>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct Hooks {
+    #[serde(default)]
+    switch: TemplateBuilder<HookCommands>,
+    #[serde(default)]
+    login: TemplateBuilder<HookCommands>,
+    #[serde(default)]
+    participate: TemplateBuilder<HookCommands>,
+    #[serde(default)]
+    download: TemplateBuilder<HookCommands>,
+    #[serde(default)]
+    restore: TemplateBuilder<HookCommands>,
+    #[serde(default)]
+    judge: TemplateBuilder<HookCommands>,
+    #[serde(default)]
+    submit: TemplateBuilder<HookCommands>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -892,7 +932,7 @@ mod tests {
         let mut stderr = Ansi::new(Cursor::new(Vec::<u8>::new()));
         let yaml = generate_yaml(".", ".", false);
         let config = serde_yaml::from_str(&yaml).unwrap();
-        let new_yaml = replace_values(
+        let (new_yaml, _) = replace_values(
             &yaml,
             &config,
             Some(ServiceName::Yukicoder),

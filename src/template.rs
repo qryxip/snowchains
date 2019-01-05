@@ -1,6 +1,10 @@
+use crate::command::{
+    CompilationCommand, HookCommand, HookCommands, JudgingCommand, TranspilationCommand,
+};
 use crate::errors::{ExpandTemplateErrorKind, ExpandTemplateResult, StdError};
-use crate::judging::command::{CompilationCommand, JudgingCommand, TranspilationCommand};
 use crate::path::{AbsPath, AbsPathBuf};
+use crate::service::ServiceName;
+use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
 
 use combine::Parser;
@@ -11,17 +15,26 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 
-use std::borrow::Borrow;
-use std::borrow::Cow;
+use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::str::FromStr;
-use std::{env, fmt};
+use std::sync::Arc;
+use std::{env, fmt, iter};
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub(crate) struct TemplateBuilder<T: Target>(T::Inner);
+
+impl<T: Target> Default for TemplateBuilder<T>
+where
+    T::Inner: Default,
+{
+    fn default() -> Self {
+        TemplateBuilder(T::Inner::default())
+    }
+}
 
 impl<T: Target> Clone for TemplateBuilder<T>
 where
@@ -60,28 +73,33 @@ pub(crate) struct Template<T: Target> {
 }
 
 impl<T: Target> Template<T> {
-    pub(crate) fn insert_string(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
-        self.strings
-            .insert(key.as_ref().to_owned(), value.as_ref().to_owned());
+    pub(crate) fn service(mut self, value: ServiceName) -> Self {
+        for &key in &["service", "SNOWCHAINS_SERVICE"] {
+            self.strings.insert(key.to_owned(), value.to_string());
+        }
         self
     }
 
-    pub(crate) fn insert_strings<K: AsRef<str>, V: AsRef<str>, I: IntoIterator<Item = (K, V)>>(
-        mut self,
-        strings: I,
-    ) -> Self {
-        for (k, v) in strings {
+    pub(crate) fn contest(mut self, value: &str) -> Self {
+        for &key in &["contest", "SNOWCHAINS_CONTEST"] {
+            self.strings.insert(key.to_owned(), value.to_owned());
+        }
+        self
+    }
+
+    pub(crate) fn extension(mut self, value: SuiteFileExtension) -> Self {
+        for &key in &["extension", "SNOWCHAINS_EXTENSION"] {
+            self.strings.insert(key.to_owned(), value.to_string());
+        }
+        self
+    }
+
+    pub(crate) fn envs(mut self, envs: Option<&HashMap<String, String>>) -> Self {
+        if let Some(envs) = envs {
             self.strings
-                .insert(k.as_ref().to_owned(), v.as_ref().to_owned());
+                .extend(envs.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
         self
-    }
-
-    pub(crate) fn strings(self, mut strings: HashMap<String, String>) -> Self {
-        for (k, v) in self.strings {
-            strings.insert(k, v);
-        }
-        Self { strings, ..self }
     }
 }
 
@@ -98,6 +116,55 @@ impl Template<AbsPathBuf> {
     pub(crate) fn expand(&self, problem: &str) -> ExpandTemplateResult<AbsPathBuf> {
         self.inner
             .expand_as_path(problem, &self.requirements, &self.strings)
+    }
+}
+
+impl Template<HookCommands> {
+    pub(crate) fn expand(&self, problem: &str) -> ExpandTemplateResult<HookCommands> {
+        if self.inner.is_empty() {
+            return Ok(iter::empty().collect());
+        }
+        let HookCommandsRequirements {
+            base_dir,
+            shell,
+            result,
+        } = &self.requirements;
+        let strings = {
+            let mut strings = self.strings.clone();
+            let json = match result.as_ref() {
+                Ok(json) => Ok(json.clone()),
+                Err(err) => Err(failure::err_msg(err.to_string())
+                    .context(ExpandTemplateErrorKind::SerializeJson)),
+            }?;
+            strings.insert("result".into(), json.clone());
+            strings.insert("SNOWCHAINS_RESULT".into(), json);
+            strings
+        };
+        self.inner
+            .iter()
+            .map(|inner| {
+                let mut args = vec![];
+                let empty = HashMap::<&str, &OsStr>::new();
+                match inner {
+                    CommandTemplateInner::Args(ss) => {
+                        for s in ss {
+                            args.push(s.expand_as_os_string(problem, &strings, &empty)?);
+                        }
+                    }
+                    CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
+                        let os_strings = hashmap!("command" =>  OsString::from(value.clone()));
+                        let shell = shell
+                            .get(key)
+                            .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
+                        for TemplateBuilder(s) in shell {
+                            args.push(s.expand_as_os_string(problem, &strings, &os_strings)?);
+                        }
+                    }
+                }
+                let envs = setup_env_vars(problem, &strings, &empty);
+                Ok(HookCommand::new(args, base_dir.clone(), envs))
+            })
+            .collect()
     }
 }
 
@@ -258,6 +325,11 @@ impl Target for AbsPathBuf {
     type Requirements = AbsPathBuf;
 }
 
+impl Target for HookCommands {
+    type Inner = Vec<CommandTemplateInner>;
+    type Requirements = HookCommandsRequirements;
+}
+
 impl Target for TranspilationCommand {
     type Inner = CommandTemplateInner;
     type Requirements = TranspilationCommandRequirements;
@@ -279,6 +351,13 @@ impl Target for JudgingCommand {
 pub(crate) enum CommandTemplateInner {
     Args(Vec<Tokens>),
     Shell(SingleKeyValue<String, String>),
+}
+
+#[derive(Clone)]
+pub(crate) struct HookCommandsRequirements {
+    pub(crate) base_dir: AbsPathBuf,
+    pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
+    pub(crate) result: Arc<serde_json::Result<String>>,
 }
 
 #[derive(Clone)]
@@ -515,34 +594,22 @@ fn setup_env_vars(
     os_strings: &HashMap<&'static str, impl AsRef<OsStr>>,
 ) -> HashMap<OsString, OsString> {
     let mut ret = hashmap!(
-        "problem".to_owned().into()           => problem.to_owned().into(),
-        "PROBLEM".to_owned().into()           => problem.to_owned().into(),
-        "problem_lower".to_owned().into()     => problem.to_lowercase().into(),
-        "PROBLEM_LOWER".to_owned().into()     => problem.to_lowercase().into(),
-        "problem_upper".to_owned().into()     => problem.to_uppercase().into(),
-        "PROBLEM_UPPER".to_owned().into()     => problem.to_uppercase().into(),
-        "problem_kebab".to_owned().into()     => problem.to_kebab_case().into(),
-        "PROBLEM_KEBAB".to_owned().into()     => problem.to_kebab_case().into(),
-        "problem_snake".to_owned().into()     => problem.to_snake_case().into(),
-        "PROBLEM_SNAKE".to_owned().into()     => problem.to_snake_case().into(),
-        "problem_screaming".to_owned().into() => problem.to_shouty_snake_case().into(),
-        "PROBLEM_SCREAMING".to_owned().into() => problem.to_shouty_snake_case().into(),
-        "problem_mixed".to_owned().into()     => problem.to_mixed_case().into(),
-        "PROBLEM_MIXED".to_owned().into()     => problem.to_mixed_case().into(),
-        "problem_pascal".to_owned().into()    => problem.to_camel_case().into(),
-        "PROBLEM_PASCAL".to_owned().into()    => problem.to_camel_case().into(),
-        "problem_title".to_owned().into()     => problem.to_title_case().into(),
-        "PROBLEM_TITLE".to_owned().into()     => problem.to_title_case().into(),
+        "SNOWCHAINS_PROBLEM".into()           => problem.into(),
+        "SNOWCHAINS_PROBLEM_LOWER".into()     => problem.to_lowercase().into(),
+        "SNOWCHAINS_PROBLEM_UPPER".into()     => problem.to_uppercase().into(),
+        "SNOWCHAINS_PROBLEM_KEBAB".into()     => problem.to_kebab_case().into(),
+        "SNOWCHAINS_PROBLEM_SNAKE".into()     => problem.to_snake_case().into(),
+        "SNOWCHAINS_PROBLEM_SCREAMING".into() => problem.to_shouty_snake_case().into(),
+        "SNOWCHAINS_PROBLEM_MIXED".into()     => problem.to_mixed_case().into(),
+        "SNOWCHAINS_PROBLEM_PASCAL".into()    => problem.to_camel_case().into(),
+        "SNOWCHAINS_PROBLEM_TITLE".into()     => problem.to_title_case().into(),
     );
     for (name, value) in strings {
-        let value = OsString::from(value.as_ref());
-        ret.insert(name.borrow().into(), value.clone());
-        ret.insert(name.borrow().to_uppercase().into(), value);
+        ret.insert(name.borrow().into(), value.as_ref().into());
     }
     for (name, value) in os_strings {
-        let value = value.as_ref().to_owned();
-        ret.insert(name.into(), value.clone());
-        ret.insert(name.to_uppercase().into(), value);
+        ret.insert(name.into(), value.into());
+        ret.insert(format!("SNOWCHAINS_{}", name).into(), value.into());
     }
     ret
 }
@@ -559,10 +626,10 @@ pub struct ParseTemplateError {
 mod tests {
     use super::TemplateBuilder;
 
-    use crate::judging::command::{CompilationCommand, JudgingCommand};
+    use crate::command::{CompilationCommand, JudgingCommand};
     use crate::path::AbsPathBuf;
+    use crate::service::ServiceName;
 
-    use maplit::hashmap;
     use serde_derive::{Deserialize, Serialize};
 
     use std::env;
@@ -683,14 +750,12 @@ mod tests {
                 let template = input.parse::<TemplateBuilder<AbsPathBuf>>().unwrap();
                 template
                     .build(base_dir())
-                    .strings(hashmap!(
-                        "service".to_owned() => "Service".to_owned(),
-                        "contest".to_owned() => "Contest".to_owned()
-                    ))
+                    .service(ServiceName::Atcoder)
+                    .contest("arc100")
                     .expand("")
                     .unwrap()
             }
-            test!("snowchains/$service/$contest" => "snowchains/Service/Contest");
+            test!("snowchains/$service/$contest" => "snowchains/atcoder/arc100");
         }
         test!("~"         => dirs::home_dir().unwrap());
         test!("~/foo/bar" => dirs::home_dir().unwrap().join("foo/bar"));

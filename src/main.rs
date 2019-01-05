@@ -1,5 +1,3 @@
-#![cfg_attr(tarpaulin, skip)]
-
 use snowchains::app::{App, Opt};
 use snowchains::path::AbsPathBuf;
 use snowchains::service::Credentials;

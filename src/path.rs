@@ -1,3 +1,5 @@
+use serde::{Serialize, Serializer};
+
 use std::borrow::{Borrow, Cow};
 use std::ffi::{OsStr, OsString};
 use std::ops::Deref;
@@ -143,6 +145,12 @@ impl<'a> Into<Cow<'a, AbsPath>> for &'a AbsPath {
     }
 }
 
+impl Serialize for AbsPath {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        self.deref().serialize(serializer)
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct AbsPathBuf {
     inner: PathBuf,
@@ -222,6 +230,12 @@ impl Deref for AbsPathBuf {
     }
 }
 
+impl AsRef<OsStr> for AbsPathBuf {
+    fn as_ref(&self) -> &OsStr {
+        self.inner.as_ref()
+    }
+}
+
 impl AsRef<Path> for AbsPathBuf {
     fn as_ref(&self) -> &Path {
         &self.inner
@@ -243,6 +257,12 @@ impl Into<OsString> for AbsPathBuf {
 impl Into<PathBuf> for AbsPathBuf {
     fn into(self) -> PathBuf {
         self.inner
+    }
+}
+
+impl Serialize for AbsPathBuf {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        AsRef::<Path>::as_ref(self).serialize(serializer)
     }
 }
 

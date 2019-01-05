@@ -34,7 +34,7 @@ fn it_scrapes_samples_from_practice() {
         credentials,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download {
-                open_browser: false,
+                open: false,
                 only_scraped: true,
                 service: Some(ServiceName::Atcoder),
                 contest: Some("practice".to_owned()),
@@ -63,7 +63,7 @@ fn it_scrapes_samples_from_abc100() {
         credentials,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download {
-                open_browser: false,
+                open: false,
                 only_scraped: true,
                 service: Some(ServiceName::Atcoder),
                 contest: Some("abc100".to_owned()),
@@ -90,7 +90,7 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() {
         credentials,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download {
-                open_browser: false,
+                open: false,
                 only_scraped: false,
                 service: Some(ServiceName::Atcoder),
                 contest: Some("abc099".to_owned()),
@@ -162,7 +162,7 @@ if __name__ == '__main__':
             std::fs::create_dir(&app.working_dir.join("py"))?;
             std::fs::write(&app.working_dir.join("py").join("a.py"), CODE)?;
             app.run(Opt::Submit {
-                open_browser: false,
+                open: false,
                 force_compile: false,
                 only_transpile: false,
                 no_judge: true,

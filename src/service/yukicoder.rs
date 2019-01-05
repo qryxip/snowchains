@@ -2,8 +2,9 @@ use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, S
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadProps, ExtractZip, PrintTargets, ProblemNameConversion, RevelSession, Service,
-    SessionProps, SubmitProps, ZipEntries, ZipEntriesSorting,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ExtractZip, PrintTargets,
+    ProblemNameConversion, RevelSession, Service, ServiceName, SessionProps, SubmitProps,
+    ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
@@ -36,7 +37,7 @@ pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
 pub(crate) fn download(
     mut sess_props: SessionProps<impl Term>,
     download_props: DownloadProps<String>,
-) -> ServiceResult<()> {
+) -> ServiceResult<DownloadOutcome> {
     let download_props = download_props.convert_contest_and_problems(ProblemNameConversion::Upper);
     download_props.print_targets(sess_props.term.stdout())?;
     Yukicoder::try_new(sess_props)?.download(&download_props)
@@ -157,12 +158,15 @@ impl<T: Term> Yukicoder<T> {
         Ok(())
     }
 
-    fn download(&mut self, download_props: &DownloadProps<YukicoderContest>) -> ServiceResult<()> {
+    fn download(
+        &mut self,
+        download_props: &DownloadProps<YukicoderContest>,
+    ) -> ServiceResult<DownloadOutcome> {
         let DownloadProps {
             contest,
             problems,
             destinations,
-            open_browser,
+            open_in_browser,
             only_scraped,
         } = download_props;
         self.login(false)?;
@@ -172,7 +176,7 @@ impl<T: Term> Yukicoder<T> {
                 let path = destinations.expand(problem)?;
                 Ok((suite, path))
             };
-        let (mut outputs, mut nos) = (vec![], vec![]);
+        let mut outcome = DownloadOutcome::new(ServiceName::Yukicoder, contest, *open_in_browser);
         match (contest, problems.as_ref()) {
             (YukicoderContest::No, None) => {
                 return Err(ServiceErrorKind::PleaseSpecifyProblems.into())
@@ -194,8 +198,8 @@ impl<T: Term> Yukicoder<T> {
                         not_public.push(problem);
                     } else {
                         let (suite, path) = scrape(&document, problem)?;
-                        outputs.push((url, problem.clone(), suite, path));
-                        nos.push(problem.clone());
+                        let url = self.session.resolve_url(&url)?;
+                        outcome.push_problem(problem.to_owned(), url, suite, path);
                     }
                 }
                 let stderr = self.stderr();
@@ -217,22 +221,30 @@ impl<T: Term> Yukicoder<T> {
                     if problems.is_none() || problems.as_ref().unwrap().contains(&name) {
                         let document = self.get(&href).recv_html()?;
                         let (suite, path) = scrape(&document, &name)?;
-                        outputs.push((href, name.clone(), suite, path));
-                        nos.push(name);
+                        let url = self.session.resolve_url(&href)?;
+                        outcome.push_problem(name, url, suite, path);
                     }
                 }
             }
         }
+        let nos = outcome
+            .problems
+            .iter()
+            .map(|p| p.name.clone())
+            .collect::<Vec<_>>();
         let solved_simple_nos = if *only_scraped {
             vec![]
         } else {
             self.filter_solved(&nos)?
                 .into_iter()
                 .filter(|no| {
-                    outputs.iter().any(|(_, name, suite, _)| match suite {
-                        TestSuite::Simple(_) => name == *no,
-                        _ => false,
-                    })
+                    outcome
+                        .problems
+                        .iter()
+                        .any(|problem| match &problem.test_suite {
+                            TestSuite::Simple(_) => problem.name == *no,
+                            _ => false,
+                        })
                 })
                 .collect()
         };
@@ -263,10 +275,16 @@ impl<T: Term> Yukicoder<T> {
                 })
                 .collect::<ServiceResult<Vec<_>>>()?
         };
-        for (_, name, suite, path) in &mut outputs {
+        for DownloadOutcomeProblem {
+            name,
+            test_suite,
+            test_suite_path,
+            ..
+        } in &mut outcome.problems
+        {
             for (no, text_file_paths) in &text_file_paths {
                 if name == no {
-                    *suite = match mem::replace(suite, TestSuite::Unsubmittable) {
+                    *test_suite = match mem::replace(test_suite, TestSuite::Unsubmittable) {
                         TestSuite::Simple(suite) => {
                             suite.without_cases().paths(text_file_paths.clone()).into()
                         }
@@ -275,14 +293,14 @@ impl<T: Term> Yukicoder<T> {
                     break;
                 }
             }
-            suite.save(name, path, self.stdout())?;
+            test_suite.save(name, test_suite_path, self.stdout())?;
         }
-        if *open_browser {
-            for (url, _, _, _) in &outputs {
-                self.open_in_browser(url)?;
+        if *open_in_browser {
+            for DownloadOutcomeProblem { url, .. } in &outcome.problems {
+                self.open_in_browser(url.as_str())?;
             }
         }
-        Ok(())
+        Ok(outcome)
     }
 
     fn submit(&mut self, props: &SubmitProps<YukicoderContest>) -> ServiceResult<()> {
@@ -343,7 +361,7 @@ impl<T: Term> Yukicoder<T> {
             problem,
             lang_id,
             src_path,
-            open_browser,
+            open_in_browser,
             skip_checking_if_accepted,
         } = props;
 
@@ -418,7 +436,7 @@ impl<T: Term> Yukicoder<T> {
             if location.contains("/submissions/") {
                 writeln!(self.stdout(), "Success: {:?}", location)?;
                 self.stdout().flush()?;
-                if *open_browser {
+                if *open_in_browser {
                     self.open_in_browser(location)?;
                 }
                 return Ok(());
@@ -484,6 +502,10 @@ impl Contest for YukicoderContest {
         } else {
             YukicoderContest::Contest(s)
         }
+    }
+
+    fn slug(&self) -> Cow<str> {
+        self.to_string().into()
     }
 }
 

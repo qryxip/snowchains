@@ -9,6 +9,7 @@ pub mod path;
 pub mod service;
 pub mod terminal;
 
+mod command;
 mod config;
 mod fs;
 mod judging;
