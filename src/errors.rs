@@ -21,6 +21,7 @@ pub type Result<T> = std::result::Result<T, self::Error>;
 #[derive(DoubleFrom, Debug, PartialFailPair)]
 pub enum Error {
     Context(failure::Context<self::ErrorKind>),
+    HookCommand(HookCommandError),
     Service(ServiceError),
     Judge(JudgeError),
     TestSuite(TestSuiteError),
@@ -29,12 +30,38 @@ pub enum Error {
     File(FileError),
     #[double_from = "io::Error"]
     Io(StdError<io::Error>),
+    #[double_from = "serde_json::Error"]
+    SerdeJson(StdError<serde_json::Error>),
 }
 
 #[derive(Debug, derive_more::Display)]
 pub enum ErrorKind {
     #[display(fmt = "Sorry, not yet implemented")]
     Unimplemented,
+}
+
+pub(crate) type HookCommandResult<T> = std::result::Result<T, HookCommandError>;
+
+#[derive(DoubleFrom, Debug, PartialFailPair)]
+pub enum HookCommandError {
+    Context(failure::Context<HookCommandErrorKind>),
+    #[double_from = "io::Error"]
+    Io(StdError<io::Error>),
+}
+
+#[derive(Debug, derive_more::Display)]
+pub enum HookCommandErrorKind {
+    #[display(fmt = "Failed to execute {:?}", _0)]
+    Start(OsString),
+    #[display(
+        fmt = "{:?} terminated abnormally {}",
+        _0,
+        r#"match _1.code() {
+             Some(c) => format!("with code {}", c),
+             None => "without code".to_owned(),
+           }"#
+    )]
+    NotSuccess(OsString, ExitStatus),
 }
 
 pub(crate) type ServiceResult<T> = std::result::Result<T, ServiceError>;
@@ -219,8 +246,6 @@ pub enum ConfigErrorKind {
     LanguageNotSpecified,
     #[display(fmt = "No such language: {:?}", _0)]
     NoSuchLanguage(String),
-    #[display(fmt = "Property not set: {:?}", _0)]
-    PropertyNotSet(&'static str),
 }
 
 pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateError>;
@@ -259,6 +284,8 @@ pub enum ExpandTemplateErrorKind {
     EnvVarNotPresent(String),
     #[display(fmt = "The environment variable {} is not valid unicode", _0)]
     EnvVarNotUnicode(String),
+    #[display(fmt = "Failed to serialize the data into a JSON")]
+    SerializeJson,
 }
 
 pub(crate) type FileResult<T> = std::result::Result<T, FileError>;

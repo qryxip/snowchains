@@ -1,11 +1,10 @@
-pub(crate) mod command;
 mod interactive;
 mod simple;
 mod text;
 
+use crate::command::JudgingCommand;
 use crate::config::Config;
 use crate::errors::{JudgeErrorKind, JudgeResult, TestSuiteResult};
-use crate::judging::command::JudgingCommand;
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
 use crate::testsuite::{SimpleCase, TestCase, TestCases};
 use crate::util::std_unstable::AsMillis_;
@@ -95,10 +94,9 @@ pub(crate) fn only_transpile(
     stderr: impl TermOut,
     config: &Config,
     problem: &str,
-    language: Option<&str>,
     force: bool,
 ) -> JudgeResult<bool> {
-    match config.solver_transpilation(language)? {
+    match config.solver_transpilation()? {
         None => Ok(false),
         Some(transpilation) => {
             let transpilation = transpilation.expand(problem)?;
@@ -256,7 +254,6 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
         mut stderr,
         config,
         problem,
-        language,
         force_compile,
         jobs,
     } = params;
@@ -268,12 +265,12 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
     let display_limit = config.judge_display_limit();
     let tester_transpilations = cases.interactive_tester_transpilations();
     let tester_compilations = cases.interactive_tester_compilations();
-    let solver = config.solver(language)?.expand(&problem)?;
-    let solver_transpilation = match config.solver_transpilation(language)? {
+    let solver = config.solver()?.expand(&problem)?;
+    let solver_transpilation = match config.solver_transpilation()? {
         Some(transpilation) => Some(transpilation.expand(&problem)?),
         None => None,
     };
-    let solver_compilation = match config.solver_compilation(language)? {
+    let solver_compilation = match config.solver_compilation()? {
         Some(compilation) => Some(compilation.expand(&problem)?),
         None => None,
     };
@@ -326,7 +323,6 @@ pub(crate) struct JudgeParams<'a, O: TermOut, E: TermOut> {
     pub stderr: E,
     pub config: &'a Config,
     pub problem: &'a str,
-    pub language: Option<&'a str>,
     pub force_compile: bool,
     pub jobs: Option<NonZeroUsize>,
 }

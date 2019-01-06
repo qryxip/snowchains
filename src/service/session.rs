@@ -244,13 +244,6 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         }
     }
 
-    pub(super) fn x_csrf_token(self, token: &str) -> Self {
-        Self {
-            inner: self.inner.map(|inner| inner.header("X-CSRF-Token", token)),
-            ..self
-        }
-    }
-
     pub(super) fn form(mut self, form: &(impl Serialize + ?Sized)) -> Self {
         self.inner = self.inner.map(|inner| inner.form(form));
         self
@@ -330,13 +323,6 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         form: &(impl Serialize + ?Sized),
     ) -> ServiceResult<self::Response> {
         self.form(form).send()
-    }
-
-    pub(super) fn send_json(
-        self,
-        json: &(impl Serialize + ?Sized),
-    ) -> ServiceResult<self::Response> {
-        self.json(json).send()
     }
 
     pub(super) fn send_multipart(self, mut form: PreparedFields) -> ServiceResult<self::Response> {
@@ -678,7 +664,7 @@ mod tests {
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
         let result = panic::catch_unwind(|| {
             let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
-            let client = service::reqwest_client(None).unwrap();
+            let client = service::reqwest_async_client(None).unwrap();
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
             let mut wtr = Ansi::new(Cursor::new(Vec::<u8>::new()));
             let mut runtime = Runtime::new().unwrap();
@@ -744,7 +730,7 @@ mod tests {
         let path = path.as_path();
         let mut wtr = Ansi::new(io::sink());
         let mut rt = Runtime::new().unwrap();
-        let client = service::reqwest_client(None).unwrap();
+        let client = service::reqwest_async_client(None).unwrap();
         HttpSession::try_new(&mut wtr, &mut rt, client.clone(), None, path, true).unwrap();
         HttpSession::try_new(&mut wtr, &mut rt, client.clone(), None, path, true).unwrap();
         let _session =

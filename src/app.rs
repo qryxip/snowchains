@@ -3,8 +3,8 @@ use crate::errors::ExpandTemplateResult;
 use crate::judging::{self, JudgeParams};
 use crate::path::AbsPathBuf;
 use crate::service::{
-    atcoder, hackerrank, yukicoder, Credentials, DownloadProps, RestoreProps, ServiceName,
-    SessionProps, SubmitProps,
+    atcoder, yukicoder, Credentials, DownloadProps, RestoreProps, ServiceName, SessionProps,
+    SubmitProps,
 };
 use crate::terminal::{AnsiColorChoice, Term};
 use crate::testsuite::{self, SuiteFileExtension};
@@ -62,9 +62,7 @@ pub enum Opt {
         raw(alias = "\"w\"", display_order = "2")
     )]
     Switch {
-        #[structopt(raw(
-            service = r#"&["atcoder", "hackerrank", "yukicoder", "other"], Kind::Option(1)"#,
-        ))]
+        #[structopt(raw(service = r#"&["atcoder", "yukicoder", "other"], Kind::Option(1)"#))]
         service: Option<ServiceName>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
@@ -83,7 +81,7 @@ pub enum Opt {
     Login {
         #[structopt(raw(color_choice = "1"))]
         color_choice: AnsiColorChoice,
-        #[structopt(raw(service = r#"&["atcoder", "hackerrank", "yukicoder"], Kind::Arg"#))]
+        #[structopt(raw(service = r#"&["atcoder", "yukicoder"], Kind::Arg"#))]
         service: ServiceName,
     },
 
@@ -109,15 +107,15 @@ pub enum Opt {
         raw(alias = "\"d\"", display_order = "5")
     )]
     Download {
-        #[structopt(raw(open_browser = "1"))]
-        open_browser: bool,
+        #[structopt(raw(open = "1"))]
+        open: bool,
         #[structopt(
             long = "only-scraped",
             help = "Does not download official test cases",
             raw(display_order = "2")
         )]
         only_scraped: bool,
-        #[structopt(raw(service = r#"&["atcoder", "hackerrank", "yukicoder"], Kind::Option(1)"#))]
+        #[structopt(raw(service = r#"&["atcoder", "yukicoder"], Kind::Option(1)"#))]
         service: Option<ServiceName>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
@@ -174,8 +172,8 @@ pub enum Opt {
         raw(alias = "\"s\"", display_order = "8")
     )]
     Submit {
-        #[structopt(raw(open_browser = "1"))]
-        open_browser: bool,
+        #[structopt(raw(open = "1"))]
+        open: bool,
         #[structopt(raw(conflicts_with = "\"no_judge\"", force_compile = "2"))]
         force_compile: bool,
         #[structopt(
@@ -359,7 +357,7 @@ pub enum Modify {
     },
 }
 
-static SERVICE_VALUES: &[&str] = &["atcoder", "hackerrank", "yukicoder", "other"];
+static SERVICE_VALUES: &[&str] = &["atcoder", "yukicoder", "other"];
 
 #[derive(StructOpt, Debug)]
 pub struct MatchOpts {
@@ -411,7 +409,7 @@ enum Kind {
 
 trait ArgExt {
     fn force_compile(self, order: usize) -> Self;
-    fn open_browser(self, order: usize) -> Self;
+    fn open(self, order: usize) -> Self;
     fn language(self, order: usize) -> Self;
     fn problems(self, order: usize) -> Self;
     fn jobs(self, order: usize) -> Self;
@@ -430,10 +428,10 @@ impl ArgExt for Arg<'static, 'static> {
             .display_order(order)
     }
 
-    fn open_browser(self, order: usize) -> Self {
-        self.short("b")
-            .long("--open-browser")
-            .help("Opens the pages with your default browser")
+    fn open(self, order: usize) -> Self {
+        self.short("o")
+            .long("--open")
+            .help("Opens the pages in your default browser")
             .display_order(order)
     }
 
@@ -551,19 +549,21 @@ impl<T: Term> App<T> {
             } => {
                 self.term.attempt_enable_ansi(color_choice);
                 let (_, stdout, stderr) = self.term.split_mut();
-                config::switch(stdout, stderr, &working_dir, service, contest, language)?;
+                let (config, outcome) =
+                    config::switch(stdout, stderr, &working_dir, service, contest, language)?;
+                let hooks = config.switch_hooks(&outcome).expand("")?;
+                hooks.run::<_, T::Stderr>(self.term.stdout())?;
             }
             Opt::Login {
                 color_choice,
                 service,
             } => {
                 self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, None, &working_dir)?;
+                let config = Config::load(service, None, None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 match service {
                     ServiceName::Atcoder => atcoder::login(sess_props),
-                    ServiceName::Hackerrank => hackerrank::login(sess_props),
                     ServiceName::Yukicoder => yukicoder::login(sess_props),
                     ServiceName::Other => unreachable!(),
                 }?;
@@ -574,7 +574,7 @@ impl<T: Term> App<T> {
                 contest,
             } => {
                 self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest.clone(), &working_dir)?;
+                let config = Config::load(service, contest.clone(), None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 match service {
@@ -583,7 +583,7 @@ impl<T: Term> App<T> {
                 }?;
             }
             Opt::Download {
-                open_browser,
+                open,
                 only_scraped,
                 service,
                 contest,
@@ -591,7 +591,7 @@ impl<T: Term> App<T> {
                 color_choice,
             } => {
                 self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, &working_dir)?;
+                let config = Config::load(service, contest, None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 let download_props = DownloadProps {
@@ -602,15 +602,16 @@ impl<T: Term> App<T> {
                         Some(problems)
                     },
                     destinations: config.download_destinations(None),
-                    open_browser,
+                    open_in_browser: open,
                     only_scraped,
                 };
-                match config.service() {
+                let outcome = match config.service() {
                     ServiceName::Atcoder => atcoder::download(sess_props, download_props),
-                    ServiceName::Hackerrank => hackerrank::download(sess_props, download_props),
                     ServiceName::Yukicoder => yukicoder::download(sess_props, download_props),
                     ServiceName::Other => return Err(crate::ErrorKind::Unimplemented.into()),
                 }?;
+                let hooks = config.download_hooks(&outcome).expand("")?;
+                hooks.run::<_, T::Stderr>(self.term.stdout())?;
             }
             Opt::Restore {
                 service,
@@ -619,7 +620,7 @@ impl<T: Term> App<T> {
                 color_choice,
             } => {
                 self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, &working_dir)?;
+                let config = Config::load(service, contest, None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 let restore_props = RestoreProps::new(&config, problems);
@@ -638,7 +639,7 @@ impl<T: Term> App<T> {
                 problem,
             } => {
                 self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, &working_dir)?;
+                let config = Config::load(service, contest, language.clone(), &working_dir)?;
                 self.term.apply_conf(config.console());
                 let (_, stdout, stderr) = self.term.split_mut();
                 judging::judge(JudgeParams {
@@ -646,13 +647,12 @@ impl<T: Term> App<T> {
                     stderr,
                     config: &config,
                     problem: &problem,
-                    language: language.as_ref().map(String::as_ref),
                     force_compile,
                     jobs,
                 })?;
             }
             Opt::Submit {
-                open_browser,
+                open,
                 force_compile,
                 only_transpile,
                 no_judge,
@@ -664,9 +664,8 @@ impl<T: Term> App<T> {
                 color_choice,
                 problem,
             } => {
-                let language = language.as_ref().map(String::as_str);
                 self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, &working_dir)?;
+                let config = Config::load(service, contest, language.clone(), &working_dir)?;
                 self.term.apply_conf(config.console());
                 if only_transpile {
                     let (_, mut stdout, stderr) = self.term.split_mut();
@@ -675,7 +674,6 @@ impl<T: Term> App<T> {
                         stderr,
                         &config,
                         &problem,
-                        language,
                         force_compile,
                     )? {
                         writeln!(stdout)?;
@@ -687,20 +685,14 @@ impl<T: Term> App<T> {
                         stderr,
                         config: &config,
                         problem: &problem,
-                        language,
                         force_compile,
                         jobs,
                     })?;
                     writeln!(stdout)?;
                 }
                 let sess_props = self.sess_props(&config)?;
-                let submit_props = SubmitProps::try_new(
-                    &config,
-                    problem.clone(),
-                    language,
-                    open_browser,
-                    no_check_duplication,
-                )?;
+                let submit_props =
+                    SubmitProps::try_new(&config, problem.clone(), open, no_check_duplication)?;
                 match config.service() {
                     ServiceName::Atcoder => atcoder::submit(sess_props, submit_props)?,
                     ServiceName::Yukicoder => yukicoder::submit(sess_props, submit_props)?,
@@ -712,7 +704,7 @@ impl<T: Term> App<T> {
                 contest,
                 problem,
             }) => {
-                let config = Config::load(service, contest, &working_dir)?;
+                let config = Config::load(service, contest, None, &working_dir)?;
                 let num_cases = judging::num_cases(&config, &problem)?;
                 write!(self.term.stdout(), "{}", num_cases)?;
                 self.term.stdout().flush()?;
@@ -723,7 +715,7 @@ impl<T: Term> App<T> {
                 problem,
                 nth,
             }) => {
-                let config = Config::load(service, contest, &working_dir)?;
+                let config = Config::load(service, contest, None, &working_dir)?;
                 let timelimit = judging::timelimit_millis(&config, &problem, nth)?;
                 write!(self.term.stdout(), "{}", timelimit)?;
                 self.term.stdout().flush()?;
@@ -734,7 +726,7 @@ impl<T: Term> App<T> {
                 problem,
                 nth,
             }) => {
-                let config = Config::load(service, contest, &working_dir)?;
+                let config = Config::load(service, contest, None, &working_dir)?;
                 let input = judging::input(&config, &problem, nth)?;
                 write!(self.term.stdout(), "{}", input)?;
                 self.term.stdout().flush()?;
@@ -747,7 +739,7 @@ impl<T: Term> App<T> {
                 nth,
             }) => {
                 self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, &working_dir)?;
+                let config = Config::load(service, contest, None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let (stdin, _, stderr) = self.term.split_mut();
                 judging::accepts(&config, &problem, nth, stdin, stderr)?;
@@ -761,7 +753,7 @@ impl<T: Term> App<T> {
                 timelimit,
             }) => {
                 self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, &working_dir)?;
+                let config = Config::load(service, contest, None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let path = config
                     .download_destinations(Some(extension))
@@ -778,7 +770,7 @@ impl<T: Term> App<T> {
                 output,
             }) => {
                 self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, &working_dir)?;
+                let config = Config::load(service, contest, None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let path = config
                     .download_destinations(Some(extension))
@@ -795,7 +787,7 @@ impl<T: Term> App<T> {
                 match_opts,
             }) => {
                 self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, &working_dir)?;
+                let config = Config::load(service, contest, None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let path = config
                     .download_destinations(Some(extension))

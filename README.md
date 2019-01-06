@@ -1,7 +1,8 @@
 # Snowchains
 
+
 [![Build Status](https://travis-ci.org/wariuni/snowchains.svg?branch=master)](https://travis-ci.org/wariuni/snowchains)
-[![Coverage Status](https://coveralls.io/repos/github/wariuni/snowchains/badge.svg?branch=master)](https://coveralls.io/github/wariuni/snowchains?branch=master)
+[![codecov](https://codecov.io/gh/wariuni/snowchains/branch/master/graph/badge.svg)](https://codecov.io/gh/wariuni/snowchains)
 
 Tools for online programming contests.
 
@@ -14,9 +15,7 @@ Tools for online programming contests.
 
 |                         | Target                                       | "contest" attribute | Scrape samples  | Download system tests | Submit          |
 | :---------------------- | :------------------------------------------- | :------------------ | :-------------: | :-------------------: | :-------------: |
-| AtCoder                 | `atcoder.jp/contests/{}`                     | `.*`                | ✓               | ⨉                     | ✓               |
-| HackerRank (Problems)   | `www.hackerrank.com/challenges/{}`           | `master`            | ✓               | ✓                     | Not implemented |
-| HackerRank (Contests)   | `www.hackerrank.com/contests/{}/challenges/` | `(?!master)`        | ✓               | ✓                     | Not implemented |
+| AtCoder                 | `atcoder.jp/contests/{}`                     | `.*`                | ✓               | ✓                     | ✓               |
 | yukicoder (Problems)    | `yukicoder.me/problems/no/{}`                | `no`                | ✓               | ✓                     | ✓               |
 | yukicoder (Contests)    | `yukicoder.me/contests/{}`                   | `(?!no)`            | ✓               | ✓                     | ✓               |
 
@@ -82,11 +81,11 @@ $ snowchains init ./
 $ snowchains switch --service atcoder --contest practice --language c++
 $ # snowchains login atcoder
 $ # snowchains participate atcoder practice
-$ snowchains download --open-browser           # does not ask your username and password unless they are needed
+$ snowchains download --open                   # does not ask your username and password unless they are needed
 $ $EDITOR ./snowchains/atcoder/practice/a.yaml # add more test cases
 $ $EDITOR ./cpp/a.cpp
 $ # snowchains judge a
-$ snowchains submit a --open-browser           # executes `judge` command before submitting
+$ snowchains submit a --open                   # executes `judge` command before submitting
 ```
 
 ## Config File (snowchains.yaml)
@@ -94,13 +93,18 @@ $ snowchains submit a --open-browser           # executes `judge` command before
 ```yaml
 # Example
 ---
-service: atcoder # "atcoder", "hackerrank", "yukicoder", "other"
+service: atcoder # "atcoder", "yukicoder", "other"
 contest: arc100
 language: c++    # Priorities: <command line argument>, `service._.language`, `language`
 
 console:
   cjk: false
   # alt_width: 100
+
+shell:
+  bash: [bash, -c, $command]
+  # cmd: [cmd, /C, $command]
+  # ps: [powershell, -Command, $command]
 
 testfile_path: tests/$service/$contest/{snake}.$extension
 
@@ -116,31 +120,35 @@ session:
     text_file_dir: tests/$service/$contest/{{snake}}
 
 judge:
-  jobs: 4
   testfile_extensions: [json, toml, yaml, yml]
+  # jobs: 4
   display_limit: 1KiB
-  shell:
-    bash: [/bin/bash, -c, $command]
-    # cmd: ['C:\Windows\cmd.exe', /C, $command]
-    # ps: [powershell, -Command, $command]
 
-services:
+env:
   atcoder:
-    # language: c++
-    variables:
-      rust_version: 1.15.1
-  hackerrank:
-    # language: c++
-    variables:
-      rust_version: 1.29.1
+    CXXFLAGS: -std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
+    RUST_VERSION: 1.15.1
   yukicoder:
-    # language: c++
-    variables:
-      rust_version: 1.30.1
+    CXXFLAGS: -std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
+    RUST_VERSION: 1.30.1
   other:
-    # language: c++
-    variables:
-      rust_version: stable
+    CXXFLAGS: -std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
+    RUST_VERSION: stable
+
+hooks:
+  switch:
+    - bash: echo "$SNOWCHAINS_RESULT" | jq
+  download:
+    - bash: |
+        if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .open_in_browser)" = true ]; then
+          service="$(echo "$SNOWCHAINS_RESULT" | jq -r .service)"
+          echo "$SNOWCHAINS_RESULT" |
+            jq -r '.problems | map("./rs/src/bin/" + .name_kebab + ".rs") | join("\n")' |
+            xargs -d \\n -I % -r cp "./rs/src/bin/$service-template.rs" %
+          echo "$SNOWCHAINS_RESULT" |
+            jq -r '.problems | map(["./rs/src/bin/" + .name_kebab + ".rs", .test_suite_path]) | flatten | join("\n")' |
+            xargs -d \\n -r emacsclient -n
+        fi
 
 interactive:
   python3:
@@ -191,7 +199,8 @@ languages:
     src: cpp/{kebab}.cpp     # source file to test and to submit
     compile:                 # optional
       bin: cpp/build/{kebab}
-      command: [g++, -std=c++14, -Wall, -Wextra, -g, -fsanitize=undefined, -D_GLIBCXX_DEBUG, -o, $bin, $src]
+      command:
+        bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
       working_directory: cpp # default: "."
     run:
       command: [$bin]
@@ -204,7 +213,7 @@ languages:
     src: rs/src/bin/{kebab}.rs
     compile:
       bin: rs/target/manually/{kebab}
-      command: [rustc, +$rust_version, -o, $bin, $src]
+      command: [rustc, +$RUST_VERSION, -o, $bin, $src]
       working_directory: rs
     run:
       command: [$bin]
@@ -240,8 +249,8 @@ languages:
     transpile:
       transpiled: java/build/replaced/{lower}/src/Main.java
       command:
-        bash: cat "$SRC" | sed -r "s/class\s+$PROBLEM_PASCAL/class Main/g" > "$TRANSPILED"
-        # ps: cat ${env:SRC} | % { $_ -replace "class\s+${env:PROBLEM_PASCAL}", "class Main" } | sc ${env:TRANSPILED}
+        bash: cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g" > "$SNOWCHAINS_TRANSPILED"
+        # ps: cat ${env:SNOWCHAINS_SRC} | % { $_ -replace "class\s+${env:SNOWCHAINS_PROBLEM_PASCAL}", "class Main" } | sc ${env:SNOWCHAINS_TRANSPILED}
       working_directory: java
     compile:
       bin: java/build/replaced/{lower}/classes/Main.class
