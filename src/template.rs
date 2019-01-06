@@ -181,7 +181,12 @@ impl Template<TranspilationCommand> {
         let wd = working_dir.expand_as_path(problem, base_dir, strings)?;
         let src = src.expand_as_path(problem, base_dir, strings)?;
         let transpiled = transpiled.expand_as_path(problem, base_dir, strings)?;
-        let os_strings = hashmap!("src" => src.as_os_str(), "transpiled" => transpiled.as_os_str());
+        let os_strings = hashmap!(
+            "src"            => src.as_os_str(),
+            "SNOWCHAINS_SRC" => src.as_os_str(),
+            "transpiled"     => transpiled.as_os_str(),
+            "SNOWCHAINS_BIN" => transpiled.as_os_str(),
+        );
         let mut args = vec![];
         match &self.inner {
             CommandTemplateInner::Args(ss) => {
@@ -220,12 +225,16 @@ impl Template<CompilationCommand> {
         let src = src.expand_as_path(problem, base_dir, strings)?;
         let bin = bin.expand_as_path(problem, base_dir, strings)?;
         let mut os_strings = hashmap!(
-            "src" => Cow::from(src.as_os_str()),
-            "bin" => Cow::from(bin.as_os_str()),
+            "src"            => src.as_os_str().to_owned(),
+            "SNOWCHAINS_SRC" => src.as_os_str().to_owned(),
+            "bin"            => bin.as_os_str().to_owned(),
+            "SNOWCHAINS_BIN" => bin.as_os_str().to_owned(),
         );
         if let Some(TemplateBuilder(transpiled)) = transpiled {
             let transpiled = transpiled.expand_as_path(problem, base_dir, strings)?;
-            os_strings.insert("transpiled", Cow::from(Into::<OsString>::into(transpiled)));
+            for &key in &["transpiled", "SNOWCHAINS_TRANSPILED"] {
+                os_strings.insert(key, transpiled.as_os_str().to_owned());
+            }
         }
         let mut args = vec![];
         match &self.inner {
@@ -236,7 +245,9 @@ impl Template<CompilationCommand> {
             }
             CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
                 let mut os_strings = os_strings.clone();
-                os_strings.insert("command", Cow::Borrowed(value.as_ref()));
+                for &key in &["command", "SNOWCHAINS_COMMAND"] {
+                    os_strings.insert(key, value.as_str().into());
+                }
                 let shell = shell
                     .get(key)
                     .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
@@ -264,14 +275,21 @@ impl Template<JudgingCommand> {
         let strings = &self.strings;
         let wd = working_dir.expand_as_path(problem, base_dir, strings)?;
         let src = src.expand_as_path(problem, base_dir, strings)?;
-        let mut os_strings = hashmap!("src" => Cow::from(src.as_os_str()));
+        let mut os_strings = hashmap!(
+            "src"            => src.as_os_str().to_owned(),
+            "SNOWCHAINS_SRC" => src.as_os_str().to_owned(),
+        );
         if let Some(TemplateBuilder(bin)) = bin.as_ref() {
             let bin = bin.expand_as_path(problem, base_dir, strings)?;
-            os_strings.insert("bin", Cow::from(Into::<OsString>::into(bin)));
+            for &key in &["bin", "SNOWCHAINS_BIN"] {
+                os_strings.insert(key, bin.as_os_str().to_owned());
+            }
         }
         if let Some(TemplateBuilder(transpiled)) = transpiled.as_ref() {
             let transpiled = transpiled.expand_as_path(problem, base_dir, strings)?;
-            os_strings.insert("transpiled", Cow::from(Into::<OsString>::into(transpiled)));
+            for &key in &["transpiled", "SNOWCHAINS_TRANSPILED"] {
+                os_strings.insert(key, transpiled.as_os_str().to_owned());
+            }
         }
         let mut args = vec![];
         match &self.inner {
@@ -282,7 +300,9 @@ impl Template<JudgingCommand> {
             }
             CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
                 let mut os_strings = os_strings.clone();
-                os_strings.insert("command", Cow::Borrowed(value.as_ref()));
+                for &key in &["command", "SNOWCHAINS_COMMAND"] {
+                    os_strings.insert(key, value.as_str().into());
+                }
                 let shell = shell
                     .get(key)
                     .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;

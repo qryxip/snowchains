@@ -126,10 +126,13 @@ judge:
 
 env:
   atcoder:
+    CXXFLAGS: -std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
     RUST_VERSION: 1.15.1
   yukicoder:
+    CXXFLAGS: -std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
     RUST_VERSION: 1.30.1
   other:
+    CXXFLAGS: -std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
     RUST_VERSION: stable
 
 hooks:
@@ -138,9 +141,10 @@ hooks:
   download:
     - bash: |
         if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .open_in_browser)" = true ]; then
+          service="$(echo "$SNOWCHAINS_RESULT" | jq -r .service)"
           echo "$SNOWCHAINS_RESULT" |
             jq -r '.problems | map("./rs/src/bin/" + .name_kebab + ".rs") | join("\n")' |
-            xargs -d \\n -I % -r cp ./rs/src/bin/"$(echo "$SNOWCHAINS_RESULT" | jq -r .service)"-template.rs %
+            xargs -d \\n -I % -r cp "./rs/src/bin/$service-template.rs" %
           echo "$SNOWCHAINS_RESULT" |
             jq -r '.problems | map(["./rs/src/bin/" + .name_kebab + ".rs", .test_suite_path]) | flatten | join("\n")' |
             xargs -d \\n -r emacsclient -n
@@ -195,7 +199,8 @@ languages:
     src: cpp/{kebab}.cpp     # source file to test and to submit
     compile:                 # optional
       bin: cpp/build/{kebab}
-      command: [g++, -std=c++14, -Wall, -Wextra, -g, -fsanitize=undefined, -D_GLIBCXX_DEBUG, -o, $bin, $src]
+      command:
+        bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
       working_directory: cpp # default: "."
     run:
       command: [$bin]

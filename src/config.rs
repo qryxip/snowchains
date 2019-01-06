@@ -163,10 +163,13 @@ judge:
 
 env:
   atcoder:
+    CXXFLAGS: -std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
     RUST_VERSION: 1.15.1
   yukicoder:
+    CXXFLAGS: -std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
     RUST_VERSION: 1.30.1
   other:
+    CXXFLAGS: -std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
     RUST_VERSION: stable
 
 # hooks:
@@ -196,7 +199,8 @@ languages:
     src: cpp/{{kebab}}.cpp     # source file to test and to submit
     compile:                 # optional
       bin: cpp/build/{{kebab}}{exe}
-      command: [g++, -std=c++14, -Wall, -Wextra, -g, -fsanitize=undefined, -D_GLIBCXX_DEBUG, -o, $bin, $src]
+      command:
+        bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
       working_directory: cpp # default: "."
     run:
       command: [$bin]
