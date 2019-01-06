@@ -57,7 +57,8 @@ script:
   - cargo clippy --all-targets -- -D warnings
   - |
     if [ -f ~/.cargo/bin/cargo-tarpaulin ]; then
-      cargo tarpaulin --all --ignored --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
+      cargo tarpaulin --out Xml
+      bash <(curl -s https://codecov.io/bash)
     elif [ "${TRAVIS_SECURE_ENV_VARS}" = true ]; then
       cargo test --all
     else
