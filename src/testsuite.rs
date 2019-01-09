@@ -423,18 +423,6 @@ enum BatchSuiteText {
     Path { path: PathBuf },
 }
 
-impl BatchSuiteText {
-    /// # Panics
-    ///
-    /// Panics if `self` is `Path`.
-    fn unwrap_str(&self) -> &str {
-        match self {
-            BatchSuiteText::String(s) => s,
-            BatchSuiteText::Path { .. } => panic!("called `BatchSuiteText::unwrap_str` on Path"),
-        }
-    }
-}
-
 impl BatchSuite {
     pub(crate) fn new(timelimit: impl Into<Option<Duration>>) -> Self {
         Self {
@@ -551,6 +539,7 @@ impl BatchSuite {
 
         fn is_valid(s: &str) -> bool {
             s.ends_with('\n')
+                && s != "\n"
                 && s.chars()
                     .all(|c| [' ', '\n'].contains(&c) || (!c.is_whitespace() && !c.is_control()))
         }
@@ -563,19 +552,19 @@ impl BatchSuite {
             SuiteFileExtension::Yaml | SuiteFileExtension::Yml => {
                 let mut r;
                 let cases = &self.cases;
-                let all_valid =
+                let none_is_path =
                     cases
                         .iter()
                         .all(
                             |BatchSuiteSchemaCase { input, output, .. }| match (input, output) {
-                                (BatchSuiteText::String(i), None) => is_valid(i),
-                                (BatchSuiteText::String(i), Some(BatchSuiteText::String(o))) => {
-                                    is_valid(i) && is_valid(o)
+                                (BatchSuiteText::String(_), Some(BatchSuiteText::String(_))) => {
+                                    true
                                 }
+                                (BatchSuiteText::String(_), None) => true,
                                 _ => false,
                             },
                         );
-                if !cases.is_empty() && all_valid {
+                if !cases.is_empty() && none_is_path {
                     r = serde_yaml::to_string(&WithType::new(&self.head)).ser_context()?;
                     r += "\ncases:\n";
                     for BatchSuiteSchemaCase {
@@ -589,14 +578,32 @@ impl BatchSuite {
                         } else {
                             r += "  - ";
                         }
-                        r += "in: |\n";
-                        for l in input.unwrap_str().lines() {
-                            writeln!(r, "      {}", l).unwrap();
+                        match input {
+                            BatchSuiteText::String(input) if is_valid(input) => {
+                                r += "in: |\n";
+                                for l in input.lines() {
+                                    writeln!(r, "      {}", l).unwrap();
+                                }
+                            }
+                            BatchSuiteText::String(input) => {
+                                let input = yaml::escape_string(input);
+                                writeln!(r, "in: {}", input).unwrap();
+                            }
+                            BatchSuiteText::Path { .. } => unreachable!(),
                         }
                         if let Some(output) = output {
-                            r += "    out: |\n";
-                            for l in output.unwrap_str().lines() {
-                                writeln!(r, "      {}", l).unwrap();
+                            match output {
+                                BatchSuiteText::String(output) if is_valid(output) => {
+                                    r += "    out: |\n";
+                                    for l in output.lines() {
+                                        writeln!(r, "      {}", l).unwrap();
+                                    }
+                                }
+                                BatchSuiteText::String(output) => {
+                                    let output = yaml::escape_string(output);
+                                    writeln!(r, "    out: {}", output).unwrap();
+                                }
+                                BatchSuiteText::Path { .. } => unreachable!(),
                             }
                         }
                     }
