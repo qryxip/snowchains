@@ -692,7 +692,7 @@ mod tests {
     #[test]
     fn it_extracts_samples_from_problem246() {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/246", "f1eab269f69c78671e34303ed37e3e19");
+        test_extracting_samples("/problems/no/246", "9debfd89a82271d763b717313363acda");
     }
 
     fn test_extracting_samples(rel_url: &str, expected_md5: &str) {

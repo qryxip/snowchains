@@ -151,7 +151,7 @@ impl Serialize for AbsPath {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct AbsPathBuf {
     inner: PathBuf,
 }
@@ -213,6 +213,12 @@ impl Default for AbsPathBuf {
         Self {
             inner: PathBuf::from("C:\\"),
         }
+    }
+}
+
+impl fmt::Debug for AbsPathBuf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&self.inner, f)
     }
 }
 

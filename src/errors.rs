@@ -209,8 +209,11 @@ pub enum TestSuiteError {
 pub enum TestSuiteErrorKind {
     #[display(fmt = "Failed to serialize the data")]
     Serialize,
-    #[display(fmt = "None of {} exists. Execute \"download\" command first", _0)]
-    NoFile(String),
+    #[display(
+        fmt = "No test case found in {}. Execute \"download\" command first",
+        _0
+    )]
+    NoTestcase(String),
     #[display(fmt = "Different types of suites")]
     DifferentTypesOfSuites,
     #[display(fmt = "Target suite is not \"batch\" type")]
@@ -242,8 +245,8 @@ impl From<ConfigErrorKind> for ConfigError {
 
 #[derive(Debug, derive_more::Display)]
 pub enum ConfigErrorKind {
-    #[display(fmt = "Language not specified")]
-    LanguageNotSpecified,
+    #[display(fmt = "Tester command not specified")]
+    TesterNotSpecified,
     #[display(fmt = "No such language: {:?}", _0)]
     NoSuchLanguage(String),
 }

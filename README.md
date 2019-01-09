@@ -151,23 +151,19 @@ hooks:
             xargs -d \\n -r emacsclient -n
         fi
 
-interactive:
-  python3:
-    src: testers/py/test-{{kebab}}.py
-    run:
-      command: [./venv/bin/python3, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
-      working_directory: testers/py
-      # crlf_to_lf: false
-  haskell:
-    src: testers/hs/app/Test{{Pascal}}.hs
-    compile:
-      bin: testers/hs/target/Test{{Pascal}}
-      command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: testers/hs
-    run:
-      command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
-      working_directory: testers/hs
-      # crlf_to_lf: false
+tester:
+  src: testers/py/{kebab}.py
+  run:
+    command: [./venv/bin/python3, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
+    working_directory: testers/py
+  # src: testers/hs/app/{Pascal}.hs
+  # compile:
+  #   bin: testers/hs/target/{Pascal}
+  #   command: [stack, ghc, --, -O2, -o, $bin, $src]
+  #   working_directory: testers/hs
+  # run:
+  #   command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
+  #   working_directory: testers/hs
 
 # test files: <testsuite>/<problem>.[json|toml|yaml|yml]
 # source:     <<src> % <problem>>
@@ -420,7 +416,6 @@ out = '''
 ---
 type: interactive
 timelimit: 2000ms
-tester: python3
 
 each_args:
   - [ABCDE]

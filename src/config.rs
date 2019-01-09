@@ -96,14 +96,24 @@ fn generate_yaml(
          sc \"${env:SNOWCHAINS_TRANSPILED}\"";
 
     #[cfg(not(windows))]
-    static CRLF_TO_LF_TRUE: &str = "";
+    static CRLF_TO_LF_TRUE_INDENT6: &str = "";
     #[cfg(windows)]
-    static CRLF_TO_LF_TRUE: &str = "\n      crlf_to_lf: true";
+    static CRLF_TO_LF_TRUE_INDENT6: &str = "\n      crlf_to_lf: true";
+
+    #[cfg(not(windows))]
+    static CRLF_TO_LF_TRUE_INDENT4: &str = "";
+    #[cfg(windows)]
+    static CRLF_TO_LF_TRUE_INDENT4: &str = "\n    crlf_to_lf: true";
 
     #[cfg(not(windows))]
     static CRLF_TO_LF_FALSE: &str = "";
     #[cfg(windows)]
     static CRLF_TO_LF_FALSE: &str = "\n      # crlf_to_lf: false";
+
+    #[cfg(not(windows))]
+    static CRLF_TO_LF_FALSE_COMMENTED_OUT: &str = "";
+    #[cfg(windows)]
+    static CRLF_TO_LF_FALSE_COMMENTED_OUT: &str = "\n  #   # crlf_to_lf: false";
 
     #[cfg(not(windows))]
     static CSHARP: &str = r#"  c#:
@@ -178,21 +188,19 @@ env:
 #   download:
 #     - {jq}
 
-interactive:
-  python3:
-    src: testers/py/test-{{kebab}}.py
-    run:
-      command: [{venv_python3}, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
-      working_directory: testers/py{crlf_to_lf_true}
-  haskell:
-    src: testers/hs/app/Test{{Pascal}}.hs
-    compile:
-      bin: testers/hs/target/Test{{Pascal}}
-      command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: testers/hs
-    run:
-      command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
-      working_directory: testers/hs{crlf_to_lf_false}
+tester:
+  src: testers/py/{{kebab}}.py
+  run:
+    command: [{venv_python3}, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
+    working_directory: testers/py{crlf_to_lf_true_indent4}
+  # src: testers/hs/app/{{Pascal}}.hs
+  # compile:
+  #   bin: testers/hs/target/{{Pascal}}
+  #   command: [stack, ghc, --, -O2, -o, $bin, $src]
+  #   working_directory: testers/hs
+  # run:
+  #   command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
+  #   working_directory: testers/hs{crlf_to_lf_false_commented_out}
 
 languages:
   c++:
@@ -204,7 +212,7 @@ languages:
       working_directory: cpp # default: "."
     run:
       command: [$bin]
-      working_directory: cpp # default: "."{crlf_to_lf_true}
+      working_directory: cpp # default: "."{crlf_to_lf_true_indent6}
     language_ids:            # optional
       atcoder: 3003          # "C++14 (GCC x.x.x)"
       yukicoder: cpp14       # "C++14 (gcc x.x.x)"
@@ -256,7 +264,7 @@ languages:
     src: py/{{kebab}}.py
     run:
       command: [{venv_python3}, $src]
-      working_directory: py{crlf_to_lf_true}
+      working_directory: py{crlf_to_lf_true_indent6}
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
       yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x + scipy x.x.x)"
@@ -273,7 +281,7 @@ languages:
       working_directory: java
     run:
       command: [java, -classpath, './build/replaced/{{lower}}/classes', Main]
-      working_directory: java{crlf_to_lf_true}
+      working_directory: java{crlf_to_lf_true_indent6}
     language_ids:
       atcoder: 3016      # "Java8 (OpenJDK 1.8.x)"
       # yukicoder: java8 # "Java8 (openjdk 1.8.x.x)"
@@ -290,7 +298,7 @@ languages:
       working_directory: scala
     run:
       command: [scala, -classpath, './target/replaced/{{lower}}/classes', Main]
-      working_directory: scala{crlf_to_lf_true}
+      working_directory: scala{crlf_to_lf_true_indent6}
     # language_ids:
     #   atcoder: 3016    # "Scala (x.x.x)"
     #   yukicoder: scala # "Scala(Beta) (x.x.x)"
@@ -316,7 +324,9 @@ languages:
         venv_python3 = VENV_PYTHON3,
         transpile_java = TRANSPILE_JAVA,
         transpile_scala = TRANSPILE_SCALA,
-        crlf_to_lf_true = CRLF_TO_LF_TRUE,
+        crlf_to_lf_true_indent4 = CRLF_TO_LF_TRUE_INDENT4,
+        crlf_to_lf_false_commented_out = CRLF_TO_LF_FALSE_COMMENTED_OUT,
+        crlf_to_lf_true_indent6 = CRLF_TO_LF_TRUE_INDENT6,
         crlf_to_lf_false = CRLF_TO_LF_FALSE,
         csharp = CSHARP,
     )
@@ -466,8 +476,7 @@ pub(crate) struct Config {
     env: BTreeMap<ServiceName, HashMap<String, String>>,
     #[serde(default)]
     hooks: Hooks,
-    #[serde(default)]
-    interactive: HashMap<String, Language>,
+    tester: Option<Language>,
     languages: HashMap<String, Language>,
     #[serde(skip)]
     base_dir: AbsPathBuf,
@@ -584,9 +593,9 @@ impl Config {
         TestCaseLoader::new(
             path,
             &self.judge.testfile_extensions,
-            self.interactive_tester_transpilations(),
-            self.interactive_tester_compilations(),
-            self.interactive_testers(),
+            self.tester_transpilation(),
+            self.tester_compilation(),
+            self.tester(),
         )
     }
 
@@ -641,28 +650,20 @@ impl Config {
         Ok(self.judge_command(lang))
     }
 
-    fn interactive_tester_transpilations(&self) -> HashMap<String, Template<TranspilationCommand>> {
-        self.interactive
-            .iter()
-            .filter_map(|(name, conf)| {
-                self.transpilation_command(conf)
-                    .map(|t| (name.to_owned(), t))
-            })
-            .collect()
+    fn tester_transpilation(&self) -> Option<Template<TranspilationCommand>> {
+        self.tester
+            .as_ref()
+            .and_then(|lang| self.transpilation_command(lang))
     }
 
-    fn interactive_tester_compilations(&self) -> HashMap<String, Template<CompilationCommand>> {
-        self.interactive
-            .iter()
-            .filter_map(|(name, conf)| self.compilation_command(conf).map(|t| (name.to_owned(), t)))
-            .collect()
+    fn tester_compilation(&self) -> Option<Template<CompilationCommand>> {
+        self.tester
+            .as_ref()
+            .and_then(|lang| self.compilation_command(lang))
     }
 
-    fn interactive_testers(&self) -> HashMap<String, Template<JudgingCommand>> {
-        self.interactive
-            .iter()
-            .map(|(name, conf)| (name.clone(), self.judge_command(&conf)))
-            .collect()
+    fn tester(&self) -> Option<Template<JudgingCommand>> {
+        self.tester.as_ref().map(|lang| self.judge_command(lang))
     }
 
     fn transpilation_command(&self, lang: &Language) -> Option<Template<TranspilationCommand>> {

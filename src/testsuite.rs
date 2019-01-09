@@ -16,7 +16,7 @@ use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write;
 use std::iter::FromIterator;
 use std::path::PathBuf;
@@ -98,9 +98,9 @@ impl FromStr for SuiteFileExtension {
 pub(crate) struct TestCaseLoader<'a> {
     template: Template<AbsPathBuf>,
     extensions: &'a BTreeSet<SuiteFileExtension>,
-    tester_transpilations: HashMap<String, Template<TranspilationCommand>>,
-    tester_compilacions: HashMap<String, Template<CompilationCommand>>,
-    tester_commands: HashMap<String, Template<JudgingCommand>>,
+    tester_transpilation: Option<Template<TranspilationCommand>>,
+    tester_compilacion: Option<Template<CompilationCommand>>,
+    tester_command: Option<Template<JudgingCommand>>,
 }
 
 impl TestCaseLoader<'_> {
@@ -191,9 +191,9 @@ impl TestCaseLoader<'_> {
                 TestSuite::Batch(suite) => batch_cases.extend(suite.cases_named(&path.path)?),
                 TestSuite::Interactive(suite) => {
                     interactive_cases.extend(suite.cases_named(
-                        &self.tester_transpilations,
-                        &self.tester_compilacions,
-                        &self.tester_commands,
+                        self.tester_transpilation.as_ref(),
+                        self.tester_compilacion.as_ref(),
+                        self.tester_command.as_ref(),
                         &filename,
                         problem,
                     )?);
@@ -212,7 +212,7 @@ impl TestCaseLoader<'_> {
                 .into_iter()
                 .map(|(path, _)| path.display().to_string())
                 .collect::<Vec<_>>();
-            Err(TestSuiteErrorKind::NoFile(format_paths(&all_paths)).into())
+            Err(TestSuiteErrorKind::NoTestcase(format_paths(&all_paths)).into())
         } else if interactive_cases.is_empty() {
             Ok((TestCases::Batch(batch_cases), paths_as_text))
         } else if batch_cases.is_empty() {
@@ -634,7 +634,6 @@ pub(crate) struct InteractiveSuite {
         default
     )]
     timelimit: Option<Duration>,
-    tester: Option<String>,
     each_args: Vec<Vec<String>>,
 }
 
@@ -642,53 +641,39 @@ impl InteractiveSuite {
     pub fn new(timelimit: impl Into<Option<Duration>>) -> Self {
         Self {
             timelimit: timelimit.into(),
-            tester: None,
             each_args: vec![],
         }
     }
 
     fn cases_named(
         &self,
-        tester_transpilations: &HashMap<String, Template<TranspilationCommand>>,
-        tester_compilations: &HashMap<String, Template<CompilationCommand>>,
-        tester_commands: &HashMap<String, Template<JudgingCommand>>,
+        tester_transpilation: Option<&Template<TranspilationCommand>>,
+        tester_compilation: Option<&Template<CompilationCommand>>,
+        tester_command: Option<&Template<JudgingCommand>>,
         filename: &str,
         problem: &str,
     ) -> TestSuiteResult<vec::IntoIter<InteractiveCase>> {
         let mut cases = Vec::with_capacity(self.each_args.len());
         for (i, args) in self.each_args.iter().enumerate() {
-            let lang = self
-                .tester
-                .as_ref()
-                .ok_or_else(|| ConfigError::from(ConfigErrorKind::LanguageNotSpecified))?;
             let mut m = hashmap!("*".to_owned() => args.join(" "));
             m.extend(args.iter().enumerate().zip_longest(1..=9).map(|p| match p {
                 EitherOrBoth::Both((_, arg), i) => (i.to_string(), arg.clone()),
                 EitherOrBoth::Left((j, arg)) => ((j + i).to_string(), arg.clone()),
                 EitherOrBoth::Right(i) => (i.to_string(), "".to_owned()),
             }));
-            let tester_transpilation = match tester_transpilations
-                .get(lang)
-                .map(|t| t.clone().expand(&problem))
-            {
-                None => Ok(None),
-                Some(Err(err)) => Err(err),
-                Some(Ok(comp)) => Ok(Some(Arc::new(comp))),
-            }?;
-            let tester_compilation = match tester_compilations
-                .get(lang)
-                .map(|t| t.clone().expand(&problem))
-            {
-                None => Ok(None),
-                Some(Err(err)) => Err(err),
-                Some(Ok(comp)) => Ok(Some(Arc::new(comp))),
-            }?;
-            let tester = tester_commands
-                .get(lang)
-                .map(|template| template.clone().clone())
-                .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(lang.to_owned())))?
+            let tester_transpilation = match tester_transpilation {
+                None => None,
+                Some(t) => Some(Arc::new(t.expand(problem)?)),
+            };
+            let tester_compilation = match tester_compilation {
+                None => None,
+                Some(t) => Some(Arc::new(t.expand(problem)?)),
+            };
+            let tester = tester_command
+                .ok_or_else(|| ConfigError::from(ConfigErrorKind::TesterNotSpecified))?
+                .clone()
                 .envs(Some(&m))
-                .expand(&problem)?;
+                .expand(problem)?;
             cases.push(InteractiveCase {
                 name: Arc::new(format!("{}[{}]", filename, i)),
                 tester: Arc::new(tester),

@@ -47,7 +47,7 @@ fn it_scrapes_samples_from_practice() {
                 .join("atcoder")
                 .join("practice");
             check_yaml_md5(&download_dir, "a", "f9da086de05e439ebe3bac66cfc1ef89");
-            check_yaml_md5(&download_dir, "b", "ae82294bcef243485432ffd958867396");
+            check_yaml_md5(&download_dir, "b", "4cccced6eee33d234bc084c12b2db7c2");
             Ok(())
         },
     )

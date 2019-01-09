@@ -366,7 +366,7 @@ impl Outcome for InteractiveOutcome {
         }
 
         let size = self.outputs.iter().map(Output::size).sum();
-        if display_limit.map_or(false, |l| l > size) {
+        if display_limit.map_or(false, |l| l < size) {
             return super::writeln_size(out, size);
         }
 
