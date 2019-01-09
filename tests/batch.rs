@@ -11,7 +11,7 @@ use std::path::PathBuf;
 fn it_works() {
     let _ = env_logger::try_init();
 
-    let tempdir = TempDir::new("simple_it_works").unwrap();
+    let tempdir = TempDir::new("batch_it_works").unwrap();
 
     let src_dir = tempdir.path().join("rs").join("src").join("bin");
     let src_path = src_dir.join("a.rs");
@@ -32,7 +32,7 @@ fn main() {
 "#;
     static WRONG_CODE: &str = "fn main {}";
     static SUITE: &str = r#"---
-type: simple
+type: batch
 match: exact
 cases:
   - name: Sample 1

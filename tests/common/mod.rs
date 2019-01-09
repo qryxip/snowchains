@@ -118,7 +118,7 @@ pub fn confirm_num_cases(
     pairs: &[(&str, usize)],
 ) {
     #[derive(Deserialize)]
-    struct SimpleSuite {
+    struct BatchSuite {
         cases: Vec<serde_yaml::Value>,
     }
 
@@ -129,7 +129,7 @@ pub fn confirm_num_cases(
             .join(contest)
             .join(format!("{}.yaml", problem));
         let file = File::open(&path).unwrap();
-        let suite = serde_yaml::from_reader::<_, SimpleSuite>(file).unwrap();
+        let suite = serde_yaml::from_reader::<_, BatchSuite>(file).unwrap();
         assert_eq!(expected_num_cases, suite.cases.len());
     }
 }

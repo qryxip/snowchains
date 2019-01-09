@@ -168,8 +168,8 @@ pub enum JudgeError {
 pub enum JudgeErrorKind {
     #[display(fmt = "The length is {} but the index is {}", _0, _1)]
     IndexOutOfBounds(usize, usize),
-    #[display(fmt = "Expected \"simple\" case")]
-    ExpectedSimple,
+    #[display(fmt = "Expected \"batch\" case")]
+    ExpectedBatch,
     #[display(fmt = "Failed to execute {:?}", _0)]
     Command(OsString),
     #[display(
@@ -213,8 +213,8 @@ pub enum TestSuiteErrorKind {
     NoFile(String),
     #[display(fmt = "Different types of suites")]
     DifferentTypesOfSuites,
-    #[display(fmt = "Target suite is not \"simple\" type")]
-    SuiteIsNotSimple,
+    #[display(fmt = "Target suite is not \"batch\" type")]
+    SuiteIsNotBatch,
     #[display(fmt = "{:?} is unsubmittable", _0)]
     Unsubmittable(AbsPathBuf),
     #[display(fmt = "Unsupported extension: {:?}", _0)]

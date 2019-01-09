@@ -10,7 +10,7 @@ use crate::service::{
     UserNameAndPassword,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
-use crate::testsuite::{DownloadDestinations, InteractiveSuite, SimpleSuite, TestSuite};
+use crate::testsuite::{BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
 use crate::util::std_unstable::RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
@@ -510,7 +510,7 @@ impl<T: Term> Atcoder<T> {
                 plural!(2 * contents_len, "file", "files"),
                 dir.display(),
             )?;
-            if let Some(TestSuite::Simple(suite)) = suites.get_mut(problem) {
+            if let Some(TestSuite::Batch(suite)) = suites.get_mut(problem) {
                 suite.clear_cases();
                 for (case_name, (in_path, out_path)) in paths {
                     suite.push_path(case_name, in_path, out_path);
@@ -901,7 +901,7 @@ impl Extract for Document {
 
     fn extract_as_suite(&self) -> ScrapeResult<TestSuite> {
         enum Samples {
-            Simple(Vec<(String, String)>),
+            Batch(Vec<(String, String)>),
             Interactive,
         }
 
@@ -1020,7 +1020,7 @@ impl Extract for Document {
             if samples.is_empty() {
                 None
             } else {
-                Some(Samples::Simple(samples))
+                Some(Samples::Batch(samples))
             }
         }
 
@@ -1081,8 +1081,8 @@ impl Extract for Document {
             return Ok(TestSuite::Unsubmittable);
         }
         match extract_samples(self) {
-            None => Ok(SimpleSuite::new(timelimit).into()),
-            Some(Samples::Simple(samples)) => Ok(SimpleSuite::new(timelimit)
+            None => Ok(BatchSuite::new(timelimit).into()),
+            Some(Samples::Batch(samples)) => Ok(BatchSuite::new(timelimit)
                 .sample_cases(samples.into_iter(), |i| format!("Sample {}", i + 1), None)
                 .into()),
             Some(Samples::Interactive) => Ok(InteractiveSuite::new(timelimit).into()),
@@ -1363,10 +1363,10 @@ mod tests {
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_arc001() {
         static EXPECTED: &[(&str, &str, &str)] = &[
-            ("A", "arc001_1", "8466355b2cba9d78842672312e9592f0"),
-            ("B", "arc001_2", "cc8617d9244681b1a5a07428671b72d5"),
-            ("C", "arc001_3", "ccd84df8d59e6fe3006e22cbd707c030"),
-            ("D", "arc001_4", "3b3b5ef2224fa728ad3c44a98bcebbb5"),
+            ("A", "arc001_1", "d0a203b1a8e80ea6b5d77ba33dd31812"),
+            ("B", "arc001_2", "8bf21c1a2e7e6b386d83ffef47b6b302"),
+            ("C", "arc001_3", "fadc6a33d9b009b679d35c837d509ee7"),
+            ("D", "arc001_4", "a7b8f7528a89fe733a18b829cefdadd5"),
         ];
         let _ = env_logger::try_init();
         test_sample_extraction("arc001", EXPECTED);
@@ -1375,10 +1375,10 @@ mod tests {
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_arc002() {
         static EXPECTED: &[(&str, &str, &str)] = &[
-            ("A", "arc002_1", "41397da2ac34f82ef99a875414e3bbe9"),
-            ("B", "arc002_2", "b19aa5ce1ed2695aff295dfd28a6f9dd"),
-            ("C", "arc002_3", "2c9e018f4c37c26ec3ae7441b8ed77a3"),
-            ("D", "arc002_4", "37ccc24feade9f38de167d7479089233"),
+            ("A", "arc002_1", "af6ae0d1fe88e2bf2eb8a9f97f4a3bd3"),
+            ("B", "arc002_2", "251d9d839971aeadbca20fdd5bebe1e1"),
+            ("C", "arc002_3", "ed797649ddb36669b5c83c0bb520fa4d"),
+            ("D", "arc002_4", "91aaf382f4f2071185b5646ca48b26ef"),
         ];
         let _ = env_logger::try_init();
         test_sample_extraction("arc002", EXPECTED);
@@ -1387,10 +1387,10 @@ mod tests {
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_arc058() {
         static EXPECTED: &[(&str, &str, &str)] = &[
-            ("C", "arc058_a", "528b8a28f676b64525c24de6e00b2177"),
-            ("D", "arc058_b", "01b562fb301781eeb0b2dfbc399aeb0a"),
-            ("E", "arc058_c", "8f62d4ede8230836d4127de0b4ce5a73"),
-            ("F", "arc058_d", "032cf56b87317058db7948c990a22094"),
+            ("C", "arc058_a", "f134a1c2f5c9c9613a0a40c43906fd78"),
+            ("D", "arc058_b", "8b9eb58dfa9c95b4766bab15c8439258"),
+            ("E", "arc058_c", "2f04c46c9245f7a5378dd72e074a0983"),
+            ("F", "arc058_d", "8c456a84332f2921703eeefca0493245"),
         ];
         let _ = env_logger::try_init();
         test_sample_extraction("arc058", EXPECTED);
@@ -1399,10 +1399,10 @@ mod tests {
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_abc041() {
         static EXPECTED: &[(&str, &str, &str)] = &[
-            ("A", "abc041_a", "0f31784e3b3ec70b5cb553b7a648a9d3"),
-            ("B", "abc041_b", "6c3c03121c5d81c8d9500045a2cb75a9"),
-            ("C", "abc041_c", "4d927f43351f3d7d9e9b74646c87a088"),
-            ("D", "abc041_d", "042c32342b80ab6ccdb129dee2ee1e5d"),
+            ("A", "abc041_a", "d7797b2e885f35f588895af8f199cfe1"),
+            ("B", "abc041_b", "37f3335e442bdbaa7c4d6a144080627f"),
+            ("C", "abc041_c", "2fae4d4d77d851bbdba6f9cfec6c6bde"),
+            ("D", "abc041_d", "bb30dd61021373384657c6fe52e81a27"),
         ];
         let _ = env_logger::try_init();
         test_sample_extraction("abc041", EXPECTED);
@@ -1411,18 +1411,18 @@ mod tests {
     #[test]
     fn it_extracts_timelimits_and_sample_cases_from_chokudai_s001() {
         static EXPECTED: &[(&str, &str, &str)] = &[
-            ("A", "chokudai_S001_a", "ac1f9f1f348d5934c58afaaefdb2c4a0"),
-            ("B", "chokudai_S001_b", "563863e108d52d70798581260984a933"),
-            ("C", "chokudai_S001_c", "e7c07e7611d800c0b2c4745f0a021831"),
-            ("D", "chokudai_S001_d", "dcd66b22a9bac464012d25f3f5b17469"),
-            ("E", "chokudai_S001_e", "2084c2a1cc1ea15b632e033d1dfacd79"),
-            ("F", "chokudai_S001_f", "130a3beedb2632e9c2526f7b7d1705ba"),
-            ("G", "chokudai_S001_g", "53f07f8be4611c8f46047c62fb26f401"),
-            ("H", "chokudai_S001_h", "a7f1dfa86db6e70a4083717630444fc1"),
-            ("I", "chokudai_S001_i", "25ba264cf4da4145e4fab293732fe742"),
-            ("J", "chokudai_S001_j", "b921ef1e689aa78e261d6526ed7564a5"),
-            ("K", "chokudai_S001_k", "542eb3b4d0c2af32cbb263bbfa5a54e0"),
-            ("L", "chokudai_S001_l", "33aa5b27cfb3e70528c233c427980109"),
+            ("A", "chokudai_S001_a", "fef466a640f3790817f9935a271ace53"),
+            ("B", "chokudai_S001_b", "3bfc2f7d1d137f0c88670c76855e4d9e"),
+            ("C", "chokudai_S001_c", "18458ff77936fbeaaf5d911509fdd160"),
+            ("D", "chokudai_S001_d", "deec69dc980df38dcfa1234d4c227146"),
+            ("E", "chokudai_S001_e", "00c9f04c8ef21edf6ca3fb1de37279a8"),
+            ("F", "chokudai_S001_f", "b6cafaf887633292cd7d358d6843cd3e"),
+            ("G", "chokudai_S001_g", "2c765b4f3ce38a6a389c78491fa09c75"),
+            ("H", "chokudai_S001_h", "ff82de43862e5523a86229fc105a982c"),
+            ("I", "chokudai_S001_i", "6bdf106cdd73d158ada5d33cb19bacae"),
+            ("J", "chokudai_S001_j", "c113ee0ec1caf07bdafea2775c24bebc"),
+            ("K", "chokudai_S001_k", "2207d949110d8da082b3809d712e3b2c"),
+            ("L", "chokudai_S001_l", "ffd6b3b7f76c256b63d4ff4901b9a54f"),
         ];
         let _ = env_logger::try_init();
         test_sample_extraction("chokudai_s001", EXPECTED);

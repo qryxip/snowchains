@@ -7,7 +7,7 @@ use crate::service::{
     ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
-use crate::testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
+use crate::testsuite::{BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
 use failure::ResultExt;
@@ -231,7 +231,7 @@ impl<T: Term> Yukicoder<T> {
             .iter()
             .map(|p| p.name.clone())
             .collect::<Vec<_>>();
-        let solved_simple_nos = if *only_scraped {
+        let solved_batch_nos = if *only_scraped {
             vec![]
         } else {
             self.filter_solved(&nos)?
@@ -241,23 +241,23 @@ impl<T: Term> Yukicoder<T> {
                         .problems
                         .iter()
                         .any(|problem| match &problem.test_suite {
-                            TestSuite::Simple(_) => problem.name == *no,
+                            TestSuite::Batch(_) => problem.name == *no,
                             _ => false,
                         })
                 })
                 .collect()
         };
 
-        let text_file_paths = if solved_simple_nos.is_empty() {
+        let text_file_paths = if solved_batch_nos.is_empty() {
             vec![]
         } else {
-            let urls = solved_simple_nos
+            let urls = solved_batch_nos
                 .iter()
                 .map(|no| format!("https://yukicoder.me/problems/no/{}/testcase.zip", no))
                 .collect::<Vec<_>>();
-            self.download_progress(&urls, &solved_simple_nos, None)?
+            self.download_progress(&urls, &solved_batch_nos, None)?
                 .into_iter()
-                .zip_eq(&solved_simple_nos)
+                .zip_eq(&solved_batch_nos)
                 .map(|(zip, &no)| {
                     static ZIP_ENTRIES: Lazy<ZipEntries> = sync_lazy!(ZipEntries {
                         in_entry: Regex::new(r"\Atest_in/([a-z0-9_]+)\.txt\z").unwrap(),
@@ -284,7 +284,7 @@ impl<T: Term> Yukicoder<T> {
             for (no, text_file_paths) in &text_file_paths {
                 if name == no {
                     *test_suite = match mem::replace(test_suite, TestSuite::Unsubmittable) {
-                        TestSuite::Simple(suite) => {
+                        TestSuite::Batch(suite) => {
                             suite.without_cases().paths(text_file_paths.clone()).into()
                         }
                         suite => suite,
@@ -609,7 +609,7 @@ impl Extract for Document {
                         };
                         samples.push((input, output));
                     }
-                    let mut suite = SimpleSuite::new(timelimit).sample_cases(
+                    let mut suite = BatchSuite::new(timelimit).sample_cases(
                         samples.into_iter(),
                         |i| format!("サンプル{}", i + 1),
                         None,
@@ -674,19 +674,19 @@ mod tests {
     #[test]
     fn it_extracts_samples_from_problem1() {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/1", "9be46c45c46eb98aa85911bb38dee887");
+        test_extracting_samples("/problems/no/1", "cf65ae411bc8d32b75beb771905c9dc0");
     }
 
     #[test]
     fn it_extracts_samples_from_problem188() {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/188", "1615ec7755f7ad7707f73e0d20262e0a");
+        test_extracting_samples("/problems/no/188", "671c7191064f7703abcb5e06fad3f32e");
     }
 
     #[test]
     fn it_extracts_samples_from_problem192() {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/192", "4d0d32b4520f7a8a0bf86c94eb25619e");
+        test_extracting_samples("/problems/no/192", "f8ce3328c431737dcb748770abd9a09b");
     }
 
     #[test]

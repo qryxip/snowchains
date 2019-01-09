@@ -297,13 +297,13 @@ languages:
 - [x] TOML
 - [x] JSON
 
-### Simple (one input, one output)
+### Batch (one input, one output)
 
 <https://atcoder.jp/contests/practice/tasks/practice_1>
 
 ```yaml
 ---
-type: simple      # "simple", "interactive", or "unsubmittable"
+type: batch       # "batch", "interactive", or "unsubmittable"
 timelimit: 2000ms # optional
 match: exact      # "any", "exact", or "float"
 
@@ -330,7 +330,7 @@ cases:
 ```
 
 ```toml
-type = 'simple'
+type = 'batch'
 timelimit = '2000ms'
 match = 'exact'
 
@@ -368,7 +368,7 @@ oooooooooooooo
 
 ```yaml
 ---
-type: simple
+type: batch
 timelimit: 2000ms
 match:
   float:
@@ -389,7 +389,7 @@ cases:
 ```
 
 ```toml
-type = 'simple'
+type = 'batch'
 timelimit = '2000ms'
 
 [match.float]

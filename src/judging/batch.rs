@@ -3,7 +3,7 @@ use crate::errors::JudgeResult;
 use crate::judging::text::{Line, PrintAligned, Text, Width, Word};
 use crate::judging::Outcome;
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
-use crate::testsuite::{ExpectedStdout, SimpleCase};
+use crate::testsuite::{BatchCase, ExpectedStdout};
 use crate::time::MillisRoundedUp;
 
 use derive_more::From;
@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{cmp, fmt, io, mem};
 
-pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
+pub(super) fn accepts(case: &BatchCase, stdout: &str) -> BatchOutcome {
     let input = Text::exact(&case.input());
     let (stdout, expected, example) = match case.expected().as_ref() {
         ExpectedStdout::Any { example } => (
@@ -40,7 +40,7 @@ pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
     };
     if let Some(expected) = &expected {
         if stdout != *expected {
-            return SimpleOutcomeInner::WrongAnswer {
+            return BatchOutcomeInner::WrongAnswer {
                 elapsed: Duration::new(0, 0),
                 input,
                 diff: TextDiff::new(expected, &stdout),
@@ -49,7 +49,7 @@ pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
             .into();
         }
     }
-    SimpleOutcomeInner::Accepted {
+    BatchOutcomeInner::Accepted {
         elapsed: Duration::new(0, 0),
         input,
         example,
@@ -60,9 +60,9 @@ pub(super) fn accepts(case: &SimpleCase, stdout: &str) -> SimpleOutcome {
 }
 
 pub(super) fn judge(
-    case: &SimpleCase,
+    case: &BatchCase,
     solver: &Arc<JudgingCommand>,
-) -> JudgeResult<impl Future<Item = SimpleOutcome, Error = io::Error>> {
+) -> JudgeResult<impl Future<Item = BatchOutcome, Error = io::Error>> {
     let crlf_to_lf = solver.crlf_to_lf();
     let (stdout_buf, stderr_buf) = (Vec::with_capacity(1024), Vec::with_capacity(1024));
     let mut solver = solver.spawn_async_piped()?;
@@ -91,17 +91,17 @@ struct Judge {
 }
 
 impl Future for Judge {
-    type Item = SimpleOutcome;
+    type Item = BatchOutcome;
     type Error = io::Error;
 
-    fn poll(&mut self) -> Poll<SimpleOutcome, io::Error> {
+    fn poll(&mut self) -> Poll<BatchOutcome, io::Error> {
         match self.status.poll_wait()? {
             Async::NotReady => {
                 try_ready!(self.stdin.poll_write(self.input.as_bytes()));
                 Ok(Async::NotReady)
             }
             Async::Ready(Err(timelimit)) => Ok(Async::Ready(
-                SimpleOutcomeInner::TimelimitExceeded {
+                BatchOutcomeInner::TimelimitExceeded {
                     timelimit,
                     input: Text::exact(&self.input),
                     expected: match self.expected.as_ref() {
@@ -281,7 +281,7 @@ struct CommandOutcome {
 }
 
 impl CommandOutcome {
-    fn compare(&self, expected: &ExpectedStdout) -> SimpleOutcome {
+    fn compare(&self, expected: &ExpectedStdout) -> BatchOutcome {
         let (status, elapsed) = (self.status, self.elapsed);
         let input = Text::exact(&self.input);
         let stderr = Text::exact(&self.stderr);
@@ -306,7 +306,7 @@ impl CommandOutcome {
             }
         };
         if !status.success() {
-            SimpleOutcomeInner::RuntimeError {
+            BatchOutcomeInner::RuntimeError {
                 elapsed,
                 input,
                 expected,
@@ -315,14 +315,14 @@ impl CommandOutcome {
                 status,
             }
         } else if expected.is_some() && *expected.as_ref().unwrap() != stdout {
-            SimpleOutcomeInner::WrongAnswer {
+            BatchOutcomeInner::WrongAnswer {
                 elapsed,
                 input,
                 diff: TextDiff::new(expected.as_ref().unwrap(), &stdout),
                 stderr,
             }
         } else {
-            SimpleOutcomeInner::Accepted {
+            BatchOutcomeInner::Accepted {
                 elapsed,
                 input,
                 example,
@@ -337,25 +337,25 @@ impl CommandOutcome {
 /// Test result.
 #[cfg_attr(test, derive(Debug))]
 #[derive(From)]
-pub(super) struct SimpleOutcome {
-    inner: SimpleOutcomeInner,
+pub(super) struct BatchOutcome {
+    inner: BatchOutcomeInner,
 }
 
-impl fmt::Display for SimpleOutcome {
+impl fmt::Display for BatchOutcome {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.inner {
-            SimpleOutcomeInner::Accepted { elapsed, .. } => {
+            BatchOutcomeInner::Accepted { elapsed, .. } => {
                 write!(f, "Accepted ({}ms)", elapsed.millis_rounded_up())
             }
-            SimpleOutcomeInner::TimelimitExceeded { timelimit, .. } => write!(
+            BatchOutcomeInner::TimelimitExceeded { timelimit, .. } => write!(
                 f,
                 "Time Limit Exceeded ({}ms)",
                 timelimit.millis_rounded_up()
             ),
-            SimpleOutcomeInner::WrongAnswer { elapsed, .. } => {
+            BatchOutcomeInner::WrongAnswer { elapsed, .. } => {
                 write!(f, "Wrong Answer ({}ms)", elapsed.millis_rounded_up())
             }
-            SimpleOutcomeInner::RuntimeError {
+            BatchOutcomeInner::RuntimeError {
                 elapsed, status, ..
             } => {
                 let elapsed = elapsed.millis_rounded_up();
@@ -365,19 +365,19 @@ impl fmt::Display for SimpleOutcome {
     }
 }
 
-impl Outcome for SimpleOutcome {
+impl Outcome for BatchOutcome {
     fn failure(&self) -> bool {
         match self.inner {
-            SimpleOutcomeInner::Accepted { .. } => false,
+            BatchOutcomeInner::Accepted { .. } => false,
             _ => true,
         }
     }
 
     fn color(&self) -> u8 {
         match self.inner {
-            SimpleOutcomeInner::Accepted { .. } => 10,
-            SimpleOutcomeInner::TimelimitExceeded { .. } => 9,
-            SimpleOutcomeInner::WrongAnswer { .. } | SimpleOutcomeInner::RuntimeError { .. } => 11,
+            BatchOutcomeInner::Accepted { .. } => 10,
+            BatchOutcomeInner::TimelimitExceeded { .. } => 9,
+            BatchOutcomeInner::WrongAnswer { .. } | BatchOutcomeInner::RuntimeError { .. } => 11,
         }
     }
 
@@ -433,7 +433,7 @@ impl Outcome for SimpleOutcome {
 
         let mut wtr = Writer { out, display_limit };
         match &self.inner {
-            SimpleOutcomeInner::Accepted {
+            BatchOutcomeInner::Accepted {
                 input,
                 example,
                 stdout,
@@ -445,13 +445,13 @@ impl Outcome for SimpleOutcome {
                 wtr.write_section("stdout:", stdout)?;
                 wtr.write_section_unless_empty("stderr:", stderr)
             }
-            SimpleOutcomeInner::TimelimitExceeded {
+            BatchOutcomeInner::TimelimitExceeded {
                 input, expected, ..
             } => {
                 wtr.write_section("input:", input)?;
                 wtr.write_section_unless_empty("expected:", expected.as_ref())
             }
-            SimpleOutcomeInner::WrongAnswer {
+            BatchOutcomeInner::WrongAnswer {
                 input,
                 diff,
                 stderr,
@@ -461,7 +461,7 @@ impl Outcome for SimpleOutcome {
                 wtr.write_diff("diff:", diff)?;
                 wtr.write_section_unless_empty("stderr:", stderr)
             }
-            SimpleOutcomeInner::RuntimeError {
+            BatchOutcomeInner::RuntimeError {
                 input,
                 expected,
                 stdout,
@@ -478,7 +478,7 @@ impl Outcome for SimpleOutcome {
 }
 
 #[cfg_attr(test, derive(Debug))]
-enum SimpleOutcomeInner {
+enum BatchOutcomeInner {
     Accepted {
         elapsed: Duration,
         input: Text,

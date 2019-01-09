@@ -46,7 +46,7 @@ fn it_scrapes_samples_from_practice() {
                 .join("tests")
                 .join("atcoder")
                 .join("practice");
-            check_yaml_md5(&download_dir, "a", "0ab89f8622931867945de172a7696adb");
+            check_yaml_md5(&download_dir, "a", "f9da086de05e439ebe3bac66cfc1ef89");
             check_yaml_md5(&download_dir, "b", "ae82294bcef243485432ffd958867396");
             Ok(())
         },
@@ -71,10 +71,10 @@ fn it_scrapes_samples_from_abc100() {
                 color_choice: AnsiColorChoice::Never,
             })?;
             let download_dir = app.working_dir.join("tests").join("atcoder").join("abc100");
-            check_yaml_md5(&download_dir, "a", "f837ca06ddb61a1fd16f16455d30dcdc");
-            check_yaml_md5(&download_dir, "b", "fbe5193dc50506c2b19b2fe0f1e77ccb");
-            check_yaml_md5(&download_dir, "c", "48032dd70e600a2a9f139800a21b2c10");
-            check_yaml_md5(&download_dir, "d", "84b981ce83866152ccef18517255e7b9");
+            check_yaml_md5(&download_dir, "a", "86531ee215ce7634434b1a0b8ed9d932");
+            check_yaml_md5(&download_dir, "b", "8aa1291a4fdba2ebc2f1fdc6fc484394");
+            check_yaml_md5(&download_dir, "c", "61e0e720317997d3f27a0fa4fed0bb51");
+            check_yaml_md5(&download_dir, "d", "599ec4fb07dcc02532944cab6f8e49f8");
             Ok(())
         },
     )
@@ -116,7 +116,7 @@ fn just_confirm_num_samples_and_timelimit(dir: &Path, name: &str, n: usize, t: &
     #[derive(Deserialize)]
     #[serde(tag = "type", rename_all = "lowercase")]
     enum TestSuite {
-        Simple {
+        Batch {
             timelimit: String,
             cases: Vec<serde_yaml::Mapping>,
         },
@@ -128,7 +128,7 @@ fn just_confirm_num_samples_and_timelimit(dir: &Path, name: &str, n: usize, t: &
     let path = dir.join(name).with_extension("yaml");
     let file = File::open(&path).unwrap();
     match serde_yaml::from_reader::<_, TestSuite>(file).unwrap() {
-        TestSuite::Simple { timelimit, cases } => {
+        TestSuite::Batch { timelimit, cases } => {
             assert_eq!(t, timelimit);
             assert_eq!(n, cases.len())
         }
