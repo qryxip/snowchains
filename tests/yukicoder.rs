@@ -1,11 +1,11 @@
 #[allow(dead_code)]
 mod common;
 
-use snowchains::app::App;
+use snowchains::app::{App, Opt};
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::path::AbsPath;
 use snowchains::service::ServiceName;
-use snowchains::terminal::TermImpl;
+use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
 use failure::Fallible;
 use if_chain::if_chain;
@@ -70,4 +70,35 @@ fn download(
 
 fn confirm_num_cases(wd: &AbsPath, contest: &str, pairs: &[(&str, usize)]) {
     common::confirm_num_cases(wd, ServiceName::Yukicoder, contest, pairs)
+}
+
+#[test]
+#[ignore]
+fn it_submits_to_no_9000() {
+    let _ = env_logger::try_init();
+    let credentials = common::credentials_from_env_vars().unwrap();
+    common::test_in_tempdir(
+        "it_submits_to_no_9000",
+        credentials,
+        |mut app| -> Fallible<()> {
+            static CODE: &[u8] = b"Hello, World!";
+            std::fs::create_dir(&app.working_dir.join("txt"))?;
+            std::fs::write(&app.working_dir.join("txt").join("9000.txt"), CODE)?;
+            app.run(Opt::Submit {
+                open: false,
+                force_compile: false,
+                only_transpile: false,
+                no_judge: true,
+                no_check_duplication: false,
+                service: Some(ServiceName::Yukicoder),
+                contest: Some("no".to_owned()),
+                language: Some("text".to_owned()),
+                jobs: None,
+                color_choice: AnsiColorChoice::Never,
+                problem: "9000".to_owned(),
+            })
+            .map_err(Into::into)
+        },
+    )
+    .unwrap();
 }

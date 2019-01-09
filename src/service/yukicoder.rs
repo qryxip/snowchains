@@ -13,7 +13,6 @@ use cookie::Cookie;
 use failure::ResultExt;
 use itertools::Itertools;
 use maplit::hashmap;
-use multipart::client::lazy::Multipart;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
 use regex::Regex;
@@ -28,7 +27,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Write;
 use std::time::Duration;
-use std::{fmt, io, mem};
+use std::{fmt, mem};
 
 pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
     Yukicoder::try_new(sess_props)?.login(true)
@@ -416,12 +415,10 @@ impl<T: Term> Yukicoder<T> {
         }
         let document = self.get(&url).recv_html()?;
         let token = document.extract_csrf_token_from_submit_page()?;
-        let form = Multipart::new()
-            .add_text("csrf_token", token)
-            .add_text("lang", lang_id.as_ref())
-            .add_text("source", code.as_str())
-            .prepare()
-            .map_err(Into::<io::Error>::into)?;
+        let form = reqwest::r#async::multipart::Form::new()
+            .text("csrf_token", token)
+            .text("lang", lang_id.clone().into_owned())
+            .text("source", code.clone());
         let url = document.extract_url_from_submit_page()?;
         let res = self.post(&url).send_multipart(form)?;
         let location = match res.headers().get(header::LOCATION) {

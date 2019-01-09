@@ -11,7 +11,6 @@ use futures::{task, try_ready, Async, Future, Poll, Stream};
 use log::info;
 use maplit::hashmap;
 use mime::Mime;
-use multipart::client::lazy::PreparedFields;
 use reqwest::header::{self, HeaderValue};
 use reqwest::r#async::Decoder;
 use reqwest::{Method, StatusCode};
@@ -25,9 +24,8 @@ use url::{Host, Url};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{self, Write};
-use std::io::{self, Read};
-use std::mem;
 use std::ops::Deref;
+use std::{io, mem};
 
 #[derive(Debug)]
 pub(super) struct HttpSession {
@@ -325,21 +323,12 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         self.form(form).send()
     }
 
-    pub(super) fn send_multipart(self, mut form: PreparedFields) -> ServiceResult<self::Response> {
-        let boundary = form.boundary().to_owned();
-        let mut content = Vec::with_capacity(form.content_len().unwrap_or(0) as usize);
-        form.read_to_end(&mut content)?;
-        Self {
-            inner: self.inner.map(|inner| {
-                let mime = format!("multipart/form-data;boundary={}", boundary);
-                inner
-                    .header(header::CONTENT_LENGTH, content.len() as u64)
-                    .header(header::CONTENT_TYPE, mime)
-                    .body(content)
-            }),
-            ..self
-        }
-        .send()
+    pub(super) fn send_multipart(
+        mut self,
+        form: reqwest::r#async::multipart::Form,
+    ) -> ServiceResult<self::Response> {
+        self.inner = self.inner.map(|inner| inner.multipart(form));
+        self.send()
     }
 
     pub(super) fn recv_html(self) -> ServiceResult<Document> {
