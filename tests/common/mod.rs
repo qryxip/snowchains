@@ -26,8 +26,8 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     let result = panic::catch_unwind(move || -> Fallible<()> {
         let mut app = App {
             working_dir: AbsPathBuf::try_new(&tempdir_path).unwrap(),
-            cookies_on_init: "$service".to_owned(),
-            dropbox_auth_on_init: "dropbox.json".to_owned(),
+            cookies_on_init: "local/$service".to_owned(),
+            dropbox_auth_on_init: "local/dropbox.json".to_owned(),
             enable_dropbox_on_init: true,
             credentials,
             term: TermImpl::null(),
@@ -36,8 +36,9 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
             color_choice: AnsiColorChoice::Never,
             directory: PathBuf::from("."),
         })?;
+        std::fs::create_dir(tempdir_path.join("local"))?;
         serde_json::to_writer(
-            File::create(tempdir_path.join("dropbox.json"))?,
+            File::create(tempdir_path.join("local").join("dropbox.json"))?,
             &json!({ "access_token": env("DROPBOX_ACCESS_TOKEN")? }),
         )?;
         f(app).map_err(Into::into)
@@ -124,9 +125,9 @@ pub fn confirm_num_cases(
 
     for &(problem, expected_num_cases) in pairs {
         let path = wd
-            .join("tests")
             .join(<&str>::from(service))
             .join(contest)
+            .join("tests")
             .join(format!("{}.yaml", problem));
         let file = File::open(&path).unwrap();
         let suite = serde_yaml::from_reader::<_, BatchSuite>(file).unwrap();

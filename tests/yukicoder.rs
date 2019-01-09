@@ -82,8 +82,9 @@ fn it_submits_to_no_9000() {
         credentials,
         |mut app| -> Fallible<()> {
             static CODE: &[u8] = b"Hello, World!";
-            std::fs::create_dir(&app.working_dir.join("txt"))?;
-            std::fs::write(&app.working_dir.join("txt").join("9000.txt"), CODE)?;
+            let wd = app.working_dir.join("yukicoder").join("no").join("txt");
+            std::fs::create_dir_all(&wd)?;
+            std::fs::write(&wd.join("9000.txt"), CODE)?;
             app.run(Opt::Submit {
                 open: false,
                 force_compile: false,

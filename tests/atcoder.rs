@@ -43,9 +43,9 @@ fn it_scrapes_samples_from_practice() {
             })?;
             let download_dir = app
                 .working_dir
-                .join("tests")
                 .join("atcoder")
-                .join("practice");
+                .join("practice")
+                .join("tests");
             check_yaml_md5(&download_dir, "a", "f9da086de05e439ebe3bac66cfc1ef89");
             check_yaml_md5(&download_dir, "b", "4cccced6eee33d234bc084c12b2db7c2");
             Ok(())
@@ -70,7 +70,7 @@ fn it_scrapes_samples_from_abc100() {
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
             })?;
-            let download_dir = app.working_dir.join("tests").join("atcoder").join("abc100");
+            let download_dir = app.working_dir.join("atcoder").join("abc100").join("tests");
             check_yaml_md5(&download_dir, "a", "86531ee215ce7634434b1a0b8ed9d932");
             check_yaml_md5(&download_dir, "b", "8aa1291a4fdba2ebc2f1fdc6fc484394");
             check_yaml_md5(&download_dir, "c", "61e0e720317997d3f27a0fa4fed0bb51");
@@ -98,7 +98,7 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() {
                 color_choice: AnsiColorChoice::Never,
             })?;
             // "ARC058_ABC042"
-            let download_dir = app.working_dir.join("tests").join("atcoder").join("abc099");
+            let download_dir = app.working_dir.join("atcoder").join("abc099").join("tests");
             just_confirm_num_samples_and_timelimit(&download_dir, "a", 9, "2000ms");
             Ok(())
         },
@@ -159,8 +159,9 @@ fn it_submits_to_practice_a() {
 if __name__ == '__main__':
     main()
 "#;
-            std::fs::create_dir(&app.working_dir.join("py"))?;
-            std::fs::write(&app.working_dir.join("py").join("a.py"), CODE)?;
+            let wd = app.working_dir.join("atcoder").join("practice").join("py");
+            std::fs::create_dir_all(&wd)?;
+            std::fs::write(&wd.join("a.py"), CODE)?;
             app.run(Opt::Submit {
                 open: false,
                 force_compile: false,

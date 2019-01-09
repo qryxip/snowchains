@@ -117,27 +117,27 @@ fn generate_yaml(
 
     #[cfg(not(windows))]
     static CSHARP: &str = r#"  c#:
-    src: cs/{Pascal}/{Pascal}.cs
+    src: $service/$contest/cs/{Pascal}/{Pascal}.cs
     compile:
-      bin: cs/{Pascal}/bin/Release/{Pascal}.exe
+      bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
       command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
-      working_directory: cs
+      working_directory: $service/$contest/cs
     run:
       command: [mono, $bin]
-      working_directory: cs
+      working_directory: $service/$contest/cs
     language_ids:
       # atcoder: 3006        # "C# (Mono x.x.x.x)"
       yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)""#;
     #[cfg(windows)]
     static CSHARP: &str = r#"  c#:
-    src: cs/{Pascal}/{Pascal}.cs
+    src: $service/$contest/cs/{Pascal}/{Pascal}.cs
     compile:
-      bin: cs/{Pascal}/bin/Release/{Pascal}.exe
+      bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
       command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
-      working_directory: cs
+      working_directory: $service/$contest/cs
     run:
       command: [$bin]
-      working_directory: cs
+      working_directory: $service/$contest/cs
       crlf_to_lf: true
     language_ids:
       # atcoder: 3006   # "C# (Mono x.x.x.x)"
@@ -155,7 +155,7 @@ console:
 shell:
   {shell}
 
-testfile_path: tests/$service/$contest/{{snake}}.$extension
+testfile_path: $service/$contest/tests/{{snake}}.$extension
 
 session:
   timeout: 60s
@@ -164,7 +164,7 @@ session:
   {session_dropbox}
   download:
     extension: yaml
-    text_file_dir: tests/$service/$contest/{{snake}}
+    text_file_dir: $service/$contest/tests/{{snake}}
 
 judge:
   testfile_extensions: [json, toml, yaml, yml]
@@ -204,110 +204,110 @@ tester:
 
 languages:
   c++:
-    src: cpp/{{kebab}}.cpp     # source file to test and to submit
-    compile:                 # optional
-      bin: cpp/build/{{kebab}}{exe}
+    src: $service/$contest/cpp/{{kebab}}.cpp     # source file to test and to submit
+    compile:                                   # optional
+      bin: $service/$contest/cpp/build/{{kebab}}{exe}
       command:
         bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
-      working_directory: cpp # default: "."
+      working_directory: $service/$contest/cpp # default: "."
     run:
       command: [$bin]
-      working_directory: cpp # default: "."{crlf_to_lf_true_indent6}
-    language_ids:            # optional
-      atcoder: 3003          # "C++14 (GCC x.x.x)"
-      yukicoder: cpp14       # "C++14 (gcc x.x.x)"
+      working_directory: $service/$contest/cpp # default: "."{crlf_to_lf_true_indent6}
+    language_ids:                              # optional
+      atcoder: 3003                            # "C++14 (GCC x.x.x)"
+      yukicoder: cpp14                         # "C++14 (gcc x.x.x)"
   rust:
-    src: rs/src/bin/{{kebab}}.rs
+    src: $service/$contest/rs/src/bin/{{kebab}}.rs
     compile:
-      bin: rs/target/manually/{{kebab}}{exe}
+      bin: $service/$contest/rs/target/manually/{{kebab}}{exe}
       command: [rustc, +$RUST_VERSION, -o, $bin, $src]
-      working_directory: rs
+      working_directory: $service/$contest/rs
     run:
       command: [$bin]
-      working_directory: rs{crlf_to_lf_false}
+      working_directory: $service/$contest/rs{crlf_to_lf_false}
     # language_ids:
     #   atcoder: 3504   # "Rust (x.x.x)"
     #   yukicoder: rust # "Rust (x.x.x)"
   go:
-    src: go/{{kebab}}.go
+    src: $service/$contest/go/{{kebab}}.go
     compile:
-      bin: go/{{kebab}}{exe}
+      bin: $service/$contest/go/{{kebab}}{exe}
       command: [go, build, -o, $bin, $src]
-      working_directory: go
+      working_directory: $service/$contest/go
     run:
       command: [$bin]
-      working_directory: go{crlf_to_lf_false}
+      working_directory: $service/$contest/go{crlf_to_lf_false}
     # language_ids:
     #   atcoder: 3013 # "Go (x.x)"
     #   yukicoder: go # "Go (x.x.x)"
   haskell:
-    src: hs/app/{{Pascal}}.hs
+    src: $service/$contest/hs/app/{{Pascal}}.hs
     compile:
-      bin: hs/target/{{Pascal}}{exe}
+      bin: $service/$contest/hs/target/{{Pascal}}{exe}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: hs
+      working_directory: $service/$contest/hs
     run:
       command: [$bin]
-      working_directory: hs{crlf_to_lf_false}
+      working_directory: $service/$contest/hs{crlf_to_lf_false}
     # language_ids:
     #   atcoder: 3014      # "Haskell (GHC x.x.x)"
     #   yukicoder: haskell # "Haskell (x.x.x)"
   bash:
-    src: bash/{{kebab}}.bash
+    src: $service/$contest/bash/{{kebab}}.bash
     run:
       command: [bash, $src]
-      working_directory: bash{crlf_to_lf_false}
+      working_directory: $service/$contest/bash{crlf_to_lf_false}
     # language_ids:
     #   atcoder: 3001 # "Bash (GNU Bash vx.x.x)"
     #   yukicoder: sh # "Bash (Bash x.x.x)"
   python3:
-    src: py/{{kebab}}.py
+    src: $service/$contest/py/{{kebab}}.py
     run:
       command: [{venv_python3}, $src]
-      working_directory: py{crlf_to_lf_true_indent6}
+      working_directory: $service/$contest/py{crlf_to_lf_true_indent6}
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
       yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x + scipy x.x.x)"
   java:
-    src: java/src/main/java/{{Pascal}}.java
+    src: $service/$contest/java/src/main/java/{{Pascal}}.java
     transpile:
-      transpiled: java/build/replaced/{{lower}}/src/Main.java
+      transpiled: $service/$contest/java/build/replaced/{{lower}}/src/Main.java
       command:
         {transpile_java}
-      working_directory: java
+      working_directory: $service/$contest/java
     compile:
-      bin: java/build/replaced/{{lower}}/classes/Main.class
+      bin: $service/$contest/java/build/replaced/{{lower}}/classes/Main.class
       command: [javac, -d, './build/replaced/{{lower}}/classes', $transpiled]
-      working_directory: java
+      working_directory: $service/$contest/java
     run:
       command: [java, -classpath, './build/replaced/{{lower}}/classes', Main]
-      working_directory: java{crlf_to_lf_true_indent6}
+      working_directory: $service/$contest/java{crlf_to_lf_true_indent6}
     language_ids:
       atcoder: 3016      # "Java8 (OpenJDK 1.8.x)"
       # yukicoder: java8 # "Java8 (openjdk 1.8.x.x)"
   scala:
-    src: scala/src/main/scala/{{Pascal}}.scala
+    src: $service/$contest/scala/src/main/scala/{{Pascal}}.scala
     transpile:
-      transpiled: scala/target/replaced/{{lower}}/src/Main.scala
+      transpiled: $service/$contest/scala/target/replaced/{{lower}}/src/Main.scala
       command:
         {transpile_scala}
-      working_directory: scala
+      working_directory: $service/$contest/scala
     compile:
-      bin: scala/target/replaced/{{lower}}/classes/Main.class
+      bin: $service/$contest/scala/target/replaced/{{lower}}/classes/Main.class
       command: [scalac, -optimise, -d, './target/replaced/{{lower}}/classes', $transpiled]
-      working_directory: scala
+      working_directory: $service/$contest/scala
     run:
       command: [scala, -classpath, './target/replaced/{{lower}}/classes', Main]
-      working_directory: scala{crlf_to_lf_true_indent6}
+      working_directory: $service/$contest/scala{crlf_to_lf_true_indent6}
     # language_ids:
     #   atcoder: 3016    # "Scala (x.x.x)"
     #   yukicoder: scala # "Scala(Beta) (x.x.x)"
 {csharp}
   text:
-    src: txt/{{snake}}.txt
+    src: $service/$contest/txt/{{snake}}.txt
     run:
       command: [cat, $src]
-      working_directory: txt{crlf_to_lf_false}
+      working_directory: $service/$contest/txt{crlf_to_lf_false}
 "#,
         console_alt_width = CONSOLE_ALT_WIDTH,
         session_cookies = yaml::escape_string(session_cookies),
@@ -359,7 +359,7 @@ pub(crate) fn switch(
     let old_config = crate::fs::read_yaml::<Config>(&path)?;
     stdout.apply_conf(&old_config.console);
     stderr.apply_conf(&old_config.console);
-    let (new_yaml, new_config) = replace_values(
+    let (new_yaml, mut new_config) = replace_values(
         &old_yaml,
         &old_config,
         service,
@@ -383,6 +383,7 @@ pub(crate) fn switch(
             language: new_config.language.clone(),
         },
     };
+    new_config.base_dir = directory.to_owned();
     Ok((new_config, outcome))
 }
 
