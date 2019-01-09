@@ -44,12 +44,12 @@ Tools for online programming contests
 
 USAGE:
     snowchains <i|init> [OPTIONS] [directory]
-    snowchains <w|switch> [OPTIONS]
+    snowchains <w|switch|c|checkout> [OPTIONS]
     snowchains <l|login> [OPTIONS] <service>
     snowchains <p|participate> [OPTIONS] <service> <contest>
     snowchains <d|download> [FLAGS] [OPTIONS]
     snowchains <r|restore> [OPTIONS]
-    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>
+    snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>
     snowchains <s|submit> [FLAGS] [OPTIONS] <problem>
     snowchains show num-cases [OPTIONS] <problem> <extension>
     snowchains show timelimit-millis [OPTIONS] <problem> <nth>
@@ -57,6 +57,7 @@ USAGE:
     snowchains show accepts [OPTIONS] <problem> <nth>
     snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]
     snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]
+    snowchains modify match [OPTIONS] <problem> <extension> <match>
 
 FLAGS:
     -h, --help       Prints help information

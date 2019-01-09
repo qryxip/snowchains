@@ -23,12 +23,12 @@ use std::time::Duration;
 
 #[derive(Debug, StructOpt)]
 #[structopt(usage = "snowchains <i|init> [OPTIONS] [directory]\
-               \n    snowchains <w|switch> [OPTIONS]\
+               \n    snowchains <w|switch|c|checkout> [OPTIONS]\
                \n    snowchains <l|login> [OPTIONS] <service>\
                \n    snowchains <p|participate> [OPTIONS] <service> <contest>\
                \n    snowchains <d|download> [FLAGS] [OPTIONS]\
                \n    snowchains <r|restore> [OPTIONS]\
-               \n    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>\
+               \n    snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>\
                \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>\
                \n    snowchains show num-cases [OPTIONS] <problem> <extension>\
                \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
@@ -58,8 +58,8 @@ pub enum Opt {
     #[structopt(
         about = "Changes attribute values of a config file",
         name = "switch",
-        usage = "snowchains <w|switch> [OPTIONS]",
-        raw(alias = "\"w\"", display_order = "2")
+        usage = "snowchains <w|switch|c|checkout> [OPTIONS]",
+        raw(aliases = r#"&["w", "checkout", "c"]"#, display_order = "2")
     )]
     Switch {
         #[structopt(raw(service = r#"&["atcoder", "yukicoder", "other"], Kind::Option(1)"#))]
@@ -145,8 +145,8 @@ pub enum Opt {
     #[structopt(
         about = "Tests a binary or script",
         name = "judge",
-        usage = "snowchains <j|judge> [FLAGS] [OPTIONS] <problem>",
-        raw(alias = "\"j\"", display_order = "7")
+        usage = "snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>",
+        raw(aliases = r#"&["j", "test", "t"]"#, display_order = "7")
     )]
     Judge {
         #[structopt(raw(force_compile = "1"))]
