@@ -7,7 +7,7 @@ use crate::service::{
     ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
-use crate::testsuite::{BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
+use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
 use failure::ResultExt;
@@ -615,7 +615,7 @@ impl Extract for Document {
                         None,
                     );
                     if kind == ProblemKind::Special {
-                        suite = suite.any();
+                        suite = suite.matching(testsuite::Match::Any);
                     }
                     Some(suite.into())
                 }

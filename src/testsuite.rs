@@ -446,8 +446,8 @@ impl BatchSuite {
         }
     }
 
-    pub(crate) fn any(mut self) -> Self {
-        self.head.output_match = Match::Any;
+    pub(crate) fn matching(mut self, matching: Match) -> Self {
+        self.head.output_match = matching;
         self
     }
 

@@ -10,7 +10,7 @@ use crate::service::{
     UserNameAndPassword,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
-use crate::testsuite::{BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
+use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
 use crate::util::std_unstable::RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
@@ -35,7 +35,7 @@ use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
-use std::vec;
+use std::{f64, vec};
 
 /// Logins to "atcoder.jp".
 pub(crate) fn login(mut sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
@@ -901,15 +901,11 @@ impl Extract for Document {
 
     fn extract_as_suite(&self) -> ScrapeResult<TestSuite> {
         enum Samples {
-            Batch(Vec<(String, String)>),
+            Batch(Vec<(String, String)>, testsuite::Match),
             Interactive,
         }
 
         fn extract_samples(this: &Document) -> Option<Samples> {
-            // Interactive problems:
-            // - ARC070/F https://atcoder.jp/contests/arc070/tasks/arc070_d
-            // - ARC078/E https://atcoder.jp/contests/arc078/tasks/arc078_c
-            // - APC001/C https://atcoder.jp/contests/apc001/tasks/apc001_c
             // TODO:
             // - https://atcoder.jp/contests/arc019/tasks/arc019_4 (interactive)
             // - https://atcoder.jp/contests/arc021/tasks/arc021_4 (interactive)
@@ -979,6 +975,37 @@ impl Extract for Document {
                     }
                 }
             }
+            let matching = {
+                let error = this
+                    .find(selector!("#task-statement var").child(Text))
+                    .flat_map(|var| parse_floating_error(&var.text()))
+                    .next();
+                let all_text = this
+                    .find(selector!("#task-statement").descendant(Text))
+                    .map(|text| text.text())
+                    .collect::<Vec<_>>();
+                let relative = all_text
+                    .iter()
+                    .any(|s| s.contains("相対誤差") || s.contains("relative error"));
+                let absolute = all_text
+                    .iter()
+                    .any(|s| s.contains("絶対誤差") || s.contains("absolute error"));
+                match (error, relative, absolute) {
+                    (Some(error), true, true) => testsuite::Match::Float {
+                        relative_error: error,
+                        absolute_error: error,
+                    },
+                    (Some(error), true, false) => testsuite::Match::Float {
+                        relative_error: error,
+                        absolute_error: f64::NAN,
+                    },
+                    (Some(error), false, true) => testsuite::Match::Float {
+                        relative_error: f64::NAN,
+                        absolute_error: error,
+                    },
+                    _ => testsuite::Match::Exact,
+                }
+            };
             let mut inputs = BTreeMap::<usize, _>::new();
             let mut outputs = BTreeMap::<usize, _>::new();
             let mut next = None;
@@ -1017,11 +1044,16 @@ impl Extract for Document {
                 }
             }
 
-            if samples.is_empty() {
-                None
-            } else {
-                Some(Samples::Batch(samples))
-            }
+            guard!(!samples.is_empty());
+            Some(Samples::Batch(samples, matching))
+        }
+
+        fn parse_floating_error(s: &str) -> Option<f64> {
+            static R: Lazy<Regex> = lazy_regex!(r"\A([0-9]{1,2})\^\{(-?[0-9]{1,2})\}\z");
+            let caps = R.captures(s)?;
+            let base = caps[1].parse::<f64>().ok()?;
+            let exp = caps[2].parse::<f64>().ok()?;
+            Some(base.powf(exp))
         }
 
         fn parse_zenkaku<T: FromStr>(s: &str) -> Result<T, T::Err> {
@@ -1082,8 +1114,9 @@ impl Extract for Document {
         }
         match extract_samples(self) {
             None => Ok(BatchSuite::new(timelimit).into()),
-            Some(Samples::Batch(samples)) => Ok(BatchSuite::new(timelimit)
-                .sample_cases(samples.into_iter(), |i| format!("Sample {}", i + 1), None)
+            Some(Samples::Batch(cases, matching)) => Ok(BatchSuite::new(timelimit)
+                .matching(matching)
+                .sample_cases(cases.into_iter(), |i| format!("Sample {}", i + 1), None)
                 .into()),
             Some(Samples::Interactive) => Ok(InteractiveSuite::new(timelimit).into()),
         }
@@ -1397,6 +1430,18 @@ mod tests {
     }
 
     #[test]
+    fn it_extracts_timelimits_and_sample_cases_from_abc011() {
+        static EXPECTED: &[(&str, &str, &str)] = &[
+            ("A", "abc011_1", "9d0cab85f775693e032c9d7ecc59e5cd"),
+            ("B", "abc011_2", "aec6741969522b7b6cc1dc47b9374aa2"),
+            ("C", "abc011_3", "74cfb5ae94304b069245ba49a71b136f"),
+            ("D", "abc011_4", "0cb6050b366d4f51e23d12a811a3a93d"),
+        ];
+        let _ = env_logger::try_init();
+        test_sample_extraction("abc011", EXPECTED);
+    }
+
+    #[test]
     fn it_extracts_timelimits_and_sample_cases_from_abc041() {
         static EXPECTED: &[(&str, &str, &str)] = &[
             ("A", "abc041_a", "d7797b2e885f35f588895af8f199cfe1"),
@@ -1409,23 +1454,37 @@ mod tests {
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_chokudai_s001() {
+    fn it_extracts_timelimits_and_sample_cases_from_dp() {
         static EXPECTED: &[(&str, &str, &str)] = &[
-            ("A", "chokudai_S001_a", "fef466a640f3790817f9935a271ace53"),
-            ("B", "chokudai_S001_b", "3bfc2f7d1d137f0c88670c76855e4d9e"),
-            ("C", "chokudai_S001_c", "18458ff77936fbeaaf5d911509fdd160"),
-            ("D", "chokudai_S001_d", "deec69dc980df38dcfa1234d4c227146"),
-            ("E", "chokudai_S001_e", "00c9f04c8ef21edf6ca3fb1de37279a8"),
-            ("F", "chokudai_S001_f", "b6cafaf887633292cd7d358d6843cd3e"),
-            ("G", "chokudai_S001_g", "2c765b4f3ce38a6a389c78491fa09c75"),
-            ("H", "chokudai_S001_h", "ff82de43862e5523a86229fc105a982c"),
-            ("I", "chokudai_S001_i", "6bdf106cdd73d158ada5d33cb19bacae"),
-            ("J", "chokudai_S001_j", "c113ee0ec1caf07bdafea2775c24bebc"),
-            ("K", "chokudai_S001_k", "2207d949110d8da082b3809d712e3b2c"),
-            ("L", "chokudai_S001_l", "ffd6b3b7f76c256b63d4ff4901b9a54f"),
+            ("A", "dp_a", "57824a35ccbfca022c43f6713aa1bd5b"),
+            ("B", "dp_b", "6a69157b35671faf222fe080e3cc71c8"),
+            ("C", "dp_c", "548ed4cfa13f83bb5420b596de282eb9"),
+            ("D", "dp_d", "6f52641c6508bfecb4249d37d1448b26"),
+            ("E", "dp_e", "2d6f370dcf5b035b8ee6919a04ae757b"),
+            ("F", "dp_f", "ce5fbf4be0003ba508acd37131b4b726"),
+            ("G", "dp_g", "caf6f77d3ad22d379ad4c5f31433bc97"),
+            ("H", "dp_h", "da82bdf7e006bc9b8feac5a80ae1ffe2"),
+            ("I", "dp_i", "0082fa046f474d23e12d293e4888b5dd"),
+            ("J", "dp_j", "b0a84653c7b7e5ddbcec43bab122ce84"),
+            ("K", "dp_k", "92761b907e6a2cc9d1d9beb88d9d4ae5"),
+            ("L", "dp_l", "73f37f0dcd679d69456932c169b62ccb"),
+            ("M", "dp_m", "230b2471a92d9ce917b19216e12969a2"),
+            ("N", "dp_n", "003343a26117a1cb59cc199e3aa84d3c"),
+            ("O", "dp_o", "fe6c90f56a14eab02c4f90c2ac405d00"),
+            ("P", "dp_p", "535a0d3c5146233734026683cbc1768f"),
+            ("Q", "dp_q", "7201fc360ecc3e95e9648c1877de9f46"),
+            ("R", "dp_r", "68350e3245f5f3ceedace82f704b19f0"),
+            ("S", "dp_s", "2cab298936cd86b02f60d0a55e3f2a82"),
+            ("T", "dp_t", "c208bbd0ffa39ed40a7b71f8bee5b1ef"),
+            ("U", "dp_u", "874ae39e4c1e09c38cbae68207ea10f9"),
+            ("V", "dp_v", "1ecc63556a26e8aa4b7f72e926f7b633"),
+            ("W", "dp_w", "5f0e2145ef41079c4ad0f0b5bc22b502"),
+            ("X", "dp_x", "ea27e9783f14a158932330d9ea5991c5"),
+            ("Y", "dp_y", "7f88d4dfe1220f2a1e2a6ffc54432a39"),
+            ("Z", "dp_z", "909d93bcbb5d7efea059c02a5932c77f"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("chokudai_s001", EXPECTED);
+        test_sample_extraction("dp", EXPECTED);
     }
 
     fn test_sample_extraction(
