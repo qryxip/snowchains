@@ -123,8 +123,10 @@ pub(super) trait DownloadProgress {
                 }
                 let columns = out.columns().unwrap_or(ALT_COLUMNS);
                 match &order.unwrap() {
-                    WriteOrder::CursorUp(n) => write!(out, "\x1b[{}A", n),
-                    WriteOrder::NextLineAndKillLine => write!(out, "\x1b[1E\x1b[2K"),
+                    WriteOrder::CursorUp(0) => write!(out, "\x1b[0G"),
+                    WriteOrder::CursorUp(n) => write!(out, "\x1b[{}F", n),
+                    WriteOrder::NextLine => write!(out, "\x1b[1E"),
+                    WriteOrder::KillLine => write!(out, "\x1b[2K"),
                     WriteOrder::Lf => writeln!(out),
                     WriteOrder::WaitingResponse(i) if columns >= name_len + 21 => {
                         write!(out, "\x1b[1m{}\x1b[0m  Waiting response...", names[*i])
@@ -180,7 +182,7 @@ pub(super) trait DownloadProgress {
             })
             .collect()
             .wait()?;
-        writeln!(out, "\n")?;
+        writeln!(out)?;
         out.flush()?;
 
         oneshot_handle.wait()
@@ -189,7 +191,8 @@ pub(super) trait DownloadProgress {
 
 enum WriteOrder {
     CursorUp(usize),
-    NextLineAndKillLine,
+    NextLine,
+    KillLine,
     Lf,
     WaitingResponse(usize),
     SizeUnknown(usize, Duration, usize),
@@ -316,17 +319,15 @@ impl<
             });
         if start_refresh {
             if self.last_refreshed.is_some() {
-                let order = WriteOrder::CursorUp(self.progresses.len());
+                let order = WriteOrder::CursorUp(self.progresses.len() - 1);
                 self.write_order_tx.unbounded_send(order).unwrap();
             }
             let elapsed = now - self.started;
             for (i, progress) in self.progresses.iter().enumerate() {
-                let order = if self.last_refreshed.is_some() {
-                    WriteOrder::NextLineAndKillLine
-                } else {
-                    WriteOrder::Lf
-                };
-                self.write_order_tx.unbounded_send(order).unwrap();
+                if self.last_refreshed.is_some() {
+                    let order = WriteOrder::KillLine;
+                    self.write_order_tx.unbounded_send(order).unwrap();
+                }
                 let order = match progress {
                     Progress::Response(_) => WriteOrder::WaitingResponse(i),
                     Progress::Body(progress) => match (progress.buf.len(), progress.content_len) {
@@ -336,6 +337,14 @@ impl<
                     Progress::Finished { buf, time } => WriteOrder::Finished(i, *time, buf.len()),
                 };
                 self.write_order_tx.unbounded_send(order).unwrap();
+                if i + 1 < self.progresses.len() {
+                    let order = if self.last_refreshed.is_some() {
+                        WriteOrder::NextLine
+                    } else {
+                        WriteOrder::Lf
+                    };
+                    self.write_order_tx.unbounded_send(order).unwrap();
+                }
             }
             self.write_order_tx
                 .unbounded_send(WriteOrder::Flush)
