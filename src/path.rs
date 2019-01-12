@@ -278,6 +278,7 @@ mod tests {
 
     use dirs;
 
+    use std::io;
     use std::path::Path;
 
     #[cfg(not(windows))]
@@ -303,13 +304,11 @@ mod tests {
     }
 
     #[test]
-    fn it_expands_tilde() {
+    fn it_expands_tilde() -> io::Result<()> {
         let home = dirs::home_dir().unwrap();
         let expected = home.join("foo");
-        let actual = AbsPathBuf::default()
-            .join_expanding_tilde("~/foo")
-            .unwrap()
-            .inner;
+        let actual = AbsPathBuf::default().join_expanding_tilde("~/foo")?.inner;
         assert_eq!(expected, actual);
+        Ok(())
     }
 }

@@ -515,9 +515,6 @@ fn parse_non_zero_usize(s: &str) -> std::result::Result<NonZeroUsize, String> {
 
 pub struct App<T: Term> {
     pub working_dir: AbsPathBuf,
-    pub cookies_on_init: String,
-    pub dropbox_auth_on_init: String,
-    pub enable_dropbox_on_init: bool,
     pub credentials: Credentials,
     pub term: T,
 }
@@ -533,13 +530,7 @@ impl<T: Term> App<T> {
             } => {
                 let wd = working_dir.join_canonicalizing_lossy(&directory);
                 self.term.attempt_enable_ansi(color_choice);
-                config::init(
-                    self.term.stdout(),
-                    &wd,
-                    &self.cookies_on_init,
-                    &self.dropbox_auth_on_init,
-                    self.enable_dropbox_on_init,
-                )?;
+                config::init(self.term.stdout(), &wd)?;
             }
             Opt::Switch {
                 service,

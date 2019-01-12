@@ -663,47 +663,50 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
+    use crate::errors::ServiceResult;
     use crate::service;
     use crate::service::yukicoder::Extract;
 
+    use failure::Fallible;
     use select::document::Document;
 
     use std::borrow::Borrow;
     use std::time::Duration;
 
     #[test]
-    fn it_extracts_samples_from_problem1() {
+    fn it_extracts_samples_from_problem1() -> Fallible<()> {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/1", "cf65ae411bc8d32b75beb771905c9dc0");
+        test_extracting_samples("/problems/no/1", "cf65ae411bc8d32b75beb771905c9dc0")
     }
 
     #[test]
-    fn it_extracts_samples_from_problem188() {
+    fn it_extracts_samples_from_problem188() -> Fallible<()> {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/188", "671c7191064f7703abcb5e06fad3f32e");
+        test_extracting_samples("/problems/no/188", "671c7191064f7703abcb5e06fad3f32e")
     }
 
     #[test]
-    fn it_extracts_samples_from_problem192() {
+    fn it_extracts_samples_from_problem192() -> Fallible<()> {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/192", "f8ce3328c431737dcb748770abd9a09b");
+        test_extracting_samples("/problems/no/192", "f8ce3328c431737dcb748770abd9a09b")
     }
 
     #[test]
-    fn it_extracts_samples_from_problem246() {
+    fn it_extracts_samples_from_problem246() -> Fallible<()> {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/246", "9debfd89a82271d763b717313363acda");
+        test_extracting_samples("/problems/no/246", "9debfd89a82271d763b717313363acda")
     }
 
-    fn test_extracting_samples(rel_url: &str, expected_md5: &str) {
-        let document = get_html(rel_url).unwrap();
-        let suite = document.extract_samples().unwrap();
-        let actual_md5 = suite.md5().unwrap();
+    fn test_extracting_samples(rel_url: &str, expected_md5: &str) -> Fallible<()> {
+        let document = get_html(rel_url)?;
+        let suite = document.extract_samples()?;
+        let actual_md5 = suite.md5()?;
         assert_eq!(format!("{:x}", actual_md5), expected_md5);
+        Ok(())
     }
 
     #[test]
-    fn it_extracts_problems_names_and_hrefs_from_yukicoder_open_2015_small() {
+    fn it_extracts_problems_names_and_hrefs_from_yukicoder_open_2015_small() -> ServiceResult<()> {
         static EXPECTED: &[(&str, &str)] = &[
             ("A", "/problems/no/191"),
             ("B", "/problems/no/192"),
@@ -713,9 +716,10 @@ mod tests {
             ("F", "/problems/no/196"),
         ];
         let _ = env_logger::try_init();
-        let document = get_html("/contests/100").unwrap();
-        let problems = document.extract_problems().unwrap();
+        let document = get_html("/contests/100")?;
+        let problems = document.extract_problems()?;
         assert_eq!(own_pairs(EXPECTED), problems);
+        Ok(())
     }
 
     fn own_pairs<O: Borrow<B>, B: ToOwned<Owned = O> + ?Sized>(pairs: &[(&B, &B)]) -> Vec<(O, O)> {

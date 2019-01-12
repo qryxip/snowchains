@@ -1350,6 +1350,7 @@ mod tests {
     use crate::terminal::{Term, TermImpl};
     use crate::testsuite::TestSuite;
 
+    use failure::Fallible;
     use itertools::Itertools;
     use tokio::runtime::Runtime;
     use url::Host;
@@ -1357,13 +1358,11 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn it_extracts_task_urls_from_arc001() {
+    fn it_extracts_task_urls_from_arc001() -> ServiceResult<()> {
         let _ = env_logger::try_init();
-        let mut atcoder = start().unwrap();
-        let page = atcoder
-            .fetch_tasks_page(&AtcoderContest::new("arc001"))
-            .unwrap();
-        let urls_and_names = page.extract_task_urls_with_names().unwrap();
+        let mut atcoder = start()?;
+        let page = atcoder.fetch_tasks_page(&AtcoderContest::new("arc001"))?;
+        let urls_and_names = page.extract_task_urls_with_names()?;
         static EXPECTED: &[(&str, &str)] = &[
             ("A", "/contests/arc001/tasks/arc001_1"),
             ("B", "/contests/arc001/tasks/arc001_2"),
@@ -1377,24 +1376,22 @@ mod tests {
             assert_eq!(expected_name, actual_name);
             assert_eq!(expected_url, actual_url);
         }
+        Ok(())
     }
 
     #[test]
-    fn it_extracts_a_timelimit_from_apg4b_b() {
+    fn it_extracts_a_timelimit_from_apg4b_b() -> ServiceResult<()> {
         let _ = env_logger::try_init();
-        let mut atcoder = start().unwrap();
-        let page = atcoder
-            .get("/contests/apg4b/tasks/APG4b_b")
-            .recv_html()
-            .unwrap();
-        match page.extract_as_suite().unwrap() {
-            TestSuite::Unsubmittable => {}
+        let mut atcoder = start()?;
+        let page = atcoder.get("/contests/apg4b/tasks/APG4b_b").recv_html()?;
+        match page.extract_as_suite()? {
+            TestSuite::Unsubmittable => Ok(()),
             suite => panic!("Got {:?}", suite),
         }
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_arc001() {
+    fn it_extracts_timelimits_and_sample_cases_from_arc001() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
             ("A", "arc001_1", "d0a203b1a8e80ea6b5d77ba33dd31812"),
             ("B", "arc001_2", "8bf21c1a2e7e6b386d83ffef47b6b302"),
@@ -1402,11 +1399,11 @@ mod tests {
             ("D", "arc001_4", "a7b8f7528a89fe733a18b829cefdadd5"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc001", EXPECTED);
+        test_sample_extraction("arc001", EXPECTED)
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_arc002() {
+    fn it_extracts_timelimits_and_sample_cases_from_arc002() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
             ("A", "arc002_1", "af6ae0d1fe88e2bf2eb8a9f97f4a3bd3"),
             ("B", "arc002_2", "251d9d839971aeadbca20fdd5bebe1e1"),
@@ -1414,11 +1411,11 @@ mod tests {
             ("D", "arc002_4", "91aaf382f4f2071185b5646ca48b26ef"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc002", EXPECTED);
+        test_sample_extraction("arc002", EXPECTED)
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_arc058() {
+    fn it_extracts_timelimits_and_sample_cases_from_arc058() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
             ("C", "arc058_a", "f134a1c2f5c9c9613a0a40c43906fd78"),
             ("D", "arc058_b", "8b9eb58dfa9c95b4766bab15c8439258"),
@@ -1426,11 +1423,11 @@ mod tests {
             ("F", "arc058_d", "8c456a84332f2921703eeefca0493245"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc058", EXPECTED);
+        test_sample_extraction("arc058", EXPECTED)
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_abc011() {
+    fn it_extracts_timelimits_and_sample_cases_from_abc011() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
             ("A", "abc011_1", "9d0cab85f775693e032c9d7ecc59e5cd"),
             ("B", "abc011_2", "aec6741969522b7b6cc1dc47b9374aa2"),
@@ -1438,11 +1435,11 @@ mod tests {
             ("D", "abc011_4", "0cb6050b366d4f51e23d12a811a3a93d"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("abc011", EXPECTED);
+        test_sample_extraction("abc011", EXPECTED)
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_abc041() {
+    fn it_extracts_timelimits_and_sample_cases_from_abc041() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
             ("A", "abc041_a", "d7797b2e885f35f588895af8f199cfe1"),
             ("B", "abc041_b", "37f3335e442bdbaa7c4d6a144080627f"),
@@ -1450,11 +1447,11 @@ mod tests {
             ("D", "abc041_d", "bb30dd61021373384657c6fe52e81a27"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("abc041", EXPECTED);
+        test_sample_extraction("abc041", EXPECTED)
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_dp() {
+    fn it_extracts_timelimits_and_sample_cases_from_dp() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
             ("A", "dp_a", "57824a35ccbfca022c43f6713aa1bd5b"),
             ("B", "dp_b", "6a69157b35671faf222fe080e3cc71c8"),
@@ -1484,41 +1481,43 @@ mod tests {
             ("Z", "dp_z", "909d93bcbb5d7efea059c02a5932c77f"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("dp", EXPECTED);
+        test_sample_extraction("dp", EXPECTED)
     }
 
     fn test_sample_extraction(
         contest: &str,
         expected: &'static [(&'static str, &'static str, &'static str)],
-    ) {
-        let mut atcoder = start().unwrap();
+    ) -> Fallible<()> {
+        let mut atcoder = start()?;
         let contest = AtcoderContest::new(contest);
-        let page = atcoder.fetch_tasks_page(&contest).unwrap();
-        let urls_and_names = page.extract_task_urls_with_names().unwrap();
+        let page = atcoder.fetch_tasks_page(&contest)?;
+        let urls_and_names = page.extract_task_urls_with_names()?;
         for ((actual_name, actual_url), (expected_name, expected_slug, expected_md5)) in
             urls_and_names.iter().zip_eq(expected.iter())
         {
             let expected_url = format!("/contests/{}/tasks/{}", contest.slug(), expected_slug);
             assert_eq!(actual_name, expected_name);
             assert_eq!(*actual_url, expected_url);
-            let problem_page = atcoder.get(&actual_url).recv_html().unwrap();
-            let actual_suite = problem_page.extract_as_suite().unwrap();
-            let actual_md5 = actual_suite.md5().unwrap();
+            let problem_page = atcoder.get(&actual_url).recv_html()?;
+            let actual_suite = problem_page.extract_as_suite()?;
+            let actual_md5 = actual_suite.md5()?;
             assert_eq!(format!("{:x}", actual_md5), *expected_md5);
         }
+        Ok(())
     }
 
     #[test]
-    fn it_extracts_a_submitted_source_code() {
+    fn it_extracts_a_submitted_source_code() -> ServiceResult<()> {
         static URL: &str = "/contests/utpc2011/submissions/2067";
         let _ = env_logger::try_init();
-        let mut atcoder = start().unwrap();
-        let page = atcoder.get(URL).recv_html().unwrap();
-        let code = page.extract_submitted_code().unwrap();
+        let mut atcoder = start()?;
+        let page = atcoder.get(URL).recv_html()?;
+        let code = page.extract_submitted_code()?;
         assert_eq!(
             format!("{:x}", md5::compute(&code)),
             "1d805f5f226cd9d6dd90081a47505b7b",
         );
+        Ok(())
     }
 
     fn start() -> ServiceResult<Atcoder<impl Term>> {

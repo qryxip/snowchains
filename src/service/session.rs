@@ -617,6 +617,7 @@ mod tests {
     use crate::service::session::{HttpSession, UrlBase};
     use crate::terminal::Ansi;
 
+    use failure::Fallible;
     use futures::Future;
     use if_chain::if_chain;
     use reqwest::StatusCode;
@@ -625,13 +626,12 @@ mod tests {
     use url::Host;
     use warp::Filter;
 
-    use std::io::{self, Cursor};
     use std::net::Ipv4Addr;
     use std::ops::Deref;
-    use std::{panic, str};
+    use std::{io, panic, str};
 
     #[test]
-    fn it_works() {
+    fn it_works() -> Fallible<()> {
         let _ = env_logger::try_init();
         let filter_ua = warp::filters::header::exact("User-Agent", service::USER_AGENT);
         let index = warp::path::end()
@@ -648,15 +648,15 @@ mod tests {
             .and(filter_ua)
             .map(|| "User-agent: *\nDisallow: /sensitive");
         let server = warp::serve(index.or(confirm_cookie).or(robots_txt));
-        let mut runtime = Runtime::new().unwrap();
+        let mut runtime = Runtime::new()?;
         runtime.spawn(server.bind(([127, 0, 0, 1], 2000)));
-        let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
-        let result = panic::catch_unwind(|| {
+        let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive")?;
+        let result = panic::catch_unwind::<_, Fallible<()>>(|| {
             let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
-            let client = service::reqwest_async_client(None).unwrap();
+            let client = service::reqwest_async_client(None)?;
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
-            let mut wtr = Ansi::new(Cursor::new(Vec::<u8>::new()));
-            let mut runtime = Runtime::new().unwrap();
+            let mut wtr = Ansi::new(Vec::<u8>::new());
+            let mut runtime = Runtime::new()?;
             let mut sess = HttpSession::try_new(
                 &mut wtr,
                 &mut runtime,
@@ -664,31 +664,23 @@ mod tests {
                 Some(base),
                 cookies.deref(),
                 false,
-            )
-            .unwrap();
-            sess.get("/", &mut wtr, &mut runtime).send().unwrap();
-            sess.get("/confirm-cookie", &mut wtr, &mut runtime)
-                .send()
-                .unwrap();
+            )?;
+            sess.get("/", &mut wtr, &mut runtime).send()?;
+            sess.get("/confirm-cookie", &mut wtr, &mut runtime).send()?;
             sess.get("/nonexisting", &mut wtr, &mut runtime)
                 .acceptable(&[404])
-                .send()
-                .unwrap();
+                .send()?;
             sess.get("/nonexisting", &mut wtr, &mut runtime)
                 .acceptable(&[])
-                .send()
-                .unwrap();
+                .send()?;
             if_chain! {
                 let err = sess.get("/sensitive", &mut wtr, &mut runtime).send().unwrap_err();
                 if let ServiceError::Context(ctx) = &err;
                 if let ServiceErrorKind::ForbiddenByRobotsTxt = ctx.get_context();
-                then {
-                } else {
-                    panic!("{:?}", err);
-                }
+                then {} else { return Err(err.into()) }
             }
             assert_eq!(
-                str::from_utf8(wtr.get_ref().get_ref()).unwrap(),
+                str::from_utf8(wtr.get_ref())?,
                 format!(
                     "{get} {robots_txt} ... {expected_200}\n\
                      {get} {index} ... {expected_200}\n\
@@ -705,31 +697,31 @@ mod tests {
                     unexpected_404 = "\x1b[38;5;9m\x1b[1m404 Not Found\x1b[0m",
                 ),
             );
+            Ok(())
         });
         runtime.shutdown_now().wait().unwrap();
-        tempdir.close().unwrap();
-        result.unwrap_or_else(|p| panic::resume_unwind(p));
+        tempdir.close()?;
+        result.unwrap_or_else(|p| panic::resume_unwind(p))
     }
 
     #[test]
-    fn it_keeps_a_file_locked_while_alive() {
+    fn it_keeps_a_file_locked_while_alive() -> Fallible<()> {
         let _ = env_logger::try_init();
-        let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive").unwrap();
+        let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive")?;
         let path = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
         let path = path.as_path();
         let mut wtr = Ansi::new(io::sink());
-        let mut rt = Runtime::new().unwrap();
-        let client = service::reqwest_async_client(None).unwrap();
-        HttpSession::try_new(&mut wtr, &mut rt, client.clone(), None, path, true).unwrap();
-        HttpSession::try_new(&mut wtr, &mut rt, client.clone(), None, path, true).unwrap();
-        let _session =
-            HttpSession::try_new(&mut wtr, &mut rt, client.clone(), None, path, true).unwrap();
-        let err = HttpSession::try_new(&mut wtr, &mut rt, client, None, path, true).unwrap_err();
-        if let ServiceError::File(FileError::Context(kind)) = &err {
-            if let FileErrorKind::Lock(_) = kind.get_context() {
-                return tempdir.close().unwrap();
-            }
+        let mut rt = Runtime::new()?;
+        let client = service::reqwest_async_client(None)?;
+        HttpSession::try_new(&mut wtr, &mut rt, client.clone(), None, path, true)?;
+        HttpSession::try_new(&mut wtr, &mut rt, client.clone(), None, path, true)?;
+        let _session = HttpSession::try_new(&mut wtr, &mut rt, client.clone(), None, path, true)?;
+        if_chain! {
+            let err =
+                HttpSession::try_new(&mut wtr, &mut rt, client, None, path, true).unwrap_err();
+            if let ServiceError::File(FileError::Context(kind)) = &err;
+            if let FileErrorKind::Lock(_) = kind.get_context();
+            then { Ok(()) } else { Err(err.into()) }
         }
-        panic!("{:?}", err);
     }
 }

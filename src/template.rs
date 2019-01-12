@@ -8,7 +8,8 @@ use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
 
 use combine::Parser;
-use failure::{Fail, ResultExt};
+use derive_new::new;
+use failure::{Backtrace, Fail, ResultExt};
 use heck::{CamelCase, KebabCase, MixedCase, ShoutySnakeCase, SnakeCase, TitleCase};
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
@@ -460,9 +461,7 @@ impl FromStr for Tokens {
         .skip(eof())
         .parse(input)
         .map(|(tokens, _)| Tokens(tokens))
-        .map_err(|_| ParseTemplateError {
-            input: input.to_owned(),
-        })
+        .map_err(|_| ParseTemplateError::new(input.to_owned()))
     }
 }
 
@@ -636,10 +635,13 @@ fn setup_env_vars(
 
 type ParseTemplateResult<T> = std::result::Result<T, ParseTemplateError>;
 
-#[derive(Debug, PartialEq, derive_more::Display)]
+#[derive(Debug, derive_more::Display, Fail, new)]
 #[display(fmt = "Failed to parse {:?}", input)]
 pub struct ParseTemplateError {
     input: String,
+    #[new(default)]
+    #[fail(backtrace)]
+    backtrace: Backtrace,
 }
 
 #[cfg(test)]
@@ -650,6 +652,7 @@ mod tests {
     use crate::path::AbsPathBuf;
     use crate::service::ServiceName;
 
+    use failure::Fallible;
     use serde_derive::{Deserialize, Serialize};
 
     use std::env;
@@ -659,15 +662,15 @@ mod tests {
 
     macro_rules! test {
         ($input:expr => !) => {
-            ::std::panic::catch_unwind(move || process_input($input)).unwrap_err()
+            process_input($input).unwrap_err()
         };
         ($input:expr => $expected:expr) => {
-            assert_eq!(process_expected($expected), process_input($input))
+            assert_eq!(process_input($input)?, process_expected($expected))
         };
     }
 
     #[test]
-    fn it_serializes_and_deserializes_templates() {
+    fn it_serializes_and_deserializes_templates() -> Fallible<()> {
         #[derive(Debug, PartialEq, Serialize, Deserialize)]
         struct S {
             a: TemplateBuilder<OsString>,
@@ -692,18 +695,22 @@ mod tests {
 }"#;
 
         let _ = env_logger::try_init();
-        let s1 = serde_json::from_str::<S>(JSON).unwrap();
-        let re_serialized = serde_json::to_string_pretty(&s1).unwrap();
-        let s2 = serde_json::from_str::<S>(&re_serialized).unwrap();
+        let s1 = serde_json::from_str::<S>(JSON)?;
+        let re_serialized = serde_json::to_string_pretty(&s1)?;
+        let s2 = serde_json::from_str::<S>(&re_serialized)?;
         assert_eq!(JSON, re_serialized);
         assert_eq!(s1, s2);
+        Ok(())
     }
 
     #[test]
-    fn it_expands_string_templates() {
-        fn process_input(input: &str) -> OsString {
-            let template = input.parse::<TemplateBuilder<OsString>>().unwrap();
-            template.build(()).expand("problem name").unwrap()
+    fn it_expands_string_templates() -> Fallible<()> {
+        fn process_input(input: &str) -> Fallible<OsString> {
+            let template = input.parse::<TemplateBuilder<OsString>>()?;
+            template
+                .build(())
+                .expand("problem name")
+                .map_err(Into::into)
         }
 
         fn process_expected(expected: &str) -> &OsStr {
@@ -733,13 +740,17 @@ mod tests {
         test!("{"                  => !);
         test!("}"                  => !);
         test!("$"                  => !);
+        Ok(())
     }
 
     #[test]
-    fn it_expands_path_templates() {
-        fn process_input(input: &str) -> AbsPathBuf {
-            let template = input.parse::<TemplateBuilder<AbsPathBuf>>().unwrap();
-            template.build(base_dir()).expand("problem-name").unwrap()
+    fn it_expands_path_templates() -> Fallible<()> {
+        fn process_input(input: &str) -> Fallible<AbsPathBuf> {
+            let template = input.parse::<TemplateBuilder<AbsPathBuf>>()?;
+            template
+                .build(base_dir())
+                .expand("problem-name")
+                .map_err(Into::into)
         }
 
         fn process_expected(expected: impl AsRef<OsStr>) -> AbsPathBuf {
@@ -766,20 +777,21 @@ mod tests {
         test!("cs/{Pascal}/{Pascal}.cs" => "./cs/ProblemName/ProblemName.cs");
         test!("$ENVVAR"                 => "./<value of ENVVAR>");
         {
-            fn process_input(input: &str) -> AbsPathBuf {
-                let template = input.parse::<TemplateBuilder<AbsPathBuf>>().unwrap();
+            fn process_input(input: &str) -> Fallible<AbsPathBuf> {
+                let template = input.parse::<TemplateBuilder<AbsPathBuf>>()?;
                 template
                     .build(base_dir())
                     .service(ServiceName::Atcoder)
                     .contest("arc100")
                     .expand("")
-                    .unwrap()
+                    .map_err(Into::into)
             }
             test!("snowchains/$service/$contest" => "snowchains/atcoder/arc100");
         }
         test!("~"         => dirs::home_dir().unwrap());
         test!("~/foo/bar" => dirs::home_dir().unwrap().join("foo/bar"));
         test!("~root"     => !);
+        Ok(())
     }
 
     fn set_env_vars() {

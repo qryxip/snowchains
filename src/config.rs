@@ -10,6 +10,7 @@ use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
 use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
 use crate::{time, yaml};
 
+use if_chain::if_chain;
 use maplit::hashmap;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -19,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
+use std::path::Path;
 use std::str;
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,29 +28,15 @@ use std::time::Duration;
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
 /// Creates "snowchains.yaml" in `directory`.
-pub(crate) fn init(
-    mut stdout: impl Write,
-    directory: &AbsPath,
-    session_cookies: &str,
-    session_dropbox_auth: &str,
-    enable_session_dropbox: bool,
-) -> FileResult<()> {
-    let yaml = generate_yaml(
-        session_cookies,
-        session_dropbox_auth,
-        enable_session_dropbox,
-    );
+pub(crate) fn init(mut stdout: impl Write, directory: &AbsPath) -> FileResult<()> {
+    let yaml = generate_yaml();
     let path = directory.join(CONFIG_FILE_NAME);
     crate::fs::write(&path, yaml.as_bytes())?;
     writeln!(stdout, "Wrote {}", path.display())?;
     stdout.flush().map_err(Into::into)
 }
 
-fn generate_yaml(
-    session_cookies: &str,
-    session_dropbox_auth: &str,
-    enable_session_dropbox: bool,
-) -> String {
+fn generate_yaml() -> String {
     #[cfg(not(windows))]
     static CONSOLE_ALT_WIDTH: &str = "";
     #[cfg(windows)]
@@ -143,6 +131,24 @@ fn generate_yaml(
       # atcoder: 3006   # "C# (Mono x.x.x.x)"
       yukicoder: csharp # "C# (csc x.x.x.x)""#;
 
+    let (session_cookies, session_dropbox) = {
+        let data_local_dir = if_chain! {
+            if let (Some(home), Some(local)) = (dirs::home_dir(), dirs::data_local_dir());
+            if let Ok(path) = local.strip_prefix(&home);
+            then {
+                Path::new("~").join(path).join("snowchains")
+            } else {
+                Path::new("~").join(".local").join("share").join("snowchains")
+            }
+        };
+        let session_cookies = data_local_dir.join("$service").display().to_string();
+        let session_cookies = yaml::escape_string(&session_cookies).into_owned();
+        let session_dropbox = data_local_dir.join("dropbox.json").display().to_string();
+        let session_dropbox = yaml::escape_string(&session_dropbox).into_owned();
+        (session_cookies, session_dropbox)
+    };
+    let judge_jobs = num_cpus::get();
+
     format!(
         r#"---
 service: atcoder
@@ -161,14 +167,16 @@ session:
   timeout: 60s
   silent: false
   cookies: {session_cookies}
-  {session_dropbox}
+  dropbox: false
+  # dropbox:
+  #   auth: {session_dropbox}
   download:
     extension: yaml
     text_file_dir: $service/$contest/tests/{{snake}}
 
 judge:
   testfile_extensions: [json, toml, yaml, yml]
-  # jobs: {jobs}
+  # jobs: {judge_jobs}
   display_limit: 1KiB
 
 env:
@@ -310,14 +318,9 @@ languages:
       working_directory: $service/$contest/txt{crlf_to_lf_false}
 "#,
         console_alt_width = CONSOLE_ALT_WIDTH,
-        session_cookies = yaml::escape_string(session_cookies),
-        session_dropbox = format_args!(
-            "{f}{c}dropbox:\n  {c}  auth: {p}",
-            f = if enable_session_dropbox { "" } else { "dropbox : false\n  " },
-            c = if enable_session_dropbox { "" } else { "# " },
-            p = yaml::escape_string(session_dropbox_auth),
-        ),
-        jobs = num_cpus::get(),
+        session_cookies = session_cookies,
+        session_dropbox = session_dropbox,
+        judge_jobs = judge_jobs,
         shell = SHELL,
         jq = JQ,
         exe = EXE,
@@ -924,20 +927,21 @@ mod tests {
     use crate::service::ServiceName;
     use crate::terminal::Ansi;
 
-    use std::io::Cursor;
+    use failure::Fallible;
+
     use std::str;
 
     #[test]
-    fn it_generates_a_valid_yaml() {
-        serde_yaml::from_str::<Config>(&generate_yaml(".", ".", false)).unwrap();
+    fn it_generates_a_valid_yaml() -> serde_yaml::Result<()> {
+        serde_yaml::from_str::<Config>(&generate_yaml()).map(|_| ())
     }
 
     #[test]
-    fn test_replace_values() {
-        let mut stdout = Ansi::new(Cursor::new(Vec::<u8>::new()));
-        let mut stderr = Ansi::new(Cursor::new(Vec::<u8>::new()));
-        let yaml = generate_yaml(".", ".", false);
-        let config = serde_yaml::from_str(&yaml).unwrap();
+    fn test_replace_values() -> Fallible<()> {
+        let mut stdout = Ansi::new(Vec::<u8>::new());
+        let mut stderr = Ansi::new(Vec::<u8>::new());
+        let yaml = generate_yaml();
+        let config = serde_yaml::from_str(&yaml)?;
         let (new_yaml, _) = replace_values(
             &yaml,
             &config,
@@ -946,11 +950,10 @@ mod tests {
             Some("rust".to_owned()),
             &mut stdout,
             &mut stderr,
-        )
-        .unwrap();
-        serde_yaml::from_str::<Config>(&new_yaml).unwrap();
-        let stdout = str::from_utf8(stdout.get_ref().get_ref()).unwrap();
-        let stderr = str::from_utf8(stderr.get_ref().get_ref()).unwrap();
+        )?;
+        serde_yaml::from_str::<Config>(&new_yaml)?;
+        let stdout = str::from_utf8(stdout.get_ref())?;
+        let stderr = str::from_utf8(stderr.get_ref())?;
         assert_eq!(
             stdout,
             "service:  \x1b[1m\"atcoder\"\x1b[0m -> \x1b[1m\"yukicoder\"\x1b[0m\n\
@@ -958,6 +961,7 @@ mod tests {
              language: \x1b[1m\"c++\"\x1b[0m     -> \x1b[1m\"rust\"\x1b[0m\n",
         );
         assert_eq!(stderr, "");
+        Ok(())
     }
 
     #[test]
