@@ -1,12 +1,12 @@
+mod batch;
 mod interactive;
-mod simple;
 mod text;
 
 use crate::command::JudgingCommand;
 use crate::config::Config;
 use crate::errors::{JudgeErrorKind, JudgeResult, TestSuiteResult};
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
-use crate::testsuite::{SimpleCase, TestCase, TestCases};
+use crate::testsuite::{BatchCase, TestCase, TestCases};
 use crate::util::std_unstable::AsMillis_;
 
 use futures::{Future, Sink, Stream};
@@ -22,7 +22,7 @@ use std::{cmp, fmt};
 pub(crate) fn num_cases(config: &Config, problem: &str) -> TestSuiteResult<usize> {
     let (cases, _) = config.testcase_loader().load_merging(problem)?;
     Ok(match cases {
-        TestCases::Simple(cases) => cases.len(),
+        TestCases::Batch(cases) => cases.len(),
         TestCases::Interactive(cases) => cases.len(),
     })
 }
@@ -42,7 +42,7 @@ pub(crate) fn timelimit_millis(config: &Config, problem: &str, nth: usize) -> Ju
 
     let (cases, _) = config.testcase_loader().load_merging(problem)?;
     match cases {
-        TestCases::Simple(cases) => get_timelimit_millis(&cases, nth, |t| t.timelimit()),
+        TestCases::Batch(cases) => get_timelimit_millis(&cases, nth, |t| t.timelimit()),
         TestCases::Interactive(cases) => get_timelimit_millis(&cases, nth, |t| t.timelimit()),
     }
 }
@@ -50,9 +50,9 @@ pub(crate) fn timelimit_millis(config: &Config, problem: &str, nth: usize) -> Ju
 pub(crate) fn input(config: &Config, problem: &str, nth: usize) -> JudgeResult<Arc<String>> {
     let (cases, _) = config.testcase_loader().load_merging(problem)?;
     match &cases {
-        TestCases::Simple(cases) => cases
+        TestCases::Batch(cases) => cases
             .get(nth)
-            .map(SimpleCase::input)
+            .map(BatchCase::input)
             .ok_or_else(|| JudgeErrorKind::IndexOutOfBounds(cases.len(), nth).into()),
         TestCases::Interactive(cases) if nth < cases.len() => Ok(Arc::new("".to_owned())),
         TestCases::Interactive(cases) => {
@@ -70,13 +70,13 @@ pub(crate) fn accepts(
 ) -> JudgeResult<()> {
     let (cases, _) = config.testcase_loader().load_merging(problem)?;
     match cases {
-        TestCases::Simple(cases) => {
+        TestCases::Batch(cases) => {
             let case = cases
                 .get(nth)
                 .ok_or_else(|| JudgeErrorKind::IndexOutOfBounds(cases.len(), nth))?;
             let mut output = "".to_owned();
             stdin.read_to_string(&mut output)?;
-            let outcome = simple::accepts(&case, &output);
+            let outcome = batch::accepts(&case, &output);
             if outcome.failure() {
                 outcome.print_details(config.judge_display_limit(), &mut stderr)?;
                 stderr.flush()?;
@@ -85,7 +85,7 @@ pub(crate) fn accepts(
                 Ok(())
             }
         }
-        TestCases::Interactive(_) => Err(JudgeErrorKind::ExpectedSimple.into()),
+        TestCases::Interactive(_) => Err(JudgeErrorKind::ExpectedBatch.into()),
     }
 }
 
@@ -297,14 +297,14 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
 
     let solver = Arc::new(solver);
     match cases {
-        TestCases::Simple(cases) => judge_all(
+        TestCases::Batch(cases) => judge_all(
             stdout,
             stderr,
             jobs,
             display_limit,
             cases,
             &solver,
-            simple::judge,
+            batch::judge,
         ),
         TestCases::Interactive(cases) => judge_all(
             stdout,

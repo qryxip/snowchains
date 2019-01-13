@@ -57,12 +57,13 @@ script:
   - cargo clippy --all-targets -- -D warnings
   - |
     if [ -f ~/.cargo/bin/cargo-tarpaulin ]; then
-      cargo tarpaulin --out Xml
+      cargo tarpaulin --ignored --out Xml &&
       bash <(curl -s https://codecov.io/bash)
     elif [ "${TRAVIS_SECURE_ENV_VARS}" = true ]; then
       cargo test --all
     else
-      cargo test --lib
+      cargo test --lib &&
+      cargo test --test batch
     fi
 
 before_deploy:

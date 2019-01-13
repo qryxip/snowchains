@@ -44,12 +44,12 @@ Tools for online programming contests
 
 USAGE:
     snowchains <i|init> [OPTIONS] [directory]
-    snowchains <w|switch> [OPTIONS]
+    snowchains <w|switch|c|checkout> [OPTIONS]
     snowchains <l|login> [OPTIONS] <service>
     snowchains <p|participate> [OPTIONS] <service> <contest>
     snowchains <d|download> [FLAGS] [OPTIONS]
     snowchains <r|restore> [OPTIONS]
-    snowchains <j|judge> [FLAGS] [OPTIONS] <problem>
+    snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>
     snowchains <s|submit> [FLAGS] [OPTIONS] <problem>
     snowchains show num-cases [OPTIONS] <problem> <extension>
     snowchains show timelimit-millis [OPTIONS] <problem> <nth>
@@ -57,6 +57,7 @@ USAGE:
     snowchains show accepts [OPTIONS] <problem> <nth>
     snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]
     snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]
+    snowchains modify match [OPTIONS] <problem> <extension> <match>
 
 FLAGS:
     -h, --help       Prints help information
@@ -106,7 +107,7 @@ shell:
   # cmd: [cmd, /C, $command]
   # ps: [powershell, -Command, $command]
 
-testfile_path: tests/$service/$contest/{snake}.$extension
+testfile_path: $service/$contest/tests/{snake}.$extension
 
 session:
   timeout: 60s
@@ -117,7 +118,7 @@ session:
   #   auth: ~/.local/share/snowchains/dropbox.json
   download:
     extension: yaml
-    text_file_dir: tests/$service/$contest/{{snake}}
+    text_file_dir: $service/$contest/tests/{{snake}}
 
 judge:
   testfile_extensions: [json, toml, yaml, yml]
@@ -137,36 +138,41 @@ env:
 
 hooks:
   switch:
-    - bash: echo "$SNOWCHAINS_RESULT" | jq
+    - bash: |
+        service="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.service)"
+        contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.contest)"
+        if [ ! -d "./$service/$contest/rs" ]; then
+          mkdir -p "./$service/$contest" &&
+          cargo new --lib --edition 2015 --name "$contest" "./$service/$contest/rs" &&
+          mkdir "./$service/$contest/rs/src/bin" &&
+          rm "./$service/$contest/rs/src/lib.rs"
+        fi
   download:
     - bash: |
         if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .open_in_browser)" = true ]; then
           service="$(echo "$SNOWCHAINS_RESULT" | jq -r .service)"
+          contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .contest.slug)"
           echo "$SNOWCHAINS_RESULT" |
-            jq -r '.problems | map("./rs/src/bin/" + .name_kebab + ".rs") | join("\n")' |
-            xargs -d \\n -I % -r cp "./rs/src/bin/$service-template.rs" %
+            jq -r --arg service "$service" --arg contest "$contest" '.problems | map("./" + $service + "/" + $contest + "/rs/src/bin/" + .name_kebab + ".rs") | join("\n")' |
+            xargs -d \\n -I % -r cp "./templates/rs/src/bin/$service.rs" % &&
           echo "$SNOWCHAINS_RESULT" |
-            jq -r '.problems | map(["./rs/src/bin/" + .name_kebab + ".rs", .test_suite_path]) | flatten | join("\n")' |
+            jq -r --arg service "$service" --arg contest "$contest" '.problems | map(["./" + $service + "/" + $contest + "/rs/src/bin/" + .name_kebab + ".rs", .test_suite_path]) | flatten | join("\n")' |
             xargs -d \\n -r emacsclient -n
         fi
 
-interactive:
-  python3:
-    src: testers/py/test-{{kebab}}.py
-    run:
-      command: [./venv/bin/python3, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
-      working_directory: testers/py
-      # crlf_to_lf: false
-  haskell:
-    src: testers/hs/app/Test{{Pascal}}.hs
-    compile:
-      bin: testers/hs/target/Test{{Pascal}}
-      command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: testers/hs
-    run:
-      command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
-      working_directory: testers/hs
-      # crlf_to_lf: false
+tester:
+  src: testers/py/{kebab}.py
+  run:
+    command: [./venv/bin/python3, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
+    working_directory: testers/py
+  # src: testers/hs/app/{Pascal}.hs
+  # compile:
+  #   bin: testers/hs/target/{Pascal}
+  #   command: [stack, ghc, --, -O2, -o, $bin, $src]
+  #   working_directory: testers/hs
+  # run:
+  #   command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
+  #   working_directory: testers/hs
 
 # test files: <testsuite>/<problem>.[json|toml|yaml|yml]
 # source:     <<src> % <problem>>
@@ -196,95 +202,95 @@ interactive:
 #   "$bin" => "<path to the binary file>"
 languages:
   c++:
-    src: cpp/{kebab}.cpp     # source file to test and to submit
-    compile:                 # optional
-      bin: cpp/build/{kebab}
+    src: $service/$contest/cpp/{kebab}.cpp     # source file to test and to submit
+    compile:                                   # optional
+      bin: $service/$contest/cpp/build/{kebab}
       command:
         bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
-      working_directory: cpp # default: "."
+      working_directory: $service/$contest/cpp # default: "."
     run:
       command: [$bin]
-      working_directory: cpp # default: "."
+      working_directory: $service/$contest/cpp # default: "."
       # crlf_to_lf: false
-    language_ids:            # optional
-      atcoder: 3003          # "C++14 (GCC x.x.x)"
-      yukicoder: cpp14       # "C++14 (gcc x.x.x)"
+    language_ids:                              # optional
+      atcoder: 3003                            # "C++14 (GCC x.x.x)"
+      yukicoder: cpp14                         # "C++14 (gcc x.x.x)"
   rust:
-    src: rs/src/bin/{kebab}.rs
+    src: $service/$contest/rs/src/bin/{kebab}.rs
     compile:
-      bin: rs/target/manually/{kebab}
+      bin: $service/$contest/rs/target/manually/{kebab}
       command: [rustc, +$RUST_VERSION, -o, $bin, $src]
-      working_directory: rs
+      working_directory: $service/$contest/rs
     run:
       command: [$bin]
-      working_directory: rs
+      working_directory: $service/$contest/rs
       # crlf_to_lf: false
     # language_ids:
     #   atcoder: 3504   # "Rust (x.x.x)"
     #   yukicoder: rust # "Rust (x.x.x)"
   haskell:
-    src: hs/app/{Pascal}.hs
+    src: $service/$contest/hs/app/{Pascal}.hs
     compile:
-      bin: hs/target/{Pascal}
+      bin: $service/$contest/hs/target/{Pascal}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: hs
+      working_directory: $service/$contest/hs
     run:
       command: [$bin]
-      working_directory: hs
+      working_directory: $service/$contest/hs
       # crlf_to_lf: false
     # language_ids:
     #   atcoder: 3014      # "Haskell (GHC x.x.x)"
     #   yukicoder: haskell # "Haskell (x.x.x)"
   python3:
-    src: py/{kebab}.py
+    src: $service/$contest/py/{kebab}.py
     run:
       command: [./venv/bin/python3, $src]
-      working_directory: py
+      working_directory: $service/$contest/py
       # crlf_to_lf: false
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
       yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x + scipy x.x.x)"
   java:
-    src: java/src/main/java/{Pascal}.java
+    src: $service/$contest/java/src/main/java/{Pascal}.java
     transpile:
-      transpiled: java/build/replaced/{lower}/src/Main.java
+      transpiled: $service/$contest/java/build/replaced/{lower}/src/Main.java
       command:
         bash: cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g" > "$SNOWCHAINS_TRANSPILED"
         # ps: cat ${env:SNOWCHAINS_SRC} | % { $_ -replace "class\s+${env:SNOWCHAINS_PROBLEM_PASCAL}", "class Main" } | sc ${env:SNOWCHAINS_TRANSPILED}
-      working_directory: java
+      working_directory: $service/$contest/java
     compile:
-      bin: java/build/replaced/{lower}/classes/Main.class
+      bin: $service/$contest/java/build/replaced/{lower}/classes/Main.class
       command: [javac, -d, './build/replaced/{lower}/classes', $transpiled]
-      working_directory: java
+      working_directory: $service/$contest/java
     run:
       command: [java, -classpath, './build/replaced/{lower}/classes', Main]
-      working_directory: java
+      working_directory: $service/$contest/java
       # crlf_to_lf: false
     language_ids:
       atcoder: 3016      # "Java8 (OpenJDK 1.8.x)"
       # yukicoder: java8 # "Java8 (openjdk 1.8.x.x)"
   # c#:
-  #   src: cs/{Pascal}/{Pascal}.cs
+  #   src: $service/$contest/cs/{Pascal}/{Pascal}.cs
   #   compile:
-  #     bin: cs/{Pascal}/bin/Release/{Pascal}.exe
+  #     bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
   #     command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
-  #     working_directory: cs
+  #     working_directory: $service/$contest/cs
   #   run:
   #     command: [$bin]
-  #     working_directory: cs
+  #     working_directory: $service/$contest/cs
   #     crlf_to_lf: true
   #   language_ids:
   #     # atcoder: 3006   # "C# (Mono x.x.x.x)"
   #     yukicoder: csharp # "C# (csc x.x.x.x)"
   c#:
-    src: cs/{Pascal}/{Pascal}.cs
+    src: $service/$contest/cs/{Pascal}/{Pascal}.cs
     compile:
-      bin: cs/{Pascal}/bin/Release/{Pascal}.exe
+      bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
       command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
-      working_directory: cs
+      working_directory: $service/$contest/cs
     run:
       command: [mono, $bin]
-      working_directory: cs
+      working_directory: $service/$contest/cs
       # crlf_to_lf: false
     language_ids:
       # atcoder: 3006        # "C# (Mono x.x.x.x)"
@@ -297,13 +303,13 @@ languages:
 - [x] TOML
 - [x] JSON
 
-### Simple (one input, one output)
+### Batch (one input, one output)
 
 <https://atcoder.jp/contests/practice/tasks/practice_1>
 
 ```yaml
 ---
-type: simple      # "simple", "interactive", or "unsubmittable"
+type: batch       # "batch", "interactive", or "unsubmittable"
 timelimit: 2000ms # optional
 match: exact      # "any", "exact", or "float"
 
@@ -330,7 +336,7 @@ cases:
 ```
 
 ```toml
-type = 'simple'
+type = 'batch'
 timelimit = '2000ms'
 match = 'exact'
 
@@ -368,7 +374,7 @@ oooooooooooooo
 
 ```yaml
 ---
-type: simple
+type: batch
 timelimit: 2000ms
 match:
   float:
@@ -389,7 +395,7 @@ cases:
 ```
 
 ```toml
-type = 'simple'
+type = 'batch'
 timelimit = '2000ms'
 
 [match.float]
@@ -419,7 +425,6 @@ out = '''
 ---
 type: interactive
 timelimit: 2000ms
-tester: python3
 
 each_args:
   - [ABCDE]

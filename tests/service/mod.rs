@@ -13,7 +13,6 @@ use tempdir::TempDir;
 
 use std::fs::File;
 use std::panic::UnwindSafe;
-use std::path::PathBuf;
 use std::{env, io, panic};
 
 pub fn test_in_tempdir<E: Into<failure::Error>>(
@@ -21,28 +20,26 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     credentials: Credentials,
     f: impl FnOnce(App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> Result<(), E> + UnwindSafe,
 ) -> Fallible<()> {
-    let tempdir = TempDir::new(tempdir_prefix).unwrap();
+    let tempdir = TempDir::new(tempdir_prefix)?;
     let tempdir_path = tempdir.path().to_owned();
     let result = panic::catch_unwind(move || -> Fallible<()> {
-        let mut app = App {
+        std::fs::write(
+            tempdir_path.join("snowchains.yaml"),
+            include_bytes!("../snowchains.yaml").as_ref(),
+        )?;
+        std::fs::create_dir(tempdir_path.join("local"))?;
+        serde_json::to_writer(
+            File::create(tempdir_path.join("local").join("dropbox.json"))?,
+            &json!({ "access_token": env("DROPBOX_ACCESS_TOKEN")? }),
+        )?;
+        let app = App {
             working_dir: AbsPathBuf::try_new(&tempdir_path).unwrap(),
-            cookies_on_init: "$service".to_owned(),
-            dropbox_auth_on_init: "dropbox.json".to_owned(),
-            enable_dropbox_on_init: true,
             credentials,
             term: TermImpl::null(),
         };
-        app.run(Opt::Init {
-            color_choice: AnsiColorChoice::Never,
-            directory: PathBuf::from("."),
-        })?;
-        serde_json::to_writer(
-            File::create(tempdir_path.join("dropbox.json"))?,
-            &json!({ "access_token": env("DROPBOX_ACCESS_TOKEN")? }),
-        )?;
         f(app).map_err(Into::into)
     });
-    tempdir.close().unwrap();
+    tempdir.close()?;
     match result {
         Err(panic) => panic::resume_unwind(panic),
         Ok(result) => result,
@@ -116,20 +113,21 @@ pub fn confirm_num_cases(
     service: ServiceName,
     contest: &str,
     pairs: &[(&str, usize)],
-) {
+) -> Fallible<()> {
     #[derive(Deserialize)]
-    struct SimpleSuite {
+    struct BatchSuite {
         cases: Vec<serde_yaml::Value>,
     }
 
     for &(problem, expected_num_cases) in pairs {
         let path = wd
-            .join("tests")
             .join(<&str>::from(service))
             .join(contest)
+            .join("tests")
             .join(format!("{}.yaml", problem));
-        let file = File::open(&path).unwrap();
-        let suite = serde_yaml::from_reader::<_, SimpleSuite>(file).unwrap();
+        let file = File::open(&path)?;
+        let suite = serde_yaml::from_reader::<_, BatchSuite>(file)?;
         assert_eq!(expected_num_cases, suite.cases.len());
     }
+    Ok(())
 }

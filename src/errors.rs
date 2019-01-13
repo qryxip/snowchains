@@ -168,8 +168,8 @@ pub enum JudgeError {
 pub enum JudgeErrorKind {
     #[display(fmt = "The length is {} but the index is {}", _0, _1)]
     IndexOutOfBounds(usize, usize),
-    #[display(fmt = "Expected \"simple\" case")]
-    ExpectedSimple,
+    #[display(fmt = "Expected \"batch\" case")]
+    ExpectedBatch,
     #[display(fmt = "Failed to execute {:?}", _0)]
     Command(OsString),
     #[display(
@@ -209,12 +209,15 @@ pub enum TestSuiteError {
 pub enum TestSuiteErrorKind {
     #[display(fmt = "Failed to serialize the data")]
     Serialize,
-    #[display(fmt = "None of {} exists. Execute \"download\" command first", _0)]
-    NoFile(String),
+    #[display(
+        fmt = "No test case found in {}. Execute \"download\" command first",
+        _0
+    )]
+    NoTestcase(String),
     #[display(fmt = "Different types of suites")]
     DifferentTypesOfSuites,
-    #[display(fmt = "Target suite is not \"simple\" type")]
-    SuiteIsNotSimple,
+    #[display(fmt = "Target suite is not \"batch\" type")]
+    SuiteIsNotBatch,
     #[display(fmt = "{:?} is unsubmittable", _0)]
     Unsubmittable(AbsPathBuf),
     #[display(fmt = "Unsupported extension: {:?}", _0)]
@@ -242,8 +245,8 @@ impl From<ConfigErrorKind> for ConfigError {
 
 #[derive(Debug, derive_more::Display)]
 pub enum ConfigErrorKind {
-    #[display(fmt = "Language not specified")]
-    LanguageNotSpecified,
+    #[display(fmt = "Tester command not specified")]
+    TesterNotSpecified,
     #[display(fmt = "No such language: {:?}", _0)]
     NoSuchLanguage(String),
 }

@@ -1,0 +1,47 @@
+---
+service: other
+contest: ''
+language: text
+
+testfile_path: $service/$contest/tests/{snake}.$extension
+
+session:
+  timeout: 60s
+  silent: false
+  cookies: local/$service
+  dropbox:
+    auth: local/dropbox.json
+  download:
+    extension: yaml
+    text_file_dir: $service/$contest/tests/{snake}
+
+judge:
+  testfile_extensions: [yaml]
+
+env:
+  atcoder:
+    RUST_VERSION: stable
+
+languages:
+  rust:
+    src: $service/$contest/rs/src/bin/{kebab}.rs
+    compile:
+      bin: $service/$contest/rs/target/manually/{kebab}
+      command: [rustc, +$RUST_VERSION, -o, $bin, $src]
+      working_directory: $service/$contest/rs
+    run:
+      command: [$bin]
+      working_directory: $service/$contest/rs
+  python3:
+    src: $service/$contest/py/{kebab}.py
+    run:
+      command: [./venv/bin/python3, $src]
+      working_directory: $service/$contest/py
+    language_ids:
+      atcoder: 3023
+      yukicoder: python3
+  text:
+    src: $service/$contest/txt/{snake}.txt
+    run:
+      command: [cat, $src]
+      working_directory: $service/$contest/txt

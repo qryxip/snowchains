@@ -7,13 +7,12 @@ use crate::service::{
     ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
-use crate::testsuite::{InteractiveSuite, SimpleSuite, SuiteFilePath, TestSuite};
+use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
 
 use cookie::Cookie;
 use failure::ResultExt;
 use itertools::Itertools;
 use maplit::hashmap;
-use multipart::client::lazy::Multipart;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
 use regex::Regex;
@@ -28,7 +27,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Write;
 use std::time::Duration;
-use std::{fmt, io, mem};
+use std::{fmt, mem};
 
 pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
     Yukicoder::try_new(sess_props)?.login(true)
@@ -232,7 +231,7 @@ impl<T: Term> Yukicoder<T> {
             .iter()
             .map(|p| p.name.clone())
             .collect::<Vec<_>>();
-        let solved_simple_nos = if *only_scraped {
+        let solved_batch_nos = if *only_scraped {
             vec![]
         } else {
             self.filter_solved(&nos)?
@@ -242,23 +241,23 @@ impl<T: Term> Yukicoder<T> {
                         .problems
                         .iter()
                         .any(|problem| match &problem.test_suite {
-                            TestSuite::Simple(_) => problem.name == *no,
+                            TestSuite::Batch(_) => problem.name == *no,
                             _ => false,
                         })
                 })
                 .collect()
         };
 
-        let text_file_paths = if solved_simple_nos.is_empty() {
+        let text_file_paths = if solved_batch_nos.is_empty() {
             vec![]
         } else {
-            let urls = solved_simple_nos
+            let urls = solved_batch_nos
                 .iter()
                 .map(|no| format!("https://yukicoder.me/problems/no/{}/testcase.zip", no))
                 .collect::<Vec<_>>();
-            self.download_progress(&urls, &solved_simple_nos, None)?
+            self.download_progress(&urls, &solved_batch_nos, None)?
                 .into_iter()
-                .zip_eq(&solved_simple_nos)
+                .zip_eq(&solved_batch_nos)
                 .map(|(zip, &no)| {
                     static ZIP_ENTRIES: Lazy<ZipEntries> = sync_lazy!(ZipEntries {
                         in_entry: Regex::new(r"\Atest_in/([a-z0-9_]+)\.txt\z").unwrap(),
@@ -285,7 +284,7 @@ impl<T: Term> Yukicoder<T> {
             for (no, text_file_paths) in &text_file_paths {
                 if name == no {
                     *test_suite = match mem::replace(test_suite, TestSuite::Unsubmittable) {
-                        TestSuite::Simple(suite) => {
+                        TestSuite::Batch(suite) => {
                             suite.without_cases().paths(text_file_paths.clone()).into()
                         }
                         suite => suite,
@@ -416,12 +415,10 @@ impl<T: Term> Yukicoder<T> {
         }
         let document = self.get(&url).recv_html()?;
         let token = document.extract_csrf_token_from_submit_page()?;
-        let form = Multipart::new()
-            .add_text("csrf_token", token)
-            .add_text("lang", lang_id.as_ref())
-            .add_text("source", code.as_str())
-            .prepare()
-            .map_err(Into::<io::Error>::into)?;
+        let form = reqwest::r#async::multipart::Form::new()
+            .text("csrf_token", token)
+            .text("lang", lang_id.clone().into_owned())
+            .text("source", code.clone());
         let url = document.extract_url_from_submit_page()?;
         let res = self.post(&url).send_multipart(form)?;
         let location = match res.headers().get(header::LOCATION) {
@@ -612,13 +609,13 @@ impl Extract for Document {
                         };
                         samples.push((input, output));
                     }
-                    let mut suite = SimpleSuite::new(timelimit).sample_cases(
+                    let mut suite = BatchSuite::new(timelimit).sample_cases(
                         samples.into_iter(),
                         |i| format!("サンプル{}", i + 1),
                         None,
                     );
                     if kind == ProblemKind::Special {
-                        suite = suite.any();
+                        suite = suite.matching(testsuite::Match::Any);
                     }
                     Some(suite.into())
                 }
@@ -666,47 +663,50 @@ impl Extract for Document {
 
 #[cfg(test)]
 mod tests {
+    use crate::errors::ServiceResult;
     use crate::service;
     use crate::service::yukicoder::Extract;
 
+    use failure::Fallible;
     use select::document::Document;
 
     use std::borrow::Borrow;
     use std::time::Duration;
 
     #[test]
-    fn it_extracts_samples_from_problem1() {
+    fn it_extracts_samples_from_problem1() -> Fallible<()> {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/1", "9be46c45c46eb98aa85911bb38dee887");
+        test_extracting_samples("/problems/no/1", "cf65ae411bc8d32b75beb771905c9dc0")
     }
 
     #[test]
-    fn it_extracts_samples_from_problem188() {
+    fn it_extracts_samples_from_problem188() -> Fallible<()> {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/188", "1615ec7755f7ad7707f73e0d20262e0a");
+        test_extracting_samples("/problems/no/188", "671c7191064f7703abcb5e06fad3f32e")
     }
 
     #[test]
-    fn it_extracts_samples_from_problem192() {
+    fn it_extracts_samples_from_problem192() -> Fallible<()> {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/192", "4d0d32b4520f7a8a0bf86c94eb25619e");
+        test_extracting_samples("/problems/no/192", "f8ce3328c431737dcb748770abd9a09b")
     }
 
     #[test]
-    fn it_extracts_samples_from_problem246() {
+    fn it_extracts_samples_from_problem246() -> Fallible<()> {
         let _ = env_logger::try_init();
-        test_extracting_samples("/problems/no/246", "f1eab269f69c78671e34303ed37e3e19");
+        test_extracting_samples("/problems/no/246", "9debfd89a82271d763b717313363acda")
     }
 
-    fn test_extracting_samples(rel_url: &str, expected_md5: &str) {
-        let document = get_html(rel_url).unwrap();
-        let suite = document.extract_samples().unwrap();
-        let actual_md5 = suite.md5().unwrap();
+    fn test_extracting_samples(rel_url: &str, expected_md5: &str) -> Fallible<()> {
+        let document = get_html(rel_url)?;
+        let suite = document.extract_samples()?;
+        let actual_md5 = suite.md5()?;
         assert_eq!(format!("{:x}", actual_md5), expected_md5);
+        Ok(())
     }
 
     #[test]
-    fn it_extracts_problems_names_and_hrefs_from_yukicoder_open_2015_small() {
+    fn it_extracts_problems_names_and_hrefs_from_yukicoder_open_2015_small() -> ServiceResult<()> {
         static EXPECTED: &[(&str, &str)] = &[
             ("A", "/problems/no/191"),
             ("B", "/problems/no/192"),
@@ -716,9 +716,10 @@ mod tests {
             ("F", "/problems/no/196"),
         ];
         let _ = env_logger::try_init();
-        let document = get_html("/contests/100").unwrap();
-        let problems = document.extract_problems().unwrap();
+        let document = get_html("/contests/100")?;
+        let problems = document.extract_problems()?;
         assert_eq!(own_pairs(EXPECTED), problems);
+        Ok(())
     }
 
     fn own_pairs<O: Borrow<B>, B: ToOwned<Owned = O> + ?Sized>(pairs: &[(&B, &B)]) -> Vec<(O, O)> {

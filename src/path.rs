@@ -151,7 +151,7 @@ impl Serialize for AbsPath {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct AbsPathBuf {
     inner: PathBuf,
 }
@@ -216,6 +216,12 @@ impl Default for AbsPathBuf {
     }
 }
 
+impl fmt::Debug for AbsPathBuf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&self.inner, f)
+    }
+}
+
 impl Borrow<AbsPath> for AbsPathBuf {
     fn borrow(&self) -> &AbsPath {
         AbsPath::unchecked(&self.inner)
@@ -272,6 +278,7 @@ mod tests {
 
     use dirs;
 
+    use std::io;
     use std::path::Path;
 
     #[cfg(not(windows))]
@@ -297,13 +304,11 @@ mod tests {
     }
 
     #[test]
-    fn it_expands_tilde() {
+    fn it_expands_tilde() -> io::Result<()> {
         let home = dirs::home_dir().unwrap();
         let expected = home.join("foo");
-        let actual = AbsPathBuf::default()
-            .join_expanding_tilde("~/foo")
-            .unwrap()
-            .inner;
+        let actual = AbsPathBuf::default().join_expanding_tilde("~/foo")?.inner;
         assert_eq!(expected, actual);
+        Ok(())
     }
 }

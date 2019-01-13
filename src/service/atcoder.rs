@@ -10,7 +10,7 @@ use crate::service::{
     UserNameAndPassword,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
-use crate::testsuite::{DownloadDestinations, InteractiveSuite, SimpleSuite, TestSuite};
+use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
 use crate::util::std_unstable::RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
@@ -35,7 +35,7 @@ use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
-use std::vec;
+use std::{f64, vec};
 
 /// Logins to "atcoder.jp".
 pub(crate) fn login(mut sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
@@ -510,7 +510,7 @@ impl<T: Term> Atcoder<T> {
                 plural!(2 * contents_len, "file", "files"),
                 dir.display(),
             )?;
-            if let Some(TestSuite::Simple(suite)) = suites.get_mut(problem) {
+            if let Some(TestSuite::Batch(suite)) = suites.get_mut(problem) {
                 suite.clear_cases();
                 for (case_name, (in_path, out_path)) in paths {
                     suite.push_path(case_name, in_path, out_path);
@@ -901,15 +901,11 @@ impl Extract for Document {
 
     fn extract_as_suite(&self) -> ScrapeResult<TestSuite> {
         enum Samples {
-            Simple(Vec<(String, String)>),
+            Batch(Vec<(String, String)>, testsuite::Match),
             Interactive,
         }
 
         fn extract_samples(this: &Document) -> Option<Samples> {
-            // Interactive problems:
-            // - ARC070/F https://atcoder.jp/contests/arc070/tasks/arc070_d
-            // - ARC078/E https://atcoder.jp/contests/arc078/tasks/arc078_c
-            // - APC001/C https://atcoder.jp/contests/apc001/tasks/apc001_c
             // TODO:
             // - https://atcoder.jp/contests/arc019/tasks/arc019_4 (interactive)
             // - https://atcoder.jp/contests/arc021/tasks/arc021_4 (interactive)
@@ -979,6 +975,37 @@ impl Extract for Document {
                     }
                 }
             }
+            let matching = {
+                let error = this
+                    .find(selector!("#task-statement var").child(Text))
+                    .flat_map(|var| parse_floating_error(&var.text()))
+                    .next();
+                let all_text = this
+                    .find(selector!("#task-statement").descendant(Text))
+                    .map(|text| text.text())
+                    .collect::<Vec<_>>();
+                let relative = all_text
+                    .iter()
+                    .any(|s| s.contains("相対誤差") || s.contains("relative error"));
+                let absolute = all_text
+                    .iter()
+                    .any(|s| s.contains("絶対誤差") || s.contains("absolute error"));
+                match (error, relative, absolute) {
+                    (Some(error), true, true) => testsuite::Match::Float {
+                        relative_error: error,
+                        absolute_error: error,
+                    },
+                    (Some(error), true, false) => testsuite::Match::Float {
+                        relative_error: error,
+                        absolute_error: f64::NAN,
+                    },
+                    (Some(error), false, true) => testsuite::Match::Float {
+                        relative_error: f64::NAN,
+                        absolute_error: error,
+                    },
+                    _ => testsuite::Match::Exact,
+                }
+            };
             let mut inputs = BTreeMap::<usize, _>::new();
             let mut outputs = BTreeMap::<usize, _>::new();
             let mut next = None;
@@ -1017,11 +1044,16 @@ impl Extract for Document {
                 }
             }
 
-            if samples.is_empty() {
-                None
-            } else {
-                Some(Samples::Simple(samples))
-            }
+            guard!(!samples.is_empty());
+            Some(Samples::Batch(samples, matching))
+        }
+
+        fn parse_floating_error(s: &str) -> Option<f64> {
+            static R: Lazy<Regex> = lazy_regex!(r"\A([0-9]{1,2})\^\{(-?[0-9]{1,2})\}\z");
+            let caps = R.captures(s)?;
+            let base = caps[1].parse::<f64>().ok()?;
+            let exp = caps[2].parse::<f64>().ok()?;
+            Some(base.powf(exp))
         }
 
         fn parse_zenkaku<T: FromStr>(s: &str) -> Result<T, T::Err> {
@@ -1081,9 +1113,10 @@ impl Extract for Document {
             return Ok(TestSuite::Unsubmittable);
         }
         match extract_samples(self) {
-            None => Ok(SimpleSuite::new(timelimit).into()),
-            Some(Samples::Simple(samples)) => Ok(SimpleSuite::new(timelimit)
-                .sample_cases(samples.into_iter(), |i| format!("Sample {}", i + 1), None)
+            None => Ok(BatchSuite::new(timelimit).into()),
+            Some(Samples::Batch(cases, matching)) => Ok(BatchSuite::new(timelimit)
+                .matching(matching)
+                .sample_cases(cases.into_iter(), |i| format!("Sample {}", i + 1), None)
                 .into()),
             Some(Samples::Interactive) => Ok(InteractiveSuite::new(timelimit).into()),
         }
@@ -1317,6 +1350,7 @@ mod tests {
     use crate::terminal::{Term, TermImpl};
     use crate::testsuite::TestSuite;
 
+    use failure::Fallible;
     use itertools::Itertools;
     use tokio::runtime::Runtime;
     use url::Host;
@@ -1324,13 +1358,11 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn it_extracts_task_urls_from_arc001() {
+    fn it_extracts_task_urls_from_arc001() -> ServiceResult<()> {
         let _ = env_logger::try_init();
-        let mut atcoder = start().unwrap();
-        let page = atcoder
-            .fetch_tasks_page(&AtcoderContest::new("arc001"))
-            .unwrap();
-        let urls_and_names = page.extract_task_urls_with_names().unwrap();
+        let mut atcoder = start()?;
+        let page = atcoder.fetch_tasks_page(&AtcoderContest::new("arc001"))?;
+        let urls_and_names = page.extract_task_urls_with_names()?;
         static EXPECTED: &[(&str, &str)] = &[
             ("A", "/contests/arc001/tasks/arc001_1"),
             ("B", "/contests/arc001/tasks/arc001_2"),
@@ -1344,122 +1376,148 @@ mod tests {
             assert_eq!(expected_name, actual_name);
             assert_eq!(expected_url, actual_url);
         }
+        Ok(())
     }
 
     #[test]
-    fn it_extracts_a_timelimit_from_apg4b_b() {
+    fn it_extracts_a_timelimit_from_apg4b_b() -> ServiceResult<()> {
         let _ = env_logger::try_init();
-        let mut atcoder = start().unwrap();
-        let page = atcoder
-            .get("/contests/apg4b/tasks/APG4b_b")
-            .recv_html()
-            .unwrap();
-        match page.extract_as_suite().unwrap() {
-            TestSuite::Unsubmittable => {}
+        let mut atcoder = start()?;
+        let page = atcoder.get("/contests/apg4b/tasks/APG4b_b").recv_html()?;
+        match page.extract_as_suite()? {
+            TestSuite::Unsubmittable => Ok(()),
             suite => panic!("Got {:?}", suite),
         }
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_arc001() {
+    fn it_extracts_timelimits_and_sample_cases_from_arc001() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
-            ("A", "arc001_1", "8466355b2cba9d78842672312e9592f0"),
-            ("B", "arc001_2", "cc8617d9244681b1a5a07428671b72d5"),
-            ("C", "arc001_3", "ccd84df8d59e6fe3006e22cbd707c030"),
-            ("D", "arc001_4", "3b3b5ef2224fa728ad3c44a98bcebbb5"),
+            ("A", "arc001_1", "d0a203b1a8e80ea6b5d77ba33dd31812"),
+            ("B", "arc001_2", "8bf21c1a2e7e6b386d83ffef47b6b302"),
+            ("C", "arc001_3", "fadc6a33d9b009b679d35c837d509ee7"),
+            ("D", "arc001_4", "a7b8f7528a89fe733a18b829cefdadd5"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc001", EXPECTED);
+        test_sample_extraction("arc001", EXPECTED)
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_arc002() {
+    fn it_extracts_timelimits_and_sample_cases_from_arc002() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
-            ("A", "arc002_1", "41397da2ac34f82ef99a875414e3bbe9"),
-            ("B", "arc002_2", "b19aa5ce1ed2695aff295dfd28a6f9dd"),
-            ("C", "arc002_3", "2c9e018f4c37c26ec3ae7441b8ed77a3"),
-            ("D", "arc002_4", "37ccc24feade9f38de167d7479089233"),
+            ("A", "arc002_1", "af6ae0d1fe88e2bf2eb8a9f97f4a3bd3"),
+            ("B", "arc002_2", "251d9d839971aeadbca20fdd5bebe1e1"),
+            ("C", "arc002_3", "ed797649ddb36669b5c83c0bb520fa4d"),
+            ("D", "arc002_4", "91aaf382f4f2071185b5646ca48b26ef"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc002", EXPECTED);
+        test_sample_extraction("arc002", EXPECTED)
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_arc058() {
+    fn it_extracts_timelimits_and_sample_cases_from_arc058() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
-            ("C", "arc058_a", "528b8a28f676b64525c24de6e00b2177"),
-            ("D", "arc058_b", "01b562fb301781eeb0b2dfbc399aeb0a"),
-            ("E", "arc058_c", "8f62d4ede8230836d4127de0b4ce5a73"),
-            ("F", "arc058_d", "032cf56b87317058db7948c990a22094"),
+            ("C", "arc058_a", "f134a1c2f5c9c9613a0a40c43906fd78"),
+            ("D", "arc058_b", "8b9eb58dfa9c95b4766bab15c8439258"),
+            ("E", "arc058_c", "2f04c46c9245f7a5378dd72e074a0983"),
+            ("F", "arc058_d", "8c456a84332f2921703eeefca0493245"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("arc058", EXPECTED);
+        test_sample_extraction("arc058", EXPECTED)
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_abc041() {
+    fn it_extracts_timelimits_and_sample_cases_from_abc011() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
-            ("A", "abc041_a", "0f31784e3b3ec70b5cb553b7a648a9d3"),
-            ("B", "abc041_b", "6c3c03121c5d81c8d9500045a2cb75a9"),
-            ("C", "abc041_c", "4d927f43351f3d7d9e9b74646c87a088"),
-            ("D", "abc041_d", "042c32342b80ab6ccdb129dee2ee1e5d"),
+            ("A", "abc011_1", "9d0cab85f775693e032c9d7ecc59e5cd"),
+            ("B", "abc011_2", "aec6741969522b7b6cc1dc47b9374aa2"),
+            ("C", "abc011_3", "74cfb5ae94304b069245ba49a71b136f"),
+            ("D", "abc011_4", "0cb6050b366d4f51e23d12a811a3a93d"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("abc041", EXPECTED);
+        test_sample_extraction("abc011", EXPECTED)
     }
 
     #[test]
-    fn it_extracts_timelimits_and_sample_cases_from_chokudai_s001() {
+    fn it_extracts_timelimits_and_sample_cases_from_abc041() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
-            ("A", "chokudai_S001_a", "ac1f9f1f348d5934c58afaaefdb2c4a0"),
-            ("B", "chokudai_S001_b", "563863e108d52d70798581260984a933"),
-            ("C", "chokudai_S001_c", "e7c07e7611d800c0b2c4745f0a021831"),
-            ("D", "chokudai_S001_d", "dcd66b22a9bac464012d25f3f5b17469"),
-            ("E", "chokudai_S001_e", "2084c2a1cc1ea15b632e033d1dfacd79"),
-            ("F", "chokudai_S001_f", "130a3beedb2632e9c2526f7b7d1705ba"),
-            ("G", "chokudai_S001_g", "53f07f8be4611c8f46047c62fb26f401"),
-            ("H", "chokudai_S001_h", "a7f1dfa86db6e70a4083717630444fc1"),
-            ("I", "chokudai_S001_i", "25ba264cf4da4145e4fab293732fe742"),
-            ("J", "chokudai_S001_j", "b921ef1e689aa78e261d6526ed7564a5"),
-            ("K", "chokudai_S001_k", "542eb3b4d0c2af32cbb263bbfa5a54e0"),
-            ("L", "chokudai_S001_l", "33aa5b27cfb3e70528c233c427980109"),
+            ("A", "abc041_a", "d7797b2e885f35f588895af8f199cfe1"),
+            ("B", "abc041_b", "37f3335e442bdbaa7c4d6a144080627f"),
+            ("C", "abc041_c", "2fae4d4d77d851bbdba6f9cfec6c6bde"),
+            ("D", "abc041_d", "bb30dd61021373384657c6fe52e81a27"),
         ];
         let _ = env_logger::try_init();
-        test_sample_extraction("chokudai_s001", EXPECTED);
+        test_sample_extraction("abc041", EXPECTED)
+    }
+
+    #[test]
+    fn it_extracts_timelimits_and_sample_cases_from_dp() -> Fallible<()> {
+        static EXPECTED: &[(&str, &str, &str)] = &[
+            ("A", "dp_a", "57824a35ccbfca022c43f6713aa1bd5b"),
+            ("B", "dp_b", "6a69157b35671faf222fe080e3cc71c8"),
+            ("C", "dp_c", "548ed4cfa13f83bb5420b596de282eb9"),
+            ("D", "dp_d", "6f52641c6508bfecb4249d37d1448b26"),
+            ("E", "dp_e", "2d6f370dcf5b035b8ee6919a04ae757b"),
+            ("F", "dp_f", "ce5fbf4be0003ba508acd37131b4b726"),
+            ("G", "dp_g", "caf6f77d3ad22d379ad4c5f31433bc97"),
+            ("H", "dp_h", "da82bdf7e006bc9b8feac5a80ae1ffe2"),
+            ("I", "dp_i", "0082fa046f474d23e12d293e4888b5dd"),
+            ("J", "dp_j", "b0a84653c7b7e5ddbcec43bab122ce84"),
+            ("K", "dp_k", "92761b907e6a2cc9d1d9beb88d9d4ae5"),
+            ("L", "dp_l", "73f37f0dcd679d69456932c169b62ccb"),
+            ("M", "dp_m", "230b2471a92d9ce917b19216e12969a2"),
+            ("N", "dp_n", "003343a26117a1cb59cc199e3aa84d3c"),
+            ("O", "dp_o", "fe6c90f56a14eab02c4f90c2ac405d00"),
+            ("P", "dp_p", "535a0d3c5146233734026683cbc1768f"),
+            ("Q", "dp_q", "7201fc360ecc3e95e9648c1877de9f46"),
+            ("R", "dp_r", "68350e3245f5f3ceedace82f704b19f0"),
+            ("S", "dp_s", "2cab298936cd86b02f60d0a55e3f2a82"),
+            ("T", "dp_t", "c208bbd0ffa39ed40a7b71f8bee5b1ef"),
+            ("U", "dp_u", "874ae39e4c1e09c38cbae68207ea10f9"),
+            ("V", "dp_v", "1ecc63556a26e8aa4b7f72e926f7b633"),
+            ("W", "dp_w", "5f0e2145ef41079c4ad0f0b5bc22b502"),
+            ("X", "dp_x", "ea27e9783f14a158932330d9ea5991c5"),
+            ("Y", "dp_y", "7f88d4dfe1220f2a1e2a6ffc54432a39"),
+            ("Z", "dp_z", "909d93bcbb5d7efea059c02a5932c77f"),
+        ];
+        let _ = env_logger::try_init();
+        test_sample_extraction("dp", EXPECTED)
     }
 
     fn test_sample_extraction(
         contest: &str,
         expected: &'static [(&'static str, &'static str, &'static str)],
-    ) {
-        let mut atcoder = start().unwrap();
+    ) -> Fallible<()> {
+        let mut atcoder = start()?;
         let contest = AtcoderContest::new(contest);
-        let page = atcoder.fetch_tasks_page(&contest).unwrap();
-        let urls_and_names = page.extract_task_urls_with_names().unwrap();
+        let page = atcoder.fetch_tasks_page(&contest)?;
+        let urls_and_names = page.extract_task_urls_with_names()?;
         for ((actual_name, actual_url), (expected_name, expected_slug, expected_md5)) in
             urls_and_names.iter().zip_eq(expected.iter())
         {
             let expected_url = format!("/contests/{}/tasks/{}", contest.slug(), expected_slug);
             assert_eq!(actual_name, expected_name);
             assert_eq!(*actual_url, expected_url);
-            let problem_page = atcoder.get(&actual_url).recv_html().unwrap();
-            let actual_suite = problem_page.extract_as_suite().unwrap();
-            let actual_md5 = actual_suite.md5().unwrap();
+            let problem_page = atcoder.get(&actual_url).recv_html()?;
+            let actual_suite = problem_page.extract_as_suite()?;
+            let actual_md5 = actual_suite.md5()?;
             assert_eq!(format!("{:x}", actual_md5), *expected_md5);
         }
+        Ok(())
     }
 
     #[test]
-    fn it_extracts_a_submitted_source_code() {
+    fn it_extracts_a_submitted_source_code() -> ServiceResult<()> {
         static URL: &str = "/contests/utpc2011/submissions/2067";
         let _ = env_logger::try_init();
-        let mut atcoder = start().unwrap();
-        let page = atcoder.get(URL).recv_html().unwrap();
-        let code = page.extract_submitted_code().unwrap();
+        let mut atcoder = start()?;
+        let page = atcoder.get(URL).recv_html()?;
+        let code = page.extract_submitted_code()?;
         assert_eq!(
             format!("{:x}", md5::compute(&code)),
             "1d805f5f226cd9d6dd90081a47505b7b",
         );
+        Ok(())
     }
 
     fn start() -> ServiceResult<Atcoder<impl Term>> {

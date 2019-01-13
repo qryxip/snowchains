@@ -16,7 +16,7 @@ use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write;
 use std::iter::FromIterator;
 use std::path::PathBuf;
@@ -98,9 +98,9 @@ impl FromStr for SuiteFileExtension {
 pub(crate) struct TestCaseLoader<'a> {
     template: Template<AbsPathBuf>,
     extensions: &'a BTreeSet<SuiteFileExtension>,
-    tester_transpilations: HashMap<String, Template<TranspilationCommand>>,
-    tester_compilacions: HashMap<String, Template<CompilationCommand>>,
-    tester_commands: HashMap<String, Template<JudgingCommand>>,
+    tester_transpilation: Option<Template<TranspilationCommand>>,
+    tester_compilacion: Option<Template<CompilationCommand>>,
+    tester_command: Option<Template<JudgingCommand>>,
 }
 
 impl TestCaseLoader<'_> {
@@ -176,7 +176,7 @@ impl TestCaseLoader<'_> {
             .filter(|(path, _)| path.exists())
             .collect::<Vec<_>>();
 
-        let mut simple_cases = vec![];
+        let mut batch_cases = vec![];
         let mut interactive_cases = vec![];
         let mut filepaths = vec![];
 
@@ -188,12 +188,12 @@ impl TestCaseLoader<'_> {
                 .into_owned();
             let path = SuiteFilePath { path, extension };
             match TestSuite::load(&path)? {
-                TestSuite::Simple(suite) => simple_cases.extend(suite.cases_named(&path.path)?),
+                TestSuite::Batch(suite) => batch_cases.extend(suite.cases_named(&path.path)?),
                 TestSuite::Interactive(suite) => {
                     interactive_cases.extend(suite.cases_named(
-                        &self.tester_transpilations,
-                        &self.tester_compilacions,
-                        &self.tester_commands,
+                        self.tester_transpilation.as_ref(),
+                        self.tester_compilacion.as_ref(),
+                        self.tester_command.as_ref(),
                         &filename,
                         problem,
                     )?);
@@ -207,15 +207,15 @@ impl TestCaseLoader<'_> {
 
         let paths_as_text = format_paths(&filepaths);
 
-        if simple_cases.is_empty() && interactive_cases.is_empty() {
+        if batch_cases.is_empty() && interactive_cases.is_empty() {
             let all_paths = all_paths
                 .into_iter()
                 .map(|(path, _)| path.display().to_string())
                 .collect::<Vec<_>>();
-            Err(TestSuiteErrorKind::NoFile(format_paths(&all_paths)).into())
+            Err(TestSuiteErrorKind::NoTestcase(format_paths(&all_paths)).into())
         } else if interactive_cases.is_empty() {
-            Ok((TestCases::Simple(simple_cases), paths_as_text))
-        } else if simple_cases.is_empty() {
+            Ok((TestCases::Batch(batch_cases), paths_as_text))
+        } else if batch_cases.is_empty() {
             Ok((TestCases::Interactive(interactive_cases), paths_as_text))
         } else {
             Err(TestSuiteErrorKind::DifferentTypesOfSuites.into())
@@ -280,7 +280,7 @@ impl AsRef<AbsPath> for SuiteFilePath {
 #[cfg_attr(test, derive(PartialEq))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum TestSuite {
-    Simple(SimpleSuite),
+    Batch(BatchSuite),
     Interactive(InteractiveSuite),
     Unsubmittable,
 }
@@ -308,7 +308,7 @@ impl TestSuite {
         out.with_reset(|o| o.bold()?.write_str(name))?;
         write!(out, ": Saved to {} ", path.display())?;
         match self {
-            TestSuite::Simple(s) => match s.cases.len() {
+            TestSuite::Batch(s) => match s.cases.len() {
                 0 => out.with_reset(|o| o.fg(11)?.write_str("(no test case)\n")),
                 1 => out.with_reset(|o| o.fg(10)?.write_str("(1 test case)\n")),
                 n => out.with_reset(|o| writeln!(o.fg(10)?, "({} test cases)", n)),
@@ -325,7 +325,7 @@ impl TestSuite {
 
     fn to_string_pretty(&self, ext: SuiteFileExtension) -> TestSuiteResult<String> {
         match self {
-            TestSuite::Simple(this) => this.to_string_pretty(ext),
+            TestSuite::Batch(this) => this.to_string_pretty(ext),
             TestSuite::Interactive(_) | TestSuite::Unsubmittable => match ext {
                 SuiteFileExtension::Json => serde_json::to_string_pretty(self).ser_context(),
                 SuiteFileExtension::Toml => toml::to_string_pretty(self).ser_context(),
@@ -342,7 +342,7 @@ impl TestSuite {
         timelimit: Option<Duration>,
     ) -> TestSuiteResult<()> {
         match self {
-            TestSuite::Simple(suite) => {
+            TestSuite::Batch(suite) => {
                 suite.head.timelimit = timelimit;
                 Ok(())
             }
@@ -358,21 +358,21 @@ impl TestSuite {
 
     fn append(&mut self, input: &str, output: Option<&str>) -> TestSuiteResult<()> {
         match self {
-            TestSuite::Simple(suite) => {
+            TestSuite::Batch(suite) => {
                 suite.append(input, output);
                 Ok(())
             }
-            _ => Err(TestSuiteErrorKind::SuiteIsNotSimple.into()),
+            _ => Err(TestSuiteErrorKind::SuiteIsNotBatch.into()),
         }
     }
 
     fn modify_match(&mut self, output_match: Match) -> TestSuiteResult<()> {
         match self {
-            TestSuite::Simple(suite) => {
+            TestSuite::Batch(suite) => {
                 suite.head.output_match = output_match;
                 Ok(())
             }
-            _ => Err(TestSuiteErrorKind::SuiteIsNotSimple.into()),
+            _ => Err(TestSuiteErrorKind::SuiteIsNotBatch.into()),
         }
     }
 
@@ -384,15 +384,15 @@ impl TestSuite {
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct SimpleSuite {
+pub(crate) struct BatchSuite {
     #[serde(flatten)]
-    head: SimpleSuiteSchemaHead,
-    cases: Vec<SimpleSuiteSchemaCase>,
+    head: BatchSuiteSchemaHead,
+    cases: Vec<BatchSuiteSchemaCase>,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
-struct SimpleSuiteSchemaHead {
+struct BatchSuiteSchemaHead {
     #[serde(
         serialize_with = "time::ser_millis",
         skip_serializing_if = "Option::is_none",
@@ -406,39 +406,27 @@ struct SimpleSuiteSchemaHead {
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct SimpleSuiteSchemaCase {
+struct BatchSuiteSchemaCase {
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
     #[serde(rename = "in")]
-    input: SimpleSuiteText,
+    input: BatchSuiteText,
     #[serde(rename = "out", skip_serializing_if = "Option::is_none")]
-    output: Option<SimpleSuiteText>,
+    output: Option<BatchSuiteText>,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
-enum SimpleSuiteText {
+enum BatchSuiteText {
     String(String),
     Path { path: PathBuf },
 }
 
-impl SimpleSuiteText {
-    /// # Panics
-    ///
-    /// Panics if `self` is `Path`.
-    fn unwrap_str(&self) -> &str {
-        match self {
-            SimpleSuiteText::String(s) => s,
-            SimpleSuiteText::Path { .. } => panic!("called `SimpleSuiteText::unwrap_str` on Path"),
-        }
-    }
-}
-
-impl SimpleSuite {
+impl BatchSuite {
     pub(crate) fn new(timelimit: impl Into<Option<Duration>>) -> Self {
         Self {
-            head: SimpleSuiteSchemaHead {
+            head: BatchSuiteSchemaHead {
                 timelimit: timelimit.into(),
                 output_match: Match::default(),
             },
@@ -446,8 +434,8 @@ impl SimpleSuite {
         }
     }
 
-    pub(crate) fn any(mut self) -> Self {
-        self.head.output_match = Match::Any;
+    pub(crate) fn matching(mut self, matching: Match) -> Self {
+        self.head.output_match = matching;
         self
     }
 
@@ -465,25 +453,25 @@ impl SimpleSuite {
         self.cases.extend(
             cases
                 .enumerate()
-                .map(|(i, (input, output))| SimpleSuiteSchemaCase {
+                .map(|(i, (input, output))| BatchSuiteSchemaCase {
                     name: Some(match (name_single, cases_len) {
                         (Some(name_single), 0) => name_single.to_owned(),
                         _ => name(i),
                     }),
-                    input: SimpleSuiteText::String(input.into()),
-                    output: output.into().map(|o| SimpleSuiteText::String(o.into())),
+                    input: BatchSuiteText::String(input.into()),
+                    output: output.into().map(|o| BatchSuiteText::String(o.into())),
                 }),
         );
         self
     }
 
     pub(crate) fn push_path(&mut self, name: String, in_path: AbsPathBuf, out_path: AbsPathBuf) {
-        self.cases.push(SimpleSuiteSchemaCase {
+        self.cases.push(BatchSuiteSchemaCase {
             name: Some(name),
-            input: SimpleSuiteText::Path {
+            input: BatchSuiteText::Path {
                 path: in_path.into(),
             },
-            output: Some(SimpleSuiteText::Path {
+            output: Some(BatchSuiteText::Path {
                 path: out_path.into(),
             }),
         });
@@ -505,7 +493,7 @@ impl SimpleSuite {
         self
     }
 
-    fn cases_named(self, path: &AbsPath) -> FileResult<Vec<SimpleCase>> {
+    fn cases_named(self, path: &AbsPath) -> FileResult<Vec<BatchCase>> {
         let filename = path.file_name().unwrap_or_default().to_string_lossy();
         let dir = path.parent().unwrap_or(path);
         let dir = &dir;
@@ -519,17 +507,17 @@ impl SimpleSuite {
                     Some(name) => format!("{}[{}]: {:?}", filename, i, name),
                 };
                 let input = match case.input {
-                    SimpleSuiteText::String(input) => input,
-                    SimpleSuiteText::Path { path } => crate::fs::read_to_string(&dir.join(path))?,
+                    BatchSuiteText::String(input) => input,
+                    BatchSuiteText::Path { path } => crate::fs::read_to_string(&dir.join(path))?,
                 };
                 let output = match case.output {
                     None => None,
-                    Some(SimpleSuiteText::String(output)) => Some(output),
-                    Some(SimpleSuiteText::Path { path }) => {
+                    Some(BatchSuiteText::String(output)) => Some(output),
+                    Some(BatchSuiteText::Path { path }) => {
                         Some(crate::fs::read_to_string(&dir.join(path))?)
                     }
                 };
-                Ok(SimpleCase::new(
+                Ok(BatchCase::new(
                     &name,
                     timelimit,
                     &input,
@@ -543,7 +531,7 @@ impl SimpleSuite {
     fn to_string_pretty(&self, ext: SuiteFileExtension) -> TestSuiteResult<String> {
         #[derive(Serialize, new)]
         struct WithType<T: Serialize> {
-            #[new(value = "\"simple\"")]
+            #[new(value = "\"batch\"")]
             r#type: &'static str,
             #[serde(flatten)]
             repr: T,
@@ -551,6 +539,7 @@ impl SimpleSuite {
 
         fn is_valid(s: &str) -> bool {
             s.ends_with('\n')
+                && s != "\n"
                 && s.chars()
                     .all(|c| [' ', '\n'].contains(&c) || (!c.is_whitespace() && !c.is_control()))
         }
@@ -563,22 +552,22 @@ impl SimpleSuite {
             SuiteFileExtension::Yaml | SuiteFileExtension::Yml => {
                 let mut r;
                 let cases = &self.cases;
-                let all_valid =
+                let none_is_path =
                     cases
                         .iter()
                         .all(
-                            |SimpleSuiteSchemaCase { input, output, .. }| match (input, output) {
-                                (SimpleSuiteText::String(i), None) => is_valid(i),
-                                (SimpleSuiteText::String(i), Some(SimpleSuiteText::String(o))) => {
-                                    is_valid(i) && is_valid(o)
+                            |BatchSuiteSchemaCase { input, output, .. }| match (input, output) {
+                                (BatchSuiteText::String(_), Some(BatchSuiteText::String(_))) => {
+                                    true
                                 }
+                                (BatchSuiteText::String(_), None) => true,
                                 _ => false,
                             },
                         );
-                if !cases.is_empty() && all_valid {
+                if !cases.is_empty() && none_is_path {
                     r = serde_yaml::to_string(&WithType::new(&self.head)).ser_context()?;
                     r += "\ncases:\n";
-                    for SimpleSuiteSchemaCase {
+                    for BatchSuiteSchemaCase {
                         name,
                         input,
                         output,
@@ -589,14 +578,32 @@ impl SimpleSuite {
                         } else {
                             r += "  - ";
                         }
-                        r += "in: |\n";
-                        for l in input.unwrap_str().lines() {
-                            writeln!(r, "      {}", l).unwrap();
+                        match input {
+                            BatchSuiteText::String(input) if is_valid(input) => {
+                                r += "in: |\n";
+                                for l in input.lines() {
+                                    writeln!(r, "      {}", l).unwrap();
+                                }
+                            }
+                            BatchSuiteText::String(input) => {
+                                let input = yaml::escape_string(input);
+                                writeln!(r, "in: {}", input).unwrap();
+                            }
+                            BatchSuiteText::Path { .. } => unreachable!(),
                         }
                         if let Some(output) = output {
-                            r += "    out: |\n";
-                            for l in output.unwrap_str().lines() {
-                                writeln!(r, "      {}", l).unwrap();
+                            match output {
+                                BatchSuiteText::String(output) if is_valid(output) => {
+                                    r += "    out: |\n";
+                                    for l in output.lines() {
+                                        writeln!(r, "      {}", l).unwrap();
+                                    }
+                                }
+                                BatchSuiteText::String(output) => {
+                                    let output = yaml::escape_string(output);
+                                    writeln!(r, "    out: {}", output).unwrap();
+                                }
+                                BatchSuiteText::Path { .. } => unreachable!(),
                             }
                         }
                     }
@@ -609,10 +616,10 @@ impl SimpleSuite {
     }
 
     fn append(&mut self, input: &str, output: Option<&str>) {
-        self.cases.push(SimpleSuiteSchemaCase {
+        self.cases.push(BatchSuiteSchemaCase {
             name: None,
-            input: SimpleSuiteText::String(input.to_owned()),
-            output: output.map(|o| SimpleSuiteText::String(o.to_owned())),
+            input: BatchSuiteText::String(input.to_owned()),
+            output: output.map(|o| BatchSuiteText::String(o.to_owned())),
         });
     }
 }
@@ -627,7 +634,6 @@ pub(crate) struct InteractiveSuite {
         default
     )]
     timelimit: Option<Duration>,
-    tester: Option<String>,
     each_args: Vec<Vec<String>>,
 }
 
@@ -635,53 +641,39 @@ impl InteractiveSuite {
     pub fn new(timelimit: impl Into<Option<Duration>>) -> Self {
         Self {
             timelimit: timelimit.into(),
-            tester: None,
             each_args: vec![],
         }
     }
 
     fn cases_named(
         &self,
-        tester_transpilations: &HashMap<String, Template<TranspilationCommand>>,
-        tester_compilations: &HashMap<String, Template<CompilationCommand>>,
-        tester_commands: &HashMap<String, Template<JudgingCommand>>,
+        tester_transpilation: Option<&Template<TranspilationCommand>>,
+        tester_compilation: Option<&Template<CompilationCommand>>,
+        tester_command: Option<&Template<JudgingCommand>>,
         filename: &str,
         problem: &str,
     ) -> TestSuiteResult<vec::IntoIter<InteractiveCase>> {
         let mut cases = Vec::with_capacity(self.each_args.len());
         for (i, args) in self.each_args.iter().enumerate() {
-            let lang = self
-                .tester
-                .as_ref()
-                .ok_or_else(|| ConfigError::from(ConfigErrorKind::LanguageNotSpecified))?;
             let mut m = hashmap!("*".to_owned() => args.join(" "));
             m.extend(args.iter().enumerate().zip_longest(1..=9).map(|p| match p {
                 EitherOrBoth::Both((_, arg), i) => (i.to_string(), arg.clone()),
                 EitherOrBoth::Left((j, arg)) => ((j + i).to_string(), arg.clone()),
                 EitherOrBoth::Right(i) => (i.to_string(), "".to_owned()),
             }));
-            let tester_transpilation = match tester_transpilations
-                .get(lang)
-                .map(|t| t.clone().expand(&problem))
-            {
-                None => Ok(None),
-                Some(Err(err)) => Err(err),
-                Some(Ok(comp)) => Ok(Some(Arc::new(comp))),
-            }?;
-            let tester_compilation = match tester_compilations
-                .get(lang)
-                .map(|t| t.clone().expand(&problem))
-            {
-                None => Ok(None),
-                Some(Err(err)) => Err(err),
-                Some(Ok(comp)) => Ok(Some(Arc::new(comp))),
-            }?;
-            let tester = tester_commands
-                .get(lang)
-                .map(|template| template.clone().clone())
-                .ok_or_else(|| ConfigError::from(ConfigErrorKind::NoSuchLanguage(lang.to_owned())))?
+            let tester_transpilation = match tester_transpilation {
+                None => None,
+                Some(t) => Some(Arc::new(t.expand(problem)?)),
+            };
+            let tester_compilation = match tester_compilation {
+                None => None,
+                Some(t) => Some(Arc::new(t.expand(problem)?)),
+            };
+            let tester = tester_command
+                .ok_or_else(|| ConfigError::from(ConfigErrorKind::TesterNotSpecified))?
+                .clone()
                 .envs(Some(&m))
-                .expand(&problem)?;
+                .expand(problem)?;
             cases.push(InteractiveCase {
                 name: Arc::new(format!("{}[{}]", filename, i)),
                 tester: Arc::new(tester),
@@ -711,16 +703,16 @@ impl<T, E: std::error::Error + Send + Sync + 'static> SerContext for std::result
     }
 }
 
-/// `Vec<SimpleCase>` or `Vec<ReducibleCase>`.
+/// `Vec<BatchCase>` or `Vec<ReducibleCase>`.
 pub(crate) enum TestCases {
-    Simple(Vec<SimpleCase>),
+    Batch(Vec<BatchCase>),
     Interactive(Vec<InteractiveCase>),
 }
 
 impl TestCases {
     pub(crate) fn interactive_tester_transpilations(&self) -> HashSet<Arc<TranspilationCommand>> {
         match self {
-            TestCases::Simple(_) => hashset!(),
+            TestCases::Batch(_) => hashset!(),
             TestCases::Interactive(cases) => cases
                 .iter()
                 .filter_map(|case| case.tester_transpilation.clone())
@@ -730,7 +722,7 @@ impl TestCases {
 
     pub(crate) fn interactive_tester_compilations(&self) -> HashSet<Arc<CompilationCommand>> {
         match self {
-            TestCases::Simple(_) => hashset!(),
+            TestCases::Batch(_) => hashset!(),
             TestCases::Interactive(cases) => {
                 let compilations = cases
                     .iter()
@@ -748,20 +740,20 @@ pub(crate) trait TestCase {
 
 /// Pair of `input` and `expected`.
 #[derive(Clone)]
-pub(crate) struct SimpleCase {
+pub(crate) struct BatchCase {
     name: Arc<String>,
     input: Arc<String>,
     expected: Arc<ExpectedStdout>,
     timelimit: Option<Duration>,
 }
 
-impl TestCase for SimpleCase {
+impl TestCase for BatchCase {
     fn name(&self) -> Arc<String> {
         self.name.clone()
     }
 }
 
-impl SimpleCase {
+impl BatchCase {
     fn new(
         name: &str,
         timelimit: Option<Duration>,

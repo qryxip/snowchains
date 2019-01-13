@@ -249,7 +249,7 @@ impl BuildCommand {
     }
 }
 
-/// Command for simple/interactive testing.
+/// Command for batch/interactive testing.
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct JudgingCommand {
     inner: Inner,
