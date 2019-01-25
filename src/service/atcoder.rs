@@ -11,6 +11,7 @@ use crate::service::{
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
+use crate::util::num::PositiveFinite;
 use crate::util::std_unstable::RemoveItem_;
 
 use chrono::{DateTime, Local, Utc};
@@ -992,16 +993,16 @@ impl Extract for Document {
                     .any(|s| s.contains("絶対誤差") || s.contains("absolute error"));
                 match (error, relative, absolute) {
                     (Some(error), true, true) => testsuite::Match::Float {
-                        relative_error: error,
-                        absolute_error: error,
+                        relative_error: Some(error),
+                        absolute_error: Some(error),
                     },
                     (Some(error), true, false) => testsuite::Match::Float {
-                        relative_error: error,
-                        absolute_error: f64::NAN,
+                        relative_error: Some(error),
+                        absolute_error: None,
                     },
                     (Some(error), false, true) => testsuite::Match::Float {
-                        relative_error: f64::NAN,
-                        absolute_error: error,
+                        relative_error: None,
+                        absolute_error: Some(error),
                     },
                     _ => testsuite::Match::Exact,
                 }
@@ -1048,12 +1049,12 @@ impl Extract for Document {
             Some(Samples::Batch(samples, matching))
         }
 
-        fn parse_floating_error(s: &str) -> Option<f64> {
+        fn parse_floating_error(s: &str) -> Option<PositiveFinite<f64>> {
             static R: Lazy<Regex> = lazy_regex!(r"\A([0-9]{1,2})\^\{(-?[0-9]{1,2})\}\z");
             let caps = R.captures(s)?;
             let base = caps[1].parse::<f64>().ok()?;
             let exp = caps[2].parse::<f64>().ok()?;
-            Some(base.powf(exp))
+            PositiveFinite::try_new(base.powf(exp)).ok()
         }
 
         fn parse_zenkaku<T: FromStr>(s: &str) -> Result<T, T::Err> {
@@ -1467,7 +1468,7 @@ mod tests {
             ("L", "dp_l", "73f37f0dcd679d69456932c169b62ccb"),
             ("M", "dp_m", "230b2471a92d9ce917b19216e12969a2"),
             ("N", "dp_n", "003343a26117a1cb59cc199e3aa84d3c"),
-            ("O", "dp_o", "fe6c90f56a14eab02c4f90c2ac405d00"),
+            ("O", "dp_o", "195dcd10c15b05c2f23744142d8b9b16"),
             ("P", "dp_p", "535a0d3c5146233734026683cbc1768f"),
             ("Q", "dp_q", "7201fc360ecc3e95e9648c1877de9f46"),
             ("R", "dp_r", "68350e3245f5f3ceedace82f704b19f0"),
@@ -1501,6 +1502,7 @@ mod tests {
             let problem_page = atcoder.get(&actual_url).recv_html()?;
             let actual_suite = problem_page.extract_as_suite()?;
             let actual_md5 = actual_suite.md5()?;
+            actual_suite.assert_serialize_correctly()?;
             assert_eq!(format!("{:x}", actual_md5), *expected_md5);
         }
         Ok(())

@@ -9,13 +9,13 @@ use crate::service::{
 use crate::terminal::{AnsiColorChoice, Term};
 use crate::testsuite::{self, SuiteFileExtension};
 use crate::time;
+use crate::util::num::PositiveFinite;
 
 use log::info;
 use structopt::clap::Arg;
 use structopt::StructOpt;
 use strum_macros::EnumString;
 
-use std::f64;
 use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -370,15 +370,15 @@ pub struct MatchOpts {
     #[structopt(
         long = "relative",
         help = "Relative error (ignored if <match> is not \"float\")",
-        raw(value_name = "\"FLOAT64\"", display_order = "4")
+        raw(value_name = "\"POSITIVE_FINITE_FLOAT64\"", display_order = "4")
     )]
-    relative_error: Option<f64>,
+    relative_error: Option<PositiveFinite<f64>>,
     #[structopt(
         long = "absolute",
         help = "Absolute error (ignored if <match> is not \"float\")",
-        raw(value_name = "\"FLOAT64\"", display_order = "5")
+        raw(value_name = "\"POSITIVE_FINITE_FLOAT64\"", display_order = "5")
     )]
-    absolute_error: Option<f64>,
+    absolute_error: Option<PositiveFinite<f64>>,
 }
 
 impl Into<testsuite::Match> for MatchOpts {
@@ -387,8 +387,8 @@ impl Into<testsuite::Match> for MatchOpts {
             MatchKind::Any => testsuite::Match::Any,
             MatchKind::Exact => testsuite::Match::Exact,
             MatchKind::Float => testsuite::Match::Float {
-                relative_error: self.relative_error.unwrap_or(f64::NAN),
-                absolute_error: self.absolute_error.unwrap_or(f64::NAN),
+                relative_error: self.relative_error,
+                absolute_error: self.absolute_error,
             },
         }
     }

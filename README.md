@@ -96,7 +96,7 @@ $ snowchains submit a --open                   # executes `judge` command before
 ---
 service: atcoder # "atcoder", "yukicoder", "other"
 contest: arc100
-language: c++    # Priorities: <command line argument>, `service._.language`, `language`
+language: c++
 
 console:
   cjk: false

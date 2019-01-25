@@ -6,6 +6,7 @@ use crate::errors::{
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
 use crate::terminal::WriteAnsi;
+use crate::util::num::PositiveFinite;
 use crate::{time, yaml};
 
 use derive_more::From;
@@ -15,6 +16,9 @@ use itertools::{EitherOrBoth, Itertools};
 use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
+
+#[cfg(test)]
+use failure::Fallible;
 
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write;
@@ -377,8 +381,17 @@ impl TestSuite {
     }
 
     #[cfg(test)]
-    pub(crate) fn md5(&self) -> serde_json::Result<md5::Digest> {
-        serde_json::to_string_pretty(self).map(md5::compute)
+    pub(crate) fn md5(&self) -> TestSuiteResult<md5::Digest> {
+        self.to_string_pretty(SuiteFileExtension::Json)
+            .map(md5::compute)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assert_serialize_correctly(&self) -> Fallible<()> {
+        let serialized = self.to_string_pretty(SuiteFileExtension::Json)?;
+        let deserialized = serde_json::from_str(&serialized)?;
+        assert_eq!(*self, deserialized);
+        Ok(())
     }
 }
 
@@ -809,8 +822,8 @@ pub(crate) enum ExpectedStdout {
     Exact(String),
     Float {
         string: String,
-        absolute_error: f64,
-        relative_error: f64,
+        relative_error: Option<PositiveFinite<f64>>,
+        absolute_error: Option<PositiveFinite<f64>>,
     },
 }
 
@@ -821,15 +834,9 @@ pub(crate) enum Match {
     Any,
     Exact,
     Float {
-        #[serde(default = "nan")]
-        relative_error: f64,
-        #[serde(default = "nan")]
-        absolute_error: f64,
+        relative_error: Option<PositiveFinite<f64>>,
+        absolute_error: Option<PositiveFinite<f64>>,
     },
-}
-
-fn nan() -> f64 {
-    f64::NAN
 }
 
 impl Default for Match {

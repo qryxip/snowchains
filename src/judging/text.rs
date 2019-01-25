@@ -1,11 +1,12 @@
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
+use crate::util::num::PositiveFinite;
 
 use combine::Parser;
 use derive_new::new;
 
 use std::fmt::Write;
 use std::sync::Arc;
-use std::{cmp, io};
+use std::{cmp, f64, io};
 
 pub(super) trait Width {
     fn width(&self, f: fn(&str) -> usize) -> usize;
@@ -141,8 +142,8 @@ pub(super) enum Word {
     FloatLeft {
         value: f64,
         string: Arc<String>, // `str::parse<f64>` is not injective
-        absolute_error: f64,
-        relative_error: f64,
+        relative_error: Option<PositiveFinite<f64>>,
+        absolute_error: Option<PositiveFinite<f64>>,
     },
     FloatRight {
         value: f64,
@@ -226,8 +227,8 @@ impl PartialEq for Word {
             (
                 Word::FloatLeft {
                     value: v1,
-                    absolute_error: d,
                     relative_error: r,
+                    absolute_error: d,
                     ..
                 },
                 Word::FloatRight { value: v2, .. },
@@ -236,25 +237,35 @@ impl PartialEq for Word {
                 Word::FloatRight { value: v2, .. },
                 Word::FloatLeft {
                     value: v1,
-                    absolute_error: d,
                     relative_error: r,
+                    absolute_error: d,
                     ..
                 },
-            ) => ((v1 - v2).abs() <= *d || ((v1 - v2) / v2).abs() <= *r),
+            ) => {
+                let r = r.map(Into::into).unwrap_or(f64::NAN);
+                let d = d.map(Into::into).unwrap_or(f64::NAN);
+                ((v1 - v2).abs() <= d || ((v1 - v2) / v2).abs() <= r)
+            }
             (
                 Word::FloatLeft {
                     string: s1,
-                    absolute_error: d1,
                     relative_error: r1,
+                    absolute_error: d1,
                     ..
                 },
                 Word::FloatLeft {
                     string: s2,
-                    absolute_error: d2,
                     relative_error: r2,
+                    absolute_error: d2,
                     ..
                 },
-            ) => s1 == s2 && d1 == d2 && r1 == r2,
+            ) => {
+                let r1 = r1.map(Into::into).unwrap_or(f64::NAN);
+                let d1 = d1.map(Into::into).unwrap_or(f64::NAN);
+                let r2 = r2.map(Into::into).unwrap_or(f64::NAN);
+                let d2 = d2.map(Into::into).unwrap_or(f64::NAN);
+                s1 == s2 && d1 == d2 && r1 == r2
+            }
             (Word::FloatRight { string: s1, .. }, Word::FloatRight { string: s2, .. }) => s1 == s2,
             (Word::Noeol, Word::Noeol) => true,
             _ => false,
