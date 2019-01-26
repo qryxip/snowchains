@@ -20,10 +20,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
-use std::path::Path;
-use std::str;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{env, str};
 
 static CONFIG_FILE_NAME: &str = "snowchains.yaml";
 
@@ -43,16 +43,6 @@ fn generate_yaml() -> String {
     static CONSOLE_ALT_WIDTH: &str = "\n  # alt_width: 100";
 
     #[cfg(not(windows))]
-    static SHELL: &str = "bash: [bash, -c, $command]";
-    #[cfg(windows)]
-    static SHELL: &str = "cmd: [cmd, /C, $command]\n  ps: [powershell, -Command, $command]";
-
-    #[cfg(not(windows))]
-    static JQ: &str = "bash: echo \"$SNOWCHAINS_RESULT\" | jq";
-    #[cfg(windows)]
-    static JQ: &str = "ps: echo \"${env:SNOWCHAINS_RESULT}\" | jq";
-
-    #[cfg(not(windows))]
     static EXE: &str = "";
     #[cfg(windows)]
     static EXE: &str = ".exe";
@@ -61,27 +51,6 @@ fn generate_yaml() -> String {
     static VENV_PYTHON3: &str = "./venv/bin/python3";
     #[cfg(windows)]
     static VENV_PYTHON3: &str = "./venv/Scripts/python.exe";
-
-    #[cfg(not(windows))]
-    static TRANSPILE_JAVA: &str = "bash: cat \"$SNOWCHAINS_SRC\" | \
-                                   sed -r \"s/class\\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g\" > \
-                                   \"$SNOWCHAINS_TRANSPILED\"";
-    #[cfg(windows)]
-    static TRANSPILE_JAVA: &str =
-        "ps: cat \"${env:SNOWCHAINS_SRC}\" | \
-         % { $_ -replace \"class\\s+${env:SNOWCHAINS_PROBLEM_PASCAL}\", \"class Main\" } | \
-         sc \"${env:SNOWCHAINS_TRANSPILED}\"";
-
-    #[cfg(not(windows))]
-    static TRANSPILE_SCALA: &str =
-        "bash: cat \"$SNOWCHAINS_SRC\" | \
-         sed -r \"s/object\\s+$SNOWCHAINS_PROBLEM_PASCAL/object Main/g\" > \
-         \"$SNOWCHAINS_TRANSPILED\"";
-    #[cfg(windows)]
-    static TRANSPILE_SCALA: &str =
-        "ps: cat \"${env:SNOWCHAINS_SRC}\" | \
-         % { $_ -replace \"object\\s+${env:SNOWCHAINS_PROBLEM_PASCAL}\", \"object Main\" } | \
-         sc \"${env:SNOWCHAINS_TRANSPILED}\"";
 
     #[cfg(not(windows))]
     static CRLF_TO_LF_TRUE_INDENT6: &str = "";
@@ -131,20 +100,102 @@ fn generate_yaml() -> String {
       # atcoder: 3006   # "C# (Mono x.x.x.x)"
       yukicoder: csharp # "C# (csc x.x.x.x)""#;
 
+    fn quote_path(path: &Path) -> Option<String> {
+        let separator = if std::path::is_separator('/') {
+            '/'
+        } else {
+            std::path::MAIN_SEPARATOR
+        };
+        path.to_str().map(|s| {
+            yaml::escape_string(&s.replace(std::path::MAIN_SEPARATOR, &separator.to_string()))
+                .into_owned()
+        })
+    }
+
+    let (bash, powershell, cmd, jq, transpile_java, transpile_scala) = {
+        trait WithExe: ToOwned {
+            fn with_exe(&self, name: &str) -> Self::Owned;
+        }
+
+        impl WithExe for Path {
+            #[cfg(not(windows))]
+            fn with_exe(&self, name: &str) -> PathBuf {
+                self.join(name)
+            }
+
+            #[cfg(windows)]
+            fn with_exe(&self, name: &str) -> PathBuf {
+                self.join(name).with_extension("exe")
+            }
+        }
+
+        let env_path = env::var_os("PATH").unwrap_or_default();
+        let bash = env::split_paths(&env_path)
+            .chain(if cfg!(windows) {
+                vec![
+                    PathBuf::from(r"C:\tools\msys64\usr\bin"),
+                    PathBuf::from(r"C:\msys64\usr\bin"),
+                    PathBuf::from(r"C:\Program Files\Git\usr\bin"),
+                ]
+            } else {
+                vec![]
+            })
+            .map(|p| p.with_exe("bash"))
+            .find(|p| p.exists() && p.to_str().is_some());
+        let bash_found = bash.is_some();
+        let bash = bash.unwrap_or_else(|| PathBuf::from("bash"));
+        let bash = format!(
+            "bash: [{}, -c, {}]",
+            quote_path(&bash).unwrap(),
+            if cfg!(windows) {
+                "\"PATH=/usr/bin:$$PATH; $command\""
+            } else {
+                "$command"
+            }
+        );
+        let powershell = env::split_paths(&env_path)
+            .flat_map(|p| vec![p.with_exe("pwsh"), p.with_exe("powershell")])
+            .find(|p| cfg!(windows) && p.exists())
+            .and_then(|p| quote_path(&p))
+            .map(|s| format!("\n  ps: [{}, -Command, $command]", s))
+            .unwrap_or_default();
+        let cmd = env::split_paths(&env_path)
+            .map(|p| p.with_exe("cmd"))
+            .find(|p| cfg!(windows) && p.exists())
+            .and_then(|p| quote_path(&p))
+            .map(|s| format!("\n  cmd: [{}, /C, $command]", s))
+            .unwrap_or_default();
+
+        let (jq, transpile_java, transpile_scala);
+        if cfg!(windows) && !bash_found {
+            jq = "ps: echo \"${env:SNOWCHAINS_RESULT}\" | jq";
+            transpile_java =
+                r#"ps: gc "${env:SNOWCHAINS_SRC}" | % { $_.Replace("class\s+${env:SNOWCHAINS_PROBLEM_PASCAL}", "class Main") } | sc "${env:SNOWCHAINS_TRANSPILED}""#;
+            transpile_scala =
+                r#"ps: gc "${env:SNOWCHAINS_SRC}" | % { $_.Replace("object\s+${env:SNOWCHAINS_PROBLEM_PASCAL}", "object Main") } | sc "${env:SNOWCHAINS_TRANSPILED}""#;
+        } else {
+            jq = "bash: echo \"$SNOWCHAINS_RESULT\" | jq";
+            transpile_java =
+                r#"bash: cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g" > "$SNOWCHAINS_TRANSPILED""#;
+            transpile_scala =
+                r#"bash: cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PROBLEM_PASCAL/object Main/g" > "$SNOWCHAINS_TRANSPILED""#;
+        };
+
+        (bash, powershell, cmd, jq, transpile_java, transpile_scala)
+    };
     let (session_cookies, session_dropbox) = {
         let data_local_dir = if_chain! {
             if let (Some(home), Some(local)) = (dirs::home_dir(), dirs::data_local_dir());
             if let Ok(path) = local.strip_prefix(&home);
+            if path.to_str().is_some();
             then {
                 Path::new("~").join(path).join("snowchains")
             } else {
                 Path::new("~").join(".local").join("share").join("snowchains")
             }
         };
-        let session_cookies = data_local_dir.join("$service").display().to_string();
-        let session_cookies = yaml::escape_string(&session_cookies).into_owned();
-        let session_dropbox = data_local_dir.join("dropbox.json").display().to_string();
-        let session_dropbox = yaml::escape_string(&session_dropbox).into_owned();
+        let session_cookies = quote_path(&data_local_dir.join("$service")).unwrap();
+        let session_dropbox = quote_path(&data_local_dir.join("dropbox.json")).unwrap();
         (session_cookies, session_dropbox)
     };
     let judge_jobs = num_cpus::get();
@@ -159,7 +210,7 @@ console:
   cjk: false{console_alt_width}
 
 shell:
-  {shell}
+  {bash}{powershell}{cmd}
 
 testfile_path: $service/$contest/tests/{{snake}}.$extension
 
@@ -321,12 +372,14 @@ languages:
         session_cookies = session_cookies,
         session_dropbox = session_dropbox,
         judge_jobs = judge_jobs,
-        shell = SHELL,
-        jq = JQ,
+        bash = bash,
+        powershell = powershell,
+        cmd = cmd,
+        jq = jq,
         exe = EXE,
         venv_python3 = VENV_PYTHON3,
-        transpile_java = TRANSPILE_JAVA,
-        transpile_scala = TRANSPILE_SCALA,
+        transpile_java = transpile_java,
+        transpile_scala = transpile_scala,
         crlf_to_lf_true_indent4 = CRLF_TO_LF_TRUE_INDENT4,
         crlf_to_lf_false_commented_out = CRLF_TO_LF_FALSE_COMMENTED_OUT,
         crlf_to_lf_true_indent6 = CRLF_TO_LF_TRUE_INDENT6,
