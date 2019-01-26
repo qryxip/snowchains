@@ -24,9 +24,27 @@ impl<T: PartialEq> RemoveItem_ for Vec<T> {
     }
 }
 
+pub(crate) trait Transpose_ {
+    type Output;
+
+    fn transpose_(self) -> Self::Output;
+}
+
+impl<T, E> Transpose_ for Option<std::result::Result<T, E>> {
+    type Output = std::result::Result<Option<T>, E>;
+
+    fn transpose_(self) -> std::result::Result<Option<T>, E> {
+        match self {
+            None => Ok(None),
+            Some(Ok(x)) => Ok(Some(x)),
+            Some(Err(e)) => Err(e),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::util::std_unstable::{AsMillis_, RemoveItem_};
+    use crate::util::std_unstable::{AsMillis_, RemoveItem_, Transpose_};
 
     use std::time::Duration;
 
@@ -44,5 +62,19 @@ mod tests {
     fn test_remove_item_() {
         assert_eq!(vec!['a'].remove_item_(&'a'), Some('a'));
         assert_eq!(vec!['b'].remove_item_(&'a'), None);
+    }
+
+    #[test]
+    fn test_transpose_() {
+        fn test(
+            left: Option<std::result::Result<(), ()>>,
+            right: std::result::Result<Option<()>, ()>,
+        ) {
+            assert_eq!(left.transpose_(), right);
+        }
+
+        test(None, Ok(None));
+        test(Some(Ok(())), Ok(Some(())));
+        test(Some(Err(())), Err(()));
     }
 }

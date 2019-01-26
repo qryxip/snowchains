@@ -463,10 +463,7 @@ impl RequestExt for reqwest::r#async::Request {
     }
 }
 
-trait ResponseExt
-where
-    Self: Sized,
-{
+trait ResponseExt: Sized {
     fn log_status(&self);
     fn echo_status(&self, expected_statuses: &[StatusCode], out: impl WriteAnsi) -> io::Result<()>;
     fn filter_by_status(self, expected: Vec<StatusCode>) -> ServiceResult<Self>;

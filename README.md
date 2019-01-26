@@ -89,10 +89,11 @@ $ # snowchains judge a
 $ snowchains submit a --open                   # executes `judge` command before submitting
 ```
 
-## Config File (snowchains.yaml)
+## Examples
+
+### Config File (snowchains.yaml)
 
 ```yaml
-# Example
 ---
 service: atcoder # "atcoder", "yukicoder", "other"
 contest: arc100
@@ -103,9 +104,12 @@ console:
   # alt_width: 100
 
 shell:
-  bash: [bash, -c, $command]
-  # cmd: [cmd, /C, $command]
-  # ps: [powershell, -Command, $command]
+  bash: [/usr/bin/bash, -c, $command]
+  # bash: ["C:/tools/msys64/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; $command"]
+  # bash: ["C:/msys64/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; $command"]
+  # bash: ["C:/Program Files/Git/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; $command"]
+  # ps: ["C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", -Command, $command]
+  # cmd: ["C:/Windows/System32/cmd.exe", /C, $command]
 
 testfile_path: $service/$contest/tests/{snake}.$extension
 
@@ -174,32 +178,6 @@ tester:
   #   command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
   #   working_directory: testers/hs
 
-# test files: <testsuite>/<problem>.[json|toml|yaml|yml]
-# source:     <<src> % <problem>>
-# binary:     <<bin> % <problem>>
-#
-# Common:
-#   "plain"                        => "plain";
-#   "{}"          % "problem name" => "problem name"
-#   "{lower}"     % "problem name" => "problem name"
-#   "{UPPER}"     % "problem name" => "PROBLEM NAME"
-#   "{kebab}"     % "problem name" => "problem-name"
-#   "{snake}"     % "problem name" => "problem_name"
-#   "{SCREAMING}" % "problem name" => "PROBLEM_NAME"
-#   "{mixed}"     % "problem name" => "problemName"
-#   "{Pascal}"    % "problem name" => "ProblemName"
-#   "{Title}"     % "problem name" => "Problem Name"
-#   "$ENVVAR"                      => "<value of ENVVAR>"
-#   "$${{}}"                       => "${}"
-# Path:
-#   "", "."                                    => "./"
-#   "relative", "./relative"                   => "./relative"
-#   "/absolute"                                => "/absolute"
-#   "cpp/{snake}.cpp"         % "problem name" => "./cpp/problem_name.cpp"
-#   "cs/{Pascal}/{Pascal}.cs" % "problem name" => "./cs/ProblemName/ProblemName.cs"
-# Command:
-#   "$src" => "<path to the source file>"
-#   "$bin" => "<path to the binary file>"
 languages:
   c++:
     src: $service/$contest/cpp/{kebab}.cpp     # source file to test and to submit
@@ -297,13 +275,13 @@ languages:
       yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)"
 ```
 
-## Test file
+### Test file
 
 - [x] YAML
 - [x] TOML
 - [x] JSON
 
-### Batch (one input, one output)
+#### Batch (one input, one output)
 
 <https://atcoder.jp/contests/practice/tasks/practice_1>
 
@@ -417,7 +395,7 @@ out = '''
 '''
 ```
 
-### Interactive
+#### Interactive
 
 <https://atcoder.jp/contests/practice/tasks/practice_2>
 

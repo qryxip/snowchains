@@ -6,6 +6,7 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceName;
 use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
+use crate::util::std_unstable::Transpose_;
 
 use combine::Parser;
 use derive_new::new;
@@ -20,6 +21,7 @@ use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
+use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{env, fmt, iter};
@@ -62,7 +64,8 @@ impl<T: Target> TemplateBuilder<T> {
         Template {
             inner: self.0.clone(),
             requirements,
-            strings: hashmap!(),
+            extension: None,
+            envs: hashmap!(),
         }
     }
 }
@@ -70,34 +73,19 @@ impl<T: Target> TemplateBuilder<T> {
 pub(crate) struct Template<T: Target> {
     inner: T::Inner,
     requirements: T::Requirements,
-    strings: HashMap<String, String>,
+    extension: Option<SuiteFileExtension>,
+    envs: HashMap<String, String>,
 }
 
 impl<T: Target> Template<T> {
-    pub(crate) fn service(mut self, value: ServiceName) -> Self {
-        for &key in &["service", "SNOWCHAINS_SERVICE"] {
-            self.strings.insert(key.to_owned(), value.to_string());
-        }
-        self
-    }
-
-    pub(crate) fn contest(mut self, value: &str) -> Self {
-        for &key in &["contest", "SNOWCHAINS_CONTEST"] {
-            self.strings.insert(key.to_owned(), value.to_owned());
-        }
-        self
-    }
-
     pub(crate) fn extension(mut self, value: SuiteFileExtension) -> Self {
-        for &key in &["extension", "SNOWCHAINS_EXTENSION"] {
-            self.strings.insert(key.to_owned(), value.to_string());
-        }
+        self.extension = Some(value);
         self
     }
 
     pub(crate) fn envs(mut self, envs: Option<&HashMap<String, String>>) -> Self {
         if let Some(envs) = envs {
-            self.strings
+            self.envs
                 .extend(envs.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
         self
@@ -108,15 +96,26 @@ impl<T: Target> Template<T> {
 impl Template<OsString> {
     pub(crate) fn expand(&self, problem: &str) -> ExpandTemplateResult<OsString> {
         let empty = HashMap::<_, &'static OsStr>::new();
-        self.inner
-            .expand_as_os_string(problem, &self.strings, &empty)
+        self.inner.expand_as_os_string(problem, &self.envs, &empty)
     }
 }
 
 impl Template<AbsPathBuf> {
     pub(crate) fn expand(&self, problem: &str) -> ExpandTemplateResult<AbsPathBuf> {
-        self.inner
-            .expand_as_path(problem, &self.requirements, &self.strings)
+        let base_dir = &self.requirements.base_dir;
+        let mut strings = self.envs.clone();
+        for &name in &["service", "SNOWCHAINS_SERVICE"] {
+            strings.insert(name.to_owned(), self.requirements.service.to_string());
+        }
+        for &name in &["contest", "SNOWCHAINS_CONTEST"] {
+            strings.insert(name.to_owned(), self.requirements.contest.clone());
+        }
+        if let Some(extension) = self.extension {
+            for &name in &["extension", "SNOWCHAINS_EXTENSION"] {
+                strings.insert(name.to_owned(), extension.to_string());
+            }
+        }
+        self.inner.expand_as_path(problem, base_dir, &strings)
     }
 }
 
@@ -131,12 +130,12 @@ impl Template<HookCommands> {
             result,
         } = &self.requirements;
         let strings = {
-            let mut strings = self.strings.clone();
             let json = match result.as_ref() {
                 Ok(json) => Ok(json.clone()),
                 Err(err) => Err(failure::err_msg(err.to_string())
                     .context(ExpandTemplateErrorKind::SerializeJson)),
             }?;
+            let mut strings = self.envs.clone();
             strings.insert("result".into(), json.clone());
             strings.insert("SNOWCHAINS_RESULT".into(), json);
             strings
@@ -162,7 +161,7 @@ impl Template<HookCommands> {
                         }
                     }
                 }
-                let envs = setup_env_vars(problem, &strings, &empty);
+                let envs = setup_env_vars(None, Some(&self.envs), None, None, None, None, None);
                 Ok(HookCommand::new(args, base_dir.clone(), envs))
             })
             .collect()
@@ -173,26 +172,37 @@ impl Template<TranspilationCommand> {
     pub(crate) fn expand(&self, problem: &str) -> ExpandTemplateResult<TranspilationCommand> {
         let TranspilationCommandRequirements {
             base_dir,
+            service,
+            contest,
             shell,
             working_dir: TemplateBuilder(working_dir),
             src: TemplateBuilder(src),
             transpiled: TemplateBuilder(transpiled),
         } = &self.requirements;
-        let strings = &self.strings;
-        let wd = working_dir.expand_as_path(problem, base_dir, strings)?;
-        let src = src.expand_as_path(problem, base_dir, strings)?;
-        let transpiled = transpiled.expand_as_path(problem, base_dir, strings)?;
+        let strings = {
+            let mut strings = self.envs.clone();
+            for &name in &["service", "SNOWCHAINS_SERVICE"] {
+                strings.insert(name.into(), service.to_string());
+            }
+            for &name in &["contest", "SNOWCHAINS_CONTEST"] {
+                strings.insert(name.into(), contest.clone());
+            }
+            strings
+        };
+        let wd = working_dir.expand_as_path(problem, base_dir, &strings)?;
+        let src = src.expand_as_path(problem, base_dir, &strings)?;
+        let transpiled = transpiled.expand_as_path(problem, base_dir, &strings)?;
         let os_strings = hashmap!(
-            "src"            => src.as_os_str(),
-            "SNOWCHAINS_SRC" => src.as_os_str(),
-            "transpiled"     => transpiled.as_os_str(),
-            "SNOWCHAINS_BIN" => transpiled.as_os_str(),
+            "src"                   => src.as_os_str(),
+            "SNOWCHAINS_SRC"        => src.as_os_str(),
+            "transpiled"            => transpiled.as_os_str(),
+            "SNOWCHAINS_TRANSPILED" => transpiled.as_os_str(),
         );
         let mut args = vec![];
         match &self.inner {
             CommandTemplateInner::Args(ss) => {
                 for s in ss {
-                    args.push(s.expand_as_os_string(problem, strings, &os_strings)?);
+                    args.push(s.expand_as_os_string(problem, &strings, &os_strings)?);
                 }
             }
             CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
@@ -202,11 +212,19 @@ impl Template<TranspilationCommand> {
                     .get(key)
                     .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
                 for TemplateBuilder(s) in shell {
-                    args.push(s.expand_as_os_string(problem, strings, &os_strings)?);
+                    args.push(s.expand_as_os_string(problem, &strings, &os_strings)?);
                 }
             }
         }
-        let envs = setup_env_vars(problem, strings, &os_strings);
+        let envs = setup_env_vars(
+            Some(problem),
+            Some(&self.envs),
+            Some(*service),
+            Some(contest),
+            Some(&src),
+            Some(&transpiled),
+            None,
+        );
         Ok(TranspilationCommand::new(args, wd, src, transpiled, envs))
     }
 }
@@ -215,24 +233,40 @@ impl Template<CompilationCommand> {
     pub(crate) fn expand(&self, problem: &str) -> ExpandTemplateResult<CompilationCommand> {
         let CompilationCommandRequirements {
             base_dir,
+            service,
+            contest,
             shell,
             working_dir: TemplateBuilder(working_dir),
             src: TemplateBuilder(src),
             transpiled,
             bin: TemplateBuilder(bin),
         } = &self.requirements;
-        let strings = &self.strings;
-        let wd = working_dir.expand_as_path(problem, base_dir, strings)?;
-        let src = src.expand_as_path(problem, base_dir, strings)?;
-        let bin = bin.expand_as_path(problem, base_dir, strings)?;
+        let strings = {
+            let mut strings = self.envs.clone();
+            for &name in &["service", "SNOWCHAINS_SERVICE"] {
+                strings.insert(name.into(), service.to_string());
+            }
+            for &name in &["contest", "SNOWCHAINS_CONTEST"] {
+                strings.insert(name.into(), contest.clone());
+            }
+            strings
+        };
+        let wd = working_dir.expand_as_path(problem, base_dir, &strings)?;
+        let src = src.expand_as_path(problem, base_dir, &strings)?;
+        let transpiled = transpiled
+            .as_ref()
+            .map(|TemplateBuilder(transpiled)| {
+                transpiled.expand_as_path(problem, base_dir, &strings)
+            })
+            .transpose_()?;
+        let bin = bin.expand_as_path(problem, base_dir, &strings)?;
         let mut os_strings = hashmap!(
             "src"            => src.as_os_str().to_owned(),
             "SNOWCHAINS_SRC" => src.as_os_str().to_owned(),
             "bin"            => bin.as_os_str().to_owned(),
             "SNOWCHAINS_BIN" => bin.as_os_str().to_owned(),
         );
-        if let Some(TemplateBuilder(transpiled)) = transpiled {
-            let transpiled = transpiled.expand_as_path(problem, base_dir, strings)?;
+        if let Some(transpiled) = &transpiled {
             for &key in &["transpiled", "SNOWCHAINS_TRANSPILED"] {
                 os_strings.insert(key, transpiled.as_os_str().to_owned());
             }
@@ -241,7 +275,7 @@ impl Template<CompilationCommand> {
         match &self.inner {
             CommandTemplateInner::Args(ss) => {
                 for s in ss {
-                    args.push(s.expand_as_os_string(problem, strings, &os_strings)?);
+                    args.push(s.expand_as_os_string(problem, &strings, &os_strings)?);
                 }
             }
             CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
@@ -253,11 +287,19 @@ impl Template<CompilationCommand> {
                     .get(key)
                     .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
                 for TemplateBuilder(s) in shell {
-                    args.push(s.expand_as_os_string(problem, strings, &os_strings)?);
+                    args.push(s.expand_as_os_string(problem, &strings, &os_strings)?);
                 }
             }
         }
-        let envs = setup_env_vars(problem, strings, &os_strings);
+        let envs = setup_env_vars(
+            Some(problem),
+            Some(&self.envs),
+            Some(*service),
+            Some(contest),
+            Some(&src),
+            transpiled.as_ref().map(Deref::deref),
+            Some(&bin),
+        );
         Ok(CompilationCommand::new(args, wd, src, bin, envs))
     }
 }
@@ -266,6 +308,8 @@ impl Template<JudgingCommand> {
     pub(crate) fn expand(&self, problem: &str) -> ExpandTemplateResult<JudgingCommand> {
         let JudgingCommandRequirements {
             base_dir,
+            service,
+            contest,
             shell,
             working_dir: TemplateBuilder(working_dir),
             src: TemplateBuilder(src),
@@ -273,30 +317,47 @@ impl Template<JudgingCommand> {
             bin,
             crlf_to_lf,
         } = &self.requirements;
-        let strings = &self.strings;
-        let wd = working_dir.expand_as_path(problem, base_dir, strings)?;
-        let src = src.expand_as_path(problem, base_dir, strings)?;
+        let strings = {
+            let mut strings = self.envs.clone();
+            for &name in &["service", "SNOWCHAINS_SERVICE"] {
+                strings.insert(name.into(), service.to_string());
+            }
+            for &name in &["contest", "SNOWCHAINS_CONTEST"] {
+                strings.insert(name.into(), contest.clone());
+            }
+            strings
+        };
+        let wd = working_dir.expand_as_path(problem, base_dir, &strings)?;
+        let src = src.expand_as_path(problem, base_dir, &strings)?;
+        let transpiled = transpiled
+            .as_ref()
+            .map(|TemplateBuilder(transpiled)| {
+                transpiled.expand_as_path(problem, base_dir, &strings)
+            })
+            .transpose_()?;
+        let bin = bin
+            .as_ref()
+            .map(|TemplateBuilder(bin)| bin.expand_as_path(problem, base_dir, &strings))
+            .transpose_()?;
         let mut os_strings = hashmap!(
             "src"            => src.as_os_str().to_owned(),
             "SNOWCHAINS_SRC" => src.as_os_str().to_owned(),
         );
-        if let Some(TemplateBuilder(bin)) = bin.as_ref() {
-            let bin = bin.expand_as_path(problem, base_dir, strings)?;
-            for &key in &["bin", "SNOWCHAINS_BIN"] {
-                os_strings.insert(key, bin.as_os_str().to_owned());
-            }
-        }
-        if let Some(TemplateBuilder(transpiled)) = transpiled.as_ref() {
-            let transpiled = transpiled.expand_as_path(problem, base_dir, strings)?;
+        if let Some(transpiled) = transpiled.as_ref() {
             for &key in &["transpiled", "SNOWCHAINS_TRANSPILED"] {
                 os_strings.insert(key, transpiled.as_os_str().to_owned());
+            }
+        }
+        if let Some(bin) = bin.as_ref() {
+            for &key in &["bin", "SNOWCHAINS_BIN"] {
+                os_strings.insert(key, bin.as_os_str().to_owned());
             }
         }
         let mut args = vec![];
         match &self.inner {
             CommandTemplateInner::Args(ss) => {
                 for s in ss {
-                    args.push(s.expand_as_os_string(problem, strings, &os_strings)?);
+                    args.push(s.expand_as_os_string(problem, &strings, &os_strings)?);
                 }
             }
             CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
@@ -308,11 +369,19 @@ impl Template<JudgingCommand> {
                     .get(key)
                     .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
                 for TemplateBuilder(s) in shell {
-                    args.push(s.expand_as_os_string(problem, strings, &os_strings)?);
+                    args.push(s.expand_as_os_string(problem, &strings, &os_strings)?);
                 }
             }
         }
-        let envs = setup_env_vars(problem, strings, &os_strings);
+        let envs = setup_env_vars(
+            Some(problem),
+            Some(&self.envs),
+            Some(*service),
+            Some(contest),
+            Some(&src),
+            transpiled.as_ref().map(Deref::deref),
+            bin.as_ref().map(Deref::deref),
+        );
         Ok(JudgingCommand::new(args, wd, *crlf_to_lf, envs))
     }
 }
@@ -326,7 +395,8 @@ where
         Self {
             inner: self.inner.clone(),
             requirements: self.requirements.clone(),
-            strings: self.strings.clone(),
+            extension: self.extension,
+            envs: self.envs.clone(),
         }
     }
 }
@@ -343,7 +413,7 @@ impl Target for OsString {
 
 impl Target for AbsPathBuf {
     type Inner = Tokens;
-    type Requirements = AbsPathBuf;
+    type Requirements = AbsPathBufRequirements;
 }
 
 impl Target for HookCommands {
@@ -375,6 +445,13 @@ pub(crate) enum CommandTemplateInner {
 }
 
 #[derive(Clone)]
+pub(crate) struct AbsPathBufRequirements {
+    pub(crate) base_dir: AbsPathBuf,
+    pub(crate) service: ServiceName,
+    pub(crate) contest: String,
+}
+
+#[derive(Clone)]
 pub(crate) struct HookCommandsRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
@@ -384,6 +461,8 @@ pub(crate) struct HookCommandsRequirements {
 #[derive(Clone)]
 pub(crate) struct TranspilationCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
+    pub(crate) service: ServiceName,
+    pub(crate) contest: String,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
     pub(crate) src: TemplateBuilder<AbsPathBuf>,
@@ -393,6 +472,8 @@ pub(crate) struct TranspilationCommandRequirements {
 #[derive(Clone)]
 pub(crate) struct CompilationCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
+    pub(crate) service: ServiceName,
+    pub(crate) contest: String,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
     pub(crate) src: TemplateBuilder<AbsPathBuf>,
@@ -403,6 +484,8 @@ pub(crate) struct CompilationCommandRequirements {
 #[derive(Clone)]
 pub(crate) struct JudgingCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
+    pub(crate) service: ServiceName,
+    pub(crate) contest: String,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
     pub(crate) src: TemplateBuilder<AbsPathBuf>,
@@ -608,27 +691,48 @@ fn apply_specifier<'a>(problem: &'a str, specifier: &str) -> ExpandTemplateResul
 }
 
 fn setup_env_vars(
-    problem: &str,
-    strings: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<str>>,
-    os_strings: &HashMap<&'static str, impl AsRef<OsStr>>,
+    problem: Option<&str>,
+    utf8_envs: Option<&HashMap<String, String>>,
+    service: Option<ServiceName>,
+    contest: Option<&str>,
+    src: Option<&AbsPath>,
+    transpiled: Option<&AbsPath>,
+    bin: Option<&AbsPath>,
 ) -> HashMap<OsString, OsString> {
-    let mut ret = hashmap!(
-        "SNOWCHAINS_PROBLEM".into()           => problem.into(),
-        "SNOWCHAINS_PROBLEM_LOWER".into()     => problem.to_lowercase().into(),
-        "SNOWCHAINS_PROBLEM_UPPER".into()     => problem.to_uppercase().into(),
-        "SNOWCHAINS_PROBLEM_KEBAB".into()     => problem.to_kebab_case().into(),
-        "SNOWCHAINS_PROBLEM_SNAKE".into()     => problem.to_snake_case().into(),
-        "SNOWCHAINS_PROBLEM_SCREAMING".into() => problem.to_shouty_snake_case().into(),
-        "SNOWCHAINS_PROBLEM_MIXED".into()     => problem.to_mixed_case().into(),
-        "SNOWCHAINS_PROBLEM_PASCAL".into()    => problem.to_camel_case().into(),
-        "SNOWCHAINS_PROBLEM_TITLE".into()     => problem.to_title_case().into(),
-    );
-    for (name, value) in strings {
-        ret.insert(name.borrow().into(), value.as_ref().into());
+    let mut ret = problem
+        .map::<HashMap<OsString, OsString>, _>(|problem| {
+            hashmap!(
+                "SNOWCHAINS_PROBLEM".into()           => problem.into(),
+                "SNOWCHAINS_PROBLEM_LOWER".into()     => problem.to_lowercase().into(),
+                "SNOWCHAINS_PROBLEM_UPPER".into()     => problem.to_uppercase().into(),
+                "SNOWCHAINS_PROBLEM_KEBAB".into()     => problem.to_kebab_case().into(),
+                "SNOWCHAINS_PROBLEM_SNAKE".into()     => problem.to_snake_case().into(),
+                "SNOWCHAINS_PROBLEM_SCREAMING".into() => problem.to_shouty_snake_case().into(),
+                "SNOWCHAINS_PROBLEM_MIXED".into()     => problem.to_mixed_case().into(),
+                "SNOWCHAINS_PROBLEM_PASCAL".into()    => problem.to_camel_case().into(),
+                "SNOWCHAINS_PROBLEM_TITLE".into()     => problem.to_title_case().into(),
+            )
+        })
+        .unwrap_or_default();
+    if let Some(utf8_envs) = utf8_envs {
+        for (name, value) in utf8_envs {
+            ret.insert(name.as_str().into(), value.as_str().into());
+        }
     }
-    for (name, value) in os_strings {
-        ret.insert(name.into(), value.into());
-        ret.insert(format!("SNOWCHAINS_{}", name).into(), value.into());
+    if let Some(service) = service {
+        ret.insert("SNOWCHAINS_SERVICE".into(), service.to_string().into());
+    }
+    if let Some(contest) = contest {
+        ret.insert("SNOWCHAINS_CONTEST".into(), contest.into());
+    }
+    if let Some(src) = src {
+        ret.insert("SNOWCHAINS_SRC".into(), src.into());
+    }
+    if let Some(transpiled) = transpiled {
+        ret.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.into());
+    }
+    if let Some(bin) = bin {
+        ret.insert("SNOWCHAINS_BIN".into(), bin.into());
     }
     ret
 }
@@ -646,7 +750,7 @@ pub struct ParseTemplateError {
 
 #[cfg(test)]
 mod tests {
-    use super::TemplateBuilder;
+    use super::{AbsPathBufRequirements, TemplateBuilder};
 
     use crate::command::{CompilationCommand, JudgingCommand};
     use crate::path::AbsPathBuf;
@@ -748,7 +852,11 @@ mod tests {
         fn process_input(input: &str) -> Fallible<AbsPathBuf> {
             let template = input.parse::<TemplateBuilder<AbsPathBuf>>()?;
             template
-                .build(base_dir())
+                .build(AbsPathBufRequirements {
+                    base_dir: base_dir(),
+                    service: ServiceName::Other,
+                    contest: "".to_owned(),
+                })
                 .expand("problem-name")
                 .map_err(Into::into)
         }
@@ -780,9 +888,11 @@ mod tests {
             fn process_input(input: &str) -> Fallible<AbsPathBuf> {
                 let template = input.parse::<TemplateBuilder<AbsPathBuf>>()?;
                 template
-                    .build(base_dir())
-                    .service(ServiceName::Atcoder)
-                    .contest("arc100")
+                    .build(AbsPathBufRequirements {
+                        base_dir: base_dir(),
+                        service: ServiceName::Atcoder,
+                        contest: "arc100".to_owned(),
+                    })
                     .expand("")
                     .map_err(Into::into)
             }

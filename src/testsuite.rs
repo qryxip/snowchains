@@ -666,14 +666,29 @@ impl InteractiveSuite {
         filename: &str,
         problem: &str,
     ) -> TestSuiteResult<vec::IntoIter<InteractiveCase>> {
+        fn number_arg(i: usize, arg: &str) -> Vec<(String, String)> {
+            vec![
+                (format!("arg{}", i), arg.to_string()),
+                (format!("SNOWCHAINS_ARG{}", i), arg.to_string()),
+            ]
+        }
+
         let mut cases = Vec::with_capacity(self.each_args.len());
         for (i, args) in self.each_args.iter().enumerate() {
-            let mut m = hashmap!("*".to_owned() => args.join(" "));
-            m.extend(args.iter().enumerate().zip_longest(1..=9).map(|p| match p {
-                EitherOrBoth::Both((_, arg), i) => (i.to_string(), arg.clone()),
-                EitherOrBoth::Left((j, arg)) => ((j + i).to_string(), arg.clone()),
-                EitherOrBoth::Right(i) => (i.to_string(), "".to_owned()),
-            }));
+            let mut m = hashmap!(
+                "arg_joined".to_owned() => args.join(" "),
+                "SNOWCHAINS_ARG_JOINED".to_owned() => args.join(" "),
+            );
+            m.extend(
+                args.iter()
+                    .enumerate()
+                    .zip_longest(0..=9)
+                    .flat_map(|p| match p {
+                        EitherOrBoth::Both((_, arg), i) => number_arg(i, arg),
+                        EitherOrBoth::Left((i, arg)) => number_arg(i, arg),
+                        EitherOrBoth::Right(i) => number_arg(i, ""),
+                    }),
+            );
             let tester_transpilation = match tester_transpilation {
                 None => None,
                 Some(t) => Some(Arc::new(t.expand(problem)?)),

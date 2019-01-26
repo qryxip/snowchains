@@ -3,8 +3,8 @@ use crate::errors::{ConfigErrorKind, ConfigResult, FileResult};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::{DownloadOutcome, ServiceName};
 use crate::template::{
-    CompilationCommandRequirements, HookCommandsRequirements, JudgingCommandRequirements, Template,
-    TemplateBuilder, TranspilationCommandRequirements,
+    AbsPathBufRequirements, CompilationCommandRequirements, HookCommandsRequirements,
+    JudgingCommandRequirements, Template, TemplateBuilder, TranspilationCommandRequirements,
 };
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
 use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
@@ -112,7 +112,7 @@ fn generate_yaml() -> String {
         })
     }
 
-    let (bash, powershell, cmd, jq, transpile_java, transpile_scala) = {
+    let (bash, powershell, cmd, jq, shell, transpile_java, transpile_scala) = {
         trait WithExe: ToOwned {
             fn with_exe(&self, name: &str) -> Self::Owned;
         }
@@ -166,22 +166,32 @@ fn generate_yaml() -> String {
             .map(|s| format!("\n  cmd: [{}, /C, $command]", s))
             .unwrap_or_default();
 
-        let (jq, transpile_java, transpile_scala);
+        let (jq, shell, transpile_java, transpile_scala);
         if cfg!(windows) && !bash_found {
-            jq = "ps: echo \"${env:SNOWCHAINS_RESULT}\" | jq";
+            jq = "ps: echo \"${Env:SNOWCHAINS_RESULT}\" | jq";
+            shell = "ps";
             transpile_java =
-                r#"ps: gc "${env:SNOWCHAINS_SRC}" | % { $_.Replace("class\s+${env:SNOWCHAINS_PROBLEM_PASCAL}", "class Main") } | sc "${env:SNOWCHAINS_TRANSPILED}""#;
+                r#"ps: Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("class\s+${Env:SNOWCHAINS_PROBLEM_PASCAL}", "class Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}""#;
             transpile_scala =
-                r#"ps: gc "${env:SNOWCHAINS_SRC}" | % { $_.Replace("object\s+${env:SNOWCHAINS_PROBLEM_PASCAL}", "object Main") } | sc "${env:SNOWCHAINS_TRANSPILED}""#;
+                r#"ps: Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("object\s+${Env:SNOWCHAINS_PROBLEM_PASCAL}", "object Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}""#;
         } else {
             jq = "bash: echo \"$SNOWCHAINS_RESULT\" | jq";
+            shell = "bash";
             transpile_java =
                 r#"bash: cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g" > "$SNOWCHAINS_TRANSPILED""#;
             transpile_scala =
                 r#"bash: cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PROBLEM_PASCAL/object Main/g" > "$SNOWCHAINS_TRANSPILED""#;
         };
 
-        (bash, powershell, cmd, jq, transpile_java, transpile_scala)
+        (
+            bash,
+            powershell,
+            cmd,
+            jq,
+            shell,
+            transpile_java,
+            transpile_scala,
+        )
     };
     let (session_cookies, session_dropbox) = {
         let data_local_dir = if_chain! {
@@ -250,7 +260,8 @@ env:
 tester:
   src: testers/py/{{kebab}}.py
   run:
-    command: [{venv_python3}, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
+    command:
+      {shell}: {venv_python3} $SNOWCHAINS_ARGS_JOINED
     working_directory: testers/py{crlf_to_lf_true_indent4}
   # src: testers/hs/app/{{Pascal}}.hs
   # compile:
@@ -258,7 +269,8 @@ tester:
   #   command: [stack, ghc, --, -O2, -o, $bin, $src]
   #   working_directory: testers/hs
   # run:
-  #   command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
+  #   command:
+  #     {shell}: "$SNOWCHAINS_BIN" $SNOWCHAINS_ARGS_JOINED
   #   working_directory: testers/hs{crlf_to_lf_false_commented_out}
 
 languages:
@@ -376,6 +388,7 @@ languages:
         powershell = powershell,
         cmd = cmd,
         jq = jq,
+        shell = shell,
         exe = EXE,
         venv_python3 = VENV_PYTHON3,
         transpile_java = transpile_java,
@@ -578,18 +591,22 @@ impl Config {
         self.session.silent
     }
 
-    /// Gets `session.cookies` embedding "service" and "base_dir".
     pub(crate) fn session_cookies(&self) -> Template<AbsPathBuf> {
-        self.session
-            .cookies
-            .build(self.base_dir.clone())
-            .service(self.service)
+        self.session.cookies.build(AbsPathBufRequirements {
+            base_dir: self.base_dir.clone(),
+            service: self.service,
+            contest: self.contest.clone(),
+        })
     }
 
     pub(crate) fn session_dropbox_auth(&self) -> Option<Template<AbsPathBuf>> {
         match &self.session.dropbox {
             Dropbox::None => None,
-            Dropbox::Some { auth } => Some(auth.build(self.base_dir.clone()).service(self.service)),
+            Dropbox::Some { auth } => Some(auth.build(AbsPathBufRequirements {
+                base_dir: self.base_dir.clone(),
+                service: self.service,
+                contest: self.contest.clone(),
+            })),
         }
     }
 
@@ -625,28 +642,30 @@ impl Config {
         &self,
         ext: Option<SuiteFileExtension>,
     ) -> DownloadDestinations {
-        let scraped = self
-            .testfile_path
-            .build(self.base_dir.clone())
-            .service(self.service)
-            .contest(&self.contest);
+        let scraped = self.testfile_path.build(AbsPathBufRequirements {
+            base_dir: self.base_dir.clone(),
+            service: self.service,
+            contest: self.contest.clone(),
+        });
         let text_file_dir = self
             .session
             .download
             .text_file_dir
-            .build(self.base_dir.clone())
-            .service(self.service)
-            .contest(&self.contest);
+            .build(AbsPathBufRequirements {
+                base_dir: self.base_dir.clone(),
+                service: self.service,
+                contest: self.contest.clone(),
+            });
         let ext = ext.unwrap_or(self.session.download.extension);
         DownloadDestinations::new(scraped, text_file_dir, ext)
     }
 
     pub(crate) fn testcase_loader(&self) -> TestCaseLoader {
-        let path = self
-            .testfile_path
-            .build(self.base_dir.clone())
-            .service(self.service)
-            .contest(&self.contest);
+        let path = self.testfile_path.build(AbsPathBufRequirements {
+            base_dir: self.base_dir.clone(),
+            service: self.service,
+            contest: self.contest.clone(),
+        });
         TestCaseLoader::new(
             path,
             &self.judge.testfile_extensions,
@@ -662,9 +681,11 @@ impl Config {
             if let Some(lang_id) = lang.language_ids.get(&self.service) {
                 let template = lang
                     .src
-                    .build(self.base_dir.clone())
-                    .service(self.service)
-                    .contest(&self.contest)
+                    .build(AbsPathBufRequirements {
+                        base_dir: self.base_dir.clone(),
+                        service: self.service,
+                        contest: self.contest.clone(),
+                    })
                     .envs(self.env.get(&self.service));
                 templates.insert(lang_id.as_str(), template);
             }
@@ -679,9 +700,11 @@ impl Config {
             Some(transpile) => &transpile.transpiled,
         };
         Ok(builder
-            .build(self.base_dir.clone())
-            .service(self.service)
-            .contest(&self.contest)
+            .build(AbsPathBufRequirements {
+                base_dir: self.base_dir.clone(),
+                service: self.service,
+                contest: self.contest.clone(),
+            })
             .envs(self.env.get(&self.service)))
     }
 
@@ -729,13 +752,13 @@ impl Config {
                 .command
                 .build(TranspilationCommandRequirements {
                     base_dir: self.base_dir.clone(),
+                    service: self.service,
+                    contest: self.contest.clone(),
                     shell: self.shell.clone(),
                     working_dir: transpile.working_directory.clone(),
                     src: lang.src.clone(),
                     transpiled: transpile.transpiled.clone(),
                 })
-                .service(self.service)
-                .contest(&self.contest)
                 .envs(self.env.get(&self.service))
         })
     }
@@ -746,14 +769,14 @@ impl Config {
                 .command
                 .build(CompilationCommandRequirements {
                     base_dir: self.base_dir.clone(),
+                    service: self.service,
+                    contest: self.contest.clone(),
                     shell: self.shell.clone(),
                     working_dir: compile.working_directory.clone(),
                     src: lang.src.clone(),
                     transpiled: lang.transpile.as_ref().map(|e| e.transpiled.clone()),
                     bin: compile.bin.clone(),
                 })
-                .service(self.service)
-                .contest(&self.contest)
                 .envs(self.env.get(&self.service))
         })
     }
@@ -763,6 +786,8 @@ impl Config {
             .command
             .build(JudgingCommandRequirements {
                 base_dir: self.base_dir.clone(),
+                service: self.service,
+                contest: self.contest.clone(),
                 shell: self.shell.clone(),
                 working_dir: lang.run.working_directory.clone(),
                 src: lang.src.clone(),
@@ -770,8 +795,6 @@ impl Config {
                 transpiled: lang.transpile.as_ref().map(|e| e.transpiled.clone()),
                 crlf_to_lf: lang.run.crlf_to_lf,
             })
-            .service(self.service)
-            .contest(&self.contest)
             .envs(self.env.get(&self.service))
     }
 
