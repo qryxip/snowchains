@@ -91,9 +91,7 @@ fn generate_yaml() -> String {
     run:
       command: [mono, $bin]
     working_directory: $service/$contest/cs
-    language_ids:
-      # atcoder: 3006        # "C# (Mono x.x.x.x)"
-      yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)""#;
+    language_ids: { atcoder: 3006, yukicoder: csharp_mono }"#;
     #[cfg(windows)]
     static CSHARP: &str = r#"  c#:
     src: $service/$contest/cs/{Pascal}/{Pascal}.cs
@@ -104,9 +102,7 @@ fn generate_yaml() -> String {
       command: [$bin]
       crlf_to_lf: true
     working_directory: $service/$contest/cs
-    language_ids:
-      # atcoder: 3006   # "C# (Mono x.x.x.x)"
-      yukicoder: csharp # "C# (csc x.x.x.x)""#;
+    language_ids: { atcoder: 3006, yukicoder: csharp }"#;
 
     fn quote_path(path: &Path) -> Option<String> {
         let separator = if std::path::is_separator('/') {
@@ -282,17 +278,15 @@ tester:
 
 languages:
   c++:
-    src: $service/$contest/cpp/{{kebab}}.cpp     # source file to test and to submit
-    compile:                                   # optional
+    src: $service/$contest/cpp/{{kebab}}.cpp              # source file to test and to submit
+    compile:                                            # optional
       bin: $service/$contest/cpp/build/{{kebab}}{exe}
       command:
         bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
     run:
       command: [$bin]{crlf_to_lf_true_indent6}
-    working_directory: $service/$contest/cpp   # default: "."
-    language_ids:                              # optional
-      atcoder: 3003                            # "C++14 (GCC x.x.x)"
-      yukicoder: cpp14                         # "C++14 (gcc x.x.x)"
+    working_directory: $service/$contest/cpp            # default: "."
+    language_ids: {{ atcoder: 3003, yukicoder: cpp14 }}   # optional
   rust:
     src: $service/$contest/rs/src/bin/{{kebab}}.rs
     compile:
@@ -301,9 +295,7 @@ languages:
     run:
       command: [$bin]{crlf_to_lf_false}
     working_directory: $service/$contest/rs
-    # language_ids:
-    #   atcoder: 3504   # "Rust (x.x.x)"
-    #   yukicoder: rust # "Rust (x.x.x)"
+    language_ids: {{ atcoder: 3504, yukicoder: rust }}
   go:
     src: $service/$contest/go/{{kebab}}.go
     compile:
@@ -312,9 +304,7 @@ languages:
     run:
       command: [$bin]{crlf_to_lf_false}
     working_directory: $service/$contest/go
-    # language_ids:
-    #   atcoder: 3013 # "Go (x.x)"
-    #   yukicoder: go # "Go (x.x.x)"
+    language_ids: {{ atcoder: 3013, yukicoder: go }}
   haskell:
     src: $service/$contest/hs/app/{{Pascal}}.hs
     compile:
@@ -323,33 +313,25 @@ languages:
     run:
       command: [$bin]{crlf_to_lf_false}
     working_directory: $service/$contest/hs
-    # language_ids:
-    #   atcoder: 3014      # "Haskell (GHC x.x.x)"
-    #   yukicoder: haskell # "Haskell (x.x.x)"
+    language_ids: {{ atcoder: 3014, yukicoder: haskell }}
   bash:
     src: $service/$contest/bash/{{kebab}}.bash
     run:
       command: [bash, $src]{crlf_to_lf_false}
     working_directory: $service/$contest/bash
-    # language_ids:
-    #   atcoder: 3001 # "Bash (GNU Bash vx.x.x)"
-    #   yukicoder: sh # "Bash (Bash x.x.x)"
+    language_ids: {{ atcoder: 3001, yukicoder: sh }}
   python3:
     src: $service/$contest/py/{{kebab}}.py
     run:
       command: [{venv_python3}, $src]{crlf_to_lf_true_indent6}
     working_directory: $service/$contest/py
-    language_ids:
-      atcoder: 3023      # "Python3 (3.x.x)"
-      yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x + scipy x.x.x)"
+    language_ids: {{ atcoder: 3023, yukicoder: python3 }}
   pypy3:
     src: $service/$contest/py/{{kebab}}.py
     run:
       command: [{venv_pypy3}, $src]{crlf_to_lf_true_indent6}
     working_directory: $service/$contest/py
-    language_ids:
-      atcoder: 3510
-      yukicoder: pypy3
+    language_ids: {{ atcoder: 3510, yukicoder: pypy3 }}
   java:
     src: $service/$contest/java/src/main/java/{{Pascal}}.java
     transpile:
@@ -362,9 +344,7 @@ languages:
     run:
       command: [java, -classpath, './build/replaced/{{lower}}/classes', Main]{crlf_to_lf_true_indent6}
     working_directory: $service/$contest/java
-    language_ids:
-      atcoder: 3016      # "Java8 (OpenJDK 1.8.x)"
-      # yukicoder: java8 # "Java8 (openjdk 1.8.x.x)"
+    language_ids: {{ atcoder: 3016, yukicoder: java8 }}
   scala:
     src: $service/$contest/scala/src/main/scala/{{Pascal}}.scala
     transpile:
@@ -377,15 +357,14 @@ languages:
     run:
       command: [scala, -classpath, './target/replaced/{{lower}}/classes', Main]{crlf_to_lf_true_indent6}
     working_directory: $service/$contest/scala
-    # language_ids:
-    #   atcoder: 3016    # "Scala (x.x.x)"
-    #   yukicoder: scala # "Scala(Beta) (x.x.x)"
+    language_ids: {{ atcoder: 3025, yukicoder: scala }}
 {csharp}
   text:
     src: $service/$contest/txt/{{snake}}.txt
     run:
       command: [cat, $src]
       working_directory: $service/$contest/txt{crlf_to_lf_false}
+    language_ids: {{ atcoder: 3027, yukicoder: text }}
 "#,
         console_alt_width = CONSOLE_ALT_WIDTH,
         session_cookies = session_cookies,
