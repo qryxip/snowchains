@@ -167,7 +167,8 @@ hooks:
 tester:
   src: testers/py/{kebab}.py
   run:
-    command: [./venv/bin/python3, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
+    command:
+      bash: ./venv/bin/python3 "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED
     # crlf_to_lf: false
   working_directory: testers/py
   # src: testers/hs/app/{Pascal}.hs
@@ -175,7 +176,8 @@ tester:
   #   bin: testers/hs/target/{Pascal}
   #   command: [stack, ghc, --, -O2, -o, $bin, $src]
   # run:
-  #   command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
+  #   command:
+  #     bash: "$SNOWCHAINS_BIN" $SNOWCHAINS_ARGS_JOINED
   #   # crlf_to_lf: false
   # working_directory: testers/hs
 
@@ -220,12 +222,20 @@ languages:
   python3:
     src: $service/$contest/py/{kebab}.py
     run:
-      command: [./venv/bin/python3, $src]
+      command: [../../../venvs/python3_$service/bin/python3, $src]
       # crlf_to_lf: false
     working_directory: $service/$contest/py
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
       yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x + scipy x.x.x)"
+  pypy3:
+    src: $service/$contest/py/{kebab}.py
+    run:
+      command: [../../../venvs/pypy3_$service/bin/python3, $src]
+    working_directory: $service/$contest/py
+    language_ids:
+      atcoder: 3510
+      yukicoder: pypy3
   java:
     src: $service/$contest/java/src/main/java/{Pascal}.java
     transpile:
