@@ -78,10 +78,9 @@ fn generate_yaml() -> String {
     compile:
       bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
       command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
-      working_directory: $service/$contest/cs
     run:
       command: [mono, $bin]
-      working_directory: $service/$contest/cs
+    working_directory: $service/$contest/cs
     language_ids:
       # atcoder: 3006        # "C# (Mono x.x.x.x)"
       yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)""#;
@@ -91,11 +90,10 @@ fn generate_yaml() -> String {
     compile:
       bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
       command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
-      working_directory: $service/$contest/cs
     run:
       command: [$bin]
-      working_directory: $service/$contest/cs
       crlf_to_lf: true
+    working_directory: $service/$contest/cs
     language_ids:
       # atcoder: 3006   # "C# (Mono x.x.x.x)"
       yukicoder: csharp # "C# (csc x.x.x.x)""#;
@@ -261,17 +259,16 @@ tester:
   src: testers/py/{{kebab}}.py
   run:
     command:
-      {shell}: {venv_python3} $SNOWCHAINS_ARGS_JOINED
-    working_directory: testers/py{crlf_to_lf_true_indent4}
+      {shell}: {venv_python3} "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED{crlf_to_lf_true_indent4}
+  working_directory: testers/py
   # src: testers/hs/app/{{Pascal}}.hs
   # compile:
   #   bin: testers/hs/target/{{Pascal}}
   #   command: [stack, ghc, --, -O2, -o, $bin, $src]
-  #   working_directory: testers/hs
   # run:
   #   command:
-  #     {shell}: "$SNOWCHAINS_BIN" $SNOWCHAINS_ARGS_JOINED
-  #   working_directory: testers/hs{crlf_to_lf_false_commented_out}
+  #     {shell}: "$SNOWCHAINS_BIN" $SNOWCHAINS_ARGS_JOINED{crlf_to_lf_false_commented_out}
+  # working_directory: testers/hs
 
 languages:
   c++:
@@ -280,10 +277,9 @@ languages:
       bin: $service/$contest/cpp/build/{{kebab}}{exe}
       command:
         bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
-      working_directory: $service/$contest/cpp # default: "."
     run:
-      command: [$bin]
-      working_directory: $service/$contest/cpp # default: "."{crlf_to_lf_true_indent6}
+      command: [$bin]{crlf_to_lf_true_indent6}
+    working_directory: $service/$contest/cpp   # default: "."
     language_ids:                              # optional
       atcoder: 3003                            # "C++14 (GCC x.x.x)"
       yukicoder: cpp14                         # "C++14 (gcc x.x.x)"
@@ -292,10 +288,9 @@ languages:
     compile:
       bin: $service/$contest/rs/target/manually/{{kebab}}{exe}
       command: [rustc, +$RUST_VERSION, -o, $bin, $src]
-      working_directory: $service/$contest/rs
     run:
-      command: [$bin]
-      working_directory: $service/$contest/rs{crlf_to_lf_false}
+      command: [$bin]{crlf_to_lf_false}
+    working_directory: $service/$contest/rs
     # language_ids:
     #   atcoder: 3504   # "Rust (x.x.x)"
     #   yukicoder: rust # "Rust (x.x.x)"
@@ -304,10 +299,9 @@ languages:
     compile:
       bin: $service/$contest/go/{{kebab}}{exe}
       command: [go, build, -o, $bin, $src]
-      working_directory: $service/$contest/go
     run:
-      command: [$bin]
-      working_directory: $service/$contest/go{crlf_to_lf_false}
+      command: [$bin]{crlf_to_lf_false}
+    working_directory: $service/$contest/go
     # language_ids:
     #   atcoder: 3013 # "Go (x.x)"
     #   yukicoder: go # "Go (x.x.x)"
@@ -316,26 +310,25 @@ languages:
     compile:
       bin: $service/$contest/hs/target/{{Pascal}}{exe}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: $service/$contest/hs
     run:
-      command: [$bin]
-      working_directory: $service/$contest/hs{crlf_to_lf_false}
+      command: [$bin]{crlf_to_lf_false}
+    working_directory: $service/$contest/hs
     # language_ids:
     #   atcoder: 3014      # "Haskell (GHC x.x.x)"
     #   yukicoder: haskell # "Haskell (x.x.x)"
   bash:
     src: $service/$contest/bash/{{kebab}}.bash
     run:
-      command: [bash, $src]
-      working_directory: $service/$contest/bash{crlf_to_lf_false}
+      command: [bash, $src]{crlf_to_lf_false}
+    working_directory: $service/$contest/bash
     # language_ids:
     #   atcoder: 3001 # "Bash (GNU Bash vx.x.x)"
     #   yukicoder: sh # "Bash (Bash x.x.x)"
   python3:
     src: $service/$contest/py/{{kebab}}.py
     run:
-      command: [{venv_python3}, $src]
-      working_directory: $service/$contest/py{crlf_to_lf_true_indent6}
+      command: [{venv_python3}, $src]{crlf_to_lf_true_indent6}
+    working_directory: $service/$contest/py
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
       yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x + scipy x.x.x)"
@@ -345,14 +338,12 @@ languages:
       transpiled: $service/$contest/java/build/replaced/{{lower}}/src/Main.java
       command:
         {transpile_java}
-      working_directory: $service/$contest/java
     compile:
       bin: $service/$contest/java/build/replaced/{{lower}}/classes/Main.class
       command: [javac, -d, './build/replaced/{{lower}}/classes', $transpiled]
-      working_directory: $service/$contest/java
     run:
-      command: [java, -classpath, './build/replaced/{{lower}}/classes', Main]
-      working_directory: $service/$contest/java{crlf_to_lf_true_indent6}
+      command: [java, -classpath, './build/replaced/{{lower}}/classes', Main]{crlf_to_lf_true_indent6}
+    working_directory: $service/$contest/java
     language_ids:
       atcoder: 3016      # "Java8 (OpenJDK 1.8.x)"
       # yukicoder: java8 # "Java8 (openjdk 1.8.x.x)"
@@ -362,14 +353,12 @@ languages:
       transpiled: $service/$contest/scala/target/replaced/{{lower}}/src/Main.scala
       command:
         {transpile_scala}
-      working_directory: $service/$contest/scala
     compile:
       bin: $service/$contest/scala/target/replaced/{{lower}}/classes/Main.class
       command: [scalac, -optimise, -d, './target/replaced/{{lower}}/classes', $transpiled]
-      working_directory: $service/$contest/scala
     run:
-      command: [scala, -classpath, './target/replaced/{{lower}}/classes', Main]
-      working_directory: $service/$contest/scala{crlf_to_lf_true_indent6}
+      command: [scala, -classpath, './target/replaced/{{lower}}/classes', Main]{crlf_to_lf_true_indent6}
+    working_directory: $service/$contest/scala
     # language_ids:
     #   atcoder: 3016    # "Scala (x.x.x)"
     #   yukicoder: scala # "Scala(Beta) (x.x.x)"
@@ -755,7 +744,7 @@ impl Config {
                     service: self.service,
                     contest: self.contest.clone(),
                     shell: self.shell.clone(),
-                    working_dir: transpile.working_directory.clone(),
+                    working_dir: lang.working_directory.clone(),
                     src: lang.src.clone(),
                     transpiled: transpile.transpiled.clone(),
                 })
@@ -772,7 +761,7 @@ impl Config {
                     service: self.service,
                     contest: self.contest.clone(),
                     shell: self.shell.clone(),
-                    working_dir: compile.working_directory.clone(),
+                    working_dir: lang.working_directory.clone(),
                     src: lang.src.clone(),
                     transpiled: lang.transpile.as_ref().map(|e| e.transpiled.clone()),
                     bin: compile.bin.clone(),
@@ -789,7 +778,7 @@ impl Config {
                 service: self.service,
                 contest: self.contest.clone(),
                 shell: self.shell.clone(),
-                working_dir: lang.run.working_directory.clone(),
+                working_dir: lang.working_directory.clone(),
                 src: lang.src.clone(),
                 bin: lang.compile.as_ref().map(|e| e.bin.clone()),
                 transpiled: lang.transpile.as_ref().map(|e| e.transpiled.clone()),
@@ -970,29 +959,25 @@ struct Language {
     run: Run,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     language_ids: BTreeMap<ServiceName, String>,
+    #[serde(default)]
+    working_directory: TemplateBuilder<AbsPathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Transpile {
     transpiled: TemplateBuilder<AbsPathBuf>,
     command: TemplateBuilder<TranspilationCommand>,
-    #[serde(default)]
-    working_directory: TemplateBuilder<AbsPathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Compile {
     bin: TemplateBuilder<AbsPathBuf>,
     command: TemplateBuilder<CompilationCommand>,
-    #[serde(default)]
-    working_directory: TemplateBuilder<AbsPathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct Run {
     command: TemplateBuilder<JudgingCommand>,
-    #[serde(default)]
-    working_directory: TemplateBuilder<AbsPathBuf>,
     #[serde(default)]
     crlf_to_lf: bool,
 }

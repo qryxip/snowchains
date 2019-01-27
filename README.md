@@ -168,15 +168,16 @@ tester:
   src: testers/py/{kebab}.py
   run:
     command: [./venv/bin/python3, $src, $1, $2, $3, $4, $5, $6, $7, $8, $9]
-    working_directory: testers/py
+    # crlf_to_lf: false
+  working_directory: testers/py
   # src: testers/hs/app/{Pascal}.hs
   # compile:
   #   bin: testers/hs/target/{Pascal}
   #   command: [stack, ghc, --, -O2, -o, $bin, $src]
-  #   working_directory: testers/hs
   # run:
   #   command: [$bin, $1, $2, $3, $4, $5, $6, $7, $8, $9]
-  #   working_directory: testers/hs
+  #   # crlf_to_lf: false
+  # working_directory: testers/hs
 
 languages:
   c++:
@@ -185,11 +186,10 @@ languages:
       bin: $service/$contest/cpp/build/{kebab}
       command:
         bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
-      working_directory: $service/$contest/cpp # default: "."
     run:
       command: [$bin]
-      working_directory: $service/$contest/cpp # default: "."
       # crlf_to_lf: false
+    working_directory: $service/$contest/cpp # default: "."
     language_ids:                              # optional
       atcoder: 3003                            # "C++14 (GCC x.x.x)"
       yukicoder: cpp14                         # "C++14 (gcc x.x.x)"
@@ -198,11 +198,10 @@ languages:
     compile:
       bin: $service/$contest/rs/target/manually/{kebab}
       command: [rustc, +$RUST_VERSION, -o, $bin, $src]
-      working_directory: $service/$contest/rs
     run:
       command: [$bin]
-      working_directory: $service/$contest/rs
       # crlf_to_lf: false
+    working_directory: $service/$contest/rs
     # language_ids:
     #   atcoder: 3504   # "Rust (x.x.x)"
     #   yukicoder: rust # "Rust (x.x.x)"
@@ -211,11 +210,10 @@ languages:
     compile:
       bin: $service/$contest/hs/target/{Pascal}
       command: [stack, ghc, --, -O2, -o, $bin, $src]
-      working_directory: $service/$contest/hs
     run:
       command: [$bin]
-      working_directory: $service/$contest/hs
       # crlf_to_lf: false
+    working_directory: $service/$contest/hs
     # language_ids:
     #   atcoder: 3014      # "Haskell (GHC x.x.x)"
     #   yukicoder: haskell # "Haskell (x.x.x)"
@@ -223,8 +221,8 @@ languages:
     src: $service/$contest/py/{kebab}.py
     run:
       command: [./venv/bin/python3, $src]
-      working_directory: $service/$contest/py
       # crlf_to_lf: false
+    working_directory: $service/$contest/py
     language_ids:
       atcoder: 3023      # "Python3 (3.x.x)"
       yukicoder: python3 # "Python3 (3.x.x + numpy x.x.x + scipy x.x.x)"
@@ -235,15 +233,13 @@ languages:
       command:
         bash: cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g" > "$SNOWCHAINS_TRANSPILED"
         # ps: cat ${env:SNOWCHAINS_SRC} | % { $_ -replace "class\s+${env:SNOWCHAINS_PROBLEM_PASCAL}", "class Main" } | sc ${env:SNOWCHAINS_TRANSPILED}
-      working_directory: $service/$contest/java
     compile:
       bin: $service/$contest/java/build/replaced/{lower}/classes/Main.class
       command: [javac, -d, './build/replaced/{lower}/classes', $transpiled]
-      working_directory: $service/$contest/java
     run:
       command: [java, -classpath, './build/replaced/{lower}/classes', Main]
-      working_directory: $service/$contest/java
       # crlf_to_lf: false
+    working_directory: $service/$contest/java
     language_ids:
       atcoder: 3016      # "Java8 (OpenJDK 1.8.x)"
       # yukicoder: java8 # "Java8 (openjdk 1.8.x.x)"
@@ -252,11 +248,10 @@ languages:
   #   compile:
   #     bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
   #     command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
-  #     working_directory: $service/$contest/cs
   #   run:
   #     command: [$bin]
-  #     working_directory: $service/$contest/cs
   #     crlf_to_lf: true
+  #   working_directory: $service/$contest/cs
   #   language_ids:
   #     # atcoder: 3006   # "C# (Mono x.x.x.x)"
   #     yukicoder: csharp # "C# (csc x.x.x.x)"
@@ -265,11 +260,10 @@ languages:
     compile:
       bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
       command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
-      working_directory: $service/$contest/cs
     run:
       command: [mono, $bin]
-      working_directory: $service/$contest/cs
       # crlf_to_lf: false
+    working_directory: $service/$contest/cs
     language_ids:
       # atcoder: 3006        # "C# (Mono x.x.x.x)"
       yukicoder: csharp_mono # "C#(mono) (mono x.x.x.x)"

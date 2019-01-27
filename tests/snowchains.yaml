@@ -28,20 +28,19 @@ languages:
     compile:
       bin: $service/$contest/rs/target/manually/{kebab}
       command: [rustc, +$RUST_VERSION, -o, $bin, $src]
-      working_directory: $service/$contest/rs
     run:
       command: [$bin]
-      working_directory: $service/$contest/rs
+    working_directory: $service/$contest/rs
   python3:
     src: $service/$contest/py/{kebab}.py
     run:
-      command: [./venv/bin/python3, $src]
-      working_directory: $service/$contest/py
+      command: ["false"]
+    working_directory: .
     language_ids:
       atcoder: 3023
       yukicoder: python3
   text:
     src: $service/$contest/txt/{snake}.txt
     run:
-      command: [cat, $src]
-      working_directory: $service/$contest/txt
+      command: ["false"]
+    working_directory: .
