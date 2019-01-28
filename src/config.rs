@@ -73,35 +73,35 @@ fn generate_yaml() -> String {
     static TESTER_PYTHON3: &str = "./venv/Scripts/python.exe";
 
     #[cfg(not(windows))]
-    static VENV_PYTHON3: &str = "../../../venvs/python3_$service/bin/python3";
+    static VENV_PYTHON3: &str = "\"../../../venvs/python3_${service}/bin/python3\"";
     #[cfg(windows)]
-    static VENV_PYTHON3: &str = "../../../venvs/python3_$service/Scripts/python.exe";
+    static VENV_PYTHON3: &str = "\"../../../venvs/python3_${service}/Scripts/python.exe\"";
 
     #[cfg(not(windows))]
-    static VENV_PYPY3: &str = "../../../venvs/pypy3_$service/bin/python3";
+    static VENV_PYPY3: &str = "\"../../../venvs/pypy3_${service}/bin/python3\"";
     #[cfg(windows)]
-    static VENV_PYPY3: &str = "../../../venvs/pypy3_$service/Scripts/python.exe";
+    static VENV_PYPY3: &str = "\"../../../venvs/pypy3_${service}/Scripts/python.exe\"";
 
     #[cfg(not(windows))]
     static CSHARP: &str = r#"  c#:
-    src: $service/$contest/cs/{Pascal}/{Pascal}.cs
+    src: ${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs
     compile:
-      bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
-      command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
+      bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
+      command: [mcs, -o+, "-r:System.Numerics", "-out:${bin}", "${src}"]
     run:
-      command: [mono, $bin]
-    working_directory: $service/$contest/cs
+      command: [mono, "${bin}"]
+    working_directory: ${service}/${contest}/cs
     language_ids: { atcoder: 3006, yukicoder: csharp_mono }"#;
     #[cfg(windows)]
     static CSHARP: &str = r#"  c#:
-    src: $service/$contest/cs/{Pascal}/{Pascal}.cs
+    src: ${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs
     compile:
-      bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
-      command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
+      bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
+      command: [csc, /o+, "/r:System.Numerics", "/out:${bin}", "${src}"]
     run:
-      command: [$bin]
+      command: ["${bin}"]
       crlf_to_lf: true
-    working_directory: $service/$contest/cs
+    working_directory: ${service}/${contest}/cs
     language_ids: { atcoder: 3006, yukicoder: csharp }"#;
 
     fn quote_path(path: &Path) -> Option<String> {
@@ -152,22 +152,22 @@ fn generate_yaml() -> String {
             "bash: [{}, -c, {}]",
             quote_path(&bash).unwrap(),
             if cfg!(windows) {
-                "\"PATH=/usr/bin:$$PATH; $command\""
+                "\"PATH=/usr/bin:$$PATH; ${command}\""
             } else {
-                "$command"
+                "\"${command}\""
             }
         );
         let powershell = env::split_paths(&env_path)
             .flat_map(|p| vec![p.with_exe("pwsh"), p.with_exe("powershell")])
             .find(|p| cfg!(windows) && p.exists())
             .and_then(|p| quote_path(&p))
-            .map(|s| format!("\n  ps: [{}, -Command, $command]", s))
+            .map(|s| format!("\n  ps: [{}, -Command, \"${{command}}\"]", s))
             .unwrap_or_default();
         let cmd = env::split_paths(&env_path)
             .map(|p| p.with_exe("cmd"))
             .find(|p| cfg!(windows) && p.exists())
             .and_then(|p| quote_path(&p))
-            .map(|s| format!("\n  cmd: [{}, /C, $command]", s))
+            .map(|s| format!("\n  cmd: [{}, /C, \"${{command}}\"]", s))
             .unwrap_or_default();
 
         let (jq, shell, transpile_java, transpile_scala);
@@ -208,7 +208,7 @@ fn generate_yaml() -> String {
                 Path::new("~").join(".local").join("share").join("snowchains")
             }
         };
-        let session_cookies = quote_path(&data_local_dir.join("$service")).unwrap();
+        let session_cookies = quote_path(&data_local_dir.join("${service}")).unwrap();
         let session_dropbox = quote_path(&data_local_dir.join("dropbox.json")).unwrap();
         (session_cookies, session_dropbox)
     };
@@ -226,7 +226,7 @@ console:
 shell:
   {bash}{powershell}{cmd}
 
-testfile_path: $service/$contest/tests/{{snake}}.$extension
+testfile_path: "${{service}}/${{contest}}/tests/${{problem_snake}}.${{extension}}"
 
 session:
   timeout: 60s
@@ -237,7 +237,7 @@ session:
   #   auth: {session_dropbox}
   download:
     extension: yaml
-    text_file_dir: $service/$contest/tests/{{snake}}
+    text_file_dir: ${{service}}/${{contest}}/tests/${{problem_snake}}
 
 judge:
   testfile_extensions: [json, toml, yaml, yml]
@@ -262,108 +262,108 @@ env:
 #     - {jq}
 
 tester:
-  src: testers/py/{{kebab}}.py
+  src: testers/py/${{problem_kebab}}.py
   run:
     command:
       {shell}: {tester_python3} "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED{crlf_to_lf_true_indent4}
   working_directory: testers/py
-  # src: testers/hs/app/{{Pascal}}.hs
+  # src: testers/hs/app/${{problem_pascal}}.hs
   # compile:
-  #   bin: testers/hs/target/{{Pascal}}
-  #   command: [stack, ghc, --, -O2, -o, $bin, $src]
+  #   bin: testers/hs/target/${{problem_pascal}}
+  #   command: [stack, ghc, --, -O2, -o, "${{bin}}", "${{src}}"]
   # run:
   #   command:
-  #     {shell}: "$SNOWCHAINS_BIN" $SNOWCHAINS_ARGS_JOINED{crlf_to_lf_false_commented_out}
+  #     {shell}: '"$SNOWCHAINS_BIN" $SNOWCHAINS_ARGS_JOINED'{crlf_to_lf_false_commented_out}
   # working_directory: testers/hs
 
 languages:
   c++:
-    src: $service/$contest/cpp/{{kebab}}.cpp              # source file to test and to submit
+    src: ${{service}}/${{contest}}/cpp/${{problem_kebab}}.cpp # source file to test and to submit
     compile:                                            # optional
-      bin: $service/$contest/cpp/build/{{kebab}}{exe}
+      bin: ${{service}}/${{contest}}/cpp/build/${{problem_kebab}}{exe}
       command:
         bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
     run:
-      command: [$bin]{crlf_to_lf_true_indent6}
-    working_directory: $service/$contest/cpp            # default: "."
+      command: ["${{bin}}"]{crlf_to_lf_true_indent6}
+    working_directory: ${{service}}/${{contest}}/cpp        # default: "."
     language_ids: {{ atcoder: 3003, yukicoder: cpp14 }}   # optional
   rust:
-    src: $service/$contest/rs/src/bin/{{kebab}}.rs
+    src: ${{service}}/${{contest}}/rs/src/bin/${{problem_kebab}}.rs
     compile:
-      bin: $service/$contest/rs/target/manually/{{kebab}}{exe}
-      command: [rustc, +$RUST_VERSION, -o, $bin, $src]
+      bin: ${{service}}/${{contest}}/rs/target/manually/${{problem_kebab}}{exe}
+      command: [rustc, "+${{env:RUST_VERSION}}", -o, "${{bin}}", "${{src}}"]
     run:
-      command: [$bin]{crlf_to_lf_false}
-    working_directory: $service/$contest/rs
+      command: ["${{bin}}"]{crlf_to_lf_false}
+    working_directory: ${{service}}/${{contest}}/rs
     language_ids: {{ atcoder: 3504, yukicoder: rust }}
   go:
-    src: $service/$contest/go/{{kebab}}.go
+    src: ${{service}}/${{contest}}/go/${{problem_kebab}}.go
     compile:
-      bin: $service/$contest/go/{{kebab}}{exe}
-      command: [go, build, -o, $bin, $src]
+      bin: ${{service}}/${{contest}}/go/${{problem_kebab}}{exe}
+      command: [go, build, -o, "${{bin}}", "${{src}}"]
     run:
-      command: [$bin]{crlf_to_lf_false}
-    working_directory: $service/$contest/go
+      command: ["${{bin}}"]{crlf_to_lf_false}
+    working_directory: ${{service}}/${{contest}}/go
     language_ids: {{ atcoder: 3013, yukicoder: go }}
   haskell:
-    src: $service/$contest/hs/app/{{Pascal}}.hs
+    src: ${{service}}/${{contest}}/hs/app/${{problem_pascal}}.hs
     compile:
-      bin: $service/$contest/hs/target/{{Pascal}}{exe}
-      command: [stack, ghc, --, -O2, -o, $bin, $src]
+      bin: ${{service}}/${{contest}}/hs/target/${{problem_pascal}}{exe}
+      command: [stack, ghc, --, -O2, -o, "${{bin}}", "${{src}}"]
     run:
-      command: [$bin]{crlf_to_lf_false}
-    working_directory: $service/$contest/hs
+      command: ["${{bin}}"]{crlf_to_lf_false}
+    working_directory: ${{service}}/${{contest}}/hs
     language_ids: {{ atcoder: 3014, yukicoder: haskell }}
   bash:
-    src: $service/$contest/bash/{{kebab}}.bash
+    src: ${{service}}/${{contest}}/bash/${{problem_kebab}}.bash
     run:
-      command: [bash, $src]{crlf_to_lf_false}
-    working_directory: $service/$contest/bash
+      command: [bash, "${{src}}"]{crlf_to_lf_false}
+    working_directory: ${{service}}/${{contest}}/bash
     language_ids: {{ atcoder: 3001, yukicoder: sh }}
   python3:
-    src: $service/$contest/py/{{kebab}}.py
+    src: ${{service}}/${{contest}}/py/${{problem_kebab}}.py
     run:
-      command: [{venv_python3}, $src]{crlf_to_lf_true_indent6}
-    working_directory: $service/$contest/py
+      command: [{venv_python3}, "${{src}}"]{crlf_to_lf_true_indent6}
+    working_directory: ${{service}}/${{contest}}/py
     language_ids: {{ atcoder: 3023, yukicoder: python3 }}
   pypy3:
-    src: $service/$contest/py/{{kebab}}.py
+    src: ${{service}}/${{contest}}/py/${{problem_kebab}}.py
     run:
-      command: [{venv_pypy3}, $src]{crlf_to_lf_true_indent6}
-    working_directory: $service/$contest/py
+      command: [{venv_pypy3}, "${{src}}"]{crlf_to_lf_true_indent6}
+    working_directory: ${{service}}/${{contest}}/py
     language_ids: {{ atcoder: 3510, yukicoder: pypy3 }}
   java:
-    src: $service/$contest/java/src/main/java/{{Pascal}}.java
+    src: ${{service}}/${{contest}}/java/src/main/java/${{problem_pascal}}.java
     transpile:
-      transpiled: $service/$contest/java/build/replaced/{{lower}}/src/Main.java
+      transpiled: ${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/src/Main.java
       command:
         {transpile_java}
     compile:
-      bin: $service/$contest/java/build/replaced/{{lower}}/classes/Main.class
-      command: [javac, -d, './build/replaced/{{lower}}/classes', $transpiled]
+      bin: ${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/classes/Main.class
+      command: [javac, -d, "./build/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
     run:
-      command: [java, -classpath, './build/replaced/{{lower}}/classes', Main]{crlf_to_lf_true_indent6}
-    working_directory: $service/$contest/java
+      command: [java, -classpath, "./build/replaced/${{problem_lower}}/classes", Main]{crlf_to_lf_true_indent6}
+    working_directory: ${{service}}/${{contest}}/java
     language_ids: {{ atcoder: 3016, yukicoder: java8 }}
   scala:
-    src: $service/$contest/scala/src/main/scala/{{Pascal}}.scala
+    src: ${{service}}/${{contest}}/scala/src/main/scala/${{problem_pascal}}.scala
     transpile:
-      transpiled: $service/$contest/scala/target/replaced/{{lower}}/src/Main.scala
+      transpiled: ${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/src/Main.scala
       command:
         {transpile_scala}
     compile:
-      bin: $service/$contest/scala/target/replaced/{{lower}}/classes/Main.class
-      command: [scalac, -optimise, -d, './target/replaced/{{lower}}/classes', $transpiled]
+      bin: ${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/classes/Main.class
+      command: [scalac, -optimise, -d, "./target/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
     run:
-      command: [scala, -classpath, './target/replaced/{{lower}}/classes', Main]{crlf_to_lf_true_indent6}
-    working_directory: $service/$contest/scala
+      command: [scala, -classpath, "./target/replaced/${{problem_lower}}/classes", Main]{crlf_to_lf_true_indent6}
+    working_directory: ${{service}}/${{contest}}/scala
     language_ids: {{ atcoder: 3025, yukicoder: scala }}
 {csharp}
   text:
-    src: $service/$contest/txt/{{snake}}.txt
+    src: ${{service}}/${{contest}}/txt/${{problem_snake}}.txt
     run:
-      command: [cat, $src]
-      working_directory: $service/$contest/txt{crlf_to_lf_false}
+      command: [cat, "${{src}}"]
+      working_directory: ${{service}}/${{contest}}/txt{crlf_to_lf_false}
     language_ids: {{ atcoder: 3027, yukicoder: text }}
 "#,
         console_alt_width = CONSOLE_ALT_WIDTH,

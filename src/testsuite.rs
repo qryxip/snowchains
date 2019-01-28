@@ -169,7 +169,7 @@ impl TestCaseLoader<'_> {
                 self.template
                     .clone()
                     .extension(ext)
-                    .expand(problem)
+                    .expand(Some(problem))
                     .map(|path| (path, ext))
             })
             .collect::<ExpandTemplateResult<Vec<_>>>()?;
@@ -251,12 +251,12 @@ impl DownloadDestinations {
             .scraped
             .clone()
             .extension(self.extension)
-            .expand(problem)?;
+            .expand(Some(problem))?;
         Ok(SuiteFilePath::new(&path, self.extension))
     }
 
     pub(crate) fn text_file_dir(&self, problem: &str) -> ExpandTemplateResult<AbsPathBuf> {
-        self.text_file_dir.expand(problem)
+        self.text_file_dir.expand(Some(problem))
     }
 }
 

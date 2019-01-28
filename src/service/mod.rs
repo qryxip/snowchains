@@ -516,7 +516,7 @@ impl SubmitProps<String> {
         skip_checking_if_accepted: bool,
     ) -> crate::Result<Self> {
         let contest = config.contest().to_owned();
-        let src_path = config.src_to_submit()?.expand(&problem)?;
+        let src_path = config.src_to_submit()?.expand(Some(&problem))?;
         let lang_id = config.lang_id().map(ToOwned::to_owned);
         Ok(Self {
             contest,

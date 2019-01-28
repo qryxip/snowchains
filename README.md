@@ -104,25 +104,25 @@ console:
   # alt_width: 100
 
 shell:
-  bash: [/usr/bin/bash, -c, $command]
-  # bash: ["C:/tools/msys64/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; $command"]
-  # bash: ["C:/msys64/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; $command"]
-  # bash: ["C:/Program Files/Git/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; $command"]
-  # ps: ["C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", -Command, $command]
-  # cmd: ["C:/Windows/System32/cmd.exe", /C, $command]
+  bash: [/usr/bin/bash, -c, "${{command}}"]
+  # bash: ["C:/tools/msys64/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; "${{command}}""]
+  # bash: ["C:/msys64/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; "${{command}}""]
+  # bash: ["C:/Program Files/Git/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; "${{command}}""]
+  # ps: ["C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", -Command, "${{command}}"]
+  # cmd: ["C:/Windows/System32/cmd.exe", /C, "${{command}}"]
 
-testfile_path: $service/$contest/tests/{snake}.$extension
+testfile_path: ${service}/${contest}/tests/${problem_snake}.${extension}
 
 session:
   timeout: 60s
   silent: false
-  cookies: ~/.local/share/snowchains/$service
+  cookies: "~/.local/share/snowchains/${service}"
   dropbox: false
   # dropbox:
   #   auth: ~/.local/share/snowchains/dropbox.json
   download:
     extension: yaml
-    text_file_dir: $service/$contest/tests/{snake}
+    text_file_dir: ${service}/${contest}/tests/${problem_snake}
 
 judge:
   testfile_extensions: [json, toml, yaml, yml]
@@ -165,101 +165,97 @@ hooks:
         fi
 
 tester:
-  src: testers/py/{kebab}.py
+  src: testers/py/${problem_kebab}.py
   run:
     command:
       bash: ./venv/bin/python3 "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED
-    # crlf_to_lf: false
   working_directory: testers/py
-  # src: testers/hs/app/{Pascal}.hs
+  # src: testers/hs/app/${problem_pascal}.hs
   # compile:
-  #   bin: testers/hs/target/{Pascal}
-  #   command: [stack, ghc, --, -O2, -o, $bin, $src]
+  #   bin: testers/hs/target/${problem_pascal}
+  #   command: [stack, ghc, --, -O2, -o, "${bin}", "${src}"]
   # run:
   #   command:
   #     bash: "$SNOWCHAINS_BIN" $SNOWCHAINS_ARGS_JOINED
-  #   # crlf_to_lf: false
   # working_directory: testers/hs
 
 languages:
   c++:
-    src: $service/$contest/cpp/{kebab}.cpp            # source file to test and to submit
-    compile:                                          # optional
-      bin: $service/$contest/cpp/build/{kebab}
+    src: ${service}/${contest}/cpp/${problem_kebab}.cpp # source file to test and to submit
+    compile:                                            # optional
+      bin: ${service}/${contest}/cpp/build/${problem_kebab}
       command:
         bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
     run:
-      command: [$bin]
+      command: ["${bin}"]
       # crlf_to_lf: false
-    working_directory: $service/$contest/cpp          # default: "."
-    language_ids: { atcoder: 3003, yukicoder: cpp14 } # optional
+    working_directory: ${service}/${contest}/cpp        # default: "."
+    language_ids: { atcoder: 3003, yukicoder: cpp14 }   # optional
   rust:
-    src: $service/$contest/rs/src/bin/{kebab}.rs
+    src: ${service}/${contest}/rs/src/bin/${problem_kebab}.rs
     compile:
-      bin: $service/$contest/rs/target/manually/{kebab}
-      command: [rustc, +$RUST_VERSION, -o, $bin, $src]
+      bin: ${service}/${contest}/rs/target/manually/${problem_kebab}
+      command: [rustc, "+${env:RUST_VERSION}", -o, "${bin}", "${src}"]
     run:
-      command: [$bin]
+      command: ["${bin}"]
       # crlf_to_lf: false
-    working_directory: $service/$contest/rs
+    working_directory: ${service}/${contest}/rs
     language_ids: { atcoder: 3504, yukicoder: rust }
   haskell:
-    src: $service/$contest/hs/app/{Pascal}.hs
+    src: ${service}/${contest}/hs/app/${problem_pascal}.hs
     compile:
-      bin: $service/$contest/hs/target/{Pascal}
-      command: [stack, ghc, --, -O2, -o, $bin, $src]
+      bin: ${service}/${contest}/hs/target/${problem_pascal}
+      command: [stack, ghc, --, -O2, -o, "${bin}", "${src}"]
     run:
-      command: [$bin]
+      command: ["${bin}"]
       # crlf_to_lf: false
-    working_directory: $service/$contest/hs
+    working_directory: ${service}/${contest}/hs
     language_ids: { atcoder: 3014, yukicoder: haskell }
   python3:
-    src: $service/$contest/py/{kebab}.py
+    src: ${service}/${contest}/py/${problem_kebab}.py
     run:
-      command: [../../../venvs/python3_$service/bin/python3, $src]
-      # crlf_to_lf: false
-    working_directory: $service/$contest/py
+      command: ["../../../venvs/python3_${service}/bin/python3", "${src}"]
+      crlf_to_lf: true
+    working_directory: ${service}/${contest}/py
     language_ids: { atcoder: 3023, yukicoder: python3 }
   pypy3:
-    src: $service/$contest/py/{kebab}.py
+    src: ${service}/${contest}/py/${problem_kebab}.py
     run:
-      command: [../../../venvs/pypy3_$service/bin/python3, $src]
-    working_directory: $service/$contest/py
+      command: ["../../../venvs/pypy3_${service}/bin/python3", "${src}"]
+      crlf_to_lf: true
+    working_directory: ${service}/${contest}/py
     language_ids: { atcoder: 3510, yukicoder: pypy3 }
   java:
-    src: $service/$contest/java/src/main/java/{Pascal}.java
+    src: ${service}/${contest}/java/src/main/java/${problem_pascal}.java
     transpile:
-      transpiled: $service/$contest/java/build/replaced/{lower}/src/Main.java
+      transpiled: ${service}/${contest}/java/build/replaced/${problem_lower}/src/Main.java
       command:
         bash: cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g" > "$SNOWCHAINS_TRANSPILED"
-        # ps: cat ${env:SNOWCHAINS_SRC} | % { $_ -replace "class\s+${env:SNOWCHAINS_PROBLEM_PASCAL}", "class Main" } | sc ${env:SNOWCHAINS_TRANSPILED}
     compile:
-      bin: $service/$contest/java/build/replaced/{lower}/classes/Main.class
-      command: [javac, -d, './build/replaced/{lower}/classes', $transpiled]
+      bin: ${service}/${contest}/java/build/replaced/${problem_lower}/classes/Main.class
+      command: [javac, -d, "./build/replaced/${problem_lower}/classes", "${transpiled}"]
     run:
-      command: [java, -classpath, './build/replaced/{lower}/classes', Main]
-      # crlf_to_lf: false
-    working_directory: $service/$contest/java
+      command: [java, -classpath, "./build/replaced/${problem_lower}/classes", Main]
+      crlf_to_lf: true
+    working_directory: ${service}/${contest}/java
     language_ids: { atcoder: 3016, yukicoder: java8 }
   # c#:
-  #   src: $service/$contest/cs/{Pascal}/{Pascal}.cs
+  #   src: ${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs
   #   compile:
-  #     bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
-  #     command: [csc, /o+, '/r:System.Numerics', '/out:$bin', $src]
+  #     bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
+  #     command: [csc, /o+, "/r:System.Numerics", "/out:${bin}", "${src}"]
   #   run:
-  #     command: [$bin]
-  #     crlf_to_lf: true
-  #   working_directory: $service/$contest/cs
+  #     command: ["${bin}"]
+  #   working_directory: ${service}/${contest}/cs
   #   language_ids: { atcoder: 3006, yukicoder: csharp }
   c#:
-    src: $service/$contest/cs/{Pascal}/{Pascal}.cs
+    src: ${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs
     compile:
-      bin: $service/$contest/cs/{Pascal}/bin/Release/{Pascal}.exe
-      command: [mcs, -o+, '-r:System.Numerics', '-out:$bin', $src]
+      bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
+      command: [mcs, -o+, "-r:System.Numerics", "-out:${bin}", "${src}"]
     run:
-      command: [mono, $bin]
-      # crlf_to_lf: false
-    working_directory: $service/$contest/cs
+      command: [mono, "${bin}"]
+    working_directory: ${service}/${contest}/cs
     language_ids: { atcoder: 3006, yukicoder: csharp_mono }
 ```
 

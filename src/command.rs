@@ -47,7 +47,7 @@ impl HookCommand {
     pub(crate) fn new(
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
-        envs: HashMap<OsString, OsString>,
+        envs: HashMap<String, OsString>,
     ) -> Self {
         Self {
             inner: Inner::new(args, working_dir, envs),
@@ -89,7 +89,7 @@ impl TranspilationCommand {
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
         transpiled: AbsPathBuf,
-        envs: HashMap<OsString, OsString>,
+        envs: HashMap<String, OsString>,
     ) -> Self {
         Self {
             repr: BuildCommand::new(args, working_dir, src, transpiled, envs),
@@ -130,7 +130,7 @@ impl CompilationCommand {
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
         bin: AbsPathBuf,
-        envs: HashMap<OsString, OsString>,
+        envs: HashMap<String, OsString>,
     ) -> Self {
         Self {
             repr: BuildCommand::new(args, working_dir, src, bin, envs),
@@ -178,7 +178,7 @@ impl BuildCommand {
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
         target: AbsPathBuf,
-        envs: HashMap<OsString, OsString>,
+        envs: HashMap<String, OsString>,
     ) -> Self {
         let envs = envs.into_iter().collect();
         let inner = Inner::new(args, working_dir, envs);
@@ -262,7 +262,7 @@ impl JudgingCommand {
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         crlf_to_lf: bool,
-        envs: HashMap<OsString, OsString>,
+        envs: HashMap<String, OsString>,
     ) -> Self {
         JudgingCommand {
             inner: Inner::new(args, working_dir, envs),
@@ -320,15 +320,11 @@ impl JudgingCommand {
 struct Inner {
     args: NonEmptyVec<OsString>,
     working_dir: AbsPathBuf,
-    envs: Vec<(OsString, OsString)>,
+    envs: Vec<(String, OsString)>,
 }
 
 impl Inner {
-    fn new(
-        args: Vec<OsString>,
-        working_dir: AbsPathBuf,
-        envs: HashMap<OsString, OsString>,
-    ) -> Self {
+    fn new(args: Vec<OsString>, working_dir: AbsPathBuf, envs: HashMap<String, OsString>) -> Self {
         let mut args = NonEmptyVec::try_new(args).unwrap_or_default();
         // https://github.com/rust-lang/rust/issues/37519
         if cfg!(windows) && Path::new(&args[0]).is_relative() {

@@ -559,7 +559,7 @@ impl<T: Term> Atcoder<T> {
                 .extract_submitted_code()?;
             let lang_id = first_page.extract_lang_id_by_name(&lang_name)?;
             if let Some(path_template) = src_paths.get(lang_id.as_str()) {
-                let path = path_template.expand(&task_name.to_lowercase())?;
+                let path = path_template.expand(Some(&task_name.to_lowercase()))?;
                 crate::fs::write(&path, code.as_bytes())?;
                 results.push((task_name, lang_name, lang_id, path));
             } else {
