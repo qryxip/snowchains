@@ -155,7 +155,7 @@ pub(crate) fn replace_scalars(
             | Event::Scalar(..)
             | Event::SequenceStart(_)
             | Event::MappingStart(_) => {
-                break Err(ReplaceYamlScalarWarning::AnchorAndAliasNotSupported)
+                break Err(ReplaceYamlScalarWarning::AnchorAndAliasNotSupported);
             }
         }
     }

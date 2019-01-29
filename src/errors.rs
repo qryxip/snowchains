@@ -79,6 +79,8 @@ pub enum ServiceError {
     SerdeUrlencodedSer(StdError<serde_urlencoded::ser::Error>),
     #[double_from = "ZipError"]
     Zip(StdError<ZipError>),
+    #[double_from = "tokio::timer::Error"]
+    TokioTimer(StdError<tokio::timer::Error>),
     #[double_from = "io::Error"]
     Io(StdError<io::Error>),
 }
@@ -160,6 +162,8 @@ pub enum JudgeError {
     Config(ConfigError),
     ExpandTemplate(ExpandTemplateError),
     File(FileError),
+    #[double_from = "tokio::timer::Error"]
+    TokioTimer(StdError<tokio::timer::Error>),
     #[double_from = "io::Error"]
     Io(StdError<io::Error>),
 }
@@ -258,35 +262,23 @@ pub struct ExpandTemplateError(failure::Context<ExpandTemplateErrorKind>);
 
 #[derive(Debug, derive_more::Display, Fail)]
 pub enum ExpandTemplateErrorKind {
+    #[display(fmt = "Failed to expand ({:?}) as a non UTF-8 string", tokens)]
+    OsStr { tokens: Tokens },
     #[display(
-        fmt = "Failed to expand ({:?} % {:?}) as a non UTF-8 string",
-        tokens,
-        problem
-    )]
-    OsStr { tokens: Tokens, problem: String },
-    #[display(
-        fmt = "Failed to expand ({} </> ({:?} % {:?})) as a non UTF-8 string",
+        fmt = "Failed to expand ({} </> ({:?})) as a non UTF-8 string",
         "base_dir.display()",
-        tokens,
-        problem
+        tokens
     )]
     Path {
         tokens: Tokens,
-        problem: String,
         base_dir: AbsPathBuf,
     },
     #[display(fmt = "{:?} not found in the config", _0)]
     NoSuchShell(String),
-    #[display(
-        fmt = "Unknown specifier {:?}: expected \"\", \"lower\", \"upper\", \"kebab\", \
-               \"snake\", \"screaming\", \"mixed\", \"pascal\" or \"title\"",
-        _0
-    )]
-    UnknownSpecifier(String),
+    #[display(fmt = "Undefined variable: {:?}", _0)]
+    UndefinedVar(String),
     #[display(fmt = "The environment variable {} is not present", _0)]
     EnvVarNotPresent(String),
-    #[display(fmt = "The environment variable {} is not valid unicode", _0)]
-    EnvVarNotUnicode(String),
     #[display(fmt = "Failed to serialize the data into a JSON")]
     SerializeJson,
 }

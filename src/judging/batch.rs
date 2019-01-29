@@ -5,6 +5,7 @@ use crate::judging::Outcome;
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
 use crate::testsuite::{BatchCase, ExpectedStdout};
 use crate::time::MillisRoundedUp;
+use crate::util::num::PositiveFinite;
 
 use derive_more::From;
 use futures::{task, try_ready, Async, Future, Poll};
@@ -29,12 +30,11 @@ pub(super) fn accepts(case: &BatchCase, stdout: &str) -> BatchOutcome {
         }
         ExpectedStdout::Float {
             string,
-            absolute_error,
             relative_error,
+            absolute_error,
         } => {
-            let errors = Some((*absolute_error, *relative_error));
-            let expected = Text::float(string, errors);
-            let stdout = Text::float(&stdout, None);
+            let expected = Text::float_left(string, *relative_error, *absolute_error);
+            let stdout = Text::float_right(&stdout);
             (stdout, Some(expected), None)
         }
     };
@@ -107,7 +107,7 @@ impl Future for Judge {
                     expected: match self.expected.as_ref() {
                         ExpectedStdout::Any { .. } => None,
                         ExpectedStdout::Exact(expected) => Some(Text::exact(&expected)),
-                        ExpectedStdout::Float { string, .. } => Some(Text::float(string, None)),
+                        ExpectedStdout::Float { string, .. } => Some(Text::float_right(string)),
                     },
                 }
                 .into(),
@@ -296,12 +296,11 @@ impl CommandOutcome {
             }
             ExpectedStdout::Float {
                 string,
-                absolute_error,
                 relative_error,
+                absolute_error,
             } => {
-                let errors = Some((*absolute_error, *relative_error));
-                let expected = Text::float(string, errors);
-                let stdout = Text::float(&self.stdout, None);
+                let expected = Text::float_left(string, *relative_error, *absolute_error);
+                let stdout = Text::float_right(&self.stdout);
                 (stdout, Some(expected), None)
             }
         };
@@ -682,28 +681,32 @@ impl PrintAligned for LineDiff {
 }
 
 impl Text {
-    fn float(s: &str, errors: Option<(f64, f64)>) -> Self {
-        if let Some((absolute_error, relative_error)) = errors {
-            let on_plain = |string: String| match string.parse::<f64>() {
-                Ok(value) => Word::FloatLeft {
-                    value,
-                    string: Arc::new(string),
-                    absolute_error,
-                    relative_error,
-                },
-                Err(_) => Word::Plain(Arc::new(string)),
-            };
-            Self::new(s, on_plain)
-        } else {
-            fn on_plain(string: String) -> Word {
-                let string = Arc::new(string);
-                match string.parse::<f64>() {
-                    Ok(value) => Word::FloatRight { value, string },
-                    Err(_) => Word::Plain(string),
-                }
+    fn float_left(
+        s: &str,
+        relative: Option<PositiveFinite<f64>>,
+        absolute: Option<PositiveFinite<f64>>,
+    ) -> Self {
+        let on_plain = |string: String| match string.parse::<f64>() {
+            Ok(value) => Word::FloatLeft {
+                value,
+                string: Arc::new(string),
+                relative_error: relative,
+                absolute_error: absolute,
+            },
+            Err(_) => Word::Plain(Arc::new(string)),
+        };
+        Self::new(s, on_plain)
+    }
+
+    fn float_right(s: &str) -> Self {
+        fn on_plain(string: String) -> Word {
+            let string = Arc::new(string);
+            match string.parse::<f64>() {
+                Ok(value) => Word::FloatRight { value, string },
+                Err(_) => Word::Plain(string),
             }
-            Self::new(s, on_plain)
         }
+        Self::new(s, on_plain)
     }
 
     fn print_all(&self, mut out: impl TermOut) -> io::Result<()> {

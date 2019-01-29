@@ -1,4 +1,5 @@
 pub(crate) mod collections;
+pub(crate) mod num;
 pub(crate) mod std_unstable;
 
 use serde_derive::{Deserialize, Serialize};

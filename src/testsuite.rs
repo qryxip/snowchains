@@ -6,6 +6,7 @@ use crate::errors::{
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
 use crate::terminal::WriteAnsi;
+use crate::util::num::PositiveFinite;
 use crate::{time, yaml};
 
 use derive_more::From;
@@ -15,6 +16,9 @@ use itertools::{EitherOrBoth, Itertools};
 use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
+
+#[cfg(test)]
+use failure::Fallible;
 
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write;
@@ -165,7 +169,7 @@ impl TestCaseLoader<'_> {
                 self.template
                     .clone()
                     .extension(ext)
-                    .expand(problem)
+                    .expand(Some(problem))
                     .map(|path| (path, ext))
             })
             .collect::<ExpandTemplateResult<Vec<_>>>()?;
@@ -247,12 +251,12 @@ impl DownloadDestinations {
             .scraped
             .clone()
             .extension(self.extension)
-            .expand(problem)?;
+            .expand(Some(problem))?;
         Ok(SuiteFilePath::new(&path, self.extension))
     }
 
     pub(crate) fn text_file_dir(&self, problem: &str) -> ExpandTemplateResult<AbsPathBuf> {
-        self.text_file_dir.expand(problem)
+        self.text_file_dir.expand(Some(problem))
     }
 }
 
@@ -377,8 +381,17 @@ impl TestSuite {
     }
 
     #[cfg(test)]
-    pub(crate) fn md5(&self) -> serde_json::Result<md5::Digest> {
-        serde_json::to_string_pretty(self).map(md5::compute)
+    pub(crate) fn md5(&self) -> TestSuiteResult<md5::Digest> {
+        self.to_string_pretty(SuiteFileExtension::Json)
+            .map(md5::compute)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assert_serialize_correctly(&self) -> Fallible<()> {
+        let serialized = self.to_string_pretty(SuiteFileExtension::Json)?;
+        let deserialized = serde_json::from_str(&serialized)?;
+        assert_eq!(*self, deserialized);
+        Ok(())
     }
 }
 
@@ -653,14 +666,29 @@ impl InteractiveSuite {
         filename: &str,
         problem: &str,
     ) -> TestSuiteResult<vec::IntoIter<InteractiveCase>> {
+        fn number_arg(i: usize, arg: &str) -> Vec<(String, String)> {
+            vec![
+                (format!("arg{}", i), arg.to_string()),
+                (format!("SNOWCHAINS_ARG{}", i), arg.to_string()),
+            ]
+        }
+
         let mut cases = Vec::with_capacity(self.each_args.len());
         for (i, args) in self.each_args.iter().enumerate() {
-            let mut m = hashmap!("*".to_owned() => args.join(" "));
-            m.extend(args.iter().enumerate().zip_longest(1..=9).map(|p| match p {
-                EitherOrBoth::Both((_, arg), i) => (i.to_string(), arg.clone()),
-                EitherOrBoth::Left((j, arg)) => ((j + i).to_string(), arg.clone()),
-                EitherOrBoth::Right(i) => (i.to_string(), "".to_owned()),
-            }));
+            let mut m = hashmap!(
+                "arg_joined".to_owned() => args.join(" "),
+                "SNOWCHAINS_ARG_JOINED".to_owned() => args.join(" "),
+            );
+            m.extend(
+                args.iter()
+                    .enumerate()
+                    .zip_longest(0..=9)
+                    .flat_map(|p| match p {
+                        EitherOrBoth::Both((_, arg), i) => number_arg(i, arg),
+                        EitherOrBoth::Left((i, arg)) => number_arg(i, arg),
+                        EitherOrBoth::Right(i) => number_arg(i, ""),
+                    }),
+            );
             let tester_transpilation = match tester_transpilation {
                 None => None,
                 Some(t) => Some(Arc::new(t.expand(problem)?)),
@@ -809,8 +837,8 @@ pub(crate) enum ExpectedStdout {
     Exact(String),
     Float {
         string: String,
-        absolute_error: f64,
-        relative_error: f64,
+        relative_error: Option<PositiveFinite<f64>>,
+        absolute_error: Option<PositiveFinite<f64>>,
     },
 }
 
@@ -821,15 +849,9 @@ pub(crate) enum Match {
     Any,
     Exact,
     Float {
-        #[serde(default = "nan")]
-        relative_error: f64,
-        #[serde(default = "nan")]
-        absolute_error: f64,
+        relative_error: Option<PositiveFinite<f64>>,
+        absolute_error: Option<PositiveFinite<f64>>,
     },
-}
-
-fn nan() -> f64 {
-    f64::NAN
 }
 
 impl Default for Match {

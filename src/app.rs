@@ -9,13 +9,14 @@ use crate::service::{
 use crate::terminal::{AnsiColorChoice, Term};
 use crate::testsuite::{self, SuiteFileExtension};
 use crate::time;
+use crate::util::num::PositiveFinite;
+use crate::util::std_unstable::Transpose_;
 
 use log::info;
 use structopt::clap::Arg;
 use structopt::StructOpt;
 use strum_macros::EnumString;
 
-use std::f64;
 use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -370,15 +371,15 @@ pub struct MatchOpts {
     #[structopt(
         long = "relative",
         help = "Relative error (ignored if <match> is not \"float\")",
-        raw(value_name = "\"FLOAT64\"", display_order = "4")
+        raw(value_name = "\"POSITIVE_FINITE_FLOAT64\"", display_order = "4")
     )]
-    relative_error: Option<f64>,
+    relative_error: Option<PositiveFinite<f64>>,
     #[structopt(
         long = "absolute",
         help = "Absolute error (ignored if <match> is not \"float\")",
-        raw(value_name = "\"FLOAT64\"", display_order = "5")
+        raw(value_name = "\"POSITIVE_FINITE_FLOAT64\"", display_order = "5")
     )]
-    absolute_error: Option<f64>,
+    absolute_error: Option<PositiveFinite<f64>>,
 }
 
 impl Into<testsuite::Match> for MatchOpts {
@@ -387,8 +388,8 @@ impl Into<testsuite::Match> for MatchOpts {
             MatchKind::Any => testsuite::Match::Any,
             MatchKind::Exact => testsuite::Match::Exact,
             MatchKind::Float => testsuite::Match::Float {
-                relative_error: self.relative_error.unwrap_or(f64::NAN),
-                absolute_error: self.absolute_error.unwrap_or(f64::NAN),
+                relative_error: self.relative_error,
+                absolute_error: self.absolute_error,
             },
         }
     }
@@ -542,7 +543,7 @@ impl<T: Term> App<T> {
                 let (_, stdout, stderr) = self.term.split_mut();
                 let (config, outcome) =
                     config::switch(stdout, stderr, &working_dir, service, contest, language)?;
-                let hooks = config.switch_hooks(&outcome).expand("")?;
+                let hooks = config.switch_hooks(&outcome).expand()?;
                 hooks.run::<_, T::Stderr>(self.term.stdout())?;
             }
             Opt::Login {
@@ -601,7 +602,7 @@ impl<T: Term> App<T> {
                     ServiceName::Yukicoder => yukicoder::download(sess_props, download_props),
                     ServiceName::Other => return Err(crate::ErrorKind::Unimplemented.into()),
                 }?;
-                let hooks = config.download_hooks(&outcome).expand("")?;
+                let hooks = config.download_hooks(&outcome).expand()?;
                 hooks.run::<_, T::Stderr>(self.term.stdout())?;
             }
             Opt::Restore {
@@ -791,10 +792,11 @@ impl<T: Term> App<T> {
     }
 
     fn sess_props(&mut self, config: &Config) -> ExpandTemplateResult<SessionProps<&mut T>> {
-        let cookies_path = config.session_cookies().expand("")?;
+        let cookies_path = config.session_cookies().expand(None)?;
         let dropbox_path = config
             .session_dropbox_auth()
-            .map_or(Ok(None), |p| p.expand("").map(Some))?;
+            .map(|p| p.expand(None))
+            .transpose_()?;
         Ok(SessionProps {
             term: &mut self.term,
             domain: config.service().domain(),

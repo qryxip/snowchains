@@ -178,7 +178,7 @@ impl<T: Term> Yukicoder<T> {
         let mut outcome = DownloadOutcome::new(ServiceName::Yukicoder, contest, *open_in_browser);
         match (contest, problems.as_ref()) {
             (YukicoderContest::No, None) => {
-                return Err(ServiceErrorKind::PleaseSpecifyProblems.into())
+                return Err(ServiceErrorKind::PleaseSpecifyProblems.into());
             }
             (YukicoderContest::No, Some(problems)) => {
                 let (mut not_found, mut not_public) = (vec![], vec![]);
@@ -701,6 +701,7 @@ mod tests {
         let document = get_html(rel_url)?;
         let suite = document.extract_samples()?;
         let actual_md5 = suite.md5()?;
+        suite.assert_serialize_correctly()?;
         assert_eq!(format!("{:x}", actual_md5), expected_md5);
         Ok(())
     }
