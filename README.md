@@ -1,7 +1,6 @@
 # Snowchains
 
-
-[![Build Status](https://travis-ci.org/wariuni/snowchains.svg?branch=master)](https://travis-ci.org/wariuni/snowchains)
+[![Build Status](https://img.shields.io/travis/wariuni/snowchains.svg?branch=master&label=windows%20%26%20macos%20%26%20linux)](https://travis-ci.org/wariuni/snowchains)
 [![codecov](https://codecov.io/gh/wariuni/snowchains/branch/master/graph/badge.svg)](https://codecov.io/gh/wariuni/snowchains)
 
 Tools for online programming contests.
