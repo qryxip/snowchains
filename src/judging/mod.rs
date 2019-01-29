@@ -139,7 +139,7 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
         let mut runtime = Runtime::new()?;
         {
             let tx = tx.clone();
-            runtime.spawn(ctrl_c().then(move |r| {
+            runtime.spawn(crate::signal::ctrl_c().then(move |r| {
                 let (dummy_i, dummy_name) = (num_cases, Arc::new("".to_owned()));
                 let _ = tx.send((dummy_i, dummy_name, r)).wait();
                 Ok(())
@@ -225,28 +225,17 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
     >(
         mut cases: impl Iterator<Item = (usize, Arc<String>, C)>,
         runtime: &mut Runtime,
-        tx: futures::sync::mpsc::Sender<(usize, Arc<String>, io::Result<O>)>,
+        tx: futures::sync::mpsc::Sender<(usize, Arc<String>, JudgeResult<O>)>,
         solver: &Arc<JudgingCommand>,
         judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<F>,
     ) -> JudgeResult<()> {
         if let Some((i, name, case)) = cases.next() {
             runtime.spawn(judge(&case, solver)?.then(move |r| {
-                let _ = tx.send((i, name, r)).wait(); // `rx` may be dropped
+                let _ = tx.send((i, name, r.map_err(Into::into))).wait(); // `rx` may be dropped
                 Ok(())
             }));
         }
         Ok(())
-    }
-
-    fn ctrl_c<T>() -> impl Future<Item = T, Error = io::Error> {
-        tokio_signal::ctrl_c()
-            .flatten_stream()
-            .take(1)
-            .into_future()
-            .map_err(|(e, _)| e)
-            .and_then::<_, io::Result<T>>(|_| {
-                Err(io::Error::new(io::ErrorKind::Interrupted, "Interrupted"))
-            })
     }
 
     let JudgeParams {

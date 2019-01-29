@@ -290,7 +290,7 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         let fut = client
             .execute(req)
             .map_err(ServiceError::from)
-            .select(ctrl_c())
+            .select(crate::signal::ctrl_c())
             .map(|(r, _)| r)
             .map_err(|(e, _)| e);
         let res = match runtime.block_on(fut) {
@@ -397,7 +397,7 @@ impl Response {
             .unwrap_or(0);
         let buf = Vec::with_capacity(cap);
         let decoder = mem::replace(self.inner.body_mut(), Decoder::empty());
-        let fut = BufDecoder { decoder, buf }.select(ctrl_c());
+        let fut = BufDecoder { decoder, buf }.select(crate::signal::ctrl_c());
         let content = runtime.block_on(fut).map(|(x, _)| x).map_err(|(e, _)| e)?;
         String::from_utf8(content).map_err(|e| {
             let encoding = encoding.map(|e| e.as_str().to_owned());
@@ -417,23 +417,9 @@ impl Response {
             .inner
             .json()
             .map_err(ServiceError::from)
-            .select(ctrl_c::<T>());
+            .select(crate::signal::ctrl_c::<T, _>());
         runtime.block_on(fut).map(|(x, _)| x).map_err(|(e, _)| e)
     }
-}
-
-fn ctrl_c<T>() -> impl Future<Item = T, Error = ServiceError> {
-    tokio_signal::ctrl_c()
-        .flatten_stream()
-        .take(1)
-        .into_future()
-        .map_err(|(e, _)| ServiceError::from(e))
-        .and_then::<_, ServiceResult<T>>(|_| {
-            Err(ServiceError::from(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "Interrupted",
-            )))
-        })
 }
 
 impl Deref for Response {

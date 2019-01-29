@@ -79,6 +79,8 @@ pub enum ServiceError {
     SerdeUrlencodedSer(StdError<serde_urlencoded::ser::Error>),
     #[double_from = "ZipError"]
     Zip(StdError<ZipError>),
+    #[double_from = "tokio::timer::Error"]
+    TokioTimer(StdError<tokio::timer::Error>),
     #[double_from = "io::Error"]
     Io(StdError<io::Error>),
 }
@@ -160,6 +162,8 @@ pub enum JudgeError {
     Config(ConfigError),
     ExpandTemplate(ExpandTemplateError),
     File(FileError),
+    #[double_from = "tokio::timer::Error"]
+    TokioTimer(StdError<tokio::timer::Error>),
     #[double_from = "io::Error"]
     Io(StdError<io::Error>),
 }

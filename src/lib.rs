@@ -7,6 +7,7 @@ pub mod app;
 pub mod errors;
 pub mod path;
 pub mod service;
+pub mod signal;
 pub mod terminal;
 pub mod testsuite;
 

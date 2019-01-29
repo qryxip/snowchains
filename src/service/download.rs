@@ -72,12 +72,7 @@ pub(super) trait DownloadProgress {
         let (write_order_tx, write_order_rx) = futures::sync::mpsc::unbounded();
         let oneshot_handle = oneshot::spawn(
             Downloading {
-                ctrlc: tokio_signal::ctrl_c()
-                    .flatten_stream()
-                    .take(1)
-                    .into_future()
-                    .map_err(|(e, _)| e)
-                    .and_then(|_| Err(io::Error::new(io::ErrorKind::Interrupted, "Interrupted"))),
+                ctrlc: crate::signal::ctrl_c(),
                 write_order_tx,
                 progresses: match alt_reqs {
                     None => urls
@@ -202,7 +197,7 @@ enum WriteOrder {
 }
 
 struct Downloading<
-    C: Future<Item = Never, Error = io::Error> + Send + 'static,
+    C: Future<Item = Never, Error = ServiceError> + Send + 'static,
     R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
 > {
     ctrlc: C,
@@ -229,7 +224,7 @@ struct ProgressPending {
 }
 
 impl<
-        C: Future<Item = Never, Error = io::Error> + Send + 'static,
+        C: Future<Item = Never, Error = ServiceError> + Send + 'static,
         R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
     > Future for Downloading<C, R>
 {
