@@ -46,3 +46,26 @@ impl Into<f64> for PositiveFinite<f64> {
         self.inner
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::util::num::PositiveFinite;
+
+    use std::f64;
+
+    #[test]
+    fn test_positive_finite() -> std::result::Result<(), String> {
+        PositiveFinite::try_new(0.0).map_err(ToOwned::to_owned)?;
+        PositiveFinite::try_new(1.0).map_err(ToOwned::to_owned)?;
+        PositiveFinite::try_new(1.1754942e-38).map_err(ToOwned::to_owned)?;
+        PositiveFinite::try_new(-0.0).unwrap_err();
+        PositiveFinite::try_new(f64::INFINITY).unwrap_err();
+        PositiveFinite::try_new(f64::NAN).unwrap_err();
+        "0.0".parse::<PositiveFinite<f64>>()?;
+        assert_eq!(
+            Into::<f64>::into(PositiveFinite::try_new(42.0).map_err(ToOwned::to_owned)?),
+            42.0
+        );
+        Ok(())
+    }
+}

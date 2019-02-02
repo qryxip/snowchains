@@ -90,3 +90,62 @@ impl<'de, K: Ord + Deserialize<'de>, V: Deserialize<'de>> Deserialize<'de>
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::util::collections::{NonEmptyVec, SingleKeyValue};
+
+    #[test]
+    fn test_non_empty_vec() {
+        assert_eq!(NonEmptyVec::<()>::try_new(vec![]), None);
+        assert_eq!(NonEmptyVec::try_new(vec![()]), Some(NonEmptyVec(vec![()])));
+        assert_eq!(*NonEmptyVec::try_new(vec![42]).unwrap().last(), 42);
+        assert_eq!(
+            NonEmptyVec::try_new(vec![(); 10]).unwrap().iter().count(),
+            10
+        );
+        assert_eq!(
+            NonEmptyVec::try_new(vec![3, 1, 2])
+                .unwrap()
+                .max(|&x| 10 - x),
+            9
+        );
+        assert_eq!(&mut NonEmptyVec::<()>::default()[0], &mut ());
+        assert_eq!(NonEmptyVec::<()>::default(), NonEmptyVec(vec![()]));
+        assert_eq!(
+            (&NonEmptyVec::try_new(vec![(); 10]).unwrap())
+                .into_iter()
+                .count(),
+            10
+        );
+    }
+
+    #[test]
+    fn test_ser_single_key_value() -> serde_json::Result<()> {
+        let serialized = serde_json::to_string(&SingleKeyValue {
+            key: "key",
+            value: "value",
+        })?;
+        assert_eq!(serialized, r#"{"key":"value"}"#);
+        Ok(())
+    }
+
+    #[test]
+    fn test_de_single_key_value() -> serde_json::Result<()> {
+        let deserialized =
+            serde_json::from_str::<SingleKeyValue<String, String>>(r#"{"key":"value"}"#)?;
+        assert_eq!(
+            deserialized,
+            SingleKeyValue {
+                key: "key".to_owned(),
+                value: "value".to_owned(),
+            }
+        );
+        let err = serde_json::from_str::<SingleKeyValue<String, String>>(
+            r#"{"key1":"value1","key2":"value2"}"#,
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "expected single key-value pair");
+        Ok(())
+    }
+}
