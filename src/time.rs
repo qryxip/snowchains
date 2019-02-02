@@ -10,42 +10,42 @@ pub(crate) fn ser_secs<S: Serializer>(
     dur: &Option<Duration>,
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error> {
-    dur.map(format_secs).serialize(serializer)
-}
-
-fn format_secs(dur: Duration) -> String {
-    let (secs, nanos) = (dur.as_secs(), dur.subsec_nanos());
-    let mut r = secs.to_string();
-    if nanos > 0 {
-        write!(r, ".{:09}", nanos).unwrap();
-        while r.ends_with('0') {
-            r.pop();
+    fn format_secs(dur: Duration) -> String {
+        let (secs, nanos) = (dur.as_secs(), dur.subsec_nanos());
+        let mut r = secs.to_string();
+        if nanos > 0 {
+            write!(r, ".{:09}", nanos).unwrap();
+            while r.ends_with('0') {
+                r.pop();
+            }
         }
+        r += "s";
+        r
     }
-    r += "s";
-    r
+
+    dur.map(format_secs).serialize(serializer)
 }
 
 pub(crate) fn ser_millis<S: Serializer>(
     dur: &Option<Duration>,
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error> {
-    dur.map(format_millis).serialize(serializer)
-}
-
-fn format_millis(dur: Duration) -> String {
-    let (secs, nanos) = (dur.as_secs(), dur.subsec_nanos());
-    let millis = 1000 * u128::from(secs) + u128::from(nanos) / 1_000_000;
-    let submilli_nanos = nanos % 1_000_000;
-    let mut r = millis.to_string();
-    if submilli_nanos > 0 {
-        write!(r, ".{:06}", submilli_nanos).unwrap();
-        while r.ends_with('0') {
-            r.pop();
+    fn format_millis(dur: Duration) -> String {
+        let (secs, nanos) = (dur.as_secs(), dur.subsec_nanos());
+        let millis = 1000 * u128::from(secs) + u128::from(nanos) / 1_000_000;
+        let submilli_nanos = nanos % 1_000_000;
+        let mut r = millis.to_string();
+        if submilli_nanos > 0 {
+            write!(r, ".{:06}", submilli_nanos).unwrap();
+            while r.ends_with('0') {
+                r.pop();
+            }
         }
+        r += "ms";
+        r
     }
-    r += "ms";
-    r
+
+    dur.map(format_millis).serialize(serializer)
 }
 
 pub(crate) fn de_secs<'de, D: Deserializer<'de>>(
@@ -145,6 +145,8 @@ impl MillisRoundedUp for Duration {
 mod tests {
     use crate::time::MillisRoundedUp;
 
+    use serde_derive::{Deserialize, Serialize};
+
     use std::time::Duration;
     use std::u64;
 
@@ -172,6 +174,7 @@ mod tests {
         test("1Gs", Ok(Duration::new(1_000_000_000, 0)));
         test("1Ms", Ok(Duration::new(1_000_000, 0)));
         test("1ks", Ok(Duration::new(1000, 0)));
+        test("1hs", Ok(Duration::new(100, 0)));
         test("1das", Ok(Duration::new(10, 0)));
         test("0s", Ok(Duration::new(0, 0)));
         test(" 10 s ", Ok(Duration::new(10, 0)));
@@ -199,27 +202,55 @@ mod tests {
     }
 
     #[test]
-    fn test_format_secs() {
-        fn test(dur: Duration, expected: &str) {
-            assert_eq!(super::format_secs(dur), expected);
+    fn test_ser_secs() -> serde_json::Result<()> {
+        fn test(dur: Duration, expected: &str) -> serde_json::Result<()> {
+            #[derive(Serialize)]
+            struct S {
+                #[serde(serialize_with = "super::ser_secs")]
+                value: Option<Duration>,
+            }
+
+            #[derive(Deserialize)]
+            struct D {
+                value: Option<String>,
+            }
+
+            let actual = serde_json::to_string(&S { value: Some(dur) })?;
+            let actual = serde_json::from_str::<D>(&actual)?.value;
+            assert_eq!(actual.as_ref().map(AsRef::as_ref), Some(expected));
+            Ok(())
         }
 
-        test(Duration::from_secs(42), "42s");
-        test(Duration::from_millis(42), "0.042s");
-        test(Duration::from_nanos(42), "0.000000042s");
-        test(Duration::new(1234, 567_800_000), "1234.5678s");
+        test(Duration::from_secs(42), "42s")?;
+        test(Duration::from_millis(42), "0.042s")?;
+        test(Duration::from_nanos(42), "0.000000042s")?;
+        test(Duration::new(1234, 567_800_000), "1234.5678s")
     }
 
     #[test]
-    fn test_format_millis() {
-        fn test(dur: Duration, expected: &str) {
-            assert_eq!(super::format_millis(dur), expected);
+    fn test_ser_millis() -> serde_json::Result<()> {
+        fn test(dur: Duration, expected: &str) -> serde_json::Result<()> {
+            #[derive(Serialize)]
+            struct S {
+                #[serde(serialize_with = "super::ser_millis")]
+                value: Option<Duration>,
+            }
+
+            #[derive(Deserialize)]
+            struct D {
+                value: Option<String>,
+            }
+
+            let actual = serde_json::to_string(&S { value: Some(dur) })?;
+            let actual = serde_json::from_str::<D>(&actual)?.value;
+            assert_eq!(actual.as_ref().map(AsRef::as_ref), Some(expected));
+            Ok(())
         }
 
-        test(Duration::from_secs(42), "42000ms");
-        test(Duration::from_millis(42), "42ms");
-        test(Duration::from_nanos(42), "0.000042ms");
-        test(Duration::new(1234, 567_800_000), "1234567.8ms");
+        test(Duration::from_secs(42), "42000ms")?;
+        test(Duration::from_millis(42), "42ms")?;
+        test(Duration::from_nanos(42), "0.000042ms")?;
+        test(Duration::new(1234, 567_800_000), "1234567.8ms")
     }
 
     #[test]
