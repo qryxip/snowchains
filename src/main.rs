@@ -11,7 +11,7 @@ use std::process;
 
 fn main() -> Fallible<()> {
     env_logger::init();
-    snowchains::signal::start_handling_ctrl_c()?;
+    snowchains::signal::start_catching_ctrl_c()?;
     let opt = Opt::from_args();
     let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
     let mut term = TermImpl::new(&stdin, &stdout, &stderr);
