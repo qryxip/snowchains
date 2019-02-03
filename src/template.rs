@@ -69,6 +69,15 @@ impl<T: Target> TemplateBuilder<T> {
     }
 }
 
+#[cfg(test)]
+impl TemplateBuilder<JudgingCommand> {
+    pub(crate) fn dummy() -> Self {
+        TemplateBuilder(CommandTemplateInner::Args(vec![Tokens(vec![
+            Token::Plain("executable".to_owned()),
+        ])]))
+    }
+}
+
 pub(crate) struct Template<T: Target> {
     inner: T::Inner,
     requirements: T::Requirements,

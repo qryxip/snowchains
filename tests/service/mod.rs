@@ -6,7 +6,6 @@ use snowchains::service::{Credentials, RevelSession, ServiceName, UserNameAndPas
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
 use failure::Fallible;
-use if_chain::if_chain;
 use serde_derive::Deserialize;
 use serde_json::json;
 use tempdir::TempDir;
@@ -65,21 +64,7 @@ pub fn dummy_credentials() -> Credentials {
 }
 
 fn env(name: &'static str) -> Fallible<String> {
-    let output = std::process::Command::new("envchain")
-        .args(&["snowchains", "sh", "-c"])
-        .arg(format!("printf %s ${}", name))
-        .output();
-    if_chain! {
-        if let Ok(std::process::Output { status, stdout, .. }) = output;
-        if status.success() && !stdout.is_empty();
-        if let Ok(stdout) = String::from_utf8(stdout);
-        then {
-            Ok(stdout)
-        } else {
-            env::var(name)
-                .map_err(|e| failure::err_msg(format!("Failed to read {:?}: {}", name, e)))
-        }
-    }
+    env::var(name).map_err(|err| failure::err_msg(format!("Failed to read {:?}: {}", name, err)))
 }
 
 pub fn login(

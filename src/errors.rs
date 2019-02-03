@@ -238,6 +238,13 @@ pub struct ConfigError {
     backtrace: Backtrace,
 }
 
+#[cfg(test)]
+impl ConfigError {
+    pub(crate) fn kind(&self) -> &ConfigErrorKind {
+        &self.kind
+    }
+}
+
 impl From<ConfigErrorKind> for ConfigError {
     fn from(kind: ConfigErrorKind) -> Self {
         Self {
