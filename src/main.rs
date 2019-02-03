@@ -6,7 +6,7 @@ use snowchains::terminal::{Term, TermImpl, WriteAnsi, WriteSpaces};
 use failure::{Fail, Fallible};
 use structopt::StructOpt;
 
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 use std::process;
 
 fn main() -> Fallible<()> {
@@ -14,7 +14,10 @@ fn main() -> Fallible<()> {
     snowchains::signal::start_catching_ctrl_c()?;
     let opt = Opt::from_args();
     let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
-    let mut term = TermImpl::new(&stdin, &stdout, &stderr);
+    let stdin = stdin.lock();
+    let stdout = BufWriter::new(stdout.lock());
+    let stderr = BufWriter::new(stderr);
+    let mut term = TermImpl::new(stdin, stdout, stderr);
     if let Err(err) = run(opt, &mut term) {
         let (_, stdout, stderr) = term.split_mut();
         stdout.flush()?;

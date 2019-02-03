@@ -3,9 +3,7 @@ use crate::config;
 use strum_macros::EnumString;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use std::io::{
-    self, BufRead, BufWriter, Stderr, StderrLock, Stdin, StdinLock, Stdout, StdoutLock, Write,
-};
+use std::io::{self, BufRead, BufWriter, Stderr, StdoutLock, Write};
 use std::{env, process};
 
 pub trait WriteSpaces {
@@ -174,7 +172,28 @@ pub trait StandardOutput: Write {
     fn windows_handle_ref() -> Option<winapi_util::HandleRef>;
 }
 
-impl StandardOutput for BufWriter<StdoutLock<'_>> {
+impl<W: StandardOutput> StandardOutput for BufWriter<W> {
+    fn process_redirection() -> process::Stdio {
+        W::process_redirection()
+    }
+
+    fn is_tty() -> bool {
+        W::is_tty()
+    }
+
+    #[cfg(not(windows))]
+    fn columns() -> Option<usize> {
+        W::columns()
+    }
+
+    #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
+    fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
+        W::windows_handle_ref()
+    }
+}
+
+impl StandardOutput for StdoutLock<'_> {
     fn process_redirection() -> process::Stdio {
         process::Stdio::inherit()
     }
@@ -195,24 +214,24 @@ impl StandardOutput for BufWriter<StdoutLock<'_>> {
     }
 }
 
-impl StandardOutput for BufWriter<StderrLock<'_>> {
+impl StandardOutput for Stderr {
     fn process_redirection() -> process::Stdio {
         process::Stdio::inherit()
     }
 
     fn is_tty() -> bool {
-        atty::is(atty::Stream::Stderr)
+        atty::is(atty::Stream::Stdout)
     }
 
     #[cfg(not(windows))]
     fn columns() -> Option<usize> {
-        term_size::dimensions_stderr().map(|(c, _)| c)
+        term_size::dimensions_stdout().map(|(c, _)| c)
     }
 
     #[cfg(windows)]
     #[cfg_attr(tarpaulin, skip)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
-        Some(winapi_util::HandleRef::stderr())
+        Some(winapi_util::HandleRef::stdout())
     }
 }
 
@@ -324,12 +343,12 @@ pub struct TermImpl<I: BufRead, O: StandardOutput, E: StandardOutput> {
     stderr: TermOutImpl<E>,
 }
 
-impl<'a> TermImpl<StdinLock<'a>, BufWriter<StdoutLock<'a>>, BufWriter<StderrLock<'a>>> {
-    pub fn new(stdin: &'a Stdin, stdout: &'a Stdout, stderr: &'a Stderr) -> Self {
+impl<I: BufRead, O: StandardOutput, E: StandardOutput> TermImpl<I, O, E> {
+    pub fn new(stdin: I, stdout: O, stderr: E) -> Self {
         Self {
-            stdin: stdin.lock(),
-            stdout: TermOutImpl::new(BufWriter::new(stdout.lock())),
-            stderr: TermOutImpl::new(BufWriter::new(stderr.lock())),
+            stdin,
+            stdout: TermOutImpl::new(stdout),
+            stderr: TermOutImpl::new(stderr),
         }
     }
 }
