@@ -103,9 +103,9 @@ script = ["find ./src ./tests ./proc_macros/src -type f | xargs touch"]
 script_runner = "bash"
 
 [tasks.default]
-category = "Development"
+category = "Disabled"
 disabled = true
 
 [tasks.empty]
-category = "Tools"
+category = "Disabled"
 disabled = true

@@ -156,19 +156,21 @@ impl Template<HookCommands> {
             shell,
             result,
         } = &self.requirements;
-        let mut vars = {
+        let (mut vars, envs) = {
             let json = match result.as_ref() {
                 Ok(json) => Ok(json.clone()),
                 Err(err) => Err(failure::err_msg(err.to_string())
                     .context(ExpandTemplateErrorKind::SerializeJson)),
             }?;
-            hashmap!("result" => OsString::from(json))
+            let vars = hashmap!("result" => OsString::from(&json));
+            let mut envs = self
+                .envs
+                .iter()
+                .map(|(k, v)| (k.clone(), OsString::from(v.clone())))
+                .collect::<HashMap<_, _>>();
+            envs.insert("SNOWCHAINS_RESULT".to_owned(), OsString::from(json));
+            (vars, envs)
         };
-        let envs = self
-            .envs
-            .iter()
-            .map(|(k, v)| (k.clone(), OsString::from(v.clone())))
-            .collect::<HashMap<_, _>>();
         self.inner
             .iter()
             .map(|inner| {
