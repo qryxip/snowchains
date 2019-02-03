@@ -1117,7 +1117,7 @@ impl Extract for Document {
             None => Ok(BatchSuite::new(timelimit).into()),
             Some(Samples::Batch(cases, matching)) => Ok(BatchSuite::new(timelimit)
                 .matching(matching)
-                .sample_cases(cases.into_iter(), |i| format!("Sample {}", i + 1), None)
+                .sample_cases(cases.into_iter(), |i| format!("Sample {}", i + 1))
                 .into()),
             Some(Samples::Interactive) => Ok(InteractiveSuite::new(timelimit).into()),
         }

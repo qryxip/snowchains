@@ -609,11 +609,8 @@ impl Extract for Document {
                         };
                         samples.push((input, output));
                     }
-                    let mut suite = BatchSuite::new(timelimit).sample_cases(
-                        samples.into_iter(),
-                        |i| format!("サンプル{}", i + 1),
-                        None,
-                    );
+                    let mut suite = BatchSuite::new(timelimit)
+                        .sample_cases(samples.into_iter(), |i| format!("サンプル{}", i + 1));
                     if kind == ProblemKind::Special {
                         suite = suite.matching(testsuite::Match::Any);
                     }
