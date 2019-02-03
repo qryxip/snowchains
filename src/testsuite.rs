@@ -916,49 +916,100 @@ mod tests {
 
     #[test]
     fn test_test_case_loader() -> Fallible<()> {
-        static JSON: &str = r#"{
+        static A_YML: &str = r#"---
+type: batch
+timelimit: 2000ms
+match:
+  float:
+    relative_error: 0.001
+    absolute_error: 0.001
+cases:
+  - name: Sample 1
+    in: |
+      8 3
+    out: |
+      2.6666666667
+  - name: Sample 2
+    in: |
+      99 1
+    out: |
+      99.0000000000
+  - name: Sample 3
+    in: |
+      1 100
+    out: |
+      0.0100000000
+"#;
+        static B_JSON: &str = r#"{
+  "timelimit": "2000ms",
   "type": "batch",
   "match": "exact",
   "cases": []
 }
 "#;
-        static TOML: &str = r#"type = "batch"
+        static B_TOML: &str = r#"type = "batch"
+timelimit = "2000ms"
 match = "exact"
 
 [[cases]]
+name = "Sample 1"
 in = '''
-5
-2 2 3 5 5
+4
+3 8 5 1
 '''
 out = '''
-2
+Yes
 '''
 "#;
-        static YML: &str = r#"---
+        static B_YML: &str = r#"---
 type: batch
+timelimit: 2000ms
 match: exact
 cases:
-  - in: |
-      9
-      1 2 3 4 5 6 7 8 9
+  - name: Sample 2
+    in: |
+      4
+      3 8 4 1
     out: |
-      0
+      No
+  - name: Sample 3
+    in: |
+      10
+      1 8 10 5 8 12 34 100 11 3
+    out: |
+      No
 "#;
 
         let tempdir = TempDir::new("snowchains_test_testsuite_tests_test_test_case_loader")?;
-        let test_dir = tempdir.path().join("atcoder").join("arc100").join("tests");
+        let test_dir = tempdir.path().join("atcoder").join("abc117").join("tests");
         std::fs::create_dir_all(&test_dir)?;
-        std::fs::write(test_dir.join("c.json"), JSON)?;
-        std::fs::write(test_dir.join("c.toml"), TOML)?;
-        std::fs::write(test_dir.join("c.yml"), YML)?;
+        std::fs::write(test_dir.join("a.yml"), A_YML)?;
+        std::fs::write(test_dir.join("b.json"), B_JSON)?;
+        std::fs::write(test_dir.join("b.toml"), B_TOML)?;
+        std::fs::write(test_dir.join("b.yml"), B_YML)?;
 
         let template = "${service}/${contest}/tests/${problem_snake}.${extension}"
             .parse::<TemplateBuilder<AbsPathBuf>>()?
             .build(AbsPathBufRequirements {
                 base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
                 service: ServiceName::Atcoder,
-                contest: "arc100".to_owned(),
+                contest: "abc117".to_owned(),
             });
+
+        let extensions = btreeset![SuiteFileExtension::Yml];
+        let loader = TestCaseLoader {
+            template: template.clone(),
+            extensions: &extensions,
+            tester_transpilation: None,
+            tester_compilation: None,
+            tester_command: None,
+        };
+        let (cases, joined_paths) = loader.load_merging("a")?;
+        match cases {
+            TestCases::Batch(cases) => assert_eq!(cases.len(), 3),
+            TestCases::Interactive(_) => panic!("{:?}", cases),
+        }
+        assert_eq!(joined_paths, test_dir.join("a.yml").display().to_string());
 
         let extensions = btreeset![
             SuiteFileExtension::Json,
@@ -972,14 +1023,14 @@ cases:
             tester_compilation: None,
             tester_command: None,
         };
-        let (cases, joined_paths) = loader.load_merging("c")?;
+        let (cases, joined_paths) = loader.load_merging("b")?;
         match cases {
-            TestCases::Batch(cases) => assert_eq!(cases.len(), 2),
+            TestCases::Batch(cases) => assert_eq!(cases.len(), 3),
             TestCases::Interactive(_) => panic!("{:?}", cases),
         }
         assert_eq!(
             joined_paths,
-            test_dir.join("c.{json, toml, yml}").display().to_string()
+            test_dir.join("b.{json, toml, yml}").display().to_string()
         );
 
         let extensions = btreeset![SuiteFileExtension::Json];
@@ -990,17 +1041,26 @@ cases:
             tester_compilation: None,
             tester_command: None,
         };
-        if_chain! {
-            let err = loader.load_merging("c").unwrap_err();
-            if let TestSuiteError::Context(ctx) = &err;
-            if let TestSuiteErrorKind::NoTestcase(joined_paths) = ctx.get_context();
-            then {
-                assert_eq!(*joined_paths, test_dir.join("c.json").display().to_string());
-                Ok(())
-            } else {
-                Err(err.into())
+        for problem in &["b", "nonexisting"] {
+            if_chain! {
+                let err = loader.load_merging(problem).unwrap_err();
+                if let TestSuiteError::Context(ctx) = &err;
+                if let TestSuiteErrorKind::NoTestcase(joined_paths) = ctx.get_context();
+                then {
+                    assert_eq!(
+                        *joined_paths,
+                        test_dir
+                            .join(problem)
+                            .with_extension("json")
+                            .display()
+                            .to_string(),
+                    );
+                } else {
+                    return Err(err.into());
+                }
             }
         }
+        Ok(())
     }
 
     #[test]

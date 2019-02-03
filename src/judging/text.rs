@@ -17,7 +17,7 @@ pub(super) trait PrintAligned: Width {
 }
 
 #[cfg_attr(test, derive(Debug))]
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub(super) struct Text {
     size: usize,
     lines: Vec<Line<Word>>,
@@ -286,7 +286,7 @@ mod tests {
                           ccc 2\n  \
                           \t  \n";
         assert_eq!(
-            Text::exact(S),
+            Text::exact(S).lines(),
             text(
                 18,
                 &[
@@ -294,9 +294,10 @@ mod tests {
                     &with_spaces(&[plain("ccc"), plain("2")]),
                     &[lead_trail(2), tab(1), lead_trail(2)],
                 ]
-            ),
+            )
+            .lines(),
         );
-        assert_eq!(Text::exact(""), text(0, &[&[Word::Noeol]]));
+        assert_eq!(Text::exact("").lines(), text(0, &[&[Word::Noeol]]).lines());
     }
 
     fn text(size: usize, words: &[&[Word]]) -> Text {
