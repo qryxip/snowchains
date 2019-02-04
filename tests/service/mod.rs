@@ -2,7 +2,7 @@
 
 use snowchains::app::{App, Opt};
 use snowchains::path::{AbsPath, AbsPathBuf};
-use snowchains::service::{Credentials, RevelSession, ServiceName, UserNameAndPassword};
+use snowchains::service::ServiceName;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
 use failure::Fallible;
@@ -16,8 +16,8 @@ use std::{env, io, panic};
 
 pub fn test_in_tempdir<E: Into<failure::Error>>(
     tempdir_prefix: &str,
-    credentials: Credentials,
-    f: impl FnOnce(App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> Result<(), E> + UnwindSafe,
+    stdin: &str,
+    f: impl FnOnce(App<TermImpl<&[u8], io::Sink, io::Sink>>) -> Result<(), E> + UnwindSafe,
 ) -> Fallible<()> {
     let tempdir = TempDir::new(tempdir_prefix)?;
     let tempdir_path = tempdir.path().to_owned();
@@ -29,12 +29,12 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
         std::fs::create_dir(tempdir_path.join("local"))?;
         serde_json::to_writer(
             File::create(tempdir_path.join("local").join("dropbox.json"))?,
-            &json!({ "access_token": env("DROPBOX_ACCESS_TOKEN")? }),
+            &json!({ "access_token": env_var("DROPBOX_ACCESS_TOKEN")? }),
         )?;
         let app = App {
             working_dir: AbsPathBuf::try_new(&tempdir_path).unwrap(),
-            credentials,
-            term: TermImpl::null(),
+            login_retries: Some(1),
+            term: TermImpl::new(stdin.as_bytes(), io::sink(), io::sink()),
         };
         f(app).map_err(Into::into)
     });
@@ -45,30 +45,12 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     }
 }
 
-pub fn credentials_from_env_vars() -> Fallible<Credentials> {
-    let atcoder_username = env("ATCODER_USERNAME")?;
-    let atcoder_password = env("ATCODER_PASSWORD")?;
-    let yukicoder_revel_session = env("YUKICODER_REVEL_SESSION")?;
-    Ok(Credentials {
-        atcoder: UserNameAndPassword::Some(atcoder_username, atcoder_password),
-        yukicoder: RevelSession::Some(yukicoder_revel_session),
-    })
-}
-
-pub fn dummy_credentials() -> Credentials {
-    let dummy = "".to_owned();
-    Credentials {
-        atcoder: UserNameAndPassword::Some(dummy.clone(), dummy.clone()),
-        yukicoder: RevelSession::Some(dummy),
-    }
-}
-
-fn env(name: &'static str) -> Fallible<String> {
+pub fn env_var(name: &'static str) -> Fallible<String> {
     env::var(name).map_err(|err| failure::err_msg(format!("Failed to read {:?}: {}", name, err)))
 }
 
 pub fn login(
-    mut app: App<TermImpl<io::Empty, io::Sink, io::Sink>>,
+    mut app: App<TermImpl<&[u8], io::Sink, io::Sink>>,
     service: ServiceName,
 ) -> snowchains::Result<()> {
     app.run(Opt::Login {
@@ -78,7 +60,7 @@ pub fn login(
 }
 
 pub fn download(
-    mut app: App<TermImpl<io::Empty, io::Sink, io::Sink>>,
+    mut app: App<TermImpl<&[u8], io::Sink, io::Sink>>,
     service: ServiceName,
     contest: &str,
     problems: &[&str],

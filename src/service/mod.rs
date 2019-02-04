@@ -231,52 +231,6 @@ pub(self) enum ZipEntriesSorting {
     Number,
 }
 
-#[derive(Clone)]
-pub struct Credentials {
-    pub atcoder: UserNameAndPassword,
-    pub yukicoder: RevelSession,
-}
-
-impl Default for Credentials {
-    fn default() -> Self {
-        Self {
-            atcoder: UserNameAndPassword::None,
-            yukicoder: RevelSession::None,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum UserNameAndPassword {
-    None,
-    Some(String, String),
-}
-
-impl UserNameAndPassword {
-    pub(self) fn is_some(&self) -> bool {
-        match self {
-            UserNameAndPassword::None => false,
-            UserNameAndPassword::Some(..) => true,
-        }
-    }
-
-    pub(self) fn take(&mut self) -> Self {
-        mem::replace(self, UserNameAndPassword::None)
-    }
-}
-
-#[derive(Clone)]
-pub enum RevelSession {
-    None,
-    Some(String),
-}
-
-impl RevelSession {
-    pub(self) fn take(&mut self) -> Self {
-        mem::replace(self, RevelSession::None)
-    }
-}
-
 #[derive(Serialize)]
 pub(crate) struct DownloadOutcome {
     service: ServiceName,
@@ -361,8 +315,8 @@ pub(crate) struct SessionProps<T: Term> {
     pub(crate) cookies_path: AbsPathBuf,
     pub(crate) dropbox_path: Option<AbsPathBuf>,
     pub(crate) timeout: Option<Duration>,
+    pub(crate) login_retries: Option<u32>,
     pub(crate) silent: bool,
-    pub(crate) credentials: Credentials,
 }
 
 impl<T: Term> SessionProps<T> {

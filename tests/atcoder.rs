@@ -13,25 +13,24 @@ use std::path::Path;
 
 #[test]
 fn it_logins() -> Fallible<()> {
-    let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
-    service::test_in_tempdir("it_logins", credentials, login)
-}
+    fn login(mut app: App<TermImpl<&[u8], io::Sink, io::Sink>>) -> snowchains::Result<()> {
+        app.run(Opt::Login {
+            color_choice: AnsiColorChoice::Never,
+            service: ServiceName::Atcoder,
+        })
+    }
 
-fn login(mut app: App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> snowchains::Result<()> {
-    app.run(Opt::Login {
-        color_choice: AnsiColorChoice::Never,
-        service: ServiceName::Atcoder,
-    })
+    let _ = env_logger::try_init();
+    let stdin = credentials_as_input()?;
+    service::test_in_tempdir("it_logins", &stdin, login)
 }
 
 #[test]
 fn it_scrapes_samples_from_practice() -> Fallible<()> {
     let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
     service::test_in_tempdir(
         "it_scrapes_samples_from_practice",
-        credentials,
+        &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download {
                 open: false,
@@ -56,10 +55,9 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
 #[test]
 fn it_scrapes_samples_from_abc100() -> Fallible<()> {
     let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
     service::test_in_tempdir(
         "it_scrapes_samples_from_abc100",
-        credentials,
+        &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download {
                 open: false,
@@ -82,10 +80,9 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
 #[test]
 fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
     let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
     service::test_in_tempdir(
         "it_scrapes_samples_and_download_files_from_abc099_a",
-        credentials,
+        &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::Download {
                 open: false,
@@ -149,10 +146,9 @@ fn just_confirm_num_samples_and_timelimit(
 #[ignore]
 fn it_submits_to_practice_a() -> Fallible<()> {
     let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
     service::test_in_tempdir(
         "it_submits_to_practice_a",
-        credentials,
+        &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             static CODE: &[u8] = br#"def main():
     (a, (b, c), s) = (int(input()), map(int, input().split()), input())
@@ -181,4 +177,10 @@ if __name__ == '__main__':
             .map_err(Into::into)
         },
     )
+}
+
+fn credentials_as_input() -> Fallible<String> {
+    let username = service::env_var("ATCODER_USERNAME")?;
+    let password = service::env_var("ATCODER_PASSWORD")?;
+    Ok(format!("{}\n{}\n", username, password))
 }

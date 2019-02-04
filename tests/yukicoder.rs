@@ -15,33 +15,44 @@ use std::io;
 #[test]
 fn it_logins() -> Fallible<()> {
     let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
-    service::test_in_tempdir("it_logins", credentials, login)
+    let stdin = credentials_as_input()?;
+    service::test_in_tempdir("it_logins", &stdin, login)
 }
 
 #[test]
 fn it_raises_an_error_when_login_fails() -> Fallible<()> {
     let _ = env_logger::try_init();
-    let err = service::test_in_tempdir(
-        "it_raises_an_error_when_login_fails",
-        service::dummy_credentials(),
-        login,
-    )
-    .unwrap_err();
+    let err = service::test_in_tempdir("it_raises_an_error_when_login_fails", "Y\ndummy\n", login)
+        .unwrap_err();
     if_chain! {
         if let Some(snowchains::Error::Service(ServiceError::Context(ctx))) = err.downcast_ref();
-        if let ServiceErrorKind::LoginOnTest = ctx.get_context();
+        if let ServiceErrorKind::LoginRetriesExceeded = ctx.get_context();
         then { Ok(()) } else { Err(err) }
     }
 }
 
+fn login(app: App<TermImpl<&[u8], io::Sink, io::Sink>>) -> snowchains::Result<()> {
+    service::login(app, ServiceName::Yukicoder)
+}
+
 #[test]
 fn it_downloads_testcases() -> Fallible<()> {
+    fn download(
+        app: App<TermImpl<&[u8], io::Sink, io::Sink>>,
+        contest: &str,
+        problems: &[&str],
+    ) -> snowchains::Result<()> {
+        service::download(app, ServiceName::Yukicoder, contest, problems)
+    }
+
+    fn confirm_num_cases(wd: &AbsPath, contest: &str, pairs: &[(&str, usize)]) -> Fallible<()> {
+        service::confirm_num_cases(wd, ServiceName::Yukicoder, contest, pairs)
+    }
+
     let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
     service::test_in_tempdir(
         "it_downloads_test_cases_from_master",
-        credentials,
+        &credentials_as_input()?,
         |app| -> Fallible<()> {
             static CONTEST: &str = "no";
             let wd = app.working_dir.clone();
@@ -51,35 +62,18 @@ fn it_downloads_testcases() -> Fallible<()> {
     )
 }
 
-fn login(app: App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> snowchains::Result<()> {
-    service::login(app, ServiceName::Yukicoder)
-}
-
-fn download(
-    app: App<TermImpl<io::Empty, io::Sink, io::Sink>>,
-    contest: &str,
-    problems: &[&str],
-) -> snowchains::Result<()> {
-    service::download(app, ServiceName::Yukicoder, contest, problems)
-}
-
-fn confirm_num_cases(wd: &AbsPath, contest: &str, pairs: &[(&str, usize)]) -> Fallible<()> {
-    service::confirm_num_cases(wd, ServiceName::Yukicoder, contest, pairs)
-}
-
 #[test]
 #[ignore]
 fn it_submits_to_no_9000() -> Fallible<()> {
     let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
     service::test_in_tempdir(
         "it_submits_to_no_9000",
-        credentials,
+        &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             static CODE: &[u8] = b"Hello World!\n";
-            let wd = app.working_dir.join("yukicoder").join("no").join("txt");
-            std::fs::create_dir_all(&wd)?;
-            std::fs::write(&wd.join("9000.txt"), CODE)?;
+            let dir = app.working_dir.join("yukicoder").join("no").join("txt");
+            std::fs::create_dir_all(&dir)?;
+            std::fs::write(&dir.join("9000.txt"), CODE)?;
             app.run(Opt::Submit {
                 open: false,
                 force_compile: false,
@@ -96,4 +90,9 @@ fn it_submits_to_no_9000() -> Fallible<()> {
             .map_err(Into::into)
         },
     )
+}
+
+fn credentials_as_input() -> Fallible<String> {
+    let revel_session = service::env_var("YUKICODER_REVEL_SESSION")?;
+    Ok(format!("Y\n{}\n", revel_session))
 }

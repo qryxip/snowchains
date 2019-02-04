@@ -7,7 +7,6 @@ use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, PrintTargets,
     ProblemNameConversion, RestoreProps, Service, ServiceName, SessionProps, SubmitProps,
-    UserNameAndPassword,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
@@ -91,10 +90,10 @@ pub(crate) fn submit(
 }
 
 pub(self) struct Atcoder<T: Term> {
+    login_retries: Option<u32>,
     term: T,
     session: HttpSession,
     runtime: Runtime,
-    credentials: UserNameAndPassword,
 }
 
 impl<T: Term> HasTerm for Atcoder<T> {
@@ -123,14 +122,13 @@ impl<T: Term> DownloadProgress for Atcoder<T> {
 
 impl<T: Term> Atcoder<T> {
     fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
-        let credentials = sess_props.credentials.atcoder.clone();
         let mut runtime = Runtime::new()?;
         let session = sess_props.start_session(&mut runtime)?;
         Ok(Self {
+            login_retries: sess_props.login_retries,
             term: sess_props.term,
             session,
             runtime,
-            credentials,
         })
     }
 
@@ -146,38 +144,26 @@ impl<T: Term> Atcoder<T> {
             }
         }
 
-        while !self.try_logging_in()? {
+        let mut retries = self.login_retries;
+        loop {
+            let payload = hashmap!(
+                "csrf_token" => self.get("/login").recv_html()?.extract_csrf_token()?,
+                "username" => self.prompt_reply_stderr("Username: ")?,
+                "password" => self.prompt_password_stderr("Password: ")?,
+            );
+            self.post("/login").send_form(&payload)?;
+            if self.get("/settings").acceptable(&[200, 302]).status()? == 200 {
+                writeln!(self.stdout(), "Successfully logged in.")?;
+                break self.stdout().flush().map_err(Into::into);
+            }
+            if retries == Some(0) {
+                return Err(ServiceErrorKind::LoginRetriesExceeded.into());
+            }
+            retries = retries.map(|n| n - 1);
             writeln!(self.stderr(), "Failed to login. Try again.")?;
             self.stderr().flush()?;
             self.session.clear_cookies()?;
         }
-        Ok(())
-    }
-
-    fn try_logging_in(&mut self) -> ServiceResult<bool> {
-        let token = self.get("/login").recv_html()?.extract_csrf_token()?;
-        let (username, password) = match self.credentials.take() {
-            UserNameAndPassword::Some(username, password) => (username, password),
-            UserNameAndPassword::None => (
-                self.prompt_reply_stderr("Username: ")?,
-                self.prompt_password_stderr("Password: ")?,
-            ),
-        };
-        let payload = hashmap!(
-            "username" => username.as_str(),
-            "password" => password.as_str(),
-            "csrf_token" => token.as_str(),
-        );
-        self.post("/login").send_form(&payload)?;
-        let status = self.get("/settings").acceptable(&[200, 302]).status()?;
-        let success = status == StatusCode::OK;
-        if success {
-            writeln!(self.stdout(), "Successfully logged in.")?;
-            self.stdout().flush()?;
-        } else if self.credentials.is_some() {
-            return Err(ServiceErrorKind::LoginOnTest.into());
-        }
-        Ok(success)
     }
 
     fn auth_dropbox(&mut self, auth_path: &AbsPath, explicit: bool) -> ServiceResult<String> {
@@ -1347,7 +1333,7 @@ mod tests {
     use crate::errors::ServiceResult;
     use crate::service::atcoder::{Atcoder, AtcoderContest, Extract};
     use crate::service::session::{HttpSession, UrlBase};
-    use crate::service::{self, Contest, Service, UserNameAndPassword};
+    use crate::service::{self, Contest, Service};
     use crate::terminal::{Term, TermImpl};
     use crate::testsuite::TestSuite;
 
@@ -1529,10 +1515,10 @@ mod tests {
         let mut runtime = Runtime::new()?;
         let session = HttpSession::try_new(term.stdout(), &mut runtime, client, base, None, true)?;
         Ok(Atcoder {
+            login_retries: Some(0),
             term,
             session,
             runtime,
-            credentials: UserNameAndPassword::None,
         })
     }
 }

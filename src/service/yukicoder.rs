@@ -3,8 +3,8 @@ use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ExtractZip, PrintTargets,
-    ProblemNameConversion, RevelSession, Service, ServiceName, SessionProps, SubmitProps,
-    ZipEntries, ZipEntriesSorting,
+    ProblemNameConversion, Service, ServiceName, SessionProps, SubmitProps, ZipEntries,
+    ZipEntriesSorting,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
@@ -52,11 +52,11 @@ pub(crate) fn submit(
 }
 
 struct Yukicoder<T: Term> {
+    login_retries: Option<u32>,
     term: T,
     session: HttpSession,
     runtime: Runtime,
     username: Username,
-    credential: RevelSession,
 }
 
 impl<T: Term> HasTerm for Yukicoder<T> {
@@ -93,27 +93,21 @@ impl<T: Term> ExtractZip for Yukicoder<T> {
 
 impl<T: Term> Yukicoder<T> {
     fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
-        let credential = sess_props.credentials.yukicoder.clone();
         let mut runtime = Runtime::new()?;
         let session = sess_props.start_session(&mut runtime)?;
         Ok(Self {
+            login_retries: sess_props.login_retries,
             term: sess_props.term,
             session,
             runtime,
             username: Username::None,
-            credential,
         })
     }
 
     fn login(&mut self, assure: bool) -> ServiceResult<()> {
-        if let RevelSession::Some(revel_session) = self.credential.take() {
-            if !self.confirm_revel_session(revel_session)? {
-                return Err(ServiceErrorKind::LoginOnTest.into());
-            }
-        }
         self.fetch_username()?;
         if self.username.name().is_none() {
-            let mut first = true;
+            let (mut first, mut retries) = (true, self.login_retries);
             loop {
                 if first {
                     if !assure && !self.ask_yes_or_no("Login? ", true)? {
@@ -132,16 +126,18 @@ impl<T: Term> Yukicoder<T> {
                 let revel_session = self.prompt_password_stderr("REVEL_SESSION: ")?;
                 if self.confirm_revel_session(revel_session)? {
                     break;
-                } else {
-                    writeln!(self.stderr(), "Wrong \"REVEL_SESSION\".")?;
-                    self.stderr().flush()?;
                 }
+                if retries == Some(0) {
+                    return Err(ServiceErrorKind::LoginRetriesExceeded.into());
+                }
+                retries = retries.map(|n| n - 1);
+                writeln!(self.stderr(), "Wrong \"REVEL_SESSION\".")?;
+                self.stderr().flush()?;
             }
         }
         let username = self.username.clone();
         writeln!(self.stdout(), "Username: {}", username)?;
-        self.stdout().flush()?;
-        Ok(())
+        self.stdout().flush().map_err(Into::into)
     }
 
     fn confirm_revel_session(&mut self, revel_session: String) -> ServiceResult<bool> {

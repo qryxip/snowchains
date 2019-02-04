@@ -3,8 +3,7 @@ use crate::errors::ExpandTemplateResult;
 use crate::judging::{self, JudgeParams};
 use crate::path::AbsPathBuf;
 use crate::service::{
-    atcoder, yukicoder, Credentials, DownloadProps, RestoreProps, ServiceName, SessionProps,
-    SubmitProps,
+    atcoder, yukicoder, DownloadProps, RestoreProps, ServiceName, SessionProps, SubmitProps,
 };
 use crate::terminal::{AnsiColorChoice, Term};
 use crate::testsuite::{self, SuiteFileExtension};
@@ -516,7 +515,7 @@ fn parse_non_zero_usize(s: &str) -> std::result::Result<NonZeroUsize, String> {
 
 pub struct App<T: Term> {
     pub working_dir: AbsPathBuf,
-    pub credentials: Credentials,
+    pub login_retries: Option<u32>,
     pub term: T,
 }
 
@@ -803,8 +802,8 @@ impl<T: Term> App<T> {
             cookies_path,
             dropbox_path,
             timeout: config.session_timeout(),
+            login_retries: self.login_retries,
             silent: config.session_silent(),
-            credentials: self.credentials.clone(),
         })
     }
 }

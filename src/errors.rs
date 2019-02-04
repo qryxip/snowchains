@@ -140,7 +140,7 @@ pub enum ServiceErrorKind {
     )]
     SubmissionRejected(String, usize, StatusCode, Option<String>),
     #[display(fmt = "Failed to login")]
-    LoginOnTest,
+    LoginRetriesExceeded,
 }
 
 pub(crate) type ScrapeResult<T> = std::result::Result<T, ScrapeError>;
