@@ -525,7 +525,21 @@ impl<T: Term> Atcoder<T> {
             problems,
             src_paths,
         } = props;
-        let first_page = self.get(&contest.url_submissions_me(1)).recv_html()?;
+
+        let first_page = {
+            let res = self
+                .get(&contest.url_submissions_me(1))
+                .acceptable(&[200, 302])
+                .send()?;
+            if res.status() == 200 {
+                res.document(&mut self.runtime)?
+            } else {
+                self.register_if_active_or_explicit(contest, false)?;
+                self.get(&contest.url_submissions_me(1))
+                    .acceptable(&[200, 302])
+                    .recv_html()?
+            }
+        };
         let (submissions, num_pages) = first_page.extract_submissions()?;
         let mut detail_urls = HashMap::new();
         collect_urls(&mut detail_urls, submissions);
@@ -1128,10 +1142,15 @@ impl Extract for Document {
     fn extract_submissions(&self) -> ScrapeResult<(vec::IntoIter<Submission>, u32)> {
         let extract = || {
             let num_pages = self
-                .find(selector!(
-                    "#main-container > div.row > div.text-center > ul.pagination > li",
-                ))
-                .count() as u32;
+                .find(
+                    selector!(
+                        "#main-container > div.row > div.col-sm-12 > div.text-center > ul > li > a",
+                    )
+                    .child(Text),
+                )
+                .filter_map(|text| text.text().parse::<u32>().ok())
+                .max()
+                .unwrap_or(1);
             let mut submissions = vec![];
             let pred = selector!(
                 "#main-container > div.row > div.col-sm-12 > div.panel-submission

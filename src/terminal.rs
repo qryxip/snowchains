@@ -462,6 +462,10 @@ impl<W: StandardOutput> TermOutImpl<W> {
             alt_columns: None,
         }
     }
+
+    pub fn get_ref(&self) -> &W {
+        &self.wtr
+    }
 }
 
 impl<W: StandardOutput> Write for TermOutImpl<W> {

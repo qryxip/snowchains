@@ -2,18 +2,18 @@ mod service;
 
 use snowchains::app::{App, Opt};
 use snowchains::service::ServiceName;
-use snowchains::terminal::{AnsiColorChoice, TermImpl};
+use snowchains::terminal::{AnsiColorChoice, Term, TermImpl};
 
 use failure::Fallible;
 use serde_derive::Deserialize;
 
 use std::fs::File;
-use std::io;
 use std::path::Path;
+use std::{io, str};
 
 #[test]
 fn it_logins() -> Fallible<()> {
-    fn login(mut app: App<TermImpl<&[u8], io::Sink, io::Sink>>) -> snowchains::Result<()> {
+    fn login(mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> snowchains::Result<()> {
         app.run(Opt::Login {
             color_choice: AnsiColorChoice::Never,
             service: ServiceName::Atcoder,
@@ -140,6 +140,41 @@ fn just_confirm_num_samples_and_timelimit(
         }
     }
     Ok(())
+}
+
+#[test]
+fn restore_command_works_without_error() -> Fallible<()> {
+    let _ = env_logger::try_init();
+    service::test_in_tempdir(
+        "it_restores_source_code",
+        &credentials_as_input()?,
+        |mut app| -> Fallible<()> {
+            app.run(Opt::Restore {
+                service: Some(ServiceName::Atcoder),
+                contest: Some("practice".to_owned()),
+                problems: vec![],
+                color_choice: AnsiColorChoice::Never,
+            })?;
+            let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
+            let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
+            assert!(stdout.starts_with(
+                r#"Targets: practice contest/*
+GET https://atcoder.jp/robots.txt ... 404 Not Found
+GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 302 Found
+GET https://atcoder.jp/contests/practice ... 200 OK
+GET https://atcoder.jp/settings ... 302 Found
+GET https://atcoder.jp/login ... 200 OK
+POST https://atcoder.jp/login ... 302 Found
+GET https://atcoder.jp/settings ... 200 OK
+Successfully logged in.
+GET https://atcoder.jp/contests/practice ... 200 OK
+POST https://atcoder.jp/contests/practice/register ... 302 Found
+GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 200 OK"#,
+            ));
+            assert!(stderr.starts_with("Username: Password: "));
+            Ok(())
+        },
+    )
 }
 
 #[test]

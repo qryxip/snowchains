@@ -12,12 +12,12 @@ use tempdir::TempDir;
 
 use std::fs::File;
 use std::panic::UnwindSafe;
-use std::{env, io, panic};
+use std::{env, panic};
 
 pub fn test_in_tempdir<E: Into<failure::Error>>(
     tempdir_prefix: &str,
     stdin: &str,
-    f: impl FnOnce(App<TermImpl<&[u8], io::Sink, io::Sink>>) -> Result<(), E> + UnwindSafe,
+    f: impl FnOnce(App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> Result<(), E> + UnwindSafe,
 ) -> Fallible<()> {
     let tempdir = TempDir::new(tempdir_prefix)?;
     let tempdir_path = tempdir.path().to_owned();
@@ -33,8 +33,8 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
         )?;
         let app = App {
             working_dir: AbsPathBuf::try_new(&tempdir_path).unwrap(),
-            login_retries: Some(1),
-            term: TermImpl::new(stdin.as_bytes(), io::sink(), io::sink()),
+            login_retries: Some(0),
+            term: TermImpl::new(stdin.as_bytes(), vec![], vec![]),
         };
         f(app).map_err(Into::into)
     });
@@ -50,7 +50,7 @@ pub fn env_var(name: &'static str) -> Fallible<String> {
 }
 
 pub fn login(
-    mut app: App<TermImpl<&[u8], io::Sink, io::Sink>>,
+    mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>,
     service: ServiceName,
 ) -> snowchains::Result<()> {
     app.run(Opt::Login {
@@ -60,7 +60,7 @@ pub fn login(
 }
 
 pub fn download(
-    mut app: App<TermImpl<&[u8], io::Sink, io::Sink>>,
+    mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>,
     service: ServiceName,
     contest: &str,
     problems: &[&str],
