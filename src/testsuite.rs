@@ -937,6 +937,8 @@ mod tests {
     use maplit::{btreeset, hashmap};
     use tempdir::TempDir;
 
+    use std::env;
+    use std::path::Path;
     use std::time::Duration;
 
     #[test]
@@ -1024,7 +1026,15 @@ each_args:
 type: unsubmittable
 "#;
 
-        let tempdir = TempDir::new("snowchains_test_testsuite_tests_test_test_case_loader")?;
+        let tempdir = if cfg!(windows) {
+            env::temp_dir()
+        } else {
+            env::temp_dir().canonicalize()?
+        };
+        let tempdir = TempDir::new_in(
+            &tempdir,
+            "snowchains_test_testsuite_tests_test_test_case_loader",
+        )?;
         let template_builder = "${service}/${contest}/tests/${problem_snake}.${extension}"
             .parse::<TemplateBuilder<AbsPathBuf>>()?;
 
@@ -1053,7 +1063,7 @@ type: unsubmittable
             TestCases::Batch(cases) => assert_eq!(cases.len(), 3),
             TestCases::Interactive(_) => panic!("{:?}", cases),
         }
-        assert_eq!(joined_paths, test_dir.join("a.yml").display().to_string());
+        assert_eq!(Path::new(&joined_paths), test_dir.join("a.yml"));
 
         let extensions = btreeset![
             SuiteFileExtension::Json,
@@ -1073,8 +1083,8 @@ type: unsubmittable
             TestCases::Interactive(_) => panic!("{:?}", cases),
         }
         assert_eq!(
-            joined_paths,
-            test_dir.join("b.{json, toml, yml}").display().to_string()
+            Path::new(&joined_paths),
+            test_dir.join("b.{json, toml, yml}"),
         );
 
         let extensions = btreeset![SuiteFileExtension::Json];
@@ -1092,12 +1102,8 @@ type: unsubmittable
                 if let TestSuiteErrorKind::NoTestcase(joined_paths) = ctx.get_context();
                 then {
                     assert_eq!(
-                        *joined_paths,
-                        test_dir
-                            .join(problem)
-                            .with_extension("json")
-                            .display()
-                            .to_string(),
+                        Path::new(joined_paths),
+                        test_dir.join(problem).with_extension("json"),
                     );
                 } else {
                     return Err(err.into());
@@ -1138,7 +1144,7 @@ type: unsubmittable
         if let TestCases::Batch(_) = cases {
             panic!("{:?}", cases);
         }
-        assert_eq!(joined_paths, test_dir.join("e.yml").display().to_string());
+        assert_eq!(Path::new(&joined_paths), test_dir.join("e.yml"));
 
         let extensions = btreeset![SuiteFileExtension::Toml, SuiteFileExtension::Yml];
         let loader = TestCaseLoader {
