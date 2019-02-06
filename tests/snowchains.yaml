@@ -25,20 +25,14 @@ env:
 languages:
   rust:
     src: ${service}/${contest}/rs/src/bin/${problem_kebab}.rs
-    compile:
-      bin: ${service}/${contest}/rs/target/manually/${problem_kebab}
-      command: [rustc, "+${env:RUST_VERSION}", -o, "${bin}", "${src}"]
-    run:
-      command: ["${bin}"]
+    bin: ${service}/${contest}/rs/target/manually/${problem_kebab}
+    compile: [rustc, "+${env:RUST_VERSION}", -o, "${bin}", "${src}"]
+    run: ["${bin}"]
     working_directory: ${service}/${contest}/rs
   python3:
     src: ${service}/${contest}/py/${problem_kebab}.py
-    run:
-      command: ["false"]
-    working_directory: .
+    run: ["false"]
     language_ids: { atcoder: 3023, yukicoder: python3 }
   text:
     src: ${service}/${contest}/txt/${problem_snake}.txt
-    run:
-      command: ["false"]
-    working_directory: .
+    run: ["false"]

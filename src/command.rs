@@ -88,11 +88,11 @@ impl TranspilationCommand {
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
-        transpiled: AbsPathBuf,
+        transpiled: Option<AbsPathBuf>,
         envs: HashMap<String, OsString>,
     ) -> Self {
         Self {
-            repr: BuildCommand::new(args, working_dir, src, transpiled, envs),
+            repr: BuildCommand::new(args, working_dir, src, transpiled, "transpiled", envs),
         }
     }
 
@@ -129,11 +129,11 @@ impl CompilationCommand {
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
-        bin: AbsPathBuf,
+        bin: Option<AbsPathBuf>,
         envs: HashMap<String, OsString>,
     ) -> Self {
         Self {
-            repr: BuildCommand::new(args, working_dir, src, bin, envs),
+            repr: BuildCommand::new(args, working_dir, src, bin, "bin", envs),
         }
     }
 
@@ -169,7 +169,8 @@ struct Messages {
 struct BuildCommand {
     inner: Inner,
     src: AbsPathBuf,
-    target: AbsPathBuf,
+    target: Option<AbsPathBuf>,
+    target_name: &'static str,
 }
 
 impl BuildCommand {
@@ -177,12 +178,18 @@ impl BuildCommand {
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
-        target: AbsPathBuf,
+        target: Option<AbsPathBuf>,
+        target_name: &'static str,
         envs: HashMap<String, OsString>,
     ) -> Self {
         let envs = envs.into_iter().collect();
         let inner = Inner::new(args, working_dir, envs);
-        Self { inner, src, target }
+        Self {
+            inner,
+            src,
+            target,
+            target_name,
+        }
     }
 
     fn run<O: TermOut, E: TermOut>(
@@ -198,16 +205,25 @@ impl BuildCommand {
                 .with_reset(|o| writeln!(o.fg(11)?, "Warning: {} not found", self.src.display()))?;
             stderr.flush()?;
         }
-        if self.src.exists() && self.target.exists() {
-            if !force && self.src.metadata()?.modified()? < self.target.metadata()?.modified()? {
-                writeln!(stdout, "{} is up to date.", self.target.display())?;
-                return stdout.flush().map_err(Into::into);
-            }
-        } else if let Some(parent) = self.target.parent() {
-            if !parent.exists() {
-                crate::fs::create_dir_all(&parent)?;
-                writeln!(stdout, "Created {}", parent.display())?;
-                stdout.flush()?;
+        if self.target.as_ref().is_none() {
+            stderr.with_reset(|o| {
+                writeln!(o.fg(11)?, "Warning: {:?} not present", self.target_name)
+            })?;
+            stderr.flush()?;
+        }
+
+        if let Some(target) = &self.target {
+            if self.src.exists() && target.exists() {
+                if !force && self.src.metadata()?.modified()? < target.metadata()?.modified()? {
+                    writeln!(stdout, "{} is up to date.", target.display())?;
+                    return stdout.flush().map_err(Into::into);
+                }
+            } else if let Some(parent) = target.parent() {
+                if !parent.exists() {
+                    crate::fs::create_dir_all(&parent)?;
+                    writeln!(stdout, "Created {}", parent.display())?;
+                    stdout.flush()?;
+                }
             }
         }
 
@@ -236,11 +252,13 @@ impl BuildCommand {
         stdout.with_reset(|o| writeln!(o.fg(color)?.bold()?, "{} in {:?}.", mes, elapsed))?;
 
         if status.success() {
-            if !self.target.exists() {
-                stderr.with_reset(|o| {
-                    writeln!(o.fg(11)?, "Warning: {} not created", self.target.display())
-                })?;
-                stderr.flush()?;
+            if let Some(target) = &self.target {
+                if !target.exists() {
+                    stderr.with_reset(|o| {
+                        writeln!(o.fg(11)?, "Warning: {} not created", target.display())
+                    })?;
+                    stderr.flush()?;
+                }
             }
             Ok(())
         } else {

@@ -48,24 +48,24 @@ fn generate_yaml() -> String {
     static EXE: &str = ".exe";
 
     #[cfg(not(windows))]
-    static CRLF_TO_LF_TRUE_INDENT6: &str = "";
-    #[cfg(windows)]
-    static CRLF_TO_LF_TRUE_INDENT6: &str = "\n      crlf_to_lf: true";
-
-    #[cfg(not(windows))]
     static CRLF_TO_LF_TRUE_INDENT4: &str = "";
     #[cfg(windows)]
     static CRLF_TO_LF_TRUE_INDENT4: &str = "\n    crlf_to_lf: true";
 
     #[cfg(not(windows))]
+    static CRLF_TO_LF_TRUE_INDENT2: &str = "";
+    #[cfg(windows)]
+    static CRLF_TO_LF_TRUE_INDENT2: &str = "\n  crlf_to_lf: true";
+
+    #[cfg(not(windows))]
     static CRLF_TO_LF_FALSE: &str = "";
     #[cfg(windows)]
-    static CRLF_TO_LF_FALSE: &str = "\n      # crlf_to_lf: false";
+    static CRLF_TO_LF_FALSE: &str = "\n    # crlf_to_lf: false";
 
     #[cfg(not(windows))]
     static CRLF_TO_LF_FALSE_COMMENTED_OUT: &str = "";
     #[cfg(windows)]
-    static CRLF_TO_LF_FALSE_COMMENTED_OUT: &str = "\n  #   # crlf_to_lf: false";
+    static CRLF_TO_LF_FALSE_COMMENTED_OUT: &str = "\n  # # crlf_to_lf: false";
 
     #[cfg(not(windows))]
     static TESTER_PYTHON3: &str = "./venv/bin/python3";
@@ -85,22 +85,18 @@ fn generate_yaml() -> String {
     #[cfg(not(windows))]
     static CSHARP: &str = r#"  c#:
     src: ${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs
-    compile:
-      bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
-      command: [mcs, -o+, "-r:System.Numerics", "-out:${bin}", "${src}"]
-    run:
-      command: [mono, "${bin}"]
+    bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
+    compile: [mcs, -o+, "-r:System.Numerics", "-out:${bin}", "${src}"]
+    run: [mono, "${bin}"]
     working_directory: ${service}/${contest}/cs
     language_ids: { atcoder: 3006, yukicoder: csharp_mono }"#;
     #[cfg(windows)]
     static CSHARP: &str = r#"  c#:
     src: ${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs
-    compile:
-      bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
-      command: [csc, /o+, "/r:System.Numerics", "/out:${bin}", "${src}"]
-    run:
-      command: ["${bin}"]
-      crlf_to_lf: true
+    bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
+    compile: [csc, /o+, "/r:System.Numerics", "/out:${bin}", "${src}"]
+    run: ["${bin}"]
+    crlf_to_lf: true
     working_directory: ${service}/${contest}/cs
     language_ids: { atcoder: 3006, yukicoder: csharp }"#;
 
@@ -264,106 +260,85 @@ env:
 tester:
   src: testers/py/${{problem_kebab}}.py
   run:
-    command:
-      {shell}: {tester_python3} "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED{crlf_to_lf_true_indent4}
+    {shell}: {tester_python3} "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED{crlf_to_lf_true_indent2}
   working_directory: testers/py
   # src: testers/hs/app/${{problem_pascal}}.hs
-  # compile:
-  #   bin: testers/hs/target/${{problem_pascal}}
-  #   command: [stack, ghc, --, -O2, -o, "${{bin}}", "${{src}}"]
+  # bin: testers/hs/target/${{problem_pascal}}
+  # compile: [stack, ghc, --, -O2, -o, "${{bin}}", "${{src}}"]
   # run:
-  #   command:
-  #     {shell}: '"$SNOWCHAINS_BIN" $SNOWCHAINS_ARGS_JOINED'{crlf_to_lf_false_commented_out}
+  #   {shell}: '"$SNOWCHAINS_BIN" $SNOWCHAINS_ARGS_JOINED'{crlf_to_lf_false_commented_out}
   # working_directory: testers/hs
 
 languages:
   c++:
-    src: ${{service}}/${{contest}}/cpp/${{problem_kebab}}.cpp # source file to test and to submit
-    compile:                                            # optional
-      bin: ${{service}}/${{contest}}/cpp/build/${{problem_kebab}}{exe}
-      command:
-        bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
-    run:
-      command: ["${{bin}}"]{crlf_to_lf_true_indent6}
-    working_directory: ${{service}}/${{contest}}/cpp        # default: "."
-    language_ids: {{ atcoder: 3003, yukicoder: cpp14 }}   # optional
+    src: ${{service}}/${{contest}}/cpp/${{problem_kebab}}.cpp
+    bin: ${{service}}/${{contest}}/cpp/build/${{problem_kebab}}{exe}
+    compile:
+      bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
+    run: ["${{bin}}"]{crlf_to_lf_true_indent4}
+    working_directory: ${{service}}/${{contest}}/cpp
+    language_ids: {{ atcoder: 3003, yukicoder: cpp14 }}
   rust:
     src: ${{service}}/${{contest}}/rs/src/bin/${{problem_kebab}}.rs
-    compile:
-      bin: ${{service}}/${{contest}}/rs/target/manually/${{problem_kebab}}{exe}
-      command: [rustc, "+${{env:RUST_VERSION}}", -o, "${{bin}}", "${{src}}"]
-    run:
-      command: ["${{bin}}"]{crlf_to_lf_false}
+    bin: ${{service}}/${{contest}}/rs/target/manually/${{problem_kebab}}{exe}
+    compile: [rustc, "+${{env:RUST_VERSION}}", -o, "${{bin}}", "${{src}}"]
+    run: ["${{bin}}"]{crlf_to_lf_false}
     working_directory: ${{service}}/${{contest}}/rs
     language_ids: {{ atcoder: 3504, yukicoder: rust }}
   go:
     src: ${{service}}/${{contest}}/go/${{problem_kebab}}.go
-    compile:
-      bin: ${{service}}/${{contest}}/go/${{problem_kebab}}{exe}
-      command: [go, build, -o, "${{bin}}", "${{src}}"]
-    run:
-      command: ["${{bin}}"]{crlf_to_lf_false}
+    bin: ${{service}}/${{contest}}/go/${{problem_kebab}}{exe}
+    compile: [go, build, -o, "${{bin}}", "${{src}}"]
+    run: ["${{bin}}"]{crlf_to_lf_false}
     working_directory: ${{service}}/${{contest}}/go
     language_ids: {{ atcoder: 3013, yukicoder: go }}
   haskell:
     src: ${{service}}/${{contest}}/hs/app/${{problem_pascal}}.hs
-    compile:
-      bin: ${{service}}/${{contest}}/hs/target/${{problem_pascal}}{exe}
-      command: [stack, ghc, --, -O2, -o, "${{bin}}", "${{src}}"]
-    run:
-      command: ["${{bin}}"]{crlf_to_lf_false}
+    bin: ${{service}}/${{contest}}/hs/target/${{problem_pascal}}{exe}
+    compile: [stack, ghc, --, -O2, -o, "${{bin}}", "${{src}}"]
+    run: ["${{bin}}"]{crlf_to_lf_false}
     working_directory: ${{service}}/${{contest}}/hs
     language_ids: {{ atcoder: 3014, yukicoder: haskell }}
   bash:
     src: ${{service}}/${{contest}}/bash/${{problem_kebab}}.bash
-    run:
-      command: [bash, "${{src}}"]{crlf_to_lf_false}
+    run: [bash, "${{src}}"]{crlf_to_lf_false}
     working_directory: ${{service}}/${{contest}}/bash
     language_ids: {{ atcoder: 3001, yukicoder: sh }}
   python3:
     src: ${{service}}/${{contest}}/py/${{problem_kebab}}.py
-    run:
-      command: [{venv_python3}, "${{src}}"]{crlf_to_lf_true_indent6}
+    run: [{venv_python3}, "${{src}}"]{crlf_to_lf_true_indent4}
     working_directory: ${{service}}/${{contest}}/py
     language_ids: {{ atcoder: 3023, yukicoder: python3 }}
   pypy3:
     src: ${{service}}/${{contest}}/py/${{problem_kebab}}.py
-    run:
-      command: [{venv_pypy3}, "${{src}}"]{crlf_to_lf_true_indent6}
+    run: [{venv_pypy3}, "${{src}}"]{crlf_to_lf_true_indent4}
     working_directory: ${{service}}/${{contest}}/py
     language_ids: {{ atcoder: 3510, yukicoder: pypy3 }}
   java:
     src: ${{service}}/${{contest}}/java/src/main/java/${{problem_pascal}}.java
+    transpiled: ${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/src/Main.java
+    bin: ${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/classes/Main.class
     transpile:
-      transpiled: ${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/src/Main.java
-      command:
-        {transpile_java}
-    compile:
-      bin: ${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/classes/Main.class
-      command: [javac, -d, "./build/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
-    run:
-      command: [java, -classpath, "./build/replaced/${{problem_lower}}/classes", Main]{crlf_to_lf_true_indent6}
+      {transpile_java}
+    compile: [javac, -d, "./build/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
+    run: [java, -classpath, "./build/replaced/${{problem_lower}}/classes", Main]{crlf_to_lf_true_indent4}
     working_directory: ${{service}}/${{contest}}/java
     language_ids: {{ atcoder: 3016, yukicoder: java8 }}
   scala:
     src: ${{service}}/${{contest}}/scala/src/main/scala/${{problem_pascal}}.scala
+    transpiled: ${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/src/Main.scala
+    bin: ${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/classes/Main.class
     transpile:
-      transpiled: ${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/src/Main.scala
-      command:
-        {transpile_scala}
-    compile:
-      bin: ${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/classes/Main.class
-      command: [scalac, -optimise, -d, "./target/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
-    run:
-      command: [scala, -classpath, "./target/replaced/${{problem_lower}}/classes", Main]{crlf_to_lf_true_indent6}
+      {transpile_scala}
+    compile: [scalac, -optimise, -d, "./target/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
+    run: [scala, -classpath, "./target/replaced/${{problem_lower}}/classes", Main]{crlf_to_lf_true_indent4}
     working_directory: ${{service}}/${{contest}}/scala
     language_ids: {{ atcoder: 3025, yukicoder: scala }}
 {csharp}
   text:
     src: ${{service}}/${{contest}}/txt/${{problem_snake}}.txt
-    run:
-      command: [cat, "${{src}}"]
-      working_directory: ${{service}}/${{contest}}/txt{crlf_to_lf_false}
+    run: [cat, "${{src}}"]
+    working_directory: ${{service}}/${{contest}}/txt{crlf_to_lf_false}
     language_ids: {{ atcoder: 3027, yukicoder: text }}
 "#,
         console_alt_width = CONSOLE_ALT_WIDTH,
@@ -381,9 +356,9 @@ languages:
         venv_pypy3 = VENV_PYPY3,
         transpile_java = transpile_java,
         transpile_scala = transpile_scala,
-        crlf_to_lf_true_indent4 = CRLF_TO_LF_TRUE_INDENT4,
+        crlf_to_lf_true_indent2 = CRLF_TO_LF_TRUE_INDENT2,
         crlf_to_lf_false_commented_out = CRLF_TO_LF_FALSE_COMMENTED_OUT,
-        crlf_to_lf_true_indent6 = CRLF_TO_LF_TRUE_INDENT6,
+        crlf_to_lf_true_indent4 = CRLF_TO_LF_TRUE_INDENT4,
         crlf_to_lf_false = CRLF_TO_LF_FALSE,
         csharp = CSHARP,
     )
@@ -683,11 +658,10 @@ impl Config {
 
     pub(crate) fn src_to_submit(&self) -> ConfigResult<Template<AbsPathBuf>> {
         let lang = self.find_language()?;
-        let builder = match &lang.transpile {
-            None => &lang.src,
-            Some(transpile) => &transpile.transpiled,
-        };
-        Ok(builder
+        Ok(lang
+            .transpiled
+            .as_ref()
+            .unwrap_or(&lang.src)
             .build(AbsPathBufRequirements {
                 base_dir: self.base_dir.clone(),
                 service: self.service,
@@ -737,7 +711,6 @@ impl Config {
     fn transpilation_command(&self, lang: &Language) -> Option<Template<TranspilationCommand>> {
         lang.transpile.as_ref().map(|transpile| {
             transpile
-                .command
                 .build(TranspilationCommandRequirements {
                     base_dir: self.base_dir.clone(),
                     service: self.service,
@@ -745,7 +718,7 @@ impl Config {
                     shell: self.shell.clone(),
                     working_dir: lang.working_directory.clone(),
                     src: lang.src.clone(),
-                    transpiled: transpile.transpiled.clone(),
+                    transpiled: lang.transpiled.clone(),
                 })
                 .envs(self.env.get(&self.service))
         })
@@ -754,7 +727,6 @@ impl Config {
     fn compilation_command(&self, lang: &Language) -> Option<Template<CompilationCommand>> {
         lang.compile.as_ref().map(|compile| {
             compile
-                .command
                 .build(CompilationCommandRequirements {
                     base_dir: self.base_dir.clone(),
                     service: self.service,
@@ -762,8 +734,8 @@ impl Config {
                     shell: self.shell.clone(),
                     working_dir: lang.working_directory.clone(),
                     src: lang.src.clone(),
-                    transpiled: lang.transpile.as_ref().map(|e| e.transpiled.clone()),
-                    bin: compile.bin.clone(),
+                    transpiled: lang.transpiled.clone(),
+                    bin: lang.bin.clone(),
                 })
                 .envs(self.env.get(&self.service))
         })
@@ -771,7 +743,6 @@ impl Config {
 
     fn judge_command(&self, lang: &Language) -> Template<JudgingCommand> {
         lang.run
-            .command
             .build(JudgingCommandRequirements {
                 base_dir: self.base_dir.clone(),
                 service: self.service,
@@ -779,9 +750,9 @@ impl Config {
                 shell: self.shell.clone(),
                 working_dir: lang.working_directory.clone(),
                 src: lang.src.clone(),
-                bin: lang.compile.as_ref().map(|e| e.bin.clone()),
-                transpiled: lang.transpile.as_ref().map(|e| e.transpiled.clone()),
-                crlf_to_lf: lang.run.crlf_to_lf,
+                transpiled: lang.transpiled.clone(),
+                bin: lang.bin.clone(),
+                crlf_to_lf: lang.crlf_to_lf,
             })
             .envs(self.env.get(&self.service))
     }
@@ -952,33 +923,20 @@ struct Hooks {
 struct Language {
     src: TemplateBuilder<AbsPathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    transpile: Option<Transpile>,
+    transpiled: Option<TemplateBuilder<AbsPathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    compile: Option<Compile>,
-    run: Run,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    language_ids: BTreeMap<ServiceName, String>,
-    #[serde(default)]
-    working_directory: TemplateBuilder<AbsPathBuf>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Transpile {
-    transpiled: TemplateBuilder<AbsPathBuf>,
-    command: TemplateBuilder<TranspilationCommand>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Compile {
-    bin: TemplateBuilder<AbsPathBuf>,
-    command: TemplateBuilder<CompilationCommand>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Run {
-    command: TemplateBuilder<JudgingCommand>,
+    bin: Option<TemplateBuilder<AbsPathBuf>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transpile: Option<TemplateBuilder<TranspilationCommand>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compile: Option<TemplateBuilder<CompilationCommand>>,
+    run: TemplateBuilder<JudgingCommand>,
     #[serde(default)]
     crlf_to_lf: bool,
+    #[serde(default)]
+    working_directory: TemplateBuilder<AbsPathBuf>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    language_ids: BTreeMap<ServiceName, String>,
 }
 
 #[cfg(test)]
