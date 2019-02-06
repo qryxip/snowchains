@@ -266,6 +266,13 @@ impl Into<PathBuf> for AbsPathBuf {
     }
 }
 
+#[cfg(test)]
+impl PartialEq<PathBuf> for AbsPathBuf {
+    fn eq(&self, other: &PathBuf) -> bool {
+        self.inner == *other
+    }
+}
+
 impl Serialize for AbsPathBuf {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         AsRef::<Path>::as_ref(self).serialize(serializer)

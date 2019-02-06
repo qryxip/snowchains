@@ -39,7 +39,7 @@ pub(super) fn accepts(case: &BatchCase, stdout: &str) -> BatchOutcome {
         }
     };
     if let Some(expected) = &expected {
-        if stdout != *expected {
+        if stdout.lines() != expected.lines() {
             return BatchOutcomeInner::WrongAnswer {
                 elapsed: Duration::new(0, 0),
                 input,
@@ -313,7 +313,7 @@ impl CommandOutcome {
                 stderr,
                 status,
             }
-        } else if expected.is_some() && *expected.as_ref().unwrap() != stdout {
+        } else if expected.is_some() && expected.as_ref().unwrap().lines() != stdout.lines() {
             BatchOutcomeInner::WrongAnswer {
                 elapsed,
                 input,

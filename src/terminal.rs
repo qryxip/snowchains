@@ -3,9 +3,7 @@ use crate::config;
 use strum_macros::EnumString;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use std::io::{
-    self, BufRead, BufWriter, Stderr, StderrLock, Stdin, StdinLock, Stdout, StdoutLock, Write,
-};
+use std::io::{self, BufRead, BufWriter, Stderr, StdoutLock, Write};
 use std::{env, process};
 
 pub trait WriteSpaces {
@@ -174,7 +172,28 @@ pub trait StandardOutput: Write {
     fn windows_handle_ref() -> Option<winapi_util::HandleRef>;
 }
 
-impl StandardOutput for BufWriter<StdoutLock<'_>> {
+impl<W: StandardOutput> StandardOutput for BufWriter<W> {
+    fn process_redirection() -> process::Stdio {
+        W::process_redirection()
+    }
+
+    fn is_tty() -> bool {
+        W::is_tty()
+    }
+
+    #[cfg(not(windows))]
+    fn columns() -> Option<usize> {
+        W::columns()
+    }
+
+    #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
+    fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
+        W::windows_handle_ref()
+    }
+}
+
+impl StandardOutput for StdoutLock<'_> {
     fn process_redirection() -> process::Stdio {
         process::Stdio::inherit()
     }
@@ -195,24 +214,45 @@ impl StandardOutput for BufWriter<StdoutLock<'_>> {
     }
 }
 
-impl StandardOutput for BufWriter<StderrLock<'_>> {
+impl StandardOutput for Stderr {
     fn process_redirection() -> process::Stdio {
         process::Stdio::inherit()
     }
 
     fn is_tty() -> bool {
-        atty::is(atty::Stream::Stderr)
+        atty::is(atty::Stream::Stdout)
     }
 
     #[cfg(not(windows))]
     fn columns() -> Option<usize> {
-        term_size::dimensions_stderr().map(|(c, _)| c)
+        term_size::dimensions_stdout().map(|(c, _)| c)
     }
 
     #[cfg(windows)]
     #[cfg_attr(tarpaulin, skip)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
-        Some(winapi_util::HandleRef::stderr())
+        Some(winapi_util::HandleRef::stdout())
+    }
+}
+
+impl StandardOutput for Vec<u8> {
+    fn process_redirection() -> process::Stdio {
+        process::Stdio::null()
+    }
+
+    fn is_tty() -> bool {
+        false
+    }
+
+    #[cfg(not(windows))]
+    fn columns() -> Option<usize> {
+        None
+    }
+
+    #[cfg(windows)]
+    #[cfg_attr(tarpaulin, skip)]
+    fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
+        None
     }
 }
 
@@ -324,12 +364,12 @@ pub struct TermImpl<I: BufRead, O: StandardOutput, E: StandardOutput> {
     stderr: TermOutImpl<E>,
 }
 
-impl<'a> TermImpl<StdinLock<'a>, BufWriter<StdoutLock<'a>>, BufWriter<StderrLock<'a>>> {
-    pub fn new(stdin: &'a Stdin, stdout: &'a Stdout, stderr: &'a Stderr) -> Self {
+impl<I: BufRead, O: StandardOutput, E: StandardOutput> TermImpl<I, O, E> {
+    pub fn new(stdin: I, stdout: O, stderr: E) -> Self {
         Self {
-            stdin: stdin.lock(),
-            stdout: TermOutImpl::new(BufWriter::new(stdout.lock())),
-            stderr: TermOutImpl::new(BufWriter::new(stderr.lock())),
+            stdin,
+            stdout: TermOutImpl::new(stdout),
+            stderr: TermOutImpl::new(stderr),
         }
     }
 }
@@ -421,6 +461,10 @@ impl<W: StandardOutput> TermOutImpl<W> {
             char_width_fn: <char as UnicodeWidthChar>::width,
             alt_columns: None,
         }
+    }
+
+    pub fn get_ref(&self) -> &W {
+        &self.wtr
     }
 }
 
@@ -591,4 +635,89 @@ pub enum AnsiColorChoice {
     Never,
     Auto,
     Always,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::terminal::{Ansi, AnsiColorChoice, Term, TermImpl, TermOut, WriteAnsi, WriteSpaces};
+
+    use failure::Fallible;
+
+    use std::borrow::Borrow;
+    use std::{io, str};
+
+    #[test]
+    fn test_write_spaces() -> Fallible<()> {
+        let mut wtr = Vec::<u8>::new();
+        wtr.write_spaces(0)?;
+        assert_eq!(str::from_utf8(&wtr)?, "");
+        wtr.write_spaces(10)?;
+        assert_eq!(str::from_utf8(&wtr)?, " ".repeat(10));
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_ansi() -> Fallible<()> {
+        let mut wtr = Ansi::new(Vec::<u8>::new());
+        wtr.with_reset(|w| w.fg(4)?.write_str("foo"))?;
+        wtr.with_reset(|w| w.fg(14)?.write_str("bar"))?;
+        wtr.with_reset(|w| w.bg(195)?.write_str("baz"))?;
+        wtr.with_reset(|w| w.bold()?.write_str("qux"))?;
+        wtr.with_reset(|w| w.underline()?.write_str("quux"))?;
+        assert_eq!(
+            str::from_utf8(wtr.get_ref())?,
+            "\x1b[38;5;4mfoo\x1b[0m\x1b[38;5;14mbar\x1b[0m\x1b[48;5;195mbaz\x1b[0m\x1b[1mqux\x1b[0m\
+             \x1b[4mquux\x1b[0m",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_ask_yes_or_no() -> Fallible<()> {
+        let mut term = TermImpl::new("y\nn\n\ny\nn\nヌ\n\n".as_bytes(), vec![], vec![]);
+        term.stderr.attempt_enable_ansi(AnsiColorChoice::Always);
+
+        assert_eq!(term.ask_yes_or_no("Yes?: ", true)?, true);
+        assert_eq!(term.ask_yes_or_no("Yes?: ", true)?, false);
+        assert_eq!(term.ask_yes_or_no("Yes?: ", true)?, true);
+        assert_eq!(term.ask_yes_or_no("No?: ", false)?, true);
+        assert_eq!(term.ask_yes_or_no("No?: ", false)?, false);
+        assert_eq!(term.ask_yes_or_no("No?: ", false)?, false);
+        let err = term.ask_yes_or_no("Yes?: ", true).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+
+        assert!(term.stdout.wtr.is_empty());
+        assert_eq!(
+            str::from_utf8(&term.stderr.wtr)?,
+            "Yes?: (Y/n) Yes?: (Y/n) Yes?: (Y/n) No?: (y/N) No?: (y/N) No?: (y/N) \
+             \x1b[38;5;11mAnswer \"y\", \"yes\", \"n\", \"no\", or \"\".\x1b[0m\
+             No?: (y/N) Yes?: (Y/n) ",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_prompt_reply_password_stderr() -> Fallible<()> {
+        type Method =
+            fn(&mut TermImpl<&'static [u8], Vec<u8>, Vec<u8>>, prompt: &str) -> io::Result<String>;
+        static METHODS: &[Method] = &[
+            TermImpl::prompt_reply_stderr,
+            TermImpl::prompt_password_stderr,
+        ];
+        for method in METHODS {
+            let mut term = TermImpl::new(b"foo\nbar\n".borrow(), vec![], vec![]);
+
+            assert_eq!(method(&mut term, "Prompt: ")?, "foo");
+            assert_eq!(method(&mut term, "Prompt: ")?, "bar");
+            assert!(term.stdout.wtr.is_empty());
+            assert_eq!(str::from_utf8(&term.stderr.wtr)?, "Prompt: Prompt: ");
+
+            for &stdin in &[b"".borrow(), b"foo".borrow()] {
+                let mut term = TermImpl::new(stdin, vec![], vec![]);
+                let err = method(&mut term, "Prompt: ").unwrap_err();
+                assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+            }
+        }
+        Ok(())
+    }
 }

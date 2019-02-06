@@ -36,9 +36,7 @@ languages:
     run:
       command: ["false"]
     working_directory: .
-    language_ids:
-      atcoder: 3023
-      yukicoder: python3
+    language_ids: { atcoder: 3023, yukicoder: python3 }
   text:
     src: ${service}/${contest}/txt/${problem_snake}.txt
     run:

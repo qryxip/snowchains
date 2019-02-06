@@ -1,7 +1,7 @@
 use snowchains::app::{App, Modify, Opt};
 use snowchains::errors::{JudgeError, JudgeErrorKind};
 use snowchains::path::AbsPathBuf;
-use snowchains::service::{Credentials, ServiceName};
+use snowchains::service::ServiceName;
 use snowchains::terminal::{AnsiColorChoice, Term, TermImpl};
 use snowchains::testsuite::SuiteFileExtension;
 
@@ -75,8 +75,8 @@ fn main() {
     std::fs::write(&suite_path, SUITE)?;
 
     let mut app = App {
-        working_dir: AbsPathBuf::try_new(tempdir.path().to_owned()).unwrap(),
-        credentials: Credentials::default(),
+        working_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
+        login_retries: Some(0),
         term: TermImpl::null(),
     };
 

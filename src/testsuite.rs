@@ -93,7 +93,10 @@ impl FromStr for SuiteFileExtension {
             "toml" => Ok(SuiteFileExtension::Toml),
             "yaml" => Ok(SuiteFileExtension::Yaml),
             "yml" => Ok(SuiteFileExtension::Yml),
-            _ => Err(format!("Unsupported extension: {:?}", s)),
+            _ => Err(format!(
+                r#"Unsupported extension: {:?}, expected "json", "toml", "yaml", or "yml""#,
+                s
+            )),
         }
     }
 }
@@ -103,7 +106,7 @@ pub(crate) struct TestCaseLoader<'a> {
     template: Template<AbsPathBuf>,
     extensions: &'a BTreeSet<SuiteFileExtension>,
     tester_transpilation: Option<Template<TranspilationCommand>>,
-    tester_compilacion: Option<Template<CompilationCommand>>,
+    tester_compilation: Option<Template<CompilationCommand>>,
     tester_command: Option<Template<JudgingCommand>>,
 }
 
@@ -196,7 +199,7 @@ impl TestCaseLoader<'_> {
                 TestSuite::Interactive(suite) => {
                     interactive_cases.extend(suite.cases_named(
                         self.tester_transpilation.as_ref(),
-                        self.tester_compilacion.as_ref(),
+                        self.tester_compilation.as_ref(),
                         self.tester_command.as_ref(),
                         &filename,
                         problem,
@@ -460,17 +463,12 @@ impl BatchSuite {
         mut self,
         cases: I,
         name: fn(usize) -> String,
-        name_single: Option<&str>,
     ) -> Self {
-        let cases_len = cases.len();
         self.cases.extend(
             cases
                 .enumerate()
                 .map(|(i, (input, output))| BatchSuiteSchemaCase {
-                    name: Some(match (name_single, cases_len) {
-                        (Some(name_single), 0) => name_single.to_owned(),
-                        _ => name(i),
-                    }),
+                    name: Some(name(i)),
                     input: BatchSuiteText::String(input.into()),
                     output: output.into().map(|o| BatchSuiteText::String(o.into())),
                 }),
@@ -550,19 +548,53 @@ impl BatchSuite {
             repr: T,
         }
 
-        fn is_valid(s: &str) -> bool {
-            s.ends_with('\n')
-                && s != "\n"
-                && s.chars()
-                    .all(|c| [' ', '\n'].contains(&c) || (!c.is_whitespace() && !c.is_control()))
-        }
-
         match ext {
             SuiteFileExtension::Json => {
                 serde_json::to_string_pretty(&WithType::new(self)).ser_context()
             }
-            SuiteFileExtension::Toml => toml::to_string_pretty(&WithType::new(self)).ser_context(),
+            SuiteFileExtension::Toml => match self.head.output_match {
+                Match::Any | Match::Exact => toml::to_string_pretty(&WithType::new(self)),
+                Match::Float {
+                    relative_error,
+                    absolute_error,
+                } => {
+                    #[derive(Serialize)]
+                    struct Repr<'a> {
+                        r#type: &'static str,
+                        #[serde(serialize_with = "time::ser_millis")]
+                        timelimit: Option<Duration>,
+                        r#match: Float,
+                        cases: &'a [BatchSuiteSchemaCase],
+                    }
+
+                    #[derive(Serialize)]
+                    struct Float {
+                        relative_error: Option<PositiveFinite<f64>>,
+                        absolute_error: Option<PositiveFinite<f64>>,
+                    }
+
+                    let repr = Repr {
+                        r#type: "batch",
+                        timelimit: self.head.timelimit,
+                        r#match: Float {
+                            relative_error,
+                            absolute_error,
+                        },
+                        cases: &self.cases,
+                    };
+                    toml::to_string_pretty(&repr)
+                }
+            }
+            .ser_context(),
             SuiteFileExtension::Yaml | SuiteFileExtension::Yml => {
+                fn is_valid(s: &str) -> bool {
+                    s.ends_with('\n')
+                        && s != "\n"
+                        && s.chars().all(|c| {
+                            [' ', '\n'].contains(&c) || (!c.is_whitespace() && !c.is_control())
+                        })
+                }
+
                 let mut r;
                 let cases = &self.cases;
                 let none_is_path =
@@ -732,6 +764,7 @@ impl<T, E: std::error::Error + Send + Sync + 'static> SerContext for std::result
 }
 
 /// `Vec<BatchCase>` or `Vec<ReducibleCase>`.
+#[cfg_attr(test, derive(Debug))]
 pub(crate) enum TestCases {
     Batch(Vec<BatchCase>),
     Interactive(Vec<InteractiveCase>),
@@ -767,6 +800,7 @@ pub(crate) trait TestCase {
 }
 
 /// Pair of `input` and `expected`.
+#[cfg_attr(test, derive(Debug))]
 #[derive(Clone)]
 pub(crate) struct BatchCase {
     name: Arc<String>,
@@ -883,5 +917,605 @@ impl InteractiveCase {
 
     pub fn timelimit(&self) -> Option<Duration> {
         self.timelimit
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::errors::{ConfigErrorKind, TestSuiteError, TestSuiteErrorKind, TestSuiteResult};
+    use crate::path::AbsPathBuf;
+    use crate::service::ServiceName;
+    use crate::template::{AbsPathBufRequirements, JudgingCommandRequirements, TemplateBuilder};
+    use crate::testsuite::{
+        BatchSuite, BatchSuiteSchemaCase, BatchSuiteSchemaHead, BatchSuiteText, InteractiveSuite,
+        Match, SuiteFileExtension, TestCaseLoader, TestCases, TestSuite,
+    };
+    use crate::util::num::PositiveFinite;
+
+    use failure::Fallible;
+    use if_chain::if_chain;
+    use maplit::{btreeset, hashmap};
+    use tempdir::TempDir;
+
+    use std::env;
+    use std::path::Path;
+    use std::time::Duration;
+
+    #[test]
+    fn test_suite_file_extension_from_str() -> std::result::Result<(), String> {
+        "json".parse::<SuiteFileExtension>()?;
+        "toml".parse::<SuiteFileExtension>()?;
+        "yaml".parse::<SuiteFileExtension>()?;
+        "yml".parse::<SuiteFileExtension>()?;
+        "".parse::<SuiteFileExtension>().unwrap_err();
+        Ok(())
+    }
+
+    #[test]
+    fn test_test_case_loader() -> Fallible<()> {
+        static ATCODER_ABC117_A_YML: &str = r#"---
+type: batch
+timelimit: 2000ms
+match:
+  float:
+    relative_error: 0.001
+    absolute_error: 0.001
+cases:
+  - name: Sample 1
+    in: |
+      8 3
+    out: |
+      2.6666666667
+  - name: Sample 2
+    in: |
+      99 1
+    out: |
+      99.0000000000
+  - name: Sample 3
+    in: |
+      1 100
+    out: |
+      0.0100000000
+"#;
+        static ATCODER_ABC117_B_JSON: &str = r#"{
+  "timelimit": "2000ms",
+  "type": "batch",
+  "match": "exact",
+  "cases": []
+}
+"#;
+        static ATCODER_ABC117_B_TOML: &str = r#"type = "batch"
+timelimit = "2000ms"
+match = "exact"
+
+[[cases]]
+name = "Sample 1"
+in = '''
+4
+3 8 5 1
+'''
+out = '''
+Yes
+'''
+"#;
+        static ATCODER_ABC117_B_YML: &str = r#"---
+type: batch
+timelimit: 2000ms
+match: exact
+cases:
+  - name: Sample 2
+    in: |
+      4
+      3 8 4 1
+    out: |
+      No
+  - name: Sample 3
+    in: |
+      10
+      1 8 10 5 8 12 34 100 11 3
+    out: |
+      No
+"#;
+        static ATCODER_ARC078_E_YML: &str = r#"---
+type: interactive
+timelimit: 2000ms
+each_args:
+  - ["12345678"]
+"#;
+        static ATCODER_APG4B_B_YML: &str = r#"---
+type: unsubmittable
+"#;
+
+        let tempdir = if cfg!(windows) {
+            env::temp_dir()
+        } else {
+            env::temp_dir().canonicalize()?
+        };
+        let tempdir = TempDir::new_in(
+            &tempdir,
+            "snowchains_test_testsuite_tests_test_test_case_loader",
+        )?;
+        let template_builder = "${service}/${contest}/tests/${problem_snake}.${extension}"
+            .parse::<TemplateBuilder<AbsPathBuf>>()?;
+
+        let template = template_builder.build(AbsPathBufRequirements {
+            base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
+            service: ServiceName::Atcoder,
+            contest: "abc117".to_owned(),
+        });
+        let test_dir = tempdir.path().join("atcoder").join("abc117").join("tests");
+        std::fs::create_dir_all(&test_dir)?;
+        std::fs::write(test_dir.join("a.yml"), ATCODER_ABC117_A_YML)?;
+        std::fs::write(test_dir.join("b.json"), ATCODER_ABC117_B_JSON)?;
+        std::fs::write(test_dir.join("b.toml"), ATCODER_ABC117_B_TOML)?;
+        std::fs::write(test_dir.join("b.yml"), ATCODER_ABC117_B_YML)?;
+
+        let extensions = btreeset![SuiteFileExtension::Yml];
+        let loader = TestCaseLoader {
+            template: template.clone(),
+            extensions: &extensions,
+            tester_transpilation: None,
+            tester_compilation: None,
+            tester_command: None,
+        };
+        let (cases, joined_paths) = loader.load_merging("a")?;
+        match cases {
+            TestCases::Batch(cases) => assert_eq!(cases.len(), 3),
+            TestCases::Interactive(_) => panic!("{:?}", cases),
+        }
+        assert_eq!(Path::new(&joined_paths), test_dir.join("a.yml"));
+
+        let extensions = btreeset![
+            SuiteFileExtension::Json,
+            SuiteFileExtension::Toml,
+            SuiteFileExtension::Yml,
+        ];
+        let loader = TestCaseLoader {
+            template: template.clone(),
+            extensions: &extensions,
+            tester_transpilation: None,
+            tester_compilation: None,
+            tester_command: None,
+        };
+        let (cases, joined_paths) = loader.load_merging("b")?;
+        match cases {
+            TestCases::Batch(cases) => assert_eq!(cases.len(), 3),
+            TestCases::Interactive(_) => panic!("{:?}", cases),
+        }
+        assert_eq!(
+            Path::new(&joined_paths),
+            test_dir.join("b.{json, toml, yml}"),
+        );
+
+        let extensions = btreeset![SuiteFileExtension::Json];
+        let loader = TestCaseLoader {
+            template,
+            extensions: &extensions,
+            tester_transpilation: None,
+            tester_compilation: None,
+            tester_command: None,
+        };
+        for problem in &["b", "nonexisting"] {
+            if_chain! {
+                let err = loader.load_merging(problem).unwrap_err();
+                if let TestSuiteError::Context(ctx) = &err;
+                if let TestSuiteErrorKind::NoTestcase(joined_paths) = ctx.get_context();
+                then {
+                    assert_eq!(
+                        Path::new(joined_paths),
+                        test_dir.join(problem).with_extension("json"),
+                    );
+                } else {
+                    return Err(err.into());
+                }
+            }
+        }
+
+        let template = template_builder.build(AbsPathBufRequirements {
+            base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
+            service: ServiceName::Atcoder,
+            contest: "arc078".to_owned(),
+        });
+        let tester_command = TemplateBuilder::dummy().build(JudgingCommandRequirements {
+            base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
+            service: ServiceName::Atcoder,
+            contest: "arc078".to_owned(),
+            shell: hashmap!(),
+            working_dir: ".".parse()?,
+            src: "tester".parse()?,
+            transpiled: None,
+            bin: None,
+            crlf_to_lf: false,
+        });
+        let test_dir = tempdir.path().join("atcoder").join("arc078").join("tests");
+        std::fs::create_dir_all(&test_dir)?;
+        std::fs::write(test_dir.join("e.yml"), ATCODER_ARC078_E_YML)?;
+        std::fs::write(test_dir.join("e.toml"), ATCODER_ABC117_B_TOML)?;
+
+        let extensions = btreeset![SuiteFileExtension::Yml];
+        let loader = TestCaseLoader {
+            template: template.clone(),
+            extensions: &extensions,
+            tester_transpilation: None,
+            tester_compilation: None,
+            tester_command: Some(tester_command.clone()),
+        };
+        let (cases, joined_paths) = loader.load_merging("e")?;
+        if let TestCases::Batch(_) = cases {
+            panic!("{:?}", cases);
+        }
+        assert_eq!(Path::new(&joined_paths), test_dir.join("e.yml"));
+
+        let extensions = btreeset![SuiteFileExtension::Toml, SuiteFileExtension::Yml];
+        let loader = TestCaseLoader {
+            template: template.clone(),
+            extensions: &extensions,
+            tester_transpilation: None,
+            tester_compilation: None,
+            tester_command: Some(tester_command),
+        };
+        if_chain! {
+            let err = loader.load_merging("e").unwrap_err();
+            if let TestSuiteError::Context(ctx) = &err;
+            if let TestSuiteErrorKind::DifferentTypesOfSuites = ctx.get_context();
+            then {} else { return Err(err.into()) }
+        }
+
+        let extensions = btreeset![SuiteFileExtension::Yml];
+        let loader = TestCaseLoader {
+            template,
+            extensions: &extensions,
+            tester_transpilation: None,
+            tester_compilation: None,
+            tester_command: None,
+        };
+        if_chain! {
+            let err = loader.load_merging("e").unwrap_err();
+            if let TestSuiteError::Config(config_err) = &err;
+            if let ConfigErrorKind::TesterNotSpecified = config_err.kind();
+            then {} else { return Err(err.into()) }
+        }
+
+        let template = template_builder.build(AbsPathBufRequirements {
+            base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
+            service: ServiceName::Atcoder,
+            contest: "apg4b".to_owned(),
+        });
+        let test_dir = tempdir.path().join("atcoder").join("apg4b").join("tests");
+        std::fs::create_dir_all(&test_dir)?;
+        std::fs::write(test_dir.join("b.yml"), ATCODER_APG4B_B_YML)?;
+
+        let extensions = btreeset![SuiteFileExtension::Yml];
+        let loader = TestCaseLoader {
+            template,
+            extensions: &extensions,
+            tester_transpilation: None,
+            tester_compilation: None,
+            tester_command: None,
+        };
+        if_chain! {
+            let err = loader.load_merging("b").unwrap_err();
+            if let TestSuiteError::Context(ctx) = &err;
+            if let TestSuiteErrorKind::Unsubmittable(path) = ctx.get_context();
+            then {
+                assert_eq!(*path, test_dir.join("b.yml"));
+                Ok(())
+            } else {
+                Err(err.into())
+            }
+        }
+    }
+
+    #[test]
+    fn test_to_string_pretty() -> TestSuiteResult<()> {
+        let atcoder_arc100_c = TestSuite::Batch(BatchSuite {
+            head: BatchSuiteSchemaHead {
+                timelimit: Some(Duration::from_secs(2)),
+                output_match: Match::Exact,
+            },
+            cases: vec![
+                BatchSuiteSchemaCase {
+                    name: Some("Sample 1".to_owned()),
+                    input: BatchSuiteText::String("5\n2 2 3 5 5\n".to_owned()),
+                    output: Some(BatchSuiteText::String("2\n".to_owned())),
+                },
+                BatchSuiteSchemaCase {
+                    name: Some("Sample 2".to_owned()),
+                    input: BatchSuiteText::String("9\n1 2 3 4 5 6 7 8 9\n".to_owned()),
+                    output: Some(BatchSuiteText::String("0\n".to_owned())),
+                },
+                BatchSuiteSchemaCase {
+                    name: Some("Sample 3".to_owned()),
+                    input: BatchSuiteText::String("6\n6 5 4 3 2 1\n".to_owned()),
+                    output: Some(BatchSuiteText::String("18\n".to_owned())),
+                },
+                BatchSuiteSchemaCase {
+                    name: Some("Sample 4".to_owned()),
+                    input: BatchSuiteText::String("7\n1 1 1 1 2 3 4\n".to_owned()),
+                    output: Some(BatchSuiteText::String("6\n".to_owned())),
+                },
+            ],
+        });
+        assert_eq!(
+            atcoder_arc100_c.to_string_pretty(SuiteFileExtension::Json)?,
+            r#"{
+  "type": "batch",
+  "timelimit": "2000ms",
+  "match": "exact",
+  "cases": [
+    {
+      "name": "Sample 1",
+      "in": "5\n2 2 3 5 5\n",
+      "out": "2\n"
+    },
+    {
+      "name": "Sample 2",
+      "in": "9\n1 2 3 4 5 6 7 8 9\n",
+      "out": "0\n"
+    },
+    {
+      "name": "Sample 3",
+      "in": "6\n6 5 4 3 2 1\n",
+      "out": "18\n"
+    },
+    {
+      "name": "Sample 4",
+      "in": "7\n1 1 1 1 2 3 4\n",
+      "out": "6\n"
+    }
+  ]
+}"#,
+        );
+        assert_eq!(
+            atcoder_arc100_c.to_string_pretty(SuiteFileExtension::Toml)?,
+            r#"type = 'batch'
+timelimit = '2000ms'
+match = 'exact'
+
+[[cases]]
+name = 'Sample 1'
+in = '''
+5
+2 2 3 5 5
+'''
+out = '''
+2
+'''
+
+[[cases]]
+name = 'Sample 2'
+in = '''
+9
+1 2 3 4 5 6 7 8 9
+'''
+out = '''
+0
+'''
+
+[[cases]]
+name = 'Sample 3'
+in = '''
+6
+6 5 4 3 2 1
+'''
+out = '''
+18
+'''
+
+[[cases]]
+name = 'Sample 4'
+in = '''
+7
+1 1 1 1 2 3 4
+'''
+out = '''
+6
+'''
+"#,
+        );
+        assert_eq!(
+            atcoder_arc100_c.to_string_pretty(SuiteFileExtension::Yml)?,
+            r#"---
+type: batch
+timelimit: 2000ms
+match: exact
+cases:
+  - name: Sample 1
+    in: |
+      5
+      2 2 3 5 5
+    out: |
+      2
+  - name: Sample 2
+    in: |
+      9
+      1 2 3 4 5 6 7 8 9
+    out: |
+      0
+  - name: Sample 3
+    in: |
+      6
+      6 5 4 3 2 1
+    out: |
+      18
+  - name: Sample 4
+    in: |
+      7
+      1 1 1 1 2 3 4
+    out: |
+      6
+"#,
+        );
+
+        let atcoder_abc117_a = TestSuite::Batch(BatchSuite {
+            head: BatchSuiteSchemaHead {
+                timelimit: Some(Duration::from_secs(2)),
+                output_match: Match::Float {
+                    relative_error: Some(PositiveFinite::try_new(0.001).unwrap()),
+                    absolute_error: Some(PositiveFinite::try_new(0.001).unwrap()),
+                },
+            },
+            cases: vec![
+                BatchSuiteSchemaCase {
+                    name: Some("Sample 1".to_owned()),
+                    input: BatchSuiteText::String("8 3\n".to_owned()),
+                    output: Some(BatchSuiteText::String("2.6666666667\n".to_owned())),
+                },
+                BatchSuiteSchemaCase {
+                    name: Some("Sample 2".to_owned()),
+                    input: BatchSuiteText::String("99 1\n".to_owned()),
+                    output: Some(BatchSuiteText::String("99.0000000000\n".to_owned())),
+                },
+                BatchSuiteSchemaCase {
+                    name: Some("Sample 3".to_owned()),
+                    input: BatchSuiteText::String("1 100\n".to_owned()),
+                    output: Some(BatchSuiteText::String("0.0100000000\n".to_owned())),
+                },
+            ],
+        });
+        assert_eq!(
+            atcoder_abc117_a.to_string_pretty(SuiteFileExtension::Json)?,
+            r#"{
+  "type": "batch",
+  "timelimit": "2000ms",
+  "match": {
+    "float": {
+      "relative_error": 0.001,
+      "absolute_error": 0.001
+    }
+  },
+  "cases": [
+    {
+      "name": "Sample 1",
+      "in": "8 3\n",
+      "out": "2.6666666667\n"
+    },
+    {
+      "name": "Sample 2",
+      "in": "99 1\n",
+      "out": "99.0000000000\n"
+    },
+    {
+      "name": "Sample 3",
+      "in": "1 100\n",
+      "out": "0.0100000000\n"
+    }
+  ]
+}"#,
+        );
+        assert_eq!(
+            atcoder_abc117_a.to_string_pretty(SuiteFileExtension::Toml)?,
+            r#"type = 'batch'
+timelimit = '2000ms'
+
+[match]
+relative_error = 0.001
+absolute_error = 0.001
+
+[[cases]]
+name = 'Sample 1'
+in = '''
+8 3
+'''
+out = '''
+2.6666666667
+'''
+
+[[cases]]
+name = 'Sample 2'
+in = '''
+99 1
+'''
+out = '''
+99.0000000000
+'''
+
+[[cases]]
+name = 'Sample 3'
+in = '''
+1 100
+'''
+out = '''
+0.0100000000
+'''
+"#,
+        );
+        assert_eq!(
+            atcoder_abc117_a.to_string_pretty(SuiteFileExtension::Yml)?,
+            r#"---
+type: batch
+timelimit: 2000ms
+match:
+  float:
+    relative_error: 0.001
+    absolute_error: 0.001
+cases:
+  - name: Sample 1
+    in: |
+      8 3
+    out: |
+      2.6666666667
+  - name: Sample 2
+    in: |
+      99 1
+    out: |
+      99.0000000000
+  - name: Sample 3
+    in: |
+      1 100
+    out: |
+      0.0100000000
+"#,
+        );
+
+        let atcoder_arc078_e = TestSuite::Interactive(InteractiveSuite {
+            timelimit: Some(Duration::from_secs(2)),
+            each_args: vec![vec![]],
+        });
+        assert_eq!(
+            atcoder_arc078_e.to_string_pretty(SuiteFileExtension::Json)?,
+            r#"{
+  "type": "interactive",
+  "timelimit": "2000ms",
+  "each_args": [
+    []
+  ]
+}"#,
+        );
+        assert_eq!(
+            atcoder_arc078_e.to_string_pretty(SuiteFileExtension::Toml)?,
+            r#"type = 'interactive'
+timelimit = '2000ms'
+each_args = [[]]
+"#,
+        );
+        assert_eq!(
+            atcoder_arc078_e.to_string_pretty(SuiteFileExtension::Yml)?,
+            r#"---
+type: interactive
+timelimit: 2000ms
+each_args:
+  - []"#,
+        );
+
+        let atcoder_apg4b_b = TestSuite::Unsubmittable;
+        assert_eq!(
+            atcoder_apg4b_b.to_string_pretty(SuiteFileExtension::Json)?,
+            r#"{
+  "type": "unsubmittable"
+}"#,
+        );
+        assert_eq!(
+            atcoder_apg4b_b.to_string_pretty(SuiteFileExtension::Toml)?,
+            r#"type = 'unsubmittable'
+"#,
+        );
+        assert_eq!(
+            atcoder_apg4b_b.to_string_pretty(SuiteFileExtension::Yml)?,
+            r#"---
+type: unsubmittable"#,
+        );
+
+        Ok(())
     }
 }

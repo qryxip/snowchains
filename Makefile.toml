@@ -1,0 +1,119 @@
+[config]
+skip_core_tasks = true
+
+[tasks.clean]
+category = "Cleanup"
+command = "cargo"
+args = ["clean"]
+dependencies = ["clean-subcrates"]
+
+[tasks.clean-subcrates]
+category = "Cleanup"
+cwd = "./proc_macros"
+command = "cargo"
+args = ["clean"]
+
+[tasks.check-format]
+category = "Test"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+dependencies = ["check-format-subcrates"]
+toolchain = "stable"
+
+[tasks.check-format-subcrates]
+category = "Test"
+command = "rustfmt"
+args = ["--check", "./proc_macros/src/lib.rs"]
+toolchain = "stable"
+
+[tasks.clippy]
+category = "Test"
+command = "cargo"
+args = ["clippy", "--all-targets", "--", "-D", "warnings"]
+dependencies = ["clippy-subcrates"]
+toolchain = "stable"
+
+[tasks.clippy-subcrates]
+category = "Test"
+cwd = "./proc_macros"
+command = "cargo"
+args = ["clippy", "--", "-D", "warnings"]
+dependencies = ["touch"]
+toolchain = "stable"
+
+[tasks.test]
+category = "Test"
+script = [
+'''
+if which envchain > /dev/null; then
+  envchain snowchains cargo test --all
+elif which dotenv > /dev/null && [ -f ./.env ]; then
+  dotenv cargo test --all
+else
+  cargo test --all
+fi
+''',
+]
+script_runner = "bash"
+script_extension = "bash"
+
+[tasks.test.windows]
+script_runner = 'C:\Program Files\Git\usr\bin\bash.exe'
+
+[tasks.format]
+category = "Development"
+command = "cargo"
+args = ["fmt", "--all"]
+dependencies = ["format-subcrates"]
+toolchain = "stable"
+
+[tasks.format-subcrates]
+category = "Development"
+command = "rustfmt"
+args = ["./proc_macros/src/lib.rs"]
+toolchain = "stable"
+
+[tasks.upgrade-dependencies]
+category = "Development"
+dependencies = ["upgrade", "update"]
+
+[tasks.upgrade]
+category = "Development"
+command = "cargo"
+args = ["upgrade"]
+dependencies = ["upgrade-subcrates"]
+
+[tasks.upgrade-subcrates]
+category = "Development"
+cwd = "./proc_macros"
+command = "cargo"
+args = ["upgrade"]
+
+[tasks.update]
+category = "Development"
+command = "cargo"
+args = ["update"]
+dependencies = ["update-subcrates"]
+
+[tasks.update-subcrates]
+category = "Development"
+cwd = "./proc_macros"
+command = "cargo"
+args = ["update"]
+
+[tasks.touch]
+category = "Development"
+script = ["find ./src ./tests ./proc_macros/src -type f | xargs touch"]
+script_runner = "bash"
+script_extension = "bash"
+
+[tasks.touch.windows]
+script_runner = 'C:\Program Files\Git\usr\bin\bash.exe'
+
+[tasks.default]
+category = "Disabled"
+disabled = true
+
+[tasks.empty]
+category = "Disabled"
+disabled = true

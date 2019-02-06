@@ -15,7 +15,7 @@ env:
     - ATCODER_USERNAME=wariuni
     - secure: "rd1UiLdzPPMuH/CwQPkYBQSv/CvR2mXkDGANkvOpaGC4Ch0NQoaG+/LWylN/8GCEaWjkBkHvTqNvxcGqjt+MCbHmVoUPZ0T30HBxaLWE725r57bKi+yk6CT6g7YCqlMXMabaCMo07AjDKnIt0LrbBmdU7PFuYCZTkIu0Sl/DN/c+ZG1P5+n/m3J3L9MxVabTmfvs8xsxIBOjlPGxmOX7C7fgeDSVRcSjwvE7lZBZF5hVupXrsAgnU/Ts0K2i6EaMkC5Zj4A7KUNtK2sV9ucssdceemD+rG4TSdnc4wZbkxi/eyYdKVvY1WPo8vp0brC89ftmEMzGgt4Gcat1pNz5aNL3wXf6kPEmIQbWbYud2tEXti0X6hZIwiA0RO4o8i2dSH62M/SsOuyxGYzN+QEbeVOnLVljfFW59J3v5VcJCm5Ce9zswCJ9xRwlbG+D/UleCgn7Weq66Ke4VUlPoD5Xi9CWoV8gjhh0hZd9P/UeQ1wdUCt9lZNrUSPUMEBT2h2X+sru0zQ/+QoRgcHqbxp1ZVTTCWXBIOZA4Q5sTdh2OPtkzVv/yCEVoWqySi8zxEE9GommMeFUlQK8ZCa/kqA3TW57vYaBQPaCVxYCPJDSpcwkHeKwGQizT4MYjRaiSs9L0koeKh19jYPooa8N3wTo6p/6sZumPIubHJTlLkt1vdk="
     - secure: "o2T1i38r32YQW9W38xVFxp/0nZdkvkgb/LY8/co/a/RtXcKw6yY2cRBBYwaTIuUG8pVx/ilITBLE0iOHfwI9wKqOPD3/iYSQyY4liVyP/hlrikxewjMJQuxQ9Ul55d4Ik+XqGpCE/+i30Ct/TbTqp7ltKl7adShfMaryzZJ3HvuTmg6wiKDQDmlRRRqGJPPYs2qqGSQ2s7tAlESU413cLiCNFra96WqQYrVWgt7zvpf1uf+8EHq9SGxt9zvY9UKiZwqzglMvP4HO8T0km20B3Qjo6zW4e99YS7JmkVl04CA62kd8OyAn4x/fNSRug7+uyqW3ypVwo1/cP8/pnQUnYE+CvE/JuVUPMU5/GNTYCQogN3jUh54b67fxm03tTGxB1IcF23Kt/bWtFePsUfwdM2Dyc7mZ28zWgroIXGe9FGpn0sZEw/PzQALF5I9dRuk0AnnQnvXN6U77zaDd/IoO6fjrF02FTnIRoTAxEojdxVDTedKORw4K3WAXy10IAmo522/tFQS809Edyg2m/KxPyvjuZqHW9vJnAAquVlYuwQc65pCU87B1J57FKkZP2+/X2h9C53BrEAH1ELRuubetu+5eW+Vr/3jowlzLpmC84dDb3RZCPICDBGNYv+v5ilewSQwSVstshcEJYOPon0KVKuJzBvxGbJSbXfoJEzyu+8U="
-    - secure: "KBT0CMW2uew+TEQJUVHdXTeMU+d59N5ddgSdmv1U/Rco50UFjzpnW9IJ4m8mudy78QfY46kTyISS0Gm6HKADMibr2Rr6SV0rt+bvaWUC5d2xgWmjvc6VuF/PAhgVXfWaTh2lojQmzyoqdw3x9r/eZ95CkFip7krsk1vyEXYmM20cK7pxv+YwDSs6BCetmv3E1X5OLuLyA4CI5aHN2Zu5L+yKO4sh208Vq7N7AV0t4FDSW9XXGS0ZDPqkotGjx9/OK6U7G3DUVvAM1cMfNZ3zJj8YJl+fmLSPDYC+zcFZiX+fD6j1tMUd8ufej9nU6luCj6/1mwtlumo3gBRaaTABH3JExWVimxcrCtMuXUNltjAjASw1lU5QiT/C7oZlDJ/b5C2/vYy++klm+K3yFXWzt1aUjjV5HeHWS1pmsK+jvXfXzyuMeLZIW6Emu/Bnzrh6VeLnNL0xWlURzh/x1Tsoa0vv7J/KM+XezKbxADOFVRBg9a4e5eLusSXT6nunf3YIPCaHpFtj83ffuts5L1HcmFunPuqBc+BkBOBr5TYaVUCNjckCH1Yu23ALbfmUE+bgeq370/5aYGHwKxg7q29j/KUpHR2dqlC2uYdi3+1X3hX99IFch1NqwjsoAhqjWRwM4RCsHKYrqZrWseuXZYmvJIDiwg9iEmd+IeoZr8lTKoY="
+    - secure: "C3VPj+T+d83fNuELFmyT4R/1DZoRqkShscapID+Q/gpOng6dnLif3Ya+QhUh7OD/GibYkr835z7Akm3FMuUfInAHPT9WuB3v/WomRG/8Z0l7nby0vI2gBQcu3ga5kkt1pKiWCS3DDDKiiyK/SzoaN1FEpPZX4b6MJYPGU0VF3pihqOVZJ02DBwm7wcCnsiMtahGRAaxiYhbpAmLhDAENt315NXtoZku2+gLQIEjdr88m1r1wayG9IU/9bOfnkE62wb6wly4Yl0CKWwp3U917lMYLZkkK8j0SZh3RVwHvIIwcw7X6GO8L/jxYwYtxYOI4WAXk4ULW9yg1Cm1A36evuSn2gPx1wJ9li5Bj+/NYSWRvgEZTAUD/sYOpOy5TEFUlwfRLoBeF7G/f0RHOhb+wqvWDydTMukacg6xEKOUpMBWNtERL/NCWDeBVrU3pAXKbZHqwDXTsvY/0u7K3pP7uFv9HF0noqXO07+0otHe8sG9fsrMaU/BSujEu63tg2zhBimpmMHsG7pppP9RG5VWF3v01OeCwhza6Esmj/KIy/3oVvWQUkwT2M/dBw/j2re+VhCsTcpXZr0c0RNWiTYIS19s6RK5ssm0ZKMRSQrHBDrkezFbyatXYTBg4yc4J7YklvwfqeA4ivPH/DnyrDPm2FW0i70MCaPjaddJkgHQPIbk="
 
 matrix:
   include:
@@ -39,10 +39,12 @@ install:
   - rustup set default-host $RUSTUP_HOST
   - rustup update $TRAVIS_RUST_VERSION
   - rustup component add clippy rustfmt
-  - rustc -vV
-  - cargo -vV
-  - cargo clippy -V
-  - rustfmt -V
+  - cargo install --debug cargo-make
+  - rustc --version --verbose
+  - cargo --version --verbose
+  - cargo clippy --version
+  - rustfmt --version
+  - cargo make --version
   - |
     if [ "${RUSTUP_HOST}" = x86_64-unknown-linux-gnu -a "${TRAVIS_BRANCH}" = master -a "${TRAVIS_PULL_REQUEST}" = false ]; then
       rustup install nightly &&
@@ -53,10 +55,8 @@ install:
     fi
 
 script:
-  - cargo fmt -- --check
-  - rustfmt --check ./proc_macros/src/lib.rs
-  - sh -c 'cd ./proc_macros && cargo clippy -- -D warnings'
-  - cargo clippy --all-targets -- -D warnings
+  - cargo make check-format
+  - cargo make clippy
   - |
     if [ -f ~/.cargo/bin/cargo-tarpaulin ]; then
       cargo tarpaulin --ignored --out Xml &&

@@ -1,21 +1,30 @@
 use snowchains::app::{App, Opt};
 use snowchains::path::AbsPathBuf;
-use snowchains::service::Credentials;
 use snowchains::terminal::{Term, TermImpl, WriteAnsi, WriteSpaces};
 
 use failure::{Fail, Fallible};
 use structopt::StructOpt;
 
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 use std::process;
 
 fn main() -> Fallible<()> {
     env_logger::init();
-    snowchains::signal::start_handling_ctrl_c()?;
+    snowchains::signal::start_catching_ctrl_c()?;
     let opt = Opt::from_args();
-    let (stdin, stdout, stderr) = (io::stdin(), io::stdout(), io::stderr());
-    let mut term = TermImpl::new(&stdin, &stdout, &stderr);
-    if let Err(err) = run(opt, &mut term) {
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let mut term = TermImpl::new(
+        stdin.lock(),
+        BufWriter::new(stdout.lock()),
+        BufWriter::new(io::stderr()),
+    );
+    let result = App {
+        working_dir: AbsPathBuf::cwd()?,
+        login_retries: None,
+        term: &mut term,
+    }
+    .run(opt);
+    if let Err(err) = result {
         let (_, stdout, stderr) = term.split_mut();
         stdout.flush()?;
         writeln!(stderr)?;
@@ -40,17 +49,6 @@ fn main() -> Fallible<()> {
         }
         stderr.flush()?;
         process::exit(1)
-    } else {
-        Ok(())
     }
-}
-
-fn run(opt: Opt, term: impl Term) -> snowchains::Result<()> {
-    let working_dir = AbsPathBuf::cwd()?;
-    App {
-        working_dir,
-        credentials: Credentials::default(),
-        term,
-    }
-    .run(opt)
+    Ok(())
 }

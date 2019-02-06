@@ -2,36 +2,35 @@ mod service;
 
 use snowchains::app::{App, Opt};
 use snowchains::service::ServiceName;
-use snowchains::terminal::{AnsiColorChoice, TermImpl};
+use snowchains::terminal::{AnsiColorChoice, Term, TermImpl};
 
 use failure::Fallible;
 use serde_derive::Deserialize;
 
 use std::fs::File;
-use std::io;
 use std::path::Path;
+use std::{io, str};
 
 #[test]
 fn it_logins() -> Fallible<()> {
-    let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
-    service::test_in_tempdir("it_logins", credentials, login)
-}
+    fn login(mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> snowchains::Result<()> {
+        app.run(Opt::Login {
+            color_choice: AnsiColorChoice::Never,
+            service: ServiceName::Atcoder,
+        })
+    }
 
-fn login(mut app: App<TermImpl<io::Empty, io::Sink, io::Sink>>) -> snowchains::Result<()> {
-    app.run(Opt::Login {
-        color_choice: AnsiColorChoice::Never,
-        service: ServiceName::Atcoder,
-    })
+    let _ = env_logger::try_init();
+    let stdin = credentials_as_input()?;
+    service::test_in_tempdir("it_logins", &stdin, login)
 }
 
 #[test]
 fn it_scrapes_samples_from_practice() -> Fallible<()> {
     let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
     service::test_in_tempdir(
         "it_scrapes_samples_from_practice",
-        credentials,
+        &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download {
                 open: false,
@@ -56,10 +55,9 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
 #[test]
 fn it_scrapes_samples_from_abc100() -> Fallible<()> {
     let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
     service::test_in_tempdir(
         "it_scrapes_samples_from_abc100",
-        credentials,
+        &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download {
                 open: false,
@@ -82,10 +80,9 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
 #[test]
 fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
     let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
     service::test_in_tempdir(
         "it_scrapes_samples_and_download_files_from_abc099_a",
-        credentials,
+        &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::Download {
                 open: false,
@@ -146,13 +143,47 @@ fn just_confirm_num_samples_and_timelimit(
 }
 
 #[test]
+fn restore_command_works_without_error() -> Fallible<()> {
+    let _ = env_logger::try_init();
+    service::test_in_tempdir(
+        "it_restores_source_code",
+        &credentials_as_input()?,
+        |mut app| -> Fallible<()> {
+            app.run(Opt::Restore {
+                service: Some(ServiceName::Atcoder),
+                contest: Some("practice".to_owned()),
+                problems: vec![],
+                color_choice: AnsiColorChoice::Never,
+            })?;
+            let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
+            let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
+            assert!(stdout.starts_with(
+                r#"Targets: practice contest/*
+GET https://atcoder.jp/robots.txt ... 404 Not Found
+GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 302 Found
+GET https://atcoder.jp/contests/practice ... 200 OK
+GET https://atcoder.jp/settings ... 302 Found
+GET https://atcoder.jp/login ... 200 OK
+POST https://atcoder.jp/login ... 302 Found
+GET https://atcoder.jp/settings ... 200 OK
+Successfully logged in.
+GET https://atcoder.jp/contests/practice ... 200 OK
+POST https://atcoder.jp/contests/practice/register ... 302 Found
+GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 200 OK"#,
+            ));
+            assert!(stderr.starts_with("Username: Password: "));
+            Ok(())
+        },
+    )
+}
+
+#[test]
 #[ignore]
 fn it_submits_to_practice_a() -> Fallible<()> {
     let _ = env_logger::try_init();
-    let credentials = service::credentials_from_env_vars()?;
     service::test_in_tempdir(
         "it_submits_to_practice_a",
-        credentials,
+        &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             static CODE: &[u8] = br#"def main():
     (a, (b, c), s) = (int(input()), map(int, input().split()), input())
@@ -181,4 +212,10 @@ if __name__ == '__main__':
             .map_err(Into::into)
         },
     )
+}
+
+fn credentials_as_input() -> Fallible<String> {
+    let username = service::env_var("ATCODER_USERNAME")?;
+    let password = service::env_var("ATCODER_PASSWORD")?;
+    Ok(format!("{}\n{}\n", username, password))
 }

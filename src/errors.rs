@@ -140,7 +140,7 @@ pub enum ServiceErrorKind {
     )]
     SubmissionRejected(String, usize, StatusCode, Option<String>),
     #[display(fmt = "Failed to login")]
-    LoginOnTest,
+    LoginRetriesExceeded,
 }
 
 pub(crate) type ScrapeResult<T> = std::result::Result<T, ScrapeError>;
@@ -236,6 +236,13 @@ pub struct ConfigError {
     kind: ConfigErrorKind,
     #[fail(backtrace)]
     backtrace: Backtrace,
+}
+
+#[cfg(test)]
+impl ConfigError {
+    pub(crate) fn kind(&self) -> &ConfigErrorKind {
+        &self.kind
+    }
 }
 
 impl From<ConfigErrorKind> for ConfigError {
