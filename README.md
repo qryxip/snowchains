@@ -98,8 +98,6 @@ service = "atcoder"
 contest = "arc100"
 language = "c++"
 
-testfile_path = "${service}/${contest}/tests/${problem_snake}.${extension}"
-
 [console]
 cjk = false
 # alt_width = 100
@@ -111,6 +109,9 @@ bash = ["/usr/bin/bash", "-c", "${command}"]
 # bash = ["C:/Program Files/Git/usr/bin/bash.exe", "-c", "PATH=/usr/bin:$$PATH; ${command}"]
 # ps = ["C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", "-Command", "PATH=/usr/bin:$$PATH; ${command}"]
 # cmd = ["C:/Windows/System32/cmd.exe", "/C", "PATH=/usr/bin:$$PATH; ${command}"]
+
+[testfiles]
+path = "${service}/${contest}/tests/${problem_snake}.${extension}"
 
 [session]
 timeout = "60s"

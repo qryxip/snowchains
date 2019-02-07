@@ -215,13 +215,14 @@ language_ids = { atcoder = "3006", yukicoder = "csharp" }"#;
 contest = "arc100"
 language = "c++"
 
-testfile_path = "${{service}}/${{contest}}/tests/${{problem_snake}}.${{extension}}"
-
 [console]
 cjk = false{console_alt_width}
 
 [shell]
 {bash}{powershell}{cmd}
+
+[testfiles]
+path = "${{service}}/${{contest}}/tests/${{problem_snake}}.${{extension}}"
 
 [session]
 timeout = "60s"
@@ -482,7 +483,7 @@ pub(crate) struct Config {
     console: Console,
     #[serde(default)]
     shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
-    testfile_path: TemplateBuilder<AbsPathBuf>,
+    testfiles: Testfiles,
     session: Session,
     judge: Judge,
     #[serde(default)]
@@ -585,7 +586,7 @@ impl Config {
         &self,
         ext: Option<SuiteFileExtension>,
     ) -> DownloadDestinations {
-        let scraped = self.testfile_path.build(AbsPathBufRequirements {
+        let scraped = self.testfiles.path.build(AbsPathBufRequirements {
             base_dir: self.base_dir.clone(),
             service: self.service,
             contest: self.contest.clone(),
@@ -604,7 +605,7 @@ impl Config {
     }
 
     pub(crate) fn testcase_loader(&self) -> TestCaseLoader {
-        let path = self.testfile_path.build(AbsPathBufRequirements {
+        let path = self.testfiles.path.build(AbsPathBufRequirements {
             base_dir: self.base_dir.clone(),
             service: self.service,
             contest: self.contest.clone(),
@@ -752,7 +753,12 @@ pub struct Console {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(crate) struct Session {
+struct Testfiles {
+    path: TemplateBuilder<AbsPathBuf>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Session {
     #[serde(
         serialize_with = "time::ser_secs",
         deserialize_with = "time::de_secs",

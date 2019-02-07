@@ -2,7 +2,8 @@ service = "other"
 contest = ""
 language = "text"
 
-testfile_path = "${service}/${contest}/tests/${problem_snake}.${extension}"
+[testfiles]
+path = "${service}/${contest}/tests/${problem_snake}.${extension}"
 
 [session]
 timeout = "60s"
