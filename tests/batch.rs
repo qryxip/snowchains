@@ -1,7 +1,7 @@
 use snowchains::app::{App, Modify, Opt};
 use snowchains::errors::{JudgeError, JudgeErrorKind};
 use snowchains::path::AbsPathBuf;
-use snowchains::service::ServiceName;
+use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Term, TermImpl};
 use snowchains::testsuite::SuiteFileExtension;
 
@@ -116,7 +116,7 @@ impl<T: Term> AppExt for App<T> {
         std::fs::write(src_path, code)?;
         self.run(Opt::Judge {
             force_compile: false,
-            service: Some(ServiceName::Atcoder),
+            service: Some(ServiceKind::Atcoder),
             contest: Some("practice".to_owned()),
             language: Some("rust".to_owned()),
             jobs: None,
@@ -127,7 +127,7 @@ impl<T: Term> AppExt for App<T> {
 
     fn modify_timelimit(&mut self, timelimit: Duration) -> snowchains::Result<()> {
         self.run(Opt::Modify(Modify::Timelimit {
-            service: Some(ServiceName::Atcoder),
+            service: Some(ServiceKind::Atcoder),
             contest: Some("practice".to_owned()),
             color_choice: AnsiColorChoice::Never,
             problem: "a".to_owned(),

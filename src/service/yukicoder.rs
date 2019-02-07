@@ -3,7 +3,7 @@ use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ExtractZip, PrintTargets,
-    ProblemNameConversion, Service, ServiceName, SessionProps, SubmitProps, ZipEntries,
+    ProblemNameConversion, Service, ServiceKind, SessionProps, SubmitProps, ZipEntries,
     ZipEntriesSorting,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
@@ -171,7 +171,7 @@ impl<T: Term> Yukicoder<T> {
                 let path = destinations.expand(problem)?;
                 Ok((suite, path))
             };
-        let mut outcome = DownloadOutcome::new(ServiceName::Yukicoder, contest, *open_in_browser);
+        let mut outcome = DownloadOutcome::new(ServiceKind::Yukicoder, contest, *open_in_browser);
         match (contest, problems.as_ref()) {
             (YukicoderContest::No, None) => {
                 return Err(ServiceErrorKind::PleaseSpecifyProblems.into());

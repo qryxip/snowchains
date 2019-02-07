@@ -3,7 +3,7 @@ use crate::command::{
 };
 use crate::errors::{ExpandTemplateErrorKind, ExpandTemplateResult, StdError};
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::ServiceName;
+use crate::service::ServiceKind;
 use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
 use crate::util::std_unstable::Transpose_;
@@ -516,7 +516,7 @@ pub(crate) enum CommandTemplateInner {
 #[derive(Clone)]
 pub(crate) struct AbsPathBufRequirements {
     pub(crate) base_dir: AbsPathBuf,
-    pub(crate) service: ServiceName,
+    pub(crate) service: ServiceKind,
     pub(crate) contest: String,
 }
 
@@ -530,7 +530,7 @@ pub(crate) struct HookCommandsRequirements {
 #[derive(Clone)]
 pub(crate) struct TranspilationCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
-    pub(crate) service: ServiceName,
+    pub(crate) service: ServiceKind,
     pub(crate) contest: String,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
@@ -541,7 +541,7 @@ pub(crate) struct TranspilationCommandRequirements {
 #[derive(Clone)]
 pub(crate) struct CompilationCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
-    pub(crate) service: ServiceName,
+    pub(crate) service: ServiceKind,
     pub(crate) contest: String,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
@@ -553,7 +553,7 @@ pub(crate) struct CompilationCommandRequirements {
 #[derive(Clone)]
 pub(crate) struct JudgingCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
-    pub(crate) service: ServiceName,
+    pub(crate) service: ServiceKind,
     pub(crate) contest: String,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
@@ -739,7 +739,7 @@ impl Tokens {
 fn setup_env_vars(
     problem: Option<&str>,
     utf8_envs: Option<&HashMap<String, String>>,
-    service: Option<ServiceName>,
+    service: Option<ServiceKind>,
     contest: Option<&str>,
     src: Option<&AbsPath>,
     transpiled: Option<&AbsPath>,
@@ -800,7 +800,7 @@ mod tests {
 
     use crate::command::{CompilationCommand, JudgingCommand};
     use crate::path::AbsPathBuf;
-    use crate::service::ServiceName;
+    use crate::service::ServiceKind;
 
     use failure::Fallible;
     use maplit::hashmap;
@@ -889,7 +889,7 @@ mod tests {
             template
                 .build(AbsPathBufRequirements {
                     base_dir: base_dir(),
-                    service: ServiceName::Atcoder,
+                    service: ServiceKind::Atcoder,
                     contest: "arc100".to_owned(),
                 })
                 .expand(Some("problem-name"))
@@ -924,7 +924,7 @@ mod tests {
                 template
                     .build(AbsPathBufRequirements {
                         base_dir: base_dir(),
-                        service: ServiceName::Atcoder,
+                        service: ServiceKind::Atcoder,
                         contest: "arc100".to_owned(),
                     })
                     .expand(None)

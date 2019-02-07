@@ -1,7 +1,7 @@
 use crate::command::{CompilationCommand, HookCommands, JudgingCommand, TranspilationCommand};
 use crate::errors::{ConfigErrorKind, ConfigResult, FileResult};
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::{DownloadOutcome, ServiceName};
+use crate::service::{DownloadOutcome, ServiceKind};
 use crate::template::{
     AbsPathBufRequirements, CompilationCommandRequirements, HookCommandsRequirements,
     JudgingCommandRequirements, Template, TemplateBuilder, TranspilationCommandRequirements,
@@ -375,7 +375,7 @@ pub(crate) struct SwitchOutcome {
 
 #[derive(Serialize)]
 struct SwitchOutcomeAttrs {
-    service: ServiceName,
+    service: ServiceKind,
     contest: String,
     language: String,
 }
@@ -385,7 +385,7 @@ pub(crate) fn switch(
     mut stdout: impl TermOut,
     mut stderr: impl TermOut,
     directory: &AbsPath,
-    service: Option<ServiceName>,
+    service: Option<ServiceKind>,
     contest: Option<String>,
     language: Option<String>,
 ) -> FileResult<(Config, SwitchOutcome)> {
@@ -476,7 +476,7 @@ pub(crate) fn switch(
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Config {
     #[serde(default)]
-    service: ServiceName,
+    service: ServiceKind,
     contest: String,
     language: String,
     #[serde(default)]
@@ -487,7 +487,7 @@ pub(crate) struct Config {
     session: Session,
     judge: Judge,
     #[serde(default)]
-    env: BTreeMap<ServiceName, HashMap<String, String>>,
+    env: BTreeMap<ServiceKind, HashMap<String, String>>,
     #[serde(default)]
     hooks: Hooks,
     tester: Option<Language>,
@@ -498,7 +498,7 @@ pub(crate) struct Config {
 
 impl Config {
     pub(crate) fn load(
-        service: impl Into<Option<ServiceName>>,
+        service: impl Into<Option<ServiceKind>>,
         contest: impl Into<Option<String>>,
         language: impl Into<Option<String>>,
         dir: &AbsPath,
@@ -513,7 +513,7 @@ impl Config {
     }
 
     /// Gets `service`.
-    pub(crate) fn service(&self) -> ServiceName {
+    pub(crate) fn service(&self) -> ServiceKind {
         self.service
     }
 
@@ -922,14 +922,14 @@ struct Language {
     #[serde(default)]
     working_directory: TemplateBuilder<AbsPathBuf>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    language_ids: BTreeMap<ServiceName, String>,
+    language_ids: BTreeMap<ServiceKind, String>,
 }
 
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
     use crate::path::AbsPath;
-    use crate::service::ServiceName;
+    use crate::service::ServiceKind;
     use crate::terminal::Ansi;
 
     use failure::Fallible;
@@ -968,7 +968,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
             AbsPath::try_new(tempdir.path()).unwrap(),
-            Some(ServiceName::Yukicoder),
+            Some(ServiceKind::Yukicoder),
             Some("no".to_owned()),
             Some("rust".to_owned()),
         )?;
@@ -976,10 +976,10 @@ mod tests {
         let new_toml = std::fs::read_to_string(tempdir.path().join(super::CONFIG_FILE_NAME))?;
         let new_config = toml::from_str::<Config>(&new_toml)?;
 
-        assert_eq!(old_config.service, ServiceName::Atcoder);
+        assert_eq!(old_config.service, ServiceKind::Atcoder);
         assert_eq!(old_config.contest, "arc100");
         assert_eq!(old_config.language, "c++");
-        assert_eq!(new_config.service, ServiceName::Yukicoder);
+        assert_eq!(new_config.service, ServiceKind::Yukicoder);
         assert_eq!(new_config.contest, "no");
         assert_eq!(new_config.language, "rust");
 

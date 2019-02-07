@@ -2,7 +2,7 @@
 mod service;
 
 use snowchains::app::{App, Opt};
-use snowchains::service::ServiceName;
+use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
 use failure::Fallible;
@@ -10,7 +10,7 @@ use failure::Fallible;
 #[test]
 fn it_logins() -> Fallible<()> {
     fn login(app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> snowchains::Result<()> {
-        service::login(app, ServiceName::Yukicoder)
+        service::login(app, ServiceKind::Yukicoder)
     }
 
     let _ = env_logger::try_init();
@@ -27,10 +27,10 @@ fn it_downloads_testcases() -> Fallible<()> {
         |app| -> Fallible<()> {
             static CONTEST: &str = "no";
             let wd = app.working_dir.clone();
-            service::download(app, ServiceName::Yukicoder, CONTEST, &["3", "725", "726"])?;
+            service::download(app, ServiceKind::Yukicoder, CONTEST, &["3", "725", "726"])?;
             service::confirm_num_cases(
                 &wd,
-                ServiceName::Yukicoder,
+                ServiceKind::Yukicoder,
                 CONTEST,
                 &[("3", 31), ("725", 9), ("726", 25)],
             )
@@ -56,7 +56,7 @@ fn it_submits_to_no_9000() -> Fallible<()> {
                 only_transpile: false,
                 no_judge: true,
                 no_check_duplication: false,
-                service: Some(ServiceName::Yukicoder),
+                service: Some(ServiceKind::Yukicoder),
                 contest: Some("no".to_owned()),
                 language: Some("text".to_owned()),
                 jobs: None,

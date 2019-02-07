@@ -2,7 +2,7 @@
 
 use snowchains::app::{App, Opt};
 use snowchains::path::{AbsPath, AbsPathBuf};
-use snowchains::service::ServiceName;
+use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
 use failure::Fallible;
@@ -51,7 +51,7 @@ pub fn env_var(name: &'static str) -> Fallible<String> {
 
 pub fn login(
     mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>,
-    service: ServiceName,
+    service: ServiceKind,
 ) -> snowchains::Result<()> {
     app.run(Opt::Login {
         color_choice: AnsiColorChoice::Never,
@@ -61,7 +61,7 @@ pub fn login(
 
 pub fn download(
     mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>,
-    service: ServiceName,
+    service: ServiceKind,
     contest: &str,
     problems: &[&str],
 ) -> snowchains::Result<()> {
@@ -77,7 +77,7 @@ pub fn download(
 
 pub fn confirm_num_cases(
     wd: &AbsPath,
-    service: ServiceName,
+    service: ServiceKind,
     contest: &str,
     pairs: &[(&str, usize)],
 ) -> Fallible<()> {

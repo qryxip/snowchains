@@ -51,7 +51,7 @@ use std::{cmp, fmt, mem, slice};
     Serialize,
 )]
 #[serde(rename_all = "lowercase")]
-pub enum ServiceName {
+pub enum ServiceKind {
     #[strum(to_string = "atcoder")]
     Atcoder,
     #[strum(to_string = "yukicoder")]
@@ -60,36 +60,36 @@ pub enum ServiceName {
     Other,
 }
 
-impl ServiceName {
+impl ServiceKind {
     pub(crate) fn domain(self) -> Option<&'static str> {
         match self {
-            ServiceName::Atcoder => Some("atcoder.jp"),
-            ServiceName::Yukicoder => Some("yukicoder.me"),
-            ServiceName::Other => None,
+            ServiceKind::Atcoder => Some("atcoder.jp"),
+            ServiceKind::Yukicoder => Some("yukicoder.me"),
+            ServiceKind::Other => None,
         }
     }
 }
 
-impl Default for ServiceName {
+impl Default for ServiceKind {
     fn default() -> Self {
-        ServiceName::Other
+        ServiceKind::Other
     }
 }
 
-impl FromStr for ServiceName {
+impl FromStr for ServiceKind {
     type Err = &'static str;
 
     fn from_str(s: &str) -> std::result::Result<Self, &'static str> {
         match s {
-            "atcoder" => Ok(ServiceName::Atcoder),
-            "yukicoder" => Ok(ServiceName::Yukicoder),
-            "other" => Ok(ServiceName::Other),
+            "atcoder" => Ok(ServiceKind::Atcoder),
+            "yukicoder" => Ok(ServiceKind::Yukicoder),
+            "other" => Ok(ServiceKind::Other),
             _ => Err(r#"expected "atcoder", "yukicoder", or "other""#),
         }
     }
 }
 
-impl<'de> Deserialize<'de> for ServiceName {
+impl<'de> Deserialize<'de> for ServiceKind {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         String::deserialize(deserializer)?
             .parse::<Self>()
@@ -253,7 +253,7 @@ pub(self) enum ZipEntriesSorting {
 
 #[derive(Serialize)]
 pub(crate) struct DownloadOutcome {
-    service: ServiceName,
+    service: ServiceKind,
     open_in_browser: bool,
     contest: DownloadOutcomeContest,
     pub(self) problems: Vec<DownloadOutcomeProblem>,
@@ -294,7 +294,7 @@ fn ser_as_path<S: Serializer>(
 }
 
 impl DownloadOutcome {
-    pub(self) fn new(service: ServiceName, contest: &impl Contest, open_in_browser: bool) -> Self {
+    pub(self) fn new(service: ServiceKind, contest: &impl Contest, open_in_browser: bool) -> Self {
         Self {
             service,
             open_in_browser,

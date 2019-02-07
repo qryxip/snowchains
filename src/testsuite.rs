@@ -946,7 +946,7 @@ impl InteractiveCase {
 mod tests {
     use crate::errors::{ConfigErrorKind, TestSuiteError, TestSuiteErrorKind, TestSuiteResult};
     use crate::path::AbsPathBuf;
-    use crate::service::ServiceName;
+    use crate::service::ServiceKind;
     use crate::template::{AbsPathBufRequirements, JudgingCommandRequirements, TemplateBuilder};
     use crate::testsuite::{
         BatchSuite, BatchSuiteSchemaCase, BatchSuiteSchemaHead, BatchSuiteText, InteractiveSuite,
@@ -1062,7 +1062,7 @@ type: unsubmittable
 
         let template = template_builder.build(AbsPathBufRequirements {
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
-            service: ServiceName::Atcoder,
+            service: ServiceKind::Atcoder,
             contest: "abc117".to_owned(),
         });
         let test_dir = tempdir.path().join("atcoder").join("abc117").join("tests");
@@ -1135,12 +1135,12 @@ type: unsubmittable
 
         let template = template_builder.build(AbsPathBufRequirements {
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
-            service: ServiceName::Atcoder,
+            service: ServiceKind::Atcoder,
             contest: "arc078".to_owned(),
         });
         let tester_command = TemplateBuilder::dummy().build(JudgingCommandRequirements {
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
-            service: ServiceName::Atcoder,
+            service: ServiceKind::Atcoder,
             contest: "arc078".to_owned(),
             shell: hashmap!(),
             working_dir: ".".parse()?,
@@ -1200,7 +1200,7 @@ type: unsubmittable
 
         let template = template_builder.build(AbsPathBufRequirements {
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
-            service: ServiceName::Atcoder,
+            service: ServiceKind::Atcoder,
             contest: "apg4b".to_owned(),
         });
         let test_dir = tempdir.path().join("atcoder").join("apg4b").join("tests");
