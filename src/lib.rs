@@ -18,6 +18,5 @@ mod judging;
 mod template;
 mod time;
 mod util;
-mod yaml;
 
 pub use crate::errors::{Error, ErrorKind, Result};

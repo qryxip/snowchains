@@ -21,9 +21,9 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::RedirectPolicy;
-use serde::{Serialize, Serializer};
-use serde_derive::{Deserialize, Serialize};
-use strum_macros::{EnumString, IntoStaticStr};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_derive::Serialize;
+use strum_macros::IntoStaticStr;
 use tokio::runtime::Runtime;
 use url::{Host, Url};
 use zip::result::ZipResult;
@@ -33,6 +33,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{self, Cursor, Write};
 use std::ops::Deref;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{cmp, fmt, mem, slice};
@@ -47,9 +48,7 @@ use std::{cmp, fmt, mem, slice};
     Debug,
     strum_macros::Display,
     IntoStaticStr,
-    EnumString,
     Serialize,
-    Deserialize,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceName {
@@ -61,12 +60,6 @@ pub enum ServiceName {
     Other,
 }
 
-impl Default for ServiceName {
-    fn default() -> Self {
-        ServiceName::Other
-    }
-}
-
 impl ServiceName {
     pub(crate) fn domain(self) -> Option<&'static str> {
         match self {
@@ -74,6 +67,33 @@ impl ServiceName {
             ServiceName::Yukicoder => Some("yukicoder.me"),
             ServiceName::Other => None,
         }
+    }
+}
+
+impl Default for ServiceName {
+    fn default() -> Self {
+        ServiceName::Other
+    }
+}
+
+impl FromStr for ServiceName {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> std::result::Result<Self, &'static str> {
+        match s {
+            "atcoder" => Ok(ServiceName::Atcoder),
+            "yukicoder" => Ok(ServiceName::Yukicoder),
+            "other" => Ok(ServiceName::Other),
+            _ => Err(r#"expected "atcoder", "yukicoder", or "other""#),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ServiceName {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        String::deserialize(deserializer)?
+            .parse::<Self>()
+            .map_err(serde::de::Error::custom)
     }
 }
 

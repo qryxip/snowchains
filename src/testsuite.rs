@@ -6,20 +6,23 @@ use crate::errors::{
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
 use crate::terminal::WriteAnsi;
+use crate::time;
 use crate::util::num::PositiveFinite;
-use crate::{time, yaml};
 
 use derive_more::From;
 use derive_new::new;
 use failure::Fail;
 use itertools::{EitherOrBoth, Itertools};
+use log::warn;
 use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
+use yaml_rust::{Yaml, YamlEmitter};
 
 #[cfg(test)]
 use failure::Fallible;
 
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write;
 use std::iter::FromIterator;
@@ -587,6 +590,25 @@ impl BatchSuite {
             }
             .ser_context(),
             SuiteFileExtension::Yaml | SuiteFileExtension::Yml => {
+                fn quote_if_necessary(s: &str) -> Cow<str> {
+                    if s.parse::<i64>().is_ok() || s.parse::<f64>().is_ok() {
+                        Cow::from(s)
+                    } else {
+                        let mut buf = "".to_owned();
+                        {
+                            let mut emitter = YamlEmitter::new(&mut buf);
+                            emitter.dump(&Yaml::String(s.to_owned())).unwrap();
+                        }
+                        if buf.starts_with("---\n") {
+                            warn!(r#"Expected "---\n.*", got {:?}"#, buf);
+                            buf = buf[4..].to_owned();
+                        } else {
+                            buf = format!("{:?}", s);
+                        }
+                        Cow::from(buf)
+                    }
+                }
+
                 fn is_valid(s: &str) -> bool {
                     s.ends_with('\n')
                         && s != "\n"
@@ -619,7 +641,7 @@ impl BatchSuite {
                     } in cases
                     {
                         if let Some(name) = name {
-                            write!(r, "  - name: {}\n    ", yaml::escape_string(name)).unwrap();
+                            write!(r, "  - name: {}\n    ", quote_if_necessary(name)).unwrap();
                         } else {
                             r += "  - ";
                         }
@@ -631,7 +653,7 @@ impl BatchSuite {
                                 }
                             }
                             BatchSuiteText::String(input) => {
-                                let input = yaml::escape_string(input);
+                                let input = quote_if_necessary(input);
                                 writeln!(r, "in: {}", input).unwrap();
                             }
                             BatchSuiteText::Path { .. } => unreachable!(),
@@ -645,7 +667,7 @@ impl BatchSuite {
                                     }
                                 }
                                 BatchSuiteText::String(output) => {
-                                    let output = yaml::escape_string(output);
+                                    let output = quote_if_necessary(output);
                                     writeln!(r, "    out: {}", output).unwrap();
                                 }
                                 BatchSuiteText::Path { .. } => unreachable!(),

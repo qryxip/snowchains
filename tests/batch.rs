@@ -64,11 +64,11 @@ fn main() {
     let src_dir = dir.join("rs").join("src").join("bin");
     let src_path = src_dir.join("a.rs");
     let suite_dir = dir.join("tests");
-    let suite_path = suite_dir.join("a.yaml");
+    let suite_path = suite_dir.join("a.yml");
 
     std::fs::write(
-        tempdir.path().join("snowchains.yaml"),
-        include_bytes!("./snowchains.yaml").as_ref(),
+        tempdir.path().join("snowchains.toml"),
+        include_bytes!("./snowchains.toml").as_ref(),
     )?;
     std::fs::create_dir_all(&src_dir)?;
     std::fs::create_dir_all(&suite_dir)?;
@@ -131,7 +131,7 @@ impl<T: Term> AppExt for App<T> {
             contest: Some("practice".to_owned()),
             color_choice: AnsiColorChoice::Never,
             problem: "a".to_owned(),
-            extension: SuiteFileExtension::Yaml,
+            extension: SuiteFileExtension::Yml,
             timelimit: Some(timelimit),
         }))
     }

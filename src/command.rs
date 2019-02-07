@@ -367,7 +367,7 @@ impl Inner {
             Err(io::Error::new(
                 err.kind(),
                 format!(
-                    "Failed to access {:?}. Check \"working_directory\" in snowchains.yaml",
+                    "Failed to access {:?}. Check \"working_directory\" in snowchains.toml",
                     self.working_dir,
                 ),
             ))

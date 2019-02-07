@@ -39,7 +39,7 @@ use std::time::Duration;
                \n    snowchains modify match [OPTIONS] <problem> <extension> <match>")]
 pub enum Opt {
     #[structopt(
-        about = "Creates a config file (\"snowchains.yaml\")",
+        about = "Creates a config file (\"snowchains.toml\")",
         name = "init",
         usage = "snowchains <i|init> [OPTIONS] [directory]",
         raw(alias = "\"i\"", display_order = "1")
@@ -48,7 +48,7 @@ pub enum Opt {
         #[structopt(raw(color_choice = "1"))]
         color_choice: AnsiColorChoice,
         #[structopt(
-            help = "Directory to create a \"snowchains.yaml\"",
+            help = "Directory to create a \"snowchains.toml\"",
             default_value = ".",
             parse(from_os_str)
         )]
@@ -56,7 +56,7 @@ pub enum Opt {
     },
 
     #[structopt(
-        about = "Changes attribute values of a config file",
+        about = "Modifies values in a config file",
         name = "switch",
         usage = "snowchains <w|switch|c|checkout> [OPTIONS]",
         raw(aliases = r#"&["w", "checkout", "c"]"#, display_order = "2")

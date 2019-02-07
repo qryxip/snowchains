@@ -2,7 +2,6 @@
 mod service;
 
 use snowchains::app::{App, Opt};
-use snowchains::path::AbsPath;
 use snowchains::service::ServiceName;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
@@ -21,18 +20,6 @@ fn it_logins() -> Fallible<()> {
 
 #[test]
 fn it_downloads_testcases() -> Fallible<()> {
-    fn download(
-        app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>,
-        contest: &str,
-        problems: &[&str],
-    ) -> snowchains::Result<()> {
-        service::download(app, ServiceName::Yukicoder, contest, problems)
-    }
-
-    fn confirm_num_cases(wd: &AbsPath, contest: &str, pairs: &[(&str, usize)]) -> Fallible<()> {
-        service::confirm_num_cases(wd, ServiceName::Yukicoder, contest, pairs)
-    }
-
     let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_downloads_test_cases_from_master",
@@ -40,8 +27,13 @@ fn it_downloads_testcases() -> Fallible<()> {
         |app| -> Fallible<()> {
             static CONTEST: &str = "no";
             let wd = app.working_dir.clone();
-            download(app, CONTEST, &["3", "725", "726"])?;
-            confirm_num_cases(&wd, CONTEST, &[("3", 31), ("725", 9), ("726", 25)])
+            service::download(app, ServiceName::Yukicoder, CONTEST, &["3", "725", "726"])?;
+            service::confirm_num_cases(
+                &wd,
+                ServiceName::Yukicoder,
+                CONTEST,
+                &[("3", 31), ("725", 9), ("726", 25)],
+            )
         },
     )
 }

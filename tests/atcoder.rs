@@ -100,7 +100,7 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
 }
 
 fn check_yaml_md5(dir: &Path, name: &str, expected: &str) -> io::Result<()> {
-    let path = dir.join(name).with_extension("yaml");
+    let path = dir.join(name).with_extension("yml");
     let yaml = std::fs::read_to_string(&path)?;
     assert_eq!(format!("{:x}", md5::compute(&yaml)), expected);
     Ok(())
@@ -124,7 +124,7 @@ fn just_confirm_num_samples_and_timelimit(
             each_args: Vec<serde_yaml::Sequence>,
         },
     }
-    let path = dir.join(name).with_extension("yaml");
+    let path = dir.join(name).with_extension("yml");
     let file = File::open(&path)?;
     match serde_yaml::from_reader::<_, TestSuite>(file)? {
         TestSuite::Batch { timelimit, cases } => {

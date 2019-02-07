@@ -1,0 +1,37 @@
+service = "other"
+contest = ""
+language = "text"
+
+testfile_path = "${service}/${contest}/tests/${problem_snake}.${extension}"
+
+[session]
+timeout = "60s"
+silent = false
+cookies = "local/${service}"
+dropbox = { auth = "local/dropbox.json" }
+
+[session.download]
+extension = "yml"
+text_file_dir = "${service}/${contest}/tests/${problem_snake}"
+
+[judge]
+testfile_extensions = ["yml"]
+
+[env.atcoder]
+RUST_VERSION = "stable"
+
+[languages.rust]
+src = "${service}/${contest}/rs/src/bin/${problem_kebab}.rs"
+bin = "${service}/${contest}/rs/target/manually/${problem_kebab}"
+compile = ["rustc", "+${env:RUST_VERSION}", "-o", "${bin}", "${src}"]
+run = ["${bin}"]
+working_directory = "${service}/${contest}/rs"
+
+[languages.python3]
+src = "${service}/${contest}/py/${problem_kebab}.py"
+run = ["false"]
+language_ids = { atcoder = "3023", yukicoder = "python3" }
+
+[languages.text]
+src = "${service}/${contest}/txt/${problem_snake}.txt"
+run = ["false"]

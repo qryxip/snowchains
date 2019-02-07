@@ -6,9 +6,9 @@ use crate::template::{
     AbsPathBufRequirements, CompilationCommandRequirements, HookCommandsRequirements,
     JudgingCommandRequirements, Template, TemplateBuilder, TranspilationCommandRequirements,
 };
-use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
+use crate::terminal::{TermOut, WriteSpaces};
 use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
-use crate::{time, yaml};
+use crate::time;
 
 use if_chain::if_chain;
 use maplit::hashmap;
@@ -18,29 +18,29 @@ use serde_derive::{Deserialize, Serialize};
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
-use std::io::{self, Write};
+use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{env, str};
+use std::{env, fmt, str};
 
-static CONFIG_FILE_NAME: &str = "snowchains.yaml";
+static CONFIG_FILE_NAME: &str = "snowchains.toml";
 
-/// Creates "snowchains.yaml" in `directory`.
+/// Creates "snowchains.toml" in `directory`.
 pub(crate) fn init(mut stdout: impl Write, directory: &AbsPath) -> FileResult<()> {
-    let yaml = generate_yaml();
+    let toml = generate_toml();
     let path = directory.join(CONFIG_FILE_NAME);
-    crate::fs::write(&path, yaml.as_bytes())?;
+    crate::fs::write(&path, toml.as_bytes())?;
     writeln!(stdout, "Wrote {}", path.display())?;
     stdout.flush().map_err(Into::into)
 }
 
-fn generate_yaml() -> String {
+fn generate_toml() -> String {
     #[cfg(not(windows))]
     static CONSOLE_ALT_WIDTH: &str = "";
     #[cfg(windows)]
-    static CONSOLE_ALT_WIDTH: &str = "\n  # alt_width: 100";
+    static CONSOLE_ALT_WIDTH: &str = "\n# alt_width = 100";
 
     #[cfg(not(windows))]
     static EXE: &str = "";
@@ -48,24 +48,14 @@ fn generate_yaml() -> String {
     static EXE: &str = ".exe";
 
     #[cfg(not(windows))]
-    static CRLF_TO_LF_TRUE_INDENT4: &str = "";
+    static CRLF_TO_LF_TRUE: &str = "";
     #[cfg(windows)]
-    static CRLF_TO_LF_TRUE_INDENT4: &str = "\n    crlf_to_lf: true";
-
-    #[cfg(not(windows))]
-    static CRLF_TO_LF_TRUE_INDENT2: &str = "";
-    #[cfg(windows)]
-    static CRLF_TO_LF_TRUE_INDENT2: &str = "\n  crlf_to_lf: true";
+    static CRLF_TO_LF_TRUE: &str = "\ncrlf_to_lf = true";
 
     #[cfg(not(windows))]
     static CRLF_TO_LF_FALSE: &str = "";
     #[cfg(windows)]
-    static CRLF_TO_LF_FALSE: &str = "\n    # crlf_to_lf: false";
-
-    #[cfg(not(windows))]
-    static CRLF_TO_LF_FALSE_COMMENTED_OUT: &str = "";
-    #[cfg(windows)]
-    static CRLF_TO_LF_FALSE_COMMENTED_OUT: &str = "\n  # # crlf_to_lf: false";
+    static CRLF_TO_LF_FALSE: &str = "\n# crlf_to_lf = false";
 
     #[cfg(not(windows))]
     static TESTER_PYTHON3: &str = "./venv/bin/python3";
@@ -83,33 +73,33 @@ fn generate_yaml() -> String {
     static VENV_PYPY3: &str = "\"../../../venvs/pypy3_${service}/Scripts/python.exe\"";
 
     #[cfg(not(windows))]
-    static CSHARP: &str = r#"  c#:
-    src: ${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs
-    bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
-    compile: [mcs, -o+, "-r:System.Numerics", "-out:${bin}", "${src}"]
-    run: [mono, "${bin}"]
-    working_directory: ${service}/${contest}/cs
-    language_ids: { atcoder: 3006, yukicoder: csharp_mono }"#;
+    static CSHARP: &str =
+        r#"src = "${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs"
+bin = "${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe"
+compile = ["mcs", "-o+", "-r:System.Numerics", "-out:${bin}", "${src}"]
+run = ["mono", "${bin}"]
+working_directory = "${service}/${contest}/cs"
+language_ids = { atcoder = "3006", yukicoder = "csharp_mono" }"#;
     #[cfg(windows)]
-    static CSHARP: &str = r#"  c#:
-    src: ${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs
-    bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
-    compile: [csc, /o+, "/r:System.Numerics", "/out:${bin}", "${src}"]
-    run: ["${bin}"]
-    crlf_to_lf: true
-    working_directory: ${service}/${contest}/cs
-    language_ids: { atcoder: 3006, yukicoder: csharp }"#;
+    static CSHARP: &str =
+        r#"src = "${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs"
+bin = "${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe"
+compile = ["csc", "/o+", "/r:System.Numerics", "/out:${bin}", "${src}"]
+run = ["${bin}"]
+crlf_to_lf = true
+working_directory = "${service}/${contest}/cs"
+language_ids = { atcoder = "3006", yukicoder = "csharp" }"#;
 
-    fn quote_path(path: &Path) -> Option<String> {
+    fn quote_path_normalizing_separator(path: &Path) -> impl fmt::Display {
         let separator = if std::path::is_separator('/') {
             '/'
         } else {
             std::path::MAIN_SEPARATOR
         };
-        path.to_str().map(|s| {
-            yaml::escape_string(&s.replace(std::path::MAIN_SEPARATOR, &separator.to_string()))
-                .into_owned()
-        })
+        let path = path
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, &separator.to_string());
+        toml_edit::Value::from(path)
     }
 
     let (bash, powershell, cmd, jq, shell, transpile_java, transpile_scala) = {
@@ -145,8 +135,8 @@ fn generate_yaml() -> String {
         let bash_found = bash.is_some();
         let bash = bash.unwrap_or_else(|| PathBuf::from("bash"));
         let bash = format!(
-            "bash: [{}, -c, {}]",
-            quote_path(&bash).unwrap(),
+            "bash = [{}, \"-c\", {}]",
+            quote_path_normalizing_separator(&bash),
             if cfg!(windows) {
                 "\"PATH=/usr/bin:$$PATH; ${command}\""
             } else {
@@ -156,31 +146,39 @@ fn generate_yaml() -> String {
         let powershell = env::split_paths(&env_path)
             .flat_map(|p| vec![p.with_exe("pwsh"), p.with_exe("powershell")])
             .find(|p| cfg!(windows) && p.exists())
-            .and_then(|p| quote_path(&p))
-            .map(|s| format!("\n  ps: [{}, -Command, \"${{command}}\"]", s))
+            .map(|p| {
+                format!(
+                    "\nps: [{}, \"-Command\", \"${{command}}\"]",
+                    quote_path_normalizing_separator(&p)
+                )
+            })
             .unwrap_or_default();
         let cmd = env::split_paths(&env_path)
             .map(|p| p.with_exe("cmd"))
             .find(|p| cfg!(windows) && p.exists())
-            .and_then(|p| quote_path(&p))
-            .map(|s| format!("\n  cmd: [{}, /C, \"${{command}}\"]", s))
+            .map(|p| {
+                format!(
+                    "\ncmd: [{}, \"/C\", \"${{command}}\"]",
+                    quote_path_normalizing_separator(&p)
+                )
+            })
             .unwrap_or_default();
 
         let (jq, shell, transpile_java, transpile_scala);
         if cfg!(windows) && !bash_found {
-            jq = "ps: echo \"${Env:SNOWCHAINS_RESULT}\" | jq";
+            jq = r#"ps = 'echo "${Env:SNOWCHAINS_RESULT}" | jq'"#;
             shell = "ps";
             transpile_java =
-                r#"ps: Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("class\s+${Env:SNOWCHAINS_PROBLEM_PASCAL}", "class Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}""#;
+                r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("class\s+${Env:SNOWCHAINS_PROBLEM_PASCAL}", "class Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
             transpile_scala =
-                r#"ps: Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("object\s+${Env:SNOWCHAINS_PROBLEM_PASCAL}", "object Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}""#;
+                r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("object\s+${Env:SNOWCHAINS_PROBLEM_PASCAL}", "object Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
         } else {
-            jq = "bash: echo \"$SNOWCHAINS_RESULT\" | jq";
+            jq = r#"bash = 'echo "$SNOWCHAINS_RESULT" | jq'"#;
             shell = "bash";
             transpile_java =
-                r#"bash: cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g" > "$SNOWCHAINS_TRANSPILED""#;
+                r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
             transpile_scala =
-                r#"bash: cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PROBLEM_PASCAL/object Main/g" > "$SNOWCHAINS_TRANSPILED""#;
+                r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PROBLEM_PASCAL/object Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
         };
 
         (
@@ -204,142 +202,148 @@ fn generate_yaml() -> String {
                 Path::new("~").join(".local").join("share").join("snowchains")
             }
         };
-        let session_cookies = quote_path(&data_local_dir.join("${service}")).unwrap();
-        let session_dropbox = quote_path(&data_local_dir.join("dropbox.json")).unwrap();
+        let session_cookies = data_local_dir.join("${service}");
+        let session_cookies = quote_path_normalizing_separator(&session_cookies);
+        let session_dropbox = data_local_dir.join("dropbox.json");
+        let session_dropbox = quote_path_normalizing_separator(&session_dropbox);
         (session_cookies, session_dropbox)
     };
     let judge_jobs = num_cpus::get();
 
     format!(
-        r#"---
-service: atcoder
-contest: arc100
-language: c++
+        r#"service = "atcoder"
+contest = "arc100"
+language = "c++"
 
-console:
-  cjk: false{console_alt_width}
+testfile_path = "${{service}}/${{contest}}/tests/${{problem_snake}}.${{extension}}"
 
-shell:
-  {bash}{powershell}{cmd}
+[console]
+cjk = false{console_alt_width}
 
-testfile_path: "${{service}}/${{contest}}/tests/${{problem_snake}}.${{extension}}"
+[shell]
+{bash}{powershell}{cmd}
 
-session:
-  timeout: 60s
-  silent: false
-  cookies: {session_cookies}
-  dropbox: false
-  # dropbox:
-  #   auth: {session_dropbox}
-  download:
-    extension: yaml
-    text_file_dir: ${{service}}/${{contest}}/tests/${{problem_snake}}
+[session]
+timeout = "60s"
+silent = false
+cookies = {session_cookies}
+dropbox = false
+# dropbox = {{ auth: {session_dropbox} }}
 
-judge:
-  testfile_extensions: [json, toml, yaml, yml]
-  # jobs: {judge_jobs}
-  display_limit: 1KiB
+[session.download]
+extension = "yml"
+text_file_dir = "${{service}}/${{contest}}/tests/${{problem_snake}}"
 
-env:
-  atcoder:
-    CXXFLAGS: -std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
-    RUST_VERSION: 1.15.1
-  yukicoder:
-    CXXFLAGS: -std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
-    RUST_VERSION: 1.30.1
-  other:
-    CXXFLAGS: -std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
-    RUST_VERSION: stable
+[judge]
+testfile_extensions = ["json", "toml", "yaml", "yml"]
+# jobs = {judge_jobs}
+display_limit = "1KiB"
 
-# hooks:
-#   switch:
-#     - {jq}
-#   download:
-#     - {jq}
+[env.atcoder]
+CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+RUST_VERSION = "1.15.1"
 
-tester:
-  src: testers/py/${{problem_kebab}}.py
-  run:
-    {shell}: {tester_python3} "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED{crlf_to_lf_true_indent2}
-  working_directory: testers/py
-  # src: testers/hs/app/${{problem_pascal}}.hs
-  # bin: testers/hs/target/${{problem_pascal}}
-  # compile: [stack, ghc, --, -O2, -o, "${{bin}}", "${{src}}"]
-  # run:
-  #   {shell}: '"$SNOWCHAINS_BIN" $SNOWCHAINS_ARGS_JOINED'{crlf_to_lf_false_commented_out}
-  # working_directory: testers/hs
+[env.yukicoder]
+CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+RUST_VERSION = "1.30.1"
 
-languages:
-  c++:
-    src: ${{service}}/${{contest}}/cpp/${{problem_kebab}}.cpp
-    bin: ${{service}}/${{contest}}/cpp/build/${{problem_kebab}}{exe}
-    compile:
-      bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
-    run: ["${{bin}}"]{crlf_to_lf_true_indent4}
-    working_directory: ${{service}}/${{contest}}/cpp
-    language_ids: {{ atcoder: 3003, yukicoder: cpp14 }}
-  rust:
-    src: ${{service}}/${{contest}}/rs/src/bin/${{problem_kebab}}.rs
-    bin: ${{service}}/${{contest}}/rs/target/manually/${{problem_kebab}}{exe}
-    compile: [rustc, "+${{env:RUST_VERSION}}", -o, "${{bin}}", "${{src}}"]
-    run: ["${{bin}}"]{crlf_to_lf_false}
-    working_directory: ${{service}}/${{contest}}/rs
-    language_ids: {{ atcoder: 3504, yukicoder: rust }}
-  go:
-    src: ${{service}}/${{contest}}/go/${{problem_kebab}}.go
-    bin: ${{service}}/${{contest}}/go/${{problem_kebab}}{exe}
-    compile: [go, build, -o, "${{bin}}", "${{src}}"]
-    run: ["${{bin}}"]{crlf_to_lf_false}
-    working_directory: ${{service}}/${{contest}}/go
-    language_ids: {{ atcoder: 3013, yukicoder: go }}
-  haskell:
-    src: ${{service}}/${{contest}}/hs/app/${{problem_pascal}}.hs
-    bin: ${{service}}/${{contest}}/hs/target/${{problem_pascal}}{exe}
-    compile: [stack, ghc, --, -O2, -o, "${{bin}}", "${{src}}"]
-    run: ["${{bin}}"]{crlf_to_lf_false}
-    working_directory: ${{service}}/${{contest}}/hs
-    language_ids: {{ atcoder: 3014, yukicoder: haskell }}
-  bash:
-    src: ${{service}}/${{contest}}/bash/${{problem_kebab}}.bash
-    run: [bash, "${{src}}"]{crlf_to_lf_false}
-    working_directory: ${{service}}/${{contest}}/bash
-    language_ids: {{ atcoder: 3001, yukicoder: sh }}
-  python3:
-    src: ${{service}}/${{contest}}/py/${{problem_kebab}}.py
-    run: [{venv_python3}, "${{src}}"]{crlf_to_lf_true_indent4}
-    working_directory: ${{service}}/${{contest}}/py
-    language_ids: {{ atcoder: 3023, yukicoder: python3 }}
-  pypy3:
-    src: ${{service}}/${{contest}}/py/${{problem_kebab}}.py
-    run: [{venv_pypy3}, "${{src}}"]{crlf_to_lf_true_indent4}
-    working_directory: ${{service}}/${{contest}}/py
-    language_ids: {{ atcoder: 3510, yukicoder: pypy3 }}
-  java:
-    src: ${{service}}/${{contest}}/java/src/main/java/${{problem_pascal}}.java
-    transpiled: ${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/src/Main.java
-    bin: ${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/classes/Main.class
-    transpile:
-      {transpile_java}
-    compile: [javac, -d, "./build/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
-    run: [java, -classpath, "./build/replaced/${{problem_lower}}/classes", Main]{crlf_to_lf_true_indent4}
-    working_directory: ${{service}}/${{contest}}/java
-    language_ids: {{ atcoder: 3016, yukicoder: java8 }}
-  scala:
-    src: ${{service}}/${{contest}}/scala/src/main/scala/${{problem_pascal}}.scala
-    transpiled: ${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/src/Main.scala
-    bin: ${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/classes/Main.class
-    transpile:
-      {transpile_scala}
-    compile: [scalac, -optimise, -d, "./target/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
-    run: [scala, -classpath, "./target/replaced/${{problem_lower}}/classes", Main]{crlf_to_lf_true_indent4}
-    working_directory: ${{service}}/${{contest}}/scala
-    language_ids: {{ atcoder: 3025, yukicoder: scala }}
+[env.other]
+CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+RUST_VERSION = "stable"
+
+# [hooks]
+# switch = {{ {jq} }}
+# download = {{ {jq} }}
+
+[tester]
+src = "testers/py/${{problem_kebab}}.py"
+run = {{ {shell} = '{tester_python3} "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED' }}{crlf_to_lf_true}
+working_directory = "testers/py"
+
+# [tester]
+# src = "testers/hs/app/${{problem_pascal}}.hs"
+# bin = "testers/hs/target/${{problem_pascal}}"
+# run = {{ {shell} = '"$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED' }}{crlf_to_lf_true}
+# working_directory = "testers/hs"
+
+[languages.'c++']
+src = "${{service}}/${{contest}}/cpp/${{problem_kebab}}.cpp"
+bin = "${{service}}/${{contest}}/cpp/build/${{problem_kebab}}{exe}"
+compile = {{ bash = 'g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"' }}
+run = ["${{bin}}"]{crlf_to_lf_true}
+working_directory = "${{service}}/${{contest}}/cpp"
+language_ids = {{ atcoder = "3003", yukicoder = "cpp14" }}
+
+[languages.rust]
+src = "${{service}}/${{contest}}/rs/src/bin/${{problem_kebab}}.rs"
+bin = "${{service}}/${{contest}}/rs/target/manually/${{problem_kebab}}{exe}"
+compile = ["rustc", "+${{env:RUST_VERSION}}", "-o", "${{bin}}", "${{src}}"]
+run = ["${{bin}}"]{crlf_to_lf_false}
+working_directory = "${{service}}/${{contest}}/rs"
+language_ids = {{ atcoder = "3504", yukicoder = "rust" }}
+
+[languages.go]
+src = "${{service}}/${{contest}}/go/${{problem_kebab}}.go"
+bin = "${{service}}/${{contest}}/go/${{problem_kebab}}{exe}"
+compile = ["go", "build", "-o", "${{bin}}", "${{src}}"]
+run = ["${{bin}}"]{crlf_to_lf_false}
+working_directory = "${{service}}/${{contest}}/go"
+language_ids = {{ atcoder = "3013", yukicoder = "go" }}
+
+[languages.haskell]
+src = "${{service}}/${{contest}}/hs/app/${{problem_pascal}}.hs"
+bin = "${{service}}/${{contest}}/hs/target/${{problem_pascal}}{exe}"
+compile = ["stack", "ghc", "--", "-O2", "-o", "${{bin}}", "${{src}}"]
+run = ["${{bin}}"]{crlf_to_lf_false}
+working_directory = "${{service}}/${{contest}}/hs"
+language_ids = {{ atcoder = "3014", yukicoder = "haskell" }}
+
+[languages.bash]
+src = "${{service}}/${{contest}}/bash/${{problem_kebab}}.bash"
+run = ["bash", "${{src}}"]{crlf_to_lf_false}
+working_directory = "${{service}}/${{contest}}/bash"
+language_ids = {{ atcoder = "3001", yukicoder = "sh" }}
+
+[languages.python3]
+src = "${{service}}/${{contest}}/py/${{problem_kebab}}.py"
+run = [{venv_python3}, "${{src}}"]{crlf_to_lf_true}
+working_directory = "${{service}}/${{contest}}/py"
+language_ids = {{ atcoder = "3023", yukicoder = "python3" }}
+
+[languages.pypy3]
+src = "${{service}}/${{contest}}/py/${{problem_kebab}}.py"
+run = [{venv_pypy3}, "${{src}}"]{crlf_to_lf_true}
+working_directory = "${{service}}/${{contest}}/py"
+language_ids = {{ atcoder = "3510", yukicoder = "pypy3" }}
+
+[languages.java]
+src = "${{service}}/${{contest}}/java/src/main/java/${{problem_pascal}}.java"
+transpiled = "${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/src/Main.java"
+bin = "${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/classes/Main.class"
+transpile = {{ {transpile_java} }}
+compile = ["javac", "-d", "./build/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
+run = ["java", "-classpath", "./build/replaced/${{problem_lower}}/classes", "Main"]{crlf_to_lf_true}
+working_directory = "${{service}}/${{contest}}/java"
+language_ids = {{ atcoder = "3016", yukicoder = "java8" }}
+
+[languages.scala]
+src = "${{service}}/${{contest}}/scala/src/main/scala/${{problem_pascal}}.scala"
+transpiled = "${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/src/Main.scala"
+bin = "${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/classes/Main.class"
+transpile = {{ {transpile_scala} }}
+compile = ["scalac", "-optimise", "-d", "./target/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
+run = ["scala", "-classpath", "./target/replaced/${{problem_lower}}/classes", "Main"]{crlf_to_lf_true}
+working_directory = "${{service}}/${{contest}}/scala"
+language_ids = {{ atcoder = "3025", yukicoder = "scala" }}
+
+[languages.'c#']
 {csharp}
-  text:
-    src: ${{service}}/${{contest}}/txt/${{problem_snake}}.txt
-    run: [cat, "${{src}}"]
-    working_directory: ${{service}}/${{contest}}/txt{crlf_to_lf_false}
-    language_ids: {{ atcoder: 3027, yukicoder: text }}
+
+[languages.text]
+src = "${{service}}/${{contest}}/txt/${{problem_snake}}.txt"
+run = ["cat", "${{src}}"]
+working_directory = "${{service}}/${{contest}}/txt{crlf_to_lf_false}"
+language_ids = {{ atcoder = "3027", yukicoder = "text" }}
 "#,
         console_alt_width = CONSOLE_ALT_WIDTH,
         session_cookies = session_cookies,
@@ -356,9 +360,7 @@ languages:
         venv_pypy3 = VENV_PYPY3,
         transpile_java = transpile_java,
         transpile_scala = transpile_scala,
-        crlf_to_lf_true_indent2 = CRLF_TO_LF_TRUE_INDENT2,
-        crlf_to_lf_false_commented_out = CRLF_TO_LF_FALSE_COMMENTED_OUT,
-        crlf_to_lf_true_indent4 = CRLF_TO_LF_TRUE_INDENT4,
+        crlf_to_lf_true = CRLF_TO_LF_TRUE,
         crlf_to_lf_false = CRLF_TO_LF_FALSE,
         csharp = CSHARP,
     )
@@ -387,22 +389,72 @@ pub(crate) fn switch(
     language: Option<String>,
 ) -> FileResult<(Config, SwitchOutcome)> {
     let path = crate::fs::find_path(CONFIG_FILE_NAME, directory)?;
-    let old_yaml = crate::fs::read_to_string(&path)?;
-    let old_config = crate::fs::read_yaml::<Config>(&path)?;
+    let old_toml = crate::fs::read_to_string(&path)?;
+    let old_config = crate::fs::read_toml::<Config>(&path)?;
     stdout.apply_conf(&old_config.console);
     stderr.apply_conf(&old_config.console);
-    let (new_yaml, mut new_config) = replace_values(
-        &old_yaml,
-        &old_config,
-        service,
-        contest,
-        language,
-        &mut stdout,
-        stderr,
-    )?;
-    crate::fs::write(&path, new_yaml.as_bytes())?;
+
+    let new_toml = {
+        let mut doc = old_toml
+            .parse::<toml_edit::Document>()
+            .unwrap_or_else(|_| unimplemented!());
+        if let Some(service) = service {
+            doc["service"] = toml_edit::value(<&str>::from(service));
+        }
+        if let Some(contest) = &contest {
+            doc["contest"] = toml_edit::value(contest.as_str());
+        }
+        if let Some(language) = &language {
+            doc["language"] = toml_edit::value(language.as_str());
+        }
+        doc.to_string()
+    };
+    let mut new_config =
+        toml::from_str::<Config>(&new_toml).unwrap_or_else(|e| unimplemented!("{:?}", e));
+
+    let old_service = Some(format!("{:?}", <&str>::from(old_config.service)));
+    let old_contest = Some(format!("{:?}", old_config.contest));
+    let old_language = Some(format!("{:?}", old_config.language));
+    let new_service = Some(format!("{:?}", <&str>::from(new_config.service)));
+    let new_contest = Some(format!("{:?}", new_config.contest));
+    let new_language = Some(format!("{:?}", new_config.language));
+    let max_width = [
+        old_service
+            .as_ref()
+            .map(|s| stdout.str_width(s))
+            .unwrap_or(1),
+        old_contest
+            .as_ref()
+            .map(|s| stdout.str_width(s))
+            .unwrap_or(1),
+        old_language
+            .as_ref()
+            .map(|s| stdout.str_width(s))
+            .unwrap_or(1),
+    ]
+    .iter()
+    .cloned()
+    .max()
+    .unwrap();
+    for (title, old, new) in &[
+        ("service:  ", &old_service, &new_service),
+        ("contest:  ", &old_contest, &new_contest),
+        ("language: ", &old_language, &new_language),
+    ] {
+        let old = old.as_ref().map(String::as_str).unwrap_or("~");
+        let new = new.as_ref().map(String::as_str).unwrap_or("~");
+        stdout.write_str(title)?;
+        stdout.with_reset(|o| o.bold()?.write_str(old))?;
+        stdout.write_spaces(max_width - old.len())?;
+        stdout.write_str(" -> ")?;
+        stdout.with_reset(|o| o.bold()?.write_str(new))?;
+        stdout.write_str("\n")?;
+    }
+
+    crate::fs::write(&path, new_toml.as_bytes())?;
     writeln!(stdout, "Wrote {}", path.display())?;
     stdout.flush()?;
+
     let outcome = SwitchOutcome {
         old: SwitchOutcomeAttrs {
             service: old_config.service,
@@ -417,78 +469,6 @@ pub(crate) fn switch(
     };
     new_config.base_dir = directory.to_owned();
     Ok((new_config, outcome))
-}
-
-fn replace_values(
-    yaml: &str,
-    config: &Config,
-    service: Option<ServiceName>,
-    contest: Option<String>,
-    language: Option<String>,
-    mut stdout: impl TermOut,
-    mut stderr: impl TermOut,
-) -> io::Result<(String, Config)> {
-    fn print_change(
-        mut stdout: impl WriteAnsi,
-        title: &str,
-        left_width: usize,
-        prev: &Option<String>,
-        new: &Option<String>,
-    ) -> io::Result<()> {
-        let prev = prev.as_ref().map(String::as_str).unwrap_or("~");
-        let new = new.as_ref().map(String::as_str).unwrap_or("~");
-        stdout.write_str(title)?;
-        stdout.with_reset(|o| o.bold()?.write_str(prev))?;
-        stdout.write_spaces(left_width - prev.len())?;
-        stdout.write_str(" -> ")?;
-        stdout.with_reset(|o| o.bold()?.write_str(new))?;
-        stdout.write_str("\n")
-    }
-
-    let (old_yaml, old_config) = (yaml, config);
-
-    let mut m = hashmap!();
-    m.extend(service.map(|s| ("service", <&str>::from(s))));
-    m.extend(contest.as_ref().map(|c| ("contest", c.as_ref())));
-    m.extend(language.as_ref().map(|l| ("language", l.as_ref())));
-
-    let (new_yaml, new_config) = yaml::replace_scalars(old_yaml, &m)
-        .and_then(|new_yaml| {
-            let new_config = serde_yaml::from_str(&new_yaml)?;
-            Ok((new_yaml, new_config))
-        })
-        .or_else::<io::Error, _>(|warning| {
-            stderr.with_reset(|o| writeln!(o.fg(11)?, "{}", warning))?;
-            stderr.flush()?;
-            let mut new_config = serde_yaml::from_str::<Config>(old_yaml)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            new_config.service = service.unwrap_or(new_config.service);
-            new_config.contest = contest.unwrap_or(new_config.contest);
-            new_config.language = language.unwrap_or(new_config.language);
-            let new_yaml = serde_yaml::to_string(&new_config)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            Ok((new_yaml, new_config))
-        })?;
-
-    let s1 = Some(format!("{:?}", <&str>::from(old_config.service)));
-    let s2 = Some(format!("{:?}", <&str>::from(new_config.service)));
-    let c1 = Some(format!("{:?}", old_config.contest));
-    let c2 = Some(format!("{:?}", new_config.contest));
-    let l1 = Some(format!("{:?}", old_config.language));
-    let l2 = Some(format!("{:?}", new_config.language));
-    let w = [
-        s1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
-        c1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
-        l1.as_ref().map(|s| stdout.str_width(s)).unwrap_or(1),
-    ]
-    .iter()
-    .cloned()
-    .max()
-    .unwrap();
-    print_change(&mut stdout, "service:  ", w, &s1, &s2)?;
-    print_change(&mut stdout, "contest:  ", w, &c1, &c2)?;
-    print_change(&mut stdout, "language: ", w, &l1, &l2)?;
-    Ok((new_yaml, new_config))
 }
 
 /// Config.
@@ -523,7 +503,7 @@ impl Config {
         dir: &AbsPath,
     ) -> FileResult<Self> {
         let path = crate::fs::find_path(CONFIG_FILE_NAME, dir)?;
-        let mut config = crate::fs::read_yaml::<Self>(&path)?;
+        let mut config = crate::fs::read_toml::<Self>(&path)?;
         config.base_dir = path.parent().unwrap().to_owned();
         config.service = service.into().unwrap_or(config.service);
         config.contest = contest.into().unwrap_or(config.contest);
@@ -941,63 +921,92 @@ struct Language {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::{generate_yaml, parse_size, replace_values, Config};
+    use crate::config::Config;
+    use crate::path::AbsPath;
     use crate::service::ServiceName;
     use crate::terminal::Ansi;
 
     use failure::Fallible;
+    use tempdir::TempDir;
 
     use std::str;
 
     #[test]
-    fn it_generates_a_valid_yaml() -> serde_yaml::Result<()> {
-        serde_yaml::from_str::<Config>(&generate_yaml()).map(|_| ())
+    fn test_init() -> Fallible<()> {
+        let tempdir = TempDir::new("config_test_init")?;
+        let mut out = Ansi::new(vec![]);
+
+        super::init(&mut out, AbsPath::try_new(tempdir.path()).unwrap())?;
+
+        let path = tempdir.path().join(super::CONFIG_FILE_NAME);
+        let toml = std::fs::read_to_string(&path)?;
+        toml::from_str::<Config>(&toml)?;
+        assert_eq!(
+            str::from_utf8(out.get_ref())?,
+            format!("Wrote {}\n", path.display()),
+        );
+        Ok(())
     }
 
     #[test]
-    fn test_replace_values() -> Fallible<()> {
-        let mut stdout = Ansi::new(Vec::<u8>::new());
-        let mut stderr = Ansi::new(Vec::<u8>::new());
-        let yaml = generate_yaml();
-        let config = serde_yaml::from_str(&yaml)?;
-        let (new_yaml, _) = replace_values(
-            &yaml,
-            &config,
+    fn test_switch() -> Fallible<()> {
+        let tempdir = TempDir::new("config_test_init")?;
+        let mut stdout = Ansi::new(vec![]);
+        let mut stderr = Ansi::new(vec![]);
+
+        let old_toml = super::generate_toml();
+        let old_config = toml::from_str::<Config>(&old_toml)?;
+
+        std::fs::write(tempdir.path().join(super::CONFIG_FILE_NAME), &old_toml)?;
+        super::switch(
+            &mut stdout,
+            &mut stderr,
+            AbsPath::try_new(tempdir.path()).unwrap(),
             Some(ServiceName::Yukicoder),
             Some("no".to_owned()),
             Some("rust".to_owned()),
-            &mut stdout,
-            &mut stderr,
         )?;
-        serde_yaml::from_str::<Config>(&new_yaml)?;
-        let stdout = str::from_utf8(stdout.get_ref())?;
-        let stderr = str::from_utf8(stderr.get_ref())?;
+
+        let new_toml = std::fs::read_to_string(tempdir.path().join(super::CONFIG_FILE_NAME))?;
+        let new_config = toml::from_str::<Config>(&new_toml)?;
+
+        assert_eq!(old_config.service, ServiceName::Atcoder);
+        assert_eq!(old_config.contest, "arc100");
+        assert_eq!(old_config.language, "c++");
+        assert_eq!(new_config.service, ServiceName::Yukicoder);
+        assert_eq!(new_config.contest, "no");
+        assert_eq!(new_config.language, "rust");
+
         assert_eq!(
-            stdout,
-            "service:  \x1b[1m\"atcoder\"\x1b[0m -> \x1b[1m\"yukicoder\"\x1b[0m\n\
-             contest:  \x1b[1m\"arc100\"\x1b[0m  -> \x1b[1m\"no\"\x1b[0m\n\
-             language: \x1b[1m\"c++\"\x1b[0m     -> \x1b[1m\"rust\"\x1b[0m\n",
+            str::from_utf8(stdout.get_ref())?,
+            format!(
+                "service:  \x1b[1m\"atcoder\"\x1b[0m -> \x1b[1m\"yukicoder\"\x1b[0m\n\
+                 contest:  \x1b[1m\"arc100\"\x1b[0m  -> \x1b[1m\"no\"\x1b[0m\n\
+                 language: \x1b[1m\"c++\"\x1b[0m     -> \x1b[1m\"rust\"\x1b[0m\n\
+                 Wrote {}\n",
+                tempdir.path().join(super::CONFIG_FILE_NAME).display(),
+            ),
         );
-        assert_eq!(stderr, "");
+        assert!(stderr.get_ref().is_empty());
         Ok(())
     }
 
     #[test]
     fn test_parse_size() {
-        assert_eq!(parse_size("0"), Ok(0));
-        assert_eq!(parse_size("1B"), Ok(1));
-        assert_eq!(parse_size("1KB"), Ok(10usize.pow(3)));
-        assert_eq!(parse_size("1KiB"), Ok(2usize.pow(10)));
-        assert_eq!(parse_size("1MB"), Ok(10usize.pow(6)));
-        assert_eq!(parse_size("1MiB"), Ok(2usize.pow(20)));
-        assert_eq!(parse_size("1GB"), Ok(10usize.pow(9)));
-        assert_eq!(parse_size("1GiB"), Ok(2usize.pow(30)));
-        assert_eq!(parse_size("4.2KB"), Ok(4200));
-        assert_eq!(parse_size("4.2KiB"), Ok(4300));
-        assert_eq!(parse_size("1b"), Err("invalid format"));
-        assert_eq!(parse_size("B"), Err("invalid format"));
-        assert_eq!(parse_size("-0B"), Err("invalid format"));
-        assert_eq!(parse_size("infB"), Err("invalid format"));
-        assert_eq!(parse_size("NaNB"), Err("invalid format"));
+        assert_eq!(super::parse_size("0"), Ok(0));
+        assert_eq!(super::parse_size("1B"), Ok(1));
+        assert_eq!(super::parse_size("1KB"), Ok(10usize.pow(3)));
+        assert_eq!(super::parse_size("1KiB"), Ok(2usize.pow(10)));
+        assert_eq!(super::parse_size("1MB"), Ok(10usize.pow(6)));
+        assert_eq!(super::parse_size("1MiB"), Ok(2usize.pow(20)));
+        assert_eq!(super::parse_size("1GB"), Ok(10usize.pow(9)));
+        assert_eq!(super::parse_size("1GiB"), Ok(2usize.pow(30)));
+        assert_eq!(super::parse_size("4.2KB"), Ok(4200));
+        assert_eq!(super::parse_size("4.2KiB"), Ok(4300));
+        assert_eq!(super::parse_size("1b"), Err("invalid format"));
+        assert_eq!(super::parse_size("B"), Err("invalid format"));
+        assert_eq!(super::parse_size("-0B"), Err("invalid format"));
+        assert_eq!(super::parse_size("infB"), Err("invalid format"));
+        assert_eq!(super::parse_size("NaNB"), Err("invalid format"));
     }
 }

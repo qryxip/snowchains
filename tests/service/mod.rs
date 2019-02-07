@@ -23,8 +23,8 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     let tempdir_path = tempdir.path().to_owned();
     let result = panic::catch_unwind(move || -> Fallible<()> {
         std::fs::write(
-            tempdir_path.join("snowchains.yaml"),
-            include_bytes!("../snowchains.yaml").as_ref(),
+            tempdir_path.join("snowchains.toml"),
+            include_bytes!("../snowchains.toml").as_ref(),
         )?;
         std::fs::create_dir(tempdir_path.join("local"))?;
         serde_json::to_writer(
@@ -87,11 +87,7 @@ pub fn confirm_num_cases(
     }
 
     for &(problem, expected_num_cases) in pairs {
-        let path = wd
-            .join(<&str>::from(service))
-            .join(contest)
-            .join("tests")
-            .join(format!("{}.yaml", problem));
+        let path = wd.join(format!("{}/{}/tests/{}.yml", service, contest, problem));
         let file = File::open(&path)?;
         let suite = serde_yaml::from_reader::<_, BatchSuite>(file)?;
         assert_eq!(expected_num_cases, suite.cases.len());
