@@ -15,7 +15,7 @@ use crate::testsuite::{DownloadDestinations, SuiteFilePath, TestSuite};
 use crate::util;
 
 use failure::ResultExt;
-use heck::{CamelCase, KebabCase, MixedCase, ShoutySnakeCase, SnakeCase, TitleCase};
+use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
 use maplit::hashmap;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
@@ -262,6 +262,12 @@ pub(crate) struct DownloadOutcome {
 #[derive(Serialize)]
 struct DownloadOutcomeContest {
     slug: String,
+    slug_lower_case: String,
+    slug_upper_case: String,
+    slug_snake_case: String,
+    slug_kebab_case: String,
+    slug_mixed_case: String,
+    slug_pascal_case: String,
 }
 
 #[derive(Serialize)]
@@ -269,14 +275,12 @@ pub(self) struct DownloadOutcomeProblem {
     #[serde(serialize_with = "ser_as_str")]
     pub(self) url: Url,
     pub(self) name: String,
-    name_lower: String,
-    name_upper: String,
-    name_kebab: String,
-    name_snake: String,
-    name_screaming: String,
-    name_mixed: String,
-    name_pascal: String,
-    name_title: String,
+    name_lower_case: String,
+    name_upper_case: String,
+    name_snake_case: String,
+    name_kebab_case: String,
+    name_mixed_case: String,
+    name_pascal_case: String,
     #[serde(serialize_with = "ser_as_path")]
     pub(self) test_suite_path: SuiteFilePath,
     pub(self) test_suite: TestSuite,
@@ -300,6 +304,12 @@ impl DownloadOutcome {
             open_in_browser,
             contest: DownloadOutcomeContest {
                 slug: contest.slug().into(),
+                slug_lower_case: contest.slug().to_lowercase(),
+                slug_upper_case: contest.slug().to_uppercase(),
+                slug_snake_case: contest.slug().to_snake_case(),
+                slug_kebab_case: contest.slug().to_kebab_case(),
+                slug_mixed_case: contest.slug().to_mixed_case(),
+                slug_pascal_case: contest.slug().to_camel_case(),
             },
             problems: vec![],
         }
@@ -314,14 +324,12 @@ impl DownloadOutcome {
     ) {
         self.problems.push(DownloadOutcomeProblem {
             url,
-            name_lower: name.to_lowercase(),
-            name_upper: name.to_uppercase(),
-            name_kebab: name.to_kebab_case(),
-            name_snake: name.to_snake_case(),
-            name_screaming: name.to_shouty_snake_case(),
-            name_mixed: name.to_mixed_case(),
-            name_pascal: name.to_camel_case(),
-            name_title: name.to_title_case(),
+            name_lower_case: name.to_lowercase(),
+            name_upper_case: name.to_uppercase(),
+            name_snake_case: name.to_snake_case(),
+            name_kebab_case: name.to_kebab_case(),
+            name_mixed_case: name.to_mixed_case(),
+            name_pascal_case: name.to_camel_case(),
             name,
             test_suite_path: path,
             test_suite: suite,

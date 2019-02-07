@@ -144,7 +144,7 @@ RUST_VERSION = "stable"
 [[hooks.switch]]
 bash = '''
 service="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.service)"
-contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.contest)"
+contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.contest_snake_case)"
 if [ ! -d "./$service/$contest/rs" ]; then
   mkdir -p "./$service/$contest" &&
   cargo new --lib --edition 2015 --name "$contest" "./$service/$contest/rs" &&
@@ -157,13 +157,21 @@ fi
 bash = '''
 if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .open_in_browser)" = true ]; then
   service="$(echo "$SNOWCHAINS_RESULT" | jq -r .service)"
-  contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .contest.slug)"
   echo "$SNOWCHAINS_RESULT" |
-    jq -r --arg service "$service" --arg contest "$contest" '.problems | map("./" + $service + "/" + $contest + "/rs/src/bin/" + .name_kebab + ".rs") | join("\n")' |
-    xargs -d \\n -I % -r cp "./templates/rs/src/bin/$service.rs" % &&
+    jq -r '
+      . as $root
+      | .problems
+      | map("./" + $root.service + "/" + $root.contest.slug_lower_case + "/rs/src/bin/" + .name_kebab_case + ".rs")
+      | join("\n")
+    ' | xargs -d \\n -I % -r cp "./templates/rs/src/bin/$service.rs" % &&
   echo "$SNOWCHAINS_RESULT" |
-    jq -r --arg service "$service" --arg contest "$contest" '.problems | map(["./" + $service + "/" + $contest + "/rs/src/bin/" + .name_kebab + ".rs", .test_suite_path]) | flatten | join("\n")' |
-    xargs -d \\n -r emacsclient -n
+    jq -r '
+      . as $root
+      | .problems
+      | map(["./" + $root.service + "/" + $root.contest.slug_lower_case + "/rs/src/bin/" + .name_kebab_case + ".rs", .test_suite_path])
+      | flatten
+      | join("\n")
+    ' | xargs -d \\n -r emacsclient -n
 fi
 '''
 

@@ -10,6 +10,7 @@ use crate::terminal::{TermOut, WriteSpaces};
 use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
 
+use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
 use if_chain::if_chain;
 use maplit::hashmap;
 use serde::ser::SerializeMap;
@@ -377,6 +378,12 @@ pub(crate) struct SwitchOutcome {
 struct SwitchOutcomeAttrs {
     service: ServiceKind,
     contest: String,
+    contest_lower_case: String,
+    contest_upper_case: String,
+    contest_snake_case: String,
+    contest_kebab_case: String,
+    contest_mixed_case: String,
+    contest_pascal_case: String,
     language: String,
 }
 
@@ -459,11 +466,23 @@ pub(crate) fn switch(
     let outcome = SwitchOutcome {
         old: SwitchOutcomeAttrs {
             service: old_config.service,
+            contest_lower_case: old_config.contest.to_lowercase(),
+            contest_upper_case: old_config.contest.to_uppercase(),
+            contest_snake_case: old_config.contest.to_snake_case(),
+            contest_kebab_case: old_config.contest.to_kebab_case(),
+            contest_mixed_case: old_config.contest.to_mixed_case(),
+            contest_pascal_case: old_config.contest.to_camel_case(),
             contest: old_config.contest,
             language: old_config.language,
         },
         new: SwitchOutcomeAttrs {
             service: new_config.service,
+            contest_lower_case: new_config.contest.to_lowercase(),
+            contest_upper_case: new_config.contest.to_uppercase(),
+            contest_snake_case: new_config.contest.to_snake_case(),
+            contest_kebab_case: new_config.contest.to_kebab_case(),
+            contest_mixed_case: new_config.contest.to_mixed_case(),
+            contest_pascal_case: new_config.contest.to_camel_case(),
             contest: new_config.contest.clone(),
             language: new_config.language.clone(),
         },
