@@ -44,7 +44,7 @@ fn it_submits_to_no_9000() -> Fallible<()> {
     let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_submits_to_no_9000",
-        &format!("Y\n{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
+        &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
         |mut app| -> Fallible<()> {
             static CODE: &[u8] = b"Hello World!\n";
             let dir = app.working_dir.join("yukicoder").join("no").join("txt");
