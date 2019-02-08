@@ -54,6 +54,11 @@ fn generate_toml() -> String {
     static CRLF_TO_LF_TRUE: &str = "\ncrlf_to_lf = true";
 
     #[cfg(not(windows))]
+    static CRLF_TO_LF_TRUE_COMMENTED_OUT: &str = "";
+    #[cfg(windows)]
+    static CRLF_TO_LF_TRUE_COMMENTED_OUT: &str = "\n# crlf_to_lf = true";
+
+    #[cfg(not(windows))]
     static CRLF_TO_LF_FALSE: &str = "";
     #[cfg(windows)]
     static CRLF_TO_LF_FALSE: &str = "\n# crlf_to_lf = false";
@@ -149,7 +154,7 @@ language_ids = { atcoder = "3006", yukicoder = "csharp" }"#;
             .find(|p| cfg!(windows) && p.exists())
             .map(|p| {
                 format!(
-                    "\nps: [{}, \"-Command\", \"${{command}}\"]",
+                    "\nps = [{}, \"-Command\", \"${{command}}\"]",
                     quote_path_normalizing_separator(&p)
                 )
             })
@@ -159,7 +164,7 @@ language_ids = { atcoder = "3006", yukicoder = "csharp" }"#;
             .find(|p| cfg!(windows) && p.exists())
             .map(|p| {
                 format!(
-                    "\ncmd: [{}, \"/C\", \"${{command}}\"]",
+                    "\ncmd = [{}, \"/C\", \"${{command}}\"]",
                     quote_path_normalizing_separator(&p)
                 )
             })
@@ -265,7 +270,7 @@ working_directory = "testers/py"
 # [tester]
 # src = "testers/hs/app/${{pascal_case(problem)}}.hs"
 # bin = "testers/hs/target/${{pascal_case(problem)}}"
-# run = {{ {shell} = '"$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED' }}{crlf_to_lf_true}
+# run = {{ {shell} = '"$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED' }}{crlf_to_lf_true_commented_out}
 # working_directory = "testers/hs"
 
 [languages.'c++']
@@ -344,7 +349,7 @@ language_ids = {{ atcoder = "3025", yukicoder = "scala" }}
 [languages.text]
 src = "${{service}}/${{snake_case(contest)}}/txt/${{snake_case(problem)}}.txt"
 run = ["cat", "${{src}}"]
-working_directory = "${{service}}/${{snake_case(contest)}}/txt{crlf_to_lf_false}"
+working_directory = "${{service}}/${{snake_case(contest)}}/txt"{crlf_to_lf_false}
 language_ids = {{ atcoder = "3027", yukicoder = "text" }}
 "#,
         console_alt_width = CONSOLE_ALT_WIDTH,
@@ -363,6 +368,7 @@ language_ids = {{ atcoder = "3027", yukicoder = "text" }}
         transpile_java = transpile_java,
         transpile_scala = transpile_scala,
         crlf_to_lf_true = CRLF_TO_LF_TRUE,
+        crlf_to_lf_true_commented_out = CRLF_TO_LF_TRUE_COMMENTED_OUT,
         crlf_to_lf_false = CRLF_TO_LF_FALSE,
         csharp = CSHARP,
     )

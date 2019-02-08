@@ -93,7 +93,6 @@ $ snowchains submit a --open                  # executes `judge` command before 
 ### Config File (snowchains.toml)
 
 ```toml
----
 service = "atcoder"
 contest = "arc100"
 language = "c++"
