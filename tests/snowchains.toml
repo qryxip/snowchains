@@ -3,7 +3,7 @@ contest = ""
 language = "text"
 
 [testfiles]
-path = "${service}/${contest}/tests/${problem_snake}.${extension}"
+path = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}.${extension}"
 
 [session]
 timeout = "60s"
@@ -13,7 +13,7 @@ dropbox = { auth = "local/dropbox.json" }
 
 [session.download]
 extension = "yml"
-text_file_dir = "${service}/${contest}/tests/${problem_snake}"
+text_file_dir = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}"
 
 [judge]
 testfile_extensions = ["yml"]
@@ -22,17 +22,17 @@ testfile_extensions = ["yml"]
 RUST_VERSION = "stable"
 
 [languages.rust]
-src = "${service}/${contest}/rs/src/bin/${problem_kebab}.rs"
-bin = "${service}/${contest}/rs/target/manually/${problem_kebab}"
+src = "${service}/${snake_case(contest)}/rs/src/bin/${kebab_case(problem)}.rs"
+bin = "${service}/${snake_case(contest)}/rs/target/manually/${kebab_case(problem)}"
 compile = ["rustc", "+${env:RUST_VERSION}", "-o", "${bin}", "${src}"]
 run = ["${bin}"]
 working_directory = "${service}/${contest}/rs"
 
 [languages.python3]
-src = "${service}/${contest}/py/${problem_kebab}.py"
+src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
 run = ["false"]
 language_ids = { atcoder = "3023", yukicoder = "python3" }
 
 [languages.text]
-src = "${service}/${contest}/txt/${problem_snake}.txt"
+src = "${service}/${snake_case(contest)}/txt/${kebab_case(problem)}.txt"
 run = ["false"]

@@ -13,6 +13,7 @@ use crate::template::Template;
 use crate::terminal::{Term, WriteAnsi};
 use crate::testsuite::{DownloadDestinations, SuiteFilePath, TestSuite};
 use crate::util;
+use crate::util::str::CaseConversion;
 
 use failure::ResultExt;
 use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
@@ -410,13 +411,13 @@ pub(crate) struct DownloadProps<C: Contest> {
 impl DownloadProps<String> {
     pub(self) fn convert_contest_and_problems<C: Contest>(
         self,
-        conversion: ProblemNameConversion,
+        conversion: CaseConversion,
     ) -> DownloadProps<C> {
         DownloadProps {
             contest: C::from_string(self.contest),
             problems: self
                 .problems
-                .map(|ps| ps.into_iter().map(|p| conversion.convert(&p)).collect()),
+                .map(|ps| ps.into_iter().map(|p| conversion.apply(&p)).collect()),
             destinations: self.destinations,
             open_in_browser: self.open_in_browser,
             only_scraped: self.only_scraped,
@@ -457,13 +458,13 @@ impl<'a> RestoreProps<'a, String> {
 
     pub(self) fn convert_contest_and_problems<C: Contest>(
         self,
-        conversion: ProblemNameConversion,
+        conversion: CaseConversion,
     ) -> RestoreProps<'a, C> {
         RestoreProps {
             contest: C::from_string(self.contest),
             problems: self
                 .problems
-                .map(|ps| ps.into_iter().map(|p| conversion.convert(&p)).collect()),
+                .map(|ps| ps.into_iter().map(|p| conversion.apply(&p)).collect()),
             src_paths: self.src_paths,
         }
     }
@@ -512,11 +513,11 @@ impl SubmitProps<String> {
 
     pub(self) fn convert_contest_and_problem<C: Contest>(
         self,
-        conversion: ProblemNameConversion,
+        conversion: CaseConversion,
     ) -> SubmitProps<C> {
         SubmitProps {
             contest: C::from_string(self.contest),
-            problem: conversion.convert(&self.problem),
+            problem: conversion.apply(&self.problem),
             lang_id: self.lang_id,
             src_path: self.src_path,
             open_in_browser: self.open_in_browser,
@@ -549,19 +550,6 @@ impl Contest for String {
 
     fn slug(&self) -> Cow<str> {
         self.as_str().into()
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(self) enum ProblemNameConversion {
-    Upper,
-}
-
-impl ProblemNameConversion {
-    fn convert(self, s: &str) -> String {
-        match self {
-            ProblemNameConversion::Upper => s.to_uppercase(),
-        }
     }
 }
 

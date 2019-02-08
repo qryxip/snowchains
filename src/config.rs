@@ -75,20 +75,20 @@ fn generate_toml() -> String {
 
     #[cfg(not(windows))]
     static CSHARP: &str =
-        r#"src = "${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs"
-bin = "${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe"
+        r#"src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
+bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/${pascal_case(problem)}.exe"
 compile = ["mcs", "-o+", "-r:System.Numerics", "-out:${bin}", "${src}"]
 run = ["mono", "${bin}"]
-working_directory = "${service}/${contest}/cs"
+working_directory = "${service}/${snake_case(contest)}/cs"
 language_ids = { atcoder = "3006", yukicoder = "csharp_mono" }"#;
     #[cfg(windows)]
     static CSHARP: &str =
-        r#"src = "${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs"
-bin = "${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe"
+        r#"src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
+bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/${pascal_case(problem)}.exe"
 compile = ["csc", "/o+", "/r:System.Numerics", "/out:${bin}", "${src}"]
 run = ["${bin}"]
 crlf_to_lf = true
-working_directory = "${service}/${contest}/cs"
+working_directory = "${service}/${snake_case(contest)}/cs"
 language_ids = { atcoder = "3006", yukicoder = "csharp" }"#;
 
     fn quote_path_normalizing_separator(path: &Path) -> impl fmt::Display {
@@ -170,16 +170,16 @@ language_ids = { atcoder = "3006", yukicoder = "csharp" }"#;
             jq = r#"ps = 'echo "${Env:SNOWCHAINS_RESULT}" | jq'"#;
             shell = "ps";
             transpile_java =
-                r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("class\s+${Env:SNOWCHAINS_PROBLEM_PASCAL}", "class Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
+                r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("class\s+${Env:SNOWCHAINS_PROBLEM_PASCAL_CASE}", "class Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
             transpile_scala =
-                r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("object\s+${Env:SNOWCHAINS_PROBLEM_PASCAL}", "object Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
+                r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("object\s+${Env:SNOWCHAINS_PROBLEM_PASCAL_CASE}", "object Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
         } else {
             jq = r#"bash = 'echo "$SNOWCHAINS_RESULT" | jq'"#;
             shell = "bash";
             transpile_java =
-                r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
+                r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/class Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
             transpile_scala =
-                r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PROBLEM_PASCAL/object Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
+                r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/object Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
         };
 
         (
@@ -223,7 +223,7 @@ cjk = false{console_alt_width}
 {bash}{powershell}{cmd}
 
 [testfiles]
-path = "${{service}}/${{contest}}/tests/${{problem_snake}}.${{extension}}"
+path = "${{service}}/${{snake_case(contest)}}/tests/${{snake_case(problem)}}.${{extension}}"
 
 [session]
 timeout = "60s"
@@ -234,7 +234,7 @@ dropbox = false
 
 [session.download]
 extension = "yml"
-text_file_dir = "${{service}}/${{contest}}/tests/${{problem_snake}}"
+text_file_dir = "${{service}}/${{snake_case(contest)}}/tests/${{snake_case(problem)}}"
 
 [judge]
 testfile_extensions = ["json", "toml", "yaml", "yml"]
@@ -258,93 +258,93 @@ RUST_VERSION = "stable"
 # download = {{ {jq} }}
 
 [tester]
-src = "testers/py/${{problem_kebab}}.py"
+src = "testers/py/${{kebab_case(problem)}}.py"
 run = {{ {shell} = '{tester_python3} "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED' }}{crlf_to_lf_true}
 working_directory = "testers/py"
 
 # [tester]
-# src = "testers/hs/app/${{problem_pascal}}.hs"
-# bin = "testers/hs/target/${{problem_pascal}}"
+# src = "testers/hs/app/${{pascal_case(problem)}}.hs"
+# bin = "testers/hs/target/${{pascal_case(problem)}}"
 # run = {{ {shell} = '"$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED' }}{crlf_to_lf_true}
 # working_directory = "testers/hs"
 
 [languages.'c++']
-src = "${{service}}/${{contest}}/cpp/${{problem_kebab}}.cpp"
-bin = "${{service}}/${{contest}}/cpp/build/${{problem_kebab}}{exe}"
+src = "${{service}}/${{snake_case(contest)}}/cpp/${{kebab_case(problem)}}.cpp"
+bin = "${{service}}/${{snake_case(contest)}}/cpp/build/${{kebab_case(problem)}}{exe}"
 compile = {{ bash = 'g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"' }}
 run = ["${{bin}}"]{crlf_to_lf_true}
-working_directory = "${{service}}/${{contest}}/cpp"
+working_directory = "${{service}}/${{snake_case(contest)}}/cpp"
 language_ids = {{ atcoder = "3003", yukicoder = "cpp14" }}
 
 [languages.rust]
-src = "${{service}}/${{contest}}/rs/src/bin/${{problem_kebab}}.rs"
-bin = "${{service}}/${{contest}}/rs/target/manually/${{problem_kebab}}{exe}"
+src = "${{service}}/${{snake_case(contest)}}/rs/src/bin/${{kebab_case(problem)}}.rs"
+bin = "${{service}}/${{snake_case(contest)}}/rs/target/manually/${{kebab_case(problem)}}{exe}"
 compile = ["rustc", "+${{env:RUST_VERSION}}", "-o", "${{bin}}", "${{src}}"]
 run = ["${{bin}}"]{crlf_to_lf_false}
-working_directory = "${{service}}/${{contest}}/rs"
+working_directory = "${{service}}/${{snake_case(contest)}}/rs"
 language_ids = {{ atcoder = "3504", yukicoder = "rust" }}
 
 [languages.go]
-src = "${{service}}/${{contest}}/go/${{problem_kebab}}.go"
-bin = "${{service}}/${{contest}}/go/${{problem_kebab}}{exe}"
+src = "${{service}}/${{snake_case(contest)}}/go/${{kebab_case(problem)}}.go"
+bin = "${{service}}/${{snake_case(contest)}}/go/${{kebab_case(problem)}}{exe}"
 compile = ["go", "build", "-o", "${{bin}}", "${{src}}"]
 run = ["${{bin}}"]{crlf_to_lf_false}
-working_directory = "${{service}}/${{contest}}/go"
+working_directory = "${{service}}/${{snake_case(contest)}}/go"
 language_ids = {{ atcoder = "3013", yukicoder = "go" }}
 
 [languages.haskell]
-src = "${{service}}/${{contest}}/hs/app/${{problem_pascal}}.hs"
-bin = "${{service}}/${{contest}}/hs/target/${{problem_pascal}}{exe}"
+src = "${{service}}/${{snake_case(contest)}}/hs/app/${{pascal_case(problem)}}.hs"
+bin = "${{service}}/${{snake_case(contest)}}/hs/target/${{pascal_case(problem)}}{exe}"
 compile = ["stack", "ghc", "--", "-O2", "-o", "${{bin}}", "${{src}}"]
 run = ["${{bin}}"]{crlf_to_lf_false}
-working_directory = "${{service}}/${{contest}}/hs"
+working_directory = "${{service}}/${{snake_case(contest)}}/hs"
 language_ids = {{ atcoder = "3014", yukicoder = "haskell" }}
 
 [languages.bash]
-src = "${{service}}/${{contest}}/bash/${{problem_kebab}}.bash"
+src = "${{service}}/${{snake_case(contest)}}/bash/${{kebab_case(problem)}}.bash"
 run = ["bash", "${{src}}"]{crlf_to_lf_false}
-working_directory = "${{service}}/${{contest}}/bash"
+working_directory = "${{service}}/${{snake_case(contest)}}/bash"
 language_ids = {{ atcoder = "3001", yukicoder = "sh" }}
 
 [languages.python3]
-src = "${{service}}/${{contest}}/py/${{problem_kebab}}.py"
+src = "${{service}}/${{snake_case(contest)}}/py/${{kebab_case(problem)}}.py"
 run = [{venv_python3}, "${{src}}"]{crlf_to_lf_true}
-working_directory = "${{service}}/${{contest}}/py"
+working_directory = "${{service}}/${{snake_case(contest)}}/py"
 language_ids = {{ atcoder = "3023", yukicoder = "python3" }}
 
 [languages.pypy3]
-src = "${{service}}/${{contest}}/py/${{problem_kebab}}.py"
+src = "${{service}}/${{snake_case(contest)}}/py/${{kebab_case(problem)}}.py"
 run = [{venv_pypy3}, "${{src}}"]{crlf_to_lf_true}
-working_directory = "${{service}}/${{contest}}/py"
+working_directory = "${{service}}/${{snake_case(contest)}}/py"
 language_ids = {{ atcoder = "3510", yukicoder = "pypy3" }}
 
 [languages.java]
-src = "${{service}}/${{contest}}/java/src/main/java/${{problem_pascal}}.java"
-transpiled = "${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/src/Main.java"
-bin = "${{service}}/${{contest}}/java/build/replaced/${{problem_lower}}/classes/Main.class"
+src = "${{service}}/${{snake_case(contest)}}/java/src/main/java/${{pascal_case(problem)}}.java"
+transpiled = "${{service}}/${{snake_case(contest)}}/java/build/replaced/${{lower_case(problem)}}/src/Main.java"
+bin = "${{service}}/${{snake_case(contest)}}/java/build/replaced/${{lower_case(problem)}}/classes/Main.class"
 transpile = {{ {transpile_java} }}
-compile = ["javac", "-d", "./build/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
-run = ["java", "-classpath", "./build/replaced/${{problem_lower}}/classes", "Main"]{crlf_to_lf_true}
-working_directory = "${{service}}/${{contest}}/java"
+compile = ["javac", "-d", "./build/replaced/${{lower_case(problem)}}/classes", "${{transpiled}}"]
+run = ["java", "-classpath", "./build/replaced/${{lower_case(problem)}}/classes", "Main"]{crlf_to_lf_true}
+working_directory = "${{service}}/${{snake_case(contest)}}/java"
 language_ids = {{ atcoder = "3016", yukicoder = "java8" }}
 
 [languages.scala]
-src = "${{service}}/${{contest}}/scala/src/main/scala/${{problem_pascal}}.scala"
-transpiled = "${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/src/Main.scala"
-bin = "${{service}}/${{contest}}/scala/target/replaced/${{problem_lower}}/classes/Main.class"
+src = "${{service}}/${{snake_case(contest)}}/scala/src/main/scala/${{pascal_case(problem)}}.scala"
+transpiled = "${{service}}/${{snake_case(contest)}}/scala/target/replaced/${{lower_case(problem)}}/src/Main.scala"
+bin = "${{service}}/${{snake_case(contest)}}/scala/target/replaced/${{lower_case(problem)}}/classes/Main.class"
 transpile = {{ {transpile_scala} }}
-compile = ["scalac", "-optimise", "-d", "./target/replaced/${{problem_lower}}/classes", "${{transpiled}}"]
-run = ["scala", "-classpath", "./target/replaced/${{problem_lower}}/classes", "Main"]{crlf_to_lf_true}
-working_directory = "${{service}}/${{contest}}/scala"
+compile = ["scalac", "-optimise", "-d", "./target/replaced/${{lower_case(problem)}}/classes", "${{transpiled}}"]
+run = ["scala", "-classpath", "./target/replaced/${{lower_case(problem)}}/classes", "Main"]{crlf_to_lf_true}
+working_directory = "${{service}}/${{snake_case(contest)}}/scala"
 language_ids = {{ atcoder = "3025", yukicoder = "scala" }}
 
 [languages.'c#']
 {csharp}
 
 [languages.text]
-src = "${{service}}/${{contest}}/txt/${{problem_snake}}.txt"
+src = "${{service}}/${{snake_case(contest)}}/txt/${{snake_case(problem)}}.txt"
 run = ["cat", "${{src}}"]
-working_directory = "${{service}}/${{contest}}/txt{crlf_to_lf_false}"
+working_directory = "${{service}}/${{snake_case(contest)}}/txt{crlf_to_lf_false}"
 language_ids = {{ atcoder = "3027", yukicoder = "text" }}
 "#,
         console_alt_width = CONSOLE_ALT_WIDTH,

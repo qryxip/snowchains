@@ -5,13 +5,14 @@ use crate::path::AbsPath;
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, PrintTargets,
-    ProblemNameConversion, RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, PrintTargets, RestoreProps,
+    Service, ServiceKind, SessionProps, SubmitProps,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
 use crate::util::num::PositiveFinite;
 use crate::util::std_unstable::RemoveItem_;
+use crate::util::str::CaseConversion;
 
 use chrono::{DateTime, Local, Utc};
 use failure::ResultExt;
@@ -64,7 +65,7 @@ pub(crate) fn download(
 ) -> ServiceResult<DownloadOutcome> {
     let dropbox_path = sess_props.dropbox_path.take();
     let dropbox_path = dropbox_path.as_ref().map(Deref::deref);
-    let download_props = download_props.convert_contest_and_problems(ProblemNameConversion::Upper);
+    let download_props = download_props.convert_contest_and_problems(CaseConversion::Upper);
     download_props.print_targets(sess_props.term.stdout())?;
     Atcoder::try_new(sess_props)?.download(&download_props, dropbox_path)
 }
@@ -74,7 +75,7 @@ pub(crate) fn restore(
     mut sess_props: SessionProps<impl Term>,
     restore_props: RestoreProps<String>,
 ) -> ServiceResult<()> {
-    let restore_props = restore_props.convert_contest_and_problems(ProblemNameConversion::Upper);
+    let restore_props = restore_props.convert_contest_and_problems(CaseConversion::Upper);
     restore_props.print_targets(sess_props.term.stdout())?;
     Atcoder::try_new(sess_props)?.restore(&restore_props)
 }
@@ -84,7 +85,7 @@ pub(crate) fn submit(
     mut sess_props: SessionProps<impl Term>,
     submit_props: SubmitProps<String>,
 ) -> ServiceResult<()> {
-    let submit_props = submit_props.convert_contest_and_problem(ProblemNameConversion::Upper);
+    let submit_props = submit_props.convert_contest_and_problem(CaseConversion::Upper);
     submit_props.print_targets(sess_props.term.stdout())?;
     Atcoder::try_new(sess_props)?.submit(&submit_props)
 }

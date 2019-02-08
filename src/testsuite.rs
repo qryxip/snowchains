@@ -1057,8 +1057,9 @@ type: unsubmittable
             &tempdir,
             "snowchains_test_testsuite_tests_test_test_case_loader",
         )?;
-        let template_builder = "${service}/${contest}/tests/${problem_snake}.${extension}"
-            .parse::<TemplateBuilder<AbsPathBuf>>()?;
+        let template_builder =
+            "${service}/${snake_case(contest)}/tests/${snake_case(problem)}.${extension}"
+                .parse::<TemplateBuilder<AbsPathBuf>>()?;
 
         let template = template_builder.build(AbsPathBufRequirements {
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
