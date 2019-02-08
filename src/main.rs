@@ -1,6 +1,6 @@
 use snowchains::app::{App, Opt};
 use snowchains::path::AbsPathBuf;
-use snowchains::terminal::{Term, TermImpl, WriteAnsi, WriteSpaces};
+use snowchains::terminal::{Term, TermImpl, TermInImpl, WriteAnsi, WriteSpaces};
 
 use failure::{Fail, Fallible};
 use structopt::StructOpt;
@@ -14,7 +14,7 @@ fn main() -> Fallible<()> {
     let opt = Opt::from_args();
     let (stdin, stdout) = (io::stdin(), io::stdout());
     let mut term = TermImpl::new(
-        stdin.lock(),
+        TermInImpl::new(&stdin),
         BufWriter::new(stdout.lock()),
         BufWriter::new(io::stderr()),
     );

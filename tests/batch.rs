@@ -1,7 +1,7 @@
 use snowchains::app::{App, Modify, Opt};
 use snowchains::errors::{JudgeError, JudgeErrorKind};
 use snowchains::path::AbsPathBuf;
-use snowchains::service::ServiceName;
+use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Term, TermImpl};
 use snowchains::testsuite::SuiteFileExtension;
 
@@ -64,11 +64,11 @@ fn main() {
     let src_dir = dir.join("rs").join("src").join("bin");
     let src_path = src_dir.join("a.rs");
     let suite_dir = dir.join("tests");
-    let suite_path = suite_dir.join("a.yaml");
+    let suite_path = suite_dir.join("a.yml");
 
     std::fs::write(
-        tempdir.path().join("snowchains.yaml"),
-        include_bytes!("./snowchains.yaml").as_ref(),
+        tempdir.path().join("snowchains.toml"),
+        include_bytes!("./snowchains.toml").as_ref(),
     )?;
     std::fs::create_dir_all(&src_dir)?;
     std::fs::create_dir_all(&suite_dir)?;
@@ -116,7 +116,7 @@ impl<T: Term> AppExt for App<T> {
         std::fs::write(src_path, code)?;
         self.run(Opt::Judge {
             force_compile: false,
-            service: Some(ServiceName::Atcoder),
+            service: Some(ServiceKind::Atcoder),
             contest: Some("practice".to_owned()),
             language: Some("rust".to_owned()),
             jobs: None,
@@ -127,11 +127,11 @@ impl<T: Term> AppExt for App<T> {
 
     fn modify_timelimit(&mut self, timelimit: Duration) -> snowchains::Result<()> {
         self.run(Opt::Modify(Modify::Timelimit {
-            service: Some(ServiceName::Atcoder),
+            service: Some(ServiceKind::Atcoder),
             contest: Some("practice".to_owned()),
             color_choice: AnsiColorChoice::Never,
             problem: "a".to_owned(),
-            extension: SuiteFileExtension::Yaml,
+            extension: SuiteFileExtension::Yml,
             timelimit: Some(timelimit),
         }))
     }

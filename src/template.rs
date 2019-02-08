@@ -3,15 +3,16 @@ use crate::command::{
 };
 use crate::errors::{ExpandTemplateErrorKind, ExpandTemplateResult, StdError};
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::ServiceName;
+use crate::service::ServiceKind;
 use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
 use crate::util::std_unstable::Transpose_;
+use crate::util::str::CaseConversion;
 
 use combine::Parser;
 use derive_new::new;
 use failure::{Backtrace, Fail, ResultExt};
-use heck::{CamelCase, KebabCase, MixedCase, ShoutySnakeCase, SnakeCase, TitleCase};
+use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -118,37 +119,14 @@ impl Template<AbsPathBuf> {
             service,
             contest,
         } = &self.requirements;
-        let envs = {
-            let mut envs = setup_env_vars(
-                problem,
-                Some(&self.envs),
-                Some(*service),
-                Some(contest),
-                None,
-                None,
-                None,
-            );
-            envs.extend(self.envs.iter().map(|(k, v)| (k.clone(), v.clone().into())));
-            envs
-        };
+        let envs = setup_env_vars(problem, &self.envs, *service, contest);
         let vars = {
-            let mut vars = HashMap::<_, OsString>::new();
-            if let Some(problem) = problem {
-                vars.insert("problem", problem.into());
-                vars.insert("problem_lower", problem.to_lowercase().into());
-                vars.insert("problem_upper", problem.to_uppercase().into());
-                vars.insert("problem_kebab", problem.to_kebab_case().into());
-                vars.insert("problem_snake", problem.to_snake_case().into());
-                vars.insert("problem_screaming", problem.to_shouty_snake_case().into());
-                vars.insert("problem_mixed", problem.to_mixed_case().into());
-                vars.insert("problem_pascal", problem.to_camel_case().into());
-                vars.insert("problem_title", problem.to_title_case().into());
-            }
-            vars.insert("service", service.to_string().into());
-            vars.insert("contest", contest.clone().into());
-            if let Some(extension) = self.extension {
-                vars.insert("extension", extension.to_string().into());
-            }
+            let mut vars = hashmap!(
+                "service" => OsString::from(service.to_string()),
+                "contest" => OsString::from(contest),
+            );
+            vars.extend(problem.map(|p| ("problem", p.into())));
+            vars.extend(self.extension.map(|e| ("extension", e.to_string().into())));
             vars
         };
         self.inner.expand_as_path(base_dir, &vars, &envs)
@@ -216,45 +194,24 @@ impl Template<TranspilationCommand> {
             shell,
             working_dir: TemplateBuilder(working_dir),
             src: TemplateBuilder(src),
-            transpiled: TemplateBuilder(transpiled),
+            transpiled,
         } = &self.requirements;
 
-        let mut vars = hashmap!(
-            "problem"           => OsString::from(problem),
-            "problem_lower"     => OsString::from(problem.to_lowercase()),
-            "problem_upper"     => OsString::from(problem.to_uppercase()),
-            "problem_kebab"     => OsString::from(problem.to_kebab_case()),
-            "problem_snake"     => OsString::from(problem.to_snake_case()),
-            "problem_screaming" => OsString::from(problem.to_shouty_snake_case()),
-            "problem_mixed"     => OsString::from(problem.to_mixed_case()),
-            "problem_pascal"    => OsString::from(problem.to_camel_case()),
-            "problem_title"     => OsString::from(problem.to_title_case()),
-            "service"           => OsString::from(service.to_string()),
-            "contest"           => OsString::from(contest.clone()),
-        );
-
-        let mut envs = hashmap!(
-            "SNOWCHAINS_PROBLEM".to_owned()       => OsString::from(problem),
-            "SNOWCHAINS_PROBLEM_LOWER".into()     => problem.to_lowercase().into(),
-            "SNOWCHAINS_PROBLEM_UPPER".into()     => problem.to_uppercase().into(),
-            "SNOWCHAINS_PROBLEM_KEBAB".into()     => problem.to_kebab_case().into(),
-            "SNOWCHAINS_PROBLEM_SNAKE".into()     => problem.to_snake_case().into(),
-            "SNOWCHAINS_PROBLEM_SCREAMING".into() => problem.to_shouty_snake_case().into(),
-            "SNOWCHAINS_PROBLEM_MIXED".into()     => problem.to_mixed_case().into(),
-            "SNOWCHAINS_PROBLEM_PASCAL".into()    => problem.to_camel_case().into(),
-            "SNOWCHAINS_PROBLEM_TITLE".into()     => problem.to_title_case().into(),
-            "SNOWCHAINS_SERVICE".into()           => service.to_string().into(),
-            "SNOWCHAINS_CONTEST".into()           => contest.clone().into(),
-        );
-        envs.extend(self.envs.iter().map(|(k, v)| (k.clone(), v.clone().into())));
+        let mut vars = setup_template_vars(Some(problem), *service, contest);
+        let mut envs = setup_env_vars(Some(problem), &self.envs, *service, contest);
 
         let wd = working_dir.expand_as_path(base_dir, &vars, &envs)?;
         let src = src.expand_as_path(base_dir, &vars, &envs)?;
         vars.insert("src", src.clone().into());
         envs.insert("SNOWCHAINS_SRC".into(), src.clone().into());
-        let transpiled = transpiled.expand_as_path(base_dir, &vars, &envs)?;
-        vars.insert("transpiled", transpiled.clone().into());
-        envs.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.clone().into());
+        let transpiled = transpiled
+            .as_ref()
+            .map(|TemplateBuilder(transpiled)| transpiled.expand_as_path(base_dir, &vars, &envs))
+            .transpose_()?;
+        if let Some(transpiled) = &transpiled {
+            vars.insert("transpiled", transpiled.clone().into());
+            envs.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.clone().into());
+        }
 
         let mut args = vec![];
         match &self.inner {
@@ -288,37 +245,11 @@ impl Template<CompilationCommand> {
             working_dir: TemplateBuilder(working_dir),
             src: TemplateBuilder(src),
             transpiled,
-            bin: TemplateBuilder(bin),
+            bin,
         } = &self.requirements;
 
-        let mut vars = hashmap!(
-            "problem"           => OsString::from(problem),
-            "problem_lower"     => OsString::from(problem.to_lowercase()),
-            "problem_upper"     => OsString::from(problem.to_uppercase()),
-            "problem_kebab"     => OsString::from(problem.to_kebab_case()),
-            "problem_snake"     => OsString::from(problem.to_snake_case()),
-            "problem_screaming" => OsString::from(problem.to_shouty_snake_case()),
-            "problem_mixed"     => OsString::from(problem.to_mixed_case()),
-            "problem_pascal"    => OsString::from(problem.to_camel_case()),
-            "problem_title"     => OsString::from(problem.to_title_case()),
-            "service"           => OsString::from(service.to_string()),
-            "contest"           => OsString::from(contest.clone()),
-        );
-
-        let mut envs = hashmap!(
-            "SNOWCHAINS_PROBLEM".to_owned()       => OsString::from(problem),
-            "SNOWCHAINS_PROBLEM_LOWER".into()     => problem.to_lowercase().into(),
-            "SNOWCHAINS_PROBLEM_UPPER".into()     => problem.to_uppercase().into(),
-            "SNOWCHAINS_PROBLEM_KEBAB".into()     => problem.to_kebab_case().into(),
-            "SNOWCHAINS_PROBLEM_SNAKE".into()     => problem.to_snake_case().into(),
-            "SNOWCHAINS_PROBLEM_SCREAMING".into() => problem.to_shouty_snake_case().into(),
-            "SNOWCHAINS_PROBLEM_MIXED".into()     => problem.to_mixed_case().into(),
-            "SNOWCHAINS_PROBLEM_PASCAL".into()    => problem.to_camel_case().into(),
-            "SNOWCHAINS_PROBLEM_TITLE".into()     => problem.to_title_case().into(),
-            "SNOWCHAINS_SERVICE".into()           => service.to_string().into(),
-            "SNOWCHAINS_CONTEST".into()           => contest.clone().into(),
-        );
-        envs.extend(self.envs.iter().map(|(k, v)| (k.clone(), v.clone().into())));
+        let mut vars = setup_template_vars(Some(problem), *service, contest);
+        let mut envs = setup_env_vars(Some(problem), &self.envs, *service, contest);
 
         let wd = working_dir.expand_as_path(base_dir, &vars, &envs)?;
         let src = src.expand_as_path(base_dir, &vars, &envs)?;
@@ -332,9 +263,15 @@ impl Template<CompilationCommand> {
             vars.insert("transpiled", transpiled.clone().into());
             envs.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.clone().into());
         }
-        let bin = bin.expand_as_path(base_dir, &vars, &envs)?;
-        vars.insert("bin", bin.clone().into());
-        envs.insert("SNOWCHAINS_BIN".into(), bin.clone().into());
+
+        let bin = bin
+            .as_ref()
+            .map(|TemplateBuilder(bin)| bin.expand_as_path(base_dir, &vars, &envs))
+            .transpose_()?;
+        if let Some(bin) = &bin {
+            vars.insert("bin", bin.clone().into());
+            envs.insert("SNOWCHAINS_BIN".into(), bin.clone().into());
+        }
 
         let mut args = vec![];
         match &self.inner {
@@ -372,34 +309,8 @@ impl Template<JudgingCommand> {
             crlf_to_lf,
         } = &self.requirements;
 
-        let mut vars = hashmap!(
-            "problem"           => OsString::from(problem),
-            "problem_lower"     => OsString::from(problem.to_lowercase()),
-            "problem_upper"     => OsString::from(problem.to_uppercase()),
-            "problem_kebab"     => OsString::from(problem.to_kebab_case()),
-            "problem_snake"     => OsString::from(problem.to_snake_case()),
-            "problem_screaming" => OsString::from(problem.to_shouty_snake_case()),
-            "problem_mixed"     => OsString::from(problem.to_mixed_case()),
-            "problem_pascal"    => OsString::from(problem.to_camel_case()),
-            "problem_title"     => OsString::from(problem.to_title_case()),
-            "service"           => OsString::from(service.to_string()),
-            "contest"           => OsString::from(contest.clone()),
-        );
-
-        let mut envs = hashmap!(
-            "SNOWCHAINS_PROBLEM".to_owned()       => OsString::from(problem),
-            "SNOWCHAINS_PROBLEM_LOWER".into()     => problem.to_lowercase().into(),
-            "SNOWCHAINS_PROBLEM_UPPER".into()     => problem.to_uppercase().into(),
-            "SNOWCHAINS_PROBLEM_KEBAB".into()     => problem.to_kebab_case().into(),
-            "SNOWCHAINS_PROBLEM_SNAKE".into()     => problem.to_snake_case().into(),
-            "SNOWCHAINS_PROBLEM_SCREAMING".into() => problem.to_shouty_snake_case().into(),
-            "SNOWCHAINS_PROBLEM_MIXED".into()     => problem.to_mixed_case().into(),
-            "SNOWCHAINS_PROBLEM_PASCAL".into()    => problem.to_camel_case().into(),
-            "SNOWCHAINS_PROBLEM_TITLE".into()     => problem.to_title_case().into(),
-            "SNOWCHAINS_SERVICE".into()           => service.to_string().into(),
-            "SNOWCHAINS_CONTEST".into()           => contest.clone().into(),
-        );
-        envs.extend(self.envs.iter().map(|(k, v)| (k.clone(), v.clone().into())));
+        let mut vars = setup_template_vars(Some(problem), *service, contest);
+        let mut envs = setup_env_vars(Some(problem), &self.envs, *service, contest);
 
         let wd = working_dir.expand_as_path(base_dir, &vars, &envs)?;
         let src = src.expand_as_path(base_dir, &vars, &envs)?;
@@ -442,6 +353,52 @@ impl Template<JudgingCommand> {
         }
         Ok(JudgingCommand::new(args, wd, *crlf_to_lf, envs))
     }
+}
+
+fn setup_template_vars(
+    problem: Option<&str>,
+    service: ServiceKind,
+    contest: &str,
+) -> HashMap<&'static str, OsString> {
+    let mut ret = hashmap!(
+        "service" => OsString::from(service.to_string()),
+        "contest" => OsString::from(contest),
+    );
+    ret.extend(problem.map(|p| ("problem", p.into())));
+    ret
+}
+
+fn setup_env_vars(
+    problem: Option<&str>,
+    utf8_envs: &HashMap<String, String>,
+    service: ServiceKind,
+    contest: &str,
+) -> HashMap<String, OsString> {
+    let mut ret = problem
+        .map::<HashMap<String, OsString>, _>(|problem| {
+            hashmap!(
+                "SNOWCHAINS_PROBLEM".into()             => problem.into(),
+                "SNOWCHAINS_PROBLEM_LOWER_CASE".into()  => problem.to_lowercase().into(),
+                "SNOWCHAINS_PROBLEM_UPPER_CASE".into()  => problem.to_uppercase().into(),
+                "SNOWCHAINS_PROBLEM_KEBAB_CASE".into()  => problem.to_kebab_case().into(),
+                "SNOWCHAINS_PROBLEM_SNAKE_CASE".into()  => problem.to_snake_case().into(),
+                "SNOWCHAINS_PROBLEM_MIXED_CASE".into()  => problem.to_mixed_case().into(),
+                "SNOWCHAINS_PROBLEM_PASCAL_CASE".into() => problem.to_camel_case().into(),
+                "SNOWCHAINS_SERVICE".into()             => service.to_string().into(),
+                "SNOWCHAINS_CONTEST".into()             => contest.into(),
+                "SNOWCHAINS_CONTEST_LOWER_CASE".into()  => contest.to_lowercase().into(),
+                "SNOWCHAINS_CONTEST_UPPER_CASE".into()  => contest.to_uppercase().into(),
+                "SNOWCHAINS_CONTEST_KEBAB_CASE".into()  => contest.to_kebab_case().into(),
+                "SNOWCHAINS_CONTEST_SNAKE_CASE".into()  => contest.to_snake_case().into(),
+                "SNOWCHAINS_CONTEST_MIXED_CASE".into()  => contest.to_mixed_case().into(),
+                "SNOWCHAINS_CONTEST_PASCAL_CASE".into() => contest.to_camel_case().into(),
+            )
+        })
+        .unwrap_or_default();
+    for (name, value) in utf8_envs {
+        ret.insert(name.as_str().into(), value.as_str().into());
+    }
+    ret
 }
 
 impl<T: Target> Clone for Template<T>
@@ -505,7 +462,7 @@ pub(crate) enum CommandTemplateInner {
 #[derive(Clone)]
 pub(crate) struct AbsPathBufRequirements {
     pub(crate) base_dir: AbsPathBuf,
-    pub(crate) service: ServiceName,
+    pub(crate) service: ServiceKind,
     pub(crate) contest: String,
 }
 
@@ -519,30 +476,30 @@ pub(crate) struct HookCommandsRequirements {
 #[derive(Clone)]
 pub(crate) struct TranspilationCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
-    pub(crate) service: ServiceName,
-    pub(crate) contest: String,
-    pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
-    pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
-    pub(crate) src: TemplateBuilder<AbsPathBuf>,
-    pub(crate) transpiled: TemplateBuilder<AbsPathBuf>,
-}
-
-#[derive(Clone)]
-pub(crate) struct CompilationCommandRequirements {
-    pub(crate) base_dir: AbsPathBuf,
-    pub(crate) service: ServiceName,
+    pub(crate) service: ServiceKind,
     pub(crate) contest: String,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
     pub(crate) src: TemplateBuilder<AbsPathBuf>,
     pub(crate) transpiled: Option<TemplateBuilder<AbsPathBuf>>,
-    pub(crate) bin: TemplateBuilder<AbsPathBuf>,
+}
+
+#[derive(Clone)]
+pub(crate) struct CompilationCommandRequirements {
+    pub(crate) base_dir: AbsPathBuf,
+    pub(crate) service: ServiceKind,
+    pub(crate) contest: String,
+    pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
+    pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
+    pub(crate) src: TemplateBuilder<AbsPathBuf>,
+    pub(crate) transpiled: Option<TemplateBuilder<AbsPathBuf>>,
+    pub(crate) bin: Option<TemplateBuilder<AbsPathBuf>>,
 }
 
 #[derive(Clone)]
 pub(crate) struct JudgingCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
-    pub(crate) service: ServiceName,
+    pub(crate) service: ServiceKind,
     pub(crate) contest: String,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
@@ -558,6 +515,8 @@ enum Token {
     Plain(String),
     Var(String),
     EnvVar(String),
+    AppVar(String, String),
+    AppEnvVar(String, String),
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -580,14 +539,32 @@ impl FromStr for Tokens {
 
         fn identifier<'a>() -> impl Parser<Input = &'a str, Output = String> {
             many1(satisfy(|c| match c {
-                'a'..='z' | 'A'..='Z' | '_' => true,
+                'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
                 _ => false,
             }))
         }
 
         let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Plain);
+
+        let app_envvar = string("${")
+            .with(spaces())
+            .with(identifier())
+            .skip(spaces().and(char('(')).and(spaces()).and(string("env")))
+            .skip(spaces().and(char(':')).and(spaces()))
+            .and(identifier())
+            .skip(spaces().and(char(')')).and(spaces()).and(char('}')))
+            .map(|(f, x)| Token::AppEnvVar(f, x));
+        let app_var = string("${")
+            .with(spaces())
+            .with(identifier())
+            .skip(spaces().and(char('(')).and(spaces()))
+            .and(identifier())
+            .skip(spaces().and(char(')')).and(spaces()).and(char('}')))
+            .map(|(f, x)| Token::AppVar(f, x));
+
         let envvar = string("${")
-            .with(spaces().and(string("env:")).and(spaces()))
+            .with(spaces().and(string("env")).and(spaces()).and(char(':')))
+            .with(spaces())
             .with(identifier())
             .skip(spaces().and(char('}')))
             .map(Token::EnvVar);
@@ -602,6 +579,8 @@ impl FromStr for Tokens {
             attempt(escape("$$", "$")),
             attempt(escape("{{", "{")),
             attempt(escape("}}", "}")),
+            attempt(app_envvar),
+            attempt(app_var),
             attempt(envvar),
             var,
         )))
@@ -627,6 +606,8 @@ impl fmt::Display for Tokens {
                 }
                 Token::Var(s) => write!(f, "${{{}}}", s)?,
                 Token::EnvVar(s) => write!(f, "${{env:{}}}", s)?,
+                Token::AppVar(fun, s) => write!(f, "${{{}({})}}", fun, s)?,
+                Token::AppEnvVar(fun, s) => write!(f, "${{{}(env:{})}}", fun, s)?,
             }
         }
         Ok(())
@@ -647,6 +628,8 @@ impl fmt::Debug for Tokens {
                 Token::Plain(s) => write!(f, "{:?}", s),
                 Token::Var(s) => write!(f, "${{{}}}", s),
                 Token::EnvVar(s) => write!(f, "${{env:{}}}", s),
+                Token::AppVar(fun, s) => write!(f, "${{{}({})}}", fun, s),
+                Token::AppEnvVar(fun, s) => write!(f, "${{{}(env:{})}}", fun, s),
             }?
         }
         if n != 1 {
@@ -675,24 +658,48 @@ impl Tokens {
         vars: &HashMap<&'static str, impl AsRef<OsStr>>,
         envs: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<OsStr>>,
     ) -> ExpandTemplateResult<OsString> {
+        let get_template_var_value = |key: &str| -> ExpandTemplateResult<_> {
+            vars.get(key)
+                .ok_or_else(|| ExpandTemplateErrorKind::UndefinedVar(key.to_owned()).into())
+        };
+
+        let get_env_var_value = |key: &str| -> ExpandTemplateResult<_> {
+            envs.get(key)
+                .map(|v| Cow::Borrowed(v.as_ref()))
+                .or_else(|| env::var_os(key).map(Cow::Owned))
+                .ok_or_else(|| ExpandTemplateErrorKind::EnvVarNotPresent(key.to_owned()).into())
+        };
+
+        let parse_fun = |name: &str| -> ExpandTemplateResult<CaseConversion> {
+            name.parse().map_err(|e| {
+                failure::err_msg(e)
+                    .context(ExpandTemplateErrorKind::UndefinedFun(name.to_owned()))
+                    .into()
+            })
+        };
+
         let expand_as_os_string = || -> ExpandTemplateResult<_> {
             let mut r = OsString::new();
             for token in &self.0 {
                 match token {
                     Token::Plain(s) => r.push(s),
-                    Token::Var(k) => {
-                        let value = vars
-                            .get(k.as_str())
-                            .ok_or_else(|| ExpandTemplateErrorKind::UndefinedVar(k.clone()))?;
-                        r.push(&value);
+                    Token::Var(k) => r.push(get_template_var_value(k)?),
+                    Token::EnvVar(k) => r.push(get_env_var_value(k)?),
+                    Token::AppVar(f, k) => {
+                        let f = parse_fun(f)?;
+                        let v = get_template_var_value(k)?.as_ref();
+                        let v = v.to_str().ok_or_else(|| {
+                            ExpandTemplateErrorKind::NonUtf8Var(k.clone(), v.to_owned())
+                        })?;
+                        r.push(&f.apply(v));
                     }
-                    Token::EnvVar(k) => {
-                        let value = envs
-                            .get(k.as_str())
-                            .map(|v| Cow::Borrowed(v.as_ref()))
-                            .or_else(|| env::var_os(k).map(Cow::Owned))
-                            .ok_or_else(|| ExpandTemplateErrorKind::EnvVarNotPresent(k.clone()))?;
-                        r.push(&value);
+                    Token::AppEnvVar(f, k) => {
+                        let f = parse_fun(f)?;
+                        let v = get_env_var_value(k)?;
+                        let v = v.to_str().ok_or_else(|| {
+                            ExpandTemplateErrorKind::NonUtf8Var(k.clone(), v.clone().into_owned())
+                        })?;
+                        r.push(&f.apply(v));
                     }
                 }
             }
@@ -725,53 +732,6 @@ impl Tokens {
     }
 }
 
-fn setup_env_vars(
-    problem: Option<&str>,
-    utf8_envs: Option<&HashMap<String, String>>,
-    service: Option<ServiceName>,
-    contest: Option<&str>,
-    src: Option<&AbsPath>,
-    transpiled: Option<&AbsPath>,
-    bin: Option<&AbsPath>,
-) -> HashMap<String, OsString> {
-    let mut ret = problem
-        .map::<HashMap<String, OsString>, _>(|problem| {
-            hashmap!(
-                "SNOWCHAINS_PROBLEM".into()           => problem.into(),
-                "SNOWCHAINS_PROBLEM_LOWER".into()     => problem.to_lowercase().into(),
-                "SNOWCHAINS_PROBLEM_UPPER".into()     => problem.to_uppercase().into(),
-                "SNOWCHAINS_PROBLEM_KEBAB".into()     => problem.to_kebab_case().into(),
-                "SNOWCHAINS_PROBLEM_SNAKE".into()     => problem.to_snake_case().into(),
-                "SNOWCHAINS_PROBLEM_SCREAMING".into() => problem.to_shouty_snake_case().into(),
-                "SNOWCHAINS_PROBLEM_MIXED".into()     => problem.to_mixed_case().into(),
-                "SNOWCHAINS_PROBLEM_PASCAL".into()    => problem.to_camel_case().into(),
-                "SNOWCHAINS_PROBLEM_TITLE".into()     => problem.to_title_case().into(),
-            )
-        })
-        .unwrap_or_default();
-    if let Some(utf8_envs) = utf8_envs {
-        for (name, value) in utf8_envs {
-            ret.insert(name.as_str().into(), value.as_str().into());
-        }
-    }
-    if let Some(service) = service {
-        ret.insert("SNOWCHAINS_SERVICE".into(), service.to_string().into());
-    }
-    if let Some(contest) = contest {
-        ret.insert("SNOWCHAINS_CONTEST".into(), contest.into());
-    }
-    if let Some(src) = src {
-        ret.insert("SNOWCHAINS_SRC".into(), src.into());
-    }
-    if let Some(transpiled) = transpiled {
-        ret.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.into());
-    }
-    if let Some(bin) = bin {
-        ret.insert("SNOWCHAINS_BIN".into(), bin.into());
-    }
-    ret
-}
-
 type ParseTemplateResult<T> = std::result::Result<T, ParseTemplateError>;
 
 #[derive(Debug, derive_more::Display, Fail, new)]
@@ -789,7 +749,7 @@ mod tests {
 
     use crate::command::{CompilationCommand, JudgingCommand};
     use crate::path::AbsPathBuf;
-    use crate::service::ServiceName;
+    use crate::service::ServiceKind;
 
     use failure::Fallible;
     use maplit::hashmap;
@@ -819,7 +779,7 @@ mod tests {
 
         static JSON: &str = r##"{
   "a": "${command}",
-  "b": "rs/${problem_kebab}.rs",
+  "b": "rs/${kebab_case(problem)}.rs",
   "c": [
     "rustc",
     "+${env:RUST_VERSION}",
@@ -845,8 +805,8 @@ mod tests {
     fn it_expands_os_string_templates() -> Fallible<()> {
         fn process_input(input: &str) -> Fallible<OsString> {
             let template = input.parse::<TemplateBuilder<OsString>>()?;
-            let vars = hashmap!("var" => "<value of var>");
-            let envs = hashmap!("ENVVAR" => "<value of ENVVAR>");
+            let vars = hashmap!("var" => "foo");
+            let envs = hashmap!("ENVVAR" => "bar");
             template.build(()).expand(&vars, &envs).map_err(Into::into)
         }
 
@@ -855,19 +815,21 @@ mod tests {
         }
 
         let _ = env_logger::try_init();
-        test!(""                     => "");
-        test!("text"                 => "text");
-        test!("${var}"               => "<value of var>");
-        test!("${env:ENVVAR}"        => "<value of ENVVAR>");
-        test!("$${{}}"               => "${}");
-        test!("{InvalidSpecifier}"   => !);
-        test!("$NONEXISTING"         => !);
-        test!("{var}"                => !);
-        test!("{env:ENVVAR}"         => !);
-        test!("${-}"                 => !);
-        test!("{"                    => !);
-        test!("}"                    => !);
-        test!("$"                    => !);
+        test!(""                          => "");
+        test!("text"                      => "text");
+        test!("${var}"                    => "foo");
+        test!("${env:ENVVAR}"             => "bar");
+        test!("${upper_case(var)}"        => "FOO");
+        test!("${upper_case(env:ENVVAR)}" => "BAR");
+        test!("$${{}}"                    => "${}");
+        test!("{InvalidSpecifier}"        => !);
+        test!("$NONEXISTING"              => !);
+        test!("{var}"                     => !);
+        test!("{env:ENVVAR}"              => !);
+        test!("${-}"                      => !);
+        test!("{"                         => !);
+        test!("}"                         => !);
+        test!("$"                         => !);
         Ok(())
     }
 
@@ -878,10 +840,10 @@ mod tests {
             template
                 .build(AbsPathBufRequirements {
                     base_dir: base_dir(),
-                    service: ServiceName::Atcoder,
+                    service: ServiceKind::Atcoder,
                     contest: "arc100".to_owned(),
                 })
-                .expand(Some("problem-name"))
+                .expand(Some("ProblemName"))
                 .map_err(Into::into)
         }
 
@@ -900,26 +862,25 @@ mod tests {
         } else {
             test!("/absolute" => "/absolute");
         }
-        test!(""                                          => "./");
-        test!("."                                         => "./");
-        test!("relative"                                  => "./relative");
-        test!("./relative"                                => "./relative");
-        test!("cpp/${problem_snake}.cpp"                  => "./cpp/problem_name.cpp");
-        test!("cs/${problem_pascal}/${problem_pascal}.cs" => "./cs/ProblemName/ProblemName.cs");
-        test!("${service}/${contest}"                     => "./atcoder/arc100");
+        test!(""                                  => "./");
+        test!("."                                 => "./");
+        test!("relative"                          => "./relative");
+        test!("./relative"                        => "./relative");
+        test!("cpp/${kebab_case(problem)}.cpp"    => "./cpp/problem-name.cpp");
+        test!("${service}/${snake_case(contest)}" => "./atcoder/arc100");
         {
             fn process_input(input: &str) -> Fallible<AbsPathBuf> {
                 let template = input.parse::<TemplateBuilder<AbsPathBuf>>()?;
                 template
                     .build(AbsPathBufRequirements {
                         base_dir: base_dir(),
-                        service: ServiceName::Atcoder,
+                        service: ServiceKind::Atcoder,
                         contest: "arc100".to_owned(),
                     })
                     .expand(None)
                     .map_err(Into::into)
             }
-            test!("snowchains/${service}/${contest}" => "snowchains/atcoder/arc100");
+            test!("snowchains/${service}/${snake_case(contest)}" => "snowchains/atcoder/arc100");
         }
         test!("~"         => dirs::home_dir().unwrap());
         test!("~/foo/bar" => dirs::home_dir().unwrap().join("foo/bar"));

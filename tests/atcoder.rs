@@ -1,7 +1,7 @@
 mod service;
 
 use snowchains::app::{App, Opt};
-use snowchains::service::ServiceName;
+use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Term, TermImpl};
 
 use failure::Fallible;
@@ -16,7 +16,7 @@ fn it_logins() -> Fallible<()> {
     fn login(mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> snowchains::Result<()> {
         app.run(Opt::Login {
             color_choice: AnsiColorChoice::Never,
-            service: ServiceName::Atcoder,
+            service: ServiceKind::Atcoder,
         })
     }
 
@@ -35,7 +35,7 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
             app.run(Opt::Download {
                 open: false,
                 only_scraped: true,
-                service: Some(ServiceName::Atcoder),
+                service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
@@ -62,7 +62,7 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
             app.run(Opt::Download {
                 open: false,
                 only_scraped: true,
-                service: Some(ServiceName::Atcoder),
+                service: Some(ServiceKind::Atcoder),
                 contest: Some("abc100".to_owned()),
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
@@ -87,7 +87,7 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
             app.run(Opt::Download {
                 open: false,
                 only_scraped: false,
-                service: Some(ServiceName::Atcoder),
+                service: Some(ServiceKind::Atcoder),
                 contest: Some("abc099".to_owned()),
                 problems: vec!["a".to_owned()],
                 color_choice: AnsiColorChoice::Never,
@@ -100,7 +100,7 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
 }
 
 fn check_yaml_md5(dir: &Path, name: &str, expected: &str) -> io::Result<()> {
-    let path = dir.join(name).with_extension("yaml");
+    let path = dir.join(name).with_extension("yml");
     let yaml = std::fs::read_to_string(&path)?;
     assert_eq!(format!("{:x}", md5::compute(&yaml)), expected);
     Ok(())
@@ -124,7 +124,7 @@ fn just_confirm_num_samples_and_timelimit(
             each_args: Vec<serde_yaml::Sequence>,
         },
     }
-    let path = dir.join(name).with_extension("yaml");
+    let path = dir.join(name).with_extension("yml");
     let file = File::open(&path)?;
     match serde_yaml::from_reader::<_, TestSuite>(file)? {
         TestSuite::Batch { timelimit, cases } => {
@@ -150,7 +150,7 @@ fn restore_command_works_without_error() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::Restore {
-                service: Some(ServiceName::Atcoder),
+                service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
@@ -202,7 +202,7 @@ if __name__ == '__main__':
                 only_transpile: false,
                 no_judge: true,
                 no_check_duplication: false,
-                service: Some(ServiceName::Atcoder),
+                service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 language: Some("python3".to_owned()),
                 jobs: None,

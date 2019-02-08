@@ -3,7 +3,7 @@ use crate::config;
 use strum_macros::EnumString;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use std::io::{self, BufRead, BufWriter, Stderr, StdoutLock, Write};
+use std::io::{self, BufRead, BufWriter, Read, Stderr, Stdin, StdinLock, StdoutLock, Write};
 use std::{env, process};
 
 pub trait WriteSpaces {
@@ -49,7 +49,7 @@ pub(crate) trait HasTerm {
 }
 
 pub trait Term {
-    type Stdin: BufRead;
+    type Stdin: TermIn;
     type Stdout: TermOut;
     type Stderr: TermOut;
 
@@ -99,6 +99,46 @@ impl<'a, T: Term + ?Sized> Term for &'a mut T {
 
     fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
         (**self).prompt_password_stderr(prompt)
+    }
+}
+
+pub trait TermIn: Read {
+    /// Reads a line from `self` removing the trailing "\n" or "\r\n".
+    ///
+    /// # Errors
+    ///
+    /// - Encounters an I/O error
+    /// - The string does not end with "\n" or "\r\n" (same as `rprompt`)
+    fn read_reply(&mut self) -> io::Result<String>;
+    /// Reads a line from `self` trimming a trailing "\n" or "\r\n".
+    ///
+    /// # Errors
+    ///
+    /// - Encounters an I/O error
+    fn read_password(&mut self) -> io::Result<String>;
+}
+
+impl<'a> TermIn for &'a [u8] {
+    fn read_reply(&mut self) -> io::Result<String> {
+        let mut ret = "".to_owned();
+        let _ = self.read_line(&mut ret)?;
+        check_remove_trailing_newilne(ret)
+    }
+
+    fn read_password(&mut self) -> io::Result<String> {
+        let mut ret = "".to_owned();
+        let _ = self.read_line(&mut ret)?;
+        Ok(remove_trailing_newilne(ret))
+    }
+}
+
+impl TermIn for io::Empty {
+    fn read_reply(&mut self) -> io::Result<String> {
+        check_remove_trailing_newilne("".to_owned())
+    }
+
+    fn read_password(&mut self) -> io::Result<String> {
+        Ok("".to_owned())
     }
 }
 
@@ -358,13 +398,13 @@ impl<'a, W: WriteAnsi> WriteAnsi for &'a mut W {
     }
 }
 
-pub struct TermImpl<I: BufRead, O: StandardOutput, E: StandardOutput> {
+pub struct TermImpl<I: TermIn, O: StandardOutput, E: StandardOutput> {
     stdin: I,
     stdout: TermOutImpl<O>,
     stderr: TermOutImpl<E>,
 }
 
-impl<I: BufRead, O: StandardOutput, E: StandardOutput> TermImpl<I, O, E> {
+impl<I: TermIn, O: StandardOutput, E: StandardOutput> TermImpl<I, O, E> {
     pub fn new(stdin: I, stdout: O, stderr: E) -> Self {
         Self {
             stdin,
@@ -384,7 +424,7 @@ impl TermImpl<io::Empty, io::Sink, io::Sink> {
     }
 }
 
-impl<I: BufRead, O: StandardOutput, E: StandardOutput> Term for TermImpl<I, O, E> {
+impl<I: TermIn, O: StandardOutput, E: StandardOutput> Term for TermImpl<I, O, E> {
     type Stdin = I;
     type Stdout = TermOutImpl<O>;
     type Stderr = TermOutImpl<E>;
@@ -412,34 +452,65 @@ impl<I: BufRead, O: StandardOutput, E: StandardOutput> Term for TermImpl<I, O, E
     fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
         self.stderr.write_all(prompt.as_bytes())?;
         self.stderr.flush()?;
-        let mut reply = "".to_owned();
-        self.stdin.read_line(&mut reply)?;
-        if reply.ends_with("\r\n") {
-            reply.pop();
-            reply.pop();
-            Ok(reply)
-        } else if reply.ends_with('\n') {
-            reply.pop();
-            Ok(reply)
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "unexpected end of file",
-            ))
-        }
+        self.stdin.read_reply()
     }
 
     fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        if cfg!(windows) && env::var_os("MSYSTEM").is_some() {
-            self.stderr.with_reset(|o| {
-                o.fg(11)?
-                    .write_str("$MSYSTEM is present. The input won't be hidden.\n")
-            })?;
-            self.prompt_reply_stderr(prompt)
-        } else {
+        self.stderr.write_all(prompt.as_bytes())?;
+        self.stderr.flush()?;
+        self.stdin.read_password().or_else(|_| {
             self.stderr.write_all(prompt.as_bytes())?;
             self.stderr.flush()?;
-            rpassword::read_password_with_reader(Some(&mut self.stdin))
+            self.stdin.read_reply()
+        })
+    }
+}
+
+pub enum TermInImpl<'a> {
+    Tty,
+    Piped(StdinLock<'a>),
+}
+
+impl<'a> Read for TermInImpl<'a> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            TermInImpl::Tty => io::stdin().read(buf),
+            TermInImpl::Piped(stdin) => stdin.read(buf),
+        }
+    }
+}
+
+impl<'a> TermIn for TermInImpl<'a> {
+    fn read_reply(&mut self) -> io::Result<String> {
+        let mut ret = "".to_owned();
+        let _ = match self {
+            TermInImpl::Tty => io::stdin().read_line(&mut ret),
+            TermInImpl::Piped(stdin) => stdin.read_line(&mut ret),
+        }?;
+        check_remove_trailing_newilne(ret)
+    }
+
+    fn read_password(&mut self) -> io::Result<String> {
+        match self {
+            TermInImpl::Tty => rpassword::read_password_from_tty(None),
+            TermInImpl::Piped(stdin) => {
+                let mut ret = "".to_owned();
+                let _ = stdin.read_line(&mut ret)?;
+                Ok(remove_trailing_newilne(ret))
+            }
+        }
+    }
+}
+
+impl<'a> TermInImpl<'a> {
+    /// Creates a new `TermInImpl`.
+    ///
+    /// Returns `Tty` if the stdin is a TTY, otherwise `Piped`.
+    pub fn new(stdin: &'a Stdin) -> Self {
+        if atty::is(atty::Stream::Stdin) && !(cfg!(windows) && env::var_os("MSYSTEM").is_some()) {
+            TermInImpl::Tty
+        } else {
+            TermInImpl::Piped(stdin.lock())
         }
     }
 }
@@ -637,6 +708,32 @@ pub enum AnsiColorChoice {
     Always,
 }
 
+fn remove_trailing_newilne(mut s: String) -> String {
+    if s.ends_with("\r\n") {
+        s.pop();
+        s.pop();
+    } else if s.ends_with('\n') {
+        s.pop();
+    }
+    s
+}
+
+fn check_remove_trailing_newilne(mut s: String) -> io::Result<String> {
+    if s.ends_with("\r\n") {
+        s.pop();
+        s.pop();
+        Ok(s)
+    } else if s.ends_with('\n') {
+        s.pop();
+        Ok(s)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "input must ends with a newline",
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::terminal::{Ansi, AnsiColorChoice, Term, TermImpl, TermOut, WriteAnsi, WriteSpaces};
@@ -706,17 +803,21 @@ mod tests {
         ];
         for method in METHODS {
             let mut term = TermImpl::new(b"foo\nbar\n".borrow(), vec![], vec![]);
-
             assert_eq!(method(&mut term, "Prompt: ")?, "foo");
             assert_eq!(method(&mut term, "Prompt: ")?, "bar");
             assert!(term.stdout.wtr.is_empty());
             assert_eq!(str::from_utf8(&term.stderr.wtr)?, "Prompt: Prompt: ");
+        }
 
-            for &stdin in &[b"".borrow(), b"foo".borrow()] {
-                let mut term = TermImpl::new(stdin, vec![], vec![]);
-                let err = method(&mut term, "Prompt: ").unwrap_err();
-                assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
-            }
+        for &input in &["", "foo"] {
+            let mut term = TermImpl::new(input.as_bytes(), vec![], vec![]);
+            assert_eq!(term.prompt_password_stderr("Prompt: ")?, input);
+            assert!(term.stdout.wtr.is_empty());
+            assert_eq!(str::from_utf8(&term.stderr.wtr)?, "Prompt: ");
+
+            let mut term = TermImpl::new(input.as_bytes(), vec![], vec![]);
+            let err = term.prompt_reply_stderr("Prompt: ").unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
         }
         Ok(())
     }

@@ -3,7 +3,7 @@ use crate::errors::ExpandTemplateResult;
 use crate::judging::{self, JudgeParams};
 use crate::path::AbsPathBuf;
 use crate::service::{
-    atcoder, yukicoder, DownloadProps, RestoreProps, ServiceName, SessionProps, SubmitProps,
+    atcoder, yukicoder, DownloadProps, RestoreProps, ServiceKind, SessionProps, SubmitProps,
 };
 use crate::terminal::{AnsiColorChoice, Term};
 use crate::testsuite::{self, SuiteFileExtension};
@@ -39,7 +39,7 @@ use std::time::Duration;
                \n    snowchains modify match [OPTIONS] <problem> <extension> <match>")]
 pub enum Opt {
     #[structopt(
-        about = "Creates a config file (\"snowchains.yaml\")",
+        about = "Creates a config file (\"snowchains.toml\")",
         name = "init",
         usage = "snowchains <i|init> [OPTIONS] [directory]",
         raw(alias = "\"i\"", display_order = "1")
@@ -48,7 +48,7 @@ pub enum Opt {
         #[structopt(raw(color_choice = "1"))]
         color_choice: AnsiColorChoice,
         #[structopt(
-            help = "Directory to create a \"snowchains.yaml\"",
+            help = "Directory to create a \"snowchains.toml\"",
             default_value = ".",
             parse(from_os_str)
         )]
@@ -56,14 +56,14 @@ pub enum Opt {
     },
 
     #[structopt(
-        about = "Changes attribute values of a config file",
+        about = "Modifies values in a config file",
         name = "switch",
         usage = "snowchains <w|switch|c|checkout> [OPTIONS]",
         raw(aliases = r#"&["w", "checkout", "c"]"#, display_order = "2")
     )]
     Switch {
         #[structopt(raw(service = r#"&["atcoder", "yukicoder", "other"], Kind::Option(1)"#))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(language = "3"))]
@@ -82,7 +82,7 @@ pub enum Opt {
         #[structopt(raw(color_choice = "1"))]
         color_choice: AnsiColorChoice,
         #[structopt(raw(service = r#"&["atcoder", "yukicoder"], Kind::Arg"#))]
-        service: ServiceName,
+        service: ServiceKind,
     },
 
     #[structopt(
@@ -95,7 +95,7 @@ pub enum Opt {
         #[structopt(raw(color_choice = "1"))]
         color_choice: AnsiColorChoice,
         #[structopt(raw(service = r#"&["atcoder"], Kind::Arg"#))]
-        service: ServiceName,
+        service: ServiceKind,
         #[structopt(raw(contest = "Kind::Arg"))]
         contest: String,
     },
@@ -116,7 +116,7 @@ pub enum Opt {
         )]
         only_scraped: bool,
         #[structopt(raw(service = r#"&["atcoder", "yukicoder"], Kind::Option(1)"#))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(problems = "3"))]
@@ -133,7 +133,7 @@ pub enum Opt {
     )]
     Restore {
         #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(problems = "3"))]
@@ -152,7 +152,7 @@ pub enum Opt {
         #[structopt(raw(force_compile = "1"))]
         force_compile: bool,
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(language = "3"))]
@@ -198,7 +198,7 @@ pub enum Opt {
         )]
         no_check_duplication: bool,
         #[structopt(raw(service = "&[\"atcoder\", \"yukicoder\"], Kind::Option(1)"))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(language = "3"))]
@@ -242,7 +242,7 @@ pub enum Show {
     )]
     NumCases {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(problem = ""))]
@@ -256,7 +256,7 @@ pub enum Show {
     )]
     TimelimitMillis {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(problem = ""))]
@@ -268,7 +268,7 @@ pub enum Show {
     #[structopt(about = "Prints \"in\" value", name = "in", raw(display_order = "3"))]
     In {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(problem = ""))]
@@ -284,7 +284,7 @@ pub enum Show {
     )]
     Accepts {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(color_choice = "3"))]
@@ -305,7 +305,7 @@ pub enum Modify {
     )]
     Timelimit {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(color_choice = "3"))]
@@ -325,7 +325,7 @@ pub enum Modify {
     )]
     Append {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(color_choice = "3"))]
@@ -343,7 +343,7 @@ pub enum Modify {
     #[structopt(about = "Modifies a `match`", name = "match", raw(display_order = "3"))]
     Match {
         #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
-        service: Option<ServiceName>,
+        service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
         #[structopt(raw(color_choice = "3"))]
@@ -554,9 +554,9 @@ impl<T: Term> App<T> {
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 match service {
-                    ServiceName::Atcoder => atcoder::login(sess_props),
-                    ServiceName::Yukicoder => yukicoder::login(sess_props),
-                    ServiceName::Other => unreachable!(),
+                    ServiceKind::Atcoder => atcoder::login(sess_props),
+                    ServiceKind::Yukicoder => yukicoder::login(sess_props),
+                    ServiceKind::Other => unreachable!(),
                 }?;
             }
             Opt::Participate {
@@ -569,7 +569,7 @@ impl<T: Term> App<T> {
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 match service {
-                    ServiceName::Atcoder => atcoder::participate(&contest, sess_props),
+                    ServiceKind::Atcoder => atcoder::participate(&contest, sess_props),
                     _ => unreachable!(),
                 }?;
             }
@@ -597,9 +597,9 @@ impl<T: Term> App<T> {
                     only_scraped,
                 };
                 let outcome = match config.service() {
-                    ServiceName::Atcoder => atcoder::download(sess_props, download_props),
-                    ServiceName::Yukicoder => yukicoder::download(sess_props, download_props),
-                    ServiceName::Other => return Err(crate::ErrorKind::Unimplemented.into()),
+                    ServiceKind::Atcoder => atcoder::download(sess_props, download_props),
+                    ServiceKind::Yukicoder => yukicoder::download(sess_props, download_props),
+                    ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
                 }?;
                 let hooks = config.download_hooks(&outcome).expand()?;
                 hooks.run::<_, T::Stderr>(self.term.stdout())?;
@@ -616,7 +616,7 @@ impl<T: Term> App<T> {
                 let sess_props = self.sess_props(&config)?;
                 let restore_props = RestoreProps::new(&config, problems);
                 match config.service() {
-                    ServiceName::Atcoder => atcoder::restore(sess_props, restore_props)?,
+                    ServiceKind::Atcoder => atcoder::restore(sess_props, restore_props)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
             }
@@ -685,8 +685,8 @@ impl<T: Term> App<T> {
                 let submit_props =
                     SubmitProps::try_new(&config, problem.clone(), open, no_check_duplication)?;
                 match config.service() {
-                    ServiceName::Atcoder => atcoder::submit(sess_props, submit_props)?,
-                    ServiceName::Yukicoder => yukicoder::submit(sess_props, submit_props)?,
+                    ServiceKind::Atcoder => atcoder::submit(sess_props, submit_props)?,
+                    ServiceKind::Yukicoder => yukicoder::submit(sess_props, submit_props)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
             }

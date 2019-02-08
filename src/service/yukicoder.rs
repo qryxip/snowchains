@@ -3,11 +3,11 @@ use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ExtractZip, PrintTargets,
-    ProblemNameConversion, Service, ServiceName, SessionProps, SubmitProps, ZipEntries,
-    ZipEntriesSorting,
+    Service, ServiceKind, SessionProps, SubmitProps, ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
+use crate::util::str::CaseConversion;
 
 use cookie::Cookie;
 use failure::ResultExt;
@@ -37,7 +37,7 @@ pub(crate) fn download(
     mut sess_props: SessionProps<impl Term>,
     download_props: DownloadProps<String>,
 ) -> ServiceResult<DownloadOutcome> {
-    let download_props = download_props.convert_contest_and_problems(ProblemNameConversion::Upper);
+    let download_props = download_props.convert_contest_and_problems(CaseConversion::Upper);
     download_props.print_targets(sess_props.term.stdout())?;
     Yukicoder::try_new(sess_props)?.download(&download_props)
 }
@@ -46,7 +46,7 @@ pub(crate) fn submit(
     mut sess_props: SessionProps<impl Term>,
     submit_props: SubmitProps<String>,
 ) -> ServiceResult<()> {
-    let submit_props = submit_props.convert_contest_and_problem(ProblemNameConversion::Upper);
+    let submit_props = submit_props.convert_contest_and_problem(CaseConversion::Upper);
     submit_props.print_targets(sess_props.term.stdout())?;
     Yukicoder::try_new(sess_props)?.submit(&submit_props)
 }
@@ -171,7 +171,7 @@ impl<T: Term> Yukicoder<T> {
                 let path = destinations.expand(problem)?;
                 Ok((suite, path))
             };
-        let mut outcome = DownloadOutcome::new(ServiceName::Yukicoder, contest, *open_in_browser);
+        let mut outcome = DownloadOutcome::new(ServiceKind::Yukicoder, contest, *open_in_browser);
         match (contest, problems.as_ref()) {
             (YukicoderContest::No, None) => {
                 return Err(ServiceErrorKind::PleaseSpecifyProblems.into());

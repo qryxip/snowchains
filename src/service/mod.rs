@@ -13,17 +13,18 @@ use crate::template::Template;
 use crate::terminal::{Term, WriteAnsi};
 use crate::testsuite::{DownloadDestinations, SuiteFilePath, TestSuite};
 use crate::util;
+use crate::util::str::CaseConversion;
 
 use failure::ResultExt;
-use heck::{CamelCase, KebabCase, MixedCase, ShoutySnakeCase, SnakeCase, TitleCase};
+use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
 use maplit::hashmap;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::RedirectPolicy;
-use serde::{Serialize, Serializer};
-use serde_derive::{Deserialize, Serialize};
-use strum_macros::{EnumString, IntoStaticStr};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_derive::Serialize;
+use strum_macros::IntoStaticStr;
 use tokio::runtime::Runtime;
 use url::{Host, Url};
 use zip::result::ZipResult;
@@ -33,6 +34,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{self, Cursor, Write};
 use std::ops::Deref;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{cmp, fmt, mem, slice};
@@ -47,12 +49,10 @@ use std::{cmp, fmt, mem, slice};
     Debug,
     strum_macros::Display,
     IntoStaticStr,
-    EnumString,
     Serialize,
-    Deserialize,
 )]
 #[serde(rename_all = "lowercase")]
-pub enum ServiceName {
+pub enum ServiceKind {
     #[strum(to_string = "atcoder")]
     Atcoder,
     #[strum(to_string = "yukicoder")]
@@ -61,19 +61,40 @@ pub enum ServiceName {
     Other,
 }
 
-impl Default for ServiceName {
-    fn default() -> Self {
-        ServiceName::Other
+impl ServiceKind {
+    pub(crate) fn domain(self) -> Option<&'static str> {
+        match self {
+            ServiceKind::Atcoder => Some("atcoder.jp"),
+            ServiceKind::Yukicoder => Some("yukicoder.me"),
+            ServiceKind::Other => None,
+        }
     }
 }
 
-impl ServiceName {
-    pub(crate) fn domain(self) -> Option<&'static str> {
-        match self {
-            ServiceName::Atcoder => Some("atcoder.jp"),
-            ServiceName::Yukicoder => Some("yukicoder.me"),
-            ServiceName::Other => None,
+impl Default for ServiceKind {
+    fn default() -> Self {
+        ServiceKind::Other
+    }
+}
+
+impl FromStr for ServiceKind {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> std::result::Result<Self, &'static str> {
+        match s {
+            "atcoder" => Ok(ServiceKind::Atcoder),
+            "yukicoder" => Ok(ServiceKind::Yukicoder),
+            "other" => Ok(ServiceKind::Other),
+            _ => Err(r#"expected "atcoder", "yukicoder", or "other""#),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for ServiceKind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        String::deserialize(deserializer)?
+            .parse::<Self>()
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -233,7 +254,7 @@ pub(self) enum ZipEntriesSorting {
 
 #[derive(Serialize)]
 pub(crate) struct DownloadOutcome {
-    service: ServiceName,
+    service: ServiceKind,
     open_in_browser: bool,
     contest: DownloadOutcomeContest,
     pub(self) problems: Vec<DownloadOutcomeProblem>,
@@ -242,6 +263,12 @@ pub(crate) struct DownloadOutcome {
 #[derive(Serialize)]
 struct DownloadOutcomeContest {
     slug: String,
+    slug_lower_case: String,
+    slug_upper_case: String,
+    slug_snake_case: String,
+    slug_kebab_case: String,
+    slug_mixed_case: String,
+    slug_pascal_case: String,
 }
 
 #[derive(Serialize)]
@@ -249,14 +276,12 @@ pub(self) struct DownloadOutcomeProblem {
     #[serde(serialize_with = "ser_as_str")]
     pub(self) url: Url,
     pub(self) name: String,
-    name_lower: String,
-    name_upper: String,
-    name_kebab: String,
-    name_snake: String,
-    name_screaming: String,
-    name_mixed: String,
-    name_pascal: String,
-    name_title: String,
+    name_lower_case: String,
+    name_upper_case: String,
+    name_snake_case: String,
+    name_kebab_case: String,
+    name_mixed_case: String,
+    name_pascal_case: String,
     #[serde(serialize_with = "ser_as_path")]
     pub(self) test_suite_path: SuiteFilePath,
     pub(self) test_suite: TestSuite,
@@ -274,12 +299,18 @@ fn ser_as_path<S: Serializer>(
 }
 
 impl DownloadOutcome {
-    pub(self) fn new(service: ServiceName, contest: &impl Contest, open_in_browser: bool) -> Self {
+    pub(self) fn new(service: ServiceKind, contest: &impl Contest, open_in_browser: bool) -> Self {
         Self {
             service,
             open_in_browser,
             contest: DownloadOutcomeContest {
                 slug: contest.slug().into(),
+                slug_lower_case: contest.slug().to_lowercase(),
+                slug_upper_case: contest.slug().to_uppercase(),
+                slug_snake_case: contest.slug().to_snake_case(),
+                slug_kebab_case: contest.slug().to_kebab_case(),
+                slug_mixed_case: contest.slug().to_mixed_case(),
+                slug_pascal_case: contest.slug().to_camel_case(),
             },
             problems: vec![],
         }
@@ -294,14 +325,12 @@ impl DownloadOutcome {
     ) {
         self.problems.push(DownloadOutcomeProblem {
             url,
-            name_lower: name.to_lowercase(),
-            name_upper: name.to_uppercase(),
-            name_kebab: name.to_kebab_case(),
-            name_snake: name.to_snake_case(),
-            name_screaming: name.to_shouty_snake_case(),
-            name_mixed: name.to_mixed_case(),
-            name_pascal: name.to_camel_case(),
-            name_title: name.to_title_case(),
+            name_lower_case: name.to_lowercase(),
+            name_upper_case: name.to_uppercase(),
+            name_snake_case: name.to_snake_case(),
+            name_kebab_case: name.to_kebab_case(),
+            name_mixed_case: name.to_mixed_case(),
+            name_pascal_case: name.to_camel_case(),
             name,
             test_suite_path: path,
             test_suite: suite,
@@ -382,13 +411,13 @@ pub(crate) struct DownloadProps<C: Contest> {
 impl DownloadProps<String> {
     pub(self) fn convert_contest_and_problems<C: Contest>(
         self,
-        conversion: ProblemNameConversion,
+        conversion: CaseConversion,
     ) -> DownloadProps<C> {
         DownloadProps {
             contest: C::from_string(self.contest),
             problems: self
                 .problems
-                .map(|ps| ps.into_iter().map(|p| conversion.convert(&p)).collect()),
+                .map(|ps| ps.into_iter().map(|p| conversion.apply(&p)).collect()),
             destinations: self.destinations,
             open_in_browser: self.open_in_browser,
             only_scraped: self.only_scraped,
@@ -429,13 +458,13 @@ impl<'a> RestoreProps<'a, String> {
 
     pub(self) fn convert_contest_and_problems<C: Contest>(
         self,
-        conversion: ProblemNameConversion,
+        conversion: CaseConversion,
     ) -> RestoreProps<'a, C> {
         RestoreProps {
             contest: C::from_string(self.contest),
             problems: self
                 .problems
-                .map(|ps| ps.into_iter().map(|p| conversion.convert(&p)).collect()),
+                .map(|ps| ps.into_iter().map(|p| conversion.apply(&p)).collect()),
             src_paths: self.src_paths,
         }
     }
@@ -484,11 +513,11 @@ impl SubmitProps<String> {
 
     pub(self) fn convert_contest_and_problem<C: Contest>(
         self,
-        conversion: ProblemNameConversion,
+        conversion: CaseConversion,
     ) -> SubmitProps<C> {
         SubmitProps {
             contest: C::from_string(self.contest),
-            problem: conversion.convert(&self.problem),
+            problem: conversion.apply(&self.problem),
             lang_id: self.lang_id,
             src_path: self.src_path,
             open_in_browser: self.open_in_browser,
@@ -521,19 +550,6 @@ impl Contest for String {
 
     fn slug(&self) -> Cow<str> {
         self.as_str().into()
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(self) enum ProblemNameConversion {
-    Upper,
-}
-
-impl ProblemNameConversion {
-    fn convert(self, s: &str) -> String {
-        match self {
-            ProblemNameConversion::Upper => s.to_uppercase(),
-        }
     }
 }
 

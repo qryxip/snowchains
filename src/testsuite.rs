@@ -6,20 +6,23 @@ use crate::errors::{
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
 use crate::terminal::WriteAnsi;
+use crate::time;
 use crate::util::num::PositiveFinite;
-use crate::{time, yaml};
 
 use derive_more::From;
 use derive_new::new;
 use failure::Fail;
 use itertools::{EitherOrBoth, Itertools};
+use log::warn;
 use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
+use yaml_rust::{Yaml, YamlEmitter};
 
 #[cfg(test)]
 use failure::Fallible;
 
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write;
 use std::iter::FromIterator;
@@ -587,6 +590,25 @@ impl BatchSuite {
             }
             .ser_context(),
             SuiteFileExtension::Yaml | SuiteFileExtension::Yml => {
+                fn quote_if_necessary(s: &str) -> Cow<str> {
+                    if s.parse::<i64>().is_ok() || s.parse::<f64>().is_ok() {
+                        Cow::from(s)
+                    } else {
+                        let mut buf = "".to_owned();
+                        {
+                            let mut emitter = YamlEmitter::new(&mut buf);
+                            emitter.dump(&Yaml::String(s.to_owned())).unwrap();
+                        }
+                        if buf.starts_with("---\n") {
+                            warn!(r#"Expected "---\n.*", got {:?}"#, buf);
+                            buf = buf[4..].to_owned();
+                        } else {
+                            buf = format!("{:?}", s);
+                        }
+                        Cow::from(buf)
+                    }
+                }
+
                 fn is_valid(s: &str) -> bool {
                     s.ends_with('\n')
                         && s != "\n"
@@ -619,7 +641,7 @@ impl BatchSuite {
                     } in cases
                     {
                         if let Some(name) = name {
-                            write!(r, "  - name: {}\n    ", yaml::escape_string(name)).unwrap();
+                            write!(r, "  - name: {}\n    ", quote_if_necessary(name)).unwrap();
                         } else {
                             r += "  - ";
                         }
@@ -631,7 +653,7 @@ impl BatchSuite {
                                 }
                             }
                             BatchSuiteText::String(input) => {
-                                let input = yaml::escape_string(input);
+                                let input = quote_if_necessary(input);
                                 writeln!(r, "in: {}", input).unwrap();
                             }
                             BatchSuiteText::Path { .. } => unreachable!(),
@@ -645,7 +667,7 @@ impl BatchSuite {
                                     }
                                 }
                                 BatchSuiteText::String(output) => {
-                                    let output = yaml::escape_string(output);
+                                    let output = quote_if_necessary(output);
                                     writeln!(r, "    out: {}", output).unwrap();
                                 }
                                 BatchSuiteText::Path { .. } => unreachable!(),
@@ -924,7 +946,7 @@ impl InteractiveCase {
 mod tests {
     use crate::errors::{ConfigErrorKind, TestSuiteError, TestSuiteErrorKind, TestSuiteResult};
     use crate::path::AbsPathBuf;
-    use crate::service::ServiceName;
+    use crate::service::ServiceKind;
     use crate::template::{AbsPathBufRequirements, JudgingCommandRequirements, TemplateBuilder};
     use crate::testsuite::{
         BatchSuite, BatchSuiteSchemaCase, BatchSuiteSchemaHead, BatchSuiteText, InteractiveSuite,
@@ -1035,12 +1057,13 @@ type: unsubmittable
             &tempdir,
             "snowchains_test_testsuite_tests_test_test_case_loader",
         )?;
-        let template_builder = "${service}/${contest}/tests/${problem_snake}.${extension}"
-            .parse::<TemplateBuilder<AbsPathBuf>>()?;
+        let template_builder =
+            "${service}/${snake_case(contest)}/tests/${snake_case(problem)}.${extension}"
+                .parse::<TemplateBuilder<AbsPathBuf>>()?;
 
         let template = template_builder.build(AbsPathBufRequirements {
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
-            service: ServiceName::Atcoder,
+            service: ServiceKind::Atcoder,
             contest: "abc117".to_owned(),
         });
         let test_dir = tempdir.path().join("atcoder").join("abc117").join("tests");
@@ -1113,12 +1136,12 @@ type: unsubmittable
 
         let template = template_builder.build(AbsPathBufRequirements {
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
-            service: ServiceName::Atcoder,
+            service: ServiceKind::Atcoder,
             contest: "arc078".to_owned(),
         });
         let tester_command = TemplateBuilder::dummy().build(JudgingCommandRequirements {
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
-            service: ServiceName::Atcoder,
+            service: ServiceKind::Atcoder,
             contest: "arc078".to_owned(),
             shell: hashmap!(),
             working_dir: ".".parse()?,
@@ -1178,7 +1201,7 @@ type: unsubmittable
 
         let template = template_builder.build(AbsPathBufRequirements {
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
-            service: ServiceName::Atcoder,
+            service: ServiceKind::Atcoder,
             contest: "apg4b".to_owned(),
         });
         let test_dir = tempdir.path().join("atcoder").join("apg4b").join("tests");

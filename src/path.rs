@@ -16,6 +16,15 @@ impl AbsPath {
         unsafe { &*(path as *const Path as *const Self) }
     }
 
+    #[cfg(test)]
+    pub(crate) fn try_new(path: &Path) -> Option<&Self> {
+        if path.is_absolute() {
+            Some(Self::unchecked(path))
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn parent(&self) -> Option<&Self> {
         self.inner.parent().map(Self::unchecked)
     }

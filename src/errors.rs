@@ -284,8 +284,14 @@ pub enum ExpandTemplateErrorKind {
     NoSuchShell(String),
     #[display(fmt = "Undefined variable: {:?}", _0)]
     UndefinedVar(String),
+    #[display(fmt = "Undefined function: {:?}", _0)]
+    UndefinedFun(String),
+    #[display(fmt = "${{{}}} = {:?} is not valid UTF-8", _0, _1)]
+    NonUtf8Var(String, OsString),
     #[display(fmt = "The environment variable {} is not present", _0)]
     EnvVarNotPresent(String),
+    #[display(fmt = "${{env:{}}} = {:?} is not valid UTF-8", _0, _1)]
+    NonUtf8EnvVar(String, OsString),
     #[display(fmt = "Failed to serialize the data into a JSON")]
     SerializeJson,
 }

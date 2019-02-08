@@ -13,7 +13,7 @@ use futures::{Future, Sink, Stream};
 use itertools::Itertools;
 use tokio::runtime::Runtime;
 
-use std::io::{self, BufRead};
+use std::io::{self, Read};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
@@ -65,7 +65,7 @@ pub(crate) fn accepts(
     config: &Config,
     problem: &str,
     nth: usize,
-    mut stdin: impl BufRead,
+    mut stdin: impl Read,
     mut stderr: impl TermOut,
 ) -> JudgeResult<()> {
     let (cases, _) = config.testcase_loader().load_merging(problem)?;

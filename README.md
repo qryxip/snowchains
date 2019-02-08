@@ -63,8 +63,8 @@ FLAGS:
     -V, --version    Prints version information
 
 SUBCOMMANDS:
-    init           Creates a config file ("snowchains.yaml")
-    switch         Changes attribute values of a config file
+    init           Creates a config file ("snowchains.toml")
+    switch         Modifies values in a config file
     login          Logges in to a service
     participate    Participates in a contest
     download       Downloads test cases
@@ -81,181 +81,202 @@ $ snowchains init ./
 $ snowchains switch --service atcoder --contest practice --language c++
 $ # snowchains login atcoder
 $ # snowchains participate atcoder practice
-$ snowchains download --open                   # does not ask your username and password unless they are needed
-$ $EDITOR ./snowchains/atcoder/practice/a.yaml # add more test cases
+$ snowchains download --open                  # does not ask your username and password unless they are needed
+$ $EDITOR ./snowchains/atcoder/practice/a.yml # add more test cases
 $ $EDITOR ./cpp/a.cpp
 $ # snowchains judge a
-$ snowchains submit a --open                   # executes `judge` command before submitting
+$ snowchains submit a --open                  # executes `judge` command before submitting
 ```
 
 ## Examples
 
-### Config File (snowchains.yaml)
+### Config File (snowchains.toml)
 
-```yaml
----
-service: atcoder # "atcoder", "yukicoder", "other"
-contest: arc100
-language: c++
+```toml
+service = "atcoder"
+contest = "arc100"
+language = "c++"
 
-console:
-  cjk: false
-  # alt_width: 100
+[console]
+cjk = false
+# alt_width = 100
 
-shell:
-  bash: [/usr/bin/bash, -c, "${{command}}"]
-  # bash: ["C:/tools/msys64/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; "${{command}}""]
-  # bash: ["C:/msys64/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; "${{command}}""]
-  # bash: ["C:/Program Files/Git/usr/bin/bash.exe", -c, "PATH=/usr/bin:$$PATH; "${{command}}""]
-  # ps: ["C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", -Command, "${{command}}"]
-  # cmd: ["C:/Windows/System32/cmd.exe", /C, "${{command}}"]
+[shell]
+bash = ["/usr/bin/bash", "-c", "${command}"]
+# bash = ["C:/tools/msys64/usr/bin/bash.exe", "-c", "PATH=/usr/bin:$$PATH; ${command}"]
+# bash = ["C:/msys64/usr/bin/bash.exe", "-c", "PATH=/usr/bin:$$PATH; ${command}"]
+# bash = ["C:/Program Files/Git/usr/bin/bash.exe", "-c", "PATH=/usr/bin:$$PATH; ${command}"]
+# ps = ["C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", "-Command", "${command}"]
+# cmd = ["C:/Windows/System32/cmd.exe", "/C", "${command}"]
 
-testfile_path: ${service}/${contest}/tests/${problem_snake}.${extension}
+[testfiles]
+path = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}.${extension}"
 
-session:
-  timeout: 60s
-  silent: false
-  cookies: "~/.local/share/snowchains/${service}"
-  dropbox: false
-  # dropbox:
-  #   auth: ~/.local/share/snowchains/dropbox.json
-  download:
-    extension: yaml
-    text_file_dir: ${service}/${contest}/tests/${problem_snake}
+[session]
+timeout = "60s"
+silent = false
+cookies = "~/.local/share/snowchains/${service}"
+dropbox = false
+# dropbox = { auth: "~/.local/share/snowchains/dropbox.json" }
 
-judge:
-  testfile_extensions: [json, toml, yaml, yml]
-  # jobs: 4
-  display_limit: 1KiB
+[session.download]
+extension = "yml"
+text_file_dir = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}"
 
-env:
-  atcoder:
-    CXXFLAGS: -std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
-    RUST_VERSION: 1.15.1
-  yukicoder:
-    CXXFLAGS: -std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
-    RUST_VERSION: 1.30.1
-  other:
-    CXXFLAGS: -std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra
-    RUST_VERSION: stable
+[judge]
+testfile_extensions = ["json", "toml", "yaml", "yml"]
+# jobs = 4
+display_limit = "1KiB"
 
-hooks:
-  switch:
-    - bash: |
-        service="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.service)"
-        contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.contest)"
-        if [ ! -d "./$service/$contest/rs" ]; then
-          mkdir -p "./$service/$contest" &&
-          cargo new --lib --edition 2015 --name "$contest" "./$service/$contest/rs" &&
-          mkdir "./$service/$contest/rs/src/bin" &&
-          rm "./$service/$contest/rs/src/lib.rs"
-        fi
-  download:
-    - bash: |
-        if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .open_in_browser)" = true ]; then
-          service="$(echo "$SNOWCHAINS_RESULT" | jq -r .service)"
-          contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .contest.slug)"
-          echo "$SNOWCHAINS_RESULT" |
-            jq -r --arg service "$service" --arg contest "$contest" '.problems | map("./" + $service + "/" + $contest + "/rs/src/bin/" + .name_kebab + ".rs") | join("\n")' |
-            xargs -d \\n -I % -r cp "./templates/rs/src/bin/$service.rs" % &&
-          echo "$SNOWCHAINS_RESULT" |
-            jq -r --arg service "$service" --arg contest "$contest" '.problems | map(["./" + $service + "/" + $contest + "/rs/src/bin/" + .name_kebab + ".rs", .test_suite_path]) | flatten | join("\n")' |
-            xargs -d \\n -r emacsclient -n
-        fi
+[env.atcoder]
+CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+RUST_VERSION = "1.15.1"
 
-tester:
-  src: testers/py/${problem_kebab}.py
-  run:
-    command:
-      bash: ./venv/bin/python3 "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED
-  working_directory: testers/py
-  # src: testers/hs/app/${problem_pascal}.hs
-  # compile:
-  #   bin: testers/hs/target/${problem_pascal}
-  #   command: [stack, ghc, --, -O2, -o, "${bin}", "${src}"]
-  # run:
-  #   command:
-  #     bash: "$SNOWCHAINS_BIN" $SNOWCHAINS_ARGS_JOINED
-  # working_directory: testers/hs
+[env.yukicoder]
+CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+RUST_VERSION = "1.30.1"
 
-languages:
-  c++:
-    src: ${service}/${contest}/cpp/${problem_kebab}.cpp # source file to test and to submit
-    compile:                                            # optional
-      bin: ${service}/${contest}/cpp/build/${problem_kebab}
-      command:
-        bash: g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"
-    run:
-      command: ["${bin}"]
-      # crlf_to_lf: false
-    working_directory: ${service}/${contest}/cpp        # default: "."
-    language_ids: { atcoder: 3003, yukicoder: cpp14 }   # optional
-  rust:
-    src: ${service}/${contest}/rs/src/bin/${problem_kebab}.rs
-    compile:
-      bin: ${service}/${contest}/rs/target/manually/${problem_kebab}
-      command: [rustc, "+${env:RUST_VERSION}", -o, "${bin}", "${src}"]
-    run:
-      command: ["${bin}"]
-      # crlf_to_lf: false
-    working_directory: ${service}/${contest}/rs
-    language_ids: { atcoder: 3504, yukicoder: rust }
-  haskell:
-    src: ${service}/${contest}/hs/app/${problem_pascal}.hs
-    compile:
-      bin: ${service}/${contest}/hs/target/${problem_pascal}
-      command: [stack, ghc, --, -O2, -o, "${bin}", "${src}"]
-    run:
-      command: ["${bin}"]
-      # crlf_to_lf: false
-    working_directory: ${service}/${contest}/hs
-    language_ids: { atcoder: 3014, yukicoder: haskell }
-  python3:
-    src: ${service}/${contest}/py/${problem_kebab}.py
-    run:
-      command: ["../../../venvs/python3_${service}/bin/python3", "${src}"]
-      crlf_to_lf: true
-    working_directory: ${service}/${contest}/py
-    language_ids: { atcoder: 3023, yukicoder: python3 }
-  pypy3:
-    src: ${service}/${contest}/py/${problem_kebab}.py
-    run:
-      command: ["../../../venvs/pypy3_${service}/bin/python3", "${src}"]
-      crlf_to_lf: true
-    working_directory: ${service}/${contest}/py
-    language_ids: { atcoder: 3510, yukicoder: pypy3 }
-  java:
-    src: ${service}/${contest}/java/src/main/java/${problem_pascal}.java
-    transpile:
-      transpiled: ${service}/${contest}/java/build/replaced/${problem_lower}/src/Main.java
-      command:
-        bash: cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL/class Main/g" > "$SNOWCHAINS_TRANSPILED"
-    compile:
-      bin: ${service}/${contest}/java/build/replaced/${problem_lower}/classes/Main.class
-      command: [javac, -d, "./build/replaced/${problem_lower}/classes", "${transpiled}"]
-    run:
-      command: [java, -classpath, "./build/replaced/${problem_lower}/classes", Main]
-      crlf_to_lf: true
-    working_directory: ${service}/${contest}/java
-    language_ids: { atcoder: 3016, yukicoder: java8 }
-  # c#:
-  #   src: ${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs
-  #   compile:
-  #     bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
-  #     command: [csc, /o+, "/r:System.Numerics", "/out:${bin}", "${src}"]
-  #   run:
-  #     command: ["${bin}"]
-  #   working_directory: ${service}/${contest}/cs
-  #   language_ids: { atcoder: 3006, yukicoder: csharp }
-  c#:
-    src: ${service}/${contest}/cs/${problem_pascal}/${problem_pascal}.cs
-    compile:
-      bin: ${service}/${contest}/cs/${problem_pascal}/bin/Release/${problem_pascal}.exe
-      command: [mcs, -o+, "-r:System.Numerics", "-out:${bin}", "${src}"]
-    run:
-      command: [mono, "${bin}"]
-    working_directory: ${service}/${contest}/cs
-    language_ids: { atcoder: 3006, yukicoder: csharp_mono }
+[env.other]
+CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+RUST_VERSION = "stable"
+
+[[hooks.switch]]
+bash = '''
+service="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.service)"
+contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.contest_snake_case)"
+if [ ! -d "./$service/$contest/rs" ]; then
+  mkdir -p "./$service/$contest" &&
+  cargo new --lib --edition 2015 --name "$contest" "./$service/$contest/rs" &&
+  mkdir "./$service/$contest/rs/src/bin" &&
+  rm "./$service/$contest/rs/src/lib.rs"
+fi
+'''
+
+[[hooks.download]]
+bash = '''
+if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .open_in_browser)" = true ]; then
+  service="$(echo "$SNOWCHAINS_RESULT" | jq -r .service)"
+  echo "$SNOWCHAINS_RESULT" |
+    jq -r '
+      . as $root
+      | .problems
+      | map("./" + $root.service + "/" + $root.contest.slug_lower_case + "/rs/src/bin/" + .name_kebab_case + ".rs")
+      | join("\n")
+    ' | xargs -d \\n -I % -r cp "./templates/rs/src/bin/$service.rs" % &&
+  echo "$SNOWCHAINS_RESULT" |
+    jq -r '
+      . as $root
+      | .problems
+      | map(["./" + $root.service + "/" + $root.contest.slug_lower_case + "/rs/src/bin/" + .name_kebab_case + ".rs", .test_suite_path])
+      | flatten
+      | join("\n")
+    ' | xargs -d \\n -r emacsclient -n
+fi
+'''
+
+[tester]
+src = "testers/py/${kebab_case(problem)}.py"
+run = { bash = './venv/bin/python3 "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED' }
+working_directory = "testers/py"
+
+# [tester]
+# src = "testers/hs/app/${pascal_case(problem)}.hs"
+# bin = "testers/hs/target/${pascal_case(problem)}"
+# run = { bash = '"$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED' }
+# working_directory = "testers/hs"
+
+[languages.'c++']
+src = "${service}/${snake_case(contest)}/cpp/${kebab_case(problem)}.cpp"
+bin = "${service}/${snake_case(contest)}/cpp/build/${kebab_case(problem)}"
+compile = { bash = 'g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"' }
+run = ["${bin}"]
+working_directory = "${service}/${snake_case(contest)}/cpp"
+language_ids = { atcoder = "3003", yukicoder = "cpp14" }
+
+[languages.rust]
+src = "${service}/${snake_case(contest)}/rs/src/bin/${kebab_case(problem)}.rs"
+bin = "${service}/${snake_case(contest)}/rs/target/manually/${kebab_case(problem)}"
+compile = ["rustc", "+${env:RUST_VERSION}", "-o", "${bin}", "${src}"]
+run = ["${bin}"]
+working_directory = "${service}/${snake_case(contest)}/rs"
+language_ids = { atcoder = "3504", yukicoder = "rust" }
+
+[languages.go]
+src = "${service}/${snake_case(contest)}/go/${kebab_case(problem)}.go"
+bin = "${service}/${snake_case(contest)}/go/${kebab_case(problem)}"
+compile = ["go", "build", "-o", "${bin}", "${src}"]
+run = ["${bin}"]
+working_directory = "${service}/${snake_case(contest)}/go"
+language_ids = { atcoder = "3013", yukicoder = "go" }
+
+[languages.haskell]
+src = "${service}/${snake_case(contest)}/hs/app/${pascal_case(problem)}.hs"
+bin = "${service}/${snake_case(contest)}/hs/target/${pascal_case(problem)}"
+compile = ["stack", "ghc", "--", "-O2", "-o", "${bin}", "${src}"]
+run = ["${bin}"]
+working_directory = "${service}/${snake_case(contest)}/hs"
+language_ids = { atcoder = "3014", yukicoder = "haskell" }
+
+[languages.bash]
+src = "${service}/${snake_case(contest)}/bash/${kebab_case(problem)}.bash"
+run = ["bash", "${src}"]
+working_directory = "${service}/${snake_case(contest)}/bash"
+language_ids = { atcoder = "3001", yukicoder = "sh" }
+
+[languages.python3]
+src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
+run = ["../../../venvs/python3_${service}/bin/python3", "${src}"]
+working_directory = "${service}/${snake_case(contest)}/py"
+language_ids = { atcoder = "3023", yukicoder = "python3" }
+
+[languages.pypy3]
+src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
+run = ["../../../venvs/pypy3_${service}/bin/python3", "${src}"]
+working_directory = "${service}/${snake_case(contest)}/py"
+language_ids = { atcoder = "3510", yukicoder = "pypy3" }
+
+[languages.java]
+src = "${service}/${snake_case(contest)}/java/src/main/java/${pascal_case(problem)}.java"
+transpiled = "${service}/${snake_case(contest)}/java/build/replaced/${lower_case(problem)}/src/Main.java"
+bin = "${service}/${snake_case(contest)}/java/build/replaced/${lower_case(problem)}/classes/Main.class"
+transpile = { bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/class Main/g" > "$SNOWCHAINS_TRANSPILED"' }
+compile = ["javac", "-d", "./build/replaced/${lower_case(problem)}/classes", "${transpiled}"]
+run = ["java", "-classpath", "./build/replaced/${lower_case(problem)}/classes", "Main"]
+working_directory = "${service}/${snake_case(contest)}/java"
+language_ids = { atcoder = "3016", yukicoder = "java8" }
+
+[languages.scala]
+src = "${service}/${snake_case(contest)}/scala/src/main/scala/${pascal_case(problem)}.scala"
+transpiled = "${service}/${snake_case(contest)}/scala/target/replaced/${lower_case(problem)}/src/Main.scala"
+bin = "${service}/${snake_case(contest)}/scala/target/replaced/${lower_case(problem)}/classes/Main.class"
+transpile = { bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/object Main/g" > "$SNOWCHAINS_TRANSPILED"' }
+compile = ["scalac", "-optimise", "-d", "./target/replaced/${lower_case(problem)}/classes", "${transpiled}"]
+run = ["scala", "-classpath", "./target/replaced/${lower_case(problem)}/classes", "Main"]
+working_directory = "${service}/${snake_case(contest)}/scala"
+language_ids = { atcoder = "3025", yukicoder = "scala" }
+
+[languages.'c#']
+src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
+bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/${pascal_case(problem)}.exe"
+compile = ["mcs", "-o+", "-r:System.Numerics", "-out:${bin}", "${src}"]
+run = ["mono", "${bin}"]
+working_directory = "${service}/${snake_case(contest)}/cs"
+language_ids = { atcoder = "3006", yukicoder = "csharp_mono" }
+
+# [languages.'c#']
+# src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
+# bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/${pascal_case(problem)}.exe"
+# compile = ["csc", "/o+", "/r:System.Numerics", "/out:${bin}", "${src}"]
+# run = ["${bin}"]
+# crlf_to_lf: true
+# working_directory = "${service}/${snake_case(contest)}/cs"
+# language_ids = { atcoder = "3006", yukicoder = "csharp" }
+
+[languages.text]
+src = "${service}/${snake_case(contest)}/txt/${snake_case(problem)}.txt"
+run = ["cat", "${src}"]
+working_directory = "${service}/${snake_case(contest)}/txt"
+language_ids = { atcoder = "3027", yukicoder = "text" }
 ```
 
 ### Test file
