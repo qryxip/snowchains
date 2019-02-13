@@ -1,7 +1,7 @@
 # Snowchains
 
-[![Build Status](https://img.shields.io/travis/wariuni/snowchains.svg?branch=master&label=windows%20%26%20macos%20%26%20linux)](https://travis-ci.org/wariuni/snowchains)
-[![codecov](https://codecov.io/gh/wariuni/snowchains/branch/master/graph/badge.svg)](https://codecov.io/gh/wariuni/snowchains)
+[![Build Status](https://img.shields.io/travis/qryxip/snowchains.svg?branch=master&label=windows%20%26%20macos%20%26%20linux)](https://travis-ci.org/qryxip/snowchains)
+[![codecov](https://codecov.io/gh/qryxip/snowchains/branch/master/graph/badge.svg)](https://codecov.io/gh/qryxip/snowchains)
 
 Tools for online programming contests.
 
@@ -20,25 +20,38 @@ Tools for online programming contests.
 
 ## Instrallation
 
+### GitHub Releases
+
+https://github.com/qryxip/snowchains/releases
+
+### Crates.io
+
 Install [Cargo](https://github.com/rust-lang/cargo) with
 [rustup](https://github.com/rust-lang-nursery/rustup.rs),
 add `~/.cargo/bin` to your `$PATH`, and
 
 ```console
-$ cargo [+stable] install --git https://github.com/wariuni/snowchains
+$ cargo install snowchains
 ```
 
 To update:
 
 ```console
-$ cargo [+stable] install-update -ag
+$ cargo uninstall snowchains && cargo install snowchains
+```
+
+Or
+
+```
+$ cargo install cargo-update
+$ cargo install-update snowchains
 ```
 
 ## Usage
 
 ```
-snowchains 0.23.0
-Ryo Yamashita <wariuni@gmail.com>
+snowchains 0.1.0
+Ryo Yamashita <qryxip@gmail.com>
 Tools for online programming contests
 
 USAGE:
@@ -486,3 +499,7 @@ main = do
     ["!", a]          -> judge a
     _                 -> error "invalid"
 ```
+
+## License
+
+Dual-licensed under [MIT](https://opensource.org/licenses/MIT) or [Apache-2.0](http://www.apache.org/licenses/LICENSE-2.0).

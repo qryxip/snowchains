@@ -1,17 +1,24 @@
 [package]
 name = "snowchains"
-version = "0.23.0"
-description = "Tools for online programming contests"
-license = "MIT"
-authors = ["Ryo Yamashita <wariuni@gmail.com>"]
-readme = "README.md"
-repository = "https://github.com/wariuni/snowchains"
+version = "0.1.0"
 edition = "2018"
+authors = ["Ryo Yamashita <qryxip@gmail.com>"]
+license = "MIT OR Apache-2.0"
+description = "Tools for online programming contests"
+repository = "https://github.com/qryxip/snowchains"
+documentation = "https://docs.rs/snowchains"
+readme = "README.md"
+keywords = ["windows", "cli"]
+categories = ["Command line utilities"]
+
+[badges]
+travis-ci = { repository = "qryxip/snowchains" }
+codecov = { repository = "qryxip/snowchains" }
 
 [dependencies]
-snowchains_proc_macros = { path = "./proc_macros" }
+snowchains_proc_macros = { path = "./proc_macros", version = "0.1.0" }
 atty = "0.2.11"
-bincode = "1.0.1"
+bincode = "1.1.1"
 chrono = "0.4.6"
 combine = "3.6.6"
 cookie = "0.11.0"
@@ -31,8 +38,8 @@ log = "0.4.6"
 maplit = "1.0.1"
 mime = "0.3.13"
 num-traits = "0.2.6"
-num_cpus = "1.9.0"
-once_cell = "0.1.7"
+num_cpus = "1.10.0"
+once_cell = "0.1.8"
 rayon = "1.0.3"
 regex = "1.1.0"
 reqwest = { version = "0.9.9", default_features = false, features = ["rustls-tls"] }
