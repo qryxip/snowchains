@@ -98,7 +98,7 @@ impl<'de> Deserialize<'de> for ServiceKind {
     }
 }
 
-pub(self) static USER_AGENT: &str = "snowchains <https://github.com/wariuni/snowchains>";
+pub(self) static USER_AGENT: &str = "snowchains <https://github.com/qryxip/snowchains>";
 
 pub(self) trait Service {
     type Write: WriteAnsi;

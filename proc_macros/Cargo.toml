@@ -2,7 +2,7 @@
 name = "snowchains_proc_macros"
 version = "0.1.0"
 license = "MIT"
-authors = ["Ryo Yamashita <wariuni@gmail.com>"]
+authors = ["Ryo Yamashita <qryxip@gmail.com>"]
 edition = "2018"
 
 [lib]

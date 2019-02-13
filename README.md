@@ -1,7 +1,7 @@
 # Snowchains
 
-[![Build Status](https://img.shields.io/travis/wariuni/snowchains.svg?branch=master&label=windows%20%26%20macos%20%26%20linux)](https://travis-ci.org/wariuni/snowchains)
-[![codecov](https://codecov.io/gh/wariuni/snowchains/branch/master/graph/badge.svg)](https://codecov.io/gh/wariuni/snowchains)
+[![Build Status](https://img.shields.io/travis/qryxip/snowchains.svg?branch=master&label=windows%20%26%20macos%20%26%20linux)](https://travis-ci.org/qryxip/snowchains)
+[![codecov](https://codecov.io/gh/qryxip/snowchains/branch/master/graph/badge.svg)](https://codecov.io/gh/qryxip/snowchains)
 
 Tools for online programming contests.
 
@@ -25,7 +25,7 @@ Install [Cargo](https://github.com/rust-lang/cargo) with
 add `~/.cargo/bin` to your `$PATH`, and
 
 ```console
-$ cargo [+stable] install --git https://github.com/wariuni/snowchains
+$ cargo [+stable] install --git https://github.com/qryxip/snowchains
 ```
 
 To update:
@@ -38,7 +38,7 @@ $ cargo [+stable] install-update -ag
 
 ```
 snowchains 0.23.0
-Ryo Yamashita <wariuni@gmail.com>
+Ryo Yamashita <qryxip@gmail.com>
 Tools for online programming contests
 
 USAGE:
