@@ -1,7 +1,7 @@
 [package]
 name = "snowchains_proc_macros"
 version = "0.1.0"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 authors = ["Ryo Yamashita <qryxip@gmail.com>"]
 edition = "2018"
 

@@ -486,3 +486,7 @@ main = do
     ["!", a]          -> judge a
     _                 -> error "invalid"
 ```
+
+## License
+
+Dual-licensed under [MIT](https://opensource.org/licenses/MIT) or [Apache-2.0](http://www.apache.org/licenses/LICENSE-2.0).
