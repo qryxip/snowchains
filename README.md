@@ -20,24 +20,37 @@ Tools for online programming contests.
 
 ## Instrallation
 
+### GitHub Releases
+
+https://github.com/qryxip/snowchains/releases
+
+### Crates.io
+
 Install [Cargo](https://github.com/rust-lang/cargo) with
 [rustup](https://github.com/rust-lang-nursery/rustup.rs),
 add `~/.cargo/bin` to your `$PATH`, and
 
 ```console
-$ cargo [+stable] install --git https://github.com/qryxip/snowchains
+$ cargo install snowchains
 ```
 
 To update:
 
 ```console
-$ cargo [+stable] install-update -ag
+$ cargo uninstall snowchains && cargo install snowchains
+```
+
+Or
+
+```
+$ cargo install cargo-update
+$ cargo install-update snowchains
 ```
 
 ## Usage
 
 ```
-snowchains 0.23.0
+snowchains 0.1.0
 Ryo Yamashita <qryxip@gmail.com>
 Tools for online programming contests
 
