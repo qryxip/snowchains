@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2018"
 authors = ["Ryo Yamashita <qryxip@gmail.com>"]
 license = "MIT OR Apache-2.0"
+description = "proc-macros for `snowchains`"
 repository = "https://github.com/qryxip/snowchains"
 documentation = "https://docs.rs/snowchains_proc_macros"
 
