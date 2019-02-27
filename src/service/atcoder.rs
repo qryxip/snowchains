@@ -10,6 +10,7 @@ use crate::service::{
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
+use crate::util::lang_unstable::Never;
 use crate::util::num::PositiveFinite;
 use crate::util::std_unstable::RemoveItem_;
 use crate::util::str::CaseConversion;
@@ -65,7 +66,10 @@ pub(crate) fn download(
 ) -> ServiceResult<DownloadOutcome> {
     let dropbox_path = sess_props.dropbox_path.take();
     let dropbox_path = dropbox_path.as_ref().map(Deref::deref);
-    let download_props = download_props.convert_contest_and_problems(CaseConversion::Upper);
+    let download_props = download_props
+        .convert_problems(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
     download_props.print_targets(sess_props.term.stdout())?;
     Atcoder::try_new(sess_props)?.download(&download_props, dropbox_path)
 }
@@ -75,7 +79,10 @@ pub(crate) fn restore(
     mut sess_props: SessionProps<impl Term>,
     restore_props: RestoreProps<String>,
 ) -> ServiceResult<()> {
-    let restore_props = restore_props.convert_contest_and_problems(CaseConversion::Upper);
+    let restore_props = restore_props
+        .convert_problems(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
     restore_props.print_targets(sess_props.term.stdout())?;
     Atcoder::try_new(sess_props)?.restore(&restore_props)
 }
@@ -85,7 +92,10 @@ pub(crate) fn submit(
     mut sess_props: SessionProps<impl Term>,
     submit_props: SubmitProps<String>,
 ) -> ServiceResult<()> {
-    let submit_props = submit_props.convert_contest_and_problem(CaseConversion::Upper);
+    let submit_props = submit_props
+        .convert_problem(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
     submit_props.print_targets(sess_props.term.stdout())?;
     Atcoder::try_new(sess_props)?.submit(&submit_props)
 }
@@ -790,10 +800,6 @@ impl AtcoderContest {
 }
 
 impl Contest for AtcoderContest {
-    fn from_string(s: String) -> Self {
-        Self::new(&s)
-    }
-
     fn slug(&self) -> Cow<str> {
         match self {
             AtcoderContest::Practice => "practice".into(),
@@ -806,6 +812,14 @@ impl Contest for AtcoderContest {
             AtcoderContest::ChokudaiS(n) => format!("chokudai_s{:>03}", n).into(),
             AtcoderContest::Other(s) => s.into(),
         }
+    }
+}
+
+impl FromStr for AtcoderContest {
+    type Err = Never;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Never> {
+        Ok(Self::new(s))
     }
 }
 
@@ -1352,7 +1366,7 @@ impl Extract for Document {
 mod tests {
     use crate::errors::ServiceResult;
     use crate::service::atcoder::{Atcoder, AtcoderContest, Extract};
-    use crate::service::session::{HttpSession, UrlBase};
+    use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
     use crate::service::{self, Contest, Service};
     use crate::terminal::{Term, TermImpl};
     use crate::testsuite::TestSuite;
@@ -1533,7 +1547,16 @@ mod tests {
         let base = UrlBase::new(Host::Domain("atcoder.jp"), true, None);
         let mut term = TermImpl::null();
         let mut runtime = Runtime::new()?;
-        let session = HttpSession::try_new(term.stdout(), &mut runtime, client, base, None, true)?;
+        let session = HttpSession::try_new(HttpSessionInitParams {
+            out: term.stdout(),
+            runtime: &mut runtime,
+            robots: true,
+            client,
+            base: Some(base),
+            cookies_path: None,
+            api_token_path: None,
+            silent: true,
+        })?;
         Ok(Atcoder {
             login_retries: Some(0),
             term,

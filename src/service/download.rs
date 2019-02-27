@@ -1,6 +1,7 @@
 use crate::errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::session::HttpSession;
 use crate::terminal::{TermOut, WriteAnsi};
+use crate::util::lang_unstable::Never;
 
 use failure::ResultExt;
 use futures::sync::mpsc::UnboundedSender;
@@ -207,8 +208,6 @@ struct Downloading<
     min_refresh_interval: Duration,
     started: Instant,
 }
-
-enum Never {}
 
 enum Progress<R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static>
 {

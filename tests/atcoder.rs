@@ -159,7 +159,6 @@ fn restore_command_works_without_error() -> Fallible<()> {
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             assert!(stdout.starts_with(
                 r#"Targets: practice contest/*
-GET https://atcoder.jp/robots.txt ... 404 Not Found
 GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 302 Found
 GET https://atcoder.jp/contests/practice ... 200 OK
 GET https://atcoder.jp/settings ... 302 Found

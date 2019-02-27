@@ -7,6 +7,7 @@ use crate::service::{
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
+use crate::util::lang_unstable::Never;
 use crate::util::str::CaseConversion;
 
 use cookie::Cookie;
@@ -26,6 +27,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Write;
+use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, mem};
 
@@ -37,7 +39,10 @@ pub(crate) fn download(
     mut sess_props: SessionProps<impl Term>,
     download_props: DownloadProps<String>,
 ) -> ServiceResult<DownloadOutcome> {
-    let download_props = download_props.convert_contest_and_problems(CaseConversion::Upper);
+    let download_props = download_props
+        .convert_problems(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
     download_props.print_targets(sess_props.term.stdout())?;
     Yukicoder::try_new(sess_props)?.download(&download_props)
 }
@@ -46,7 +51,10 @@ pub(crate) fn submit(
     mut sess_props: SessionProps<impl Term>,
     submit_props: SubmitProps<String>,
 ) -> ServiceResult<()> {
-    let submit_props = submit_props.convert_contest_and_problem(CaseConversion::Upper);
+    let submit_props = submit_props
+        .convert_problem(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
     submit_props.print_targets(sess_props.term.stdout())?;
     Yukicoder::try_new(sess_props)?.submit(&submit_props)
 }
@@ -489,16 +497,20 @@ impl fmt::Display for YukicoderContest {
 }
 
 impl Contest for YukicoderContest {
-    fn from_string(s: String) -> Self {
-        if s.eq_ignore_ascii_case("no") {
-            YukicoderContest::No
-        } else {
-            YukicoderContest::Contest(s)
-        }
-    }
-
     fn slug(&self) -> Cow<str> {
         self.to_string().into()
+    }
+}
+
+impl FromStr for YukicoderContest {
+    type Err = Never;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Never> {
+        Ok(if s.eq_ignore_ascii_case("no") {
+            YukicoderContest::No
+        } else {
+            YukicoderContest::Contest(s.to_owned())
+        })
     }
 }
 

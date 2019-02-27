@@ -12,11 +12,12 @@ Tools for online programming contests.
 - Submits a source file
 - Downloads source file you have submitted
 
-|                         | Target                                       | "contest" attribute | Scrape samples  | Download system tests | Submit          |
-| :---------------------- | :------------------------------------------- | :------------------ | :-------------: | :-------------------: | :-------------: |
-| AtCoder                 | `atcoder.jp/contests/{}`                     | `.*`                | ✓               | ✓                     | ✓               |
-| yukicoder (Problems)    | `yukicoder.me/problems/no/{}`                | `no`                | ✓               | ✓                     | ✓               |
-| yukicoder (Contests)    | `yukicoder.me/contests/{}`                   | `(?!no)`            | ✓               | ✓                     | ✓               |
+|                         | Target                                       | `contest` field         | Scrape samples  | Download system tests | Submit          |
+| :---------------------- | :------------------------------------------- | :---------------------: | :-------------: | :-------------------: | :-------------: |
+| AtCoder                 | `atcoder.jp/contests/{}`                     | `.*`                    | ✓               | ✓                     | ✓               |
+| Codeforces              | `codeforces.com/contest/{}`                  | unsigned 64-bit integer | ✓               | N/A                   | ✓               |
+| yukicoder (Problems)    | `yukicoder.me/problems/no/{}`                | `no`                    | ✓               | ✓                     | ✓               |
+| yukicoder (Contests)    | `yukicoder.me/contests/{}`                   | `(?!no)`                | ✓               | ✓                     | ✓               |
 
 ## Instrallation
 
@@ -128,7 +129,9 @@ path = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}.${extensi
 [session]
 timeout = "60s"
 silent = false
+robots = true
 cookies = "~/.local/share/snowchains/${service}"
+api_tokens = "~/.local/share/snowchains/api_tokens/${service}.json"
 dropbox = false
 # dropbox = { auth: "~/.local/share/snowchains/dropbox.json" }
 
@@ -145,6 +148,10 @@ display_limit = "1KiB"
 CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 RUST_VERSION = "1.15.1"
 
+[env.codeforces]
+CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+RUST_VERSION = "1.31.1"
+
 [env.yukicoder]
 CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 RUST_VERSION = "1.30.1"
@@ -159,7 +166,7 @@ service="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.service)"
 contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.contest_snake_case)"
 if [ ! -d "./$service/$contest/rs" ]; then
   mkdir -p "./$service/$contest" &&
-  cargo new --lib --edition 2015 --name "$contest" "./$service/$contest/rs" &&
+  cargo new --lib --edition 2015 --name "${service}_${contest}" "./$service/$contest/rs" &&
   mkdir "./$service/$contest/rs/src/bin" &&
   rm "./$service/$contest/rs/src/lib.rs"
 fi
@@ -173,14 +180,14 @@ if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .open_in_browser)" = true ]; then
     jq -r '
       . as $root
       | .problems
-      | map("./" + $root.service + "/" + $root.contest.slug_lower_case + "/rs/src/bin/" + .name_kebab_case + ".rs")
+      | map("./" + $root.service + "/" + $root.contest.slug_snake_case + "/rs/src/bin/" + .name_kebab_case + ".rs")
       | join("\n")
     ' | xargs -d \\n -I % -r cp "./templates/rs/src/bin/$service.rs" % &&
   echo "$SNOWCHAINS_RESULT" |
     jq -r '
       . as $root
       | .problems
-      | map(["./" + $root.service + "/" + $root.contest.slug_lower_case + "/rs/src/bin/" + .name_kebab_case + ".rs", .test_suite_path])
+      | map(["./" + $root.service + "/" + $root.contest.slug_snake_case + "/rs/src/bin/" + .name_kebab_case + ".rs", .test_suite_path])
       | flatten
       | join("\n")
     ' | xargs -d \\n -r emacsclient -n
@@ -204,7 +211,7 @@ bin = "${service}/${snake_case(contest)}/cpp/build/${kebab_case(problem)}"
 compile = { bash = 'g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"' }
 run = ["${bin}"]
 working_directory = "${service}/${snake_case(contest)}/cpp"
-language_ids = { atcoder = "3003", yukicoder = "cpp14" }
+language_ids = { atcoder = "3003", codeforces = "54", yukicoder = "cpp14" }
 
 [languages.rust]
 src = "${service}/${snake_case(contest)}/rs/src/bin/${kebab_case(problem)}.rs"
@@ -212,7 +219,7 @@ bin = "${service}/${snake_case(contest)}/rs/target/manually/${kebab_case(problem
 compile = ["rustc", "+${env:RUST_VERSION}", "-o", "${bin}", "${src}"]
 run = ["${bin}"]
 working_directory = "${service}/${snake_case(contest)}/rs"
-language_ids = { atcoder = "3504", yukicoder = "rust" }
+language_ids = { atcoder = "3504", codeforces = "49", yukicoder = "rust" }
 
 [languages.go]
 src = "${service}/${snake_case(contest)}/go/${kebab_case(problem)}.go"
@@ -220,7 +227,7 @@ bin = "${service}/${snake_case(contest)}/go/${kebab_case(problem)}"
 compile = ["go", "build", "-o", "${bin}", "${src}"]
 run = ["${bin}"]
 working_directory = "${service}/${snake_case(contest)}/go"
-language_ids = { atcoder = "3013", yukicoder = "go" }
+language_ids = { atcoder = "3013", codeforces = "32", yukicoder = "go" }
 
 [languages.haskell]
 src = "${service}/${snake_case(contest)}/hs/app/${pascal_case(problem)}.hs"
@@ -228,7 +235,7 @@ bin = "${service}/${snake_case(contest)}/hs/target/${pascal_case(problem)}"
 compile = ["stack", "ghc", "--", "-O2", "-o", "${bin}", "${src}"]
 run = ["${bin}"]
 working_directory = "${service}/${snake_case(contest)}/hs"
-language_ids = { atcoder = "3014", yukicoder = "haskell" }
+language_ids = { atcoder = "3014", codeforces = "12", yukicoder = "haskell" }
 
 [languages.bash]
 src = "${service}/${snake_case(contest)}/bash/${kebab_case(problem)}.bash"
@@ -240,13 +247,13 @@ language_ids = { atcoder = "3001", yukicoder = "sh" }
 src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
 run = ["../../../venvs/python3_${service}/bin/python3", "${src}"]
 working_directory = "${service}/${snake_case(contest)}/py"
-language_ids = { atcoder = "3023", yukicoder = "python3" }
+language_ids = { atcoder = "3023", codeforces = "31", yukicoder = "python3" }
 
 [languages.pypy3]
 src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
 run = ["../../../venvs/pypy3_${service}/bin/python3", "${src}"]
 working_directory = "${service}/${snake_case(contest)}/py"
-language_ids = { atcoder = "3510", yukicoder = "pypy3" }
+language_ids = { atcoder = "3510", codeforces = "41", yukicoder = "pypy3" }
 
 [languages.java]
 src = "${service}/${snake_case(contest)}/java/src/main/java/${pascal_case(problem)}.java"
@@ -256,7 +263,7 @@ transpile = { bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROB
 compile = ["javac", "-d", "./build/replaced/${lower_case(problem)}/classes", "${transpiled}"]
 run = ["java", "-classpath", "./build/replaced/${lower_case(problem)}/classes", "Main"]
 working_directory = "${service}/${snake_case(contest)}/java"
-language_ids = { atcoder = "3016", yukicoder = "java8" }
+language_ids = { atcoder = "3016", codeforces = "36", yukicoder = "java8" }
 
 [languages.scala]
 src = "${service}/${snake_case(contest)}/scala/src/main/scala/${pascal_case(problem)}.scala"
@@ -266,7 +273,7 @@ transpile = { bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PRO
 compile = ["scalac", "-optimise", "-d", "./target/replaced/${lower_case(problem)}/classes", "${transpiled}"]
 run = ["scala", "-classpath", "./target/replaced/${lower_case(problem)}/classes", "Main"]
 working_directory = "${service}/${snake_case(contest)}/scala"
-language_ids = { atcoder = "3025", yukicoder = "scala" }
+language_ids = { atcoder = "3025", codeforces = "20", yukicoder = "scala" }
 
 [languages.'c#']
 src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
@@ -274,7 +281,7 @@ bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/
 compile = ["mcs", "-o+", "-r:System.Numerics", "-out:${bin}", "${src}"]
 run = ["mono", "${bin}"]
 working_directory = "${service}/${snake_case(contest)}/cs"
-language_ids = { atcoder = "3006", yukicoder = "csharp_mono" }
+language_ids = { atcoder = "3006", codeforces = "9", yukicoder = "csharp_mono" }
 
 # [languages.'c#']
 # src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
@@ -283,7 +290,7 @@ language_ids = { atcoder = "3006", yukicoder = "csharp_mono" }
 # run = ["${bin}"]
 # crlf_to_lf: true
 # working_directory = "${service}/${snake_case(contest)}/cs"
-# language_ids = { atcoder = "3006", yukicoder = "csharp" }
+# language_ids = { atcoder = "3006", codeforces = "9", yukicoder = "csharp" }
 
 [languages.text]
 src = "${service}/${snake_case(contest)}/txt/${snake_case(problem)}.txt"

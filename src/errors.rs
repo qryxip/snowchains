@@ -14,6 +14,7 @@ use zip::result::ZipError;
 
 use std::ffi::OsString;
 use std::process::ExitStatus;
+use std::time::SystemTimeError;
 use std::{fmt, io};
 
 pub type Result<T> = std::result::Result<T, self::Error>;
@@ -69,6 +70,7 @@ pub(crate) type ServiceResult<T> = std::result::Result<T, ServiceError>;
 #[derive(DoubleFrom, Debug, PartialFailPair)]
 pub enum ServiceError {
     Context(failure::Context<ServiceErrorKind>),
+    ParseContestName(ParseContestNameError),
     Scrape(ScrapeError),
     TestSuite(TestSuiteError),
     ExpandTemplate(ExpandTemplateError),
@@ -83,6 +85,8 @@ pub enum ServiceError {
     TokioTimer(StdError<tokio::timer::Error>),
     #[double_from = "io::Error"]
     Io(StdError<io::Error>),
+    #[double_from = "SystemTimeError"]
+    SystemTime(StdError<SystemTimeError>),
 }
 
 #[derive(Debug, derive_more::Display)]
@@ -102,7 +106,9 @@ pub enum ServiceErrorKind {
     HeaderMissing(HeaderName),
     #[display(fmt = "Failed to read {:?} header", _0)]
     ReadHeader(HeaderName),
-    #[display(fmt = "Forbidden by the \"robots.txt\"")]
+    #[display(
+        fmt = r#"Forbidden by the "robots.txt". Turn off `session.robots` in "snowchains.toml""#
+    )]
     ForbiddenByRobotsTxt,
     #[display(
         fmt = "{}: Unexpected HTTP status code {} (expected [{}])",
@@ -111,6 +117,8 @@ pub enum ServiceErrorKind {
         "_2.iter().format(\", \")"
     )]
     UnexpectedStatusCode(Url, StatusCode, Vec<StatusCode>),
+    #[display(fmt = "API error")]
+    Api,
     #[display(
         fmt = "The default browser terminated abnormally {}",
         r#"match _0.code() {
@@ -119,7 +127,7 @@ pub enum ServiceErrorKind {
            }"#
     )]
     Webbrowser(ExitStatus),
-    #[display(fmt = r#"Found an accepted submission. Add "--skip-checking-duplication" ("-d")"#)]
+    #[display(fmt = r#"Found an accepted submission. Add "--no-checking-duplication""#)]
     AlreadyAccepted,
     #[display(fmt = "{} will begin at {}", _0, _1)]
     ContestNotBegun(String, DateTime<Local>),
@@ -141,6 +149,28 @@ pub enum ServiceErrorKind {
     SubmissionRejected(String, usize, StatusCode, Option<String>),
     #[display(fmt = "Failed to login")]
     LoginRetriesExceeded,
+}
+
+pub(crate) type ParseContestNameResult<T> = std::result::Result<T, ParseContestNameError>;
+
+#[derive(Debug, derive_more::Display, Fail)]
+#[display(fmt = "Failed to parse {:?}", name)]
+pub struct ParseContestNameError {
+    name: String,
+    #[fail(cause)]
+    cause: failure::Error,
+    #[fail(backtrace)]
+    backtrace: Backtrace,
+}
+
+impl ParseContestNameError {
+    pub(crate) fn new(name: &str, cause: impl Into<failure::Error>) -> Self {
+        Self {
+            name: name.to_owned(),
+            cause: cause.into(),
+            backtrace: Backtrace::new(),
+        }
+    }
 }
 
 pub(crate) type ScrapeResult<T> = std::result::Result<T, ScrapeError>;

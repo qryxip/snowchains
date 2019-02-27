@@ -4,8 +4,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::cmp::Ord;
 
 use std::collections::BTreeMap;
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, Index, IndexMut};
 use std::slice::{self, SliceIndex};
+use std::vec;
 
 #[cfg_attr(test, derive(Debug))]
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -28,6 +29,10 @@ impl<T> NonEmptyVec<T> {
         self.0.iter()
     }
 
+    pub(crate) fn map<B, F: FnMut(T) -> B>(self, f: F) -> NonEmptyVec<B> {
+        NonEmptyVec(self.0.into_iter().map(f).collect())
+    }
+
     pub(crate) fn max<R: Ord>(&self, f: impl Fn(&T) -> R) -> R {
         self.0.iter().map(&f).max().unwrap()
     }
@@ -36,6 +41,14 @@ impl<T> NonEmptyVec<T> {
 impl<T: Default> Default for NonEmptyVec<T> {
     fn default() -> Self {
         NonEmptyVec(vec![T::default()])
+    }
+}
+
+impl<T> Deref for NonEmptyVec<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        &self.0
     }
 }
 
@@ -50,6 +63,15 @@ impl<T, I: SliceIndex<[T]>> Index<I> for NonEmptyVec<T> {
 impl<T, I: SliceIndex<[T]>> IndexMut<I> for NonEmptyVec<T> {
     fn index_mut(&mut self, index: I) -> &mut <Self as Index<I>>::Output {
         &mut self.0[index]
+    }
+}
+
+impl<T> IntoIterator for NonEmptyVec<T> {
+    type Item = T;
+    type IntoIter = vec::IntoIter<T>;
+
+    fn into_iter(self) -> vec::IntoIter<T> {
+        self.0.into_iter()
     }
 }
 

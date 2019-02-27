@@ -1,6 +1,7 @@
 pub mod session;
 
 pub(crate) mod atcoder;
+pub(crate) mod codeforces;
 pub(crate) mod yukicoder;
 
 pub(self) mod download;
@@ -8,11 +9,12 @@ pub(self) mod download;
 use crate::config::Config;
 use crate::errors::{FileErrorKind, FileResult, ServiceResult};
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::session::{HttpSession, UrlBase};
+use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
 use crate::template::Template;
 use crate::terminal::{Term, WriteAnsi};
 use crate::testsuite::{DownloadDestinations, SuiteFilePath, TestSuite};
 use crate::util;
+use crate::util::collections::NonEmptyVec;
 use crate::util::str::CaseConversion;
 
 use failure::ResultExt;
@@ -55,6 +57,8 @@ use std::{cmp, fmt, mem, slice};
 pub enum ServiceKind {
     #[strum(to_string = "atcoder")]
     Atcoder,
+    #[strum(to_string = "codeforces")]
+    Codeforces,
     #[strum(to_string = "yukicoder")]
     Yukicoder,
     #[strum(to_string = "other")]
@@ -65,6 +69,7 @@ impl ServiceKind {
     pub(crate) fn domain(self) -> Option<&'static str> {
         match self {
             ServiceKind::Atcoder => Some("atcoder.jp"),
+            ServiceKind::Codeforces => Some("codeforces.com"),
             ServiceKind::Yukicoder => Some("yukicoder.me"),
             ServiceKind::Other => None,
         }
@@ -83,9 +88,10 @@ impl FromStr for ServiceKind {
     fn from_str(s: &str) -> std::result::Result<Self, &'static str> {
         match s {
             "atcoder" => Ok(ServiceKind::Atcoder),
+            "codeforces" => Ok(ServiceKind::Codeforces),
             "yukicoder" => Ok(ServiceKind::Yukicoder),
             "other" => Ok(ServiceKind::Other),
-            _ => Err(r#"expected "atcoder", "yukicoder", or "other""#),
+            _ => Err(r#"expected "atcoder", "codeforces", "yukicoder", or "other""#),
         }
     }
 }
@@ -342,10 +348,12 @@ pub(crate) struct SessionProps<T: Term> {
     pub(crate) term: T,
     pub(crate) domain: Option<&'static str>,
     pub(crate) cookies_path: AbsPathBuf,
+    pub(crate) api_token_path: AbsPathBuf,
     pub(crate) dropbox_path: Option<AbsPathBuf>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) login_retries: Option<u32>,
     pub(crate) silent: bool,
+    pub(crate) robots: bool,
 }
 
 impl<T: Term> SessionProps<T> {
@@ -354,14 +362,16 @@ impl<T: Term> SessionProps<T> {
         let base = self
             .domain
             .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
-        HttpSession::try_new(
-            self.term.stdout(),
+        HttpSession::try_new(HttpSessionInitParams {
+            out: self.term.stdout(),
             runtime,
+            robots: self.robots,
             client,
             base,
-            self.cookies_path.as_path(),
-            self.silent,
-        )
+            cookies_path: Some(self.cookies_path.as_path()),
+            api_token_path: Some(self.api_token_path.as_path()),
+            silent: self.silent,
+        })
     }
 }
 
@@ -402,26 +412,30 @@ pub(self) fn reqwest_sync_client(
 
 pub(crate) struct DownloadProps<C: Contest> {
     pub(crate) contest: C,
-    pub(crate) problems: Option<Vec<String>>,
+    pub(crate) problems: Option<NonEmptyVec<String>>,
     pub(crate) destinations: DownloadDestinations,
     pub(crate) open_in_browser: bool,
     pub(crate) only_scraped: bool,
 }
 
 impl DownloadProps<String> {
-    pub(self) fn convert_contest_and_problems<C: Contest>(
+    pub(self) fn convert_problems(self, conversion: CaseConversion) -> Self {
+        Self {
+            problems: self.problems.map(|ps| ps.map(|p| conversion.apply(&p))),
+            ..self
+        }
+    }
+
+    pub(self) fn parse_contest<C: Contest>(
         self,
-        conversion: CaseConversion,
-    ) -> DownloadProps<C> {
-        DownloadProps {
-            contest: C::from_string(self.contest),
-            problems: self
-                .problems
-                .map(|ps| ps.into_iter().map(|p| conversion.apply(&p)).collect()),
+    ) -> std::result::Result<DownloadProps<C>, <C as FromStr>::Err> {
+        Ok(DownloadProps {
+            contest: self.contest.parse()?,
+            problems: self.problems,
             destinations: self.destinations,
             open_in_browser: self.open_in_browser,
             only_scraped: self.only_scraped,
-        }
+        })
     }
 }
 
@@ -439,7 +453,7 @@ impl<C: Contest> PrintTargets for DownloadProps<C> {
 
 pub(crate) struct RestoreProps<'a, C: Contest> {
     pub(self) contest: C,
-    pub(self) problems: Option<Vec<String>>,
+    pub(self) problems: Option<NonEmptyVec<String>>,
     pub(self) src_paths: HashMap<&'a str, Template<AbsPathBuf>>,
 }
 
@@ -447,26 +461,26 @@ impl<'a> RestoreProps<'a, String> {
     pub(crate) fn new(config: &'a Config, problems: Vec<String>) -> Self {
         Self {
             contest: config.contest().to_owned(),
-            problems: if problems.is_empty() {
-                None
-            } else {
-                Some(problems)
-            },
+            problems: NonEmptyVec::try_new(problems),
             src_paths: config.src_paths(),
         }
     }
 
-    pub(self) fn convert_contest_and_problems<C: Contest>(
-        self,
-        conversion: CaseConversion,
-    ) -> RestoreProps<'a, C> {
-        RestoreProps {
-            contest: C::from_string(self.contest),
-            problems: self
-                .problems
-                .map(|ps| ps.into_iter().map(|p| conversion.apply(&p)).collect()),
-            src_paths: self.src_paths,
+    pub(self) fn convert_problems(self, conversion: CaseConversion) -> Self {
+        Self {
+            problems: self.problems.map(|ps| ps.map(|p| conversion.apply(&p))),
+            ..self
         }
+    }
+
+    pub(self) fn parse_contest<C: Contest>(
+        self,
+    ) -> std::result::Result<RestoreProps<'a, C>, <C as FromStr>::Err> {
+        Ok(RestoreProps {
+            contest: self.contest.parse()?,
+            problems: self.problems,
+            src_paths: self.src_paths,
+        })
     }
 }
 
@@ -511,18 +525,24 @@ impl SubmitProps<String> {
         })
     }
 
-    pub(self) fn convert_contest_and_problem<C: Contest>(
-        self,
-        conversion: CaseConversion,
-    ) -> SubmitProps<C> {
-        SubmitProps {
-            contest: C::from_string(self.contest),
+    pub(self) fn convert_problem(self, conversion: CaseConversion) -> Self {
+        Self {
             problem: conversion.apply(&self.problem),
+            ..self
+        }
+    }
+
+    pub(self) fn parse_contest<C: Contest>(
+        self,
+    ) -> std::result::Result<SubmitProps<C>, <C as FromStr>::Err> {
+        Ok(SubmitProps {
+            contest: self.contest.parse()?,
+            problem: self.problem,
             lang_id: self.lang_id,
             src_path: self.src_path,
             open_in_browser: self.open_in_browser,
             skip_checking_if_accepted: self.skip_checking_if_accepted,
-        }
+        })
     }
 }
 
@@ -538,16 +558,11 @@ impl<C: Contest> PrintTargets for SubmitProps<C> {
     }
 }
 
-pub(crate) trait Contest: fmt::Display {
-    fn from_string(s: String) -> Self;
+pub(crate) trait Contest: fmt::Display + FromStr {
     fn slug(&self) -> Cow<str>;
 }
 
 impl Contest for String {
-    fn from_string(s: String) -> Self {
-        s
-    }
-
     fn slug(&self) -> Cow<str> {
         self.as_str().into()
     }

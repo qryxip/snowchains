@@ -8,7 +8,9 @@ path = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}.${extensi
 [session]
 timeout = "60s"
 silent = false
+robots = false
 cookies = "local/${service}"
+api_tokens = "local/api_tokens/${service}.json"
 dropbox = { auth = "local/dropbox.json" }
 
 [session.download]

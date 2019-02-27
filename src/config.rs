@@ -85,7 +85,7 @@ bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/
 compile = ["mcs", "-o+", "-r:System.Numerics", "-out:${bin}", "${src}"]
 run = ["mono", "${bin}"]
 working_directory = "${service}/${snake_case(contest)}/cs"
-language_ids = { atcoder = "3006", yukicoder = "csharp_mono" }"#;
+language_ids = { atcoder = "3006", codeforces = "9", yukicoder = "csharp_mono" }"#;
     #[cfg(windows)]
     static CSHARP: &str =
         r#"src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
@@ -94,7 +94,7 @@ compile = ["csc", "/o+", "/r:System.Numerics", "/out:${bin}", "${src}"]
 run = ["${bin}"]
 crlf_to_lf = true
 working_directory = "${service}/${snake_case(contest)}/cs"
-language_ids = { atcoder = "3006", yukicoder = "csharp" }"#;
+language_ids = { atcoder = "3006", codeforces = "9", yukicoder = "csharp" }"#;
 
     fn quote_path_normalizing_separator(path: &Path) -> impl fmt::Display {
         let separator = if std::path::is_separator('/') {
@@ -197,7 +197,7 @@ language_ids = { atcoder = "3006", yukicoder = "csharp" }"#;
             transpile_scala,
         )
     };
-    let (session_cookies, session_dropbox) = {
+    let (session_cookies, session_api_tokens, session_dropbox) = {
         let data_local_dir = if_chain! {
             if let (Some(home), Some(local)) = (dirs::home_dir(), dirs::data_local_dir());
             if let Ok(path) = local.strip_prefix(&home);
@@ -210,9 +210,11 @@ language_ids = { atcoder = "3006", yukicoder = "csharp" }"#;
         };
         let session_cookies = data_local_dir.join("${service}");
         let session_cookies = quote_path_normalizing_separator(&session_cookies);
+        let session_api_tokens = data_local_dir.join("api_tokens").join("${service}.json");
+        let session_api_tokens = quote_path_normalizing_separator(&session_api_tokens);
         let session_dropbox = data_local_dir.join("dropbox.json");
         let session_dropbox = quote_path_normalizing_separator(&session_dropbox);
-        (session_cookies, session_dropbox)
+        (session_cookies, session_api_tokens, session_dropbox)
     };
     let judge_jobs = num_cpus::get();
 
@@ -233,7 +235,9 @@ path = "${{service}}/${{snake_case(contest)}}/tests/${{snake_case(problem)}}.${{
 [session]
 timeout = "60s"
 silent = false
+robots = true
 cookies = {session_cookies}
+api_tokens = {session_api_tokens}
 dropbox = false
 # dropbox = {{ auth: {session_dropbox} }}
 
@@ -249,6 +253,10 @@ display_limit = "1KiB"
 [env.atcoder]
 CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 RUST_VERSION = "1.15.1"
+
+[env.codeforces]
+CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+RUST_VERSION = "1.31.1"
 
 [env.yukicoder]
 CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
@@ -279,7 +287,7 @@ bin = "${{service}}/${{snake_case(contest)}}/cpp/build/${{kebab_case(problem)}}{
 compile = {{ bash = 'g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"' }}
 run = ["${{bin}}"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/cpp"
-language_ids = {{ atcoder = "3003", yukicoder = "cpp14" }}
+language_ids = {{ atcoder = "3003", codeforces = "54", yukicoder = "cpp14" }}
 
 [languages.rust]
 src = "${{service}}/${{snake_case(contest)}}/rs/src/bin/${{kebab_case(problem)}}.rs"
@@ -287,7 +295,7 @@ bin = "${{service}}/${{snake_case(contest)}}/rs/target/manually/${{kebab_case(pr
 compile = ["rustc", "+${{env:RUST_VERSION}}", "-o", "${{bin}}", "${{src}}"]
 run = ["${{bin}}"]{crlf_to_lf_false}
 working_directory = "${{service}}/${{snake_case(contest)}}/rs"
-language_ids = {{ atcoder = "3504", yukicoder = "rust" }}
+language_ids = {{ atcoder = "3504", codeforces = "49", yukicoder = "rust" }}
 
 [languages.go]
 src = "${{service}}/${{snake_case(contest)}}/go/${{kebab_case(problem)}}.go"
@@ -295,7 +303,7 @@ bin = "${{service}}/${{snake_case(contest)}}/go/${{kebab_case(problem)}}{exe}"
 compile = ["go", "build", "-o", "${{bin}}", "${{src}}"]
 run = ["${{bin}}"]{crlf_to_lf_false}
 working_directory = "${{service}}/${{snake_case(contest)}}/go"
-language_ids = {{ atcoder = "3013", yukicoder = "go" }}
+language_ids = {{ atcoder = "3013", codeforces = "32", yukicoder = "go" }}
 
 [languages.haskell]
 src = "${{service}}/${{snake_case(contest)}}/hs/app/${{pascal_case(problem)}}.hs"
@@ -303,7 +311,7 @@ bin = "${{service}}/${{snake_case(contest)}}/hs/target/${{pascal_case(problem)}}
 compile = ["stack", "ghc", "--", "-O2", "-o", "${{bin}}", "${{src}}"]
 run = ["${{bin}}"]{crlf_to_lf_false}
 working_directory = "${{service}}/${{snake_case(contest)}}/hs"
-language_ids = {{ atcoder = "3014", yukicoder = "haskell" }}
+language_ids = {{ atcoder = "3014", codeforces = "12", yukicoder = "haskell" }}
 
 [languages.bash]
 src = "${{service}}/${{snake_case(contest)}}/bash/${{kebab_case(problem)}}.bash"
@@ -315,13 +323,13 @@ language_ids = {{ atcoder = "3001", yukicoder = "sh" }}
 src = "${{service}}/${{snake_case(contest)}}/py/${{kebab_case(problem)}}.py"
 run = [{venv_python3}, "${{src}}"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/py"
-language_ids = {{ atcoder = "3023", yukicoder = "python3" }}
+language_ids = {{ atcoder = "3023", codeforces = "31", yukicoder = "python3" }}
 
 [languages.pypy3]
 src = "${{service}}/${{snake_case(contest)}}/py/${{kebab_case(problem)}}.py"
 run = [{venv_pypy3}, "${{src}}"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/py"
-language_ids = {{ atcoder = "3510", yukicoder = "pypy3" }}
+language_ids = {{ atcoder = "3510", codeforces = "41", yukicoder = "pypy3" }}
 
 [languages.java]
 src = "${{service}}/${{snake_case(contest)}}/java/src/main/java/${{pascal_case(problem)}}.java"
@@ -331,7 +339,7 @@ transpile = {{ {transpile_java} }}
 compile = ["javac", "-d", "./build/replaced/${{lower_case(problem)}}/classes", "${{transpiled}}"]
 run = ["java", "-classpath", "./build/replaced/${{lower_case(problem)}}/classes", "Main"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/java"
-language_ids = {{ atcoder = "3016", yukicoder = "java8" }}
+language_ids = {{ atcoder = "3016", codeforces = "36", yukicoder = "java8" }}
 
 [languages.scala]
 src = "${{service}}/${{snake_case(contest)}}/scala/src/main/scala/${{pascal_case(problem)}}.scala"
@@ -341,7 +349,7 @@ transpile = {{ {transpile_scala} }}
 compile = ["scalac", "-optimise", "-d", "./target/replaced/${{lower_case(problem)}}/classes", "${{transpiled}}"]
 run = ["scala", "-classpath", "./target/replaced/${{lower_case(problem)}}/classes", "Main"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/scala"
-language_ids = {{ atcoder = "3025", yukicoder = "scala" }}
+language_ids = {{ atcoder = "3025", codeforces = "20", yukicoder = "scala" }}
 
 [languages.'c#']
 {csharp}
@@ -354,6 +362,7 @@ language_ids = {{ atcoder = "3027", yukicoder = "text" }}
 "#,
         console_alt_width = CONSOLE_ALT_WIDTH,
         session_cookies = session_cookies,
+        session_api_tokens = session_api_tokens,
         session_dropbox = session_dropbox,
         judge_jobs = judge_jobs,
         bash = bash,
@@ -547,6 +556,7 @@ impl Config {
         &self.contest
     }
 
+    /// Gets `console`.
     pub(crate) fn console(&self) -> &Console {
         &self.console
     }
@@ -556,41 +566,50 @@ impl Config {
         self.session.timeout
     }
 
+    /// Gets `session.silent`.
     pub(crate) fn session_silent(&self) -> bool {
         self.session.silent
     }
 
-    pub(crate) fn session_cookies(&self) -> Template<AbsPathBuf> {
-        self.session.cookies.build(AbsPathBufRequirements {
-            base_dir: self.base_dir.clone(),
-            service: self.service,
-            contest: self.contest.clone(),
-        })
+    /// Gets `session.robots`.
+    pub(crate) fn session_robots(&self) -> bool {
+        self.session.robots
     }
 
+    /// Gets `session.cookies`.
+    pub(crate) fn session_cookies(&self) -> Template<AbsPathBuf> {
+        self.build_path_template(&self.session.cookies)
+    }
+
+    /// Gets `session.api_tokens`.
+    pub(crate) fn session_api_tokens(&self) -> Template<AbsPathBuf> {
+        self.build_path_template(&self.session.api_tokens)
+    }
+
+    /// Gets `session.dropbox.auth` as `Option`.
     pub(crate) fn session_dropbox_auth(&self) -> Option<Template<AbsPathBuf>> {
         match &self.session.dropbox {
             Dropbox::None => None,
-            Dropbox::Some { auth } => Some(auth.build(AbsPathBufRequirements {
-                base_dir: self.base_dir.clone(),
-                service: self.service,
-                contest: self.contest.clone(),
-            })),
+            Dropbox::Some { auth } => Some(self.build_path_template(&auth)),
         }
     }
 
+    /// Gets `judge.jobs`.
     pub(crate) fn judge_jobs(&self) -> Option<NonZeroUsize> {
         self.judge.jobs
     }
 
+    /// Gets `judge.display_limit`.
     pub(crate) fn judge_display_limit(&self) -> Option<usize> {
         self.judge.display_limit
     }
 
+    /// Gets `hooks.switch`.
     pub(crate) fn switch_hooks(&self, outcome: &SwitchOutcome) -> Template<HookCommands> {
         self.hooks(|hs| &hs.switch, outcome)
     }
 
+    /// Gets `hooks.download`.
     pub(crate) fn download_hooks(&self, outcome: &DownloadOutcome) -> Template<HookCommands> {
         self.hooks(|hs| &hs.download, outcome)
     }
@@ -607,36 +626,21 @@ impl Config {
         })
     }
 
+    /// Constructs a `DownloadDestinations`.
     pub(crate) fn download_destinations(
         &self,
         ext: Option<SuiteFileExtension>,
     ) -> DownloadDestinations {
-        let scraped = self.testfiles.path.build(AbsPathBufRequirements {
-            base_dir: self.base_dir.clone(),
-            service: self.service,
-            contest: self.contest.clone(),
-        });
-        let text_file_dir = self
-            .session
-            .download
-            .text_file_dir
-            .build(AbsPathBufRequirements {
-                base_dir: self.base_dir.clone(),
-                service: self.service,
-                contest: self.contest.clone(),
-            });
+        let scraped = self.build_path_template(&self.testfiles.path);
+        let text_file_dir = self.build_path_template(&self.session.download.text_file_dir);
         let ext = ext.unwrap_or(self.session.download.extension);
         DownloadDestinations::new(scraped, text_file_dir, ext)
     }
 
+    /// Constructs a `TestCaseLoader`.
     pub(crate) fn testcase_loader(&self) -> TestCaseLoader {
-        let path = self.testfiles.path.build(AbsPathBufRequirements {
-            base_dir: self.base_dir.clone(),
-            service: self.service,
-            contest: self.contest.clone(),
-        });
         TestCaseLoader::new(
-            path,
+            self.build_path_template(&self.testfiles.path),
             &self.judge.testfile_extensions,
             self.tester_transpilation(),
             self.tester_compilation(),
@@ -644,17 +648,13 @@ impl Config {
         )
     }
 
+    /// Gets paths to the source files.
     pub(crate) fn src_paths(&self) -> HashMap<&str, Template<AbsPathBuf>> {
         let mut templates = hashmap!();
         for lang in self.languages.values() {
             if let Some(lang_id) = lang.language_ids.get(&self.service) {
-                let template = lang
-                    .src
-                    .build(AbsPathBufRequirements {
-                        base_dir: self.base_dir.clone(),
-                        service: self.service,
-                        contest: self.contest.clone(),
-                    })
+                let template = self
+                    .build_path_template(&lang.src)
                     .envs(self.env.get(&self.service));
                 templates.insert(lang_id.as_str(), template);
             }
@@ -662,20 +662,23 @@ impl Config {
         templates
     }
 
+    /// Gets path to the source file to submit.
     pub(crate) fn src_to_submit(&self) -> ConfigResult<Template<AbsPathBuf>> {
         let lang = self.find_language()?;
-        Ok(lang
-            .transpiled
-            .as_ref()
-            .unwrap_or(&lang.src)
-            .build(AbsPathBufRequirements {
-                base_dir: self.base_dir.clone(),
-                service: self.service,
-                contest: self.contest.clone(),
-            })
+        Ok(self
+            .build_path_template(lang.transpiled.as_ref().unwrap_or(&lang.src))
             .envs(self.env.get(&self.service)))
     }
 
+    fn build_path_template(&self, template: &TemplateBuilder<AbsPathBuf>) -> Template<AbsPathBuf> {
+        template.build(AbsPathBufRequirements {
+            base_dir: self.base_dir.clone(),
+            service: self.service,
+            contest: self.contest.clone(),
+        })
+    }
+
+    /// Gets the language id.
     pub(crate) fn lang_id(&self) -> Option<&str> {
         let lang = self.find_language().ok()?;
         lang.language_ids.get(&self.service).map(String::as_str)
@@ -792,10 +795,17 @@ struct Session {
     timeout: Option<Duration>,
     #[serde(default)]
     silent: bool,
+    #[serde(default = "const_true")]
+    robots: bool,
+    api_tokens: TemplateBuilder<AbsPathBuf>,
     cookies: TemplateBuilder<AbsPathBuf>,
     #[serde(default)]
     dropbox: Dropbox,
     download: Download,
+}
+
+const fn const_true() -> bool {
+    true
 }
 
 enum Dropbox {
