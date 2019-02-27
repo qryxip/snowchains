@@ -340,6 +340,10 @@ impl<T: Term> Yukicoder<T> {
             }
         }
         let document = self.get(&url).recv_html()?;
+        match document.extract_lang_name(lang_id)? {
+            None => return Err(ServiceErrorKind::NoSuchLangId(lang_id.clone()).into()),
+            Some(name) => writeln!(self.stdout(), "Submitting as {:?}", name)?,
+        }
         let token = document.extract_csrf_token_from_submit_page()?;
         let form = reqwest::r#async::multipart::Form::new()
             .text("csrf_token", token)
@@ -473,6 +477,7 @@ trait Extract {
     fn extract_problems(&self) -> ScrapeResult<Vec<(String, String)>>;
     fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String>;
     fn extract_url_from_submit_page(&self) -> ScrapeResult<String>;
+    fn extract_lang_name(&self, id: &str) -> ScrapeResult<Option<String>>;
 }
 
 impl Extract for Document {
@@ -585,6 +590,18 @@ impl Extract for Document {
         self.find(selector!("#submit_form"))
             .find_map(|form| form.attr("action").map(ToOwned::to_owned))
             .ok_or_else(ScrapeError::new)
+    }
+
+    fn extract_lang_name(&self, id: &str) -> ScrapeResult<Option<String>> {
+        let options = self.find(selector!("#lang > option")).collect::<Vec<_>>();
+        guard!(!options.is_empty());
+        for option in options {
+            if option.attr("value").ok_or_else(ScrapeError::new)? == id {
+                let name = option.find(Text).next().ok_or_else(ScrapeError::new)?;
+                return Ok(Some(name.text()));
+            }
+        }
+        Ok(None)
     }
 }
 

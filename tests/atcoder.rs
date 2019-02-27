@@ -1,10 +1,12 @@
 mod service;
 
 use snowchains::app::{App, Opt};
+use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Term, TermImpl};
 
 use failure::Fallible;
+use if_chain::if_chain;
 use serde_derive::Deserialize;
 
 use std::fs::File;
@@ -172,6 +174,46 @@ GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 200 OK"#,
             ));
             assert!(stderr.starts_with("Username: Password: "));
             Ok(())
+        },
+    )
+}
+
+#[test]
+fn it_fails_to_submit_if_the_lang_id_is_invalid() -> Fallible<()> {
+    let _ = env_logger::try_init();
+    service::test_in_tempdir(
+        "it_fails_to_submit_if_the_lang_id_is_invalid",
+        &credentials_as_input()?,
+        |mut app| -> Fallible<()> {
+            static CODE: &[u8] = b"#";
+            let wd = app.working_dir.join("atcoder").join("practice").join("py");
+            std::fs::create_dir_all(&wd)?;
+            std::fs::write(&wd.join("a.py"), CODE)?;
+            let err = app
+                .run(Opt::Submit {
+                    open: false,
+                    force_compile: false,
+                    only_transpile: false,
+                    no_judge: true,
+                    no_check_duplication: false,
+                    service: Some(ServiceKind::Atcoder),
+                    contest: Some("practice".to_owned()),
+                    language: Some("python3-with-invalid-lang-ids".to_owned()),
+                    jobs: None,
+                    color_choice: AnsiColorChoice::Never,
+                    problem: "a".to_owned(),
+                })
+                .unwrap_err();
+            if_chain! {
+                if let snowchains::Error::Service(ServiceError::Context(ctx)) = &err;
+                if let ServiceErrorKind::NoSuchLangId(lang_id) = ctx.get_context();
+                then {
+                    assert_eq!(lang_id, "invalid");
+                    Ok(())
+                } else {
+                    Err(err.into())
+                }
+            }
         },
     )
 }

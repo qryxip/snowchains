@@ -138,8 +138,8 @@ pub enum ServiceErrorKind {
     PleaseSpecifyProblems,
     #[display(fmt = "No such problem: {:?}", _0)]
     NoSuchProblem(String),
-    #[display(fmt = "Failed to recognize language by {:?}", _0)]
-    RecognizeByExtension(String),
+    #[display(fmt = "No such language id: {:?}", _0)]
+    NoSuchLangId(String),
     #[display(
         fmt = "Submission rejected: language={:?}, size={}, status={}, location={}",
         _0,

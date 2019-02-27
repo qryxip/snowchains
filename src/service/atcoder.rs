@@ -654,6 +654,10 @@ impl<T: Term> Atcoder<T> {
 
                 let source_code = crate::fs::read_to_string(src_path)?;
                 let document = self.get(&url).recv_html()?;
+                match document.extract_lang_name_by_id(lang_id)? {
+                    None => return Err(ServiceErrorKind::NoSuchLangId(lang_id.clone()).into()),
+                    Some(name) => writeln!(self.stdout(), "Submitting as {:?}", name)?,
+                }
                 let csrf_token = document.extract_csrf_token()?;
                 let url = contest.url_submit();
                 let payload = hashmap!(
@@ -868,7 +872,8 @@ trait Extract {
     fn extract_contest_duration(&self) -> ScrapeResult<ContestDuration>;
     fn extract_submissions(&self) -> ScrapeResult<(vec::IntoIter<Submission>, u32)>;
     fn extract_submitted_code(&self) -> ScrapeResult<String>;
-    fn extract_lang_id_by_name(&self, lang_name: &str) -> ScrapeResult<String>;
+    fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String>;
+    fn extract_lang_name_by_id(&self, id: &str) -> ScrapeResult<Option<String>>;
 }
 
 impl Extract for Document {
@@ -1211,10 +1216,10 @@ impl Extract for Document {
             .unwrap_or_else(|| "".to_owned()))
     }
 
-    fn extract_lang_id_by_name(&self, lang_name: &str) -> ScrapeResult<String> {
+    fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String> {
         for option in self.find(selector!("#select-language > option")) {
             if let Some(text) = option.find(Text).next().map(|n| n.text()) {
-                if text == lang_name {
+                if text == name {
                     return option
                         .attr("value")
                         .map(ToOwned::to_owned)
@@ -1223,6 +1228,20 @@ impl Extract for Document {
             }
         }
         Err(ScrapeError::new())
+    }
+
+    fn extract_lang_name_by_id(&self, id: &str) -> ScrapeResult<Option<String>> {
+        let options = self
+            .find(selector!("#select-lang option"))
+            .collect::<Vec<_>>();
+        guard!(!options.is_empty());
+        for option in options {
+            if option.attr("value").ok_or_else(ScrapeError::new)? == id {
+                let name = option.find(Text).next().ok_or_else(ScrapeError::new)?;
+                return Ok(Some(name.text()));
+            }
+        }
+        Ok(None)
     }
 }
 

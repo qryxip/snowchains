@@ -35,6 +35,12 @@ src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
 run = ["false"]
 language_ids = { atcoder = "3023", yukicoder = "python3" }
 
+[languages.python3-with-invalid-lang-ids]
+src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
+run = ["false"]
+language_ids = { atcoder = "invalid", codeforces = "invalid", yukicoder = "invalid" }
+
 [languages.text]
 src = "${service}/${snake_case(contest)}/txt/${kebab_case(problem)}.txt"
 run = ["false"]
+language_ids = { yukicoder = "text" }

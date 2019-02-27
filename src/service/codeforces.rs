@@ -330,6 +330,11 @@ impl<T: Term> Codeforces<T> {
 
         let doc = self.get(&submit_path).recv_html()?;
 
+        match doc.extract_lang_name(&lang_id)? {
+            None => return Err(ServiceErrorKind::NoSuchLangId(lang_id).into()),
+            Some(name) => writeln!(self.stdout(), "Submitting as {:?}", name)?,
+        }
+
         let mut values = doc.extract_hidden_values(selector!("form.submit-form"))?;
         values.insert("contestId".to_owned(), contest.id.to_string());
         values.insert("submittedProblemIndex".to_owned(), problem.clone());
@@ -619,6 +624,7 @@ trait Extract {
     fn extract_problems(&self) -> ScrapeResult<NonEmptyVec<(String, Url)>>;
     fn extract_test_suite(&self) -> ScrapeResult<TestSuite>;
     fn extract_meta_x_csrf_token(&self) -> ScrapeResult<String>;
+    fn extract_lang_name(&self, id: &str) -> ScrapeResult<Option<String>>;
 }
 
 impl Extract for Document {
@@ -711,6 +717,25 @@ impl Extract for Document {
             .next()
             .and_then(|m| m.attr("content").map(ToOwned::to_owned))
             .ok_or_else(ScrapeError::new)
+    }
+
+    fn extract_lang_name(&self, id: &str) -> ScrapeResult<Option<String>> {
+        let mut tds = self
+            .find(selector!("form.submit-form > table > tbody > tr > td"))
+            .filter(|t| {
+                t.find(selector!("select[name=\"programTypeId\"]"))
+                    .next()
+                    .is_some()
+            })
+            .collect::<Vec<_>>();
+        let td = tds.pop().ok_or_else(ScrapeError::new)?;
+        for option in td.find(selector!("option")) {
+            if option.attr("value") == Some(id) {
+                let name = option.find(Text).next().ok_or_else(ScrapeError::new)?;
+                return Ok(Some(name.text()));
+            }
+        }
+        Ok(None)
     }
 }
 

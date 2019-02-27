@@ -1,9 +1,25 @@
 macro_rules! guard {
     ($p:expr) => {
         if !$p {
-            return ::std::default::Default::default();
+            return crate::macros::TryZero::try_zero();
         }
     };
+}
+
+pub(crate) trait TryZero {
+    fn try_zero() -> Self;
+}
+
+impl<T> TryZero for Option<T> {
+    fn try_zero() -> Self {
+        None
+    }
+}
+
+impl<T, E: Default> TryZero for std::result::Result<T, E> {
+    fn try_zero() -> Self {
+        Err(E::default())
+    }
 }
 
 macro_rules! plural {
