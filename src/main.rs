@@ -44,8 +44,9 @@ fn main() -> Fallible<()> {
                 writeln!(stderr, "{}", line)?;
             }
         }
-        if let Some(backtrace) = err.backtrace() {
-            writeln!(stderr, "{:?}", backtrace)?;
+        let backtrace = err.backtrace().unwrap().to_string();
+        if !backtrace.is_empty() {
+            writeln!(stderr, "\n{}", backtrace)?;
         }
         stderr.flush()?;
         process::exit(1)

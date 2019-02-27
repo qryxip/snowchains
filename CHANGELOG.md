@@ -8,3 +8,7 @@
 ### Changed
 
 * `session.api_tokens` field (required)
+
+### Fixed
+
+* Suppressed the unnecessary newline when printing errors
