@@ -1,4 +1,5 @@
 use crate::path::AbsPathBuf;
+use crate::service::ServiceKind;
 use crate::template::Tokens;
 
 use snowchains_proc_macros::{DoubleFrom, FailPair, PartialFailPair};
@@ -290,6 +291,8 @@ pub enum ConfigErrorKind {
     TesterNotSpecified,
     #[display(fmt = "No such language: {:?}", _0)]
     NoSuchLanguage(String),
+    #[display(fmt = "`languages.{}.language_ids.{}` required", _0, _1)]
+    LanguageIdRequired(String, ServiceKind),
 }
 
 pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateError>;

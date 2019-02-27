@@ -20,7 +20,6 @@ use if_chain::if_chain;
 use itertools::Itertools;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
 use rand::Rng;
 use regex::Regex;
 use reqwest::{header, StatusCode};
@@ -36,7 +35,6 @@ use url::Url;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
-use std::ffi::OsStr;
 use std::io::{self, Write};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
@@ -331,9 +329,6 @@ impl<T: Term> Codeforces<T> {
         let submit_path = format!("/contest/{}/submit", contest.id);
 
         let doc = self.get(&submit_path).recv_html()?;
-        let lang_id = lang_id
-            .map(Ok)
-            .unwrap_or_else(|| doc.extract_lang_id(src_path.extension().unwrap_or_default()))?;
 
         let mut values = doc.extract_hidden_values(selector!("form.submit-form"))?;
         values.insert("contestId".to_owned(), contest.id.to_string());
@@ -624,7 +619,6 @@ trait Extract {
     fn extract_problems(&self) -> ScrapeResult<NonEmptyVec<(String, Url)>>;
     fn extract_test_suite(&self) -> ScrapeResult<TestSuite>;
     fn extract_meta_x_csrf_token(&self) -> ScrapeResult<String>;
-    fn extract_lang_id(&self, extension: &OsStr) -> ServiceResult<String>;
 }
 
 impl Extract for Document {
@@ -717,70 +711,6 @@ impl Extract for Document {
             .next()
             .and_then(|m| m.attr("content").map(ToOwned::to_owned))
             .ok_or_else(ScrapeError::new)
-    }
-
-    fn extract_lang_id(&self, extension: &OsStr) -> ServiceResult<String> {
-        static PREFIXES: Lazy<HashMap<&OsStr, &[&str]>> = sync_lazy!(hashmap!(
-            OsStr::new("c")     => ["GNU GCC C"].as_ref(),
-            OsStr::new("cpp")   => ["GNU C++", "Clang++", "Microsoft Visual C++"].as_ref(),
-            OsStr::new("cxx")   => ["GNU C++", "Clang++", "Microsoft Visual C++"].as_ref(),
-            OsStr::new("cc")    => ["GNU C++", "Clang++", "Microsoft Visual C++"].as_ref(),
-            OsStr::new("C")     => ["GNU C++", "Clang++", "Microsoft Visual C++"].as_ref(),
-            OsStr::new("cs")    => ["C# Mono"].as_ref(),
-            OsStr::new("d")     => ["D DMD32"].as_ref(),
-            OsStr::new("go")    => ["Go"].as_ref(),
-            OsStr::new("hs")    => ["Haskell"].as_ref(),
-            OsStr::new("java")  => ["Java"].as_ref(),
-            OsStr::new("kt")    => ["Kotlin"].as_ref(),
-            OsStr::new("ml")    => ["OCaml"].as_ref(),
-            OsStr::new("dpr")   => ["Delphi"].as_ref(),
-            OsStr::new("pas")   => ["Free Pascal", "PascalABC.NET"].as_ref(),
-            OsStr::new("pl")    => ["Perl"].as_ref(),
-            OsStr::new("php")   => ["PHP"].as_ref(),
-            OsStr::new("py")    => ["Python", "PyPy"].as_ref(),
-            OsStr::new("rb")    => ["Ruby"].as_ref(),
-            OsStr::new("rs")    => ["Ruby"].as_ref(),
-            OsStr::new("scala") => ["Scala"].as_ref(),
-            OsStr::new("js")    => ["JavaScript V8", "Node.js"].as_ref(),
-        ));
-
-        let prefixes = PREFIXES.get(extension).cloned().unwrap_or_default();
-        let mut pairs = self
-            .find(selector!("table.table-form option"))
-            .flat_map(
-                |option| match (option.attr("value"), option.find(Text).next()) {
-                    (Some(v), Some(t)) => Some((v.to_owned(), t.as_text().unwrap())),
-                    _ => None,
-                },
-            )
-            .filter(|(_, s)| prefixes.iter().any(|p| s.starts_with(p)))
-            .collect::<Vec<_>>();
-
-        macro_rules! with_msg {
-            ($fmt:expr $(, $args:expr)*) => {
-                ServiceError::from(failure::err_msg(format!($fmt $(, $args)*)).context(
-                    ServiceErrorKind::RecognizeByExtension(extension.to_string_lossy().into_owned()),
-                ))
-            };
-        }
-
-        if pairs.is_empty() {
-            return Err(with_msg!("Not found"));
-        }
-        if pairs.len() > 1 {
-            return Err(with_msg!(
-                "Candidates:\n{}",
-                pairs
-                    .iter()
-                    .format_with(", ", |(id, name), f| f(&format_args!(
-                        "  {}: {:?}\n",
-                        id, name,
-                    )))
-            ));
-        }
-
-        let (id, _) = pairs.pop().unwrap();
-        Ok(id)
     }
 }
 

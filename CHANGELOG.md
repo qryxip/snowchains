@@ -8,6 +8,7 @@
 ### Changed
 
 * `session.api_tokens` field (required)
+* `languages._.language_ids` are always required for submitting source code
 
 ### Fixed
 

@@ -499,7 +499,7 @@ impl<'a, C: Contest> PrintTargets for RestoreProps<'a, C> {
 pub(crate) struct SubmitProps<C: Contest> {
     pub(self) contest: C,
     pub(self) problem: String,
-    pub(self) lang_id: Option<String>,
+    pub(self) lang_id: String,
     pub(self) src_path: AbsPathBuf,
     pub(self) open_in_browser: bool,
     pub(self) skip_checking_if_accepted: bool,
@@ -514,7 +514,7 @@ impl SubmitProps<String> {
     ) -> crate::Result<Self> {
         let contest = config.contest().to_owned();
         let src_path = config.src_to_submit()?.expand(Some(&problem))?;
-        let lang_id = config.lang_id().map(ToOwned::to_owned);
+        let lang_id = config.lang_id()?.to_owned();
         Ok(Self {
             contest,
             problem,

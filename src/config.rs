@@ -679,9 +679,14 @@ impl Config {
     }
 
     /// Gets the language id.
-    pub(crate) fn lang_id(&self) -> Option<&str> {
-        let lang = self.find_language().ok()?;
-        lang.language_ids.get(&self.service).map(String::as_str)
+    pub(crate) fn lang_id(&self) -> ConfigResult<&str> {
+        let lang = self.find_language()?;
+        lang.language_ids
+            .get(&self.service)
+            .map(String::as_str)
+            .ok_or_else(|| {
+                ConfigErrorKind::LanguageIdRequired(self.language.clone(), self.service).into()
+            })
     }
 
     pub(crate) fn solver_compilation(&self) -> ConfigResult<Option<Template<CompilationCommand>>> {
