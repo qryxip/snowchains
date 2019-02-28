@@ -64,6 +64,7 @@ USAGE:
     snowchains <r|restore> [OPTIONS]
     snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>
     snowchains <s|submit> [FLAGS] [OPTIONS] <problem>
+    snowchains list-langs [OPTIONS] [problem]
     snowchains show num-cases [OPTIONS] <problem> <extension>
     snowchains show timelimit-millis [OPTIONS] <problem> <nth>
     snowchains show in [OPTIONS] <problem> <nth>
@@ -84,6 +85,7 @@ SUBCOMMANDS:
     download       Downloads test cases
     restore        Downloads source files you have submitted
     judge          Tests a binary or script
+    list-langs     List available languages
     submit         Submits a source file
     show           Prints information
     modify         Modifies values in a config file or test files

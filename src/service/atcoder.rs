@@ -5,21 +5,24 @@ use crate::path::AbsPath;
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, PrintTargets, RestoreProps,
-    Service, ServiceKind, SessionProps, SubmitProps,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps, PrintTargets,
+    RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
+use crate::util::collections::NonEmptyVec;
 use crate::util::lang_unstable::Never;
 use crate::util::num::PositiveFinite;
 use crate::util::std_unstable::RemoveItem_;
 use crate::util::str::CaseConversion;
+use crate::util::Lookup;
 
 use chrono::{DateTime, Local, Utc};
 use failure::ResultExt;
 use itertools::Itertools;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
+use prettytable::{cell, row, Table};
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
@@ -96,6 +99,18 @@ pub(crate) fn submit(
         .unwrap();
     submit_props.print_targets(sess_props.term.stdout())?;
     Atcoder::try_new(sess_props)?.submit(&submit_props)
+}
+
+pub(crate) fn list_langs(
+    props: (SessionProps<impl Term>, ListLangsProps<String>),
+) -> ServiceResult<()> {
+    let (mut sess_props, list_langs_props) = props;
+    let list_langs_props = list_langs_props
+        .convert_problem(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
+    list_langs_props.print_targets(sess_props.term.stdout())?;
+    Atcoder::try_new(sess_props)?.list_langs(list_langs_props)
 }
 
 pub(self) struct Atcoder<T: Term> {
@@ -654,10 +669,11 @@ impl<T: Term> Atcoder<T> {
 
                 let source_code = crate::fs::read_to_string(src_path)?;
                 let document = self.get(&url).recv_html()?;
-                match document.extract_lang_name_by_id(lang_id)? {
-                    None => return Err(ServiceErrorKind::NoSuchLangId(lang_id.clone()).into()),
-                    Some(name) => writeln!(self.stdout(), "Submitting as {:?}", name)?,
-                }
+                let lang_names = document.extract_lang_names()?;
+                let lang_name = lang_names
+                    .lookup(lang_id)
+                    .ok_or_else(|| ServiceErrorKind::NoSuchLangId(lang_id.clone()))?;
+                writeln!(self.stdout(), "Submitting as {:?}", lang_name)?;
                 let csrf_token = document.extract_csrf_token()?;
                 let url = contest.url_submit();
                 let payload = hashmap!(
@@ -710,6 +726,26 @@ impl<T: Term> Atcoder<T> {
             }
         }
         Err(ServiceErrorKind::NoSuchProblem(problem.clone()).into())
+    }
+
+    fn list_langs(&mut self, props: ListLangsProps<AtcoderContest>) -> ServiceResult<()> {
+        let ListLangsProps { contest, .. } = props;
+
+        self.login_if_not(false)?;
+
+        let lang_names = self
+            .get(&contest.url_submit())
+            .recv_html()?
+            .extract_lang_names()?;
+
+        let mut table = Table::new();
+        table.add_row(row!["Name", "ID"]);
+        for (id, name) in &lang_names {
+            table.add_row(row![name, id]);
+        }
+
+        write!(self.stdout(), "{}", table)?;
+        self.stdout().flush().map_err(Into::into)
     }
 }
 
@@ -873,7 +909,7 @@ trait Extract {
     fn extract_submissions(&self) -> ScrapeResult<(vec::IntoIter<Submission>, u32)>;
     fn extract_submitted_code(&self) -> ScrapeResult<String>;
     fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String>;
-    fn extract_lang_name_by_id(&self, id: &str) -> ScrapeResult<Option<String>>;
+    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
 }
 
 impl Extract for Document {
@@ -1230,18 +1266,17 @@ impl Extract for Document {
         Err(ScrapeError::new())
     }
 
-    fn extract_lang_name_by_id(&self, id: &str) -> ScrapeResult<Option<String>> {
-        let options = self
+    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
+        let names = self
             .find(selector!("#select-lang option"))
-            .collect::<Vec<_>>();
-        guard!(!options.is_empty());
-        for option in options {
-            if option.attr("value").ok_or_else(ScrapeError::new)? == id {
-                let name = option.find(Text).next().ok_or_else(ScrapeError::new)?;
-                return Ok(Some(name.text()));
-            }
-        }
-        Ok(None)
+            .map(|option| {
+                let id = option.attr("value")?.to_owned();
+                let name = option.find(Text).next()?.text();
+                Some((id, name))
+            })
+            .map(|p| p.ok_or_else(ScrapeError::new))
+            .collect::<ScrapeResult<Vec<_>>>()?;
+        NonEmptyVec::try_new(names).ok_or_else(ScrapeError::new)
     }
 }
 

@@ -135,10 +135,12 @@ pub enum ServiceErrorKind {
     #[display(fmt = "{} not found", _0)]
     ContestNotFound(String),
     #[display(fmt = "Please specify problem")]
+    PleaseSpecifyProblem,
+    #[display(fmt = "Please specify problems")]
     PleaseSpecifyProblems,
     #[display(fmt = "No such problem: {:?}", _0)]
     NoSuchProblem(String),
-    #[display(fmt = "No such language id: {:?}", _0)]
+    #[display(fmt = "No such language id. Run `list-langs` to find the ID: {:?}", _0)]
     NoSuchLangId(String),
     #[display(
         fmt = "Submission rejected: language={:?}, size={}, status={}, location={}",
@@ -291,7 +293,11 @@ pub enum ConfigErrorKind {
     TesterNotSpecified,
     #[display(fmt = "No such language: {:?}", _0)]
     NoSuchLanguage(String),
-    #[display(fmt = "`languages.{}.language_ids.{}` required", _0, _1)]
+    #[display(
+        fmt = "`languages.{}.language_ids.{}` required. Run `list-langs` to find the ID",
+        _0,
+        _1
+    )]
     LanguageIdRequired(String, ServiceKind),
 }
 

@@ -3,6 +3,7 @@
 ### Added
 
 * Codeforces support
+* `list-langs` command
 * `session.robots` field (default: `true`)
 
 ### Changed

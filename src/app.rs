@@ -3,8 +3,8 @@ use crate::errors::ExpandTemplateResult;
 use crate::judging::{self, JudgeParams};
 use crate::path::AbsPathBuf;
 use crate::service::{
-    atcoder, codeforces, yukicoder, DownloadProps, RestoreProps, ServiceKind, SessionProps,
-    SubmitProps,
+    atcoder, codeforces, yukicoder, DownloadProps, ListLangsProps, RestoreProps, ServiceKind,
+    SessionProps, SubmitProps,
 };
 use crate::terminal::{AnsiColorChoice, Term};
 use crate::testsuite::{self, SuiteFileExtension};
@@ -32,6 +32,7 @@ use std::time::Duration;
                \n    snowchains <r|restore> [OPTIONS]\
                \n    snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>\
                \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>\
+               \n    snowchains list-langs [OPTIONS] [problem]\
                \n    snowchains show num-cases [OPTIONS] <problem> <extension>\
                \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
                \n    snowchains show in [OPTIONS] <problem> <nth>\
@@ -214,13 +215,29 @@ pub enum Opt {
     },
 
     #[structopt(
+        about = "List available languages",
+        name = "list-langs",
+        raw(display_order = "8")
+    )]
+    ListLangs {
+        #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
+        service: Option<ServiceKind>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(color_choice = "3"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(problem = ""))]
+        problem: Option<String>,
+    },
+
+    #[structopt(
         about = "Prints information",
         name = "show",
         usage = "snowchains show num-cases [OPTIONS] <problem> <extension>\
                  \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
                  \n    snowchains show in [OPTIONS] <problem> <nth>\
                  \n    snowchains show accepts [OPTIONS] <problem> <nth>",
-        raw(display_order = "9")
+        raw(display_order = "10")
     )]
     Show(Show),
 
@@ -230,7 +247,7 @@ pub enum Opt {
         usage = "snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
                  \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]\
                  \n    snowchains modify match [OPTIONS] <problem> <extension> <match>",
-        raw(display_order = "10")
+        raw(display_order = "11")
     )]
     Modify(Modify),
 }
@@ -693,6 +710,25 @@ impl<T: Term> App<T> {
                     ServiceKind::Yukicoder => yukicoder::submit(sess_props, submit_props)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
+            }
+            Opt::ListLangs {
+                service,
+                contest,
+                color_choice,
+                problem,
+            } => {
+                self.term.attempt_enable_ansi(color_choice);
+                let config = Config::load(service, contest, None, &working_dir)?;
+                let contest = config.contest().to_owned();
+                let sess_props = self.sess_props(&config)?;
+                let list_langs_props = ListLangsProps { contest, problem };
+                let props = (sess_props, list_langs_props);
+                match config.service() {
+                    ServiceKind::Atcoder => atcoder::list_langs(props)?,
+                    ServiceKind::Codeforces => codeforces::list_langs(props)?,
+                    ServiceKind::Yukicoder => yukicoder::list_langs(props)?,
+                    _ => return Err(crate::ErrorKind::Unimplemented.into()),
+                }
             }
             Opt::Show(Show::NumCases {
                 service,

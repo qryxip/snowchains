@@ -7,14 +7,15 @@ use crate::errors::{
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, PrintTargets, RestoreProps,
-    Service, ServiceKind, SessionProps, SubmitProps,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps, PrintTargets,
+    RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{self, BatchSuite, TestSuite};
 use crate::util::collections::NonEmptyVec;
 use crate::util::std_unstable::RemoveItem_;
 use crate::util::str::CaseConversion;
+use crate::util::Lookup;
 
 use if_chain::if_chain;
 use itertools::Itertools;
@@ -74,6 +75,17 @@ pub(crate) fn submit(
         .parse_contest()?;
     submit_props.print_targets(sess_props.term.stdout())?;
     Codeforces::try_new(sess_props)?.submit(submit_props)
+}
+
+pub(crate) fn list_langs(
+    props: (SessionProps<impl Term>, ListLangsProps<String>),
+) -> ServiceResult<()> {
+    let (mut sess_props, list_langs_props) = props;
+    let list_langs_props = list_langs_props
+        .convert_problem(CaseConversion::Upper)
+        .parse_contest()?;
+    list_langs_props.print_targets(sess_props.term.stdout())?;
+    Codeforces::try_new(sess_props)?.list_langs(list_langs_props)
 }
 
 struct Codeforces<T: Term> {
@@ -330,10 +342,11 @@ impl<T: Term> Codeforces<T> {
 
         let doc = self.get(&submit_path).recv_html()?;
 
-        match doc.extract_lang_name(&lang_id)? {
-            None => return Err(ServiceErrorKind::NoSuchLangId(lang_id).into()),
-            Some(name) => writeln!(self.stdout(), "Submitting as {:?}", name)?,
-        }
+        let lang_names = doc.extract_lang_names()?;
+        let lang_name = lang_names
+            .lookup(&lang_id)
+            .ok_or_else(|| ServiceErrorKind::NoSuchLangId(lang_id.clone()))?;
+        writeln!(self.stdout(), "Submitting as {:?}", lang_name)?;
 
         let mut values = doc.extract_hidden_values(selector!("form.submit-form"))?;
         values.insert("contestId".to_owned(), contest.id.to_string());
@@ -360,6 +373,14 @@ impl<T: Term> Codeforces<T> {
             self.open_in_browser(&format!("/contest/{}/my", contest.id))?;
         }
         Ok(())
+    }
+
+    fn list_langs(&mut self, props: ListLangsProps<CodeforcesContest>) -> ServiceResult<()> {
+        let ListLangsProps { contest, .. } = props;
+        self.login(LoginOption::WithHandle)?;
+        let submit_path = format!("/contest/{}/submit", contest.id);
+        let lang_names = self.get(&submit_path).recv_html()?.extract_lang_names()?;
+        self.print_lang_list(&lang_names).map_err(Into::into)
     }
 
     fn api<E: DeserializeOwned + Send + Sync + 'static>(
@@ -624,7 +645,7 @@ trait Extract {
     fn extract_problems(&self) -> ScrapeResult<NonEmptyVec<(String, Url)>>;
     fn extract_test_suite(&self) -> ScrapeResult<TestSuite>;
     fn extract_meta_x_csrf_token(&self) -> ScrapeResult<String>;
-    fn extract_lang_name(&self, id: &str) -> ScrapeResult<Option<String>>;
+    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
 }
 
 impl Extract for Document {
@@ -719,23 +740,25 @@ impl Extract for Document {
             .ok_or_else(ScrapeError::new)
     }
 
-    fn extract_lang_name(&self, id: &str) -> ScrapeResult<Option<String>> {
-        let mut tds = self
+    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
+        let td = self
             .find(selector!("form.submit-form > table > tbody > tr > td"))
-            .filter(|t| {
-                t.find(selector!("select[name=\"programTypeId\"]"))
+            .find(|td| {
+                td.find(selector!("select[name=\"programTypeId\"]"))
                     .next()
                     .is_some()
             })
-            .collect::<Vec<_>>();
-        let td = tds.pop().ok_or_else(ScrapeError::new)?;
-        for option in td.find(selector!("option")) {
-            if option.attr("value") == Some(id) {
-                let name = option.find(Text).next().ok_or_else(ScrapeError::new)?;
-                return Ok(Some(name.text()));
-            }
-        }
-        Ok(None)
+            .ok_or_else(ScrapeError::new)?;
+        let names = td
+            .find(selector!("option"))
+            .map(|option| {
+                let id = option.attr("value")?.to_owned();
+                let name = option.find(Text).next()?.text();
+                Some((id, name))
+            })
+            .map(|o| o.ok_or_else(ScrapeError::new))
+            .collect::<ScrapeResult<Vec<_>>>()?;
+        NonEmptyVec::try_new(names).ok_or_else(ScrapeError::new)
     }
 }
 

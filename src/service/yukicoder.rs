@@ -2,25 +2,29 @@ use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ExtractZip, PrintTargets,
-    Service, ServiceKind, SessionProps, SubmitProps, ZipEntries, ZipEntriesSorting,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ExtractZip, ListLangsProps,
+    PrintTargets, Service, ServiceKind, SessionProps, SubmitProps, ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
+use crate::util::collections::NonEmptyVec;
 use crate::util::lang_unstable::Never;
 use crate::util::str::CaseConversion;
+use crate::util::Lookup;
 
 use cookie::Cookie;
-use failure::ResultExt;
+use failure::{Fail, ResultExt};
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
+use prettytable::{cell, row, Table};
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
 use select::predicate::{Predicate, Text};
 use serde_derive::Deserialize;
 use tokio::runtime::{Runtime, TaskExecutor};
+use url::Url;
 
 use std::borrow::Cow;
 use std::io::Write;
@@ -54,6 +58,18 @@ pub(crate) fn submit(
         .unwrap();
     submit_props.print_targets(sess_props.term.stdout())?;
     Yukicoder::try_new(sess_props)?.submit(&submit_props)
+}
+
+pub(crate) fn list_langs(
+    props: (SessionProps<impl Term>, ListLangsProps<String>),
+) -> ServiceResult<()> {
+    let (mut sess_props, list_langs_props) = props;
+    let list_langs_props = list_langs_props
+        .convert_problem(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
+    list_langs_props.print_targets(sess_props.term.stdout())?;
+    Yukicoder::try_new(sess_props)?.list_langs(list_langs_props)
 }
 
 struct Yukicoder<T: Term> {
@@ -316,34 +332,23 @@ impl<T: Term> Yukicoder<T> {
         let code = crate::fs::read_to_string(src_path)?;
 
         self.login(true)?;
-        let mut url = match contest {
-            YukicoderContest::No => format!("/problems/no/{}", problem),
-            YukicoderContest::Contest(contest) => self
-                .get(&format!("/contests/{}", contest))
-                .recv_html()?
-                .extract_problems()?
-                .into_iter()
-                .filter(|(name, _)| name.eq_ignore_ascii_case(problem))
-                .map(|(_, href)| href)
-                .next()
-                .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?,
-        };
-        url += "/submit";
+        let url = self.get_submit_url(contest, problem)?;
         let no = {
             static NO: Lazy<Regex> =
                 lazy_regex!(r"\A(https://yukicoder\.me)?/problems/no/(\d+)/submit\z");
-            NO.captures(&url).map(|caps| caps[2].to_owned())
+            NO.captures(url.as_ref()).map(|caps| caps[2].to_owned())
         };
         if let Some(no) = no {
             if !(self.filter_solved(&[no])?.is_empty() || *skip_checking_if_accepted) {
                 return Err(ServiceErrorKind::AlreadyAccepted.into());
             }
         }
-        let document = self.get(&url).recv_html()?;
-        match document.extract_lang_name(lang_id)? {
-            None => return Err(ServiceErrorKind::NoSuchLangId(lang_id.clone()).into()),
-            Some(name) => writeln!(self.stdout(), "Submitting as {:?}", name)?,
-        }
+        let document = self.get(url.as_ref()).recv_html()?;
+        let lang_names = document.extract_lang_names()?;
+        let lang_name = lang_names
+            .lookup(lang_id)
+            .ok_or_else(|| ServiceErrorKind::NoSuchLangId(lang_id.clone()))?;
+        writeln!(self.stdout(), "Submitting as {:?}", lang_name)?;
         let token = document.extract_csrf_token_from_submit_page()?;
         let form = reqwest::r#async::multipart::Form::new()
             .text("csrf_token", token)
@@ -378,6 +383,25 @@ impl<T: Term> Yukicoder<T> {
         .into())
     }
 
+    fn list_langs(&mut self, props: ListLangsProps<YukicoderContest>) -> ServiceResult<()> {
+        let ListLangsProps { contest, problem } = props;
+        let problem = problem.ok_or(ServiceErrorKind::PleaseSpecifyProblem)?;
+
+        self.login(true)?;
+
+        let url = self.get_submit_url(&contest, &problem)?;
+        let lang_names = self.get(url.as_str()).recv_html()?.extract_lang_names()?;
+
+        let mut table = Table::new();
+        table.add_row(row!["Name", "ID"]);
+        for (id, name) in &lang_names {
+            table.add_row(row![name, id]);
+        }
+
+        write!(self.stdout(), "{}", table)?;
+        self.stdout().flush().map_err(Into::into)
+    }
+
     fn filter_solved<'b>(
         &mut self,
         nos: &'b [impl 'b + AsRef<str>],
@@ -405,6 +429,24 @@ impl<T: Term> Yukicoder<T> {
         } else {
             Ok(vec![])
         }
+    }
+
+    fn get_submit_url(&mut self, contest: &YukicoderContest, problem: &str) -> ServiceResult<Url> {
+        let mut url = match contest {
+            YukicoderContest::No => format!("https://yukicoder.me/problems/no/{}", problem),
+            YukicoderContest::Contest(contest) => self
+                .get(&format!("/contests/{}", contest))
+                .recv_html()?
+                .extract_problems()?
+                .into_iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case(problem))
+                .map(|(_, href)| href)
+                .next()
+                .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.to_owned()))?,
+        };
+        url += "/submit";
+        url.parse::<Url>()
+            .map_err(|e| e.context(ServiceErrorKind::ParseUrl(url)).into())
     }
 }
 
@@ -477,7 +519,7 @@ trait Extract {
     fn extract_problems(&self) -> ScrapeResult<Vec<(String, String)>>;
     fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String>;
     fn extract_url_from_submit_page(&self) -> ScrapeResult<String>;
-    fn extract_lang_name(&self, id: &str) -> ScrapeResult<Option<String>>;
+    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
 }
 
 impl Extract for Document {
@@ -592,16 +634,19 @@ impl Extract for Document {
             .ok_or_else(ScrapeError::new)
     }
 
-    fn extract_lang_name(&self, id: &str) -> ScrapeResult<Option<String>> {
-        let options = self.find(selector!("#lang > option")).collect::<Vec<_>>();
-        guard!(!options.is_empty());
-        for option in options {
-            if option.attr("value").ok_or_else(ScrapeError::new)? == id {
-                let name = option.find(Text).next().ok_or_else(ScrapeError::new)?;
-                return Ok(Some(name.text()));
-            }
-        }
-        Ok(None)
+    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
+        static WS: Lazy<Regex> = lazy_regex!(r"[\s\n]+");
+        let names = self
+            .find(selector!("#lang > option"))
+            .map(|option| {
+                let id = option.attr("value")?.to_owned();
+                let name = option.find(Text).next()?.as_text().unwrap();
+                let name = WS.replace_all(name.trim(), " ").into_owned();
+                Some((id, name))
+            })
+            .map(|p| p.ok_or_else(ScrapeError::new))
+            .collect::<ScrapeResult<Vec<_>>>()?;
+        NonEmptyVec::try_new(names).ok_or_else(ScrapeError::new)
     }
 }
 

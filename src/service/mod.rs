@@ -20,6 +20,7 @@ use crate::util::str::CaseConversion;
 use failure::ResultExt;
 use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
 use maplit::hashmap;
+use prettytable::{cell, row, Table};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use regex::Regex;
 use reqwest::header::{self, HeaderMap};
@@ -124,6 +125,19 @@ pub(self) trait Service {
     fn open_in_browser(&mut self, url: &str) -> ServiceResult<()> {
         let (out, sess, _) = self.requirements();
         sess.open_in_browser(url, out)
+    }
+
+    fn print_lang_list(&mut self, lang_list: &[(String, String)]) -> io::Result<()> {
+        let (out, _, _) = self.requirements();
+
+        let mut table = Table::new();
+        table.add_row(row!["Name", "ID"]);
+        for (id, name) in lang_list {
+            table.add_row(row![name, id]);
+        }
+
+        write!(out, "{}", table)?;
+        out.flush()
     }
 }
 
@@ -555,6 +569,41 @@ impl<C: Contest> PrintTargets for SubmitProps<C> {
 
     fn problems(&self) -> Option<&[String]> {
         Some(slice::from_ref(&self.problem))
+    }
+}
+
+pub(crate) struct ListLangsProps<C: Contest> {
+    pub(crate) contest: C,
+    pub(crate) problem: Option<String>,
+}
+
+impl ListLangsProps<String> {
+    pub(self) fn convert_problem(self, conversion: CaseConversion) -> Self {
+        Self {
+            contest: self.contest,
+            problem: self.problem.map(|p| conversion.apply(&p)),
+        }
+    }
+
+    pub(self) fn parse_contest<C: Contest>(
+        self,
+    ) -> std::result::Result<ListLangsProps<C>, <C as FromStr>::Err> {
+        Ok(ListLangsProps {
+            contest: self.contest.parse()?,
+            problem: self.problem,
+        })
+    }
+}
+
+impl<C: Contest> PrintTargets for ListLangsProps<C> {
+    type Contest = C;
+
+    fn contest(&self) -> &C {
+        &self.contest
+    }
+
+    fn problems(&self) -> Option<&[String]> {
+        self.problem.as_ref().map(slice::from_ref)
     }
 }
 
