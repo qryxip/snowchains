@@ -1,8 +1,9 @@
 use crate::errors::{FileResult, ServiceError, ServiceErrorKind, ServiceResult};
-use crate::fs::LockedFile;
+use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
 use crate::service::USER_AGENT;
 use crate::terminal::WriteAnsi;
+use crate::util::std_unstable::Transpose_;
 
 use cookie::CookieJar;
 use derive_new::new;
@@ -27,65 +28,87 @@ use std::fmt::{self, Write};
 use std::ops::Deref;
 use std::{io, mem};
 
+pub(super) struct HttpSessionInitParams<'a, W: WriteAnsi> {
+    pub(super) out: W,
+    pub(super) runtime: &'a mut Runtime,
+    pub(super) robots: bool,
+    pub(super) client: reqwest::r#async::Client,
+    pub(super) base: Option<UrlBase>,
+    pub(super) cookies_path: Option<&'a AbsPath>,
+    pub(super) api_token_path: Option<&'a AbsPath>,
+    pub(super) silent: bool,
+}
+
 #[derive(Debug)]
 pub(super) struct HttpSession {
     client: reqwest::r#async::Client,
     robots_txts: HashMap<String, String>,
     base: Option<UrlBase>,
     jar: Option<AutosavedCookieJar>,
+    api_token: LazyLockedFile,
     silent: bool,
 }
 
 impl HttpSession {
-    pub(super) fn try_new<'a>(
-        mut out: impl WriteAnsi,
-        mut runtime: &mut Runtime,
-        client: reqwest::r#async::Client,
-        base: impl Into<Option<UrlBase>>,
-        cookies_path: impl Into<Option<&'a AbsPath>>,
-        silent: bool,
-    ) -> ServiceResult<Self> {
-        let base = base.into();
+    pub(super) fn try_new(params: HttpSessionInitParams<impl WriteAnsi>) -> ServiceResult<Self> {
+        let HttpSessionInitParams {
+            mut out,
+            mut runtime,
+            robots,
+            client,
+            base,
+            cookies_path,
+            api_token_path,
+            silent,
+        } = params;
         let host = base.as_ref().map(|base| base.host.clone());
-        let jar = match cookies_path.into() {
-            Some(path) => Some(AutosavedCookieJar::try_new(path)?),
-            None => None,
-        };
         let mut this = Self {
             client,
             robots_txts: hashmap!(),
             base,
-            jar,
+            jar: cookies_path.map(AutosavedCookieJar::try_new).transpose_()?,
+            api_token: match api_token_path {
+                None => LazyLockedFile::Null,
+                Some(path) => LazyLockedFile::Uninited(path.to_owned()),
+            },
             silent,
         };
-        if let Some(host) = host {
-            let mut res = this
-                .get("/robots.txt", &mut out, &mut runtime)
-                .acceptable(&[200, 301, 302, 404])
-                .send()?;
-            while [301, 302, 404].contains(&res.status().as_u16()) {
-                if let Some(location) = res.headers().get(header::LOCATION).map(ToOwned::to_owned) {
-                    let location = location
-                        .to_str()
-                        .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
-                    res = this
-                        .get(location, &mut out, &mut runtime)
-                        .acceptable(&[200, 301, 302, 404])
-                        .send()?;
-                } else {
-                    return Ok(this);
+        if robots {
+            if let Some(host) = host {
+                let mut res = this
+                    .get("/robots.txt", &mut out, &mut runtime)
+                    .acceptable(&[200, 301, 302, 404])
+                    .send()?;
+                while [301, 302, 404].contains(&res.status().as_u16()) {
+                    if let Some(location) =
+                        res.headers().get(header::LOCATION).map(ToOwned::to_owned)
+                    {
+                        let location = location
+                            .to_str()
+                            .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
+                        res = this
+                            .get(location, &mut out, &mut runtime)
+                            .acceptable(&[200, 301, 302, 404])
+                            .send()?;
+                    } else {
+                        return Ok(this);
+                    }
                 }
-            }
-            match res.status() {
-                StatusCode::OK => {
-                    this.robots_txts
-                        .insert(host.to_string(), res.text(runtime)?);
+                match res.status() {
+                    StatusCode::OK => {
+                        this.robots_txts
+                            .insert(host.to_string(), res.text(runtime)?);
+                    }
+                    StatusCode::NOT_FOUND => (),
+                    _ => unreachable!(),
                 }
-                StatusCode::NOT_FOUND => (),
-                _ => unreachable!(),
             }
         }
         Ok(this)
+    }
+
+    pub(super) fn api_token(&mut self) -> &mut LazyLockedFile {
+        &mut self.api_token
     }
 
     pub(super) fn client(&self) -> reqwest::r#async::Client {
@@ -594,11 +617,11 @@ impl AutosavedCookieJar {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::{FileError, FileErrorKind, ServiceError, ServiceErrorKind};
-    use crate::path::AbsPathBuf;
+    use crate::errors::{FileError, FileErrorKind, ServiceError, ServiceErrorKind, ServiceResult};
+    use crate::path::{AbsPath, AbsPathBuf};
     use crate::service;
-    use crate::service::session::{HttpSession, UrlBase};
-    use crate::terminal::Ansi;
+    use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
+    use crate::terminal::{Ansi, WriteAnsi};
 
     use failure::Fallible;
     use futures::Future;
@@ -610,7 +633,6 @@ mod tests {
     use warp::Filter;
 
     use std::net::Ipv4Addr;
-    use std::ops::Deref;
     use std::{io, panic, str};
 
     #[test]
@@ -638,16 +660,18 @@ mod tests {
             let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
             let client = service::reqwest_async_client(None)?;
             let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
-            let mut wtr = Ansi::new(Vec::<u8>::new());
+            let mut wtr = Ansi::new(vec![]);
             let mut runtime = Runtime::new()?;
-            let mut sess = HttpSession::try_new(
-                &mut wtr,
-                &mut runtime,
+            let mut sess = HttpSession::try_new(HttpSessionInitParams {
+                out: &mut wtr,
+                runtime: &mut runtime,
+                robots: true,
                 client,
-                Some(base),
-                cookies.deref(),
-                false,
-            )?;
+                base: Some(base),
+                cookies_path: Some(&cookies),
+                api_token_path: None,
+                silent: false,
+            })?;
             sess.get("/", &mut wtr, &mut runtime).send()?;
             sess.get("/confirm-cookie", &mut wtr, &mut runtime).send()?;
             sess.get("/nonexisting", &mut wtr, &mut runtime)
@@ -689,6 +713,24 @@ mod tests {
 
     #[test]
     fn it_keeps_a_file_locked_while_alive() -> Fallible<()> {
+        fn construct_session(
+            out: impl WriteAnsi,
+            runtime: &mut Runtime,
+            client: &reqwest::r#async::Client,
+            path: &AbsPath,
+        ) -> ServiceResult<HttpSession> {
+            HttpSession::try_new(HttpSessionInitParams {
+                out,
+                runtime,
+                robots: true,
+                client: client.clone(),
+                base: None,
+                cookies_path: Some(path),
+                api_token_path: None,
+                silent: true,
+            })
+        }
+
         let _ = env_logger::try_init();
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive")?;
         let path = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
@@ -696,12 +738,11 @@ mod tests {
         let mut wtr = Ansi::new(io::sink());
         let mut rt = Runtime::new()?;
         let client = service::reqwest_async_client(None)?;
-        HttpSession::try_new(&mut wtr, &mut rt, client.clone(), None, path, true)?;
-        HttpSession::try_new(&mut wtr, &mut rt, client.clone(), None, path, true)?;
-        let _session = HttpSession::try_new(&mut wtr, &mut rt, client.clone(), None, path, true)?;
+        construct_session(&mut wtr, &mut rt, &client, path)?;
+        construct_session(&mut wtr, &mut rt, &client, path)?;
+        let _session = construct_session(&mut wtr, &mut rt, &client, path)?;
         if_chain! {
-            let err =
-                HttpSession::try_new(&mut wtr, &mut rt, client, None, path, true).unwrap_err();
+            let err = construct_session(&mut wtr, &mut rt, &client, path).unwrap_err();
             if let ServiceError::File(FileError::Context(kind)) = &err;
             if let FileErrorKind::Lock(_) = kind.get_context();
             then { Ok(()) } else { Err(err.into()) }

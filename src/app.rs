@@ -3,11 +3,13 @@ use crate::errors::ExpandTemplateResult;
 use crate::judging::{self, JudgeParams};
 use crate::path::AbsPathBuf;
 use crate::service::{
-    atcoder, yukicoder, DownloadProps, RestoreProps, ServiceKind, SessionProps, SubmitProps,
+    atcoder, codeforces, yukicoder, DownloadProps, ListLangsProps, RestoreProps, ServiceKind,
+    SessionProps, SubmitProps,
 };
 use crate::terminal::{AnsiColorChoice, Term};
 use crate::testsuite::{self, SuiteFileExtension};
 use crate::time;
+use crate::util::collections::NonEmptyVec;
 use crate::util::num::PositiveFinite;
 use crate::util::std_unstable::Transpose_;
 
@@ -30,6 +32,7 @@ use std::time::Duration;
                \n    snowchains <r|restore> [OPTIONS]\
                \n    snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>\
                \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>\
+               \n    snowchains list-langs [OPTIONS] [problem]\
                \n    snowchains show num-cases [OPTIONS] <problem> <extension>\
                \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
                \n    snowchains show in [OPTIONS] <problem> <nth>\
@@ -62,7 +65,7 @@ pub enum Opt {
         raw(aliases = r#"&["w", "checkout", "c"]"#, display_order = "2")
     )]
     Switch {
-        #[structopt(raw(service = r#"&["atcoder", "yukicoder", "other"], Kind::Option(1)"#))]
+        #[structopt(raw(service = r#"SERVICE_VALUES, Kind::Option(1)"#))]
         service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
@@ -81,7 +84,7 @@ pub enum Opt {
     Login {
         #[structopt(raw(color_choice = "1"))]
         color_choice: AnsiColorChoice,
-        #[structopt(raw(service = r#"&["atcoder", "yukicoder"], Kind::Arg"#))]
+        #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Arg"#))]
         service: ServiceKind,
     },
 
@@ -115,7 +118,7 @@ pub enum Opt {
             raw(display_order = "2")
         )]
         only_scraped: bool,
-        #[structopt(raw(service = r#"&["atcoder", "yukicoder"], Kind::Option(1)"#))]
+        #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Option(1)"#))]
         service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
@@ -197,7 +200,7 @@ pub enum Opt {
             raw(display_order = "5")
         )]
         no_check_duplication: bool,
-        #[structopt(raw(service = "&[\"atcoder\", \"yukicoder\"], Kind::Option(1)"))]
+        #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
         service: Option<ServiceKind>,
         #[structopt(raw(contest = "Kind::Option(2)"))]
         contest: Option<String>,
@@ -212,13 +215,29 @@ pub enum Opt {
     },
 
     #[structopt(
+        about = "List available languages",
+        name = "list-langs",
+        raw(display_order = "8")
+    )]
+    ListLangs {
+        #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
+        service: Option<ServiceKind>,
+        #[structopt(raw(contest = "Kind::Option(2)"))]
+        contest: Option<String>,
+        #[structopt(raw(color_choice = "3"))]
+        color_choice: AnsiColorChoice,
+        #[structopt(raw(problem = ""))]
+        problem: Option<String>,
+    },
+
+    #[structopt(
         about = "Prints information",
         name = "show",
         usage = "snowchains show num-cases [OPTIONS] <problem> <extension>\
                  \n    snowchains show timelimit-millis [OPTIONS] <problem> <nth>\
                  \n    snowchains show in [OPTIONS] <problem> <nth>\
                  \n    snowchains show accepts [OPTIONS] <problem> <nth>",
-        raw(display_order = "9")
+        raw(display_order = "10")
     )]
     Show(Show),
 
@@ -228,7 +247,7 @@ pub enum Opt {
         usage = "snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]\
                  \n    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]\
                  \n    snowchains modify match [OPTIONS] <problem> <extension> <match>",
-        raw(display_order = "10")
+        raw(display_order = "11")
     )]
     Modify(Modify),
 }
@@ -357,7 +376,9 @@ pub enum Modify {
     },
 }
 
-static SERVICE_VALUES: &[&str] = &["atcoder", "yukicoder", "other"];
+static SERVICE_VALUES: &[&str] = &["atcoder", "codeforces", "yukicoder", "other"];
+
+static EXCEPT_OTHER: &[&str] = &["atcoder", "codeforces", "yukicoder"];
 
 #[derive(StructOpt, Debug)]
 pub struct MatchOpts {
@@ -555,6 +576,7 @@ impl<T: Term> App<T> {
                 let sess_props = self.sess_props(&config)?;
                 match service {
                     ServiceKind::Atcoder => atcoder::login(sess_props),
+                    ServiceKind::Codeforces => codeforces::login(sess_props),
                     ServiceKind::Yukicoder => yukicoder::login(sess_props),
                     ServiceKind::Other => unreachable!(),
                 }?;
@@ -587,17 +609,14 @@ impl<T: Term> App<T> {
                 let sess_props = self.sess_props(&config)?;
                 let download_props = DownloadProps {
                     contest: config.contest().to_owned(),
-                    problems: if problems.is_empty() {
-                        None
-                    } else {
-                        Some(problems)
-                    },
+                    problems: NonEmptyVec::try_new(problems),
                     destinations: config.download_destinations(None),
                     open_in_browser: open,
                     only_scraped,
                 };
                 let outcome = match config.service() {
                     ServiceKind::Atcoder => atcoder::download(sess_props, download_props),
+                    ServiceKind::Codeforces => codeforces::download(sess_props, download_props),
                     ServiceKind::Yukicoder => yukicoder::download(sess_props, download_props),
                     ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
                 }?;
@@ -617,6 +636,7 @@ impl<T: Term> App<T> {
                 let restore_props = RestoreProps::new(&config, problems);
                 match config.service() {
                     ServiceKind::Atcoder => atcoder::restore(sess_props, restore_props)?,
+                    ServiceKind::Codeforces => codeforces::restore(sess_props, restore_props)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
             }
@@ -686,9 +706,29 @@ impl<T: Term> App<T> {
                     SubmitProps::try_new(&config, problem.clone(), open, no_check_duplication)?;
                 match config.service() {
                     ServiceKind::Atcoder => atcoder::submit(sess_props, submit_props)?,
+                    ServiceKind::Codeforces => codeforces::submit(sess_props, submit_props)?,
                     ServiceKind::Yukicoder => yukicoder::submit(sess_props, submit_props)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
+            }
+            Opt::ListLangs {
+                service,
+                contest,
+                color_choice,
+                problem,
+            } => {
+                self.term.attempt_enable_ansi(color_choice);
+                let config = Config::load(service, contest, None, &working_dir)?;
+                let contest = config.contest().to_owned();
+                let sess_props = self.sess_props(&config)?;
+                let list_langs_props = ListLangsProps { contest, problem };
+                let props = (sess_props, list_langs_props);
+                match config.service() {
+                    ServiceKind::Atcoder => atcoder::list_langs(props)?,
+                    ServiceKind::Codeforces => codeforces::list_langs(props)?,
+                    ServiceKind::Yukicoder => yukicoder::list_langs(props)?,
+                    _ => return Err(crate::ErrorKind::Unimplemented.into()),
+                }
             }
             Opt::Show(Show::NumCases {
                 service,
@@ -792,6 +832,7 @@ impl<T: Term> App<T> {
 
     fn sess_props(&mut self, config: &Config) -> ExpandTemplateResult<SessionProps<&mut T>> {
         let cookies_path = config.session_cookies().expand(None)?;
+        let api_token_path = config.session_api_tokens().expand(None)?;
         let dropbox_path = config
             .session_dropbox_auth()
             .map(|p| p.expand(None))
@@ -800,10 +841,12 @@ impl<T: Term> App<T> {
             term: &mut self.term,
             domain: config.service().domain(),
             cookies_path,
+            api_token_path,
             dropbox_path,
             timeout: config.session_timeout(),
             login_retries: self.login_retries,
             silent: config.session_silent(),
+            robots: config.session_robots(),
         })
     }
 }

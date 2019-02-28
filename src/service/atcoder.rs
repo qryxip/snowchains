@@ -5,21 +5,24 @@ use crate::path::AbsPath;
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, PrintTargets, RestoreProps,
-    Service, ServiceKind, SessionProps, SubmitProps,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps, PrintTargets,
+    RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi};
 use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
+use crate::util::collections::NonEmptyVec;
+use crate::util::lang_unstable::Never;
 use crate::util::num::PositiveFinite;
 use crate::util::std_unstable::RemoveItem_;
 use crate::util::str::CaseConversion;
+use crate::util::Lookup;
 
 use chrono::{DateTime, Local, Utc};
 use failure::ResultExt;
 use itertools::Itertools;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
+use prettytable::{cell, row, Table};
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
@@ -30,7 +33,6 @@ use tokio::runtime::{Runtime, TaskExecutor};
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ffi::OsStr;
 use std::io::Write;
 use std::ops::Deref;
 use std::path::Path;
@@ -65,7 +67,10 @@ pub(crate) fn download(
 ) -> ServiceResult<DownloadOutcome> {
     let dropbox_path = sess_props.dropbox_path.take();
     let dropbox_path = dropbox_path.as_ref().map(Deref::deref);
-    let download_props = download_props.convert_contest_and_problems(CaseConversion::Upper);
+    let download_props = download_props
+        .convert_problems(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
     download_props.print_targets(sess_props.term.stdout())?;
     Atcoder::try_new(sess_props)?.download(&download_props, dropbox_path)
 }
@@ -75,7 +80,10 @@ pub(crate) fn restore(
     mut sess_props: SessionProps<impl Term>,
     restore_props: RestoreProps<String>,
 ) -> ServiceResult<()> {
-    let restore_props = restore_props.convert_contest_and_problems(CaseConversion::Upper);
+    let restore_props = restore_props
+        .convert_problems(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
     restore_props.print_targets(sess_props.term.stdout())?;
     Atcoder::try_new(sess_props)?.restore(&restore_props)
 }
@@ -85,9 +93,24 @@ pub(crate) fn submit(
     mut sess_props: SessionProps<impl Term>,
     submit_props: SubmitProps<String>,
 ) -> ServiceResult<()> {
-    let submit_props = submit_props.convert_contest_and_problem(CaseConversion::Upper);
+    let submit_props = submit_props
+        .convert_problem(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
     submit_props.print_targets(sess_props.term.stdout())?;
     Atcoder::try_new(sess_props)?.submit(&submit_props)
+}
+
+pub(crate) fn list_langs(
+    props: (SessionProps<impl Term>, ListLangsProps<String>),
+) -> ServiceResult<()> {
+    let (mut sess_props, list_langs_props) = props;
+    let list_langs_props = list_langs_props
+        .convert_problem(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
+    list_langs_props.print_targets(sess_props.term.stdout())?;
+    Atcoder::try_new(sess_props)?.list_langs(list_langs_props)
 }
 
 pub(self) struct Atcoder<T: Term> {
@@ -646,14 +669,12 @@ impl<T: Term> Atcoder<T> {
 
                 let source_code = crate::fs::read_to_string(src_path)?;
                 let document = self.get(&url).recv_html()?;
+                let lang_names = document.extract_lang_names()?;
+                let lang_name = lang_names
+                    .lookup(lang_id)
+                    .ok_or_else(|| ServiceErrorKind::NoSuchLangId(lang_id.clone()))?;
+                writeln!(self.stdout(), "Submitting as {:?}", lang_name)?;
                 let csrf_token = document.extract_csrf_token()?;
-                let lang_id = match lang_id.as_ref() {
-                    None => {
-                        let ext = src_path.extension().unwrap_or_default();
-                        Cow::from(document.extract_lang_id_by_extension(ext)?)
-                    }
-                    Some(lang_id) => Cow::from(lang_id.as_str()),
-                };
                 let url = contest.url_submit();
                 let payload = hashmap!(
                     "data.TaskScreenName" => task_screen_name.as_str(),
@@ -664,7 +685,7 @@ impl<T: Term> Atcoder<T> {
 
                 let error = |status: StatusCode, location: Option<String>| -> _ {
                     ServiceError::from(ServiceErrorKind::SubmissionRejected(
-                        lang_id.as_ref().to_owned(),
+                        lang_id.clone(),
                         source_code.len(),
                         status,
                         location,
@@ -705,6 +726,26 @@ impl<T: Term> Atcoder<T> {
             }
         }
         Err(ServiceErrorKind::NoSuchProblem(problem.clone()).into())
+    }
+
+    fn list_langs(&mut self, props: ListLangsProps<AtcoderContest>) -> ServiceResult<()> {
+        let ListLangsProps { contest, .. } = props;
+
+        self.login_if_not(false)?;
+
+        let lang_names = self
+            .get(&contest.url_submit())
+            .recv_html()?
+            .extract_lang_names()?;
+
+        let mut table = Table::new();
+        table.add_row(row!["Name", "ID"]);
+        for (id, name) in &lang_names {
+            table.add_row(row![name, id]);
+        }
+
+        write!(self.stdout(), "{}", table)?;
+        self.stdout().flush().map_err(Into::into)
     }
 }
 
@@ -790,10 +831,6 @@ impl AtcoderContest {
 }
 
 impl Contest for AtcoderContest {
-    fn from_string(s: String) -> Self {
-        Self::new(&s)
-    }
-
     fn slug(&self) -> Cow<str> {
         match self {
             AtcoderContest::Practice => "practice".into(),
@@ -806,6 +843,14 @@ impl Contest for AtcoderContest {
             AtcoderContest::ChokudaiS(n) => format!("chokudai_s{:>03}", n).into(),
             AtcoderContest::Other(s) => s.into(),
         }
+    }
+}
+
+impl FromStr for AtcoderContest {
+    type Err = Never;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Never> {
+        Ok(Self::new(s))
     }
 }
 
@@ -863,8 +908,8 @@ trait Extract {
     fn extract_contest_duration(&self) -> ScrapeResult<ContestDuration>;
     fn extract_submissions(&self) -> ScrapeResult<(vec::IntoIter<Submission>, u32)>;
     fn extract_submitted_code(&self) -> ScrapeResult<String>;
-    fn extract_lang_id_by_name(&self, lang_name: &str) -> ScrapeResult<String>;
-    fn extract_lang_id_by_extension(&self, ext: &OsStr) -> ServiceResult<String>;
+    fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String>;
+    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
 }
 
 impl Extract for Document {
@@ -1207,10 +1252,10 @@ impl Extract for Document {
             .unwrap_or_else(|| "".to_owned()))
     }
 
-    fn extract_lang_id_by_name(&self, lang_name: &str) -> ScrapeResult<String> {
+    fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String> {
         for option in self.find(selector!("#select-language > option")) {
             if let Some(text) = option.find(Text).next().map(|n| n.text()) {
-                if text == lang_name {
+                if text == name {
                     return option
                         .attr("value")
                         .map(ToOwned::to_owned)
@@ -1221,130 +1266,17 @@ impl Extract for Document {
         Err(ScrapeError::new())
     }
 
-    fn extract_lang_id_by_extension(&self, ext: &OsStr) -> ServiceResult<String> {
-        enum Kind {
-            Mime(&'static str),
-            Name(&'static str),
-            Ambiguous(&'static [&'static str]),
-        }
-
-        static KINDS: Lazy<HashMap<&OsStr, Kind>> = sync_lazy!(hashmap!(
-            OsStr::new("bash")   => Kind::Name("Bash"),
-            OsStr::new("sh")     => Kind::Name("Bash"),
-            OsStr::new("c")      => Kind::Mime("text/x-csrc"),
-            OsStr::new("cpp")    => Kind::Mime("text/x-c++src"),
-            OsStr::new("cxx")    => Kind::Mime("text/x-c++src"),
-            OsStr::new("cc")     => Kind::Mime("text/x-c++src"),
-            OsStr::new("C")      => Kind::Mime("text/x-c++src"),
-            OsStr::new("cs")     => Kind::Mime("text/x-csharp"),
-            OsStr::new("clj")    => Kind::Mime("text/x-closure"),
-            OsStr::new("lisp")   => Kind::Mime("text/x-common-lisp"),
-            OsStr::new("cl")     => Kind::Mime("text/x-common-lisp"),
-            OsStr::new("d")      => Kind::Mime("text/x-d"),
-            OsStr::new("f08")    => Kind::Mime("text/x-fortran"),
-            OsStr::new("F08")    => Kind::Mime("text/x-fortran"),
-            OsStr::new("f03")    => Kind::Mime("text/x-fortran"),
-            OsStr::new("F03")    => Kind::Mime("text/x-fortran"),
-            OsStr::new("f95")    => Kind::Mime("text/x-fortran"),
-            OsStr::new("F95")    => Kind::Mime("text/x-fortran"),
-            OsStr::new("f90")    => Kind::Mime("text/x-fortran"),
-            OsStr::new("F90")    => Kind::Mime("text/x-fortran"),
-            OsStr::new("f")      => Kind::Mime("text/x-fortran"),
-            OsStr::new("for")    => Kind::Mime("text/x-fortran"),
-            OsStr::new("go")     => Kind::Mime("text/x-go"),
-            OsStr::new("hs")     => Kind::Mime("text/x-haskell"),
-            OsStr::new("java")   => Kind::Mime("text/x-java"),
-            OsStr::new("js")     => Kind::Mime("text/javascript"),
-            OsStr::new("ml")     => Kind::Mime("text/x-ocaml"),
-            OsStr::new("pas")    => Kind::Mime("text/x-pascal"),
-            OsStr::new("pl")     => Kind::Mime("text/x-perl"),
-            OsStr::new("php")    => Kind::Mime("text/x-php"),
-            OsStr::new("py")     => Kind::Mime("text/x-python"),
-            OsStr::new("py2")    => Kind::Mime("text/x-python"),
-            OsStr::new("py3")    => Kind::Mime("text/x-python"),
-            OsStr::new("rb")     => Kind::Mime("text/x-ruby"),
-            OsStr::new("scala")  => Kind::Mime("text/x-scala"),
-            OsStr::new("scm")    => Kind::Mime("text/x-scheme"),
-            OsStr::new("txt")    => Kind::Mime("text/plain"),
-            OsStr::new("vb")     => Kind::Mime("text/x-vb"),
-            OsStr::new("m")      => Kind::Ambiguous(&["Objective-C", "Octave"]),
-            OsStr::new("swift")  => Kind::Mime("text/x-swift"),
-            OsStr::new("rs")     => Kind::Mime("text/x-rust"),
-            OsStr::new("sed")    => Kind::Name("Sed"),
-            OsStr::new("awk")    => Kind::Name("Awk"),
-            OsStr::new("bf")     => Kind::Mime("text/x-brainfuck"),
-            OsStr::new("sml")    => Kind::Mime("text/x-sml"),
-            OsStr::new("cr")     => Kind::Mime("text/x-crystal"),
-            OsStr::new("fs")     => Kind::Mime("text/x-fsharp"),
-            OsStr::new("unl")    => Kind::Mime("text/x-unlambda"),
-            OsStr::new("lua")    => Kind::Mime("text/x-lua"),
-            OsStr::new("moon")   => Kind::Mime("text/x-moonscript"),
-            OsStr::new("ceylon") => Kind::Mime("text/x-ceylon"),
-            OsStr::new("jl")     => Kind::Mime("text/x-julia"),
-            OsStr::new("nim")    => Kind::Mime("text/x-nim"),
-            OsStr::new("ts")     => Kind::Mime("text/typescript"),
-            OsStr::new("p6")     => Kind::Name("Perl6"),
-            OsStr::new("kt")     => Kind::Mime("text/x-kotlin"),
-            OsStr::new("cob")    => Kind::Mime("text/x-cobol"),
-        ));
-        static NAME: Lazy<Regex> = lazy_regex!(r#"\A(.*?)\s*\(.*?\)\z"#);
-
-        macro_rules! with_msg {
-            ($msg:expr) => {
-                ServiceError::from(failure::err_msg($msg).context(
-                    ServiceErrorKind::RecognizeByExtension(ext.to_string_lossy().into_owned()),
-                ))
-            };
-        }
-
-        let kind = KINDS
-            .get(ext)
-            .ok_or_else(|| with_msg!("Unknown extension"))?;
-        if let Kind::Ambiguous(candidates) = kind {
-            return Err(with_msg!(format!(
-                "Ambiguous (candidates: {{ {} }})",
-                candidates
-                    .iter()
-                    .format_with(", ", |s, f| f(&format_args!("????: {:?} (???)", s)))
-            )));
-        }
-        let mut matched = vec![];
-        for option in self.find(selector!("#select-lang > select > option")) {
-            let lang_id = option.attr("value").ok_or_else(ScrapeError::new)?;
-            let mime = option.attr("data-mime").ok_or_else(ScrapeError::new)?;
-            let name = option
-                .find(Text)
-                .next()
-                .ok_or_else(ScrapeError::new)?
-                .text();
-            match kind {
-                Kind::Ambiguous(_) => unreachable!(),
-                Kind::Mime(s) => {
-                    if s == &mime {
-                        matched.push((lang_id, name));
-                    }
-                }
-                Kind::Name(s) => {
-                    let p = {
-                        let caps = NAME.captures(&name).ok_or_else(ScrapeError::new)?;
-                        s == &&caps[1]
-                    };
-                    if p {
-                        matched.push((lang_id, name));
-                    }
-                }
-            }
-        }
-        if matched.len() == 1 {
-            Ok(matched[0].0.to_owned())
-        } else {
-            Err(with_msg!(format!(
-                "Candidates:\n{}",
-                matched
-                    .iter()
-                    .format_with("", |(n, s), f| f(&format_args!("  {}: {:?}\n", n, s)))
-            )))
-        }
+    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
+        let names = self
+            .find(selector!("#select-lang option"))
+            .map(|option| {
+                let id = option.attr("value")?.to_owned();
+                let name = option.find(Text).next()?.text();
+                Some((id, name))
+            })
+            .map(|p| p.ok_or_else(ScrapeError::new))
+            .collect::<ScrapeResult<Vec<_>>>()?;
+        NonEmptyVec::try_new(names).ok_or_else(ScrapeError::new)
     }
 }
 
@@ -1352,7 +1284,7 @@ impl Extract for Document {
 mod tests {
     use crate::errors::ServiceResult;
     use crate::service::atcoder::{Atcoder, AtcoderContest, Extract};
-    use crate::service::session::{HttpSession, UrlBase};
+    use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
     use crate::service::{self, Contest, Service};
     use crate::terminal::{Term, TermImpl};
     use crate::testsuite::TestSuite;
@@ -1533,7 +1465,16 @@ mod tests {
         let base = UrlBase::new(Host::Domain("atcoder.jp"), true, None);
         let mut term = TermImpl::null();
         let mut runtime = Runtime::new()?;
-        let session = HttpSession::try_new(term.stdout(), &mut runtime, client, base, None, true)?;
+        let session = HttpSession::try_new(HttpSessionInitParams {
+            out: term.stdout(),
+            runtime: &mut runtime,
+            robots: true,
+            client,
+            base: Some(base),
+            cookies_path: None,
+            api_token_path: None,
+            silent: true,
+        })?;
         Ok(Atcoder {
             login_retries: Some(0),
             term,

@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Seek, SeekFrom, Write};
+use std::mem;
 
 pub(crate) fn create_dir_all(dir: &AbsPath) -> FileResult<()> {
     std::fs::create_dir_all(dir)
@@ -82,6 +83,36 @@ pub(crate) fn find_path(filename: &'static str, start: &AbsPath) -> FileResult<A
 }
 
 #[derive(Debug)]
+pub(crate) enum LazyLockedFile {
+    Null,
+    Uninited(AbsPathBuf),
+    Inited(LockedFile),
+}
+
+impl LazyLockedFile {
+    pub(crate) fn exists(&self) -> bool {
+        match self {
+            LazyLockedFile::Null => false,
+            LazyLockedFile::Uninited(path) => path.exists(),
+            LazyLockedFile::Inited(_) => true,
+        }
+    }
+
+    pub(crate) fn get_or_init(&mut self) -> FileResult<&mut LockedFile> {
+        *self = match mem::replace(self, LazyLockedFile::Null) {
+            LazyLockedFile::Null => LazyLockedFile::Null,
+            LazyLockedFile::Uninited(path) => LazyLockedFile::Inited(LockedFile::try_new(&path)?),
+            LazyLockedFile::Inited(file) => LazyLockedFile::Inited(file),
+        };
+        match self {
+            LazyLockedFile::Null => Err(io::Error::from(io::ErrorKind::InvalidInput).into()),
+            LazyLockedFile::Uninited(_) => unreachable!(),
+            LazyLockedFile::Inited(file) => Ok(file),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct LockedFile {
     inner: File,
     path: AbsPathBuf,
@@ -125,6 +156,15 @@ impl LockedFile {
             .map_err(|e| e.context(FileErrorKind::Read(self.path.clone())).into())
     }
 
+    pub(crate) fn json<T: DeserializeOwned>(&mut self) -> FileResult<T> {
+        fn json<T: DeserializeOwned>(file: &mut File) -> Fallible<T> {
+            file.seek(SeekFrom::Start(0))?;
+            serde_json::from_reader(file).map_err(|e| StdError::from(e).into())
+        }
+
+        json(&mut self.inner).map_err(|e| e.context(FileErrorKind::Read(self.path.clone())).into())
+    }
+
     pub(crate) fn write_bincode<T: Serialize>(&mut self, value: &T) -> FileResult<()> {
         fn write_bincode<T: Serialize>(file: &mut File, value: &T) -> Fallible<()> {
             file.seek(SeekFrom::Start(0))?;
@@ -133,6 +173,17 @@ impl LockedFile {
         }
 
         write_bincode(&mut self.inner, value)
+            .map_err(|e| e.context(FileErrorKind::Write(self.path.clone())).into())
+    }
+
+    pub(crate) fn write_json<T: Serialize>(&mut self, value: &T) -> FileResult<()> {
+        fn write_json<T: Serialize>(file: &mut File, value: &T) -> Fallible<()> {
+            file.seek(SeekFrom::Start(0))?;
+            file.set_len(0)?;
+            serde_json::to_writer(file, value).map_err(|e| StdError::from(e).into())
+        }
+
+        write_json(&mut self.inner, value)
             .map_err(|e| e.context(FileErrorKind::Write(self.path.clone())).into())
     }
 }
