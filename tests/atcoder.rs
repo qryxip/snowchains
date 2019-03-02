@@ -3,7 +3,7 @@ mod service;
 use snowchains::app::{App, Opt};
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
-use snowchains::terminal::{AnsiColorChoice, Term, TermImpl};
+use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
 
 use failure::Fallible;
 use if_chain::if_chain;

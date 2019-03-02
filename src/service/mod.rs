@@ -17,11 +17,11 @@ use crate::util;
 use crate::util::collections::NonEmptyVec;
 use crate::util::str::CaseConversion;
 
-use failure::ResultExt;
-use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
+use failure::ResultExt as _;
+use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use maplit::hashmap;
 use prettytable::{cell, row, Table};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::RedirectPolicy;
@@ -35,7 +35,7 @@ use zip::ZipArchive;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::{self, Cursor, Write};
+use std::io::{self, Cursor, Write as _};
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};

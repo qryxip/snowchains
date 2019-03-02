@@ -6,11 +6,11 @@ use crate::template::{
     AbsPathBufRequirements, CompilationCommandRequirements, HookCommandsRequirements,
     JudgingCommandRequirements, Template, TemplateBuilder, TranspilationCommandRequirements,
 };
-use crate::terminal::{TermOut, WriteSpaces};
+use crate::terminal::{TermOut, WriteSpaces as _};
 use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
 
-use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
+use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use if_chain::if_chain;
 use maplit::hashmap;
 use serde::ser::SerializeMap;

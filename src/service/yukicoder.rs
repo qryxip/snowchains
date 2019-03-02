@@ -3,25 +3,26 @@ use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ExtractZip, ListLangsProps,
-    PrintTargets, Service, ServiceKind, SessionProps, SubmitProps, ZipEntries, ZipEntriesSorting,
+    PrintTargets as _, Service, ServiceKind, SessionProps, SubmitProps, ZipEntries,
+    ZipEntriesSorting,
 };
-use crate::terminal::{HasTerm, Term, WriteAnsi};
+use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
 use crate::util::collections::NonEmptyVec;
 use crate::util::lang_unstable::Never;
 use crate::util::str::CaseConversion;
-use crate::util::Lookup;
+use crate::util::Lookup as _;
 
 use cookie::Cookie;
-use failure::{Fail, ResultExt};
-use itertools::Itertools;
+use failure::{Fail as _, ResultExt as _};
+use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
 use prettytable::{cell, row, Table};
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
-use select::predicate::{Predicate, Text};
+use select::predicate::{Predicate as _, Text};
 use serde_derive::Deserialize;
 use tokio::runtime::{Runtime, TaskExecutor};
 use url::Url;

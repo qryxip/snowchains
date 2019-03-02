@@ -6,13 +6,12 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
 use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
-use crate::util::std_unstable::Transpose_;
 use crate::util::str::CaseConversion;
 
 use combine::Parser;
 use derive_new::new;
-use failure::{Backtrace, Fail, ResultExt};
-use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
+use failure::{Backtrace, Fail, ResultExt as _};
+use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -207,7 +206,7 @@ impl Template<TranspilationCommand> {
         let transpiled = transpiled
             .as_ref()
             .map(|TemplateBuilder(transpiled)| transpiled.expand_as_path(base_dir, &vars, &envs))
-            .transpose_()?;
+            .transpose()?;
         if let Some(transpiled) = &transpiled {
             vars.insert("transpiled", transpiled.clone().into());
             envs.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.clone().into());
@@ -258,7 +257,7 @@ impl Template<CompilationCommand> {
         let transpiled = transpiled
             .as_ref()
             .map(|TemplateBuilder(transpiled)| transpiled.expand_as_path(base_dir, &vars, &envs))
-            .transpose_()?;
+            .transpose()?;
         if let Some(transpiled) = &transpiled {
             vars.insert("transpiled", transpiled.clone().into());
             envs.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.clone().into());
@@ -267,7 +266,7 @@ impl Template<CompilationCommand> {
         let bin = bin
             .as_ref()
             .map(|TemplateBuilder(bin)| bin.expand_as_path(base_dir, &vars, &envs))
-            .transpose_()?;
+            .transpose()?;
         if let Some(bin) = &bin {
             vars.insert("bin", bin.clone().into());
             envs.insert("SNOWCHAINS_BIN".into(), bin.clone().into());
@@ -319,7 +318,7 @@ impl Template<JudgingCommand> {
         let transpiled = transpiled
             .as_ref()
             .map(|TemplateBuilder(transpiled)| transpiled.expand_as_path(base_dir, &vars, &envs))
-            .transpose_()?;
+            .transpose()?;
         if let Some(transpiled) = &transpiled {
             vars.insert("transpiled", transpiled.clone().into());
             envs.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.clone().into());
@@ -327,7 +326,7 @@ impl Template<JudgingCommand> {
         let bin = bin
             .as_ref()
             .map(|TemplateBuilder(bin)| bin.expand_as_path(base_dir, &vars, &envs))
-            .transpose_()?;
+            .transpose()?;
         if let Some(bin) = &bin {
             vars.insert("bin", bin.clone().into());
             envs.insert("SNOWCHAINS_BIN".into(), bin.clone().into());

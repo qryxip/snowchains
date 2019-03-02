@@ -11,14 +11,13 @@ use crate::testsuite::{self, SuiteFileExtension};
 use crate::time;
 use crate::util::collections::NonEmptyVec;
 use crate::util::num::PositiveFinite;
-use crate::util::std_unstable::Transpose_;
 
 use log::info;
 use structopt::clap::Arg;
 use structopt::StructOpt;
 use strum_macros::EnumString;
 
-use std::io::Write;
+use std::io::Write as _;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -836,7 +835,7 @@ impl<T: Term> App<T> {
         let dropbox_path = config
             .session_dropbox_auth()
             .map(|p| p.expand(None))
-            .transpose_()?;
+            .transpose()?;
         Ok(SessionProps {
             term: &mut self.term,
             domain: config.service().domain(),

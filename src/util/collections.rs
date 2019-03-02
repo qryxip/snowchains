@@ -1,4 +1,4 @@
-use serde::ser::SerializeMap;
+use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use std::cmp::Ord;

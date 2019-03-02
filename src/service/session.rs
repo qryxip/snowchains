@@ -3,12 +3,11 @@ use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
 use crate::service::USER_AGENT;
 use crate::terminal::WriteAnsi;
-use crate::util::std_unstable::Transpose_;
 
 use cookie::CookieJar;
 use derive_new::new;
-use failure::{Fail, Fallible, ResultExt};
-use futures::{task, try_ready, Async, Future, Poll, Stream};
+use failure::{Fail as _, Fallible, ResultExt as _};
+use futures::{task, try_ready, Async, Future, Poll, Stream as _};
 use log::info;
 use maplit::hashmap;
 use mime::Mime;
@@ -24,7 +23,7 @@ use url::{Host, Url};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt::{self, Write};
+use std::fmt::{self, Write as _};
 use std::ops::Deref;
 use std::{io, mem};
 
@@ -66,7 +65,7 @@ impl HttpSession {
             client,
             robots_txts: hashmap!(),
             base,
-            jar: cookies_path.map(AutosavedCookieJar::try_new).transpose_()?,
+            jar: cookies_path.map(AutosavedCookieJar::try_new).transpose()?,
             api_token: match api_token_path {
                 None => LazyLockedFile::Null,
                 Some(path) => LazyLockedFile::Uninited(path.to_owned()),
@@ -624,7 +623,7 @@ mod tests {
     use crate::terminal::{Ansi, WriteAnsi};
 
     use failure::Fallible;
-    use futures::Future;
+    use futures::Future as _;
     use if_chain::if_chain;
     use reqwest::StatusCode;
     use tempdir::TempDir;

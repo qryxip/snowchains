@@ -5,21 +5,21 @@ use crate::path::AbsPath;
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps, PrintTargets,
-    RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps,
+    PrintTargets as _, RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
 };
-use crate::terminal::{HasTerm, Term, WriteAnsi};
+use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
 use crate::util::collections::NonEmptyVec;
 use crate::util::lang_unstable::Never;
 use crate::util::num::PositiveFinite;
-use crate::util::std_unstable::RemoveItem_;
+use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
-use crate::util::Lookup;
+use crate::util::Lookup as _;
 
 use chrono::{DateTime, Local, Utc};
-use failure::ResultExt;
-use itertools::Itertools;
+use failure::ResultExt as _;
+use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use prettytable::{cell, row, Table};
@@ -33,7 +33,7 @@ use tokio::runtime::{Runtime, TaskExecutor};
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::Write;
+use std::io::Write as _;
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
@@ -1283,14 +1283,14 @@ impl Extract for Document {
 #[cfg(test)]
 mod tests {
     use crate::errors::ServiceResult;
-    use crate::service::atcoder::{Atcoder, AtcoderContest, Extract};
+    use crate::service::atcoder::{Atcoder, AtcoderContest, Extract as _};
     use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
-    use crate::service::{self, Contest, Service};
+    use crate::service::{self, Contest, Service as _};
     use crate::terminal::{Term, TermImpl};
     use crate::testsuite::TestSuite;
 
     use failure::Fallible;
-    use itertools::Itertools;
+    use itertools::Itertools as _;
     use tokio::runtime::Runtime;
     use url::Host;
 

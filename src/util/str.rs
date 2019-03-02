@@ -1,4 +1,4 @@
-use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
+use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 
 use std::fmt;
 use std::str::FromStr;

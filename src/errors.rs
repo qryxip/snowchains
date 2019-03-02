@@ -7,7 +7,7 @@ use snowchains_proc_macros::{DoubleFrom, FailPair, PartialFailPair};
 use chrono::{DateTime, Local};
 use derive_new::new;
 use failure::{Backtrace, Fail};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::StatusCode;
 use url::Url;
@@ -382,6 +382,7 @@ pub struct StdError<E: std::error::Error + Send + Sync + 'static> {
 }
 
 impl<E: std::error::Error + Send + Sync + 'static> From<E> for StdError<E> {
+    #[allow(deprecated)]
     fn from(from: E) -> Self {
         let messages_rev = {
             let mut messages = vec![from.to_string()];

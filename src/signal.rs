@@ -1,4 +1,4 @@
-use futures::{Future, Stream};
+use futures::{Future, Stream as _};
 use tokio::timer::Interval;
 
 use std::io;
@@ -38,11 +38,11 @@ fn check_ctrl_c<T, E: From<io::Error> + From<tokio::timer::Error>>(
 #[cfg(test)]
 mod tests {
     use failure::Fallible;
-    use futures::Future;
+    use futures::Future as _;
     use if_chain::if_chain;
     use tokio::runtime::Runtime;
     use tokio::timer::Delay;
-    use tokio::util::FutureExt;
+    use tokio::util::FutureExt as _;
 
     use std::io;
     use std::sync::atomic::{self, AtomicBool};

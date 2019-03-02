@@ -7,18 +7,18 @@ use crate::errors::{
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps, PrintTargets,
-    RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps,
+    PrintTargets as _, RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
 };
-use crate::terminal::{HasTerm, Term, WriteAnsi};
+use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, TestSuite};
 use crate::util::collections::NonEmptyVec;
-use crate::util::std_unstable::RemoveItem_;
+use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
-use crate::util::Lookup;
+use crate::util::Lookup as _;
 
 use if_chain::if_chain;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use rand::Rng;
@@ -30,13 +30,13 @@ use select::predicate::{Predicate, Text};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
-use sha2::{Digest, Sha512};
+use sha2::{Digest as _, Sha512};
 use tokio::runtime::{Runtime, TaskExecutor};
 use url::Url;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
-use std::io::{self, Write};
+use std::io::{self, Write as _};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
@@ -809,10 +809,10 @@ fn base_url() -> Url {
 mod tests {
     use crate::errors::ServiceResult;
     use crate::service;
-    use crate::service::codeforces::Extract;
+    use crate::service::codeforces::Extract as _;
 
     use failure::Fallible;
-    use itertools::Itertools;
+    use itertools::Itertools as _;
     use select::document::Document;
     use url::Url;
 
