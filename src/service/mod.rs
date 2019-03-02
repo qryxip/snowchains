@@ -132,7 +132,7 @@ pub(self) trait Service {
 
         let mut table = Table::new();
         table.add_row(row!["Name", "ID"]);
-        for (id, name) in lang_list {
+        for (name, id) in lang_list {
             table.add_row(row![name, id]);
         }
 
@@ -513,7 +513,7 @@ impl<'a, C: Contest> PrintTargets for RestoreProps<'a, C> {
 pub(crate) struct SubmitProps<C: Contest> {
     pub(self) contest: C,
     pub(self) problem: String,
-    pub(self) lang_id: String,
+    pub(self) lang_name: String,
     pub(self) src_path: AbsPathBuf,
     pub(self) open_in_browser: bool,
     pub(self) skip_checking_if_accepted: bool,
@@ -528,11 +528,11 @@ impl SubmitProps<String> {
     ) -> crate::Result<Self> {
         let contest = config.contest().to_owned();
         let src_path = config.src_to_submit()?.expand(Some(&problem))?;
-        let lang_id = config.lang_id()?.to_owned();
+        let lang_name = config.lang_name()?.to_owned();
         Ok(Self {
             contest,
             problem,
-            lang_id,
+            lang_name,
             src_path,
             open_in_browser,
             skip_checking_if_accepted,
@@ -552,7 +552,7 @@ impl SubmitProps<String> {
         Ok(SubmitProps {
             contest: self.contest.parse()?,
             problem: self.problem,
-            lang_id: self.lang_id,
+            lang_name: self.lang_name,
             src_path: self.src_path,
             open_in_browser: self.open_in_browser,
             skip_checking_if_accepted: self.skip_checking_if_accepted,

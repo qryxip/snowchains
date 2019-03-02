@@ -33,14 +33,23 @@ working_directory = "${service}/${contest}/rs"
 [languages.python3]
 src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
 run = ["false"]
-language_ids = { atcoder = "3023", yukicoder = "python3" }
 
-[languages.python3-with-invalid-lang-ids]
+[languages.python3.names]
+atcoder = "Python3 (3.4.3)"
+yukicoder = "Python3 (3.7.1 + numpy 1.14.5 + scipy 1.1.0)"
+
+[languages.python3-with-invalid-lang-names]
 src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
 run = ["false"]
-language_ids = { atcoder = "invalid", codeforces = "invalid", yukicoder = "invalid" }
+
+[languages.python3-with-invalid-lang-names.names]
+atcoder = "invalid"
+codeforces = "invalid"
+yukicoder = "invalid"
 
 [languages.text]
 src = "${service}/${snake_case(contest)}/txt/${kebab_case(problem)}.txt"
 run = ["false"]
-language_ids = { yukicoder = "text" }
+
+[languages.text.names]
+yukicoder = "Text (cat 8.22)"

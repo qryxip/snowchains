@@ -18,7 +18,6 @@ use failure::{Fail as _, ResultExt as _};
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
-use prettytable::{cell, row, Table};
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use select::document::Document;
@@ -324,7 +323,7 @@ impl<T: Term> Yukicoder<T> {
         let SubmitProps {
             contest,
             problem,
-            lang_id,
+            lang_name,
             src_path,
             open_in_browser,
             skip_checking_if_accepted,
@@ -345,11 +344,17 @@ impl<T: Term> Yukicoder<T> {
             }
         }
         let document = self.get(url.as_ref()).recv_html()?;
-        let lang_names = document.extract_lang_names()?;
-        let lang_name = lang_names
-            .lookup(lang_id)
-            .ok_or_else(|| ServiceErrorKind::NoSuchLangId(lang_id.clone()))?;
-        writeln!(self.stdout(), "Submitting as {:?}", lang_name)?;
+        let lang_id = document
+            .extract_langs()?
+            .lookup(lang_name)
+            .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
+            .clone();
+        writeln!(
+            self.stdout(),
+            "Submitting as {:?} (ID: {:?})",
+            lang_name,
+            lang_id,
+        )?;
         let token = document.extract_csrf_token_from_submit_page()?;
         let form = reqwest::r#async::multipart::Form::new()
             .text("csrf_token", token)
@@ -375,32 +380,23 @@ impl<T: Term> Yukicoder<T> {
                 return Ok(());
             }
         }
-        Err(ServiceErrorKind::SubmissionRejected(
-            lang_id.clone(),
-            code.len(),
-            res.status(),
-            location.map(ToOwned::to_owned),
-        )
+        Err(ServiceErrorKind::SubmissionRejected {
+            lang_name: lang_name.clone(),
+            lang_id,
+            size: code.len(),
+            status: res.status(),
+            location: location.map(ToOwned::to_owned),
+        }
         .into())
     }
 
     fn list_langs(&mut self, props: ListLangsProps<YukicoderContest>) -> ServiceResult<()> {
         let ListLangsProps { contest, problem } = props;
         let problem = problem.ok_or(ServiceErrorKind::PleaseSpecifyProblem)?;
-
         self.login(true)?;
-
         let url = self.get_submit_url(&contest, &problem)?;
-        let lang_names = self.get(url.as_str()).recv_html()?.extract_lang_names()?;
-
-        let mut table = Table::new();
-        table.add_row(row!["Name", "ID"]);
-        for (id, name) in &lang_names {
-            table.add_row(row![name, id]);
-        }
-
-        write!(self.stdout(), "{}", table)?;
-        self.stdout().flush().map_err(Into::into)
+        let langs = self.get(url.as_str()).recv_html()?.extract_langs()?;
+        self.print_lang_list(&langs).map_err(Into::into)
     }
 
     fn filter_solved<'b>(
@@ -520,7 +516,7 @@ trait Extract {
     fn extract_problems(&self) -> ScrapeResult<Vec<(String, String)>>;
     fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String>;
     fn extract_url_from_submit_page(&self) -> ScrapeResult<String>;
-    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
 }
 
 impl Extract for Document {
@@ -635,15 +631,15 @@ impl Extract for Document {
             .ok_or_else(ScrapeError::new)
     }
 
-    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
         static WS: Lazy<Regex> = lazy_regex!(r"[\s\n]+");
         let names = self
             .find(selector!("#lang > option"))
             .map(|option| {
-                let id = option.attr("value")?.to_owned();
                 let name = option.find(Text).next()?.as_text().unwrap();
                 let name = WS.replace_all(name.trim(), " ").into_owned();
-                Some((id, name))
+                let id = option.attr("value")?.to_owned();
+                Some((name, id))
             })
             .map(|p| p.ok_or_else(ScrapeError::new))
             .collect::<ScrapeResult<Vec<_>>>()?;

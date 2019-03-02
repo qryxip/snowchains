@@ -140,16 +140,26 @@ pub enum ServiceErrorKind {
     PleaseSpecifyProblems,
     #[display(fmt = "No such problem: {:?}", _0)]
     NoSuchProblem(String),
-    #[display(fmt = "No such language id. Run `list-langs` to find the ID: {:?}", _0)]
-    NoSuchLangId(String),
     #[display(
-        fmt = "Submission rejected: language={:?}, size={}, status={}, location={}",
-        _0,
-        _1,
-        "_2.as_u16()",
-        r#"_3.as_ref().map(|s| format!("{:?}", s)).unwrap_or_else(|| "<none>".to_owned())"#
+        fmt = "{:?} not found. Run `list-langs` to list the available languages",
+        _0
     )]
-    SubmissionRejected(String, usize, StatusCode, Option<String>),
+    NoSuchLang(String),
+    #[display(
+        fmt = "Submission rejected: name={:?}, id={:?}, size={}, status={}, location={}",
+        lang_name,
+        lang_id,
+        size,
+        "status.as_u16()",
+        r#"location.as_ref().map(|s| format!("{:?}", s)).unwrap_or_else(|| "<none>".to_owned())"#
+    )]
+    SubmissionRejected {
+        lang_name: String,
+        lang_id: String,
+        size: usize,
+        status: StatusCode,
+        location: Option<String>,
+    },
     #[display(fmt = "Failed to login")]
     LoginRetriesExceeded,
 }
@@ -294,11 +304,11 @@ pub enum ConfigErrorKind {
     #[display(fmt = "No such language: {:?}", _0)]
     NoSuchLanguage(String),
     #[display(
-        fmt = "`languages.{}.language_ids.{}` required. Run `list-langs` to find the ID",
+        fmt = "`languages.{}.names.{}` required. Run `list-langs` to find the ID",
         _0,
         _1
     )]
-    LanguageIdRequired(String, ServiceKind),
+    LangNameRequired(String, ServiceKind),
 }
 
 pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateError>;
