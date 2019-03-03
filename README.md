@@ -2,6 +2,7 @@
 
 [![Build Status](https://img.shields.io/travis/qryxip/snowchains.svg?branch=master&label=windows%20%26%20macos%20%26%20linux)](https://travis-ci.org/qryxip/snowchains)
 [![codecov](https://codecov.io/gh/qryxip/snowchains/branch/master/graph/badge.svg)](https://codecov.io/gh/qryxip/snowchains)
+[![Crates.io](https://img.shields.io/crates/v/snowchains.svg)](https://crates.io/crates/snowchains)
 
 Tools for online programming contests.
 

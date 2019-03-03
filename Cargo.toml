@@ -1,6 +1,6 @@
 [package]
 name = "snowchains"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2018"
 authors = ["Ryo Yamashita <qryxip@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -43,14 +43,14 @@ once_cell = "0.1.8"
 prettytable-rs = { version = "0.8.0", default_features = false }
 rand = "0.6.5"
 rayon = "1.0.3"
-regex = "1.1.0"
+regex = "1.1.2"
 reqwest = { version = "0.9.10", default_features = false, features = ["rustls-tls"] }
 robots_txt = "0.6.0"
 rpassword = "2.1.0"
 select = "0.4.2"
-serde = "1.0.88"
-serde_derive = "1.0.88"
-serde_json = "1.0.38"
+serde = "1.0.89"
+serde_derive = "1.0.89"
+serde_json = "1.0.39"
 serde_urlencoded = "0.5.4"
 serde_yaml = "0.8.8"
 sha2 = "0.8.0"
@@ -58,7 +58,7 @@ snowchains_proc_macros = { path = "./proc_macros", version = "0.1.0" }
 structopt = { version = "0.2.14", features = ["wrap_help"] }
 strum = "0.13.0"
 strum_macros = "0.13.0"
-tokio = "0.1.15"
+tokio = "0.1.16"
 tokio-process = "0.2.3"
 toml = "0.4.10"
 toml_edit = "0.1.3"
