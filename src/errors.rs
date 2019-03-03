@@ -318,7 +318,7 @@ pub struct ExpandTemplateError(failure::Context<ExpandTemplateErrorKind>);
 
 #[derive(Debug, derive_more::Display, Fail)]
 pub enum ExpandTemplateErrorKind {
-    #[display(fmt = "Failed to expand ({:?}) as a non UTF-8 string", tokens)]
+    #[display(fmt = "Failed to expand {:?} as a non UTF-8 string", tokens)]
     OsStr { tokens: Tokens },
     #[display(
         fmt = "Failed to expand ({} </> ({:?})) as a non UTF-8 string",
@@ -331,6 +331,8 @@ pub enum ExpandTemplateErrorKind {
     },
     #[display(fmt = "{:?} not found in the config", _0)]
     NoSuchShell(String),
+    #[display(fmt = "Undefined namespace: {:?}", _0)]
+    UndefinedNamespace(String),
     #[display(fmt = "Undefined variable: {:?}", _0)]
     UndefinedVar(String),
     #[display(fmt = "Undefined function: {:?}", _0)]

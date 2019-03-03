@@ -286,11 +286,11 @@ yukicoder = "PyPy3 (6.0.0)"
 
 [languages.java]
 src = "${service}/${snake_case(contest)}/java/src/main/java/${pascal_case(problem)}.java"
-transpiled = "${service}/${snake_case(contest)}/java/build/replaced/${lower_case(problem)}/src/Main.java"
-bin = "${service}/${snake_case(contest)}/java/build/replaced/${lower_case(problem)}/classes/Main.class"
+transpiled = "${service}/${snake_case(contest)}/java/build/replaced/${lower_case(pascal_case(problem))}/src/Main.java"
+bin = "${service}/${snake_case(contest)}/java/build/replaced/${lower_case(pascal_case(problem))}/classes/Main.class"
 transpile = { bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/class Main/g" > "$SNOWCHAINS_TRANSPILED"' }
-compile = ["javac", "-d", "./build/replaced/${lower_case(problem)}/classes", "${transpiled}"]
-run = ["java", "-classpath", "./build/replaced/${lower_case(problem)}/classes", "Main"]
+compile = ["javac", "-d", "./build/replaced/${lower_case(pascal_case(problem))}/classes", "${transpiled}"]
+run = ["java", "-classpath", "./build/replaced/${lower_case(pascal_case(problem))}/classes", "Main"]
 working_directory = "${service}/${snake_case(contest)}/java"
 
 [languages.java.names]
@@ -300,11 +300,11 @@ yukicoder = "Java8 (openjdk 1.8.0.191)"
 
 [languages.scala]
 src = "${service}/${snake_case(contest)}/scala/src/main/scala/${pascal_case(problem)}.scala"
-transpiled = "${service}/${snake_case(contest)}/scala/target/replaced/${lower_case(problem)}/src/Main.scala"
-bin = "${service}/${snake_case(contest)}/scala/target/replaced/${lower_case(problem)}/classes/Main.class"
+transpiled = "${service}/${snake_case(contest)}/scala/target/replaced/${lower_case(pascal_case(problem))}/src/Main.scala"
+bin = "${service}/${snake_case(contest)}/scala/target/replaced/${lower_case(pascal_case(problem))}/classes/Main.class"
 transpile = { bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/object Main/g" > "$SNOWCHAINS_TRANSPILED"' }
-compile = ["scalac", "-optimise", "-d", "./target/replaced/${lower_case(problem)}/classes", "${transpiled}"]
-run = ["scala", "-classpath", "./target/replaced/${lower_case(problem)}/classes", "Main"]
+compile = ["scalac", "-optimise", "-d", "./target/replaced/${lower_case(pascal_case(problem))}/classes", "${transpiled}"]
+run = ["scala", "-classpath", "./target/replaced/${lower_case(pascal_case(problem))}/classes", "Main"]
 working_directory = "${service}/${snake_case(contest)}/scala"
 
 [languages.scala.names]

@@ -369,11 +369,11 @@ yukicoder = "PyPy3 (6.0.0)"
 
 [languages.java]
 src = "${{service}}/${{snake_case(contest)}}/java/src/main/java/${{pascal_case(problem)}}.java"
-transpiled = "${{service}}/${{snake_case(contest)}}/java/build/replaced/${{lower_case(problem)}}/src/Main.java"
-bin = "${{service}}/${{snake_case(contest)}}/java/build/replaced/${{lower_case(problem)}}/classes/Main.class"
+transpiled = "${{service}}/${{snake_case(contest)}}/java/build/replaced/${{lower_case(pascal_case(problem))}}/src/Main.java"
+bin = "${{service}}/${{snake_case(contest)}}/java/build/replaced/${{lower_case(pascal_case(problem))}}/classes/Main.class"
 transpile = {{ {transpile_java} }}
-compile = ["javac", "-d", "./build/replaced/${{lower_case(problem)}}/classes", "${{transpiled}}"]
-run = ["java", "-classpath", "./build/replaced/${{lower_case(problem)}}/classes", "Main"]{crlf_to_lf_true}
+compile = ["javac", "-d", "./build/replaced/${{lower_case(pascal_case(problem))}}/classes", "${{transpiled}}"]
+run = ["java", "-classpath", "./build/replaced/${{lower_case(pascal_case(problem))}}/classes", "Main"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/java"
 
 [languages.java.names]
@@ -383,11 +383,11 @@ yukicoder = "Java8 (openjdk 1.8.0.191)"
 
 [languages.scala]
 src = "${{service}}/${{snake_case(contest)}}/scala/src/main/scala/${{pascal_case(problem)}}.scala"
-transpiled = "${{service}}/${{snake_case(contest)}}/scala/target/replaced/${{lower_case(problem)}}/src/Main.scala"
-bin = "${{service}}/${{snake_case(contest)}}/scala/target/replaced/${{lower_case(problem)}}/classes/Main.class"
+transpiled = "${{service}}/${{snake_case(contest)}}/scala/target/replaced/${{lower_case(pascal_case(problem))}}/src/Main.scala"
+bin = "${{service}}/${{snake_case(contest)}}/scala/target/replaced/${{lower_case(pascal_case(problem))}}/classes/Main.class"
 transpile = {{ {transpile_scala} }}
-compile = ["scalac", "-optimise", "-d", "./target/replaced/${{lower_case(problem)}}/classes", "${{transpiled}}"]
-run = ["scala", "-classpath", "./target/replaced/${{lower_case(problem)}}/classes", "Main"]{crlf_to_lf_true}
+compile = ["scalac", "-optimise", "-d", "./target/replaced/${{lower_case(pascal_case(problem))}}/classes", "${{transpiled}}"]
+run = ["scala", "-classpath", "./target/replaced/${{lower_case(pascal_case(problem))}}/classes", "Main"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/scala"
 
 [languages.scala.names]
