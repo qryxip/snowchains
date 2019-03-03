@@ -6,13 +6,12 @@ use crate::template::{
     AbsPathBufRequirements, CompilationCommandRequirements, HookCommandsRequirements,
     JudgingCommandRequirements, Template, TemplateBuilder, TranspilationCommandRequirements,
 };
-use crate::terminal::{TermOut, WriteSpaces};
+use crate::terminal::{TermOut, WriteSpaces as _};
 use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
 
-use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
+use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use if_chain::if_chain;
-use maplit::hashmap;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
@@ -80,21 +79,31 @@ fn generate_toml() -> String {
 
     #[cfg(not(windows))]
     static CSHARP: &str =
-        r#"src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
+        r#"[languages.'c#']
+src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
 bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/${pascal_case(problem)}.exe"
 compile = ["mcs", "-o+", "-r:System.Numerics", "-out:${bin}", "${src}"]
 run = ["mono", "${bin}"]
 working_directory = "${service}/${snake_case(contest)}/cs"
-language_ids = { atcoder = "3006", codeforces = "9", yukicoder = "csharp_mono" }"#;
+
+[languages.'c#'.names]
+atcoder = "C# (Mono 4.6.2.0)"
+codeforces = "C# Mono 5.18"
+yukicoder = "C#(mono) (mono 5.16.0.187)""#;
     #[cfg(windows)]
     static CSHARP: &str =
-        r#"src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
+        r#"[languages.'c#']
+src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
 bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/${pascal_case(problem)}.exe"
 compile = ["csc", "/o+", "/r:System.Numerics", "/out:${bin}", "${src}"]
 run = ["${bin}"]
 crlf_to_lf = true
 working_directory = "${service}/${snake_case(contest)}/cs"
-language_ids = { atcoder = "3006", codeforces = "9", yukicoder = "csharp" }"#;
+
+[languages.'c#'.names]
+atcoder = "C# (Mono 4.6.2.0)"
+codeforces = "C# Mono 5.18"
+yukicoder = "C# (csc 2.8.2.62916)""#;
 
     fn quote_path_normalizing_separator(path: &Path) -> impl fmt::Display {
         let separator = if std::path::is_separator('/') {
@@ -287,7 +296,11 @@ bin = "${{service}}/${{snake_case(contest)}}/cpp/build/${{kebab_case(problem)}}{
 compile = {{ bash = 'g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"' }}
 run = ["${{bin}}"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/cpp"
-language_ids = {{ atcoder = "3003", codeforces = "54", yukicoder = "cpp14" }}
+
+[languages.'c++'.names]
+atcoder = "C++14 (GCC 5.4.1)"
+codeforces = "GNU G++17 7.3.0"
+yukicoder = "C++17(1z） (gcc 8.2.0)"
 
 [languages.rust]
 src = "${{service}}/${{snake_case(contest)}}/rs/src/bin/${{kebab_case(problem)}}.rs"
@@ -295,7 +308,11 @@ bin = "${{service}}/${{snake_case(contest)}}/rs/target/manually/${{kebab_case(pr
 compile = ["rustc", "+${{env:RUST_VERSION}}", "-o", "${{bin}}", "${{src}}"]
 run = ["${{bin}}"]{crlf_to_lf_false}
 working_directory = "${{service}}/${{snake_case(contest)}}/rs"
-language_ids = {{ atcoder = "3504", codeforces = "49", yukicoder = "rust" }}
+
+[languages.rust.names]
+atcoder = "Rust (1.15.1)"
+codeforces = "Rust 1.31.1"
+yukicoder = "Rust (1.30.1)"
 
 [languages.go]
 src = "${{service}}/${{snake_case(contest)}}/go/${{kebab_case(problem)}}.go"
@@ -303,7 +320,11 @@ bin = "${{service}}/${{snake_case(contest)}}/go/${{kebab_case(problem)}}{exe}"
 compile = ["go", "build", "-o", "${{bin}}", "${{src}}"]
 run = ["${{bin}}"]{crlf_to_lf_false}
 working_directory = "${{service}}/${{snake_case(contest)}}/go"
-language_ids = {{ atcoder = "3013", codeforces = "32", yukicoder = "go" }}
+
+[languages.go.names]
+atcoder = "Go (1.6)"
+codeforces = "Go 1.11.4"
+yukicoder = "Go (1.11.2)"
 
 [languages.haskell]
 src = "${{service}}/${{snake_case(contest)}}/hs/app/${{pascal_case(problem)}}.hs"
@@ -311,54 +332,79 @@ bin = "${{service}}/${{snake_case(contest)}}/hs/target/${{pascal_case(problem)}}
 compile = ["stack", "ghc", "--", "-O2", "-o", "${{bin}}", "${{src}}"]
 run = ["${{bin}}"]{crlf_to_lf_false}
 working_directory = "${{service}}/${{snake_case(contest)}}/hs"
-language_ids = {{ atcoder = "3014", codeforces = "12", yukicoder = "haskell" }}
+
+[languages.haskell.names]
+atcoder = "Haskell (GHC 7.10.3)"
+codeforces = "Haskell GHC 7.8.3 (2014.2.0.0)"
+yukicoder = "Haskell (8.6.2)"
 
 [languages.bash]
 src = "${{service}}/${{snake_case(contest)}}/bash/${{kebab_case(problem)}}.bash"
 run = ["bash", "${{src}}"]{crlf_to_lf_false}
 working_directory = "${{service}}/${{snake_case(contest)}}/bash"
-language_ids = {{ atcoder = "3001", yukicoder = "sh" }}
+
+[languages.bash.names]
+atcoder = "Bash (GNU bash v4.3.11)"
+yukicoder = "Bash (Bash 4.2.46)"
 
 [languages.python3]
 src = "${{service}}/${{snake_case(contest)}}/py/${{kebab_case(problem)}}.py"
 run = [{venv_python3}, "${{src}}"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/py"
-language_ids = {{ atcoder = "3023", codeforces = "31", yukicoder = "python3" }}
+
+[languages.python3.names]
+atcoder = "Python3 (3.4.3)"
+codeforces = "Python 3.7.2"
+yukicoder = "Python3 (3.7.1 + numpy 1.14.5 + scipy 1.1.0)"
 
 [languages.pypy3]
 src = "${{service}}/${{snake_case(contest)}}/py/${{kebab_case(problem)}}.py"
 run = [{venv_pypy3}, "${{src}}"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/py"
-language_ids = {{ atcoder = "3510", codeforces = "41", yukicoder = "pypy3" }}
+
+[languages.pypy3.names]
+atcoder = "PyPy3 (2.4.0)"
+codeforces = "PyPy 3.5 (6.0.0)"
+yukicoder = "PyPy3 (6.0.0)"
 
 [languages.java]
 src = "${{service}}/${{snake_case(contest)}}/java/src/main/java/${{pascal_case(problem)}}.java"
-transpiled = "${{service}}/${{snake_case(contest)}}/java/build/replaced/${{lower_case(problem)}}/src/Main.java"
-bin = "${{service}}/${{snake_case(contest)}}/java/build/replaced/${{lower_case(problem)}}/classes/Main.class"
+transpiled = "${{service}}/${{snake_case(contest)}}/java/build/replaced/${{lower_case(pascal_case(problem))}}/src/Main.java"
+bin = "${{service}}/${{snake_case(contest)}}/java/build/replaced/${{lower_case(pascal_case(problem))}}/classes/Main.class"
 transpile = {{ {transpile_java} }}
-compile = ["javac", "-d", "./build/replaced/${{lower_case(problem)}}/classes", "${{transpiled}}"]
-run = ["java", "-classpath", "./build/replaced/${{lower_case(problem)}}/classes", "Main"]{crlf_to_lf_true}
+compile = ["javac", "-d", "./build/replaced/${{lower_case(pascal_case(problem))}}/classes", "${{transpiled}}"]
+run = ["java", "-classpath", "./build/replaced/${{lower_case(pascal_case(problem))}}/classes", "Main"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/java"
-language_ids = {{ atcoder = "3016", codeforces = "36", yukicoder = "java8" }}
+
+[languages.java.names]
+atcoder = "Java8 (OpenJDK 1.8.0)"
+codeforces = "Java 1.8.0_162"
+yukicoder = "Java8 (openjdk 1.8.0.191)"
 
 [languages.scala]
 src = "${{service}}/${{snake_case(contest)}}/scala/src/main/scala/${{pascal_case(problem)}}.scala"
-transpiled = "${{service}}/${{snake_case(contest)}}/scala/target/replaced/${{lower_case(problem)}}/src/Main.scala"
-bin = "${{service}}/${{snake_case(contest)}}/scala/target/replaced/${{lower_case(problem)}}/classes/Main.class"
+transpiled = "${{service}}/${{snake_case(contest)}}/scala/target/replaced/${{lower_case(pascal_case(problem))}}/src/Main.scala"
+bin = "${{service}}/${{snake_case(contest)}}/scala/target/replaced/${{lower_case(pascal_case(problem))}}/classes/Main.class"
 transpile = {{ {transpile_scala} }}
-compile = ["scalac", "-optimise", "-d", "./target/replaced/${{lower_case(problem)}}/classes", "${{transpiled}}"]
-run = ["scala", "-classpath", "./target/replaced/${{lower_case(problem)}}/classes", "Main"]{crlf_to_lf_true}
+compile = ["scalac", "-optimise", "-d", "./target/replaced/${{lower_case(pascal_case(problem))}}/classes", "${{transpiled}}"]
+run = ["scala", "-classpath", "./target/replaced/${{lower_case(pascal_case(problem))}}/classes", "Main"]{crlf_to_lf_true}
 working_directory = "${{service}}/${{snake_case(contest)}}/scala"
-language_ids = {{ atcoder = "3025", codeforces = "20", yukicoder = "scala" }}
 
-[languages.'c#']
+[languages.scala.names]
+atcoder = "Scala (2.11.7)"
+codeforces = "Scala 2.12.8"
+yukicoder = "Scala(Beta) (2.12.7)"
+
 {csharp}
 
 [languages.text]
 src = "${{service}}/${{snake_case(contest)}}/txt/${{snake_case(problem)}}.txt"
 run = ["cat", "${{src}}"]
 working_directory = "${{service}}/${{snake_case(contest)}}/txt"{crlf_to_lf_false}
-language_ids = {{ atcoder = "3027", yukicoder = "text" }}
+
+[languages.text.names]
+atcoder = "Text (cat)"
+yukicoder = "Text (cat 8.22)"
 "#,
         console_alt_width = CONSOLE_ALT_WIDTH,
         session_cookies = session_cookies,
@@ -650,16 +696,16 @@ impl Config {
 
     /// Gets paths to the source files.
     pub(crate) fn src_paths(&self) -> HashMap<&str, Template<AbsPathBuf>> {
-        let mut templates = hashmap!();
-        for lang in self.languages.values() {
-            if let Some(lang_id) = lang.language_ids.get(&self.service) {
+        self.languages
+            .values()
+            .flat_map(|l| l.names.get(&self.service).map(|n| (l, n)))
+            .map(|(lang, name)| {
                 let template = self
                     .build_path_template(&lang.src)
                     .envs(self.env.get(&self.service));
-                templates.insert(lang_id.as_str(), template);
-            }
-        }
-        templates
+                (name.as_ref(), template)
+            })
+            .collect()
     }
 
     /// Gets path to the source file to submit.
@@ -678,14 +724,13 @@ impl Config {
         })
     }
 
-    /// Gets the language id.
-    pub(crate) fn lang_id(&self) -> ConfigResult<&str> {
+    pub(crate) fn lang_name(&self) -> ConfigResult<&str> {
         let lang = self.find_language()?;
-        lang.language_ids
+        lang.names
             .get(&self.service)
-            .map(String::as_str)
+            .map(AsRef::as_ref)
             .ok_or_else(|| {
-                ConfigErrorKind::LanguageIdRequired(self.language.clone(), self.service).into()
+                ConfigErrorKind::LangNameRequired(self.language.clone(), self.service).into()
             })
     }
 
@@ -962,7 +1007,7 @@ struct Language {
     #[serde(default)]
     working_directory: TemplateBuilder<AbsPathBuf>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    language_ids: BTreeMap<ServiceKind, String>,
+    names: BTreeMap<ServiceKind, String>,
 }
 
 #[cfg(test)]

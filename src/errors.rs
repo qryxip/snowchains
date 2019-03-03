@@ -7,7 +7,7 @@ use snowchains_proc_macros::{DoubleFrom, FailPair, PartialFailPair};
 use chrono::{DateTime, Local};
 use derive_new::new;
 use failure::{Backtrace, Fail};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::StatusCode;
 use url::Url;
@@ -140,16 +140,26 @@ pub enum ServiceErrorKind {
     PleaseSpecifyProblems,
     #[display(fmt = "No such problem: {:?}", _0)]
     NoSuchProblem(String),
-    #[display(fmt = "No such language id. Run `list-langs` to find the ID: {:?}", _0)]
-    NoSuchLangId(String),
     #[display(
-        fmt = "Submission rejected: language={:?}, size={}, status={}, location={}",
-        _0,
-        _1,
-        "_2.as_u16()",
-        r#"_3.as_ref().map(|s| format!("{:?}", s)).unwrap_or_else(|| "<none>".to_owned())"#
+        fmt = "{:?} not found. Run `list-langs` to list the available languages",
+        _0
     )]
-    SubmissionRejected(String, usize, StatusCode, Option<String>),
+    NoSuchLang(String),
+    #[display(
+        fmt = "Submission rejected: name={:?}, id={:?}, size={}, status={}, location={}",
+        lang_name,
+        lang_id,
+        size,
+        "status.as_u16()",
+        r#"location.as_ref().map(|s| format!("{:?}", s)).unwrap_or_else(|| "<none>".to_owned())"#
+    )]
+    SubmissionRejected {
+        lang_name: String,
+        lang_id: String,
+        size: usize,
+        status: StatusCode,
+        location: Option<String>,
+    },
     #[display(fmt = "Failed to login")]
     LoginRetriesExceeded,
 }
@@ -294,11 +304,11 @@ pub enum ConfigErrorKind {
     #[display(fmt = "No such language: {:?}", _0)]
     NoSuchLanguage(String),
     #[display(
-        fmt = "`languages.{}.language_ids.{}` required. Run `list-langs` to find the ID",
+        fmt = "`languages.{}.names.{}` required. Run `list-langs` to find the ID",
         _0,
         _1
     )]
-    LanguageIdRequired(String, ServiceKind),
+    LangNameRequired(String, ServiceKind),
 }
 
 pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateError>;
@@ -308,7 +318,7 @@ pub struct ExpandTemplateError(failure::Context<ExpandTemplateErrorKind>);
 
 #[derive(Debug, derive_more::Display, Fail)]
 pub enum ExpandTemplateErrorKind {
-    #[display(fmt = "Failed to expand ({:?}) as a non UTF-8 string", tokens)]
+    #[display(fmt = "Failed to expand {:?} as a non UTF-8 string", tokens)]
     OsStr { tokens: Tokens },
     #[display(
         fmt = "Failed to expand ({} </> ({:?})) as a non UTF-8 string",
@@ -321,6 +331,8 @@ pub enum ExpandTemplateErrorKind {
     },
     #[display(fmt = "{:?} not found in the config", _0)]
     NoSuchShell(String),
+    #[display(fmt = "Undefined namespace: {:?}", _0)]
+    UndefinedNamespace(String),
     #[display(fmt = "Undefined variable: {:?}", _0)]
     UndefinedVar(String),
     #[display(fmt = "Undefined function: {:?}", _0)]
@@ -382,6 +394,7 @@ pub struct StdError<E: std::error::Error + Send + Sync + 'static> {
 }
 
 impl<E: std::error::Error + Send + Sync + 'static> From<E> for StdError<E> {
+    #[allow(deprecated)]
     fn from(from: E) -> Self {
         let messages_rev = {
             let mut messages = vec![from.to_string()];

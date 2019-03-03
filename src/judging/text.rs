@@ -1,10 +1,10 @@
-use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
+use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _};
 use crate::util::num::PositiveFinite;
 
-use combine::Parser;
+use combine::Parser as _;
 use derive_new::new;
 
-use std::fmt::Write;
+use std::fmt::Write as _;
 use std::sync::Arc;
 use std::{cmp, f64, io};
 

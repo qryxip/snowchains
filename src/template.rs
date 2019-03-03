@@ -6,13 +6,12 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
 use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
-use crate::util::std_unstable::Transpose_;
 use crate::util::str::CaseConversion;
 
 use combine::Parser;
 use derive_new::new;
-use failure::{Backtrace, Fail, ResultExt};
-use heck::{CamelCase, KebabCase, MixedCase, SnakeCase};
+use failure::{Backtrace, Fail, ResultExt as _};
+use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -207,7 +206,7 @@ impl Template<TranspilationCommand> {
         let transpiled = transpiled
             .as_ref()
             .map(|TemplateBuilder(transpiled)| transpiled.expand_as_path(base_dir, &vars, &envs))
-            .transpose_()?;
+            .transpose()?;
         if let Some(transpiled) = &transpiled {
             vars.insert("transpiled", transpiled.clone().into());
             envs.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.clone().into());
@@ -258,7 +257,7 @@ impl Template<CompilationCommand> {
         let transpiled = transpiled
             .as_ref()
             .map(|TemplateBuilder(transpiled)| transpiled.expand_as_path(base_dir, &vars, &envs))
-            .transpose_()?;
+            .transpose()?;
         if let Some(transpiled) = &transpiled {
             vars.insert("transpiled", transpiled.clone().into());
             envs.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.clone().into());
@@ -267,7 +266,7 @@ impl Template<CompilationCommand> {
         let bin = bin
             .as_ref()
             .map(|TemplateBuilder(bin)| bin.expand_as_path(base_dir, &vars, &envs))
-            .transpose_()?;
+            .transpose()?;
         if let Some(bin) = &bin {
             vars.insert("bin", bin.clone().into());
             envs.insert("SNOWCHAINS_BIN".into(), bin.clone().into());
@@ -319,7 +318,7 @@ impl Template<JudgingCommand> {
         let transpiled = transpiled
             .as_ref()
             .map(|TemplateBuilder(transpiled)| transpiled.expand_as_path(base_dir, &vars, &envs))
-            .transpose_()?;
+            .transpose()?;
         if let Some(transpiled) = &transpiled {
             vars.insert("transpiled", transpiled.clone().into());
             envs.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.clone().into());
@@ -327,7 +326,7 @@ impl Template<JudgingCommand> {
         let bin = bin
             .as_ref()
             .map(|TemplateBuilder(bin)| bin.expand_as_path(base_dir, &vars, &envs))
-            .transpose_()?;
+            .transpose()?;
         if let Some(bin) = &bin {
             vars.insert("bin", bin.clone().into());
             envs.insert("SNOWCHAINS_BIN".into(), bin.clone().into());
@@ -513,10 +512,15 @@ pub(crate) struct JudgingCommandRequirements {
 #[derive(Clone)]
 enum Token {
     Plain(String),
+    Expr(Expr),
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone)]
+enum Expr {
     Var(String),
-    EnvVar(String),
-    AppVar(String, String),
-    AppEnvVar(String, String),
+    NamespacedVar(String, String),
+    App(String, Box<Self>),
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -528,7 +532,9 @@ impl FromStr for Tokens {
 
     fn from_str(input: &str) -> ParseTemplateResult<Self> {
         use combine::char::{char, spaces, string};
-        use combine::{attempt, choice, eof, many, many1, satisfy};
+        use combine::parser::choice::or;
+        use combine::parser::function::parser;
+        use combine::{choice, eof, many, many1, satisfy};
 
         fn escape<'a>(
             from: &'static str,
@@ -537,7 +543,44 @@ impl FromStr for Tokens {
             string(from).map(move |_| Token::Plain(to.to_owned()))
         }
 
-        fn identifier<'a>() -> impl Parser<Input = &'a str, Output = String> {
+        fn parse_expr<I: combine::Stream<Item = char>>(
+            input: &mut I,
+        ) -> combine::ParseResult<Expr, I>
+        where
+            I::Error: combine::ParseError<char, I::Range, I::Position>,
+        {
+            enum Right {
+                Comma(String),
+                Arg(Expr),
+                None,
+            }
+
+            let mut parser = spaces()
+                .with(identifier())
+                .and(choice((
+                    char(':')
+                        .with(identifier())
+                        .skip(spaces())
+                        .map(Right::Comma),
+                    char('(')
+                        .with(parser(parse_expr))
+                        .skip(char(')'))
+                        .skip(spaces())
+                        .map(Right::Arg),
+                    spaces().map(|_| Right::None),
+                )))
+                .map(|(left, right)| match right {
+                    Right::Comma(right) => Expr::NamespacedVar(left, right),
+                    Right::Arg(right) => Expr::App(left, Box::new(right)),
+                    Right::None => Expr::Var(left),
+                });
+            parser.parse_stream(input)
+        }
+
+        fn identifier<I: combine::Stream<Item = char>>() -> impl Parser<Input = I, Output = String>
+        where
+            I::Error: combine::ParseError<char, I::Range, I::Position>,
+        {
             many1(satisfy(|c| match c {
                 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
                 _ => false,
@@ -546,43 +589,19 @@ impl FromStr for Tokens {
 
         let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Plain);
 
-        let app_envvar = string("${")
-            .with(spaces())
-            .with(identifier())
-            .skip(spaces().and(char('(')).and(spaces()).and(string("env")))
-            .skip(spaces().and(char(':')).and(spaces()))
-            .and(identifier())
-            .skip(spaces().and(char(')')).and(spaces()).and(char('}')))
-            .map(|(f, x)| Token::AppEnvVar(f, x));
-        let app_var = string("${")
-            .with(spaces())
-            .with(identifier())
-            .skip(spaces().and(char('(')).and(spaces()))
-            .and(identifier())
-            .skip(spaces().and(char(')')).and(spaces()).and(char('}')))
-            .map(|(f, x)| Token::AppVar(f, x));
-
-        let envvar = string("${")
-            .with(spaces().and(string("env")).and(spaces()).and(char(':')))
-            .with(spaces())
-            .with(identifier())
-            .skip(spaces().and(char('}')))
-            .map(Token::EnvVar);
-        let var = string("${")
-            .with(spaces())
-            .with(identifier())
-            .skip(spaces().and(char('}')))
-            .map(Token::Var);
+        let dollar_or_expr = char('$').with(or(
+            char('$').map(|_| Token::Plain("$".to_owned())),
+            char('{')
+                .with(parser(parse_expr))
+                .skip(char('}'))
+                .map(Token::Expr),
+        ));
 
         many(choice((
             plain,
-            attempt(escape("$$", "$")),
-            attempt(escape("{{", "{")),
-            attempt(escape("}}", "}")),
-            attempt(app_envvar),
-            attempt(app_var),
-            attempt(envvar),
-            var,
+            escape("{{", "{"),
+            escape("}}", "}"),
+            dollar_or_expr,
         )))
         .skip(eof())
         .parse(input)
@@ -593,6 +612,18 @@ impl FromStr for Tokens {
 
 impl fmt::Display for Tokens {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt_expr(expr: &Expr, f: &mut fmt::Formatter) -> fmt::Result {
+            match expr {
+                Expr::Var(x) => write!(f, "{}", x),
+                Expr::NamespacedVar(s, x) => write!(f, "{}:{}", s, x),
+                Expr::App(fun, e) => {
+                    write!(f, "{}(", fun)?;
+                    fmt_expr(e, f)?;
+                    write!(f, ")")
+                }
+            }
+        }
+
         for token in &self.0 {
             match token {
                 Token::Plain(s) => {
@@ -604,10 +635,11 @@ impl fmt::Display for Tokens {
                         }?;
                     }
                 }
-                Token::Var(s) => write!(f, "${{{}}}", s)?,
-                Token::EnvVar(s) => write!(f, "${{env:{}}}", s)?,
-                Token::AppVar(fun, s) => write!(f, "${{{}({})}}", fun, s)?,
-                Token::AppEnvVar(fun, s) => write!(f, "${{{}(env:{})}}", fun, s)?,
+                Token::Expr(e) => {
+                    write!(f, "${{")?;
+                    fmt_expr(e, f)?;
+                    write!(f, "}}")?;
+                }
             }
         }
         Ok(())
@@ -616,6 +648,18 @@ impl fmt::Display for Tokens {
 
 impl fmt::Debug for Tokens {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt_expr(expr: &Expr, f: &mut fmt::Formatter) -> fmt::Result {
+            match expr {
+                Expr::Var(x) => write!(f, "{}", x),
+                Expr::NamespacedVar(s, x) => write!(f, "{}:{}", s, x),
+                Expr::App(fun, e) => {
+                    write!(f, "{}(", fun)?;
+                    fmt_expr(e, f)?;
+                    write!(f, ")")
+                }
+            }
+        }
+
         let n = self.0.len();
         if n != 1 {
             write!(f, "(")?;
@@ -626,10 +670,11 @@ impl fmt::Debug for Tokens {
             }
             match t {
                 Token::Plain(s) => write!(f, "{:?}", s),
-                Token::Var(s) => write!(f, "${{{}}}", s),
-                Token::EnvVar(s) => write!(f, "${{env:{}}}", s),
-                Token::AppVar(fun, s) => write!(f, "${{{}({})}}", fun, s),
-                Token::AppEnvVar(fun, s) => write!(f, "${{{}(env:{})}}", fun, s),
+                Token::Expr(e) => {
+                    write!(f, "${{")?;
+                    fmt_expr(e, f)?;
+                    write!(f, "}}")
+                }
             }?
         }
         if n != 1 {
@@ -658,49 +703,100 @@ impl Tokens {
         vars: &HashMap<&'static str, impl AsRef<OsStr>>,
         envs: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<OsStr>>,
     ) -> ExpandTemplateResult<OsString> {
-        let get_template_var_value = |key: &str| -> ExpandTemplateResult<_> {
-            vars.get(key)
-                .ok_or_else(|| ExpandTemplateErrorKind::UndefinedVar(key.to_owned()).into())
-        };
+        fn eval_as_os_str<'a>(
+            expr: &'a Expr,
+            vars: &'a HashMap<&'static str, impl AsRef<OsStr>>,
+            envs: &'a HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<OsStr>>,
+        ) -> ExpandTemplateResult<Cow<'a, OsStr>> {
+            match expr {
+                Expr::Var(name) => var_value(name, vars).map(Cow::Borrowed),
+                Expr::NamespacedVar(namespace, name) => {
+                    guard_namespace(namespace)?;
+                    env_var_value(name, envs)
+                }
+                Expr::App(f, x) => {
+                    let f = parse_fun(f)?;
+                    let x = eval_as_str(x, vars, envs)?;
+                    Ok(Cow::Owned(f.apply(&x).into()))
+                }
+            }
+        }
 
-        let get_env_var_value = |key: &str| -> ExpandTemplateResult<_> {
-            envs.get(key)
+        fn eval_as_str<'a>(
+            expr: &'a Expr,
+            vars: &'a HashMap<&'static str, impl AsRef<OsStr>>,
+            envs: &'a HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<OsStr>>,
+        ) -> ExpandTemplateResult<Cow<'a, str>> {
+            match expr {
+                Expr::Var(name) => {
+                    let value = var_value(name, vars)?;
+                    let value = value.to_str().ok_or_else(|| {
+                        ExpandTemplateErrorKind::NonUtf8Var(name.clone(), value.to_owned())
+                    })?;
+                    Ok(Cow::Borrowed(value))
+                }
+                Expr::NamespacedVar(namespace, name) => {
+                    guard_namespace(namespace)?;
+                    let value = match env_var_value(name, envs)? {
+                        Cow::Owned(value) => Cow::Owned(value.into_string().map_err(|value| {
+                            ExpandTemplateErrorKind::NonUtf8EnvVar(name.clone(), value)
+                        })?),
+                        Cow::Borrowed(value) => Cow::Borrowed(value.to_str().ok_or_else(|| {
+                            ExpandTemplateErrorKind::NonUtf8EnvVar(name.clone(), value.to_owned())
+                        })?),
+                    };
+                    Ok(value)
+                }
+                Expr::App(f, x) => {
+                    let f = parse_fun(f)?;
+                    let x = eval_as_str(x, vars, envs)?;
+                    Ok(Cow::Owned(f.apply(&x)))
+                }
+            }
+        }
+
+        fn var_value<'a>(
+            name: &str,
+            vars: &'a HashMap<&'static str, impl AsRef<OsStr>>,
+        ) -> ExpandTemplateResult<&'a OsStr> {
+            vars.get(name)
+                .ok_or_else(|| ExpandTemplateErrorKind::UndefinedVar(name.to_owned()).into())
+                .map(AsRef::as_ref)
+        }
+
+        fn env_var_value<'a>(
+            name: &str,
+            envs: &'a HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<OsStr>>,
+        ) -> ExpandTemplateResult<Cow<'a, OsStr>> {
+            envs.get(name)
                 .map(|v| Cow::Borrowed(v.as_ref()))
-                .or_else(|| env::var_os(key).map(Cow::Owned))
-                .ok_or_else(|| ExpandTemplateErrorKind::EnvVarNotPresent(key.to_owned()).into())
-        };
+                .or_else(|| env::var_os(name).map(Cow::Owned))
+                .ok_or_else(|| ExpandTemplateErrorKind::EnvVarNotPresent(name.to_owned()).into())
+        }
 
-        let parse_fun = |name: &str| -> ExpandTemplateResult<CaseConversion> {
+        fn guard_namespace(namespace: &str) -> ExpandTemplateResult<()> {
+            match namespace {
+                "env" => Ok(()),
+                namespace => {
+                    Err(ExpandTemplateErrorKind::UndefinedNamespace(namespace.to_owned()).into())
+                }
+            }
+        }
+
+        fn parse_fun(name: &str) -> ExpandTemplateResult<CaseConversion> {
             name.parse().map_err(|e| {
                 failure::err_msg(e)
                     .context(ExpandTemplateErrorKind::UndefinedFun(name.to_owned()))
                     .into()
             })
-        };
+        }
 
         let expand_as_os_string = || -> ExpandTemplateResult<_> {
             let mut r = OsString::new();
             for token in &self.0 {
                 match token {
                     Token::Plain(s) => r.push(s),
-                    Token::Var(k) => r.push(get_template_var_value(k)?),
-                    Token::EnvVar(k) => r.push(get_env_var_value(k)?),
-                    Token::AppVar(f, k) => {
-                        let f = parse_fun(f)?;
-                        let v = get_template_var_value(k)?.as_ref();
-                        let v = v.to_str().ok_or_else(|| {
-                            ExpandTemplateErrorKind::NonUtf8Var(k.clone(), v.to_owned())
-                        })?;
-                        r.push(&f.apply(v));
-                    }
-                    Token::AppEnvVar(f, k) => {
-                        let f = parse_fun(f)?;
-                        let v = get_env_var_value(k)?;
-                        let v = v.to_str().ok_or_else(|| {
-                            ExpandTemplateErrorKind::NonUtf8Var(k.clone(), v.clone().into_owned())
-                        })?;
-                        r.push(&f.apply(v));
-                    }
+                    Token::Expr(e) => r.push(eval_as_os_str(e, vars, envs)?),
                 }
             }
             Ok(r)

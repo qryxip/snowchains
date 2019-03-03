@@ -1,11 +1,11 @@
 use snowchains::app::{App, Opt};
 use snowchains::path::AbsPathBuf;
-use snowchains::terminal::{Term, TermImpl, TermInImpl, WriteAnsi, WriteSpaces};
+use snowchains::terminal::{Term as _, TermImpl, TermInImpl, WriteAnsi as _, WriteSpaces as _};
 
 use failure::{Fail, Fallible};
 use structopt::StructOpt;
 
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, Write as _};
 use std::process;
 
 fn main() -> Fallible<()> {

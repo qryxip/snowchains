@@ -7,18 +7,18 @@ use crate::errors::{
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps, PrintTargets,
-    RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps,
+    PrintTargets as _, RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
 };
-use crate::terminal::{HasTerm, Term, WriteAnsi};
+use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, TestSuite};
 use crate::util::collections::NonEmptyVec;
-use crate::util::std_unstable::RemoveItem_;
+use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
-use crate::util::Lookup;
+use crate::util::Lookup as _;
 
 use if_chain::if_chain;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use rand::Rng;
@@ -30,13 +30,13 @@ use select::predicate::{Predicate, Text};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
-use sha2::{Digest, Sha512};
+use sha2::{Digest as _, Sha512};
 use tokio::runtime::{Runtime, TaskExecutor};
 use url::Url;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
-use std::io::{self, Write};
+use std::io::{self, Write as _};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
@@ -303,13 +303,12 @@ impl<T: Term> Codeforces<T> {
         let SubmitProps {
             contest,
             problem,
-            lang_id,
+            lang_name,
             src_path,
             open_in_browser,
             skip_checking_if_accepted,
         } = props;
 
-        let lang_id = lang_id.clone();
         let src = crate::fs::read_to_string(&src_path)?;
         let src_len = src.len();
 
@@ -342,11 +341,17 @@ impl<T: Term> Codeforces<T> {
 
         let doc = self.get(&submit_path).recv_html()?;
 
-        let lang_names = doc.extract_lang_names()?;
-        let lang_name = lang_names
-            .lookup(&lang_id)
-            .ok_or_else(|| ServiceErrorKind::NoSuchLangId(lang_id.clone()))?;
-        writeln!(self.stdout(), "Submitting as {:?}", lang_name)?;
+        let lang_id = doc
+            .extract_langs()?
+            .lookup(&lang_name)
+            .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
+            .clone();
+        writeln!(
+            self.stdout(),
+            "Submitting as {:?} (ID: {:?})",
+            lang_name,
+            lang_id,
+        )?;
 
         let mut values = doc.extract_hidden_values(selector!("form.submit-form"))?;
         values.insert("contestId".to_owned(), contest.id.to_string());
@@ -361,12 +366,13 @@ impl<T: Term> Codeforces<T> {
             .send_form(&values)?
             .status();
         if status == 200 {
-            return Err(ServiceError::from(ServiceErrorKind::SubmissionRejected(
+            return Err(ServiceError::from(ServiceErrorKind::SubmissionRejected {
+                lang_name,
                 lang_id,
-                src_len,
-                StatusCode::OK,
-                None,
-            )));
+                size: src_len,
+                status: StatusCode::OK,
+                location: None,
+            }));
         }
 
         if open_in_browser {
@@ -379,7 +385,7 @@ impl<T: Term> Codeforces<T> {
         let ListLangsProps { contest, .. } = props;
         self.login(LoginOption::WithHandle)?;
         let submit_path = format!("/contest/{}/submit", contest.id);
-        let lang_names = self.get(&submit_path).recv_html()?.extract_lang_names()?;
+        let lang_names = self.get(&submit_path).recv_html()?.extract_langs()?;
         self.print_lang_list(&lang_names).map_err(Into::into)
     }
 
@@ -645,7 +651,7 @@ trait Extract {
     fn extract_problems(&self) -> ScrapeResult<NonEmptyVec<(String, Url)>>;
     fn extract_test_suite(&self) -> ScrapeResult<TestSuite>;
     fn extract_meta_x_csrf_token(&self) -> ScrapeResult<String>;
-    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
 }
 
 impl Extract for Document {
@@ -740,7 +746,7 @@ impl Extract for Document {
             .ok_or_else(ScrapeError::new)
     }
 
-    fn extract_lang_names(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
         let td = self
             .find(selector!("form.submit-form > table > tbody > tr > td"))
             .find(|td| {
@@ -752,9 +758,9 @@ impl Extract for Document {
         let names = td
             .find(selector!("option"))
             .map(|option| {
-                let id = option.attr("value")?.to_owned();
                 let name = option.find(Text).next()?.text();
-                Some((id, name))
+                let id = option.attr("value")?.to_owned();
+                Some((name, id))
             })
             .map(|o| o.ok_or_else(ScrapeError::new))
             .collect::<ScrapeResult<Vec<_>>>()?;
@@ -809,10 +815,10 @@ fn base_url() -> Url {
 mod tests {
     use crate::errors::ServiceResult;
     use crate::service;
-    use crate::service::codeforces::Extract;
+    use crate::service::codeforces::Extract as _;
 
     use failure::Fallible;
-    use itertools::Itertools;
+    use itertools::Itertools as _;
     use select::document::Document;
     use url::Url;
 

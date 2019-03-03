@@ -1,7 +1,7 @@
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
-use std::fmt::Write;
+use std::fmt::Write as _;
 use std::num::FpCategory;
 use std::time::Duration;
 use std::{cmp, u64};
@@ -143,7 +143,7 @@ impl MillisRoundedUp for Duration {
 
 #[cfg(test)]
 mod tests {
-    use crate::time::MillisRoundedUp;
+    use crate::time::MillisRoundedUp as _;
 
     use serde_derive::{Deserialize, Serialize};
 

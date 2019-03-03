@@ -5,12 +5,11 @@ mod text;
 use crate::command::JudgingCommand;
 use crate::config::Config;
 use crate::errors::{JudgeErrorKind, JudgeResult, TestSuiteResult};
-use crate::terminal::{TermOut, WriteAnsi, WriteSpaces};
+use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _};
 use crate::testsuite::{BatchCase, TestCase, TestCases};
-use crate::util::std_unstable::AsMillis_;
 
-use futures::{Future, Sink, Stream};
-use itertools::Itertools;
+use futures::{Future, Sink as _, Stream as _};
+use itertools::Itertools as _;
 use tokio::runtime::Runtime;
 
 use std::io::{self, Read};
@@ -36,7 +35,7 @@ pub(crate) fn timelimit_millis(config: &Config, problem: &str, nth: usize) -> Ju
         cases
             .get(nth)
             .and_then(f)
-            .map(AsMillis_::as_millis_)
+            .map(|t| t.as_millis())
             .ok_or_else(|| JudgeErrorKind::IndexOutOfBounds(cases.len(), nth).into())
     }
 

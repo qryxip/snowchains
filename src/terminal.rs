@@ -3,7 +3,7 @@ use crate::config;
 use strum_macros::EnumString;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use std::io::{self, BufRead, BufWriter, Read, Stderr, Stdin, StdinLock, StdoutLock, Write};
+use std::io::{self, BufRead as _, BufWriter, Read, Stderr, Stdin, StdinLock, StdoutLock, Write};
 use std::{env, process};
 
 pub trait WriteSpaces {
@@ -736,11 +736,13 @@ fn check_remove_trailing_newilne(mut s: String) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::terminal::{Ansi, AnsiColorChoice, Term, TermImpl, TermOut, WriteAnsi, WriteSpaces};
+    use crate::terminal::{
+        Ansi, AnsiColorChoice, Term as _, TermImpl, TermOut as _, WriteAnsi as _, WriteSpaces as _,
+    };
 
     use failure::Fallible;
 
-    use std::borrow::Borrow;
+    use std::borrow::Borrow as _;
     use std::{io, str};
 
     #[test]

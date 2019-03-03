@@ -3,7 +3,7 @@ mod service;
 use snowchains::app::{App, Opt};
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
-use snowchains::terminal::{AnsiColorChoice, Term, TermImpl};
+use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
 
 use failure::Fallible;
 use if_chain::if_chain;
@@ -22,10 +22,10 @@ fn it_logins() -> Fallible<()> {
 }
 
 #[test]
-fn it_fails_to_submit_if_the_lang_id_is_invalid() -> Fallible<()> {
+fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
     let _ = env_logger::try_init();
     service::test_in_tempdir(
-        "it_fails_to_submit_if_the_lang_id_is_invalid",
+        "it_fails_to_submit_if_the_lang_name_is_invalid",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             static CODE: &[u8] = b"#";
@@ -41,7 +41,7 @@ fn it_fails_to_submit_if_the_lang_id_is_invalid() -> Fallible<()> {
                     no_check_duplication: false,
                     service: Some(ServiceKind::Codeforces),
                     contest: Some("1000".to_owned()),
-                    language: Some("python3-with-invalid-lang-ids".to_owned()),
+                    language: Some("python3-with-invalid-lang-names".to_owned()),
                     jobs: None,
                     color_choice: AnsiColorChoice::Never,
                     problem: "a".to_owned(),
@@ -49,9 +49,9 @@ fn it_fails_to_submit_if_the_lang_id_is_invalid() -> Fallible<()> {
                 .unwrap_err();
             if_chain! {
                 if let snowchains::Error::Service(ServiceError::Context(ctx)) = &err;
-                if let ServiceErrorKind::NoSuchLangId(lang_id) = ctx.get_context();
+                if let ServiceErrorKind::NoSuchLang(lang_name) = ctx.get_context();
                 then {
-                    assert_eq!(lang_id, "invalid");
+                    assert_eq!(lang_name, "invalid");
                     Ok(())
                 } else {
                     Err(err.into())
@@ -62,10 +62,10 @@ fn it_fails_to_submit_if_the_lang_id_is_invalid() -> Fallible<()> {
 }
 
 #[test]
-fn it_list_language_ids() -> Fallible<()> {
+fn it_list_languages() -> Fallible<()> {
     let _ = env_logger::try_init();
     service::test_in_tempdir(
-        "it_list_language_ids",
+        "it_list_languages",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::ListLangs {

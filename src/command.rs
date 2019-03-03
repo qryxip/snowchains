@@ -2,12 +2,12 @@ use crate::errors::{
     HookCommandErrorKind, HookCommandResult, JudgeErrorKind, JudgeResult, StdError,
 };
 use crate::path::AbsPathBuf;
-use crate::terminal::{TermOut, WriteSpaces};
+use crate::terminal::{TermOut, WriteSpaces as _};
 use crate::util::collections::NonEmptyVec;
 
-use failure::Fail;
-use itertools::Itertools;
-use tokio_process::CommandExt;
+use failure::Fail as _;
+use itertools::Itertools as _;
+use tokio_process::CommandExt as _;
 
 use std::borrow::Cow;
 use std::collections::HashMap;

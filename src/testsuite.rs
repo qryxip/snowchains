@@ -11,8 +11,8 @@ use crate::util::num::PositiveFinite;
 
 use derive_more::From;
 use derive_new::new;
-use failure::Fail;
-use itertools::{EitherOrBoth, Itertools};
+use failure::Fail as _;
+use itertools::{EitherOrBoth, Itertools as _};
 use log::warn;
 use maplit::{hashmap, hashset};
 use serde::Serialize;
@@ -24,7 +24,7 @@ use failure::Fallible;
 
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet, VecDeque};
-use std::fmt::Write;
+use std::fmt::Write as _;
 use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::str::FromStr;
