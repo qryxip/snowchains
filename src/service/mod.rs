@@ -55,14 +55,11 @@ use std::{cmp, fmt, mem, slice};
     Serialize,
 )]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "snake_case")]
 pub enum ServiceKind {
-    #[strum(to_string = "atcoder")]
     Atcoder,
-    #[strum(to_string = "codeforces")]
     Codeforces,
-    #[strum(to_string = "yukicoder")]
     Yukicoder,
-    #[strum(to_string = "other")]
     Other,
 }
 

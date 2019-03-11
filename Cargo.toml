@@ -56,8 +56,8 @@ serde_yaml = "0.8.8"
 sha2 = "0.8.0"
 snowchains_proc_macros = { path = "./proc_macros", version = "0.1.0" }
 structopt = { version = "0.2.15", features = ["wrap_help"] }
-strum = "0.13.0"
-strum_macros = "0.13.0"
+strum = "0.14.0"
+strum_macros = "0.14.0"
 tokio = "0.1.16"
 tokio-process = "0.2.3"
 toml = "0.4.10"
