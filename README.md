@@ -169,7 +169,7 @@ service="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.service)"
 contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.contest_snake_case)"
 if [ ! -d "./$service/$contest/rs" ]; then
   mkdir -p "./$service/$contest" &&
-  cargo new --lib --edition 2015 --name "${service}_${contest}" "./$service/$contest/rs" &&
+  cargo new --vcs none --lib --edition 2015 --name "${service}_${contest}" "./$service/$contest/rs" &&
   mkdir "./$service/$contest/rs/src/bin" &&
   rm "./$service/$contest/rs/src/lib.rs"
 fi

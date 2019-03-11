@@ -6,10 +6,9 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
 use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
+use crate::util::combine::OnelinePosition;
 use crate::util::str::CaseConversion;
 
-use combine::Parser;
-use derive_new::new;
 use failure::{Backtrace, Fail, ResultExt as _};
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use maplit::hashmap;
@@ -534,28 +533,27 @@ impl FromStr for Tokens {
         use combine::char::{char, spaces, string};
         use combine::parser::choice::or;
         use combine::parser::function::parser;
-        use combine::{choice, eof, many, many1, satisfy};
+        use combine::stream::state::State;
+        use combine::{choice, easy, eof, many, many1, satisfy, Parser};
 
         fn escape<'a>(
             from: &'static str,
             to: &'static str,
-        ) -> impl Parser<Input = &'a str, Output = Token> {
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Token>
+        {
             string(from).map(move |_| Token::Plain(to.to_owned()))
         }
 
-        fn parse_expr<I: combine::Stream<Item = char>>(
-            input: &mut I,
-        ) -> combine::ParseResult<Expr, I>
-        where
-            I::Error: combine::ParseError<char, I::Range, I::Position>,
-        {
+        fn parse_expr<'a>(
+            input: &mut easy::Stream<State<&'a str, OnelinePosition>>,
+        ) -> combine::ParseResult<Expr, easy::Stream<State<&'a str, OnelinePosition>>> {
             enum Right {
                 Comma(String),
                 Arg(Expr),
                 None,
             }
 
-            let mut parser = spaces()
+            spaces()
                 .with(identifier())
                 .and(choice((
                     char(':')
@@ -573,13 +571,12 @@ impl FromStr for Tokens {
                     Right::Comma(right) => Expr::NamespacedVar(left, right),
                     Right::Arg(right) => Expr::App(left, Box::new(right)),
                     Right::None => Expr::Var(left),
-                });
-            parser.parse_stream(input)
+                })
+                .parse_stream(input)
         }
 
-        fn identifier<I: combine::Stream<Item = char>>() -> impl Parser<Input = I, Output = String>
-        where
-            I::Error: combine::ParseError<char, I::Range, I::Position>,
+        fn identifier<'a>(
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = String>
         {
             many1(satisfy(|c| match c {
                 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
@@ -604,9 +601,9 @@ impl FromStr for Tokens {
             dollar_or_expr,
         )))
         .skip(eof())
-        .parse(input)
+        .easy_parse(State::with_positioner(input, OnelinePosition::new()))
         .map(|(tokens, _)| Tokens(tokens))
-        .map_err(|_| ParseTemplateError::new(input.to_owned()))
+        .map_err(|e| ParseTemplateError::new(input, e))
     }
 }
 
@@ -830,13 +827,23 @@ impl Tokens {
 
 type ParseTemplateResult<T> = std::result::Result<T, ParseTemplateError>;
 
-#[derive(Debug, derive_more::Display, Fail, new)]
-#[display(fmt = "Failed to parse {:?}", input)]
+#[derive(Debug, derive_more::Display, Fail)]
+#[display(fmt = "Failed to parse {:?}\n{}", input, error)]
 pub struct ParseTemplateError {
     input: String,
-    #[new(default)]
+    error: combine::easy::Errors<char, String, usize>,
     #[fail(backtrace)]
     backtrace: Backtrace,
+}
+
+impl ParseTemplateError {
+    fn new(input: &str, error: combine::easy::Errors<char, &str, usize>) -> Self {
+        Self {
+            input: input.to_owned(),
+            error: error.map_range(ToOwned::to_owned),
+            backtrace: Backtrace::new(),
+        }
+    }
 }
 
 #[cfg(test)]
