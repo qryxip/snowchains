@@ -2,6 +2,7 @@
 mod service;
 
 use snowchains::app::{App, Opt};
+use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
@@ -60,10 +61,12 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     force_compile: false,
                     only_transpile: false,
                     no_judge: true,
+                    debug: false,
                     no_check_duplication: false,
                     service: Some(ServiceKind::Yukicoder),
                     contest: Some("no".to_owned()),
                     language: Some("python3-with-invalid-lang-names".to_owned()),
+                    mode: config::Mode::Release,
                     jobs: None,
                     color_choice: AnsiColorChoice::Never,
                     problem: "9000".to_owned(),
@@ -100,10 +103,12 @@ fn it_submits_to_no_9000() -> Fallible<()> {
                 force_compile: false,
                 only_transpile: false,
                 no_judge: true,
+                debug: false,
                 no_check_duplication: false,
                 service: Some(ServiceKind::Yukicoder),
                 contest: Some("no".to_owned()),
                 language: Some("text".to_owned()),
+                mode: config::Mode::Release,
                 jobs: None,
                 color_choice: AnsiColorChoice::Never,
                 problem: "9000".to_owned(),

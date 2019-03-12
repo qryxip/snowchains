@@ -32,40 +32,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{f64, str, vec};
 
-pub(crate) fn modify_timelimit(
-    stdout: impl WriteAnsi,
-    name: &str,
-    path: &SuiteFilePath,
-    timelimit: Option<Duration>,
-) -> TestSuiteResult<()> {
-    let mut suite = TestSuite::load(path)?;
-    suite.modify_timelimit(&path.path, timelimit)?;
-    suite.save(name, path, stdout)
-}
-
-pub(crate) fn modify_append(
-    name: &str,
-    path: &SuiteFilePath,
-    input: &str,
-    output: Option<&str>,
-    stdout: impl WriteAnsi,
-) -> TestSuiteResult<()> {
-    let mut suite = TestSuite::load(path)?;
-    suite.append(input, output)?;
-    suite.save(name, path, stdout)
-}
-
-pub(crate) fn modify_match(
-    stdout: impl WriteAnsi,
-    name: &str,
-    path: &SuiteFilePath,
-    output_match: Match,
-) -> TestSuiteResult<()> {
-    let mut suite = TestSuite::load(path)?;
-    suite.modify_match(output_match)?;
-    suite.save(name, path, stdout)
-}
-
 #[derive(
     Clone,
     Copy,
@@ -343,46 +309,6 @@ impl TestSuite {
                     serde_yaml::to_string(self).ser_context()
                 }
             },
-        }
-    }
-
-    fn modify_timelimit(
-        &mut self,
-        path: &AbsPath,
-        timelimit: Option<Duration>,
-    ) -> TestSuiteResult<()> {
-        match self {
-            TestSuite::Batch(suite) => {
-                suite.head.timelimit = timelimit;
-                Ok(())
-            }
-            TestSuite::Interactive(suite) => {
-                suite.timelimit = timelimit;
-                Ok(())
-            }
-            TestSuite::Unsubmittable => {
-                Err(TestSuiteErrorKind::Unsubmittable(path.to_owned()).into())
-            }
-        }
-    }
-
-    fn append(&mut self, input: &str, output: Option<&str>) -> TestSuiteResult<()> {
-        match self {
-            TestSuite::Batch(suite) => {
-                suite.append(input, output);
-                Ok(())
-            }
-            _ => Err(TestSuiteErrorKind::SuiteIsNotBatch.into()),
-        }
-    }
-
-    fn modify_match(&mut self, output_match: Match) -> TestSuiteResult<()> {
-        match self {
-            TestSuite::Batch(suite) => {
-                suite.head.output_match = output_match;
-                Ok(())
-            }
-            _ => Err(TestSuiteErrorKind::SuiteIsNotBatch.into()),
         }
     }
 
@@ -681,14 +607,6 @@ impl BatchSuite {
             }
         }
     }
-
-    fn append(&mut self, input: &str, output: Option<&str>) {
-        self.cases.push(BatchSuiteSchemaCase {
-            name: None,
-            input: BatchSuiteText::String(input.to_owned()),
-            output: output.map(|o| BatchSuiteText::String(o.to_owned())),
-        });
-    }
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -754,7 +672,7 @@ impl InteractiveSuite {
             let tester = tester_command
                 .ok_or_else(|| ConfigError::from(ConfigErrorKind::TesterNotSpecified))?
                 .clone()
-                .envs(Some(&m))
+                .envs(m)
                 .expand(problem)?;
             cases.push(InteractiveCase {
                 name: Arc::new(format!("{}[{}]", filename, i)),
@@ -944,6 +862,7 @@ impl InteractiveCase {
 
 #[cfg(test)]
 mod tests {
+    use crate::config;
     use crate::errors::{ConfigErrorKind, TestSuiteError, TestSuiteErrorKind, TestSuiteResult};
     use crate::path::AbsPathBuf;
     use crate::service::ServiceKind;
@@ -1065,6 +984,7 @@ type: unsubmittable
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
             service: ServiceKind::Atcoder,
             contest: "abc117".to_owned(),
+            mode: None,
         });
         let test_dir = tempdir.path().join("atcoder").join("abc117").join("tests");
         std::fs::create_dir_all(&test_dir)?;
@@ -1138,11 +1058,13 @@ type: unsubmittable
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
             service: ServiceKind::Atcoder,
             contest: "arc078".to_owned(),
+            mode: None,
         });
         let tester_command = TemplateBuilder::dummy().build(JudgingCommandRequirements {
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
             service: ServiceKind::Atcoder,
             contest: "arc078".to_owned(),
+            mode: config::Mode::Debug,
             shell: hashmap!(),
             working_dir: ".".parse()?,
             src: "tester".parse()?,
@@ -1203,6 +1125,7 @@ type: unsubmittable
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
             service: ServiceKind::Atcoder,
             contest: "apg4b".to_owned(),
+            mode: None,
         });
         let test_dir = tempdir.path().join("atcoder").join("apg4b").join("tests");
         std::fs::create_dir_all(&test_dir)?;

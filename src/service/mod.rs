@@ -6,8 +6,8 @@ pub(crate) mod yukicoder;
 
 pub(self) mod download;
 
-use crate::config::Config;
-use crate::errors::{FileErrorKind, FileResult, ServiceResult};
+use crate::config::{self, Config};
+use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceResult};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
 use crate::template::Template;
@@ -469,12 +469,17 @@ pub(crate) struct RestoreProps<'a, C: Contest> {
 }
 
 impl<'a> RestoreProps<'a, String> {
-    pub(crate) fn new(config: &'a Config, problems: Vec<String>) -> Self {
-        Self {
+    pub(crate) fn new(
+        config: &'a Config,
+        mode: config::Mode,
+        problems: Vec<String>,
+    ) -> ConfigResult<Self> {
+        let src_paths = config.src_paths(mode)?;
+        Ok(Self {
             contest: config.contest().to_owned(),
             problems: NonEmptyVec::try_new(problems),
-            src_paths: config.src_paths(),
-        }
+            src_paths,
+        })
     }
 
     pub(self) fn convert_problems(self, conversion: CaseConversion) -> Self {
@@ -519,12 +524,13 @@ pub(crate) struct SubmitProps<C: Contest> {
 impl SubmitProps<String> {
     pub(crate) fn try_new(
         config: &Config,
+        mode: config::Mode,
         problem: String,
         open_in_browser: bool,
         skip_checking_if_accepted: bool,
     ) -> crate::Result<Self> {
         let contest = config.contest().to_owned();
-        let src_path = config.src_to_submit()?.expand(Some(&problem))?;
+        let src_path = config.src_to_submit(mode)?.expand(Some(&problem))?;
         let lang_name = config.lang_name()?.to_owned();
         Ok(Self {
             contest,

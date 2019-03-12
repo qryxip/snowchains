@@ -20,13 +20,14 @@ text_file_dir = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}"
 [judge]
 testfile_extensions = ["yml"]
 
-[env.atcoder]
+[env.'service = "atcoder"']
 RUST_VERSION = "stable"
+RUST_OPT_LEVEL = "0"
 
 [languages.rust]
 src = "${service}/${snake_case(contest)}/rs/src/bin/${kebab_case(problem)}.rs"
 bin = "${service}/${snake_case(contest)}/rs/target/manually/${kebab_case(problem)}"
-compile = ["rustc", "+${env:RUST_VERSION}", "-o", "${bin}", "${src}"]
+compile = ["rustc", "+${env:RUST_VERSION}", "-C", "opt-level=${env:RUST_OPT_LEVEL}", "-o", "${bin}", "${src}"]
 run = ["${bin}"]
 working_directory = "${service}/${contest}/rs"
 

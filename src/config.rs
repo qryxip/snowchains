@@ -9,21 +9,26 @@ use crate::template::{
 use crate::terminal::{TermOut, WriteSpaces as _};
 use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
+use crate::util::combine::OnelinePosition;
 
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use if_chain::if_chain;
+use indexmap::IndexMap;
+use maplit::hashmap;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
+use strum_macros::EnumString;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
+use std::fmt::{self, Write as _};
 use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{env, fmt, str};
+use std::{env, iter, str};
 
 static CONFIG_FILE_NAME: &str = "snowchains.toml";
 
@@ -259,21 +264,35 @@ testfile_extensions = ["json", "toml", "yaml", "yml"]
 # jobs = {judge_jobs}
 display_limit = "1KiB"
 
-[env.atcoder]
-CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
-RUST_VERSION = "1.15.1"
-
-[env.codeforces]
-CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
-RUST_VERSION = "1.31.1"
-
-[env.yukicoder]
-CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
-RUST_VERSION = "1.30.1"
-
-[env.other]
+[env.true]
 CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 RUST_VERSION = "stable"
+RUST_OPT_LEVEL = "0"
+
+[env.'mode = "release"']
+CXXFLAGS = "-std=gnu++17 -O2 -Wall -Wextra"
+RUST_OPT_LEVEL = "2"
+
+[env.'and(service = "atcoder", mode = "debug")']
+CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+
+[env.'and(service = "atcoder", mode = "release")']
+CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -O2 -Wall -Wextra"
+RUST_VERSION = "1.15.1"
+
+[env.'and(service = "codeforces", mode = "debug")']
+CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+
+[env.'and(service = "codeforces", mode = "release")']
+CXXFLAGS = "-std=gnu++17 -O2 -Wall -Wextra"
+RUST_VERSION = "1.31.1"
+
+[env.'and(service = "yukicoder", mode = "debug")']
+CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+
+[env.'and(service = "yukicoder", mode = "release")']
+CXXFLAGS = "-std=gnu++1z -lm -O2 -Wall -Wextra"
+RUST_VERSION = "1.30.1"
 
 # [hooks]
 # switch = {{ {jq} }}
@@ -304,9 +323,9 @@ yukicoder = "C++17(1z） (gcc 8.2.0)"
 
 [languages.rust]
 src = "${{service}}/${{snake_case(contest)}}/rs/src/bin/${{kebab_case(problem)}}.rs"
-bin = "${{service}}/${{snake_case(contest)}}/rs/target/manually/${{kebab_case(problem)}}{exe}"
-compile = ["rustc", "+${{env:RUST_VERSION}}", "-o", "${{bin}}", "${{src}}"]
-run = ["${{bin}}"]{crlf_to_lf_false}
+bin = "${{service}}/${{snake_case(contest)}}/rs/target/manually/${{mode}}/${{kebab_case(problem)}}"
+compile = ["rustc", "+${{env:RUST_VERSION}}", "-C", "opt-level=${{env:RUST_OPT_LEVEL}}", "-o", "${{bin}}", "${{src}}"]
+run = ["${{bin}}"]
 working_directory = "${{service}}/${{snake_case(contest)}}/rs"
 
 [languages.rust.names]
@@ -466,7 +485,7 @@ pub(crate) fn switch(
     let new_toml = {
         let mut doc = old_toml
             .parse::<toml_edit::Document>()
-            .unwrap_or_else(|_| unimplemented!());
+            .unwrap_or_else(|e| unimplemented!("{}", e));
         if let Some(service) = service {
             doc["service"] = toml_edit::value(<&str>::from(service));
         }
@@ -552,6 +571,13 @@ pub(crate) fn switch(
     Ok((new_config, outcome))
 }
 
+#[derive(Clone, Copy, strum_macros::Display, Debug, EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum Mode {
+    Debug,
+    Release,
+}
+
 /// Config.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Config {
@@ -567,7 +593,7 @@ pub(crate) struct Config {
     session: Session,
     judge: Judge,
     #[serde(default)]
-    env: BTreeMap<ServiceKind, HashMap<String, String>>,
+    env: Env,
     #[serde(default)]
     hooks: Hooks,
     tester: Option<Language>,
@@ -624,19 +650,19 @@ impl Config {
 
     /// Gets `session.cookies`.
     pub(crate) fn session_cookies(&self) -> Template<AbsPathBuf> {
-        self.build_path_template(&self.session.cookies)
+        self.build_path_template(&self.session.cookies, None)
     }
 
     /// Gets `session.api_tokens`.
     pub(crate) fn session_api_tokens(&self) -> Template<AbsPathBuf> {
-        self.build_path_template(&self.session.api_tokens)
+        self.build_path_template(&self.session.api_tokens, None)
     }
 
     /// Gets `session.dropbox.auth` as `Option`.
     pub(crate) fn session_dropbox_auth(&self) -> Option<Template<AbsPathBuf>> {
         match &self.session.dropbox {
             Dropbox::None => None,
-            Dropbox::Some { auth } => Some(self.build_path_template(&auth)),
+            Dropbox::Some { auth } => Some(self.build_path_template(&auth, None)),
         }
     }
 
@@ -677,50 +703,62 @@ impl Config {
         &self,
         ext: Option<SuiteFileExtension>,
     ) -> DownloadDestinations {
-        let scraped = self.build_path_template(&self.testfiles.path);
-        let text_file_dir = self.build_path_template(&self.session.download.text_file_dir);
+        let scraped = self.build_path_template(&self.testfiles.path, None);
+        let text_file_dir = self.build_path_template(&self.session.download.text_file_dir, None);
         let ext = ext.unwrap_or(self.session.download.extension);
         DownloadDestinations::new(scraped, text_file_dir, ext)
     }
 
     /// Constructs a `TestCaseLoader`.
-    pub(crate) fn testcase_loader(&self) -> TestCaseLoader {
-        TestCaseLoader::new(
-            self.build_path_template(&self.testfiles.path),
+    pub(crate) fn testcase_loader(&self, mode: Mode) -> ConfigResult<TestCaseLoader> {
+        let tester_transpilation = self.tester_transpilation(mode)?;
+        let tester_compilation = self.tester_compilation(mode)?;
+        let tester = self.tester(mode)?;
+        Ok(TestCaseLoader::new(
+            self.build_path_template(&self.testfiles.path, Some(mode)),
             &self.judge.testfile_extensions,
-            self.tester_transpilation(),
-            self.tester_compilation(),
-            self.tester(),
-        )
+            tester_transpilation,
+            tester_compilation,
+            tester,
+        ))
     }
 
     /// Gets paths to the source files.
-    pub(crate) fn src_paths(&self) -> HashMap<&str, Template<AbsPathBuf>> {
+    pub(crate) fn src_paths(
+        &self,
+        mode: Mode,
+    ) -> ConfigResult<HashMap<&str, Template<AbsPathBuf>>> {
         self.languages
             .values()
             .flat_map(|l| l.names.get(&self.service).map(|n| (l, n)))
             .map(|(lang, name)| {
                 let template = self
-                    .build_path_template(&lang.src)
-                    .envs(self.env.get(&self.service));
-                (name.as_ref(), template)
+                    .build_path_template(&lang.src, Some(mode))
+                    .envs(self.env_vars(mode)?);
+                Ok((name.as_ref(), template))
             })
             .collect()
     }
 
     /// Gets path to the source file to submit.
-    pub(crate) fn src_to_submit(&self) -> ConfigResult<Template<AbsPathBuf>> {
+    pub(crate) fn src_to_submit(&self, mode: Mode) -> ConfigResult<Template<AbsPathBuf>> {
         let lang = self.find_language()?;
+        let env_vars = self.env_vars(mode)?;
         Ok(self
-            .build_path_template(lang.transpiled.as_ref().unwrap_or(&lang.src))
-            .envs(self.env.get(&self.service)))
+            .build_path_template(lang.transpiled.as_ref().unwrap_or(&lang.src), Some(mode))
+            .envs(env_vars))
     }
 
-    fn build_path_template(&self, template: &TemplateBuilder<AbsPathBuf>) -> Template<AbsPathBuf> {
+    fn build_path_template(
+        &self,
+        template: &TemplateBuilder<AbsPathBuf>,
+        mode: Option<Mode>,
+    ) -> Template<AbsPathBuf> {
         template.build(AbsPathBufRequirements {
             base_dir: self.base_dir.clone(),
             service: self.service,
             contest: self.contest.clone(),
+            mode,
         })
     }
 
@@ -734,78 +772,111 @@ impl Config {
             })
     }
 
-    pub(crate) fn solver_compilation(&self) -> ConfigResult<Option<Template<CompilationCommand>>> {
+    pub(crate) fn solver_compilation(
+        &self,
+        mode: Mode,
+    ) -> ConfigResult<Option<Template<CompilationCommand>>> {
         let lang = self.find_language()?;
-        Ok(self.compilation_command(lang))
+        self.compilation_command(lang, mode)
     }
 
     pub(crate) fn solver_transpilation(
         &self,
+        mode: Mode,
     ) -> ConfigResult<Option<Template<TranspilationCommand>>> {
         let lang = self.find_language()?;
-        Ok(self.transpilation_command(lang))
+        self.transpilation_command(lang, mode)
     }
 
-    pub(crate) fn solver(&self) -> ConfigResult<Template<JudgingCommand>> {
+    pub(crate) fn solver(&self, mode: Mode) -> ConfigResult<Template<JudgingCommand>> {
         let lang = self.find_language()?;
-        Ok(self.judge_command(lang))
+        self.judge_command(lang, mode)
     }
 
-    fn tester_transpilation(&self) -> Option<Template<TranspilationCommand>> {
+    fn tester_transpilation(
+        &self,
+        mode: Mode,
+    ) -> ConfigResult<Option<Template<TranspilationCommand>>> {
+        match &self.tester {
+            None => Ok(None),
+            Some(tester) => self.transpilation_command(tester, mode),
+        }
+    }
+
+    fn tester_compilation(&self, mode: Mode) -> ConfigResult<Option<Template<CompilationCommand>>> {
+        match &self.tester {
+            None => Ok(None),
+            Some(tester) => self.compilation_command(tester, mode),
+        }
+    }
+
+    fn tester(&self, mode: Mode) -> ConfigResult<Option<Template<JudgingCommand>>> {
         self.tester
             .as_ref()
-            .and_then(|lang| self.transpilation_command(lang))
+            .map(|lang| self.judge_command(lang, mode))
+            .transpose()
     }
 
-    fn tester_compilation(&self) -> Option<Template<CompilationCommand>> {
-        self.tester
+    fn transpilation_command(
+        &self,
+        lang: &Language,
+        mode: Mode,
+    ) -> ConfigResult<Option<Template<TranspilationCommand>>> {
+        lang.transpile
             .as_ref()
-            .and_then(|lang| self.compilation_command(lang))
+            .map(|transpile| {
+                let env_vars = self.env_vars(mode)?;
+                Ok(transpile
+                    .build(TranspilationCommandRequirements {
+                        base_dir: self.base_dir.clone(),
+                        service: self.service,
+                        contest: self.contest.clone(),
+                        mode,
+                        shell: self.shell.clone(),
+                        working_dir: lang.working_directory.clone(),
+                        src: lang.src.clone(),
+                        transpiled: lang.transpiled.clone(),
+                    })
+                    .envs(env_vars))
+            })
+            .transpose()
     }
 
-    fn tester(&self) -> Option<Template<JudgingCommand>> {
-        self.tester.as_ref().map(|lang| self.judge_command(lang))
+    fn compilation_command(
+        &self,
+        lang: &Language,
+        mode: Mode,
+    ) -> ConfigResult<Option<Template<CompilationCommand>>> {
+        lang.compile
+            .as_ref()
+            .map(|compile| {
+                let env_vars = self.env_vars(mode)?;
+                Ok(compile
+                    .build(CompilationCommandRequirements {
+                        base_dir: self.base_dir.clone(),
+                        service: self.service,
+                        contest: self.contest.clone(),
+                        mode,
+                        shell: self.shell.clone(),
+                        working_dir: lang.working_directory.clone(),
+                        src: lang.src.clone(),
+                        transpiled: lang.transpiled.clone(),
+                        bin: lang.bin.clone(),
+                    })
+                    .envs(env_vars))
+            })
+            .transpose()
     }
 
-    fn transpilation_command(&self, lang: &Language) -> Option<Template<TranspilationCommand>> {
-        lang.transpile.as_ref().map(|transpile| {
-            transpile
-                .build(TranspilationCommandRequirements {
-                    base_dir: self.base_dir.clone(),
-                    service: self.service,
-                    contest: self.contest.clone(),
-                    shell: self.shell.clone(),
-                    working_dir: lang.working_directory.clone(),
-                    src: lang.src.clone(),
-                    transpiled: lang.transpiled.clone(),
-                })
-                .envs(self.env.get(&self.service))
-        })
-    }
-
-    fn compilation_command(&self, lang: &Language) -> Option<Template<CompilationCommand>> {
-        lang.compile.as_ref().map(|compile| {
-            compile
-                .build(CompilationCommandRequirements {
-                    base_dir: self.base_dir.clone(),
-                    service: self.service,
-                    contest: self.contest.clone(),
-                    shell: self.shell.clone(),
-                    working_dir: lang.working_directory.clone(),
-                    src: lang.src.clone(),
-                    transpiled: lang.transpiled.clone(),
-                    bin: lang.bin.clone(),
-                })
-                .envs(self.env.get(&self.service))
-        })
-    }
-
-    fn judge_command(&self, lang: &Language) -> Template<JudgingCommand> {
-        lang.run
+    fn judge_command(&self, lang: &Language, mode: Mode) -> ConfigResult<Template<JudgingCommand>> {
+        let env_vars = self.env_vars(mode)?;
+        Ok(lang
+            .run
             .build(JudgingCommandRequirements {
                 base_dir: self.base_dir.clone(),
                 service: self.service,
                 contest: self.contest.clone(),
+                mode,
                 shell: self.shell.clone(),
                 working_dir: lang.working_directory.clone(),
                 src: lang.src.clone(),
@@ -813,7 +884,30 @@ impl Config {
                 bin: lang.bin.clone(),
                 crlf_to_lf: lang.crlf_to_lf,
             })
-            .envs(self.env.get(&self.service))
+            .envs(env_vars))
+    }
+
+    fn env_vars(&self, mode: Mode) -> ConfigResult<HashMap<String, String>> {
+        let Self {
+            service,
+            contest,
+            language,
+            env,
+            ..
+        } = self;
+        let prop_values = hashmap!(
+            "service" => service.to_string(),
+            "contest" => contest.clone(),
+            "language" => language.clone(),
+            "mode" => mode.to_string(),
+        );
+        let mut ret = hashmap!();
+        for (pred, env_values) in &env.values {
+            if pred.eval(&prop_values)? {
+                ret.extend(env_values.iter().map(|(k, v)| (k.clone(), v.clone())));
+            }
+        }
+        Ok(ret)
     }
 
     fn find_language(&self) -> ConfigResult<&Language> {
@@ -966,10 +1060,220 @@ fn parse_size(s: &str) -> std::result::Result<usize, &'static str> {
         .ok_or_else(|| "invalid format")
 }
 
-#[derive(Serialize, Deserialize)]
-struct ServiceConfig {
-    language: Option<String>,
-    variables: HashMap<String, String>,
+#[derive(Default, Serialize, Deserialize)]
+#[serde(transparent)]
+struct Env {
+    values: IndexMap<Predicate, BTreeMap<String, String>>,
+}
+
+#[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
+enum Predicate {
+    True,
+    False,
+    Equal(Atom, Atom),
+    Apply(String, Vec<Self>),
+}
+
+#[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
+enum Atom {
+    Symbol(String),
+    Literal(String),
+}
+
+impl Predicate {
+    fn eval(&self, values: &HashMap<&'static str, String>) -> ConfigResult<bool> {
+        fn eval_atom(atom: &Atom, values: &HashMap<&'static str, String>) -> ConfigResult<String> {
+            match atom {
+                Atom::Symbol(s) => values
+                    .get(s.as_str())
+                    .cloned()
+                    .ok_or_else(|| ConfigErrorKind::UndefinedSymbol(s.to_owned()).into()),
+                Atom::Literal(s) => Ok(s.clone()),
+            }
+        }
+
+        match self {
+            Predicate::True => Ok(true),
+            Predicate::False => Ok(false),
+            Predicate::Equal(l, r) => {
+                let l = eval_atom(l, values)?;
+                let r = eval_atom(r, values)?;
+                Ok(l == r)
+            }
+            Predicate::Apply(f, xs) => match f.as_ref() {
+                "not" => match xs.as_slice() {
+                    [x] => x.eval(values).map(|p| !p),
+                    xs => Err(ConfigErrorKind::WrongNumParamsForNot(xs.len()).into()),
+                },
+                "and" => {
+                    for x in xs {
+                        if !x.eval(values)? {
+                            return Ok(false);
+                        }
+                    }
+                    Ok(true)
+                }
+                "or" => {
+                    for x in xs {
+                        if x.eval(values)? {
+                            return Ok(true);
+                        }
+                    }
+                    Ok(false)
+                }
+                f => Err(ConfigErrorKind::UndefinedFunction(f.to_owned()).into()),
+            },
+        }
+    }
+}
+
+impl Serialize for Predicate {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        fn fmt_predicate(pred: &Predicate, fmt: &mut String) {
+            match pred {
+                Predicate::True => fmt.write_str("true").unwrap(),
+                Predicate::False => fmt.write_str("false").unwrap(),
+                Predicate::Equal(l, r) => {
+                    fmt_atom(l, fmt);
+                    fmt.write_str(" = ").unwrap();
+                    fmt_atom(r, fmt);
+                }
+                Predicate::Apply(f, xs) => {
+                    write!(fmt, "{}(", f).unwrap();
+                    for (i, x) in xs.iter().enumerate() {
+                        if i > 0 {
+                            fmt.write_str(", ").unwrap();
+                        }
+                        fmt_predicate(x, fmt);
+                    }
+                    fmt.write_str(")").unwrap();
+                }
+            }
+        }
+
+        fn fmt_atom(atom: &Atom, fmt: &mut String) {
+            match atom {
+                Atom::Symbol(s) => fmt.write_str(s).unwrap(),
+                Atom::Literal(s) => write!(fmt, "\"{}\"", s).unwrap(),
+            }
+        }
+
+        let mut s = "".to_owned();
+        fmt_predicate(self, &mut s);
+        serializer.serialize_str(&s)
+    }
+}
+
+impl<'de> Deserialize<'de> for Predicate {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        use combine::char::{char, spaces};
+        use combine::parser::choice::or;
+        use combine::stream::state::State;
+        use combine::{choice, easy, eof, many, many1, none_of, optional, parser, satisfy};
+        use combine::{ParseResult, Parser};
+
+        fn parse_predicate<'a>(
+            input: &mut easy::Stream<State<&'a str, OnelinePosition>>,
+        ) -> ParseResult<Predicate, easy::Stream<State<&'a str, OnelinePosition>>> {
+            enum EqRhsOrFnArg {
+                EqRhs(Atom),
+                FnArg(Vec<Predicate>),
+            }
+
+            spaces()
+                .with(or(
+                    literal()
+                        .skip(spaces())
+                        .skip(char('='))
+                        .skip(spaces())
+                        .and(atom())
+                        .map(|(l, r)| Predicate::Equal(l, r)),
+                    identifier()
+                        .skip(spaces())
+                        .and(optional(choice((
+                            char('=')
+                                .skip(spaces())
+                                .with(atom())
+                                .map(EqRhsOrFnArg::EqRhs),
+                            char('(')
+                                .skip(spaces())
+                                .with(optional(
+                                    parser(parse_predicate).and(many::<Vec<_>, _>(
+                                        spaces()
+                                            .skip(char(','))
+                                            .skip(spaces())
+                                            .with(parser(parse_predicate)),
+                                    )),
+                                ))
+                                .skip(spaces())
+                                .skip(char(')'))
+                                .map(|args| {
+                                    let args = args
+                                        .map(|(arg0, rest)| {
+                                            let mut args = vec![arg0];
+                                            args.extend(rest);
+                                            args
+                                        })
+                                        .unwrap_or_default();
+                                    EqRhsOrFnArg::FnArg(args)
+                                }),
+                        ))))
+                        .and_then(|(l, r)| match r {
+                            None => match l.as_ref() {
+                                "true" => Ok(Predicate::True),
+                                "false" => Ok(Predicate::False),
+                                _ => Err(easy::Error::Message(easy::Info::Borrowed(
+                                    "Only `true` and `false` are allowed",
+                                ))),
+                            },
+                            Some(EqRhsOrFnArg::EqRhs(r)) => {
+                                Ok(Predicate::Equal(Atom::Symbol(l), r))
+                            }
+                            Some(EqRhsOrFnArg::FnArg(r)) => Ok(Predicate::Apply(l, r)),
+                        }),
+                ))
+                .skip(spaces())
+                .parse_stream(input)
+        }
+
+        fn atom<'a>(
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Atom>
+        {
+            or(identifier().map(Atom::Symbol), literal())
+        }
+
+        fn literal<'a>(
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Atom>
+        {
+            or(literal_with('\''), literal_with('"'))
+        }
+
+        fn literal_with<'a>(
+            quote: char,
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Atom>
+        {
+            char(quote)
+                .with(many1(none_of(iter::once(quote))))
+                .skip(char(quote))
+                .map(Atom::Literal)
+        }
+
+        fn identifier<'a>(
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = String>
+        {
+            many1(satisfy(|c| match c {
+                'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
+                _ => false,
+            }))
+        }
+
+        let input = String::deserialize(deserializer)?;
+        parser(parse_predicate)
+            .skip(eof())
+            .easy_parse(State::with_positioner(&input, OnelinePosition::new()))
+            .map(|(p, _)| p)
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]

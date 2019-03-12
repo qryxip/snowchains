@@ -1,6 +1,7 @@
 mod service;
 
 use snowchains::app::{App, Opt};
+use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
@@ -154,6 +155,7 @@ fn restore_command_works_without_error() -> Fallible<()> {
             app.run(Opt::Restore {
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
+                mode: config::Mode::Debug,
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
             })?;
@@ -195,10 +197,12 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     force_compile: false,
                     only_transpile: false,
                     no_judge: true,
+                    debug: false,
                     no_check_duplication: false,
                     service: Some(ServiceKind::Atcoder),
                     contest: Some("practice".to_owned()),
                     language: Some("python3-with-invalid-lang-names".to_owned()),
+                    mode: config::Mode::Release,
                     jobs: None,
                     color_choice: AnsiColorChoice::Never,
                     problem: "a".to_owned(),
@@ -242,10 +246,12 @@ if __name__ == '__main__':
                 force_compile: false,
                 only_transpile: false,
                 no_judge: true,
+                debug: false,
                 no_check_duplication: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 language: Some("python3".to_owned()),
+                mode: config::Mode::Release,
                 jobs: None,
                 color_choice: AnsiColorChoice::Never,
                 problem: "a".to_owned(),

@@ -52,7 +52,7 @@ $ cargo install-update snowchains
 ## Usage
 
 ```
-snowchains 0.1.0
+snowchains 0.2.0
 Ryo Yamashita <qryxip@gmail.com>
 Tools for online programming contests
 
@@ -66,13 +66,6 @@ USAGE:
     snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>
     snowchains <s|submit> [FLAGS] [OPTIONS] <problem>
     snowchains list-langs [OPTIONS] [problem]
-    snowchains show num-cases [OPTIONS] <problem> <extension>
-    snowchains show timelimit-millis [OPTIONS] <problem> <nth>
-    snowchains show in [OPTIONS] <problem> <nth>
-    snowchains show accepts [OPTIONS] <problem> <nth>
-    snowchains modify timelimit [OPTIONS] <problem> <nth> [timelimit]
-    snowchains modify append [OPTIONS] <problem> <extensioon> <input> [output]
-    snowchains modify match [OPTIONS] <problem> <extension> <match>
 
 FLAGS:
     -h, --help       Prints help information
@@ -86,10 +79,8 @@ SUBCOMMANDS:
     download       Downloads test cases
     restore        Downloads source files you have submitted
     judge          Tests a binary or script
-    list-langs     List available languages
     submit         Submits a source file
-    show           Prints information
-    modify         Modifies values in a config file or test files
+    list-langs     List available languages
     help           Prints this message or the help of the given subcommand(s)
 ```
 
@@ -98,11 +89,11 @@ $ snowchains init ./
 $ snowchains switch --service atcoder --contest practice --language c++
 $ # snowchains login atcoder
 $ # snowchains participate atcoder practice
-$ snowchains download --open                  # does not ask your username and password unless they are needed
-$ $EDITOR ./snowchains/atcoder/practice/a.yml # add more test cases
-$ $EDITOR ./cpp/a.cpp
+$ snowchains download --open             # does not ask your username and password unless they are needed
+$ $EDITOR ./atcoder/practice/tests/a.yml # add more test cases
+$ $EDITOR ./atcoder/practice/cpp/a.cpp
 $ # snowchains judge a
-$ snowchains submit a --open                  # executes `judge` command before submitting
+$ snowchains submit a --open             # executes `judge` command before submitting
 ```
 
 ## Examples
@@ -147,21 +138,35 @@ testfile_extensions = ["json", "toml", "yaml", "yml"]
 # jobs = 4
 display_limit = "1KiB"
 
-[env.atcoder]
-CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
-RUST_VERSION = "1.15.1"
-
-[env.codeforces]
-CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
-RUST_VERSION = "1.31.1"
-
-[env.yukicoder]
-CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
-RUST_VERSION = "1.30.1"
-
-[env.other]
+[env.true]
 CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 RUST_VERSION = "stable"
+RUST_OPT_LEVEL = "0"
+
+[env.'mode = "release"']
+CXXFLAGS = "-std=gnu++17 -O2 -Wall -Wextra"
+RUST_OPT_LEVEL = "2"
+
+[env.'and(service = "atcoder", mode = "debug")']
+CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+
+[env.'and(service = "atcoder", mode = "release")']
+CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -O2 -Wall -Wextra"
+RUST_VERSION = "1.15.1"
+
+[env.'and(service = "codeforces", mode = "debug")']
+CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+
+[env.'and(service = "codeforces", mode = "release")']
+CXXFLAGS = "-std=gnu++17 -O2 -Wall -Wextra"
+RUST_VERSION = "1.31.1"
+
+[env.'and(service = "yukicoder", mode = "debug")']
+CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
+
+[env.'and(service = "yukicoder", mode = "release")']
+CXXFLAGS = "-std=gnu++1z -lm -O2 -Wall -Wextra"
+RUST_VERSION = "1.30.1"
 
 [[hooks.switch]]
 bash = '''
@@ -222,8 +227,8 @@ yukicoder = "C++17(1z） (gcc 8.2.0)"
 
 [languages.rust]
 src = "${service}/${snake_case(contest)}/rs/src/bin/${kebab_case(problem)}.rs"
-bin = "${service}/${snake_case(contest)}/rs/target/manually/${kebab_case(problem)}"
-compile = ["rustc", "+${env:RUST_VERSION}", "-o", "${bin}", "${src}"]
+bin = "${service}/${snake_case(contest)}/rs/target/manually/${mode}/${kebab_case(problem)}"
+compile = ["rustc", "+${env:RUST_VERSION}", "-C", "opt-level=${env:RUST_OPT_LEVEL}", "-o", "${bin}", "${src}"]
 run = ["${bin}"]
 working_directory = "${service}/${snake_case(contest)}/rs"
 

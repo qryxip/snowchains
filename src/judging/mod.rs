@@ -3,99 +3,28 @@ mod interactive;
 mod text;
 
 use crate::command::JudgingCommand;
-use crate::config::Config;
-use crate::errors::{JudgeErrorKind, JudgeResult, TestSuiteResult};
+use crate::config::{self, Config};
+use crate::errors::{JudgeErrorKind, JudgeResult};
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _};
-use crate::testsuite::{BatchCase, TestCase, TestCases};
+use crate::testsuite::{TestCase, TestCases};
 
 use futures::{Future, Sink as _, Stream as _};
 use itertools::Itertools as _;
 use tokio::runtime::Runtime;
 
-use std::io::{self, Read};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::time::Duration;
-use std::{cmp, fmt};
-
-pub(crate) fn num_cases(config: &Config, problem: &str) -> TestSuiteResult<usize> {
-    let (cases, _) = config.testcase_loader().load_merging(problem)?;
-    Ok(match cases {
-        TestCases::Batch(cases) => cases.len(),
-        TestCases::Interactive(cases) => cases.len(),
-    })
-}
-
-pub(crate) fn timelimit_millis(config: &Config, problem: &str, nth: usize) -> JudgeResult<u128> {
-    fn get_timelimit_millis<C>(
-        cases: &[C],
-        nth: usize,
-        f: fn(&C) -> Option<Duration>,
-    ) -> JudgeResult<u128> {
-        cases
-            .get(nth)
-            .and_then(f)
-            .map(|t| t.as_millis())
-            .ok_or_else(|| JudgeErrorKind::IndexOutOfBounds(cases.len(), nth).into())
-    }
-
-    let (cases, _) = config.testcase_loader().load_merging(problem)?;
-    match cases {
-        TestCases::Batch(cases) => get_timelimit_millis(&cases, nth, |t| t.timelimit()),
-        TestCases::Interactive(cases) => get_timelimit_millis(&cases, nth, |t| t.timelimit()),
-    }
-}
-
-pub(crate) fn input(config: &Config, problem: &str, nth: usize) -> JudgeResult<Arc<String>> {
-    let (cases, _) = config.testcase_loader().load_merging(problem)?;
-    match &cases {
-        TestCases::Batch(cases) => cases
-            .get(nth)
-            .map(BatchCase::input)
-            .ok_or_else(|| JudgeErrorKind::IndexOutOfBounds(cases.len(), nth).into()),
-        TestCases::Interactive(cases) if nth < cases.len() => Ok(Arc::new("".to_owned())),
-        TestCases::Interactive(cases) => {
-            Err(JudgeErrorKind::IndexOutOfBounds(cases.len(), nth).into())
-        }
-    }
-}
-
-pub(crate) fn accepts(
-    config: &Config,
-    problem: &str,
-    nth: usize,
-    mut stdin: impl Read,
-    mut stderr: impl TermOut,
-) -> JudgeResult<()> {
-    let (cases, _) = config.testcase_loader().load_merging(problem)?;
-    match cases {
-        TestCases::Batch(cases) => {
-            let case = cases
-                .get(nth)
-                .ok_or_else(|| JudgeErrorKind::IndexOutOfBounds(cases.len(), nth))?;
-            let mut output = "".to_owned();
-            stdin.read_to_string(&mut output)?;
-            let outcome = batch::accepts(&case, &output);
-            if outcome.failure() {
-                outcome.print_details(config.judge_display_limit(), &mut stderr)?;
-                stderr.flush()?;
-                Err(JudgeErrorKind::TestFailed(1, 1).into())
-            } else {
-                Ok(())
-            }
-        }
-        TestCases::Interactive(_) => Err(JudgeErrorKind::ExpectedBatch.into()),
-    }
-}
+use std::{cmp, fmt, io};
 
 pub(crate) fn only_transpile(
     stdout: impl TermOut,
     stderr: impl TermOut,
     config: &Config,
+    mode: config::Mode,
     problem: &str,
     force: bool,
 ) -> JudgeResult<bool> {
-    match config.solver_transpilation()? {
+    match config.solver_transpilation(mode)? {
         None => Ok(false),
         Some(transpilation) => {
             let transpilation = transpilation.expand(problem)?;
@@ -241,24 +170,25 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
         mut stdout,
         mut stderr,
         config,
+        mode,
         problem,
         force_compile,
         jobs,
     } = params;
 
-    let (cases, paths_formatted) = config.testcase_loader().load_merging(problem)?;
+    let (cases, paths_formatted) = config.testcase_loader(mode)?.load_merging(problem)?;
     let jobs = jobs
         .or_else(|| config.judge_jobs())
         .unwrap_or_else(|| NonZeroUsize::new(1).unwrap());
     let display_limit = config.judge_display_limit();
     let tester_transpilations = cases.interactive_tester_transpilations();
     let tester_compilations = cases.interactive_tester_compilations();
-    let solver = config.solver()?.expand(&problem)?;
-    let solver_transpilation = match config.solver_transpilation()? {
+    let solver = config.solver(mode)?.expand(&problem)?;
+    let solver_transpilation = match config.solver_transpilation(mode)? {
         Some(transpilation) => Some(transpilation.expand(&problem)?),
         None => None,
     };
-    let solver_compilation = match config.solver_compilation()? {
+    let solver_compilation = match config.solver_compilation(mode)? {
         Some(compilation) => Some(compilation.expand(&problem)?),
         None => None,
     };
@@ -310,6 +240,7 @@ pub(crate) struct JudgeParams<'a, O: TermOut, E: TermOut> {
     pub stdout: O,
     pub stderr: E,
     pub config: &'a Config,
+    pub mode: config::Mode,
     pub problem: &'a str,
     pub force_compile: bool,
     pub jobs: Option<NonZeroUsize>,

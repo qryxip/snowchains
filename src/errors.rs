@@ -309,6 +309,12 @@ pub enum ConfigErrorKind {
         _1
     )]
     LangNameRequired(String, ServiceKind),
+    #[display(fmt = "Undefined symbol: {:?}", _0)]
+    UndefinedSymbol(String),
+    #[display(fmt = "Undefined function: {:?}", _0)]
+    UndefinedFunction(String),
+    #[display(fmt = "\"not\" takes 1 parameter but {} parameters was supplied", _0)]
+    WrongNumParamsForNot(usize),
 }
 
 pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateError>;
