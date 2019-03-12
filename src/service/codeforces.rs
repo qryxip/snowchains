@@ -12,12 +12,12 @@ use crate::service::{
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, TestSuite};
-use crate::util::collections::NonEmptyVec;
+use crate::util::collections::NonEmptyIndexMap;
 use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
-use crate::util::Lookup as _;
 
 use if_chain::if_chain;
+use indexmap::IndexMap;
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
@@ -343,7 +343,7 @@ impl<T: Term> Codeforces<T> {
 
         let lang_id = doc
             .extract_langs()?
-            .lookup(&lang_name)
+            .get(&lang_name)
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
         writeln!(
@@ -648,10 +648,10 @@ struct Standings {
 
 trait Extract {
     fn extract_hidden_values(&self, form: impl Predicate) -> ScrapeResult<HashMap<String, String>>;
-    fn extract_problems(&self) -> ScrapeResult<NonEmptyVec<(String, Url)>>;
+    fn extract_problems(&self) -> ScrapeResult<NonEmptyIndexMap<String, Url>>;
     fn extract_test_suite(&self) -> ScrapeResult<TestSuite>;
     fn extract_meta_x_csrf_token(&self) -> ScrapeResult<String>;
-    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
 }
 
 impl Extract for Document {
@@ -677,7 +677,7 @@ impl Extract for Document {
         }
     }
 
-    fn extract_problems(&self) -> ScrapeResult<NonEmptyVec<(String, Url)>> {
+    fn extract_problems(&self) -> ScrapeResult<NonEmptyIndexMap<String, Url>> {
         let problems = self
             .find(selector!("table.problems > tbody > tr > td.id > a"))
             .map(|a| {
@@ -686,8 +686,8 @@ impl Extract for Document {
                 href.set_path(a.attr("href").ok_or_else(ScrapeError::new)?);
                 Ok((name, href))
             })
-            .collect::<ScrapeResult<Vec<_>>>()?;
-        NonEmptyVec::try_new(problems).ok_or_else(ScrapeError::new)
+            .collect::<ScrapeResult<IndexMap<_, _>>>()?;
+        NonEmptyIndexMap::try_new(problems).ok_or_else(ScrapeError::new)
     }
 
     fn extract_test_suite(&self) -> ScrapeResult<TestSuite> {
@@ -746,7 +746,7 @@ impl Extract for Document {
             .ok_or_else(ScrapeError::new)
     }
 
-    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
         let td = self
             .find(selector!("form.submit-form > table > tbody > tr > td"))
             .find(|td| {
@@ -763,8 +763,8 @@ impl Extract for Document {
                 Some((name, id))
             })
             .map(|o| o.ok_or_else(ScrapeError::new))
-            .collect::<ScrapeResult<Vec<_>>>()?;
-        NonEmptyVec::try_new(names).ok_or_else(ScrapeError::new)
+            .collect::<ScrapeResult<IndexMap<_, _>>>()?;
+        NonEmptyIndexMap::try_new(names).ok_or_else(ScrapeError::new)
     }
 }
 

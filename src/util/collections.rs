@@ -1,9 +1,11 @@
+use indexmap::IndexMap;
 use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use std::cmp::Ord;
 
 use std::collections::BTreeMap;
+use std::hash::Hash;
 use std::ops::{Deref, Index, IndexMut};
 use std::slice::{self, SliceIndex};
 use std::vec;
@@ -81,6 +83,46 @@ impl<'a, T> IntoIterator for &'a NonEmptyVec<T> {
 
     fn into_iter(self) -> slice::Iter<'a, T> {
         self.0.iter()
+    }
+}
+
+pub(crate) struct NonEmptyIndexMap<K: Eq + Hash, V> {
+    inner: IndexMap<K, V>,
+}
+
+impl<K: Eq + Hash, V> NonEmptyIndexMap<K, V> {
+    pub(crate) fn try_new(inner: IndexMap<K, V>) -> Option<Self> {
+        if inner.is_empty() {
+            None
+        } else {
+            Some(Self { inner })
+        }
+    }
+}
+
+impl<K: Eq + Hash, V> Deref for NonEmptyIndexMap<K, V> {
+    type Target = IndexMap<K, V>;
+
+    fn deref(&self) -> &IndexMap<K, V> {
+        &self.inner
+    }
+}
+
+impl<'a, K: Eq + Hash, V> IntoIterator for &'a NonEmptyIndexMap<K, V> {
+    type Item = (&'a K, &'a V);
+    type IntoIter = indexmap::map::Iter<'a, K, V>;
+
+    fn into_iter(self) -> indexmap::map::Iter<'a, K, V> {
+        self.inner.iter()
+    }
+}
+
+impl<K: Eq + Hash, V> IntoIterator for NonEmptyIndexMap<K, V> {
+    type Item = (K, V);
+    type IntoIter = indexmap::map::IntoIter<K, V>;
+
+    fn into_iter(self) -> indexmap::map::IntoIter<K, V> {
+        self.inner.into_iter()
     }
 }
 

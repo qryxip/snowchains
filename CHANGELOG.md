@@ -15,6 +15,10 @@
 * `show _` commands
 * `modify _` commands
 
+### Fixed
+
+* Fix a bug where `list-langs` displays &lt;number of problems&gt; copies of a list
+
 ## [0.2.0] - 2019-03-03
 
 ### Added

@@ -10,15 +10,15 @@ use crate::service::{
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
-use crate::util::collections::NonEmptyVec;
+use crate::util::collections::NonEmptyIndexMap;
 use crate::util::lang_unstable::Never;
 use crate::util::num::PositiveFinite;
 use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
-use crate::util::Lookup as _;
 
 use chrono::{DateTime, Local, Utc};
 use failure::ResultExt as _;
+use indexmap::IndexMap;
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
@@ -667,7 +667,7 @@ impl<T: Term> Atcoder<T> {
                 let document = self.get(&url).recv_html()?;
                 let lang_id = document
                     .extract_langs()?
-                    .lookup(lang_name)
+                    .get(lang_name)
                     .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
                     .clone();
                 writeln!(
@@ -902,7 +902,7 @@ trait Extract {
     fn extract_submissions(&self) -> ScrapeResult<(vec::IntoIter<Submission>, u32)>;
     fn extract_submitted_code(&self) -> ScrapeResult<String>;
     fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String>;
-    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
 }
 
 impl Extract for Document {
@@ -1259,17 +1259,18 @@ impl Extract for Document {
         Err(ScrapeError::new())
     }
 
-    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
         let names = self
             .find(selector!("#select-lang option"))
             .map(|option| {
                 let name = option.find(Text).next()?.text();
                 let id = option.attr("value")?.to_owned();
+                dbg!((&name, &id));
                 Some((name, id))
             })
             .map(|p| p.ok_or_else(ScrapeError::new))
-            .collect::<ScrapeResult<Vec<_>>>()?;
-        NonEmptyVec::try_new(names).ok_or_else(ScrapeError::new)
+            .collect::<ScrapeResult<IndexMap<_, _>>>()?;
+        NonEmptyIndexMap::try_new(names).ok_or_else(ScrapeError::new)
     }
 }
 

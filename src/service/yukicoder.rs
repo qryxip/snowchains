@@ -8,13 +8,13 @@ use crate::service::{
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
-use crate::util::collections::NonEmptyVec;
+use crate::util::collections::NonEmptyIndexMap;
 use crate::util::lang_unstable::Never;
 use crate::util::str::CaseConversion;
-use crate::util::Lookup as _;
 
 use cookie::Cookie;
 use failure::{Fail as _, ResultExt as _};
+use indexmap::IndexMap;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
@@ -346,7 +346,7 @@ impl<T: Term> Yukicoder<T> {
         let document = self.get(url.as_ref()).recv_html()?;
         let lang_id = document
             .extract_langs()?
-            .lookup(lang_name)
+            .get(lang_name)
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
         writeln!(
@@ -516,7 +516,7 @@ trait Extract {
     fn extract_problems(&self) -> ScrapeResult<Vec<(String, String)>>;
     fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String>;
     fn extract_url_from_submit_page(&self) -> ScrapeResult<String>;
-    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
 }
 
 impl Extract for Document {
@@ -631,7 +631,7 @@ impl Extract for Document {
             .ok_or_else(ScrapeError::new)
     }
 
-    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
         static WS: Lazy<Regex> = lazy_regex!(r"[\s\n]+");
         let names = self
             .find(selector!("#lang > option"))
@@ -642,8 +642,8 @@ impl Extract for Document {
                 Some((name, id))
             })
             .map(|p| p.ok_or_else(ScrapeError::new))
-            .collect::<ScrapeResult<Vec<_>>>()?;
-        NonEmptyVec::try_new(names).ok_or_else(ScrapeError::new)
+            .collect::<ScrapeResult<IndexMap<_, _>>>()?;
+        NonEmptyIndexMap::try_new(names).ok_or_else(ScrapeError::new)
     }
 }
 

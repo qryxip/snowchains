@@ -14,7 +14,7 @@ use crate::template::Template;
 use crate::terminal::{Term, WriteAnsi};
 use crate::testsuite::{DownloadDestinations, SuiteFilePath, TestSuite};
 use crate::util;
-use crate::util::collections::NonEmptyVec;
+use crate::util::collections::{NonEmptyIndexMap, NonEmptyVec};
 use crate::util::str::CaseConversion;
 
 use failure::ResultExt as _;
@@ -124,7 +124,7 @@ pub(self) trait Service {
         sess.open_in_browser(url, out)
     }
 
-    fn print_lang_list(&mut self, lang_list: &[(String, String)]) -> io::Result<()> {
+    fn print_lang_list(&mut self, lang_list: &NonEmptyIndexMap<String, String>) -> io::Result<()> {
         let (out, _, _) = self.requirements();
 
         let mut table = Table::new();
