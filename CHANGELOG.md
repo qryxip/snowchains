@@ -18,6 +18,7 @@
 ### Fixed
 
 * Fix a bug where `list-langs` displays &lt;number of problems&gt; copies of a list
+* Prevent `list-langs` from displaying unavailable languages when `problem` is specified
 
 ## [0.2.0] - 2019-03-03
 

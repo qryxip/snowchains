@@ -262,10 +262,10 @@ if __name__ == '__main__':
 }
 
 #[test]
-fn it_lists_languages() -> Fallible<()> {
+fn it_lists_languages_in_practice() -> Fallible<()> {
     let _ = env_logger::try_init();
     service::test_in_tempdir(
-        "it_lists_languages",
+        "it_lists_languages_in_practice",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::ListLangs {
@@ -399,6 +399,43 @@ GET https://atcoder.jp/contests/practice/submit ... 200 OK
 +---------------------------------+------+
 | COBOL - Free (OpenCOBOL 1.1.0)  | 3526 |
 +---------------------------------+------+
+"#,
+            );
+            assert_eq!(stderr, "Username: Password: ");
+            Ok(())
+        },
+    )
+}
+
+#[test]
+fn it_lists_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
+    let _ = env_logger::try_init();
+    service::test_in_tempdir(
+        "it_lists_languages_in_tenka1_2016_final_open_a",
+        &credentials_as_input()?,
+        |mut app| -> Fallible<()> {
+            app.run(Opt::ListLangs {
+                service: Some(ServiceKind::Atcoder),
+                contest: Some("tenka1-2016-final-open".to_owned()),
+                color_choice: AnsiColorChoice::Never,
+                problem: Some("a".to_owned()),
+            })?;
+            let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
+            let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
+            assert_eq!(
+                stdout,
+                r#"Target: tenka1-2016-final-open/A
+GET https://atcoder.jp/login ... 200 OK
+POST https://atcoder.jp/login ... 302 Found
+GET https://atcoder.jp/settings ... 200 OK
+Successfully logged in.
+GET https://atcoder.jp/contests/tenka1-2016-final-open/tasks ... 200 OK
+GET https://atcoder.jp/contests/tenka1-2016-final-open/tasks/tenka1_2016_final_a ... 200 OK
++------------+----+
+| Name       | ID |
++------------+----+
+| Text (cat) | 17 |
++------------+----+
 "#,
             );
             assert_eq!(stderr, "Username: Password: ");

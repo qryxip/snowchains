@@ -6,7 +6,7 @@ use std::cmp::Ord;
 
 use std::collections::BTreeMap;
 use std::hash::Hash;
-use std::ops::{Deref, Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice::{self, SliceIndex};
 use std::vec;
 
@@ -105,6 +105,12 @@ impl<K: Eq + Hash, V> Deref for NonEmptyIndexMap<K, V> {
 
     fn deref(&self) -> &IndexMap<K, V> {
         &self.inner
+    }
+}
+
+impl<K: Eq + Hash, V> DerefMut for NonEmptyIndexMap<K, V> {
+    fn deref_mut(&mut self) -> &mut IndexMap<K, V> {
+        &mut self.inner
     }
 }
 
