@@ -17,48 +17,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{cmp, fmt, io, mem};
 
-pub(super) fn accepts(case: &BatchCase, stdout: &str) -> BatchOutcome {
-    let input = Text::exact(&case.input());
-    let (stdout, expected, example) = match case.expected().as_ref() {
-        ExpectedStdout::Any { example } => (
-            Text::exact(stdout),
-            None,
-            example.as_ref().map(|s| Text::exact(s)),
-        ),
-        ExpectedStdout::Exact(expected) => {
-            (Text::exact(&stdout), Some(Text::exact(expected)), None)
-        }
-        ExpectedStdout::Float {
-            string,
-            relative_error,
-            absolute_error,
-        } => {
-            let expected = Text::float_left(string, *relative_error, *absolute_error);
-            let stdout = Text::float_right(&stdout);
-            (stdout, Some(expected), None)
-        }
-    };
-    if let Some(expected) = &expected {
-        if stdout.lines() != expected.lines() {
-            return BatchOutcomeInner::WrongAnswer {
-                elapsed: Duration::new(0, 0),
-                input,
-                diff: TextDiff::new(expected, &stdout),
-                stderr: Text::exact(""),
-            }
-            .into();
-        }
-    }
-    BatchOutcomeInner::Accepted {
-        elapsed: Duration::new(0, 0),
-        input,
-        example,
-        stdout,
-        stderr: Text::exact(""),
-    }
-    .into()
-}
-
 pub(super) fn judge(
     case: &BatchCase,
     solver: &Arc<JudgingCommand>,

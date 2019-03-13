@@ -10,15 +10,15 @@ use crate::service::{
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
-use crate::util::collections::NonEmptyVec;
+use crate::util::collections::NonEmptyIndexMap;
 use crate::util::lang_unstable::Never;
 use crate::util::num::PositiveFinite;
 use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
-use crate::util::Lookup as _;
 
 use chrono::{DateTime, Local, Utc};
 use failure::ResultExt as _;
+use indexmap::IndexMap;
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
@@ -632,112 +632,113 @@ impl<T: Term> Atcoder<T> {
                 status.raise_if_not_begun()?;
                 status.is_active()
             };
-        for (name, url) in tasks_page.extract_task_urls_with_names()? {
-            if &name == problem {
-                let task_screen_name = {
-                    static SCREEN_NAME: Lazy<Regex> =
-                        lazy_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$");
-                    match SCREEN_NAME.captures(&url) {
-                        None => break,
-                        Some(caps) => caps[1].to_owned(),
-                    }
-                };
-                if checks_if_accepted {
-                    let (mut submissions, num_pages) = self
-                        .get(&contest.url_submissions_me(1))
-                        .recv_html()?
-                        .extract_submissions()?;
-                    if submissions.any(|s| s.task_screen_name == task_screen_name && s.is_ac) {
-                        return Err(ServiceErrorKind::AlreadyAccepted.into());
-                    }
-                    for i in 2..=num_pages {
-                        if self
-                            .get(&contest.url_submissions_me(i))
-                            .recv_html()?
-                            .extract_submissions()?
-                            .0
-                            .any(|s| s.task_screen_name == task_screen_name && s.is_ac)
-                        {
-                            return Err(ServiceErrorKind::AlreadyAccepted.into());
-                        }
-                    }
+        let url = tasks_page
+            .extract_task_urls_with_names()?
+            .remove(problem)
+            .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
+        let task_screen_name = {
+            static SCREEN_NAME: Lazy<Regex> =
+                lazy_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$");
+            SCREEN_NAME
+                .captures(&url)
+                .map(|cs| cs[1].to_owned())
+                .ok_or_else(ScrapeError::new)?
+        };
+        if checks_if_accepted {
+            let (mut submissions, num_pages) = self
+                .get(&contest.url_submissions_me(1))
+                .recv_html()?
+                .extract_submissions()?;
+            if submissions.any(|s| s.task_screen_name == task_screen_name && s.is_ac) {
+                return Err(ServiceErrorKind::AlreadyAccepted.into());
+            }
+            for i in 2..=num_pages {
+                if self
+                    .get(&contest.url_submissions_me(i))
+                    .recv_html()?
+                    .extract_submissions()?
+                    .0
+                    .any(|s| s.task_screen_name == task_screen_name && s.is_ac)
+                {
+                    return Err(ServiceErrorKind::AlreadyAccepted.into());
                 }
-
-                let source_code = crate::fs::read_to_string(src_path)?;
-                let document = self.get(&url).recv_html()?;
-                let lang_id = document
-                    .extract_langs()?
-                    .lookup(lang_name)
-                    .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
-                    .clone();
-                writeln!(
-                    self.stdout(),
-                    "Submitting as {:?} (ID: {:?})",
-                    lang_name,
-                    lang_id,
-                )?;
-                let csrf_token = document.extract_csrf_token()?;
-                let url = contest.url_submit();
-                let payload = hashmap!(
-                    "data.TaskScreenName" => task_screen_name.as_str(),
-                    "data.LanguageId" => &lang_id,
-                    "sourceCode" => &source_code,
-                    "csrf_token" => &csrf_token,
-                );
-
-                let error = |status: StatusCode, location: Option<String>| -> _ {
-                    ServiceError::from(ServiceErrorKind::SubmissionRejected {
-                        lang_name: lang_name.clone(),
-                        lang_id: lang_id.clone(),
-                        size: source_code.len(),
-                        status,
-                        location,
-                    })
-                };
-
-                match self.post(&url).send_form(&payload) {
-                    Ok(res) => {
-                        let location = res
-                            .headers()
-                            .get(header::LOCATION)
-                            .ok_or_else(|| error(res.status(), None))?;
-                        let location = location
-                            .to_str()
-                            .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
-                        if !(location.starts_with("/contests/")
-                            && location.ends_with("/submissions/me"))
-                        {
-                            return Err(error(res.status(), Some(location.to_owned())));
-                        }
-                    }
-                    Err(err) => {
-                        if let ServiceError::Context(ctx) = &err {
-                            if let ServiceErrorKind::UnexpectedStatusCode(_, status, _) =
-                                ctx.get_context()
-                            {
-                                return Err(error(*status, None));
-                            }
-                        }
-                        return Err(err);
-                    }
-                }
-
-                if *open_in_browser {
-                    self.open_in_browser(&contest.url_submissions_me(1))?;
-                }
-                return Ok(());
             }
         }
-        Err(ServiceErrorKind::NoSuchProblem(problem.clone()).into())
+
+        let source_code = crate::fs::read_to_string(src_path)?;
+        let document = self.get(&url).recv_html()?;
+        let lang_id = document
+            .extract_langs()?
+            .get(lang_name)
+            .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
+            .clone();
+        writeln!(
+            self.stdout(),
+            "Submitting as {:?} (ID: {:?})",
+            lang_name,
+            lang_id,
+        )?;
+        let csrf_token = document.extract_csrf_token()?;
+        let url = contest.url_submit();
+        let payload = hashmap!(
+            "data.TaskScreenName" => task_screen_name.as_str(),
+            "data.LanguageId" => &lang_id,
+            "sourceCode" => &source_code,
+            "csrf_token" => &csrf_token,
+        );
+
+        let error = |status: StatusCode, location: Option<String>| -> _ {
+            ServiceError::from(ServiceErrorKind::SubmissionRejected {
+                lang_name: lang_name.clone(),
+                lang_id: lang_id.clone(),
+                size: source_code.len(),
+                status,
+                location,
+            })
+        };
+
+        match self.post(&url).send_form(&payload) {
+            Ok(res) => {
+                let location = res
+                    .headers()
+                    .get(header::LOCATION)
+                    .ok_or_else(|| error(res.status(), None))?;
+                let location = location
+                    .to_str()
+                    .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
+                if !(location.starts_with("/contests/") && location.ends_with("/submissions/me")) {
+                    return Err(error(res.status(), Some(location.to_owned())));
+                }
+            }
+            Err(err) => {
+                if let ServiceError::Context(ctx) = &err {
+                    if let ServiceErrorKind::UnexpectedStatusCode(_, status, _) = ctx.get_context()
+                    {
+                        return Err(error(*status, None));
+                    }
+                }
+                return Err(err);
+            }
+        }
+
+        if *open_in_browser {
+            self.open_in_browser(&contest.url_submissions_me(1))?;
+        }
+        Ok(())
     }
 
     fn list_langs(&mut self, props: ListLangsProps<AtcoderContest>) -> ServiceResult<()> {
-        let ListLangsProps { contest, .. } = props;
+        let ListLangsProps { contest, problem } = props;
         self.login_if_not(false)?;
-        let langs = self
-            .get(&contest.url_submit())
-            .recv_html()?
-            .extract_langs()?;
+        let url = match problem {
+            None => contest.url_submit(),
+            Some(problem) => self
+                .fetch_tasks_page(&contest)?
+                .extract_task_urls_with_names()?
+                .remove(&problem)
+                .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?,
+        };
+        let langs = self.get(&url).recv_html()?.extract_langs()?;
         self.print_lang_list(&langs).map_err(Into::into)
     }
 }
@@ -896,13 +897,13 @@ struct Submission {
 
 trait Extract {
     fn extract_csrf_token(&self) -> ScrapeResult<String>;
-    fn extract_task_urls_with_names(&self) -> ScrapeResult<Vec<(String, String)>>;
+    fn extract_task_urls_with_names(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
     fn extract_as_suite(&self) -> ScrapeResult<TestSuite>;
     fn extract_contest_duration(&self) -> ScrapeResult<ContestDuration>;
     fn extract_submissions(&self) -> ScrapeResult<(vec::IntoIter<Submission>, u32)>;
     fn extract_submitted_code(&self) -> ScrapeResult<String>;
     fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String>;
-    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>>;
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
 }
 
 impl Extract for Document {
@@ -919,24 +920,19 @@ impl Extract for Document {
         extract_csrf_token().ok_or_else(ScrapeError::new)
     }
 
-    fn extract_task_urls_with_names(&self) -> ScrapeResult<Vec<(String, String)>> {
-        let extract = || {
-            let mut names_and_pathes = vec![];
-            for node in self.find(selector!(
-                "#main-container > div.row > div.col-sm-12 > div.panel > table.table > tbody > tr",
-            )) {
-                let node = node.find(selector!("td.text-center > a")).next()?;
-                let url = node.attr("href")?.to_owned();
-                let name = node.find(Text).next()?.text();
-                names_and_pathes.push((name, url));
-            }
-            if names_and_pathes.is_empty() {
-                None
-            } else {
-                Some(names_and_pathes)
-            }
-        };
-        extract().ok_or_else(ScrapeError::new)
+    fn extract_task_urls_with_names(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
+        self.find(selector!(
+            "#main-container > div.row > div.col-sm-12 > div.panel > table.table > tbody > tr",
+        ))
+        .map(|node| {
+            let node = node.find(selector!("td.text-center > a")).next()?;
+            let name = node.find(Text).next()?.text();
+            let url = node.attr("href")?.to_owned();
+            Some((name, url))
+        })
+        .collect::<Option<IndexMap<String, String>>>()
+        .and_then(NonEmptyIndexMap::try_new)
+        .ok_or_else(ScrapeError::new)
     }
 
     fn extract_as_suite(&self) -> ScrapeResult<TestSuite> {
@@ -1259,7 +1255,7 @@ impl Extract for Document {
         Err(ScrapeError::new())
     }
 
-    fn extract_langs(&self) -> ScrapeResult<NonEmptyVec<(String, String)>> {
+    fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
         let names = self
             .find(selector!("#select-lang option"))
             .map(|option| {
@@ -1268,8 +1264,8 @@ impl Extract for Document {
                 Some((name, id))
             })
             .map(|p| p.ok_or_else(ScrapeError::new))
-            .collect::<ScrapeResult<Vec<_>>>()?;
-        NonEmptyVec::try_new(names).ok_or_else(ScrapeError::new)
+            .collect::<ScrapeResult<IndexMap<_, _>>>()?;
+        NonEmptyIndexMap::try_new(names).ok_or_else(ScrapeError::new)
     }
 }
 

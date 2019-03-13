@@ -1,6 +1,7 @@
 mod service;
 
 use snowchains::app::{App, Opt};
+use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
@@ -154,6 +155,7 @@ fn restore_command_works_without_error() -> Fallible<()> {
             app.run(Opt::Restore {
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
+                mode: config::Mode::Debug,
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
             })?;
@@ -195,10 +197,12 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     force_compile: false,
                     only_transpile: false,
                     no_judge: true,
+                    debug: false,
                     no_check_duplication: false,
                     service: Some(ServiceKind::Atcoder),
                     contest: Some("practice".to_owned()),
                     language: Some("python3-with-invalid-lang-names".to_owned()),
+                    mode: config::Mode::Release,
                     jobs: None,
                     color_choice: AnsiColorChoice::Never,
                     problem: "a".to_owned(),
@@ -242,10 +246,12 @@ if __name__ == '__main__':
                 force_compile: false,
                 only_transpile: false,
                 no_judge: true,
+                debug: false,
                 no_check_duplication: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 language: Some("python3".to_owned()),
+                mode: config::Mode::Release,
                 jobs: None,
                 color_choice: AnsiColorChoice::Never,
                 problem: "a".to_owned(),
@@ -256,10 +262,10 @@ if __name__ == '__main__':
 }
 
 #[test]
-fn it_lists_languages() -> Fallible<()> {
+fn it_lists_languages_in_practice() -> Fallible<()> {
     let _ = env_logger::try_init();
     service::test_in_tempdir(
-        "it_lists_languages",
+        "it_lists_languages_in_practice",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::ListLangs {
@@ -393,118 +399,43 @@ GET https://atcoder.jp/contests/practice/submit ... 200 OK
 +---------------------------------+------+
 | COBOL - Free (OpenCOBOL 1.1.0)  | 3526 |
 +---------------------------------+------+
-| C++14 (GCC 5.4.1)               | 3003 |
-+---------------------------------+------+
-| Bash (GNU bash v4.3.11)         | 3001 |
-+---------------------------------+------+
-| C (GCC 5.4.1)                   | 3002 |
-+---------------------------------+------+
-| C (Clang 3.8.0)                 | 3004 |
-+---------------------------------+------+
-| C++14 (Clang 3.8.0)             | 3005 |
-+---------------------------------+------+
-| C# (Mono 4.6.2.0)               | 3006 |
-+---------------------------------+------+
-| Clojure (1.8.0)                 | 3007 |
-+---------------------------------+------+
-| Common Lisp (SBCL 1.1.14)       | 3008 |
-+---------------------------------+------+
-| D (DMD64 v2.070.1)              | 3009 |
-+---------------------------------+------+
-| D (LDC 0.17.0)                  | 3010 |
-+---------------------------------+------+
-| D (GDC 4.9.4)                   | 3011 |
-+---------------------------------+------+
-| Fortran (gfortran v4.8.4)       | 3012 |
-+---------------------------------+------+
-| Go (1.6)                        | 3013 |
-+---------------------------------+------+
-| Haskell (GHC 7.10.3)            | 3014 |
-+---------------------------------+------+
-| Java7 (OpenJDK 1.7.0)           | 3015 |
-+---------------------------------+------+
-| Java8 (OpenJDK 1.8.0)           | 3016 |
-+---------------------------------+------+
-| JavaScript (node.js v5.12)      | 3017 |
-+---------------------------------+------+
-| OCaml (4.02.3)                  | 3018 |
-+---------------------------------+------+
-| Pascal (FPC 2.6.2)              | 3019 |
-+---------------------------------+------+
-| Perl (v5.18.2)                  | 3020 |
-+---------------------------------+------+
-| PHP (5.6.30)                    | 3021 |
-+---------------------------------+------+
-| Python2 (2.7.6)                 | 3022 |
-+---------------------------------+------+
-| Python3 (3.4.3)                 | 3023 |
-+---------------------------------+------+
-| Ruby (2.3.3)                    | 3024 |
-+---------------------------------+------+
-| Scala (2.11.7)                  | 3025 |
-+---------------------------------+------+
-| Scheme (Gauche 0.9.3.3)         | 3026 |
-+---------------------------------+------+
-| Text (cat)                      | 3027 |
-+---------------------------------+------+
-| Visual Basic (Mono 4.0.1)       | 3028 |
-+---------------------------------+------+
-| C++ (GCC 5.4.1)                 | 3029 |
-+---------------------------------+------+
-| C++ (Clang 3.8.0)               | 3030 |
-+---------------------------------+------+
-| Objective-C (GCC 5.3.0)         | 3501 |
-+---------------------------------+------+
-| Objective-C (Clang3.8.0)        | 3502 |
-+---------------------------------+------+
-| Swift (swift-2.2-RELEASE)       | 3503 |
-+---------------------------------+------+
-| Rust (1.15.1)                   | 3504 |
-+---------------------------------+------+
-| Sed (GNU sed 4.2.2)             | 3505 |
-+---------------------------------+------+
-| Awk (mawk 1.3.3)                | 3506 |
-+---------------------------------+------+
-| Brainfuck (bf 20041219)         | 3507 |
-+---------------------------------+------+
-| Standard ML (MLton 20100608)    | 3508 |
-+---------------------------------+------+
-| PyPy2 (5.6.0)                   | 3509 |
-+---------------------------------+------+
-| PyPy3 (2.4.0)                   | 3510 |
-+---------------------------------+------+
-| Crystal (0.20.5)                | 3511 |
-+---------------------------------+------+
-| F# (Mono 4.0)                   | 3512 |
-+---------------------------------+------+
-| Unlambda (0.1.3)                | 3513 |
-+---------------------------------+------+
-| Lua (5.3.2)                     | 3514 |
-+---------------------------------+------+
-| LuaJIT (2.0.4)                  | 3515 |
-+---------------------------------+------+
-| MoonScript (0.5.0)              | 3516 |
-+---------------------------------+------+
-| Ceylon (1.2.1)                  | 3517 |
-+---------------------------------+------+
-| Julia (0.5.0)                   | 3518 |
-+---------------------------------+------+
-| Octave (4.0.2)                  | 3519 |
-+---------------------------------+------+
-| Nim (0.13.0)                    | 3520 |
-+---------------------------------+------+
-| TypeScript (2.1.6)              | 3521 |
-+---------------------------------+------+
-| Perl6 (rakudo-star 2016.01)     | 3522 |
-+---------------------------------+------+
-| Kotlin (1.0.0)                  | 3523 |
-+---------------------------------+------+
-| PHP7 (7.0.15)                   | 3524 |
-+---------------------------------+------+
-| COBOL - Fixed (OpenCOBOL 1.1.0) | 3525 |
-+---------------------------------+------+
-| COBOL - Free (OpenCOBOL 1.1.0)  | 3526 |
-+---------------------------------+------+
+"#,
+            );
+            assert_eq!(stderr, "Username: Password: ");
+            Ok(())
+        },
+    )
+}
+
+#[test]
+fn it_lists_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
+    let _ = env_logger::try_init();
+    service::test_in_tempdir(
+        "it_lists_languages_in_tenka1_2016_final_open_a",
+        &credentials_as_input()?,
+        |mut app| -> Fallible<()> {
+            app.run(Opt::ListLangs {
+                service: Some(ServiceKind::Atcoder),
+                contest: Some("tenka1-2016-final-open".to_owned()),
+                color_choice: AnsiColorChoice::Never,
+                problem: Some("a".to_owned()),
+            })?;
+            let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
+            let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
+            assert_eq!(
+                stdout,
+                r#"Target: tenka1-2016-final-open/A
+GET https://atcoder.jp/login ... 200 OK
+POST https://atcoder.jp/login ... 302 Found
+GET https://atcoder.jp/settings ... 200 OK
+Successfully logged in.
+GET https://atcoder.jp/contests/tenka1-2016-final-open/tasks ... 200 OK
+GET https://atcoder.jp/contests/tenka1-2016-final-open/tasks/tenka1_2016_final_a ... 200 OK
++------------+----+
+| Name       | ID |
++------------+----+
+| Text (cat) | 17 |
++------------+----+
 "#,
             );
             assert_eq!(stderr, "Username: Password: ");

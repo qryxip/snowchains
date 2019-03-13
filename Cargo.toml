@@ -26,13 +26,14 @@ derive-new = "0.5.6"
 derive_more = "0.14.0"
 diff = "0.1.11"
 dirs = "1.0.5"
-env_logger = "0.6.0"
+env_logger = "0.6.1"
 failure = "0.1.5"
 fs2 = "0.4.3"
 futures = "0.1.25"
 heck = "0.3.1"
 hex = "0.3.2"
 if_chain = "0.1.3"
+indexmap = { version = "1.0.2", features = ["serde-1"] }
 itertools = "0.8.0"
 log = "0.4.6"
 maplit = "1.0.1"
@@ -44,7 +45,7 @@ prettytable-rs = { version = "0.8.0", default_features = false }
 rand = "0.6.5"
 rayon = "1.0.3"
 regex = "1.1.2"
-reqwest = { version = "0.9.10", default_features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.9.11", default_features = false, features = ["rustls-tls"] }
 robots_txt = "0.6.0"
 rpassword = "2.1.0"
 select = "0.4.2"
@@ -55,9 +56,9 @@ serde_urlencoded = "0.5.4"
 serde_yaml = "0.8.8"
 sha2 = "0.8.0"
 snowchains_proc_macros = { path = "./proc_macros", version = "0.1.0" }
-structopt = { version = "0.2.14", features = ["wrap_help"] }
-strum = "0.13.0"
-strum_macros = "0.13.0"
+structopt = { version = "0.2.15", features = ["wrap_help"] }
+strum = "0.14.0"
+strum_macros = "0.14.0"
 tokio = "0.1.16"
 tokio-process = "0.2.3"
 toml = "0.4.10"
@@ -65,8 +66,8 @@ toml_edit = "0.1.3"
 unicode-width = "0.1.5"
 url = "1.7.2"
 webbrowser = "0.4.0"
-yaml-rust = "0.4.2"
-zip = "0.5.0"
+yaml-rust = "0.4.3"
+zip = "0.5.1"
 
 [target.'cfg(not(windows))'.dependencies]
 term_size = "0.3.1"

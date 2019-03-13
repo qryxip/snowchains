@@ -12,8 +12,8 @@ documentation = "https://docs.rs/snowchains_proc_macros"
 proc-macro = true
 
 [dependencies]
-combine = "3.6.6"
+combine = "3.6.7"
 if_chain = "0.1.3"
 proc-macro2 = "0.4.27"
 quote = "0.6.11"
-syn = { version = "0.15.26", features = ["full"] }
+syn = { version = "0.15.29", features = ["full"] }

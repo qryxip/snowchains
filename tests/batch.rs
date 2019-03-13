@@ -1,16 +1,15 @@
-use snowchains::app::{App, Modify, Opt};
+use snowchains::app::{App, Opt};
+use snowchains::config;
 use snowchains::errors::{JudgeError, JudgeErrorKind};
 use snowchains::path::AbsPathBuf;
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Term, TermImpl};
-use snowchains::testsuite::SuiteFileExtension;
 
 use failure::Fallible;
 use if_chain::if_chain;
 use tempdir::TempDir;
 
 use std::path::Path;
-use std::time::Duration;
 
 #[test]
 fn it_works_for_atcoder_practice_a() -> Fallible<()> {
@@ -32,6 +31,14 @@ cases:
       myonmyon
     out: |
       456 myonmyon
+"#;
+    static SUITE_WITH_TIMELIMIT: &str = r#"---
+type: batch
+timelimit: 100ms
+match: exact
+cases:
+  - in: ""
+    out: ""
 "#;
     static CODE: &str = r#"use std::io::{self, Read};
 
@@ -96,19 +103,18 @@ fn main() {
         then {} else { return Err(err.into()) }
     }
 
-    app.modify_timelimit(Duration::from_millis(100))?;
+    std::fs::write(&suite_path, SUITE_WITH_TIMELIMIT)?;
 
     if_chain! {
         let err = app.test(&src_path, FREEZING_CODE).unwrap_err();
         if let snowchains::Error::Judge(JudgeError::Context(ctx)) = &err;
-        if let JudgeErrorKind::TestFailed(2, 2) = ctx.get_context();
+        if let JudgeErrorKind::TestFailed(1, 1) = ctx.get_context();
         then { Ok(()) } else { Err(err.into()) }
     }
 }
 
 trait AppExt {
     fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<()>;
-    fn modify_timelimit(&mut self, timelimit: Duration) -> snowchains::Result<()>;
 }
 
 impl<T: Term> AppExt for App<T> {
@@ -116,23 +122,14 @@ impl<T: Term> AppExt for App<T> {
         std::fs::write(src_path, code)?;
         self.run(Opt::Judge {
             force_compile: false,
+            release: false,
             service: Some(ServiceKind::Atcoder),
             contest: Some("practice".to_owned()),
             language: Some("rust".to_owned()),
+            mode: config::Mode::Debug,
             jobs: None,
             color_choice: AnsiColorChoice::Never,
             problem: "a".to_owned(),
         })
-    }
-
-    fn modify_timelimit(&mut self, timelimit: Duration) -> snowchains::Result<()> {
-        self.run(Opt::Modify(Modify::Timelimit {
-            service: Some(ServiceKind::Atcoder),
-            contest: Some("practice".to_owned()),
-            color_choice: AnsiColorChoice::Never,
-            problem: "a".to_owned(),
-            extension: SuiteFileExtension::Yml,
-            timelimit: Some(timelimit),
-        }))
     }
 }

@@ -1,15 +1,15 @@
 use crate::command::{
     CompilationCommand, HookCommand, HookCommands, JudgingCommand, TranspilationCommand,
 };
+use crate::config;
 use crate::errors::{ExpandTemplateErrorKind, ExpandTemplateResult, StdError};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
 use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
+use crate::util::combine::OnelinePosition;
 use crate::util::str::CaseConversion;
 
-use combine::Parser;
-use derive_new::new;
 use failure::{Backtrace, Fail, ResultExt as _};
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use maplit::hashmap;
@@ -91,11 +91,8 @@ impl<T: Target> Template<T> {
         self
     }
 
-    pub(crate) fn envs(mut self, envs: Option<&HashMap<String, String>>) -> Self {
-        if let Some(envs) = envs {
-            self.envs
-                .extend(envs.iter().map(|(k, v)| (k.clone(), v.clone())));
-        }
+    pub(crate) fn envs(mut self, envs: HashMap<String, String>) -> Self {
+        self.envs.extend(envs);
         self
     }
 }
@@ -117,13 +114,15 @@ impl Template<AbsPathBuf> {
             base_dir,
             service,
             contest,
+            mode,
         } = &self.requirements;
-        let envs = setup_env_vars(problem, &self.envs, *service, contest);
+        let envs = setup_env_vars(problem, &self.envs, *service, contest, *mode);
         let vars = {
             let mut vars = hashmap!(
                 "service" => OsString::from(service.to_string()),
                 "contest" => OsString::from(contest),
             );
+            vars.extend(mode.map(|m| ("mode", m.to_string().into())));
             vars.extend(problem.map(|p| ("problem", p.into())));
             vars.extend(self.extension.map(|e| ("extension", e.to_string().into())));
             vars
@@ -190,14 +189,15 @@ impl Template<TranspilationCommand> {
             base_dir,
             service,
             contest,
+            mode,
             shell,
             working_dir: TemplateBuilder(working_dir),
             src: TemplateBuilder(src),
             transpiled,
         } = &self.requirements;
 
-        let mut vars = setup_template_vars(Some(problem), *service, contest);
-        let mut envs = setup_env_vars(Some(problem), &self.envs, *service, contest);
+        let mut vars = setup_template_vars(Some(problem), *service, contest, *mode);
+        let mut envs = setup_env_vars(Some(problem), &self.envs, *service, contest, Some(*mode));
 
         let wd = working_dir.expand_as_path(base_dir, &vars, &envs)?;
         let src = src.expand_as_path(base_dir, &vars, &envs)?;
@@ -240,6 +240,7 @@ impl Template<CompilationCommand> {
             base_dir,
             service,
             contest,
+            mode,
             shell,
             working_dir: TemplateBuilder(working_dir),
             src: TemplateBuilder(src),
@@ -247,8 +248,8 @@ impl Template<CompilationCommand> {
             bin,
         } = &self.requirements;
 
-        let mut vars = setup_template_vars(Some(problem), *service, contest);
-        let mut envs = setup_env_vars(Some(problem), &self.envs, *service, contest);
+        let mut vars = setup_template_vars(Some(problem), *service, contest, *mode);
+        let mut envs = setup_env_vars(Some(problem), &self.envs, *service, contest, Some(*mode));
 
         let wd = working_dir.expand_as_path(base_dir, &vars, &envs)?;
         let src = src.expand_as_path(base_dir, &vars, &envs)?;
@@ -300,6 +301,7 @@ impl Template<JudgingCommand> {
             base_dir,
             service,
             contest,
+            mode,
             shell,
             working_dir: TemplateBuilder(working_dir),
             src: TemplateBuilder(src),
@@ -308,8 +310,8 @@ impl Template<JudgingCommand> {
             crlf_to_lf,
         } = &self.requirements;
 
-        let mut vars = setup_template_vars(Some(problem), *service, contest);
-        let mut envs = setup_env_vars(Some(problem), &self.envs, *service, contest);
+        let mut vars = setup_template_vars(Some(problem), *service, contest, *mode);
+        let mut envs = setup_env_vars(Some(problem), &self.envs, *service, contest, Some(*mode));
 
         let wd = working_dir.expand_as_path(base_dir, &vars, &envs)?;
         let src = src.expand_as_path(base_dir, &vars, &envs)?;
@@ -358,10 +360,12 @@ fn setup_template_vars(
     problem: Option<&str>,
     service: ServiceKind,
     contest: &str,
+    mode: config::Mode,
 ) -> HashMap<&'static str, OsString> {
     let mut ret = hashmap!(
         "service" => OsString::from(service.to_string()),
         "contest" => OsString::from(contest),
+        "mode" => OsString::from(mode.to_string()),
     );
     ret.extend(problem.map(|p| ("problem", p.into())));
     ret
@@ -372,6 +376,7 @@ fn setup_env_vars(
     utf8_envs: &HashMap<String, String>,
     service: ServiceKind,
     contest: &str,
+    mode: Option<config::Mode>,
 ) -> HashMap<String, OsString> {
     let mut ret = problem
         .map::<HashMap<String, OsString>, _>(|problem| {
@@ -394,6 +399,7 @@ fn setup_env_vars(
             )
         })
         .unwrap_or_default();
+    ret.extend(mode.map(|m| ("SNOWCHAINS_MODE".into(), m.to_string().into())));
     for (name, value) in utf8_envs {
         ret.insert(name.as_str().into(), value.as_str().into());
     }
@@ -463,6 +469,7 @@ pub(crate) struct AbsPathBufRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,
     pub(crate) contest: String,
+    pub(crate) mode: Option<config::Mode>,
 }
 
 #[derive(Clone)]
@@ -477,6 +484,7 @@ pub(crate) struct TranspilationCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,
     pub(crate) contest: String,
+    pub(crate) mode: config::Mode,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
     pub(crate) src: TemplateBuilder<AbsPathBuf>,
@@ -488,6 +496,7 @@ pub(crate) struct CompilationCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,
     pub(crate) contest: String,
+    pub(crate) mode: config::Mode,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
     pub(crate) src: TemplateBuilder<AbsPathBuf>,
@@ -500,6 +509,7 @@ pub(crate) struct JudgingCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,
     pub(crate) contest: String,
+    pub(crate) mode: config::Mode,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
     pub(crate) src: TemplateBuilder<AbsPathBuf>,
@@ -534,28 +544,27 @@ impl FromStr for Tokens {
         use combine::char::{char, spaces, string};
         use combine::parser::choice::or;
         use combine::parser::function::parser;
-        use combine::{choice, eof, many, many1, satisfy};
+        use combine::stream::state::State;
+        use combine::{choice, easy, eof, many, many1, satisfy, Parser};
 
         fn escape<'a>(
             from: &'static str,
             to: &'static str,
-        ) -> impl Parser<Input = &'a str, Output = Token> {
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Token>
+        {
             string(from).map(move |_| Token::Plain(to.to_owned()))
         }
 
-        fn parse_expr<I: combine::Stream<Item = char>>(
-            input: &mut I,
-        ) -> combine::ParseResult<Expr, I>
-        where
-            I::Error: combine::ParseError<char, I::Range, I::Position>,
-        {
+        fn parse_expr<'a>(
+            input: &mut easy::Stream<State<&'a str, OnelinePosition>>,
+        ) -> combine::ParseResult<Expr, easy::Stream<State<&'a str, OnelinePosition>>> {
             enum Right {
                 Comma(String),
                 Arg(Expr),
                 None,
             }
 
-            let mut parser = spaces()
+            spaces()
                 .with(identifier())
                 .and(choice((
                     char(':')
@@ -573,13 +582,12 @@ impl FromStr for Tokens {
                     Right::Comma(right) => Expr::NamespacedVar(left, right),
                     Right::Arg(right) => Expr::App(left, Box::new(right)),
                     Right::None => Expr::Var(left),
-                });
-            parser.parse_stream(input)
+                })
+                .parse_stream(input)
         }
 
-        fn identifier<I: combine::Stream<Item = char>>() -> impl Parser<Input = I, Output = String>
-        where
-            I::Error: combine::ParseError<char, I::Range, I::Position>,
+        fn identifier<'a>(
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = String>
         {
             many1(satisfy(|c| match c {
                 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
@@ -604,9 +612,9 @@ impl FromStr for Tokens {
             dollar_or_expr,
         )))
         .skip(eof())
-        .parse(input)
+        .easy_parse(State::with_positioner(input, OnelinePosition::new()))
         .map(|(tokens, _)| Tokens(tokens))
-        .map_err(|_| ParseTemplateError::new(input.to_owned()))
+        .map_err(|e| ParseTemplateError::new(input, e))
     }
 }
 
@@ -830,13 +838,23 @@ impl Tokens {
 
 type ParseTemplateResult<T> = std::result::Result<T, ParseTemplateError>;
 
-#[derive(Debug, derive_more::Display, Fail, new)]
-#[display(fmt = "Failed to parse {:?}", input)]
+#[derive(Debug, derive_more::Display, Fail)]
+#[display(fmt = "Failed to parse {:?}\n{}", input, error)]
 pub struct ParseTemplateError {
     input: String,
-    #[new(default)]
+    error: combine::easy::Errors<char, String, usize>,
     #[fail(backtrace)]
     backtrace: Backtrace,
+}
+
+impl ParseTemplateError {
+    fn new(input: &str, error: combine::easy::Errors<char, &str, usize>) -> Self {
+        Self {
+            input: input.to_owned(),
+            error: error.map_range(ToOwned::to_owned),
+            backtrace: Backtrace::new(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -938,6 +956,7 @@ mod tests {
                     base_dir: base_dir(),
                     service: ServiceKind::Atcoder,
                     contest: "arc100".to_owned(),
+                    mode: None,
                 })
                 .expand(Some("ProblemName"))
                 .map_err(Into::into)
@@ -972,6 +991,7 @@ mod tests {
                         base_dir: base_dir(),
                         service: ServiceKind::Atcoder,
                         contest: "arc100".to_owned(),
+                        mode: None,
                     })
                     .expand(None)
                     .map_err(Into::into)

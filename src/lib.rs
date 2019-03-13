@@ -4,6 +4,7 @@
 mod macros;
 
 pub mod app;
+pub mod config;
 pub mod errors;
 pub mod path;
 pub mod service;
@@ -12,7 +13,6 @@ pub mod terminal;
 pub mod testsuite;
 
 mod command;
-mod config;
 mod fs;
 mod judging;
 mod template;

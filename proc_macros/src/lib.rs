@@ -2,7 +2,6 @@
 
 extern crate proc_macro;
 
-use combine::Parser;
 use if_chain::if_chain;
 use quote::{quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
@@ -249,7 +248,9 @@ pub fn def_gen_predicate(input: proc_macro::TokenStream) -> proc_macro::TokenStr
 
 fn parse_selector(input: &str) -> std::result::Result<impl ToTokens, String> {
     use combine::char::{char, space, spaces, string};
-    use combine::{attempt, choice, eof, many1, satisfy};
+    use combine::stream::state::{Positioner, State};
+    use combine::stream::Resetable;
+    use combine::{attempt, choice, easy, eof, many1, satisfy, Parser};
 
     #[derive(Debug)]
     enum Token {
@@ -262,7 +263,37 @@ fn parse_selector(input: &str) -> std::result::Result<impl ToTokens, String> {
         Descendant,
     }
 
-    fn ident<'a>() -> impl Parser<Input = &'a str, Output = String> {
+    #[derive(Default)]
+    struct OnelinePosition {
+        pos: usize,
+    }
+
+    impl Positioner<char> for OnelinePosition {
+        type Position = usize;
+
+        fn position(&self) -> usize {
+            self.pos
+        }
+
+        fn update(&mut self, _: &char) {
+            self.pos += 1;
+        }
+    }
+
+    impl Resetable for OnelinePosition {
+        type Checkpoint = usize;
+
+        fn checkpoint(&self) -> usize {
+            self.pos
+        }
+
+        fn reset(&mut self, checkpoint: usize) {
+            self.pos = checkpoint;
+        }
+    }
+
+    fn ident<'a>(
+    ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = String> {
         many1(satisfy(|c| {
             'a' <= c && c <= 'z'
                 || 'A' <= c && c <= 'Z'
@@ -272,7 +303,7 @@ fn parse_selector(input: &str) -> std::result::Result<impl ToTokens, String> {
         }))
     }
 
-    fn op<'a>(c: char) -> impl Parser<Input = &'a str> {
+    fn op<'a>(c: char) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>> {
         spaces().with(char(c)).skip(spaces())
     }
 
@@ -286,7 +317,7 @@ fn parse_selector(input: &str) -> std::result::Result<impl ToTokens, String> {
         .skip(char('='))
         .skip(spaces())
         .skip(char('"'))
-        .and(many1(satisfy::<&str, _>(|c| {
+        .and(many1(satisfy(|c: char| {
             !(c.is_whitespace() || c == '"' || c == '\\')
         })))
         .skip(spaces())
@@ -306,9 +337,9 @@ fn parse_selector(input: &str) -> std::result::Result<impl ToTokens, String> {
         descendant,
     )))
     .skip(eof())
-    .parse(input)
+    .easy_parse(State::with_positioner(input, OnelinePosition::default()))
     .map(|(ts, _)| ts)
-    .map_err(|_| format!("Failed to parse {:?}", input))?;
+    .map_err(|e| format!("Failed to lex {:?}\n{}", input, e))?;
 
     enum Ancestor<S: ToTokens> {
         None,
