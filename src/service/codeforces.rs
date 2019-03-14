@@ -40,52 +40,56 @@ use std::io::{self, Write as _};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
-    Codeforces::try_new(sess_props)?.login(LoginOption::Explicit)
+pub(crate) fn login(props: SessionProps, term: impl Term) -> ServiceResult<()> {
+    Codeforces::try_new(props, term)?.login(LoginOption::Explicit)
 }
 
 pub(crate) fn download(
-    mut sess_props: SessionProps<impl Term>,
-    download_props: DownloadProps<String>,
+    props: (SessionProps, DownloadProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<DownloadOutcome> {
+    let (sess_props, download_props) = props;
     let download_props = download_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    download_props.print_targets(sess_props.term.stdout())?;
-    Codeforces::try_new(sess_props)?.download(download_props)
+    download_props.print_targets(term.stdout())?;
+    Codeforces::try_new(sess_props, term)?.download(download_props)
 }
 
 pub(crate) fn restore(
-    mut sess_props: SessionProps<impl Term>,
-    restore_props: RestoreProps<String>,
+    props: (SessionProps, RestoreProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
+    let (sess_props, restore_props) = props;
     let restore_props = restore_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    restore_props.print_targets(sess_props.term.stdout())?;
-    Codeforces::try_new(sess_props)?.restore(restore_props)
+    restore_props.print_targets(term.stdout())?;
+    Codeforces::try_new(sess_props, term)?.restore(restore_props)
 }
 
 pub(crate) fn submit(
-    mut sess_props: SessionProps<impl Term>,
-    submit_props: SubmitProps<String>,
+    props: (SessionProps, SubmitProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
+    let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    submit_props.print_targets(sess_props.term.stdout())?;
-    Codeforces::try_new(sess_props)?.submit(submit_props)
+    submit_props.print_targets(term.stdout())?;
+    Codeforces::try_new(sess_props, term)?.submit(submit_props)
 }
 
 pub(crate) fn list_langs(
-    props: (SessionProps<impl Term>, ListLangsProps<String>),
+    props: (SessionProps, ListLangsProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
-    let (mut sess_props, list_langs_props) = props;
+    let (sess_props, list_langs_props) = props;
     let list_langs_props = list_langs_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    list_langs_props.print_targets(sess_props.term.stdout())?;
-    Codeforces::try_new(sess_props)?.list_langs(list_langs_props)
+    list_langs_props.print_targets(term.stdout())?;
+    Codeforces::try_new(sess_props, term)?.list_langs(list_langs_props)
 }
 
 struct Codeforces<T: Term> {
@@ -122,12 +126,12 @@ impl<T: Term> DownloadProgress for Codeforces<T> {
 }
 
 impl<T: Term> Codeforces<T> {
-    fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
+    fn try_new(props: SessionProps, mut term: T) -> ServiceResult<Self> {
         let mut runtime = Runtime::new()?;
-        let session = sess_props.start_session(&mut runtime)?;
+        let session = props.start_session(term.stderr(), &mut runtime)?;
         Ok(Self {
-            login_retries: sess_props.login_retries,
-            term: sess_props.term,
+            login_retries: props.login_retries,
+            term,
             session,
             runtime,
             handle: None,

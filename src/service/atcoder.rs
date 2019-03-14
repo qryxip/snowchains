@@ -40,9 +40,9 @@ use std::time::Duration;
 use std::{f64, vec};
 
 /// Logins to "atcoder.jp".
-pub(crate) fn login(mut sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
-    let dropbox_path = sess_props.dropbox_path.take();
-    let mut atcoder = Atcoder::try_new(sess_props)?;
+pub(crate) fn login(mut props: SessionProps, term: impl Term) -> ServiceResult<()> {
+    let dropbox_path = props.dropbox_path.take();
+    let mut atcoder = Atcoder::try_new(props, term)?;
     atcoder.login_if_not(true)?;
     if let Some(dropbox_path) = dropbox_path {
         atcoder.auth_dropbox(&dropbox_path, true)?;
@@ -52,64 +52,69 @@ pub(crate) fn login(mut sess_props: SessionProps<impl Term>) -> ServiceResult<()
 
 /// Participates in a `contest_name`.
 pub(crate) fn participate(
-    contest_name: &str,
-    sess_props: SessionProps<impl Term>,
+    contest: &str,
+    props: SessionProps,
+    term: impl Term,
 ) -> ServiceResult<()> {
-    Atcoder::try_new(sess_props)?.register_explicitly(&AtcoderContest::new(contest_name))
+    Atcoder::try_new(props, term)?.register_explicitly(&AtcoderContest::new(contest))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
 pub(crate) fn download(
-    mut sess_props: SessionProps<impl Term>,
-    download_props: DownloadProps<String>,
+    props: (SessionProps, DownloadProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<DownloadOutcome> {
+    let (mut sess_props, download_props) = props;
     let dropbox_path = sess_props.dropbox_path.take();
     let dropbox_path = dropbox_path.as_ref().map(Deref::deref);
     let download_props = download_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    download_props.print_targets(sess_props.term.stdout())?;
-    Atcoder::try_new(sess_props)?.download(&download_props, dropbox_path)
+    download_props.print_targets(term.stdout())?;
+    Atcoder::try_new(sess_props, term)?.download(&download_props, dropbox_path)
 }
 
 /// Downloads submitted source codes.
 pub(crate) fn restore(
-    mut sess_props: SessionProps<impl Term>,
-    restore_props: RestoreProps<String>,
+    props: (SessionProps, RestoreProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
+    let (sess_props, restore_props) = props;
     let restore_props = restore_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    restore_props.print_targets(sess_props.term.stdout())?;
-    Atcoder::try_new(sess_props)?.restore(&restore_props)
+    restore_props.print_targets(term.stdout())?;
+    Atcoder::try_new(sess_props, term)?.restore(&restore_props)
 }
 
 /// Submits a source code.
 pub(crate) fn submit(
-    mut sess_props: SessionProps<impl Term>,
-    submit_props: SubmitProps<String>,
+    props: (SessionProps, SubmitProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
+    let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    submit_props.print_targets(sess_props.term.stdout())?;
-    Atcoder::try_new(sess_props)?.submit(&submit_props)
+    submit_props.print_targets(term.stdout())?;
+    Atcoder::try_new(sess_props, term)?.submit(&submit_props)
 }
 
 pub(crate) fn list_langs(
-    props: (SessionProps<impl Term>, ListLangsProps<String>),
+    props: (SessionProps, ListLangsProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
-    let (mut sess_props, list_langs_props) = props;
+    let (sess_props, list_langs_props) = props;
     let list_langs_props = list_langs_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    list_langs_props.print_targets(sess_props.term.stdout())?;
-    Atcoder::try_new(sess_props)?.list_langs(list_langs_props)
+    list_langs_props.print_targets(term.stdout())?;
+    Atcoder::try_new(sess_props, term)?.list_langs(list_langs_props)
 }
 
 pub(self) struct Atcoder<T: Term> {
@@ -144,12 +149,12 @@ impl<T: Term> DownloadProgress for Atcoder<T> {
 }
 
 impl<T: Term> Atcoder<T> {
-    fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
+    fn try_new(props: SessionProps, mut term: T) -> ServiceResult<Self> {
         let mut runtime = Runtime::new()?;
-        let session = sess_props.start_session(&mut runtime)?;
+        let session = props.start_session(term.stderr(), &mut runtime)?;
         Ok(Self {
-            login_retries: sess_props.login_retries,
-            term: sess_props.term,
+            login_retries: props.login_retries,
+            term,
             session,
             runtime,
         })

@@ -11,7 +11,7 @@ use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceResult};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
 use crate::template::Template;
-use crate::terminal::{Term, WriteAnsi};
+use crate::terminal::WriteAnsi;
 use crate::testsuite::{DownloadDestinations, SuiteFilePath, TestSuite};
 use crate::util;
 use crate::util::collections::{NonEmptyIndexMap, NonEmptyVec};
@@ -355,8 +355,7 @@ impl DownloadOutcome {
     }
 }
 
-pub(crate) struct SessionProps<T: Term> {
-    pub(crate) term: T,
+pub(crate) struct SessionProps {
     pub(crate) domain: Option<&'static str>,
     pub(crate) cookies_path: AbsPathBuf,
     pub(crate) api_token_path: AbsPathBuf,
@@ -367,14 +366,18 @@ pub(crate) struct SessionProps<T: Term> {
     pub(crate) robots: bool,
 }
 
-impl<T: Term> SessionProps<T> {
-    pub(self) fn start_session(&mut self, runtime: &mut Runtime) -> ServiceResult<HttpSession> {
+impl SessionProps {
+    pub(self) fn start_session(
+        &self,
+        out: impl WriteAnsi,
+        runtime: &mut Runtime,
+    ) -> ServiceResult<HttpSession> {
         let client = reqwest_async_client(self.timeout)?;
         let base = self
             .domain
             .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
         HttpSession::try_new(HttpSessionInitParams {
-            out: self.term.stdout(),
+            out,
             runtime,
             robots: self.robots,
             client,
