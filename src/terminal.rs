@@ -260,7 +260,7 @@ impl StandardOutput for Stderr {
     }
 
     fn is_tty() -> bool {
-        atty::is(atty::Stream::Stdout)
+        atty::is(atty::Stream::Stderr)
     }
 
     #[cfg(not(windows))]

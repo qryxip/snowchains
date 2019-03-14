@@ -18,6 +18,7 @@
 
 ### Fixed
 
+* Fix the condition of enabling ANSI color when `--color auto`
 * Fix a bug where `list-langs` displays &lt;number of problems&gt; copies of a list
 * Prevent `list-langs` from displaying unavailable languages when `problem` is specified
 
