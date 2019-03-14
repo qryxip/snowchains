@@ -45,7 +45,7 @@ pub(crate) fn download(
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    download_props.print_targets(term.stdout())?;
+    download_props.print_targets(term.stderr())?;
     Yukicoder::try_new(sess_props, term)?.download(&download_props)
 }
 
@@ -58,7 +58,7 @@ pub(crate) fn submit(
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    submit_props.print_targets(term.stdout())?;
+    submit_props.print_targets(term.stderr())?;
     Yukicoder::try_new(sess_props, term)?.submit(&submit_props)
 }
 
@@ -71,7 +71,7 @@ pub(crate) fn list_langs(
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    list_langs_props.print_targets(term.stdout())?;
+    list_langs_props.print_targets(term.stderr())?;
     Yukicoder::try_new(sess_props, term)?.list_langs(list_langs_props)
 }
 
@@ -92,26 +92,35 @@ impl<T: Term> HasTerm for Yukicoder<T> {
 }
 
 impl<T: Term> Service for Yukicoder<T> {
-    type Write = T::Stdout;
+    type Stdout = T::Stdout;
+    type Stderr = T::Stderr;
 
-    fn requirements(&mut self) -> (&mut T::Stdout, &mut HttpSession, &mut Runtime) {
-        (self.term.stdout(), &mut self.session, &mut self.runtime)
+    fn requirements(
+        &mut self,
+    ) -> (
+        &mut T::Stdout,
+        &mut T::Stderr,
+        &mut HttpSession,
+        &mut Runtime,
+    ) {
+        let (_, stdout, stderr) = self.term.split_mut();
+        (stdout, stderr, &mut self.session, &mut self.runtime)
     }
 }
 
 impl<T: Term> DownloadProgress for Yukicoder<T> {
-    type Write = T::Stdout;
+    type Write = T::Stderr;
 
-    fn requirements(&mut self) -> (&mut T::Stdout, &HttpSession, TaskExecutor) {
-        (self.term.stdout(), &self.session, self.runtime.executor())
+    fn requirements(&mut self) -> (&mut T::Stderr, &HttpSession, TaskExecutor) {
+        (self.term.stderr(), &self.session, self.runtime.executor())
     }
 }
 
 impl<T: Term> ExtractZip for Yukicoder<T> {
-    type Write = T::Stdout;
+    type Write = T::Stderr;
 
-    fn out(&mut self) -> &mut T::Stdout {
-        self.term.stdout()
+    fn out(&mut self) -> &mut T::Stderr {
+        self.term.stderr()
     }
 }
 
@@ -138,13 +147,12 @@ impl<T: Term> Yukicoder<T> {
                         break;
                     }
                     writeln!(
-                        self.stdout(),
+                        self.stderr(),
                         "\nInput \"REVEL_SESSION\".\n\n\
                          Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies \
                          WHERE baseDomain=\"yukicoder.me\" AND name=\"REVEL_SESSION\"'\n\
                          Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie\n"
                     )?;
-                    self.stdout().flush()?;
                     first = false;
                 }
                 let revel_session = self.prompt_password_stderr("REVEL_SESSION: ")?;
@@ -160,8 +168,8 @@ impl<T: Term> Yukicoder<T> {
             }
         }
         let username = self.username.clone();
-        writeln!(self.stdout(), "Username: {}", username)?;
-        self.stdout().flush().map_err(Into::into)
+        writeln!(self.stderr(), "Username: {}", username)?;
+        self.stderr().flush().map_err(Into::into)
     }
 
     fn confirm_revel_session(&mut self, revel_session: String) -> ServiceResult<bool> {
@@ -312,7 +320,7 @@ impl<T: Term> Yukicoder<T> {
                     break;
                 }
             }
-            test_suite.save(name, test_suite_path, self.stdout())?;
+            test_suite.save(name, test_suite_path, self.stderr())?;
         }
         if *open_in_browser {
             for DownloadOutcomeProblem { url, .. } in &outcome.problems {
@@ -353,7 +361,7 @@ impl<T: Term> Yukicoder<T> {
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
         writeln!(
-            self.stdout(),
+            self.stderr(),
             "Submitting as {:?} (ID: {:?})",
             lang_name,
             lang_id,
@@ -375,8 +383,8 @@ impl<T: Term> Yukicoder<T> {
         };
         if let Some(location) = location.as_ref() {
             if location.contains("/submissions/") {
-                writeln!(self.stdout(), "Success: {:?}", location)?;
-                self.stdout().flush()?;
+                writeln!(self.stderr(), "Success: {:?}", location)?;
+                self.stderr().flush()?;
                 if *open_in_browser {
                     self.open_in_browser(location)?;
                 }

@@ -9,6 +9,7 @@
 ### Changed
 
 * Make `env` field more configurable
+* Now it prints most of the information to stderr, not stdout
 
 ### Removed
 

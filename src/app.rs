@@ -399,7 +399,7 @@ impl<T: Term> App<T> {
                 let (config, outcome) =
                     config::switch(stdout, stderr, &working_dir, service, contest, language)?;
                 let hooks = config.switch_hooks(&outcome).expand()?;
-                hooks.run::<_, T::Stderr>(self.term.stdout())?;
+                hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
             Opt::Login {
                 color_choice,
@@ -460,7 +460,7 @@ impl<T: Term> App<T> {
                     ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
                 }?;
                 let hooks = config.download_hooks(&outcome).expand()?;
-                hooks.run::<_, T::Stderr>(self.term.stdout())?;
+                hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
             Opt::Restore {
                 service,
@@ -528,16 +528,15 @@ impl<T: Term> App<T> {
                 let config = Config::load(service, contest, language.clone(), &working_dir)?;
                 self.term.apply_conf(config.console());
                 if only_transpile {
-                    let (_, mut stdout, stderr) = self.term.split_mut();
-                    if judging::only_transpile(
-                        &mut stdout,
-                        stderr,
+                    let mut stderr = self.term.stderr();
+                    if judging::only_transpile::<T::Stdout, _>(
+                        &mut stderr,
                         &config,
                         mode,
                         &problem,
                         force_compile,
                     )? {
-                        writeln!(stdout)?;
+                        writeln!(stderr)?;
                     }
                 } else if !no_judge {
                     let (_, mut stdout, stderr) = self.term.split_mut();

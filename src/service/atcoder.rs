@@ -72,7 +72,7 @@ pub(crate) fn download(
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    download_props.print_targets(term.stdout())?;
+    download_props.print_targets(term.stderr())?;
     Atcoder::try_new(sess_props, term)?.download(&download_props, dropbox_path)
 }
 
@@ -86,7 +86,7 @@ pub(crate) fn restore(
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    restore_props.print_targets(term.stdout())?;
+    restore_props.print_targets(term.stderr())?;
     Atcoder::try_new(sess_props, term)?.restore(&restore_props)
 }
 
@@ -100,7 +100,7 @@ pub(crate) fn submit(
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    submit_props.print_targets(term.stdout())?;
+    submit_props.print_targets(term.stderr())?;
     Atcoder::try_new(sess_props, term)?.submit(&submit_props)
 }
 
@@ -113,7 +113,7 @@ pub(crate) fn list_langs(
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    list_langs_props.print_targets(term.stdout())?;
+    list_langs_props.print_targets(term.stderr())?;
     Atcoder::try_new(sess_props, term)?.list_langs(list_langs_props)
 }
 
@@ -133,18 +133,27 @@ impl<T: Term> HasTerm for Atcoder<T> {
 }
 
 impl<T: Term> Service for Atcoder<T> {
-    type Write = T::Stdout;
+    type Stdout = T::Stdout;
+    type Stderr = T::Stderr;
 
-    fn requirements(&mut self) -> (&mut T::Stdout, &mut HttpSession, &mut Runtime) {
-        (self.term.stdout(), &mut self.session, &mut self.runtime)
+    fn requirements(
+        &mut self,
+    ) -> (
+        &mut T::Stdout,
+        &mut T::Stderr,
+        &mut HttpSession,
+        &mut Runtime,
+    ) {
+        let (_, stdout, stderr) = self.term.split_mut();
+        (stdout, stderr, &mut self.session, &mut self.runtime)
     }
 }
 
 impl<T: Term> DownloadProgress for Atcoder<T> {
-    type Write = T::Stdout;
+    type Write = T::Stderr;
 
-    fn requirements(&mut self) -> (&mut T::Stdout, &HttpSession, TaskExecutor) {
-        (self.term.stdout(), &self.session, self.runtime.executor())
+    fn requirements(&mut self) -> (&mut T::Stderr, &HttpSession, TaskExecutor) {
+        (self.term.stderr(), &self.session, self.runtime.executor())
     }
 }
 
@@ -181,8 +190,8 @@ impl<T: Term> Atcoder<T> {
             );
             self.post("/login").send_form(&payload)?;
             if self.get("/settings").acceptable(&[200, 302]).status()? == 200 {
-                writeln!(self.stdout(), "Successfully logged in.")?;
-                break self.stdout().flush().map_err(Into::into);
+                writeln!(self.stderr(), "Successfully logged in.")?;
+                break self.stderr().flush().map_err(Into::into);
             }
             if retries == Some(0) {
                 return Err(ServiceErrorKind::LoginRetriesExceeded.into());
@@ -245,8 +254,8 @@ impl<T: Term> Atcoder<T> {
             .form(&hashmap!("code" => code.as_str(), "grant_type" => "authorization_code"))
             .recv_json::<AuthToken>()?;
         crate::fs::write_json_pretty(auth_path, &auth)?;
-        writeln!(self.stdout(), "Wrote {}", auth_path.display())?;
-        self.stdout().flush()?;
+        writeln!(self.stderr(), "Wrote {}", auth_path.display())?;
+        self.stderr().flush()?;
         Ok(auth.access_token)
     }
 
@@ -350,10 +359,10 @@ impl<T: Term> Atcoder<T> {
             ..
         } in &outcome.problems
         {
-            test_suite.save(name, test_suite_path, self.stdout())?;
+            test_suite.save(name, test_suite_path, self.stderr())?;
             not_found.remove_item_(&name);
         }
-        self.stdout().flush()?;
+        self.stderr().flush()?;
         if !not_found.is_empty() {
             self.stderr()
                 .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
@@ -517,10 +526,10 @@ impl<T: Term> Atcoder<T> {
                     Ok((case_name, (in_path, out_path)))
                 })
                 .collect::<FileResult<BTreeMap<_, _>>>()?;
-            self.stdout()
+            self.stderr()
                 .with_reset(|o| write!(o.bold()?, "{}", problem))?;
             writeln!(
-                self.stdout(),
+                self.stderr(),
                 ": Saved {} to {}",
                 plural!(2 * contents_len, "file", "files"),
                 dir.display(),
@@ -532,7 +541,7 @@ impl<T: Term> Atcoder<T> {
                 }
             }
         }
-        self.stdout().flush().map_err(Into::into)
+        self.stderr().flush().map_err(Into::into)
     }
 
     fn restore(&mut self, props: &RestoreProps<AtcoderContest>) -> ServiceResult<()> {
@@ -601,7 +610,7 @@ impl<T: Term> Atcoder<T> {
         };
         for (task_name, lang_name, path) in &results {
             writeln!(
-                self.stdout(),
+                self.stderr(),
                 "{} - {:?}: Saved to {}",
                 task_name,
                 lang_name,
@@ -614,9 +623,9 @@ impl<T: Term> Atcoder<T> {
                 .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
             self.stderr().flush()?;
         }
-        let stdout = self.stdout();
-        writeln!(stdout, "Saved {}.", plural!(results.len(), "file", "files"))?;
-        stdout.flush()?;
+        let stderr = self.stderr();
+        writeln!(stderr, "Saved {}.", plural!(results.len(), "file", "files"))?;
+        stderr.flush()?;
         Ok(())
     }
 
@@ -678,7 +687,7 @@ impl<T: Term> Atcoder<T> {
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
         writeln!(
-            self.stdout(),
+            self.stderr(),
             "Submitting as {:?} (ID: {:?})",
             lang_name,
             lang_id,
@@ -1460,7 +1469,7 @@ mod tests {
         let mut term = TermImpl::null();
         let mut runtime = Runtime::new()?;
         let session = HttpSession::try_new(HttpSessionInitParams {
-            out: term.stdout(),
+            out: term.stderr(),
             runtime: &mut runtime,
             robots: true,
             client,

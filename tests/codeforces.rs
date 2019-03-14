@@ -81,12 +81,7 @@ fn it_list_languages() -> Fallible<()> {
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             assert_eq!(
                 stdout,
-                r#"Target: 1000/A
-GET https://codeforces.com/enter ... 200 OK
-POST https://codeforces.com/enter ... 302 Found
-GET https://codeforces.com/enter ... 302 Found
-GET https://codeforces.com/contest/1000/submit ... 200 OK
-+--------------------------------+----+
+                r#"+--------------------------------+----+
 | Name                           | ID |
 +--------------------------------+----+
 | GNU GCC C11 5.1.0              | 43 |
@@ -147,7 +142,15 @@ GET https://codeforces.com/contest/1000/submit ... 200 OK
 +--------------------------------+----+
 "#,
             );
-            assert_eq!(stderr, "Handle/Email: Password: ");
+            assert_eq!(
+                stderr,
+                r#"Target: 1000/A
+GET https://codeforces.com/enter ... 200 OK
+Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
+GET https://codeforces.com/enter ... 302 Found
+GET https://codeforces.com/contest/1000/submit ... 200 OK
+"#
+            );
             Ok(())
         },
     )

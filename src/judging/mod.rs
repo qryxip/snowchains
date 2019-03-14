@@ -16,9 +16,8 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::{cmp, fmt, io};
 
-pub(crate) fn only_transpile(
-    stdout: impl TermOut,
-    stderr: impl TermOut,
+pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
+    stderr: E,
     config: &Config,
     mode: config::Mode,
     problem: &str,
@@ -28,7 +27,7 @@ pub(crate) fn only_transpile(
         None => Ok(false),
         Some(transpilation) => {
             let transpilation = transpilation.expand(problem)?;
-            transpilation.run(stdout, stderr, force)?;
+            transpilation.run::<O, _>(stderr, force)?;
             Ok(true)
         }
     }
@@ -39,11 +38,11 @@ pub(crate) fn only_transpile(
 /// # Errors
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
-pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeResult<()> {
+pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeResult<()> {
     fn judge_all<
         C: TestCase,
-        O: Outcome + Send + 'static,
-        F: Future<Item = O, Error = io::Error> + Send + 'static,
+        R: Outcome + Send + 'static,
+        F: Future<Item = R, Error = io::Error> + Send + 'static,
     >(
         mut stdout: impl TermOut,
         mut stderr: impl TermOut,
@@ -55,7 +54,7 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
     ) -> JudgeResult<()> {
         let num_cases = cases.len();
         let names = cases.iter().map(|c| c.name()).collect::<Vec<_>>();
-        let name_max_width = names.iter().map(|s| stdout.str_width(s)).max().unwrap_or(0);
+        let name_max_width = names.iter().map(|s| stderr.str_width(s)).max().unwrap_or(0);
 
         let mut cases = names
             .into_iter()
@@ -128,12 +127,13 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
             for (i, name, outcome) in outcomes {
                 outcome.print_title(&mut stdout, i + 1, num_cases, &name, Some(name_max_width))?;
             }
+            stdout.flush()?;
             writeln!(
-                stdout,
+                stderr,
                 "All of the {} passed.",
                 plural!(num_cases, "test", "tests")
             )?;
-            stdout.flush()?;
+            stderr.flush()?;
             Ok(())
         } else {
             for (i, name, outcome) in outcomes {
@@ -148,12 +148,12 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
 
     fn spawn_head<
         C: TestCase,
-        O: Outcome + Send + 'static,
-        F: Future<Item = O, Error = io::Error> + Send + 'static,
+        R: Outcome + Send + 'static,
+        F: Future<Item = R, Error = io::Error> + Send + 'static,
     >(
         mut cases: impl Iterator<Item = (usize, Arc<String>, C)>,
         runtime: &mut Runtime,
-        tx: futures::sync::mpsc::Sender<(usize, Arc<String>, JudgeResult<O>)>,
+        tx: futures::sync::mpsc::Sender<(usize, Arc<String>, JudgeResult<R>)>,
         solver: &Arc<JudgingCommand>,
         judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<F>,
     ) -> JudgeResult<()> {
@@ -167,7 +167,7 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
     }
 
     let JudgeParams {
-        mut stdout,
+        stdout,
         mut stderr,
         config,
         mode,
@@ -194,24 +194,24 @@ pub(crate) fn judge(params: JudgeParams<impl TermOut, impl TermOut>) -> JudgeRes
     };
 
     for tester_transpilation in tester_transpilations {
-        tester_transpilation.run(&mut stdout, &mut stderr, force_compile)?;
-        writeln!(stdout)?;
+        tester_transpilation.run::<O, _>(&mut stderr, force_compile)?;
+        writeln!(stderr)?;
     }
     for tester_compilation in tester_compilations {
-        tester_compilation.run(&mut stdout, &mut stderr, force_compile)?;
-        writeln!(stdout)?;
+        tester_compilation.run::<O, _>(&mut stderr, force_compile)?;
+        writeln!(stderr)?;
     }
     if let Some(solver_transpilation) = solver_transpilation {
-        solver_transpilation.run(&mut stdout, &mut stderr, force_compile)?;
-        writeln!(stdout)?;
+        solver_transpilation.run::<O, _>(&mut stderr, force_compile)?;
+        writeln!(stderr)?;
     }
     if let Some(solver_compilation) = solver_compilation {
-        solver_compilation.run(&mut stdout, &mut stderr, force_compile)?;
-        writeln!(stdout)?;
+        solver_compilation.run::<O, _>(&mut stderr, force_compile)?;
+        writeln!(stderr)?;
     }
 
-    solver.write_info(&mut stdout, &paths_formatted)?;
-    stdout.flush()?;
+    solver.write_info(&mut stderr, &paths_formatted)?;
+    stderr.flush()?;
 
     let solver = Arc::new(solver);
     match cases {

@@ -105,27 +105,35 @@ impl<'de> Deserialize<'de> for ServiceKind {
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/qryxip/snowchains>";
 
 pub(self) trait Service {
-    type Write: WriteAnsi;
+    type Stdout: WriteAnsi;
+    type Stderr: WriteAnsi;
 
-    fn requirements(&mut self) -> (&mut Self::Write, &mut HttpSession, &mut Runtime);
+    fn requirements(
+        &mut self,
+    ) -> (
+        &mut Self::Stdout,
+        &mut Self::Stderr,
+        &mut HttpSession,
+        &mut Runtime,
+    );
 
-    fn get(&mut self, url: &str) -> session::Request<&mut Self::Write> {
-        let (out, sess, runtime) = self.requirements();
-        sess.get(url, out, runtime)
+    fn get(&mut self, url: &str) -> session::Request<&mut Self::Stderr> {
+        let (_, stderr, sess, runtime) = self.requirements();
+        sess.get(url, stderr, runtime)
     }
 
-    fn post(&mut self, url: &str) -> session::Request<&mut Self::Write> {
-        let (out, sess, runtime) = self.requirements();
-        sess.post(url, out, runtime)
+    fn post(&mut self, url: &str) -> session::Request<&mut Self::Stderr> {
+        let (_, stderr, sess, runtime) = self.requirements();
+        sess.post(url, stderr, runtime)
     }
 
     fn open_in_browser(&mut self, url: &str) -> ServiceResult<()> {
-        let (out, sess, _) = self.requirements();
-        sess.open_in_browser(url, out)
+        let (_, stderr, sess, _) = self.requirements();
+        sess.open_in_browser(url, stderr)
     }
 
     fn print_lang_list(&mut self, lang_list: &NonEmptyIndexMap<String, String>) -> io::Result<()> {
-        let (out, _, _) = self.requirements();
+        let (stdout, _, _, _) = self.requirements();
 
         let mut table = Table::new();
         table.add_row(row!["Name", "ID"]);
@@ -133,8 +141,8 @@ pub(self) trait Service {
             table.add_row(row![name, id]);
         }
 
-        write!(out, "{}", table)?;
-        out.flush()
+        write!(stdout, "{}", table)?;
+        stdout.flush()
     }
 }
 

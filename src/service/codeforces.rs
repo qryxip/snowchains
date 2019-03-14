@@ -52,7 +52,7 @@ pub(crate) fn download(
     let download_props = download_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    download_props.print_targets(term.stdout())?;
+    download_props.print_targets(term.stderr())?;
     Codeforces::try_new(sess_props, term)?.download(download_props)
 }
 
@@ -64,7 +64,7 @@ pub(crate) fn restore(
     let restore_props = restore_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    restore_props.print_targets(term.stdout())?;
+    restore_props.print_targets(term.stderr())?;
     Codeforces::try_new(sess_props, term)?.restore(restore_props)
 }
 
@@ -76,7 +76,7 @@ pub(crate) fn submit(
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    submit_props.print_targets(term.stdout())?;
+    submit_props.print_targets(term.stderr())?;
     Codeforces::try_new(sess_props, term)?.submit(submit_props)
 }
 
@@ -88,7 +88,7 @@ pub(crate) fn list_langs(
     let list_langs_props = list_langs_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    list_langs_props.print_targets(term.stdout())?;
+    list_langs_props.print_targets(term.stderr())?;
     Codeforces::try_new(sess_props, term)?.list_langs(list_langs_props)
 }
 
@@ -110,18 +110,27 @@ impl<T: Term> HasTerm for Codeforces<T> {
 }
 
 impl<T: Term> Service for Codeforces<T> {
-    type Write = T::Stdout;
+    type Stdout = T::Stdout;
+    type Stderr = T::Stderr;
 
-    fn requirements(&mut self) -> (&mut T::Stdout, &mut HttpSession, &mut Runtime) {
-        (self.term.stdout(), &mut self.session, &mut self.runtime)
+    fn requirements(
+        &mut self,
+    ) -> (
+        &mut T::Stdout,
+        &mut T::Stderr,
+        &mut HttpSession,
+        &mut Runtime,
+    ) {
+        let (_, stdout, stderr) = self.term.split_mut();
+        (stdout, stderr, &mut self.session, &mut self.runtime)
     }
 }
 
 impl<T: Term> DownloadProgress for Codeforces<T> {
-    type Write = T::Stdout;
+    type Write = T::Stderr;
 
-    fn requirements(&mut self) -> (&mut T::Stdout, &HttpSession, TaskExecutor) {
-        (self.term.stdout(), &self.session, self.runtime.executor())
+    fn requirements(&mut self) -> (&mut T::Stderr, &HttpSession, TaskExecutor) {
+        (self.term.stderr(), &self.session, self.runtime.executor())
     }
 }
 
@@ -251,10 +260,10 @@ impl<T: Term> Codeforces<T> {
             ..
         } in &outcome.problems
         {
-            test_suite.save(name, test_suite_path, self.stdout())?;
+            test_suite.save(name, test_suite_path, self.stderr())?;
             not_found.remove_item_(&name);
         }
-        self.stdout().flush()?;
+        self.stderr().flush()?;
 
         if !not_found.is_empty() {
             self.stderr()
@@ -351,7 +360,7 @@ impl<T: Term> Codeforces<T> {
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
         writeln!(
-            self.stdout(),
+            self.stderr(),
             "Submitting as {:?} (ID: {:?})",
             lang_name,
             lang_id,
