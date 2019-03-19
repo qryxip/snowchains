@@ -3,9 +3,9 @@ use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use std::cmp::Ord;
-
 use std::collections::BTreeMap;
 use std::hash::Hash;
+use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice::{self, SliceIndex};
 use std::vec;
@@ -23,12 +23,20 @@ impl<T> NonEmptyVec<T> {
         }
     }
 
+    pub(crate) fn len(&self) -> NonZeroUsize {
+        NonZeroUsize::new(self.0.len()).unwrap()
+    }
+
     pub(crate) fn last(&self) -> &T {
         self.0.last().unwrap()
     }
 
     pub(crate) fn iter(&self) -> slice::Iter<T> {
         self.0.iter()
+    }
+
+    pub(crate) fn ref_map<B, F: FnMut(&T) -> B>(&self, f: F) -> NonEmptyVec<B> {
+        NonEmptyVec(self.0.iter().map(f).collect())
     }
 
     pub(crate) fn map<B, F: FnMut(T) -> B>(self, f: F) -> NonEmptyVec<B> {
@@ -83,6 +91,15 @@ impl<'a, T> IntoIterator for &'a NonEmptyVec<T> {
 
     fn into_iter(self) -> slice::Iter<'a, T> {
         self.0.iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a mut NonEmptyVec<T> {
+    type Item = &'a mut T;
+    type IntoIter = slice::IterMut<'a, T>;
+
+    fn into_iter(self) -> slice::IterMut<'a, T> {
+        self.0.iter_mut()
     }
 }
 

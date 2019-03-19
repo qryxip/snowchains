@@ -4,17 +4,21 @@ mod text;
 
 use crate::command::JudgingCommand;
 use crate::config::{self, Config};
-use crate::errors::{JudgeErrorKind, JudgeResult};
+use crate::errors::{JudgeError, JudgeErrorKind, JudgeResult};
 use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _};
 use crate::testsuite::{TestCase, TestCases};
+use crate::util::collections::NonEmptyVec;
+use crate::util::lang_unstable::Never;
 
-use futures::{Future, Sink as _, Stream as _};
+use futures::{try_ready, Async, Future, Poll};
 use itertools::Itertools as _;
+use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
+use std::io::{self, Cursor, Write as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::{cmp, fmt, io};
+use std::{cmp, fmt, mem, vec};
 
 pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
     stderr: E,
@@ -39,131 +43,234 @@ pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
 pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeResult<()> {
+    struct Progress<W, S, C, F: Future> {
+        jobs: NonZeroUsize,
+        color: bool,
+        wtr: W,
+        ctrlc: S,
+        content: Cursor<Vec<u8>>,
+        needs_flush: bool,
+        processes: Vec<(String, Process<C, F>)>,
+    }
+
+    impl<W, S, C, F: Future> Progress<W, S, C, F> {
+        fn new(
+            color: bool,
+            wtr: W,
+            ctrlc: S,
+            processes: Vec<(String, Process<C, F>)>,
+            jobs: NonZeroUsize,
+        ) -> Self {
+            Self {
+                jobs,
+                color,
+                wtr,
+                ctrlc,
+                needs_flush: false,
+                content: Cursor::new({
+                    let mut inner = format!("0/{} test finished (0 failure)", processes.len());
+                    if !color {
+                        inner += "\n";
+                    }
+                    inner.into()
+                }),
+                processes,
+            }
+        }
+    }
+
+    impl<
+            W: AsyncWrite,
+            S: Future<Item = Never, Error = JudgeError>,
+            C,
+            F: Future<Error = io::Error>,
+        > Future for Progress<W, S, C, F>
+    where
+        F::Item: Outcome,
+    {
+        type Item = Vec<(String, F::Item)>;
+        type Error = JudgeError;
+
+        fn poll(&mut self) -> Poll<Vec<(String, F::Item)>, JudgeError> {
+            self.ctrlc.poll()?;
+            if self.needs_flush {
+                try_ready!(self.wtr.poll_flush());
+                self.needs_flush = false;
+                if self.processes.iter().all(|(_, p)| p.is_finished()) {
+                    let outcomes = mem::replace(&mut self.processes, vec![])
+                        .into_iter()
+                        .map(|(s, o)| (s, o.finished().unwrap()))
+                        .collect();
+                    return Ok(Async::Ready(outcomes));
+                }
+            }
+            if self.content.position() < self.content.get_ref().len() as u64 {
+                let n = try_ready!(self
+                    .wtr
+                    .poll_write(&self.content.get_ref()[self.content.position() as usize..]));
+                self.content
+                    .set_position(self.content.position() + n as u64);
+                if self.content.position() >= self.content.get_ref().len() as u64 {
+                    self.content.set_position(0);
+                    self.content.get_mut().clear();
+                    self.needs_flush = true;
+                }
+            }
+            let num_cases = self.processes.len();
+            let mut num_finished = 0;
+            let mut num_failures = 0;
+            let mut jobs = self.jobs.get();
+            let mut newly_finished = false;
+            for (_, process) in &mut self.processes {
+                let mut next = None;
+                if jobs > 0 {
+                    match process {
+                        Process::NotRunning(f, case, cmd) => {
+                            next = Some(Process::Running(f(&case, &cmd)?));
+                            jobs -= 1;
+                        }
+                        Process::Running(fut) => {
+                            if let Async::Ready(outcome) = fut.poll()? {
+                                next = Some(Process::Finished(outcome));
+                                newly_finished = true;
+                            } else {
+                                jobs -= 1;
+                            }
+                        }
+                        Process::Finished(_) => {}
+                    }
+                }
+                if let Some(next) = next {
+                    *process = next;
+                }
+                if let Process::Finished(outcome) = process {
+                    num_finished += 1;
+                    if outcome.failure() {
+                        num_failures += 1;
+                    }
+                }
+            }
+            if newly_finished {
+                if self.color {
+                    self.content
+                        .get_mut()
+                        .extend_from_slice(match num_failures {
+                            0 => b"\x1b[0G\x1b[2K\x1b[38;5;10m",
+                            _ => b"\x1b[0G\x1b[2K\x1b[38;5;9m",
+                        });
+                }
+                write!(
+                    self.content.get_mut(),
+                    "{}/{} {} finished ({})",
+                    num_finished,
+                    num_cases,
+                    if num_finished > 1 { "tests" } else { "test" },
+                    plural!(num_failures, "failure", "failures"),
+                )
+                .unwrap();
+                self.content.get_mut().extend_from_slice(
+                    if self.color && num_cases == num_finished {
+                        b"\x1b[0m\n"
+                    } else if self.color {
+                        b"\x1b[0m"
+                    } else {
+                        b"\n"
+                    },
+                );
+            }
+            Ok(Async::NotReady)
+        }
+    }
+
+    enum Process<C, F: Future> {
+        NotRunning(
+            fn(&C, &Arc<JudgingCommand>) -> JudgeResult<F>,
+            C,
+            Arc<JudgingCommand>,
+        ),
+        Running(F),
+        Finished(F::Item),
+    }
+
+    impl<C, F: Future> Process<C, F> {
+        fn is_finished(&self) -> bool {
+            match self {
+                Process::Finished(_) => true,
+                _ => false,
+            }
+        }
+
+        fn finished(self) -> Option<F::Item> {
+            match self {
+                Process::Finished(item) => Some(item),
+                _ => None,
+            }
+        }
+    }
+
     fn judge_all<
-        C: TestCase,
-        R: Outcome + Send + 'static,
-        F: Future<Item = R, Error = io::Error> + Send + 'static,
+        O: TermOut,
+        E: TermOut,
+        C: TestCase + Send + 'static,
+        F: Future<Error = io::Error> + Send + 'static,
     >(
-        mut stdout: impl TermOut,
-        mut stderr: impl TermOut,
+        mut stdout: O,
+        mut stderr: E,
         jobs: NonZeroUsize,
         display_limit: Option<usize>,
-        cases: Vec<C>,
+        cases: NonEmptyVec<C>,
         solver: &Arc<JudgingCommand>,
         judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<F>,
-    ) -> JudgeResult<()> {
+    ) -> JudgeResult<()>
+    where
+        F::Item: Outcome + Send + 'static,
+    {
         let num_cases = cases.len();
-        let names = cases.iter().map(|c| c.name()).collect::<Vec<_>>();
+        let names = cases.ref_map(|c| c.name());
         let name_max_width = names.iter().map(|s| stderr.str_width(s)).max().unwrap_or(0);
 
-        let mut cases = names
-            .into_iter()
-            .zip_eq(cases)
-            .enumerate()
-            .map(|(i, (name, case))| (i, name, case));
-
-        let (tx, rx) = futures::sync::mpsc::channel(num_cases);
         let mut runtime = Runtime::new()?;
-        {
-            let tx = tx.clone();
-            runtime.spawn(crate::signal::ctrl_c().then(move |r| {
-                let (dummy_i, dummy_name) = (num_cases, Arc::new("".to_owned()));
-                let _ = tx.send((dummy_i, dummy_name, r)).wait();
-                Ok(())
-            }));
-        }
-        for _ in 0..jobs.get() {
-            spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge)?;
-        }
-        write!(stderr, "0/{} test finished (0 failure)", num_cases)?;
-        if !stderr.supports_color() {
-            writeln!(stderr)?;
-        }
-        stderr.flush()?;
-        let (mut num_finished, mut num_failures) = (0, 0);
-        let mut outcomes = rx
-            .take(num_cases as u64)
-            .then::<_, JudgeResult<_>>(|r| {
-                let (i, name, r) = r.unwrap();
-                let outcome = r?;
-                num_finished += 1;
-                if outcome.failure() {
-                    num_failures += 1;
-                }
-                if stderr.supports_color() {
-                    stderr.write_str("\x1b[0G\x1b[2K")?;
-                }
-                let color = match num_failures {
-                    0 => 10,
-                    _ => 9,
-                };
-                stderr.with_reset(|o| {
-                    write!(
-                        o.fg(color)?,
-                        "{}/{} {} finished ({})",
-                        num_finished,
-                        num_cases,
-                        if num_finished > 1 { "tests" } else { "test" },
-                        plural!(num_failures, "failure", "failures"),
+        let progress = Progress::new(
+            stderr.supports_color(),
+            E::async_wtr(),
+            crate::signal::ctrl_c(),
+            names
+                .into_iter()
+                .zip_eq(cases)
+                .map(|(name, case)| {
+                    (
+                        String::clone(&name),
+                        Process::NotRunning(judge, case, solver.clone()),
                     )
-                })?;
-                if !stderr.supports_color() {
-                    writeln!(stderr)?;
-                }
-                stderr.flush()?;
-                spawn_head(&mut cases, &mut runtime, tx.clone(), solver, judge)?;
-                Ok((i, name, outcome))
-            })
-            .collect()
-            .wait()?;
-        if stderr.supports_color() {
-            writeln!(stderr)?;
-            stderr.flush()?;
-        }
-        outcomes.sort_by_key(|(i, _, _)| *i);
+                })
+                .collect(),
+            jobs,
+        );
+        let outcomes = runtime.block_on(progress)?;
         let _ = runtime.shutdown_now().wait();
 
-        if num_failures == 0 {
-            for (i, name, outcome) in outcomes {
-                outcome.print_title(&mut stdout, i + 1, num_cases, &name, Some(name_max_width))?;
-            }
-            stdout.flush()?;
-            writeln!(
-                stderr,
-                "All of the {} passed.",
-                plural!(num_cases, "test", "tests")
-            )?;
-            stderr.flush()?;
-            Ok(())
-        } else {
-            for (i, name, outcome) in outcomes {
+        let num_failures = outcomes.iter().filter(|(_, o)| o.failure()).count();
+        if let Some(num_failures) = NonZeroUsize::new(num_failures) {
+            for (i, (name, outcome)) in outcomes.into_iter().enumerate() {
                 writeln!(stdout)?;
                 outcome.print_title(&mut stdout, i + 1, num_cases, &name, None)?;
                 outcome.print_details(display_limit, &mut stdout)?;
             }
             stdout.flush()?;
             Err(JudgeErrorKind::TestFailed(num_failures, num_cases).into())
+        } else {
+            for (i, (name, outcome)) in outcomes.into_iter().enumerate() {
+                outcome.print_title(&mut stdout, i + 1, num_cases, &name, Some(name_max_width))?;
+            }
+            stdout.flush()?;
+            writeln!(
+                stderr,
+                "All of the {} passed.",
+                plural!(num_cases.get(), "test", "tests")
+            )?;
+            stderr.flush()?;
+            Ok(())
         }
-    }
-
-    fn spawn_head<
-        C: TestCase,
-        R: Outcome + Send + 'static,
-        F: Future<Item = R, Error = io::Error> + Send + 'static,
-    >(
-        mut cases: impl Iterator<Item = (usize, Arc<String>, C)>,
-        runtime: &mut Runtime,
-        tx: futures::sync::mpsc::Sender<(usize, Arc<String>, JudgeResult<R>)>,
-        solver: &Arc<JudgingCommand>,
-        judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<F>,
-    ) -> JudgeResult<()> {
-        if let Some((i, name, case)) = cases.next() {
-            runtime.spawn(judge(&case, solver)?.then(move |r| {
-                let _ = tx.send((i, name, r.map_err(Into::into))).wait(); // `rx` may be dropped
-                Ok(())
-            }));
-        }
-        Ok(())
     }
 
     let JudgeParams {
@@ -282,6 +389,12 @@ impl DisplayableNum for usize {
             r += 1;
         }
         r
+    }
+}
+
+impl DisplayableNum for NonZeroUsize {
+    fn num_digits(self) -> usize {
+        self.get().num_digits()
     }
 }
 

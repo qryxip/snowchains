@@ -23,7 +23,7 @@ use reqwest::{header, StatusCode};
 use select::document::Document;
 use select::predicate::{Predicate as _, Text};
 use serde_derive::Deserialize;
-use tokio::runtime::{Runtime, TaskExecutor};
+use tokio::runtime::Runtime;
 use url::Url;
 
 use std::borrow::Cow;
@@ -111,8 +111,8 @@ impl<T: Term> Service for Yukicoder<T> {
 impl<T: Term> DownloadProgress for Yukicoder<T> {
     type Write = T::Stderr;
 
-    fn requirements(&mut self) -> (&mut T::Stderr, &HttpSession, TaskExecutor) {
-        (self.term.stderr(), &self.session, self.runtime.executor())
+    fn requirements(&mut self) -> (&mut T::Stderr, &HttpSession, &mut Runtime) {
+        (self.term.stderr(), &self.session, &mut self.runtime)
     }
 }
 

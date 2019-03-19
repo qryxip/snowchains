@@ -4,20 +4,19 @@ use crate::terminal::{TermOut, WriteAnsi as _};
 use crate::util::lang_unstable::Never;
 
 use failure::ResultExt as _;
-use futures::sync::mpsc::UnboundedSender;
-use futures::sync::oneshot;
-use futures::{task, Async, Future, Poll, Stream as _};
+use futures::{task, try_ready, Async, Future, Poll, Stream as _};
 use reqwest::{header, StatusCode};
-use tokio::runtime::TaskExecutor;
+use tokio::io::AsyncWrite;
+use tokio::runtime::Runtime;
 
-use std::io::{self, Write};
+use std::io::{self, Cursor, Write as _};
 use std::time::{Duration, Instant};
 use std::{char, mem};
 
 pub(super) trait DownloadProgress {
     type Write: TermOut;
 
-    fn requirements(&mut self) -> (&mut Self::Write, &HttpSession, TaskExecutor);
+    fn requirements(&mut self) -> (&mut Self::Write, &HttpSession, &mut Runtime);
 
     /// # Panics
     ///
@@ -45,168 +44,74 @@ pub(super) trait DownloadProgress {
             (name_len, names)
         }
 
-        fn write_size(mut out: impl Write, n: usize) -> io::Result<()> {
-            if n >= 0x70_000_000 {
-                write!(
-                    out,
-                    "{}.{} GiB",
-                    n / 0x70_000_000,
-                    (n % 0x70_000_000) / 0xb_333_334,
-                )
-            } else if n >= 0x100_000 {
-                write!(
-                    out,
-                    "{:>4}.{} MiB",
-                    n / 0x100_000,
-                    (n % 0x100_000) / 0x20000
-                )
-            } else if n >= 0x400 {
-                write!(out, "{:>4}.{} KiB", n / 0x400, (n % 0x400) / 0x67)
-            } else {
-                write!(out, "  {:>4} B  ", n)
-            }
-        }
-
-        let (mut out, session, executor) = self.requirements();
+        let (out, session, runtime) = self.requirements();
         let client = session.client();
         let cookie = session.cookies_to_header_value()?;
-        let (write_order_tx, write_order_rx) = futures::sync::mpsc::unbounded();
-        let oneshot_handle = oneshot::spawn(
-            Downloading {
-                ctrlc: crate::signal::ctrl_c(),
-                write_order_tx,
-                progresses: match alt_reqs {
-                    None => urls
-                        .iter()
-                        .map(|url| {
-                            let mut req = client.get(url.as_ref());
-                            if let Some(cookie) = &cookie {
-                                req = req.header(header::COOKIE, cookie.clone());
-                            }
-                            Progress::Response(req.send())
-                        })
-                        .collect(),
-                    Some(reqs) => reqs
-                        .into_iter()
-                        .map(|r| Progress::Response(r.send()))
-                        .collect(),
-                },
-                last_refreshed: None,
-                min_refresh_interval: Duration::from_millis(100),
-                started: Instant::now(),
-            },
-            &executor,
-        );
-
         const ALT_COLUMNS: usize = 100;
-
-        let (name_len, names) = {
+        let names = {
             let (url_len, urls) = align(urls, out.str_width_fn());
             if out.columns().unwrap_or(ALT_COLUMNS) < url_len + 63 {
-                align(alt_names, out.str_width_fn())
+                let (_, names) = align(alt_names, out.str_width_fn());
+                names
             } else {
-                (url_len, urls)
+                urls
             }
         };
         let cjk = out.char_width_or_zero('\u{2588}') == 2;
-        let bar_size = if cjk { 42 } else { 22 };
-
-        write_order_rx
-            .then(|order| {
-                // TODO: SIGWINCH
-                if !out.supports_color() {
-                    return Ok(());
-                }
-                let columns = out.columns().unwrap_or(ALT_COLUMNS);
-                match &order.unwrap() {
-                    WriteOrder::CursorUp(0) => write!(out, "\x1b[0G"),
-                    WriteOrder::CursorUp(n) => write!(out, "\x1b[{}F", n),
-                    WriteOrder::NextLine => write!(out, "\x1b[1E"),
-                    WriteOrder::KillLine => write!(out, "\x1b[2K"),
-                    WriteOrder::Lf => writeln!(out),
-                    WriteOrder::WaitingResponse(i) if columns >= name_len + 21 => {
-                        write!(out, "\x1b[1m{}\x1b[0m  Waiting response...", names[*i])
+        let progresses = match alt_reqs {
+            None => names
+                .into_iter()
+                .zip(urls)
+                .map(|(name, url)| {
+                    let mut req = client.get(url.as_ref());
+                    if let Some(cookie) = &cookie {
+                        req = req.header(header::COOKIE, cookie.clone());
                     }
-                    WriteOrder::SizeUnknown(i, t, n) if columns >= name_len + bar_size + 19 => {
-                        write!(out, "\x1b[1m{}\x1b[0m  ???% ", names[*i])?;
-                        out.write_str(if cjk {
-                            "[                                        ] "
-                        } else {
-                            "[                    ] "
-                        })?;
-                        write_size(&mut out, *n)?;
-                        out.write_str(" ")?;
-                        write!(out, "{:<02}:{:<02}", t.as_secs() / 60, t.as_secs() % 60)
-                    }
-                    WriteOrder::SizeKnown(i, t, n, d) if columns >= name_len + bar_size + 19 => {
-                        write!(out, "\x1b[1m{}\x1b[0m  {:>3}% [", names[*i], 100 * n / d)?;
-                        let p = (160 * n / d) as u32;
-                        for i in 0..20 {
-                            if p <= 8 * i && cjk {
-                                out.write_str("  ")
-                            } else if p <= 8 * i {
-                                out.write_str(" ")
-                            } else if p >= 8 * (i + 1) {
-                                out.write_str("\u{2588}")
-                            } else {
-                                let c = char::from_u32(0x2590 - ((p - 8 * i) % 8)).unwrap();
-                                write!(out, "{}", c)
-                            }?;
-                        }
-                        out.write_str("] ")?;
-                        write_size(&mut out, *n)?;
-                        out.write_str(" ")?;
-                        write!(out, "{:<02}:{:<02}", t.as_secs() / 60, t.as_secs() % 60)
-                    }
-                    WriteOrder::Finished(i, t, l) if columns >= name_len + bar_size + 19 => {
-                        write!(
-                            out,
-                            "\x1b[1m{}\x1b[0m  100% [\
-                             \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\
-                             \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\
-                             \u{2588}\u{2588}\u{2588}\u{2588}] ",
-                            names[*i],
-                        )?;
-                        write_size(&mut out, *l)?;
-                        out.write_str(" ")?;
-                        write!(out, "{:<02}:{:<02}", t.as_secs() / 60, t.as_secs() % 60)
-                    }
-                    WriteOrder::Flush => out.flush(),
-                    _ if columns >= 3 => write!(out, "..."),
-                    _ => Ok(()),
-                }
-            })
-            .collect()
-            .wait()?;
+                    (name, Progress::Response(req.send()))
+                })
+                .collect(),
+            Some(reqs) => names
+                .into_iter()
+                .zip(reqs)
+                .map(|(s, r)| (s, Progress::Response(r.send())))
+                .collect(),
+        };
+        let (contents, remaining) = if out.supports_color() {
+            runtime.block_on(Downloading::new(
+                crate::signal::ctrl_c(),
+                Self::Write::async_wtr(),
+                progresses,
+                cjk,
+            ))
+        } else {
+            runtime.block_on(Downloading::new(
+                crate::signal::ctrl_c(),
+                io::sink(),
+                progresses,
+                cjk,
+            ))
+        }?;
+        out.write_all(&remaining)?;
         writeln!(out)?;
         out.flush()?;
-
-        oneshot_handle.wait()
+        Ok(contents)
     }
-}
-
-enum WriteOrder {
-    CursorUp(usize),
-    NextLine,
-    KillLine,
-    Lf,
-    WaitingResponse(usize),
-    SizeUnknown(usize, Duration, usize),
-    SizeKnown(usize, Duration, usize, usize),
-    Finished(usize, Duration, usize),
-    Flush,
 }
 
 struct Downloading<
     C: Future<Item = Never, Error = ServiceError> + Send + 'static,
+    W: AsyncWrite,
     R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
 > {
     ctrlc: C,
-    write_order_tx: UnboundedSender<WriteOrder>,
-    progresses: Vec<Progress<R>>,
+    wtr: W,
+    writing: Cursor<Vec<u8>>,
+    needs_flush: bool,
+    progresses: Vec<(String, Progress<R>)>,
     last_refreshed: Option<Instant>,
     min_refresh_interval: Duration,
     started: Instant,
+    cjk: bool,
 }
 
 enum Progress<R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static>
@@ -224,13 +129,159 @@ struct ProgressPending {
 
 impl<
         C: Future<Item = Never, Error = ServiceError> + Send + 'static,
+        W: AsyncWrite,
         R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
-    > Future for Downloading<C, R>
+    > Downloading<C, W, R>
 {
-    type Item = Vec<Vec<u8>>;
+    fn new(ctrlc: C, wtr: W, progresses: Vec<(String, Progress<R>)>, cjk: bool) -> Self {
+        Self {
+            ctrlc,
+            wtr,
+            writing: Cursor::new(Vec::with_capacity(1024)),
+            needs_flush: false,
+            progresses,
+            last_refreshed: None,
+            min_refresh_interval: Duration::from_millis(100),
+            started: Instant::now(),
+            cjk,
+        }
+    }
+
+    fn render(&mut self, elapsed: Duration) {
+        fn write_size(wtr: &mut Vec<u8>, n: usize) {
+            if n >= 0x70_000_000 {
+                write!(
+                    wtr,
+                    "{}.{} GiB",
+                    n / 0x70_000_000,
+                    (n % 0x70_000_000) / 0xb_333_334,
+                )
+            } else if n >= 0x100_000 {
+                write!(
+                    wtr,
+                    "{:>4}.{} MiB",
+                    n / 0x100_000,
+                    (n % 0x100_000) / 0x20000
+                )
+            } else if n >= 0x400 {
+                write!(wtr, "{:>4}.{} KiB", n / 0x400, (n % 0x400) / 0x67)
+            } else {
+                write!(wtr, "  {:>4} B  ", n)
+            }
+            .unwrap();
+        }
+
+        for (i, (name, progress)) in self.progresses.iter().enumerate() {
+            if self.last_refreshed.is_some() {
+                self.writing.get_mut().extend_from_slice(b"\x1b[2K");
+            }
+            match progress {
+                Progress::Response(_) => {
+                    write!(
+                        self.writing.get_mut(),
+                        "\x1b[1m{}\x1b[0m  Waiting response...",
+                        name,
+                    )
+                    .unwrap();
+                }
+                Progress::Body(progress) => match (progress.buf.len(), progress.content_len) {
+                    (n, None) => {
+                        write!(self.writing.get_mut(), "\x1b[1m{}\x1b[0m  ???% ", name).unwrap();
+                        self.writing.get_mut().extend_from_slice(if self.cjk {
+                            b"[                                        ] "
+                        } else {
+                            b"[                    ] "
+                        });
+                        write_size(self.writing.get_mut(), n);
+                        self.writing.get_mut().push(b' ');
+                        write!(
+                            self.writing,
+                            "{:<02}:{:<02}",
+                            elapsed.as_secs() / 60,
+                            elapsed.as_secs() % 60,
+                        )
+                        .unwrap();
+                    }
+                    (n, Some(d)) => {
+                        write!(
+                            self.writing.get_mut(),
+                            "\x1b[1m{}\x1b[0m  {:>3}% [",
+                            name,
+                            100 * n / d
+                        )
+                        .unwrap();
+                        let p = (160 * n / d) as u32;
+                        for i in 0..20 {
+                            if p <= 8 * i && self.cjk {
+                                self.writing.get_mut().extend_from_slice(b"  ");
+                            } else if p <= 8 * i {
+                                self.writing.get_mut().extend_from_slice(b" ");
+                            } else if p >= 8 * (i + 1) {
+                                self.writing
+                                    .get_mut()
+                                    .extend_from_slice("\u{2588}".as_bytes());
+                            } else {
+                                let c = char::from_u32(0x2590 - ((p - 8 * i) % 8)).unwrap();
+                                write!(self.writing.get_mut(), "{}", c).unwrap()
+                            }
+                        }
+                        self.writing.get_mut().extend_from_slice(b"] ");
+                        write_size(self.writing.get_mut(), n);
+                        self.writing.get_mut().push(b' ');
+                        write!(
+                            self.writing.get_mut(),
+                            "{:<02}:{:<02}",
+                            elapsed.as_secs() / 60,
+                            elapsed.as_secs() % 60,
+                        )
+                        .unwrap();
+                    }
+                },
+                Progress::Finished { buf, time } => {
+                    let out = self.writing.get_mut();
+                    write!(
+                        out,
+                        "\x1b[1m{}\x1b[0m  100% [\
+                         \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\
+                         \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\
+                         \u{2588}\u{2588}\u{2588}\u{2588}] ",
+                        name,
+                    )
+                    .unwrap();
+                    write_size(out, buf.len());
+                    out.push(b' ');
+                    write!(
+                        out,
+                        "{:<02}:{:<02}",
+                        time.as_secs() / 60,
+                        time.as_secs() % 60
+                    )
+                    .unwrap();
+                }
+            }
+            if i + 1 < self.progresses.len() {
+                self.writing
+                    .get_mut()
+                    .extend_from_slice(if self.last_refreshed.is_some() {
+                        b"\x1b[1E"
+                    } else {
+                        b"\n"
+                    });
+            }
+        }
+    }
+}
+
+impl<
+        C: Future<Item = Never, Error = ServiceError> + Send + 'static,
+        W: AsyncWrite,
+        R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
+    > Future for Downloading<C, W, R>
+{
+    type Item = (Vec<Vec<u8>>, Vec<u8>);
     type Error = ServiceError;
 
-    fn poll(&mut self) -> Poll<Vec<Vec<u8>>, ServiceError> {
+    fn poll(&mut self) -> Poll<(Vec<Vec<u8>>, Vec<u8>), ServiceError> {
         #[derive(PartialEq, Clone, Copy)]
         enum Status {
             AllFinished,
@@ -239,8 +290,30 @@ impl<
         }
 
         self.ctrlc.poll()?;
+        if self.needs_flush {
+            try_ready!(self.wtr.poll_flush());
+            self.needs_flush = false;
+        }
+        if self.writing.position() < self.writing.get_ref().len() as u64 {
+            let n = try_ready!(self
+                .wtr
+                .poll_write(&self.writing.get_ref()[self.writing.position() as usize..]))
+                as u64;
+            self.writing.set_position(self.writing.position() + n);
+            if self.writing.position() >= self.writing.get_ref().len() as u64 {
+                self.writing.get_mut().clear();
+                self.writing.set_position(0);
+                match self.wtr.poll_flush()? {
+                    Async::Ready(()) => {}
+                    Async::NotReady => {
+                        self.needs_flush = true;
+                        return Ok(Async::NotReady);
+                    }
+                }
+            }
+        }
         let (mut any_not_ready, mut any_ready_some) = (false, false);
-        for progress in &mut self.progresses {
+        for (_, progress) in &mut self.progresses {
             let next = match progress {
                 Progress::Response(pending) => match pending.poll()? {
                     Async::NotReady => {
@@ -313,36 +386,12 @@ impl<
             });
         if start_refresh {
             if self.last_refreshed.is_some() {
-                let order = WriteOrder::CursorUp(self.progresses.len() - 1);
-                self.write_order_tx.unbounded_send(order).unwrap();
-            }
-            let elapsed = now - self.started;
-            for (i, progress) in self.progresses.iter().enumerate() {
-                if self.last_refreshed.is_some() {
-                    let order = WriteOrder::KillLine;
-                    self.write_order_tx.unbounded_send(order).unwrap();
-                }
-                let order = match progress {
-                    Progress::Response(_) => WriteOrder::WaitingResponse(i),
-                    Progress::Body(progress) => match (progress.buf.len(), progress.content_len) {
-                        (n, None) => WriteOrder::SizeUnknown(i, elapsed, n),
-                        (n, Some(d)) => WriteOrder::SizeKnown(i, elapsed, n, d),
-                    },
-                    Progress::Finished { buf, time } => WriteOrder::Finished(i, *time, buf.len()),
-                };
-                self.write_order_tx.unbounded_send(order).unwrap();
-                if i + 1 < self.progresses.len() {
-                    let order = if self.last_refreshed.is_some() {
-                        WriteOrder::NextLine
-                    } else {
-                        WriteOrder::Lf
-                    };
-                    self.write_order_tx.unbounded_send(order).unwrap();
+                match self.progresses.len() - 1 {
+                    0 => self.writing.get_mut().extend_from_slice(b"\x1b[0G"),
+                    n => write!(self.writing.get_mut(), "\x1b[{}F", n).unwrap(),
                 }
             }
-            self.write_order_tx
-                .unbounded_send(WriteOrder::Flush)
-                .unwrap();
+            self.render(now - self.started);
             self.last_refreshed = Some(now);
         }
         match status {
@@ -351,15 +400,16 @@ impl<
                 task::current().notify();
                 Ok(Async::NotReady)
             }
-            Status::AllFinished => Ok(Async::Ready(
+            Status::AllFinished => Ok(Async::Ready((
                 self.progresses
                     .iter_mut()
-                    .map(|progress| match progress {
+                    .map(|(_, progress)| match progress {
                         Progress::Response(_) | Progress::Body(_) => unreachable!(),
                         Progress::Finished { buf, .. } => mem::replace(buf, vec![]),
                     })
                     .collect(),
-            )),
+                mem::replace(self.writing.get_mut(), vec![]),
+            ))),
         }
     }
 }

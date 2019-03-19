@@ -28,7 +28,7 @@ use select::document::Document;
 use select::predicate::{Predicate, Text};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
-use tokio::runtime::{Runtime, TaskExecutor};
+use tokio::runtime::Runtime;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -152,8 +152,8 @@ impl<T: Term> Service for Atcoder<T> {
 impl<T: Term> DownloadProgress for Atcoder<T> {
     type Write = T::Stderr;
 
-    fn requirements(&mut self) -> (&mut T::Stderr, &HttpSession, TaskExecutor) {
-        (self.term.stderr(), &self.session, self.runtime.executor())
+    fn requirements(&mut self) -> (&mut T::Stderr, &HttpSession, &mut Runtime) {
+        (self.term.stderr(), &self.session, &mut self.runtime)
     }
 }
 

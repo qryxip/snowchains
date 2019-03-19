@@ -1,6 +1,7 @@
 use crate::config;
 
 use strum_macros::EnumString;
+use tokio::io::AsyncWrite;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use std::io::{self, BufRead as _, BufWriter, Read, Stderr, Stdin, StdinLock, StdoutLock, Write};
@@ -190,6 +191,10 @@ impl<'a, W: TermOut + ?Sized> TermOut for &'a mut W {
 }
 
 pub trait StandardOutput: Write {
+    type AsyncWrite: AsyncWrite + Send + 'static;
+
+    fn async_wtr() -> Self::AsyncWrite;
+
     fn process_redirection() -> process::Stdio;
 
     fn is_tty() -> bool;
@@ -213,6 +218,12 @@ pub trait StandardOutput: Write {
 }
 
 impl<W: StandardOutput> StandardOutput for BufWriter<W> {
+    type AsyncWrite = W::AsyncWrite;
+
+    fn async_wtr() -> W::AsyncWrite {
+        W::async_wtr()
+    }
+
     fn process_redirection() -> process::Stdio {
         W::process_redirection()
     }
@@ -234,6 +245,12 @@ impl<W: StandardOutput> StandardOutput for BufWriter<W> {
 }
 
 impl StandardOutput for StdoutLock<'_> {
+    type AsyncWrite = BufWriter<tokio::io::Stdout>;
+
+    fn async_wtr() -> BufWriter<tokio::io::Stdout> {
+        BufWriter::new(tokio::io::stdout())
+    }
+
     fn process_redirection() -> process::Stdio {
         process::Stdio::inherit()
     }
@@ -255,6 +272,12 @@ impl StandardOutput for StdoutLock<'_> {
 }
 
 impl StandardOutput for Stderr {
+    type AsyncWrite = BufWriter<tokio::io::Stderr>;
+
+    fn async_wtr() -> BufWriter<tokio::io::Stderr> {
+        BufWriter::new(tokio::io::stderr())
+    }
+
     fn process_redirection() -> process::Stdio {
         process::Stdio::inherit()
     }
@@ -276,6 +299,12 @@ impl StandardOutput for Stderr {
 }
 
 impl StandardOutput for Vec<u8> {
+    type AsyncWrite = io::Sink;
+
+    fn async_wtr() -> io::Sink {
+        io::sink()
+    }
+
     fn process_redirection() -> process::Stdio {
         process::Stdio::null()
     }
@@ -297,6 +326,12 @@ impl StandardOutput for Vec<u8> {
 }
 
 impl StandardOutput for io::Sink {
+    type AsyncWrite = Self;
+
+    fn async_wtr() -> Self {
+        io::sink()
+    }
+
     fn process_redirection() -> process::Stdio {
         process::Stdio::null()
     }
@@ -318,6 +353,10 @@ impl StandardOutput for io::Sink {
 }
 
 pub trait WriteAnsi: Write + Sized {
+    type AsyncWrite: AsyncWrite + Send + 'static;
+
+    fn async_wtr() -> Self::AsyncWrite;
+
     fn supports_color(&self) -> bool;
 
     #[inline]
@@ -392,6 +431,12 @@ fn write_color<W: WriteAnsi>(mut wtr: W, code: u8, fg: bool) -> io::Result<()> {
 }
 
 impl<'a, W: WriteAnsi> WriteAnsi for &'a mut W {
+    type AsyncWrite = W::AsyncWrite;
+
+    fn async_wtr() -> W::AsyncWrite {
+        W::async_wtr()
+    }
+
     #[inline]
     fn supports_color(&self) -> bool {
         (**self).supports_color()
@@ -552,6 +597,12 @@ impl<W: StandardOutput> Write for TermOutImpl<W> {
 }
 
 impl<W: StandardOutput> WriteAnsi for TermOutImpl<W> {
+    type AsyncWrite = W::AsyncWrite;
+
+    fn async_wtr() -> W::AsyncWrite {
+        W::async_wtr()
+    }
+
     #[inline]
     fn supports_color(&self) -> bool {
         self.supports_color
@@ -672,6 +723,12 @@ impl<W: Write> Write for Ansi<W> {
 
 #[cfg(test)]
 impl<W: Write> WriteAnsi for Ansi<W> {
+    type AsyncWrite = io::Sink;
+
+    fn async_wtr() -> io::Sink {
+        io::sink()
+    }
+
     fn supports_color(&self) -> bool {
         true
     }

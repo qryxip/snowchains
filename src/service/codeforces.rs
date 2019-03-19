@@ -4,7 +4,6 @@ use crate::errors::{
     ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceError,
     ServiceErrorKind, ServiceResult,
 };
-use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps,
@@ -31,7 +30,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha512};
-use tokio::runtime::{Runtime, TaskExecutor};
+use tokio::runtime::Runtime;
 use url::Url;
 
 use std::borrow::Cow;
@@ -123,14 +122,6 @@ impl<T: Term> Service for Codeforces<T> {
     ) {
         let (_, stdout, stderr) = self.term.split_mut();
         (stdout, stderr, &mut self.session, &mut self.runtime)
-    }
-}
-
-impl<T: Term> DownloadProgress for Codeforces<T> {
-    type Write = T::Stderr;
-
-    fn requirements(&mut self) -> (&mut T::Stderr, &HttpSession, TaskExecutor) {
-        (self.term.stderr(), &self.session, self.runtime.executor())
     }
 }
 
