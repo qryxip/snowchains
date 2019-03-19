@@ -354,7 +354,7 @@ working_directory = "${{service}}/${{snake_case(contest)}}/hs"
 
 [languages.haskell.names]
 atcoder = "Haskell (GHC 7.10.3)"
-codeforces = "Haskell GHC 7.8.3 (2014.2.0.0)"
+codeforces = "Haskell GHC 8.6.3"
 yukicoder = "Haskell (8.6.2)"
 
 [languages.bash]
