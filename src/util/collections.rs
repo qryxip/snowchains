@@ -1,4 +1,5 @@
 use indexmap::IndexMap;
+use itertools::Itertools as _;
 use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -35,8 +36,25 @@ impl<T> NonEmptyVec<T> {
         self.0.iter()
     }
 
+    /// # Panics
+    ///
+    /// Panics if `self.len() != other.count()`.
+    pub(crate) fn zip_eq<I: IntoIterator>(self, other: I) -> NonEmptyVec<(T, I::Item)> {
+        NonEmptyVec(self.into_iter().zip_eq(other).collect())
+    }
+
     pub(crate) fn ref_map<B, F: FnMut(&T) -> B>(&self, f: F) -> NonEmptyVec<B> {
         NonEmptyVec(self.0.iter().map(f).collect())
+    }
+
+    pub(crate) fn enumerate_map<B, F: FnMut(usize, T) -> B>(self, mut f: F) -> NonEmptyVec<B> {
+        NonEmptyVec(
+            self.0
+                .into_iter()
+                .enumerate()
+                .map(|(i, x)| f(i, x))
+                .collect(),
+        )
     }
 
     pub(crate) fn map<B, F: FnMut(T) -> B>(self, f: F) -> NonEmptyVec<B> {
@@ -51,6 +69,12 @@ impl<T> NonEmptyVec<T> {
 impl<T: Default> Default for NonEmptyVec<T> {
     fn default() -> Self {
         NonEmptyVec(vec![T::default()])
+    }
+}
+
+impl<T> Into<Vec<T>> for NonEmptyVec<T> {
+    fn into(self) -> Vec<T> {
+        self.0
     }
 }
 

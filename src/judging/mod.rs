@@ -10,15 +10,15 @@ use crate::testsuite::{TestCase, TestCases};
 use crate::util::collections::NonEmptyVec;
 use crate::util::lang_unstable::Never;
 
-use futures::{try_ready, Async, Future, Poll};
-use itertools::Itertools as _;
+use futures::{task, try_ready, Async, Future, Poll};
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
+use std::fmt::{self, Write as _};
 use std::io::{self, Cursor, Write as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::{cmp, fmt, mem, vec};
+use std::{cmp, mem, vec};
 
 pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
     stderr: E,
@@ -42,7 +42,7 @@ pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
 /// # Errors
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
-pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeResult<()> {
+pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResult<()> {
     struct Progress<W, S, C, F: Future> {
         jobs: NonZeroUsize,
         color: bool,
@@ -50,7 +50,7 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeR
         ctrlc: S,
         content: Cursor<Vec<u8>>,
         needs_flush: bool,
-        processes: Vec<(String, Process<C, F>)>,
+        processes: Vec<(Title, Process<C, F>)>, // non-empty until `Finished`
     }
 
     impl<W, S, C, F: Future> Progress<W, S, C, F> {
@@ -58,7 +58,7 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeR
             color: bool,
             wtr: W,
             ctrlc: S,
-            processes: Vec<(String, Process<C, F>)>,
+            processes: NonEmptyVec<(Title, Process<C, F>)>,
             jobs: NonZeroUsize,
         ) -> Self {
             Self {
@@ -68,13 +68,21 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeR
                 ctrlc,
                 needs_flush: false,
                 content: Cursor::new({
-                    let mut inner = format!("0/{} test finished (0 failure)", processes.len());
-                    if !color {
-                        inner += "\n";
+                    let mut inner = "".to_owned();
+                    if color {
+                        for (i, (title, _)) in processes.iter().enumerate() {
+                            write!(inner, "\x1b[1m{}\x1b[0m Running...", title.with_padding)
+                                .unwrap();
+                            if i + 1 < processes.len().get() {
+                                inner.push('\n');
+                            }
+                        }
+                    } else {
+                        inner = format!("0/{} test finished (0 failure)\n", processes.len());
                     }
                     inner.into()
                 }),
-                processes,
+                processes: processes.into(),
             }
         }
     }
@@ -88,18 +96,48 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeR
     where
         F::Item: Outcome,
     {
-        type Item = Vec<(String, F::Item)>;
+        type Item = Vec<(Title, F::Item)>;
         type Error = JudgeError;
 
-        fn poll(&mut self) -> Poll<Vec<(String, F::Item)>, JudgeError> {
+        fn poll(&mut self) -> Poll<Vec<(Title, F::Item)>, JudgeError> {
             self.ctrlc.poll()?;
+
+            let mut needs_notify = true;
+            let mut newly_finished = false;
+
+            let mut jobs = self.jobs.get();
+            for (_, process) in &mut self.processes {
+                let mut next = None;
+                if jobs > 0 {
+                    match process {
+                        Process::NotRunning(f, case, cmd) => {
+                            next = Some(Process::Running(f(&case, &cmd)?));
+                            jobs -= 1;
+                        }
+                        Process::Running(fut) => {
+                            if let Async::Ready(outcome) = fut.poll()? {
+                                next = Some(Process::Finished(outcome));
+                                newly_finished = true;
+                            } else {
+                                jobs -= 1;
+                                needs_notify = false;
+                            }
+                        }
+                        Process::Finished(_) => {}
+                    }
+                }
+                if let Some(next) = next {
+                    *process = next;
+                }
+            }
+
             if self.needs_flush {
                 try_ready!(self.wtr.poll_flush());
                 self.needs_flush = false;
                 if self.processes.iter().all(|(_, p)| p.is_finished()) {
                     let outcomes = mem::replace(&mut self.processes, vec![])
                         .into_iter()
-                        .map(|(s, o)| (s, o.finished().unwrap()))
+                        .map(|(t, o)| (t, o.finished().unwrap()))
                         .collect();
                     return Ok(Async::Ready(outcomes));
                 }
@@ -116,67 +154,54 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeR
                     self.needs_flush = true;
                 }
             }
-            let num_cases = self.processes.len();
-            let mut num_finished = 0;
-            let mut num_failures = 0;
-            let mut jobs = self.jobs.get();
-            let mut newly_finished = false;
-            for (_, process) in &mut self.processes {
-                let mut next = None;
-                if jobs > 0 {
-                    match process {
-                        Process::NotRunning(f, case, cmd) => {
-                            next = Some(Process::Running(f(&case, &cmd)?));
-                            jobs -= 1;
+
+            if newly_finished && self.content.get_ref().is_empty() {
+                let out = self.content.get_mut();
+                let num_cases = self.processes.len();
+                let (mut num_finished, mut num_failures) = (0, 0);
+                for (_, process) in &self.processes {
+                    if let Process::Finished(outcome) = process {
+                        num_finished += 1;
+                        if outcome.failure() {
+                            num_failures += 1;
                         }
-                        Process::Running(fut) => {
-                            if let Async::Ready(outcome) = fut.poll()? {
-                                next = Some(Process::Finished(outcome));
-                                newly_finished = true;
-                            } else {
-                                jobs -= 1;
+                    }
+                }
+                if self.color {
+                    match num_cases - 1 {
+                        0 => out.extend_from_slice(b"\x1b[0G"),
+                        n => write!(out, "\x1b[{}F", n).unwrap(),
+                    }
+                    for (i, (title, process)) in self.processes.iter().enumerate() {
+                        write!(out, "\x1b[2K\x1b[1m{}\x1b[0m ", title.with_padding).unwrap();
+                        match process {
+                            Process::NotRunning(..) => out.extend_from_slice(b"Waiting..."),
+                            Process::Running(_) => out.extend_from_slice(b"Running..."),
+                            Process::Finished(outcome) => {
+                                out.extend_from_slice(b"\x1b[38;5;");
+                                write!(out, "{}m{}\x1b[0m", outcome.color(), outcome).unwrap();
                             }
                         }
-                        Process::Finished(_) => {}
+                        if i + 1 < num_cases {
+                            out.extend_from_slice(b"\x1b[1E");
+                        } else if num_finished == num_cases {
+                            out.push(b'\n');
+                        }
                     }
-                }
-                if let Some(next) = next {
-                    *process = next;
-                }
-                if let Process::Finished(outcome) = process {
-                    num_finished += 1;
-                    if outcome.failure() {
-                        num_failures += 1;
-                    }
+                } else {
+                    writeln!(
+                        out,
+                        "{}/{} {} finished ({})",
+                        num_finished,
+                        num_cases,
+                        if num_finished > 1 { "tests" } else { "test" },
+                        plural!(num_failures, "failure", "failures"),
+                    )
+                    .unwrap();
                 }
             }
-            if newly_finished {
-                if self.color {
-                    self.content
-                        .get_mut()
-                        .extend_from_slice(match num_failures {
-                            0 => b"\x1b[0G\x1b[2K\x1b[38;5;10m",
-                            _ => b"\x1b[0G\x1b[2K\x1b[38;5;9m",
-                        });
-                }
-                write!(
-                    self.content.get_mut(),
-                    "{}/{} {} finished ({})",
-                    num_finished,
-                    num_cases,
-                    if num_finished > 1 { "tests" } else { "test" },
-                    plural!(num_failures, "failure", "failures"),
-                )
-                .unwrap();
-                self.content.get_mut().extend_from_slice(
-                    if self.color && num_cases == num_finished {
-                        b"\x1b[0m\n"
-                    } else if self.color {
-                        b"\x1b[0m"
-                    } else {
-                        b"\n"
-                    },
-                );
+            if needs_notify {
+                task::current().notify();
             }
             Ok(Async::NotReady)
         }
@@ -192,7 +217,10 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeR
         Finished(F::Item),
     }
 
-    impl<C, F: Future> Process<C, F> {
+    impl<C, F: Future> Process<C, F>
+    where
+        F::Item: Outcome,
+    {
         fn is_finished(&self) -> bool {
             match self {
                 Process::Finished(_) => true,
@@ -208,13 +236,38 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeR
         }
     }
 
+    struct Title {
+        with_padding: String,
+        without_padding: String,
+    }
+
+    impl Title {
+        fn new(
+            index: NonZeroUsize,
+            index_max: NonZeroUsize,
+            name: &str,
+            name_max_width: usize,
+        ) -> Self {
+            let (mut with_padding, mut without_padding) = ("".to_owned(), "".to_owned());
+            for _ in index.to_string().len()..index_max.to_string().len() {
+                with_padding.push(' ');
+            }
+            for s in &mut [&mut with_padding, &mut without_padding] {
+                write!(s, "{}/{} ({})", index, index_max, name).unwrap();
+            }
+            (name.len()..name_max_width).for_each(|_| with_padding.push(' '));
+            Self {
+                with_padding,
+                without_padding,
+            }
+        }
+    }
+
     fn judge_all<
-        O: TermOut,
         E: TermOut,
         C: TestCase + Send + 'static,
         F: Future<Error = io::Error> + Send + 'static,
     >(
-        mut stdout: O,
         mut stderr: E,
         jobs: NonZeroUsize,
         display_limit: Option<usize>,
@@ -234,16 +287,17 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeR
             stderr.supports_color(),
             E::async_wtr(),
             crate::signal::ctrl_c(),
-            names
-                .into_iter()
-                .zip_eq(cases)
-                .map(|(name, case)| {
-                    (
-                        String::clone(&name),
-                        Process::NotRunning(judge, case, solver.clone()),
-                    )
+            {
+                names.zip_eq(cases).enumerate_map(|idx, (name, case)| {
+                    let title = Title::new(
+                        NonZeroUsize::new(idx + 1).unwrap(),
+                        num_cases,
+                        name.as_ref(),
+                        name_max_width,
+                    );
+                    (title, Process::NotRunning(judge, case, solver.clone()))
                 })
-                .collect(),
+            },
             jobs,
         );
         let outcomes = runtime.block_on(progress)?;
@@ -251,18 +305,15 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeR
 
         let num_failures = outcomes.iter().filter(|(_, o)| o.failure()).count();
         if let Some(num_failures) = NonZeroUsize::new(num_failures) {
-            for (i, (name, outcome)) in outcomes.into_iter().enumerate() {
-                writeln!(stdout)?;
-                outcome.print_title(&mut stdout, i + 1, num_cases, &name, None)?;
-                outcome.print_details(display_limit, &mut stdout)?;
+            for (title, outcome) in &outcomes {
+                stderr.with_reset(|w| write!(w.bold()?, "\n{}", title.without_padding))?;
+                stderr.write_str(" ")?;
+                stderr.with_reset(|w| writeln!(w.fg(outcome.color())?, "{}", outcome))?;
+                outcome.print_details(display_limit, &mut stderr)?;
             }
-            stdout.flush()?;
+            stderr.flush()?;
             Err(JudgeErrorKind::TestFailed(num_failures, num_cases).into())
         } else {
-            for (i, (name, outcome)) in outcomes.into_iter().enumerate() {
-                outcome.print_title(&mut stdout, i + 1, num_cases, &name, Some(name_max_width))?;
-            }
-            stdout.flush()?;
             writeln!(
                 stderr,
                 "All of the {} passed.",
@@ -274,7 +325,6 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeR
     }
 
     let JudgeParams {
-        stdout,
         mut stderr,
         config,
         mode,
@@ -322,29 +372,18 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<O, E>) -> JudgeR
 
     let solver = Arc::new(solver);
     match cases {
-        TestCases::Batch(cases) => judge_all(
-            stdout,
-            stderr,
-            jobs,
-            display_limit,
-            cases,
-            &solver,
-            batch::judge,
-        ),
-        TestCases::Interactive(cases) => judge_all(
-            stdout,
-            stderr,
-            jobs,
-            display_limit,
-            cases,
-            &solver,
-            interactive::judge,
-        ),
+        TestCases::Batch(cases) => {
+            let f = batch::judge;
+            judge_all(stderr, jobs, display_limit, cases, &solver, f)
+        }
+        TestCases::Interactive(cases) => {
+            let f = interactive::judge;
+            judge_all(stderr, jobs, display_limit, cases, &solver, f)
+        }
     }
 }
 
-pub(crate) struct JudgeParams<'a, O: TermOut, E: TermOut> {
-    pub stdout: O,
+pub(crate) struct JudgeParams<'a, E: TermOut> {
     pub stderr: E,
     pub config: &'a Config,
     pub mode: config::Mode,

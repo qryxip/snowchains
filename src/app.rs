@@ -497,10 +497,8 @@ impl<T: Term> App<T> {
                 self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest, language.clone(), &working_dir)?;
                 self.term.apply_conf(config.console());
-                let (_, stdout, stderr) = self.term.split_mut();
-                judging::judge(JudgeParams {
-                    stdout,
-                    stderr,
+                judging::judge::<T::Stdout, _>(JudgeParams {
+                    stderr: self.term.stderr(),
                     config: &config,
                     mode,
                     problem: &problem,
@@ -539,17 +537,15 @@ impl<T: Term> App<T> {
                         writeln!(stderr)?;
                     }
                 } else if !no_judge {
-                    let (_, mut stdout, stderr) = self.term.split_mut();
-                    judging::judge(JudgeParams {
-                        stdout: &mut stdout,
-                        stderr,
+                    judging::judge::<T::Stdout, _>(JudgeParams {
+                        stderr: self.term.stderr(),
                         config: &config,
                         mode,
                         problem: &problem,
                         force_compile,
                         jobs,
                     })?;
-                    writeln!(stdout)?;
+                    writeln!(self.term.stderr())?;
                 }
                 let sess_props = self.sess_props(&config)?;
                 let submit_props = SubmitProps::try_new(
