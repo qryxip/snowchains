@@ -4,7 +4,6 @@ use crate::errors::{
     ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceError,
     ServiceErrorKind, ServiceResult,
 };
-use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps,
@@ -31,7 +30,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha512};
-use tokio::runtime::{Runtime, TaskExecutor};
+use tokio::runtime::Runtime;
 use url::Url;
 
 use std::borrow::Cow;
@@ -40,52 +39,56 @@ use std::io::{self, Write as _};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-pub(crate) fn login(sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
-    Codeforces::try_new(sess_props)?.login(LoginOption::Explicit)
+pub(crate) fn login(props: SessionProps, term: impl Term) -> ServiceResult<()> {
+    Codeforces::try_new(props, term)?.login(LoginOption::Explicit)
 }
 
 pub(crate) fn download(
-    mut sess_props: SessionProps<impl Term>,
-    download_props: DownloadProps<String>,
+    props: (SessionProps, DownloadProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<DownloadOutcome> {
+    let (sess_props, download_props) = props;
     let download_props = download_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    download_props.print_targets(sess_props.term.stdout())?;
-    Codeforces::try_new(sess_props)?.download(download_props)
+    download_props.print_targets(term.stderr())?;
+    Codeforces::try_new(sess_props, term)?.download(download_props)
 }
 
 pub(crate) fn restore(
-    mut sess_props: SessionProps<impl Term>,
-    restore_props: RestoreProps<String>,
+    props: (SessionProps, RestoreProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
+    let (sess_props, restore_props) = props;
     let restore_props = restore_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    restore_props.print_targets(sess_props.term.stdout())?;
-    Codeforces::try_new(sess_props)?.restore(restore_props)
+    restore_props.print_targets(term.stderr())?;
+    Codeforces::try_new(sess_props, term)?.restore(restore_props)
 }
 
 pub(crate) fn submit(
-    mut sess_props: SessionProps<impl Term>,
-    submit_props: SubmitProps<String>,
+    props: (SessionProps, SubmitProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
+    let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    submit_props.print_targets(sess_props.term.stdout())?;
-    Codeforces::try_new(sess_props)?.submit(submit_props)
+    submit_props.print_targets(term.stderr())?;
+    Codeforces::try_new(sess_props, term)?.submit(submit_props)
 }
 
 pub(crate) fn list_langs(
-    props: (SessionProps<impl Term>, ListLangsProps<String>),
+    props: (SessionProps, ListLangsProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
-    let (mut sess_props, list_langs_props) = props;
+    let (sess_props, list_langs_props) = props;
     let list_langs_props = list_langs_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    list_langs_props.print_targets(sess_props.term.stdout())?;
-    Codeforces::try_new(sess_props)?.list_langs(list_langs_props)
+    list_langs_props.print_targets(term.stderr())?;
+    Codeforces::try_new(sess_props, term)?.list_langs(list_langs_props)
 }
 
 struct Codeforces<T: Term> {
@@ -106,28 +109,29 @@ impl<T: Term> HasTerm for Codeforces<T> {
 }
 
 impl<T: Term> Service for Codeforces<T> {
-    type Write = T::Stdout;
+    type Stdout = T::Stdout;
+    type Stderr = T::Stderr;
 
-    fn requirements(&mut self) -> (&mut T::Stdout, &mut HttpSession, &mut Runtime) {
-        (self.term.stdout(), &mut self.session, &mut self.runtime)
-    }
-}
-
-impl<T: Term> DownloadProgress for Codeforces<T> {
-    type Write = T::Stdout;
-
-    fn requirements(&mut self) -> (&mut T::Stdout, &HttpSession, TaskExecutor) {
-        (self.term.stdout(), &self.session, self.runtime.executor())
+    fn requirements(
+        &mut self,
+    ) -> (
+        &mut T::Stdout,
+        &mut T::Stderr,
+        &mut HttpSession,
+        &mut Runtime,
+    ) {
+        let (_, stdout, stderr) = self.term.split_mut();
+        (stdout, stderr, &mut self.session, &mut self.runtime)
     }
 }
 
 impl<T: Term> Codeforces<T> {
-    fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
+    fn try_new(props: SessionProps, mut term: T) -> ServiceResult<Self> {
         let mut runtime = Runtime::new()?;
-        let session = sess_props.start_session(&mut runtime)?;
+        let session = props.start_session(term.stderr(), &mut runtime)?;
         Ok(Self {
-            login_retries: sess_props.login_retries,
-            term: sess_props.term,
+            login_retries: props.login_retries,
+            term,
             session,
             runtime,
             handle: None,
@@ -247,10 +251,10 @@ impl<T: Term> Codeforces<T> {
             ..
         } in &outcome.problems
         {
-            test_suite.save(name, test_suite_path, self.stdout())?;
+            test_suite.save(name, test_suite_path, self.stderr())?;
             not_found.remove_item_(&name);
         }
-        self.stdout().flush()?;
+        self.stderr().flush()?;
 
         if !not_found.is_empty() {
             self.stderr()
@@ -347,7 +351,7 @@ impl<T: Term> Codeforces<T> {
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
         writeln!(
-            self.stdout(),
+            self.stderr(),
             "Submitting as {:?} (ID: {:?})",
             lang_name,
             lang_id,

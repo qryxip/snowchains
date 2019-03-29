@@ -99,7 +99,8 @@ fn main() {
     if_chain! {
         let err = app.test(&src_path, WRONG_CODE).unwrap_err();
         if let snowchains::Error::Judge(JudgeError::Context(ctx)) = &err;
-        if let JudgeErrorKind::TestFailed(2, 2) = ctx.get_context();
+        if let JudgeErrorKind::TestFailed(n, d) = ctx.get_context();
+        if (n.get(), d.get()) == (2, 2);
         then {} else { return Err(err.into()) }
     }
 
@@ -108,7 +109,8 @@ fn main() {
     if_chain! {
         let err = app.test(&src_path, FREEZING_CODE).unwrap_err();
         if let snowchains::Error::Judge(JudgeError::Context(ctx)) = &err;
-        if let JudgeErrorKind::TestFailed(1, 1) = ctx.get_context();
+        if let JudgeErrorKind::TestFailed(n, d) = ctx.get_context();
+        if (n.get(), d.get()) == (1, 1);
         then { Ok(()) } else { Err(err.into()) }
     }
 }

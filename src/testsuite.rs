@@ -7,6 +7,7 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
 use crate::terminal::WriteAnsi;
 use crate::time;
+use crate::util::collections::NonEmptyVec;
 use crate::util::num::PositiveFinite;
 
 use derive_more::From;
@@ -183,18 +184,22 @@ impl TestCaseLoader<'_> {
 
         let paths_as_text = format_paths(&filepaths);
 
-        if batch_cases.is_empty() && interactive_cases.is_empty() {
-            let all_paths = all_paths
-                .into_iter()
-                .map(|(path, _)| path.display().to_string())
-                .collect::<Vec<_>>();
-            Err(TestSuiteErrorKind::NoTestcase(format_paths(&all_paths)).into())
-        } else if interactive_cases.is_empty() {
-            Ok((TestCases::Batch(batch_cases), paths_as_text))
-        } else if batch_cases.is_empty() {
-            Ok((TestCases::Interactive(interactive_cases), paths_as_text))
-        } else {
-            Err(TestSuiteErrorKind::DifferentTypesOfSuites.into())
+        match (
+            NonEmptyVec::try_new(batch_cases),
+            NonEmptyVec::try_new(interactive_cases),
+        ) {
+            (None, None) => {
+                let all_paths = all_paths
+                    .into_iter()
+                    .map(|(path, _)| path.display().to_string())
+                    .collect::<Vec<_>>();
+                Err(TestSuiteErrorKind::NoTestcase(format_paths(&all_paths)).into())
+            }
+            (Some(_), Some(_)) => Err(TestSuiteErrorKind::DifferentTypesOfSuites.into()),
+            (Some(batch_cases), None) => Ok((TestCases::Batch(batch_cases), paths_as_text)),
+            (None, Some(interactive_cases)) => {
+                Ok((TestCases::Interactive(interactive_cases), paths_as_text))
+            }
         }
     }
 }
@@ -706,8 +711,8 @@ impl<T, E: std::error::Error + Send + Sync + 'static> SerContext for std::result
 /// `Vec<BatchCase>` or `Vec<ReducibleCase>`.
 #[cfg_attr(test, derive(Debug))]
 pub(crate) enum TestCases {
-    Batch(Vec<BatchCase>),
-    Interactive(Vec<InteractiveCase>),
+    Batch(NonEmptyVec<BatchCase>),
+    Interactive(NonEmptyVec<InteractiveCase>),
 }
 
 impl TestCases {
@@ -1003,7 +1008,7 @@ type: unsubmittable
         };
         let (cases, joined_paths) = loader.load_merging("a")?;
         match cases {
-            TestCases::Batch(cases) => assert_eq!(cases.len(), 3),
+            TestCases::Batch(cases) => assert_eq!(cases.len().get(), 3),
             TestCases::Interactive(_) => panic!("{:?}", cases),
         }
         assert_eq!(Path::new(&joined_paths), test_dir.join("a.yml"));
@@ -1022,7 +1027,7 @@ type: unsubmittable
         };
         let (cases, joined_paths) = loader.load_merging("b")?;
         match cases {
-            TestCases::Batch(cases) => assert_eq!(cases.len(), 3),
+            TestCases::Batch(cases) => assert_eq!(cases.len().get(), 3),
             TestCases::Interactive(_) => panic!("{:?}", cases),
         }
         assert_eq!(

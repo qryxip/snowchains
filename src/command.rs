@@ -21,13 +21,13 @@ use std::time::Instant;
 pub(crate) struct HookCommands(Option<NonEmptyVec<HookCommand>>);
 
 impl HookCommands {
-    pub(crate) fn run<O: TermOut, E: TermOut>(&self, mut stdout: O) -> HookCommandResult<()> {
+    pub(crate) fn run<O: TermOut, E: TermOut>(&self, mut stderr: E) -> HookCommandResult<()> {
         if let HookCommands(Some(this)) = self {
-            stdout.with_reset(|o| o.bold()?.write_str("Running hooks...\n"))?;
-            stdout.flush()?;
+            stderr.with_reset(|o| o.bold()?.write_str("Running hooks...\n"))?;
+            stderr.flush()?;
             this.iter().try_for_each(|c| c.run::<O, E>())?;
-            stdout.with_reset(|o| o.bold()?.write_str("Done.\n"))?;
-            stdout.flush()?;
+            stderr.with_reset(|o| o.bold()?.write_str("Done.\n"))?;
+            stderr.flush()?;
         }
         Ok(())
     }
@@ -97,12 +97,7 @@ impl TranspilationCommand {
     }
 
     /// Executes the command.
-    pub(crate) fn run(
-        &self,
-        stdout: impl TermOut,
-        stderr: impl TermOut,
-        force: bool,
-    ) -> JudgeResult<()> {
+    pub(crate) fn run<O: TermOut, E: TermOut>(&self, stderr: E, force: bool) -> JudgeResult<()> {
         let messages = Messages {
             command: "Transpilation Command:",
             wd: "Working directory:    ",
@@ -112,7 +107,7 @@ impl TranspilationCommand {
             noun: "transpilation",
             status,
         };
-        self.repr.run(stdout, stderr, force, messages, error)
+        self.repr.run::<O, _>(stderr, force, messages, error)
     }
 }
 
@@ -138,12 +133,7 @@ impl CompilationCommand {
     }
 
     /// Executes the command.
-    pub(crate) fn run(
-        &self,
-        stdout: impl TermOut,
-        stderr: impl TermOut,
-        force: bool,
-    ) -> JudgeResult<()> {
+    pub(crate) fn run<O: TermOut, E: TermOut>(&self, stderr: E, force: bool) -> JudgeResult<()> {
         let messages = Messages {
             command: "Compilation Command:",
             wd: "Working directory:  ",
@@ -153,7 +143,7 @@ impl CompilationCommand {
             noun: "compilation",
             status,
         };
-        self.repr.run(stdout, stderr, force, messages, error)
+        self.repr.run::<O, _>(stderr, force, messages, error)
     }
 }
 
@@ -194,7 +184,6 @@ impl BuildCommand {
 
     fn run<O: TermOut, E: TermOut>(
         &self,
-        mut stdout: O,
         mut stderr: E,
         force: bool,
         messages: Messages,
@@ -215,24 +204,24 @@ impl BuildCommand {
         if let Some(target) = &self.target {
             if self.src.exists() && target.exists() {
                 if !force && self.src.metadata()?.modified()? < target.metadata()?.modified()? {
-                    writeln!(stdout, "{} is up to date.", target.display())?;
-                    return stdout.flush().map_err(Into::into);
+                    writeln!(stderr, "{} is up to date.", target.display())?;
+                    return stderr.flush().map_err(Into::into);
                 }
             } else if let Some(parent) = target.parent() {
                 if !parent.exists() {
                     crate::fs::create_dir_all(&parent)?;
-                    writeln!(stdout, "Created {}", parent.display())?;
-                    stdout.flush()?;
+                    writeln!(stderr, "Created {}", parent.display())?;
+                    stderr.flush()?;
                 }
             }
         }
 
         let args = self.inner.format_args();
         let wd = self.inner.working_dir.display().to_string();
-        write_info(&mut stdout, messages.command, &args)?;
-        write_info(&mut stdout, messages.wd, &[&wd])?;
-        writeln!(stdout)?;
-        stdout.flush()?;
+        write_info(&mut stderr, messages.command, &args)?;
+        write_info(&mut stderr, messages.wd, &[&wd])?;
+        writeln!(stderr)?;
+        stderr.flush()?;
 
         let mut proc = self.inner.build_checking_wd()?;
         proc.stdin(Stdio::null())
@@ -249,7 +238,7 @@ impl BuildCommand {
             Some(code) => (Cow::from(format!("Exited with {}", code)), 9),
             None => (Cow::from("Exited without code"), 11),
         };
-        stdout.with_reset(|o| writeln!(o.fg(color)?.bold()?, "{} in {:?}.", mes, elapsed))?;
+        stderr.with_reset(|o| writeln!(o.fg(color)?.bold()?, "{} in {:?}.", mes, elapsed))?;
 
         if status.success() {
             if let Some(target) = &self.target {

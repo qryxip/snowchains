@@ -136,19 +136,8 @@ fn it_list_languages() -> Fallible<()> {
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             assert_eq!(
-                MASK_USERNAME.replace(&stdout, "Username: ██████████"),
-                r#"Target: no/9000
-GET https://yukicoder.me/ ... 200 OK
-
-Input "REVEL_SESSION".
-
-Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
-Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
-
-GET https://yukicoder.me/ ... 200 OK
-Username: ██████████
-GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
-+----------------------------------------------+-------------+
+                stdout,
+                r#"+----------------------------------------------+-------------+
 | Name                                         | ID          |
 +----------------------------------------------+-------------+
 | C++11 (gcc 4.8.5)                            | cpp         |
@@ -221,7 +210,7 @@ GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
 +----------------------------------------------+-------------+
 | JavaScript (node v11.2.0)                    | node        |
 +----------------------------------------------+-------------+
-| Kuin(beta) (2019_01_17 on Wine)              | kuin        |
+| Kuin(beta) (2019_03_17 on Wine)              | kuin        |
 +----------------------------------------------+-------------+
 | Vim script (v8.1.127)                        | vim         |
 +----------------------------------------------+-------------+
@@ -239,7 +228,21 @@ GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
 +----------------------------------------------+-------------+
 "#,
             );
-            assert_eq!(stderr, "REVEL_SESSION: ");
+            assert_eq!(
+                MASK_USERNAME.replace(&stderr, "Username: ██████████"),
+                r#"Target: no/9000
+GET https://yukicoder.me/ ... 200 OK
+
+Input "REVEL_SESSION".
+
+Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
+Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
+
+REVEL_SESSION: GET https://yukicoder.me/ ... 200 OK
+Username: ██████████
+GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
+"#,
+            );
             Ok(())
         },
     )

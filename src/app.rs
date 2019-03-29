@@ -399,7 +399,7 @@ impl<T: Term> App<T> {
                 let (config, outcome) =
                     config::switch(stdout, stderr, &working_dir, service, contest, language)?;
                 let hooks = config.switch_hooks(&outcome).expand()?;
-                hooks.run::<_, T::Stderr>(self.term.stdout())?;
+                hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
             Opt::Login {
                 color_choice,
@@ -408,11 +408,12 @@ impl<T: Term> App<T> {
                 self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, None, None, &working_dir)?;
                 self.term.apply_conf(config.console());
-                let sess_props = self.sess_props(&config)?;
+                let props = self.sess_props(&config)?;
+                let term = &mut self.term;
                 match service {
-                    ServiceKind::Atcoder => atcoder::login(sess_props),
-                    ServiceKind::Codeforces => codeforces::login(sess_props),
-                    ServiceKind::Yukicoder => yukicoder::login(sess_props),
+                    ServiceKind::Atcoder => atcoder::login(props, term),
+                    ServiceKind::Codeforces => codeforces::login(props, term),
+                    ServiceKind::Yukicoder => yukicoder::login(props, term),
                     ServiceKind::Other => unreachable!(),
                 }?;
             }
@@ -424,9 +425,10 @@ impl<T: Term> App<T> {
                 self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest.clone(), None, &working_dir)?;
                 self.term.apply_conf(config.console());
-                let sess_props = self.sess_props(&config)?;
+                let props = self.sess_props(&config)?;
+                let term = &mut self.term;
                 match service {
-                    ServiceKind::Atcoder => atcoder::participate(&contest, sess_props),
+                    ServiceKind::Atcoder => atcoder::participate(&contest, props, term),
                     _ => unreachable!(),
                 }?;
             }
@@ -449,14 +451,16 @@ impl<T: Term> App<T> {
                     open_in_browser: open,
                     only_scraped,
                 };
+                let props = (sess_props, download_props);
+                let term = &mut self.term;
                 let outcome = match config.service() {
-                    ServiceKind::Atcoder => atcoder::download(sess_props, download_props),
-                    ServiceKind::Codeforces => codeforces::download(sess_props, download_props),
-                    ServiceKind::Yukicoder => yukicoder::download(sess_props, download_props),
+                    ServiceKind::Atcoder => atcoder::download(props, term),
+                    ServiceKind::Codeforces => codeforces::download(props, term),
+                    ServiceKind::Yukicoder => yukicoder::download(props, term),
                     ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
                 }?;
                 let hooks = config.download_hooks(&outcome).expand()?;
-                hooks.run::<_, T::Stderr>(self.term.stdout())?;
+                hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
             Opt::Restore {
                 service,
@@ -470,9 +474,11 @@ impl<T: Term> App<T> {
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 let restore_props = RestoreProps::new(&config, mode, problems)?;
+                let props = (sess_props, restore_props);
+                let term = &mut self.term;
                 match config.service() {
-                    ServiceKind::Atcoder => atcoder::restore(sess_props, restore_props)?,
-                    ServiceKind::Codeforces => codeforces::restore(sess_props, restore_props)?,
+                    ServiceKind::Atcoder => atcoder::restore(props, term)?,
+                    ServiceKind::Codeforces => codeforces::restore(props, term)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
             }
@@ -491,10 +497,8 @@ impl<T: Term> App<T> {
                 self.term.attempt_enable_ansi(color_choice);
                 let config = Config::load(service, contest, language.clone(), &working_dir)?;
                 self.term.apply_conf(config.console());
-                let (_, stdout, stderr) = self.term.split_mut();
-                judging::judge(JudgeParams {
-                    stdout,
-                    stderr,
+                judging::judge::<T::Stdout, _>(JudgeParams {
+                    stderr: self.term.stderr(),
                     config: &config,
                     mode,
                     problem: &problem,
@@ -522,29 +526,26 @@ impl<T: Term> App<T> {
                 let config = Config::load(service, contest, language.clone(), &working_dir)?;
                 self.term.apply_conf(config.console());
                 if only_transpile {
-                    let (_, mut stdout, stderr) = self.term.split_mut();
-                    if judging::only_transpile(
-                        &mut stdout,
-                        stderr,
+                    let mut stderr = self.term.stderr();
+                    if judging::only_transpile::<T::Stdout, _>(
+                        &mut stderr,
                         &config,
                         mode,
                         &problem,
                         force_compile,
                     )? {
-                        writeln!(stdout)?;
+                        writeln!(stderr)?;
                     }
                 } else if !no_judge {
-                    let (_, mut stdout, stderr) = self.term.split_mut();
-                    judging::judge(JudgeParams {
-                        stdout: &mut stdout,
-                        stderr,
+                    judging::judge::<T::Stdout, _>(JudgeParams {
+                        stderr: self.term.stderr(),
                         config: &config,
                         mode,
                         problem: &problem,
                         force_compile,
                         jobs,
                     })?;
-                    writeln!(stdout)?;
+                    writeln!(self.term.stderr())?;
                 }
                 let sess_props = self.sess_props(&config)?;
                 let submit_props = SubmitProps::try_new(
@@ -554,10 +555,12 @@ impl<T: Term> App<T> {
                     open,
                     no_check_duplication,
                 )?;
+                let props = (sess_props, submit_props);
+                let term = &mut self.term;
                 match config.service() {
-                    ServiceKind::Atcoder => atcoder::submit(sess_props, submit_props)?,
-                    ServiceKind::Codeforces => codeforces::submit(sess_props, submit_props)?,
-                    ServiceKind::Yukicoder => yukicoder::submit(sess_props, submit_props)?,
+                    ServiceKind::Atcoder => atcoder::submit(props, term)?,
+                    ServiceKind::Codeforces => codeforces::submit(props, term)?,
+                    ServiceKind::Yukicoder => yukicoder::submit(props, term)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
             }
@@ -573,10 +576,11 @@ impl<T: Term> App<T> {
                 let sess_props = self.sess_props(&config)?;
                 let list_langs_props = ListLangsProps { contest, problem };
                 let props = (sess_props, list_langs_props);
+                let term = &mut self.term;
                 match config.service() {
-                    ServiceKind::Atcoder => atcoder::list_langs(props)?,
-                    ServiceKind::Codeforces => codeforces::list_langs(props)?,
-                    ServiceKind::Yukicoder => yukicoder::list_langs(props)?,
+                    ServiceKind::Atcoder => atcoder::list_langs(props, term)?,
+                    ServiceKind::Codeforces => codeforces::list_langs(props, term)?,
+                    ServiceKind::Yukicoder => yukicoder::list_langs(props, term)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 }
             }
@@ -584,7 +588,7 @@ impl<T: Term> App<T> {
         Ok(())
     }
 
-    fn sess_props(&mut self, config: &Config) -> ExpandTemplateResult<SessionProps<&mut T>> {
+    fn sess_props(&mut self, config: &Config) -> ExpandTemplateResult<SessionProps> {
         let cookies_path = config.session_cookies().expand(None)?;
         let api_token_path = config.session_api_tokens().expand(None)?;
         let dropbox_path = config
@@ -592,7 +596,6 @@ impl<T: Term> App<T> {
             .map(|p| p.expand(None))
             .transpose()?;
         Ok(SessionProps {
-            term: &mut self.term,
             domain: config.service().domain(),
             cookies_path,
             api_token_path,

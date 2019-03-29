@@ -28,7 +28,7 @@ use select::document::Document;
 use select::predicate::{Predicate, Text};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
-use tokio::runtime::{Runtime, TaskExecutor};
+use tokio::runtime::Runtime;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -40,9 +40,9 @@ use std::time::Duration;
 use std::{f64, vec};
 
 /// Logins to "atcoder.jp".
-pub(crate) fn login(mut sess_props: SessionProps<impl Term>) -> ServiceResult<()> {
-    let dropbox_path = sess_props.dropbox_path.take();
-    let mut atcoder = Atcoder::try_new(sess_props)?;
+pub(crate) fn login(mut props: SessionProps, term: impl Term) -> ServiceResult<()> {
+    let dropbox_path = props.dropbox_path.take();
+    let mut atcoder = Atcoder::try_new(props, term)?;
     atcoder.login_if_not(true)?;
     if let Some(dropbox_path) = dropbox_path {
         atcoder.auth_dropbox(&dropbox_path, true)?;
@@ -52,64 +52,69 @@ pub(crate) fn login(mut sess_props: SessionProps<impl Term>) -> ServiceResult<()
 
 /// Participates in a `contest_name`.
 pub(crate) fn participate(
-    contest_name: &str,
-    sess_props: SessionProps<impl Term>,
+    contest: &str,
+    props: SessionProps,
+    term: impl Term,
 ) -> ServiceResult<()> {
-    Atcoder::try_new(sess_props)?.register_explicitly(&AtcoderContest::new(contest_name))
+    Atcoder::try_new(props, term)?.register_explicitly(&AtcoderContest::new(contest))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
 pub(crate) fn download(
-    mut sess_props: SessionProps<impl Term>,
-    download_props: DownloadProps<String>,
+    props: (SessionProps, DownloadProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<DownloadOutcome> {
+    let (mut sess_props, download_props) = props;
     let dropbox_path = sess_props.dropbox_path.take();
     let dropbox_path = dropbox_path.as_ref().map(Deref::deref);
     let download_props = download_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    download_props.print_targets(sess_props.term.stdout())?;
-    Atcoder::try_new(sess_props)?.download(&download_props, dropbox_path)
+    download_props.print_targets(term.stderr())?;
+    Atcoder::try_new(sess_props, term)?.download(&download_props, dropbox_path)
 }
 
 /// Downloads submitted source codes.
 pub(crate) fn restore(
-    mut sess_props: SessionProps<impl Term>,
-    restore_props: RestoreProps<String>,
+    props: (SessionProps, RestoreProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
+    let (sess_props, restore_props) = props;
     let restore_props = restore_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    restore_props.print_targets(sess_props.term.stdout())?;
-    Atcoder::try_new(sess_props)?.restore(&restore_props)
+    restore_props.print_targets(term.stderr())?;
+    Atcoder::try_new(sess_props, term)?.restore(&restore_props)
 }
 
 /// Submits a source code.
 pub(crate) fn submit(
-    mut sess_props: SessionProps<impl Term>,
-    submit_props: SubmitProps<String>,
+    props: (SessionProps, SubmitProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
+    let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    submit_props.print_targets(sess_props.term.stdout())?;
-    Atcoder::try_new(sess_props)?.submit(&submit_props)
+    submit_props.print_targets(term.stderr())?;
+    Atcoder::try_new(sess_props, term)?.submit(&submit_props)
 }
 
 pub(crate) fn list_langs(
-    props: (SessionProps<impl Term>, ListLangsProps<String>),
+    props: (SessionProps, ListLangsProps<String>),
+    mut term: impl Term,
 ) -> ServiceResult<()> {
-    let (mut sess_props, list_langs_props) = props;
+    let (sess_props, list_langs_props) = props;
     let list_langs_props = list_langs_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    list_langs_props.print_targets(sess_props.term.stdout())?;
-    Atcoder::try_new(sess_props)?.list_langs(list_langs_props)
+    list_langs_props.print_targets(term.stderr())?;
+    Atcoder::try_new(sess_props, term)?.list_langs(list_langs_props)
 }
 
 pub(self) struct Atcoder<T: Term> {
@@ -128,28 +133,37 @@ impl<T: Term> HasTerm for Atcoder<T> {
 }
 
 impl<T: Term> Service for Atcoder<T> {
-    type Write = T::Stdout;
+    type Stdout = T::Stdout;
+    type Stderr = T::Stderr;
 
-    fn requirements(&mut self) -> (&mut T::Stdout, &mut HttpSession, &mut Runtime) {
-        (self.term.stdout(), &mut self.session, &mut self.runtime)
+    fn requirements(
+        &mut self,
+    ) -> (
+        &mut T::Stdout,
+        &mut T::Stderr,
+        &mut HttpSession,
+        &mut Runtime,
+    ) {
+        let (_, stdout, stderr) = self.term.split_mut();
+        (stdout, stderr, &mut self.session, &mut self.runtime)
     }
 }
 
 impl<T: Term> DownloadProgress for Atcoder<T> {
-    type Write = T::Stdout;
+    type Write = T::Stderr;
 
-    fn requirements(&mut self) -> (&mut T::Stdout, &HttpSession, TaskExecutor) {
-        (self.term.stdout(), &self.session, self.runtime.executor())
+    fn requirements(&mut self) -> (&mut T::Stderr, &HttpSession, &mut Runtime) {
+        (self.term.stderr(), &self.session, &mut self.runtime)
     }
 }
 
 impl<T: Term> Atcoder<T> {
-    fn try_new(mut sess_props: SessionProps<T>) -> ServiceResult<Self> {
+    fn try_new(props: SessionProps, mut term: T) -> ServiceResult<Self> {
         let mut runtime = Runtime::new()?;
-        let session = sess_props.start_session(&mut runtime)?;
+        let session = props.start_session(term.stderr(), &mut runtime)?;
         Ok(Self {
-            login_retries: sess_props.login_retries,
-            term: sess_props.term,
+            login_retries: props.login_retries,
+            term,
             session,
             runtime,
         })
@@ -176,8 +190,8 @@ impl<T: Term> Atcoder<T> {
             );
             self.post("/login").send_form(&payload)?;
             if self.get("/settings").acceptable(&[200, 302]).status()? == 200 {
-                writeln!(self.stdout(), "Successfully logged in.")?;
-                break self.stdout().flush().map_err(Into::into);
+                writeln!(self.stderr(), "Successfully logged in.")?;
+                break self.stderr().flush().map_err(Into::into);
             }
             if retries == Some(0) {
                 return Err(ServiceErrorKind::LoginRetriesExceeded.into());
@@ -240,8 +254,8 @@ impl<T: Term> Atcoder<T> {
             .form(&hashmap!("code" => code.as_str(), "grant_type" => "authorization_code"))
             .recv_json::<AuthToken>()?;
         crate::fs::write_json_pretty(auth_path, &auth)?;
-        writeln!(self.stdout(), "Wrote {}", auth_path.display())?;
-        self.stdout().flush()?;
+        writeln!(self.stderr(), "Wrote {}", auth_path.display())?;
+        self.stderr().flush()?;
         Ok(auth.access_token)
     }
 
@@ -345,10 +359,10 @@ impl<T: Term> Atcoder<T> {
             ..
         } in &outcome.problems
         {
-            test_suite.save(name, test_suite_path, self.stdout())?;
+            test_suite.save(name, test_suite_path, self.stderr())?;
             not_found.remove_item_(&name);
         }
-        self.stdout().flush()?;
+        self.stderr().flush()?;
         if !not_found.is_empty() {
             self.stderr()
                 .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
@@ -512,10 +526,10 @@ impl<T: Term> Atcoder<T> {
                     Ok((case_name, (in_path, out_path)))
                 })
                 .collect::<FileResult<BTreeMap<_, _>>>()?;
-            self.stdout()
+            self.stderr()
                 .with_reset(|o| write!(o.bold()?, "{}", problem))?;
             writeln!(
-                self.stdout(),
+                self.stderr(),
                 ": Saved {} to {}",
                 plural!(2 * contents_len, "file", "files"),
                 dir.display(),
@@ -527,7 +541,7 @@ impl<T: Term> Atcoder<T> {
                 }
             }
         }
-        self.stdout().flush().map_err(Into::into)
+        self.stderr().flush().map_err(Into::into)
     }
 
     fn restore(&mut self, props: &RestoreProps<AtcoderContest>) -> ServiceResult<()> {
@@ -596,7 +610,7 @@ impl<T: Term> Atcoder<T> {
         };
         for (task_name, lang_name, path) in &results {
             writeln!(
-                self.stdout(),
+                self.stderr(),
                 "{} - {:?}: Saved to {}",
                 task_name,
                 lang_name,
@@ -609,9 +623,9 @@ impl<T: Term> Atcoder<T> {
                 .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
             self.stderr().flush()?;
         }
-        let stdout = self.stdout();
-        writeln!(stdout, "Saved {}.", plural!(results.len(), "file", "files"))?;
-        stdout.flush()?;
+        let stderr = self.stderr();
+        writeln!(stderr, "Saved {}.", plural!(results.len(), "file", "files"))?;
+        stderr.flush()?;
         Ok(())
     }
 
@@ -673,7 +687,7 @@ impl<T: Term> Atcoder<T> {
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
         writeln!(
-            self.stdout(),
+            self.stderr(),
             "Submitting as {:?} (ID: {:?})",
             lang_name,
             lang_id,
@@ -1455,7 +1469,7 @@ mod tests {
         let mut term = TermImpl::null();
         let mut runtime = Runtime::new()?;
         let session = HttpSession::try_new(HttpSessionInitParams {
-            out: term.stdout(),
+            out: term.stderr(),
             runtime: &mut runtime,
             robots: true,
             client,

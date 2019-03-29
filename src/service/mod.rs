@@ -11,7 +11,7 @@ use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceResult};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
 use crate::template::Template;
-use crate::terminal::{Term, WriteAnsi};
+use crate::terminal::WriteAnsi;
 use crate::testsuite::{DownloadDestinations, SuiteFilePath, TestSuite};
 use crate::util;
 use crate::util::collections::{NonEmptyIndexMap, NonEmptyVec};
@@ -105,27 +105,35 @@ impl<'de> Deserialize<'de> for ServiceKind {
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/qryxip/snowchains>";
 
 pub(self) trait Service {
-    type Write: WriteAnsi;
+    type Stdout: WriteAnsi;
+    type Stderr: WriteAnsi;
 
-    fn requirements(&mut self) -> (&mut Self::Write, &mut HttpSession, &mut Runtime);
+    fn requirements(
+        &mut self,
+    ) -> (
+        &mut Self::Stdout,
+        &mut Self::Stderr,
+        &mut HttpSession,
+        &mut Runtime,
+    );
 
-    fn get(&mut self, url: &str) -> session::Request<&mut Self::Write> {
-        let (out, sess, runtime) = self.requirements();
-        sess.get(url, out, runtime)
+    fn get(&mut self, url: &str) -> session::Request<&mut Self::Stderr> {
+        let (_, stderr, sess, runtime) = self.requirements();
+        sess.get(url, stderr, runtime)
     }
 
-    fn post(&mut self, url: &str) -> session::Request<&mut Self::Write> {
-        let (out, sess, runtime) = self.requirements();
-        sess.post(url, out, runtime)
+    fn post(&mut self, url: &str) -> session::Request<&mut Self::Stderr> {
+        let (_, stderr, sess, runtime) = self.requirements();
+        sess.post(url, stderr, runtime)
     }
 
     fn open_in_browser(&mut self, url: &str) -> ServiceResult<()> {
-        let (out, sess, _) = self.requirements();
-        sess.open_in_browser(url, out)
+        let (_, stderr, sess, _) = self.requirements();
+        sess.open_in_browser(url, stderr)
     }
 
     fn print_lang_list(&mut self, lang_list: &NonEmptyIndexMap<String, String>) -> io::Result<()> {
-        let (out, _, _) = self.requirements();
+        let (stdout, _, _, _) = self.requirements();
 
         let mut table = Table::new();
         table.add_row(row!["Name", "ID"]);
@@ -133,8 +141,8 @@ pub(self) trait Service {
             table.add_row(row![name, id]);
         }
 
-        write!(out, "{}", table)?;
-        out.flush()
+        write!(stdout, "{}", table)?;
+        stdout.flush()
     }
 }
 
@@ -355,8 +363,7 @@ impl DownloadOutcome {
     }
 }
 
-pub(crate) struct SessionProps<T: Term> {
-    pub(crate) term: T,
+pub(crate) struct SessionProps {
     pub(crate) domain: Option<&'static str>,
     pub(crate) cookies_path: AbsPathBuf,
     pub(crate) api_token_path: AbsPathBuf,
@@ -367,14 +374,18 @@ pub(crate) struct SessionProps<T: Term> {
     pub(crate) robots: bool,
 }
 
-impl<T: Term> SessionProps<T> {
-    pub(self) fn start_session(&mut self, runtime: &mut Runtime) -> ServiceResult<HttpSession> {
+impl SessionProps {
+    pub(self) fn start_session(
+        &self,
+        out: impl WriteAnsi,
+        runtime: &mut Runtime,
+    ) -> ServiceResult<HttpSession> {
         let client = reqwest_async_client(self.timeout)?;
         let base = self
             .domain
             .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
         HttpSession::try_new(HttpSessionInitParams {
-            out: self.term.stdout(),
+            out,
             runtime,
             robots: self.robots,
             client,
