@@ -531,17 +531,17 @@ pub(crate) fn switch(
     ] {
         let old = old.as_ref().map(String::as_str).unwrap_or("~");
         let new = new.as_ref().map(String::as_str).unwrap_or("~");
-        stdout.write_str(title)?;
-        stdout.with_reset(|o| o.bold()?.write_str(old))?;
-        stdout.write_spaces(max_width - old.len())?;
-        stdout.write_str(" -> ")?;
-        stdout.with_reset(|o| o.bold()?.write_str(new))?;
-        stdout.write_str("\n")?;
+        stderr.write_str(title)?;
+        stderr.with_reset(|o| o.bold()?.write_str(old))?;
+        stderr.write_spaces(max_width - old.len())?;
+        stderr.write_str(" -> ")?;
+        stderr.with_reset(|o| o.bold()?.write_str(new))?;
+        stderr.write_str("\n")?;
     }
 
     crate::fs::write(&path, new_toml.as_bytes())?;
-    writeln!(stdout, "Wrote {}", path.display())?;
-    stdout.flush()?;
+    writeln!(stderr, "Wrote {}", path.display())?;
+    stderr.flush()?;
 
     let outcome = SwitchOutcome {
         old: SwitchOutcomeAttrs {
