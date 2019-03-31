@@ -257,9 +257,7 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
 
     pub(super) fn bearer_auth(self, token: impl fmt::Display) -> Self {
         Self {
-            inner: self
-                .inner
-                .map(|inner| inner.header(header::AUTHORIZATION, format!("Bearer {}", token))),
+            inner: self.inner.map(|inner| inner.bearer_auth(token)),
             ..self
         }
     }
