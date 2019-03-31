@@ -9,7 +9,8 @@ use crate::service::{
 use crate::terminal::{AnsiColorChoice, Term};
 use crate::util::collections::NonEmptyVec;
 
-use log::info;
+use serde::Serialize;
+use serde_derive::Serialize;
 use structopt::clap::Arg;
 use structopt::StructOpt;
 
@@ -34,212 +35,231 @@ pub enum Opt {
         usage = "snowchains <i|init> [OPTIONS] [directory]",
         raw(alias = "\"i\"", display_order = "1")
     )]
-    Init {
-        #[structopt(raw(color_choice = "1"))]
-        color_choice: AnsiColorChoice,
-        #[structopt(
-            help = "Directory to create a \"snowchains.toml\"",
-            default_value = ".",
-            parse(from_os_str)
-        )]
-        directory: PathBuf,
-    },
-
+    Init(Init),
     #[structopt(
         about = "Modifies values in a config file",
         name = "switch",
         usage = "snowchains <w|switch|c|checkout> [OPTIONS]",
         raw(aliases = r#"&["w", "checkout", "c"]"#, display_order = "2")
     )]
-    Switch {
-        #[structopt(raw(service = r#"SERVICE_VALUES, Kind::Option(1)"#))]
-        service: Option<ServiceKind>,
-        #[structopt(raw(contest = "Kind::Option(2)"))]
-        contest: Option<String>,
-        #[structopt(raw(language = "3"))]
-        language: Option<String>,
-        #[structopt(raw(color_choice = "4"))]
-        color_choice: AnsiColorChoice,
-    },
-
+    Switch(Switch),
     #[structopt(
         about = "Logges in to a service",
         name = "login",
         usage = "snowchains <l|login> [OPTIONS] <service>",
         raw(alias = "\"l\"", display_order = "3")
     )]
-    Login {
-        #[structopt(raw(color_choice = "1"))]
-        color_choice: AnsiColorChoice,
-        #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Arg"#))]
-        service: ServiceKind,
-    },
-
+    Login(Login),
     #[structopt(
         about = "Participates in a contest",
         name = "participate",
         usage = "snowchains <p|participate> [OPTIONS] <service> <contest>",
         raw(alias = "\"p\"", display_order = "4")
     )]
-    Participate {
-        #[structopt(raw(color_choice = "1"))]
-        color_choice: AnsiColorChoice,
-        #[structopt(raw(service = r#"&["atcoder"], Kind::Arg"#))]
-        service: ServiceKind,
-        #[structopt(raw(contest = "Kind::Arg"))]
-        contest: String,
-    },
-
+    Participate(Participate),
     #[structopt(
         about = "Downloads test cases",
         name = "download",
         usage = "snowchains <d|download> [FLAGS] [OPTIONS]",
         raw(alias = "\"d\"", display_order = "5")
     )]
-    Download {
-        #[structopt(raw(open = "1"))]
-        open: bool,
-        #[structopt(
-            long = "only-scraped",
-            help = "Does not download official test cases",
-            raw(display_order = "2")
-        )]
-        only_scraped: bool,
-        #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Option(1)"#))]
-        service: Option<ServiceKind>,
-        #[structopt(raw(contest = "Kind::Option(2)"))]
-        contest: Option<String>,
-        #[structopt(raw(problems = "3"))]
-        problems: Vec<String>,
-        #[structopt(raw(color_choice = "4"))]
-        color_choice: AnsiColorChoice,
-    },
-
+    Download(Download),
     #[structopt(
         about = "Downloads source files you have submitted",
         name = "restore",
         usage = "snowchains <r|restore> [OPTIONS]",
         raw(alias = "\"r\"", display_order = "6")
     )]
-    Restore {
-        #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
-        service: Option<ServiceKind>,
-        #[structopt(raw(contest = "Kind::Option(2)"))]
-        contest: Option<String>,
-        #[structopt(raw(mode = "3, \"debug\""))]
-        mode: config::Mode,
-        #[structopt(raw(problems = "4"))]
-        problems: Vec<String>,
-        #[structopt(raw(color_choice = "5"))]
-        color_choice: AnsiColorChoice,
-    },
-
+    Restore(Restore),
     #[structopt(
         about = "Tests a binary or script",
         name = "judge",
         usage = "snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>",
         raw(aliases = r#"&["j", "test", "t"]"#, display_order = "7")
     )]
-    Judge {
-        #[structopt(raw(force_compile = "1"))]
-        force_compile: bool,
-        #[structopt(
-            long = "release",
-            raw(
-                help = "\"Equivalent to `--mode release`\"",
-                conflicts_with = "\"mode\"",
-                display_order = "2",
-            )
-        )]
-        release: bool,
-        #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
-        service: Option<ServiceKind>,
-        #[structopt(raw(contest = "Kind::Option(2)"))]
-        contest: Option<String>,
-        #[structopt(raw(language = "3"))]
-        language: Option<String>,
-        #[structopt(raw(mode = "4, \"debug\""))]
-        mode: config::Mode,
-        #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "5"))]
-        jobs: Option<NonZeroUsize>,
-        #[structopt(raw(color_choice = "6"))]
-        color_choice: AnsiColorChoice,
-        #[structopt(raw(problem = ""))]
-        problem: String,
-    },
-
+    Judge(Judge),
     #[structopt(
         about = "Submits a source file",
         name = "submit",
         usage = "snowchains <s|submit> [FLAGS] [OPTIONS] <problem>",
         raw(alias = "\"s\"", display_order = "8")
     )]
-    Submit {
-        #[structopt(raw(open = "1"))]
-        open: bool,
-        #[structopt(raw(conflicts_with = "\"no_judge\"", force_compile = "2"))]
-        force_compile: bool,
-        #[structopt(
-            long = "only-transpile",
-            help = "Transpile the source code but not compile",
-            raw(conflicts_with = "\"no_judge\"", display_order = "3")
-        )]
-        only_transpile: bool,
-        #[structopt(
-            long = "no-judge",
-            help = "Skips testing",
-            raw(
-                conflicts_with_all = r#"&["force_compile", "only_transpile"]"#,
-                display_order = "4"
-            )
-        )]
-        no_judge: bool,
-        #[structopt(
-            long = "debug",
-            raw(
-                help = "\"Equivalent to `--mode debug`\"",
-                conflicts_with = "\"mode\"",
-                display_order = "5",
-            )
-        )]
-        debug: bool,
-        #[structopt(
-            long = "no-check-duplication",
-            help = "Submits even if the contest is active and you have already solved the problem",
-            raw(display_order = "5")
-        )]
-        no_check_duplication: bool,
-        #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
-        service: Option<ServiceKind>,
-        #[structopt(raw(contest = "Kind::Option(2)"))]
-        contest: Option<String>,
-        #[structopt(raw(language = "3"))]
-        language: Option<String>,
-        #[structopt(raw(mode = "4, \"release\""))]
-        mode: config::Mode,
-        #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "5"))]
-        jobs: Option<NonZeroUsize>,
-        #[structopt(raw(color_choice = "6"))]
-        color_choice: AnsiColorChoice,
-        #[structopt(raw(problem = ""))]
-        problem: String,
-    },
-
+    Submit(Submit),
     #[structopt(
         about = "List available languages",
         name = "list-langs",
         raw(display_order = "9")
     )]
-    ListLangs {
-        #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
-        service: Option<ServiceKind>,
-        #[structopt(raw(contest = "Kind::Option(2)"))]
-        contest: Option<String>,
-        #[structopt(raw(color_choice = "3"))]
-        color_choice: AnsiColorChoice,
-        #[structopt(raw(problem = ""))]
-        problem: Option<String>,
-    },
+    ListLangs(ListLangs),
+}
+
+#[derive(Debug, Serialize, StructOpt)]
+pub struct Init {
+    #[structopt(raw(color_choice = "1"))]
+    color_choice: AnsiColorChoice,
+    #[structopt(
+        help = "Directory to create a \"snowchains.toml\"",
+        default_value = ".",
+        parse(from_os_str)
+    )]
+    directory: PathBuf,
+}
+
+#[derive(Debug, Serialize, StructOpt)]
+pub struct Switch {
+    #[structopt(raw(service = r#"SERVICE_VALUES, Kind::Option(1)"#))]
+    service: Option<ServiceKind>,
+    #[structopt(raw(contest = "Kind::Option(2)"))]
+    contest: Option<String>,
+    #[structopt(raw(language = "3"))]
+    language: Option<String>,
+    #[structopt(raw(color_choice = "4"))]
+    color_choice: AnsiColorChoice,
+}
+
+#[derive(Debug, Serialize, StructOpt)]
+pub struct Login {
+    #[structopt(raw(color_choice = "1"))]
+    pub color_choice: AnsiColorChoice,
+    #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Arg"#))]
+    pub service: ServiceKind,
+}
+
+#[derive(Debug, Serialize, StructOpt)]
+pub struct Participate {
+    #[structopt(raw(color_choice = "1"))]
+    color_choice: AnsiColorChoice,
+    #[structopt(raw(service = r#"&["atcoder"], Kind::Arg"#))]
+    service: ServiceKind,
+    #[structopt(raw(contest = "Kind::Arg"))]
+    contest: String,
+}
+
+#[derive(Debug, Serialize, StructOpt)]
+pub struct Download {
+    #[structopt(raw(open = "1"))]
+    pub open: bool,
+    #[structopt(
+        long = "only-scraped",
+        help = "Does not download official test cases",
+        raw(display_order = "2")
+    )]
+    pub only_scraped: bool,
+    #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Option(1)"#))]
+    pub service: Option<ServiceKind>,
+    #[structopt(raw(contest = "Kind::Option(2)"))]
+    pub contest: Option<String>,
+    #[structopt(raw(problems = "3"))]
+    pub problems: Vec<String>,
+    #[structopt(raw(color_choice = "4"))]
+    pub color_choice: AnsiColorChoice,
+}
+
+#[derive(Debug, Serialize, StructOpt)]
+pub struct Restore {
+    #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
+    pub service: Option<ServiceKind>,
+    #[structopt(raw(contest = "Kind::Option(2)"))]
+    pub contest: Option<String>,
+    #[structopt(raw(mode = "3, \"debug\""))]
+    pub mode: config::Mode,
+    #[structopt(raw(problems = "4"))]
+    pub problems: Vec<String>,
+    #[structopt(raw(color_choice = "5"))]
+    pub color_choice: AnsiColorChoice,
+}
+
+#[derive(Debug, Serialize, StructOpt)]
+pub struct Judge {
+    #[structopt(raw(force_compile = "1"))]
+    pub force_compile: bool,
+    #[structopt(
+        long = "release",
+        raw(
+            help = "\"Equivalent to `--mode release`\"",
+            conflicts_with = "\"mode\"",
+            display_order = "2",
+        )
+    )]
+    pub release: bool,
+    #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+    pub service: Option<ServiceKind>,
+    #[structopt(raw(contest = "Kind::Option(2)"))]
+    pub contest: Option<String>,
+    #[structopt(raw(language = "3"))]
+    pub language: Option<String>,
+    #[structopt(raw(mode = "4, \"debug\""))]
+    pub mode: config::Mode,
+    #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "5"))]
+    pub jobs: Option<NonZeroUsize>,
+    #[structopt(raw(color_choice = "6"))]
+    pub color_choice: AnsiColorChoice,
+    #[structopt(raw(problem = ""))]
+    pub problem: String,
+}
+
+#[derive(Debug, Serialize, StructOpt)]
+pub struct Submit {
+    #[structopt(raw(open = "1"))]
+    pub open: bool,
+    #[structopt(raw(conflicts_with = "\"no_judge\"", force_compile = "2"))]
+    pub force_compile: bool,
+    #[structopt(
+        long = "only-transpile",
+        help = "Transpile the source code but not compile",
+        raw(conflicts_with = "\"no_judge\"", display_order = "3")
+    )]
+    pub only_transpile: bool,
+    #[structopt(
+        long = "no-judge",
+        help = "Skips testing",
+        raw(
+            conflicts_with_all = r#"&["force_compile", "only_transpile"]"#,
+            display_order = "4"
+        )
+    )]
+    pub no_judge: bool,
+    #[structopt(
+        long = "debug",
+        raw(
+            help = "\"Equivalent to `--mode debug`\"",
+            conflicts_with = "\"mode\"",
+            display_order = "5",
+        )
+    )]
+    pub debug: bool,
+    #[structopt(
+        long = "no-check-duplication",
+        help = "Submits even if the contest is active and you have already solved the problem",
+        raw(display_order = "5")
+    )]
+    pub no_check_duplication: bool,
+    #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
+    pub service: Option<ServiceKind>,
+    #[structopt(raw(contest = "Kind::Option(2)"))]
+    pub contest: Option<String>,
+    #[structopt(raw(language = "3"))]
+    pub language: Option<String>,
+    #[structopt(raw(mode = "4, \"release\""))]
+    pub mode: config::Mode,
+    #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "5"))]
+    pub jobs: Option<NonZeroUsize>,
+    #[structopt(raw(color_choice = "6"))]
+    pub color_choice: AnsiColorChoice,
+    #[structopt(raw(problem = ""))]
+    pub problem: String,
+}
+
+#[derive(Debug, Serialize, StructOpt)]
+pub struct ListLangs {
+    #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
+    pub service: Option<ServiceKind>,
+    #[structopt(raw(contest = "Kind::Option(2)"))]
+    pub contest: Option<String>,
+    #[structopt(raw(color_choice = "3"))]
+    pub color_choice: AnsiColorChoice,
+    #[structopt(raw(problem = ""))]
+    pub problem: Option<String>,
 }
 
 static SERVICE_VALUES: &[&str] = &["atcoder", "codeforces", "yukicoder", "other"];
@@ -377,36 +397,41 @@ pub struct App<T: Term> {
 
 impl<T: Term> App<T> {
     pub fn run(&mut self, opt: Opt) -> crate::Result<()> {
-        info!("Opt = {:?}", opt);
         let working_dir = self.working_dir.clone();
-        match opt {
-            Opt::Init {
-                color_choice,
-                directory,
-            } => {
+        match &opt {
+            Opt::Init(cli_args) => {
+                let Init {
+                    color_choice,
+                    directory,
+                } = cli_args;
                 let wd = working_dir.join_canonicalizing_lossy(&directory);
-                self.term.attempt_enable_ansi(color_choice);
+                self.term.attempt_enable_ansi(*color_choice);
                 config::init(self.term.stdout(), &wd)?;
             }
-            Opt::Switch {
-                service,
-                contest,
-                language,
-                color_choice,
-            } => {
-                self.term.attempt_enable_ansi(color_choice);
+            Opt::Switch(cli_args) => {
+                let Switch {
+                    service,
+                    contest,
+                    language,
+                    color_choice,
+                } = cli_args;
+                let contest = contest.as_ref().map(AsRef::as_ref);
+                let language = language.as_ref().map(AsRef::as_ref);
+                self.term.attempt_enable_ansi(*color_choice);
                 let (_, stdout, stderr) = self.term.split_mut();
                 let (config, outcome) =
-                    config::switch(stdout, stderr, &working_dir, service, contest, language)?;
+                    config::switch(stdout, stderr, &working_dir, *service, contest, language)?;
+                let outcome = WithCliArgs::new(cli_args, outcome);
                 let hooks = config.switch_hooks(&outcome).expand()?;
                 hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
-            Opt::Login {
-                color_choice,
-                service,
-            } => {
-                self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, None, None, &working_dir)?;
+            Opt::Login(cli_args) => {
+                let Login {
+                    color_choice,
+                    service,
+                } = cli_args;
+                self.term.attempt_enable_ansi(*color_choice);
+                let config = Config::load(Some(*service), None, None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let props = self.sess_props(&config)?;
                 let term = &mut self.term;
@@ -417,39 +442,42 @@ impl<T: Term> App<T> {
                     ServiceKind::Other => unreachable!(),
                 }?;
             }
-            Opt::Participate {
-                color_choice,
-                service,
-                contest,
-            } => {
-                self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest.clone(), None, &working_dir)?;
+            Opt::Participate(cli_args) => {
+                let Participate {
+                    color_choice,
+                    service,
+                    contest,
+                } = cli_args;
+                self.term.attempt_enable_ansi(*color_choice);
+                let config = Config::load(Some(*service), Some(contest), None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let props = self.sess_props(&config)?;
                 let term = &mut self.term;
                 match service {
-                    ServiceKind::Atcoder => atcoder::participate(&contest, props, term),
+                    ServiceKind::Atcoder => atcoder::participate(contest, props, term),
                     _ => unreachable!(),
                 }?;
             }
-            Opt::Download {
-                open,
-                only_scraped,
-                service,
-                contest,
-                problems,
-                color_choice,
-            } => {
-                self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, None, &working_dir)?;
+            Opt::Download(cli_args) => {
+                let Download {
+                    open,
+                    only_scraped,
+                    service,
+                    contest,
+                    problems,
+                    color_choice,
+                } = cli_args;
+                let contest = contest.as_ref().map(AsRef::as_ref);
+                self.term.attempt_enable_ansi(*color_choice);
+                let config = Config::load(*service, contest, None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 let download_props = DownloadProps {
                     contest: config.contest().to_owned(),
-                    problems: NonEmptyVec::try_new(problems),
+                    problems: NonEmptyVec::try_new(problems.clone()),
                     destinations: config.download_destinations(None),
-                    open_in_browser: open,
-                    only_scraped,
+                    open_in_browser: *open,
+                    only_scraped: *only_scraped,
                 };
                 let props = (sess_props, download_props);
                 let term = &mut self.term;
@@ -459,21 +487,25 @@ impl<T: Term> App<T> {
                     ServiceKind::Yukicoder => yukicoder::download(props, term),
                     ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
                 }?;
+                let outcome = WithCliArgs::new(cli_args, outcome);
                 let hooks = config.download_hooks(&outcome).expand()?;
                 hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
-            Opt::Restore {
-                service,
-                contest,
-                mode,
-                problems,
-                color_choice,
-            } => {
-                self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, None, &working_dir)?;
+            Opt::Restore(cli_args) => {
+                let Restore {
+                    service,
+                    contest,
+                    mode,
+                    problems,
+                    color_choice,
+                } = cli_args;
+                let contest = contest.as_ref().map(AsRef::as_ref);
+                let problems = problems.clone();
+                self.term.attempt_enable_ansi(*color_choice);
+                let config = Config::load(*service, contest, None, &working_dir)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
-                let restore_props = RestoreProps::new(&config, mode, problems)?;
+                let restore_props = RestoreProps::new(&config, *mode, problems)?;
                 let props = (sess_props, restore_props);
                 let term = &mut self.term;
                 match config.service() {
@@ -482,57 +514,67 @@ impl<T: Term> App<T> {
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
             }
-            Opt::Judge {
-                force_compile,
-                release,
-                service,
-                contest,
-                language,
-                mode,
-                jobs,
-                color_choice,
-                problem,
-            } => {
-                let mode = if release { config::Mode::Release } else { mode };
-                self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, language.clone(), &working_dir)?;
+            Opt::Judge(cli_args) => {
+                let Judge {
+                    force_compile,
+                    release,
+                    service,
+                    contest,
+                    language,
+                    mode,
+                    jobs,
+                    color_choice,
+                    problem,
+                } = cli_args;
+                let contest = contest.as_ref().map(AsRef::as_ref);
+                let language = language.as_ref().map(AsRef::as_ref);
+                let mode = if *release {
+                    config::Mode::Release
+                } else {
+                    *mode
+                };
+                self.term.attempt_enable_ansi(*color_choice);
+                let config = Config::load(*service, contest, language, &working_dir)?;
                 self.term.apply_conf(config.console());
                 judging::judge::<T::Stdout, _>(JudgeParams {
                     stderr: self.term.stderr(),
                     config: &config,
                     mode,
                     problem: &problem,
-                    force_compile,
-                    jobs,
+                    force_compile: *force_compile,
+                    jobs: *jobs,
                 })?;
             }
-            Opt::Submit {
-                open,
-                force_compile,
-                only_transpile,
-                no_judge,
-                debug,
-                no_check_duplication,
-                language,
-                service,
-                contest,
-                mode,
-                jobs,
-                color_choice,
-                problem,
-            } => {
-                let mode = if debug { config::Mode::Debug } else { mode };
-                self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, language.clone(), &working_dir)?;
+            Opt::Submit(cli_args) => {
+                let Submit {
+                    open,
+                    force_compile,
+                    only_transpile,
+                    no_judge,
+                    debug,
+                    no_check_duplication,
+                    language,
+                    service,
+                    contest,
+                    mode,
+                    jobs,
+                    color_choice,
+                    problem,
+                } = cli_args;
+                let contest = contest.as_ref().map(AsRef::as_ref);
+                let language = language.as_ref().map(AsRef::as_ref);
+                let mode = if *debug { config::Mode::Debug } else { *mode };
+                self.term.attempt_enable_ansi(*color_choice);
+                let config = Config::load(*service, contest, language, &working_dir)?;
                 self.term.apply_conf(config.console());
-                if only_transpile {
+                if *only_transpile {
                     let mut stderr = self.term.stderr();
                     if judging::only_transpile::<T::Stdout, _>(
                         &mut stderr,
                         &config,
                         mode,
                         &problem,
-                        force_compile,
+                        *force_compile,
                     )? {
                         writeln!(stderr)?;
                     }
@@ -542,8 +584,8 @@ impl<T: Term> App<T> {
                         config: &config,
                         mode,
                         problem: &problem,
-                        force_compile,
-                        jobs,
+                        force_compile: *force_compile,
+                        jobs: *jobs,
                     })?;
                     writeln!(self.term.stderr())?;
                 }
@@ -552,8 +594,8 @@ impl<T: Term> App<T> {
                     &config,
                     mode,
                     problem.clone(),
-                    open,
-                    no_check_duplication,
+                    *open,
+                    *no_check_duplication,
                 )?;
                 let props = (sess_props, submit_props);
                 let term = &mut self.term;
@@ -564,14 +606,17 @@ impl<T: Term> App<T> {
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
             }
-            Opt::ListLangs {
-                service,
-                contest,
-                color_choice,
-                problem,
-            } => {
-                self.term.attempt_enable_ansi(color_choice);
-                let config = Config::load(service, contest, None, &working_dir)?;
+            Opt::ListLangs(cli_args) => {
+                let ListLangs {
+                    service,
+                    contest,
+                    color_choice,
+                    problem,
+                } = cli_args;
+                let contest = contest.as_ref().map(AsRef::as_ref);
+                let problem = problem.clone();
+                self.term.attempt_enable_ansi(*color_choice);
+                let config = Config::load(*service, contest, None, &working_dir)?;
                 let contest = config.contest().to_owned();
                 let sess_props = self.sess_props(&config)?;
                 let list_langs_props = ListLangsProps { contest, problem };
@@ -605,5 +650,21 @@ impl<T: Term> App<T> {
             silent: config.session_silent(),
             robots: config.session_robots(),
         })
+    }
+}
+
+#[derive(Serialize)]
+struct WithCliArgs<'a, A: Serialize, T: Serialize> {
+    command_line_arguments: &'a A,
+    #[serde(flatten)]
+    repr: T,
+}
+
+impl<'a, A: Serialize, T: Serialize> WithCliArgs<'a, A, T> {
+    fn new(command_line_arguments: &'a A, repr: T) -> Self {
+        Self {
+            command_line_arguments,
+            repr,
+        }
     }
 }

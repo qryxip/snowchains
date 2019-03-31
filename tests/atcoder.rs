@@ -1,6 +1,6 @@
 mod service;
 
-use snowchains::app::{App, Opt};
+use snowchains::app::{App, Download, ListLangs, Login, Opt, Restore, Submit};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
@@ -17,10 +17,10 @@ use std::{io, str};
 #[test]
 fn it_logins() -> Fallible<()> {
     fn login(mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> snowchains::Result<()> {
-        app.run(Opt::Login {
+        app.run(Opt::Login(Login {
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Atcoder,
-        })
+        }))
     }
 
     let _ = env_logger::try_init();
@@ -35,14 +35,14 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
         "it_scrapes_samples_from_practice",
         &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
-            app.run(Opt::Download {
+            app.run(Opt::Download(Download {
                 open: false,
                 only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
-            })?;
+            }))?;
             let download_dir = app
                 .working_dir
                 .join("atcoder")
@@ -62,14 +62,14 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
         "it_scrapes_samples_from_abc100",
         &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
-            app.run(Opt::Download {
+            app.run(Opt::Download(Download {
                 open: false,
                 only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("abc100".to_owned()),
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
-            })?;
+            }))?;
             let download_dir = app.working_dir.join("atcoder").join("abc100").join("tests");
             check_yaml_md5(&download_dir, "a", "86531ee215ce7634434b1a0b8ed9d932")?;
             check_yaml_md5(&download_dir, "b", "8aa1291a4fdba2ebc2f1fdc6fc484394")?;
@@ -87,14 +87,14 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
         "it_scrapes_samples_and_download_files_from_abc099_a",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
-            app.run(Opt::Download {
+            app.run(Opt::Download(Download {
                 open: false,
                 only_scraped: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("abc099".to_owned()),
                 problems: vec!["a".to_owned()],
                 color_choice: AnsiColorChoice::Never,
-            })?;
+            }))?;
             // "ARC058_ABC042"
             let download_dir = app.working_dir.join("atcoder").join("abc099").join("tests");
             just_confirm_num_samples_and_timelimit(&download_dir, "a", 9, "2000ms")
@@ -152,13 +152,13 @@ fn restore_command_works_without_error() -> Fallible<()> {
         "it_restores_source_code",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
-            app.run(Opt::Restore {
+            app.run(Opt::Restore(Restore {
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 mode: config::Mode::Debug,
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
-            })?;
+            }))?;
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             assert_eq!(stdout, "");
@@ -191,7 +191,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
             std::fs::create_dir_all(&wd)?;
             std::fs::write(&wd.join("a.py"), CODE)?;
             let err = app
-                .run(Opt::Submit {
+                .run(Opt::Submit(Submit {
                     open: false,
                     force_compile: false,
                     only_transpile: false,
@@ -205,7 +205,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     jobs: None,
                     color_choice: AnsiColorChoice::Never,
                     problem: "a".to_owned(),
-                })
+                }))
                 .unwrap_err();
             if_chain! {
                 if let snowchains::Error::Service(ServiceError::Context(ctx)) = &err;
@@ -240,7 +240,7 @@ if __name__ == '__main__':
             let wd = app.working_dir.join("atcoder").join("practice").join("py");
             std::fs::create_dir_all(&wd)?;
             std::fs::write(&wd.join("a.py"), CODE)?;
-            app.run(Opt::Submit {
+            app.run(Opt::Submit(Submit {
                 open: false,
                 force_compile: false,
                 only_transpile: false,
@@ -254,7 +254,7 @@ if __name__ == '__main__':
                 jobs: None,
                 color_choice: AnsiColorChoice::Never,
                 problem: "a".to_owned(),
-            })
+            }))
             .map_err(Into::into)
         },
     )
@@ -267,12 +267,12 @@ fn it_lists_languages_in_practice() -> Fallible<()> {
         "it_lists_languages_in_practice",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
-            app.run(Opt::ListLangs {
+            app.run(Opt::ListLangs(ListLangs {
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 color_choice: AnsiColorChoice::Never,
                 problem: None,
-            })?;
+            }))?;
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             assert_eq!(
@@ -416,12 +416,12 @@ fn it_lists_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
         "it_lists_languages_in_tenka1_2016_final_open_a",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
-            app.run(Opt::ListLangs {
+            app.run(Opt::ListLangs(ListLangs {
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("tenka1-2016-final-open".to_owned()),
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("a".to_owned()),
-            })?;
+            }))?;
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             assert_eq!(

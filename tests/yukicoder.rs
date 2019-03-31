@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 mod service;
 
-use snowchains::app::{App, Opt};
+use snowchains::app::{App, ListLangs, Opt, Submit};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
@@ -56,7 +56,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
             std::fs::create_dir_all(&dir)?;
             std::fs::write(&dir.join("9000.py"), CODE)?;
             let err = app
-                .run(Opt::Submit {
+                .run(Opt::Submit(Submit {
                     open: false,
                     force_compile: false,
                     only_transpile: false,
@@ -70,7 +70,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     jobs: None,
                     color_choice: AnsiColorChoice::Never,
                     problem: "9000".to_owned(),
-                })
+                }))
                 .unwrap_err();
             if_chain! {
                 if let snowchains::Error::Service(ServiceError::Context(ctx)) = &err;
@@ -98,7 +98,7 @@ fn it_submits_to_no_9000() -> Fallible<()> {
             let dir = app.working_dir.join("yukicoder").join("no").join("txt");
             std::fs::create_dir_all(&dir)?;
             std::fs::write(&dir.join("9000.txt"), CODE)?;
-            app.run(Opt::Submit {
+            app.run(Opt::Submit(Submit {
                 open: false,
                 force_compile: false,
                 only_transpile: false,
@@ -112,7 +112,7 @@ fn it_submits_to_no_9000() -> Fallible<()> {
                 jobs: None,
                 color_choice: AnsiColorChoice::Never,
                 problem: "9000".to_owned(),
-            })
+            }))
             .map_err(Into::into)
         },
     )
@@ -127,12 +127,12 @@ fn it_list_languages() -> Fallible<()> {
         |mut app| -> Fallible<()> {
             static MASK_USERNAME: Lazy<Regex> = sync_lazy!(Regex::new("Username: .*").unwrap());
 
-            app.run(Opt::ListLangs {
+            app.run(Opt::ListLangs(ListLangs {
                 service: Some(ServiceKind::Yukicoder),
                 contest: Some("no".to_owned()),
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("9000".to_owned()),
-            })?;
+            }))?;
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             assert_eq!(

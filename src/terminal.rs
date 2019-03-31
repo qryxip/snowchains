@@ -1,5 +1,6 @@
 use crate::config;
 
+use serde_derive::Serialize;
 use strum_macros::EnumString;
 use tokio::io::AsyncWrite;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -757,8 +758,9 @@ impl<W: Write> TermOut for Ansi<W> {
     fn apply_conf(&mut self, _: &config::Console) {}
 }
 
-#[derive(Clone, Copy, Debug, strum_macros::Display, EnumString)]
+#[derive(Clone, Copy, Debug, strum_macros::Display, EnumString, Serialize)]
 #[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum AnsiColorChoice {
     Never,
     Auto,

@@ -1,7 +1,7 @@
 use crate::command::{CompilationCommand, HookCommands, JudgingCommand, TranspilationCommand};
 use crate::errors::{ConfigErrorKind, ConfigResult, FileResult};
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::{DownloadOutcome, ServiceKind};
+use crate::service::ServiceKind;
 use crate::template::{
     AbsPathBufRequirements, CompilationCommandRequirements, HookCommandsRequirements,
     JudgingCommandRequirements, Template, TemplateBuilder, TranspilationCommandRequirements,
@@ -473,8 +473,8 @@ pub(crate) fn switch(
     mut stderr: impl TermOut,
     directory: &AbsPath,
     service: Option<ServiceKind>,
-    contest: Option<String>,
-    language: Option<String>,
+    contest: Option<&str>,
+    language: Option<&str>,
 ) -> FileResult<(Config, SwitchOutcome)> {
     let path = crate::fs::find_path(CONFIG_FILE_NAME, directory)?;
     let old_toml = crate::fs::read_to_string(&path)?;
@@ -489,11 +489,11 @@ pub(crate) fn switch(
         if let Some(service) = service {
             doc["service"] = toml_edit::value(<&str>::from(service));
         }
-        if let Some(contest) = &contest {
-            doc["contest"] = toml_edit::value(contest.as_str());
+        if let Some(contest) = contest {
+            doc["contest"] = toml_edit::value(contest);
         }
-        if let Some(language) = &language {
-            doc["language"] = toml_edit::value(language.as_str());
+        if let Some(language) = language {
+            doc["language"] = toml_edit::value(language);
         }
         doc.to_string()
     };
@@ -571,8 +571,9 @@ pub(crate) fn switch(
     Ok((new_config, outcome))
 }
 
-#[derive(Clone, Copy, strum_macros::Display, Debug, EnumString)]
+#[derive(Clone, Copy, strum_macros::Display, Debug, EnumString, Serialize)]
 #[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Mode {
     Debug,
     Release,
@@ -604,17 +605,17 @@ pub(crate) struct Config {
 
 impl Config {
     pub(crate) fn load(
-        service: impl Into<Option<ServiceKind>>,
-        contest: impl Into<Option<String>>,
-        language: impl Into<Option<String>>,
+        service: Option<ServiceKind>,
+        contest: Option<&str>,
+        language: Option<&str>,
         dir: &AbsPath,
     ) -> FileResult<Self> {
         let path = crate::fs::find_path(CONFIG_FILE_NAME, dir)?;
         let mut config = crate::fs::read_toml::<Self>(&path)?;
         config.base_dir = path.parent().unwrap().to_owned();
-        config.service = service.into().unwrap_or(config.service);
-        config.contest = contest.into().unwrap_or(config.contest);
-        config.language = language.into().unwrap_or(config.language);
+        config.service = service.unwrap_or(config.service);
+        config.contest = contest.map(ToOwned::to_owned).unwrap_or(config.contest);
+        config.language = language.map(ToOwned::to_owned).unwrap_or(config.language);
         Ok(config)
     }
 
@@ -677,12 +678,12 @@ impl Config {
     }
 
     /// Gets `hooks.switch`.
-    pub(crate) fn switch_hooks(&self, outcome: &SwitchOutcome) -> Template<HookCommands> {
+    pub(crate) fn switch_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
         self.hooks(|hs| &hs.switch, outcome)
     }
 
     /// Gets `hooks.download`.
-    pub(crate) fn download_hooks(&self, outcome: &DownloadOutcome) -> Template<HookCommands> {
+    pub(crate) fn download_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
         self.hooks(|hs| &hs.download, outcome)
     }
 
@@ -1358,8 +1359,8 @@ mod tests {
             &mut stderr,
             AbsPath::try_new(tempdir.path()).unwrap(),
             Some(ServiceKind::Yukicoder),
-            Some("no".to_owned()),
-            Some("rust".to_owned()),
+            Some("no"),
+            Some("rust"),
         )?;
 
         let new_toml = std::fs::read_to_string(tempdir.path().join(super::CONFIG_FILE_NAME))?;

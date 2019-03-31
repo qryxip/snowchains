@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use snowchains::app::{App, Opt};
+use snowchains::app::{App, Download, Login, Opt};
 use snowchains::path::{AbsPath, AbsPathBuf};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
@@ -53,10 +53,10 @@ pub fn login(
     mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>,
     service: ServiceKind,
 ) -> snowchains::Result<()> {
-    app.run(Opt::Login {
+    app.run(Opt::Login(Login {
         color_choice: AnsiColorChoice::Never,
         service,
-    })
+    }))
 }
 
 pub fn download(
@@ -65,14 +65,14 @@ pub fn download(
     contest: &str,
     problems: &[&str],
 ) -> snowchains::Result<()> {
-    app.run(Opt::Download {
+    app.run(Opt::Download(Download {
         open: false,
         only_scraped: false,
         service: Some(service),
         contest: Some(contest.to_owned()),
         problems: problems.iter().map(|&s| s.to_owned()).collect(),
         color_choice: AnsiColorChoice::Never,
-    })
+    }))
 }
 
 pub fn confirm_num_cases(

@@ -1,4 +1,4 @@
-use snowchains::app::{App, Opt};
+use snowchains::app::{App, Judge, Opt};
 use snowchains::config;
 use snowchains::errors::{JudgeError, JudgeErrorKind};
 use snowchains::path::AbsPathBuf;
@@ -122,7 +122,7 @@ trait AppExt {
 impl<T: Term> AppExt for App<T> {
     fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<()> {
         std::fs::write(src_path, code)?;
-        self.run(Opt::Judge {
+        self.run(Opt::Judge(Judge {
             force_compile: false,
             release: false,
             service: Some(ServiceKind::Atcoder),
@@ -132,6 +132,6 @@ impl<T: Term> AppExt for App<T> {
             jobs: None,
             color_choice: AnsiColorChoice::Never,
             problem: "a".to_owned(),
-        })
+        }))
     }
 }

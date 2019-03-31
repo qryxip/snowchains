@@ -5,6 +5,7 @@
 * `--mode` option to `judge`, `restore`, and `submit`
 * `--release` option to `judge`, which equivalent to `--mode release`
 * `--debug` option to `submit`, which equivalent to `--mode debug`
+* Add `.command_line_arguments` to `$SNOWCHAINS_RESULT` s.
 
 ### Changed
 

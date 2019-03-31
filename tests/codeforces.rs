@@ -1,6 +1,6 @@
 mod service;
 
-use snowchains::app::{App, Opt};
+use snowchains::app::{App, ListLangs, Login, Opt, Submit};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
@@ -12,10 +12,10 @@ use if_chain::if_chain;
 #[test]
 fn it_logins() -> Fallible<()> {
     fn login(mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> snowchains::Result<()> {
-        app.run(Opt::Login {
+        app.run(Opt::Login(Login {
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Codeforces,
-        })
+        }))
     }
 
     let stdin = credentials_as_input()?;
@@ -34,7 +34,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
             std::fs::create_dir_all(&dir)?;
             std::fs::write(&dir.join("a.py"), CODE)?;
             let err = app
-                .run(Opt::Submit {
+                .run(Opt::Submit(Submit {
                     open: false,
                     force_compile: false,
                     only_transpile: false,
@@ -48,7 +48,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     jobs: None,
                     color_choice: AnsiColorChoice::Never,
                     problem: "a".to_owned(),
-                })
+                }))
                 .unwrap_err();
             if_chain! {
                 if let snowchains::Error::Service(ServiceError::Context(ctx)) = &err;
@@ -71,12 +71,12 @@ fn it_list_languages() -> Fallible<()> {
         "it_list_languages",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
-            app.run(Opt::ListLangs {
+            app.run(Opt::ListLangs(ListLangs {
                 service: Some(ServiceKind::Codeforces),
                 contest: Some("1000".to_owned()),
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("a".to_owned()),
-            })?;
+            }))?;
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             assert_eq!(
