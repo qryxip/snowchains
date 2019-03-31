@@ -336,6 +336,7 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
     let (cases, paths_formatted) = config.testcase_loader(mode)?.load_merging(problem)?;
     let jobs = jobs
         .or_else(|| config.judge_jobs())
+        .or_else(|| NonZeroUsize::new(num_cpus::get()))
         .unwrap_or_else(|| NonZeroUsize::new(1).unwrap());
     let display_limit = config.judge_display_limit();
     let tester_transpilations = cases.interactive_tester_transpilations();
