@@ -33,12 +33,21 @@ use std::{env, iter, str};
 static CONFIG_FILE_NAME: &str = "snowchains.toml";
 
 /// Creates "snowchains.toml" in `directory`.
-pub(crate) fn init(mut stdout: impl Write, directory: &AbsPath) -> FileResult<()> {
+pub(crate) fn init(mut stderr: impl Write, directory: &AbsPath) -> FileResult<()> {
+    static TARGET_JSON: &str = r#"{
+  "service": "atcoder",
+  "contest": "arc100",
+  "language": "c++"
+}
+"#;
+    let toml_path = directory.join(CONFIG_FILE_NAME);
     let toml = generate_toml();
-    let path = directory.join(CONFIG_FILE_NAME);
-    crate::fs::write(&path, toml.as_bytes())?;
-    writeln!(stdout, "Wrote {}", path.display())?;
-    stdout.flush().map_err(Into::into)
+    let target_path = directory.join(".snowchains").join("target.json");
+    for (path, content) in &[(toml_path, toml.as_str()), (target_path, TARGET_JSON)] {
+        crate::fs::write(path, content.as_bytes())?;
+        writeln!(stderr, "Wrote {}", path.display())?;
+    }
+    stderr.flush().map_err(Into::into)
 }
 
 fn generate_toml() -> String {
@@ -233,9 +242,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
     let judge_jobs = num_cpus::get();
 
     format!(
-        r#"service = "atcoder"
-contest = "arc100"
-language = "c++"
+        r#"target = ".snowchains/target.json"
 
 [console]
 cjk = false{console_alt_width}
@@ -244,7 +251,7 @@ cjk = false{console_alt_width}
 {bash}{powershell}{cmd}
 
 [testfiles]
-path = "${{service}}/${{snake_case(contest)}}/tests/${{snake_case(problem)}}.${{extension}}"
+path = ".snowchains/tests/${{service}}/${{snake_case(contest)}}/${{snake_case(problem)}}.${{extension}}"
 
 [session]
 timeout = "60s"
@@ -477,35 +484,27 @@ pub(crate) fn switch(
     language: Option<&str>,
 ) -> FileResult<(Config, SwitchOutcome)> {
     let path = crate::fs::find_path(CONFIG_FILE_NAME, directory)?;
-    let old_toml = crate::fs::read_to_string(&path)?;
-    let old_config = crate::fs::read_toml::<Config>(&path)?;
-    stdout.apply_conf(&old_config.console);
-    stderr.apply_conf(&old_config.console);
+    let base_dir = path.parent().unwrap().to_owned();
+    let inner = crate::fs::read_toml::<Inner>(&path)?;
+    let path = directory.join_expanding_tilde(&inner.target)?;
+    let old_target = crate::fs::read_json::<Target>(&path)?;
 
-    let new_toml = {
-        let mut doc = old_toml
-            .parse::<toml_edit::Document>()
-            .unwrap_or_else(|e| unimplemented!("{}", e));
-        if let Some(service) = service {
-            doc["service"] = toml_edit::value(<&str>::from(service));
-        }
-        if let Some(contest) = contest {
-            doc["contest"] = toml_edit::value(contest);
-        }
-        if let Some(language) = language {
-            doc["language"] = toml_edit::value(language);
-        }
-        doc.to_string()
+    let new_target = Target {
+        service: service.unwrap_or(old_target.service),
+        contest: contest.unwrap_or(&old_target.contest).to_owned(),
+        language: language.unwrap_or(&old_target.language).to_owned(),
     };
-    let mut new_config =
-        toml::from_str::<Config>(&new_toml).unwrap_or_else(|e| unimplemented!("{:?}", e));
 
-    let old_service = Some(format!("{:?}", <&str>::from(old_config.service)));
-    let old_contest = Some(format!("{:?}", old_config.contest));
-    let old_language = Some(format!("{:?}", old_config.language));
-    let new_service = Some(format!("{:?}", <&str>::from(new_config.service)));
-    let new_contest = Some(format!("{:?}", new_config.contest));
-    let new_language = Some(format!("{:?}", new_config.language));
+    stdout.apply_conf(&inner.console);
+    stderr.apply_conf(&inner.console);
+
+    let old_service = Some(format!("{:?}", <&str>::from(old_target.service)));
+    let old_contest = Some(format!("{:?}", old_target.contest));
+    let old_language = Some(format!("{:?}", old_target.language));
+    let new_service = Some(format!("{:?}", <&str>::from(new_target.service)));
+    let new_contest = Some(format!("{:?}", new_target.contest));
+    let new_language = Some(format!("{:?}", new_target.language));
+
     let max_width = [
         old_service
             .as_ref()
@@ -524,6 +523,7 @@ pub(crate) fn switch(
     .cloned()
     .max()
     .unwrap();
+
     for (title, old, new) in &[
         ("service:  ", &old_service, &new_service),
         ("contest:  ", &old_contest, &new_contest),
@@ -539,35 +539,39 @@ pub(crate) fn switch(
         stderr.write_str("\n")?;
     }
 
-    crate::fs::write(&path, new_toml.as_bytes())?;
+    crate::fs::write_json_pretty(&path, &new_target)?;
     writeln!(stderr, "Wrote {}", path.display())?;
     stderr.flush()?;
 
     let outcome = SwitchOutcome {
         old: SwitchOutcomeAttrs {
-            service: old_config.service,
-            contest_lower_case: old_config.contest.to_lowercase(),
-            contest_upper_case: old_config.contest.to_uppercase(),
-            contest_snake_case: old_config.contest.to_snake_case(),
-            contest_kebab_case: old_config.contest.to_kebab_case(),
-            contest_mixed_case: old_config.contest.to_mixed_case(),
-            contest_pascal_case: old_config.contest.to_camel_case(),
-            contest: old_config.contest,
-            language: old_config.language,
+            service: old_target.service,
+            contest_lower_case: old_target.contest.to_lowercase(),
+            contest_upper_case: old_target.contest.to_uppercase(),
+            contest_snake_case: old_target.contest.to_snake_case(),
+            contest_kebab_case: old_target.contest.to_kebab_case(),
+            contest_mixed_case: old_target.contest.to_mixed_case(),
+            contest_pascal_case: old_target.contest.to_camel_case(),
+            contest: old_target.contest,
+            language: old_target.language,
         },
         new: SwitchOutcomeAttrs {
-            service: new_config.service,
-            contest_lower_case: new_config.contest.to_lowercase(),
-            contest_upper_case: new_config.contest.to_uppercase(),
-            contest_snake_case: new_config.contest.to_snake_case(),
-            contest_kebab_case: new_config.contest.to_kebab_case(),
-            contest_mixed_case: new_config.contest.to_mixed_case(),
-            contest_pascal_case: new_config.contest.to_camel_case(),
-            contest: new_config.contest.clone(),
-            language: new_config.language.clone(),
+            service: new_target.service,
+            contest_lower_case: new_target.contest.to_lowercase(),
+            contest_upper_case: new_target.contest.to_uppercase(),
+            contest_snake_case: new_target.contest.to_snake_case(),
+            contest_kebab_case: new_target.contest.to_kebab_case(),
+            contest_mixed_case: new_target.contest.to_mixed_case(),
+            contest_pascal_case: new_target.contest.to_camel_case(),
+            contest: new_target.contest.clone(),
+            language: new_target.language.clone(),
         },
     };
-    new_config.base_dir = directory.to_owned();
+    let new_config = Config {
+        target: new_target,
+        inner,
+        base_dir,
+    };
     Ok((new_config, outcome))
 }
 
@@ -580,26 +584,9 @@ pub enum Mode {
 }
 
 /// Config.
-#[derive(Serialize, Deserialize)]
 pub(crate) struct Config {
-    #[serde(default)]
-    service: ServiceKind,
-    contest: String,
-    language: String,
-    #[serde(default)]
-    console: Console,
-    #[serde(default)]
-    shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
-    testfiles: Testfiles,
-    session: Session,
-    judge: Judge,
-    #[serde(default)]
-    env: Env,
-    #[serde(default)]
-    hooks: Hooks,
-    tester: Option<Language>,
-    languages: HashMap<String, Language>,
-    #[serde(skip)]
+    inner: Inner,
+    target: Target,
     base_dir: AbsPathBuf,
 }
 
@@ -611,57 +598,63 @@ impl Config {
         dir: &AbsPath,
     ) -> FileResult<Self> {
         let path = crate::fs::find_path(CONFIG_FILE_NAME, dir)?;
-        let mut config = crate::fs::read_toml::<Self>(&path)?;
-        config.base_dir = path.parent().unwrap().to_owned();
-        config.service = service.unwrap_or(config.service);
-        config.contest = contest.map(ToOwned::to_owned).unwrap_or(config.contest);
-        config.language = language.map(ToOwned::to_owned).unwrap_or(config.language);
-        Ok(config)
+        let inner = crate::fs::read_toml::<Inner>(&path)?;
+        let base_dir = path.parent().unwrap().to_owned();
+        let path = base_dir.join_expanding_tilde(&inner.target)?;
+        let mut target = crate::fs::read_json::<Target>(&path)?;
+        target.service = service.unwrap_or(target.service);
+        target.contest = contest.map(ToOwned::to_owned).unwrap_or(target.contest);
+        target.language = language.map(ToOwned::to_owned).unwrap_or(target.language);
+        Ok(Self {
+            target,
+            inner,
+            base_dir,
+        })
     }
 
     /// Gets `service`.
     pub(crate) fn service(&self) -> ServiceKind {
-        self.service
+        self.target.service
     }
 
     /// Gets `contest`.
     pub(crate) fn contest(&self) -> &str {
-        &self.contest
+        &self.target.contest
     }
 
     /// Gets `console`.
     pub(crate) fn console(&self) -> &Console {
-        &self.console
+        &self.inner.console
     }
 
     /// Gets `session.timeout`.
     pub(crate) fn session_timeout(&self) -> Option<Duration> {
-        self.session.timeout
+        self.inner.session.timeout
     }
 
     /// Gets `session.silent`.
     pub(crate) fn session_silent(&self) -> bool {
-        self.session.silent
+        self.inner.session.silent
     }
 
     /// Gets `session.robots`.
     pub(crate) fn session_robots(&self) -> bool {
-        self.session.robots
+        self.inner.session.robots
     }
 
     /// Gets `session.cookies`.
     pub(crate) fn session_cookies(&self) -> Template<AbsPathBuf> {
-        self.build_path_template(&self.session.cookies, None)
+        self.build_path_template(&self.inner.session.cookies, None)
     }
 
     /// Gets `session.api_tokens`.
     pub(crate) fn session_api_tokens(&self) -> Template<AbsPathBuf> {
-        self.build_path_template(&self.session.api_tokens, None)
+        self.build_path_template(&self.inner.session.api_tokens, None)
     }
 
     /// Gets `session.dropbox.auth` as `Option`.
     pub(crate) fn session_dropbox_auth(&self) -> Option<Template<AbsPathBuf>> {
-        match &self.session.dropbox {
+        match &self.inner.session.dropbox {
             Dropbox::None => None,
             Dropbox::Some { auth } => Some(self.build_path_template(&auth, None)),
         }
@@ -669,12 +662,12 @@ impl Config {
 
     /// Gets `judge.jobs`.
     pub(crate) fn judge_jobs(&self) -> Option<NonZeroUsize> {
-        self.judge.jobs
+        self.inner.judge.jobs
     }
 
     /// Gets `judge.display_limit`.
     pub(crate) fn judge_display_limit(&self) -> Option<usize> {
-        self.judge.display_limit
+        self.inner.judge.display_limit
     }
 
     /// Gets `hooks.switch`.
@@ -692,9 +685,9 @@ impl Config {
         f: fn(&Hooks) -> &TemplateBuilder<HookCommands>,
         outcome: &impl Serialize,
     ) -> Template<HookCommands> {
-        f(&self.hooks).build(HookCommandsRequirements {
+        f(&self.inner.hooks).build(HookCommandsRequirements {
             base_dir: self.base_dir.clone(),
-            shell: self.shell.clone(),
+            shell: self.inner.shell.clone(),
             result: Arc::new(serde_json::to_string(outcome)),
         })
     }
@@ -704,9 +697,10 @@ impl Config {
         &self,
         ext: Option<SuiteFileExtension>,
     ) -> DownloadDestinations {
-        let scraped = self.build_path_template(&self.testfiles.path, None);
-        let text_file_dir = self.build_path_template(&self.session.download.text_file_dir, None);
-        let ext = ext.unwrap_or(self.session.download.extension);
+        let scraped = self.build_path_template(&self.inner.testfiles.path, None);
+        let text_file_dir =
+            self.build_path_template(&self.inner.session.download.text_file_dir, None);
+        let ext = ext.unwrap_or(self.inner.session.download.extension);
         DownloadDestinations::new(scraped, text_file_dir, ext)
     }
 
@@ -716,8 +710,8 @@ impl Config {
         let tester_compilation = self.tester_compilation(mode)?;
         let tester = self.tester(mode)?;
         Ok(TestCaseLoader::new(
-            self.build_path_template(&self.testfiles.path, Some(mode)),
-            &self.judge.testfile_extensions,
+            self.build_path_template(&self.inner.testfiles.path, Some(mode)),
+            &self.inner.judge.testfile_extensions,
             tester_transpilation,
             tester_compilation,
             tester,
@@ -729,9 +723,10 @@ impl Config {
         &self,
         mode: Mode,
     ) -> ConfigResult<HashMap<&str, Template<AbsPathBuf>>> {
-        self.languages
+        self.inner
+            .languages
             .values()
-            .flat_map(|l| l.names.get(&self.service).map(|n| (l, n)))
+            .flat_map(|l| l.names.get(&self.target.service).map(|n| (l, n)))
             .map(|(lang, name)| {
                 let template = self
                     .build_path_template(&lang.src, Some(mode))
@@ -757,8 +752,8 @@ impl Config {
     ) -> Template<AbsPathBuf> {
         template.build(AbsPathBufRequirements {
             base_dir: self.base_dir.clone(),
-            service: self.service,
-            contest: self.contest.clone(),
+            service: self.target.service,
+            contest: self.target.contest.clone(),
             mode,
         })
     }
@@ -766,10 +761,11 @@ impl Config {
     pub(crate) fn lang_name(&self) -> ConfigResult<&str> {
         let lang = self.find_language()?;
         lang.names
-            .get(&self.service)
+            .get(&self.target.service)
             .map(AsRef::as_ref)
             .ok_or_else(|| {
-                ConfigErrorKind::LangNameRequired(self.language.clone(), self.service).into()
+                ConfigErrorKind::LangNameRequired(self.target.language.clone(), self.target.service)
+                    .into()
             })
     }
 
@@ -798,21 +794,22 @@ impl Config {
         &self,
         mode: Mode,
     ) -> ConfigResult<Option<Template<TranspilationCommand>>> {
-        match &self.tester {
+        match &self.inner.tester {
             None => Ok(None),
             Some(tester) => self.transpilation_command(tester, mode),
         }
     }
 
     fn tester_compilation(&self, mode: Mode) -> ConfigResult<Option<Template<CompilationCommand>>> {
-        match &self.tester {
+        match &self.inner.tester {
             None => Ok(None),
             Some(tester) => self.compilation_command(tester, mode),
         }
     }
 
     fn tester(&self, mode: Mode) -> ConfigResult<Option<Template<JudgingCommand>>> {
-        self.tester
+        self.inner
+            .tester
             .as_ref()
             .map(|lang| self.judge_command(lang, mode))
             .transpose()
@@ -830,10 +827,10 @@ impl Config {
                 Ok(transpile
                     .build(TranspilationCommandRequirements {
                         base_dir: self.base_dir.clone(),
-                        service: self.service,
-                        contest: self.contest.clone(),
+                        service: self.target.service,
+                        contest: self.target.contest.clone(),
                         mode,
-                        shell: self.shell.clone(),
+                        shell: self.inner.shell.clone(),
                         working_dir: lang.working_directory.clone(),
                         src: lang.src.clone(),
                         transpiled: lang.transpiled.clone(),
@@ -855,10 +852,10 @@ impl Config {
                 Ok(compile
                     .build(CompilationCommandRequirements {
                         base_dir: self.base_dir.clone(),
-                        service: self.service,
-                        contest: self.contest.clone(),
+                        service: self.target.service,
+                        contest: self.target.contest.clone(),
                         mode,
-                        shell: self.shell.clone(),
+                        shell: self.inner.shell.clone(),
                         working_dir: lang.working_directory.clone(),
                         src: lang.src.clone(),
                         transpiled: lang.transpiled.clone(),
@@ -875,10 +872,10 @@ impl Config {
             .run
             .build(JudgingCommandRequirements {
                 base_dir: self.base_dir.clone(),
-                service: self.service,
-                contest: self.contest.clone(),
+                service: self.target.service,
+                contest: self.target.contest.clone(),
                 mode,
-                shell: self.shell.clone(),
+                shell: self.inner.shell.clone(),
                 working_dir: lang.working_directory.clone(),
                 src: lang.src.clone(),
                 transpiled: lang.transpiled.clone(),
@@ -889,21 +886,14 @@ impl Config {
     }
 
     fn env_vars(&self, mode: Mode) -> ConfigResult<HashMap<String, String>> {
-        let Self {
-            service,
-            contest,
-            language,
-            env,
-            ..
-        } = self;
         let prop_values = hashmap!(
-            "service" => service.to_string(),
-            "contest" => contest.clone(),
-            "language" => language.clone(),
+            "service" => self.target.service.to_string(),
+            "contest" => self.target.contest.clone(),
+            "language" => self.target.language.clone(),
             "mode" => mode.to_string(),
         );
         let mut ret = hashmap!();
-        for (pred, env_values) in &env.values {
+        for (pred, env_values) in &self.inner.env.values {
             if pred.eval(&prop_values)? {
                 ret.extend(env_values.iter().map(|(k, v)| (k.clone(), v.clone())));
             }
@@ -912,10 +902,29 @@ impl Config {
     }
 
     fn find_language(&self) -> ConfigResult<&Language> {
-        self.languages
-            .get(&self.language)
-            .ok_or_else(|| ConfigErrorKind::NoSuchLanguage(self.language.clone()).into())
+        self.inner
+            .languages
+            .get(&self.target.language)
+            .ok_or_else(|| ConfigErrorKind::NoSuchLanguage(self.target.language.clone()).into())
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct Inner {
+    target: PathBuf,
+    #[serde(default)]
+    console: Console,
+    #[serde(default)]
+    shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
+    testfiles: Testfiles,
+    session: Session,
+    judge: Judge,
+    #[serde(default)]
+    env: Env,
+    #[serde(default)]
+    hooks: Hooks,
+    tester: Option<Language>,
+    languages: HashMap<String, Language>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -1315,9 +1324,16 @@ struct Language {
     names: BTreeMap<ServiceKind, String>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct Target {
+    service: ServiceKind,
+    contest: String,
+    language: String,
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::config::Config;
+    use crate::config::{Inner, Target};
     use crate::path::AbsPath;
     use crate::service::ServiceKind;
     use crate::terminal::Ansi;
@@ -1325,35 +1341,56 @@ mod tests {
     use failure::Fallible;
     use tempdir::TempDir;
 
+    use std::fs::File;
     use std::str;
 
     #[test]
     fn test_init() -> Fallible<()> {
         let tempdir = TempDir::new("config_test_init")?;
-        let mut out = Ansi::new(vec![]);
+        let mut stderr = Ansi::new(vec![]);
 
-        super::init(&mut out, AbsPath::try_new(tempdir.path()).unwrap())?;
+        super::init(&mut stderr, AbsPath::try_new(tempdir.path()).unwrap())?;
 
-        let path = tempdir.path().join(super::CONFIG_FILE_NAME);
-        let toml = std::fs::read_to_string(&path)?;
-        toml::from_str::<Config>(&toml)?;
+        let toml_path = tempdir.path().join(super::CONFIG_FILE_NAME);
+        let toml = std::fs::read_to_string(&toml_path)?;
+        toml::from_str::<Inner>(&toml)?;
+
+        let json_path = tempdir.path().join(".snowchains").join("target.json");
+        serde_json::from_reader::<_, Target>(File::open(&json_path)?)?;
+
         assert_eq!(
-            str::from_utf8(out.get_ref())?,
-            format!("Wrote {}\n", path.display()),
+            str::from_utf8(stderr.get_ref())?,
+            format!(
+                "Wrote {}\nWrote {}\n",
+                toml_path.display(),
+                json_path.display(),
+            ),
         );
         Ok(())
     }
 
     #[test]
     fn test_switch() -> Fallible<()> {
+        static OLD_JSON: &str = r#"{
+  "service": "atcoder",
+  "contest": "arc100",
+  "language": "c++"
+}
+"#;
+
         let tempdir = TempDir::new("config_test_init")?;
         let mut stdout = Ansi::new(vec![]);
         let mut stderr = Ansi::new(vec![]);
 
-        let old_toml = super::generate_toml();
-        let old_config = toml::from_str::<Config>(&old_toml)?;
+        let toml = super::generate_toml();
+        let old_target = serde_json::from_str::<Target>(OLD_JSON)?;
+        let toml_path = tempdir.path().join(super::CONFIG_FILE_NAME);
+        let json_path = tempdir.path().join(".snowchains").join("target.json");
 
-        std::fs::write(tempdir.path().join(super::CONFIG_FILE_NAME), &old_toml)?;
+        std::fs::create_dir(tempdir.path().join(".snowchains"))?;
+        std::fs::write(&toml_path, &toml)?;
+        std::fs::write(&json_path, OLD_JSON)?;
+
         super::switch(
             &mut stdout,
             &mut stderr,
@@ -1363,27 +1400,26 @@ mod tests {
             Some("rust"),
         )?;
 
-        let new_toml = std::fs::read_to_string(tempdir.path().join(super::CONFIG_FILE_NAME))?;
-        let new_config = toml::from_str::<Config>(&new_toml)?;
+        let new_target = serde_json::from_reader::<_, Target>(File::open(&json_path)?)?;
 
-        assert_eq!(old_config.service, ServiceKind::Atcoder);
-        assert_eq!(old_config.contest, "arc100");
-        assert_eq!(old_config.language, "c++");
-        assert_eq!(new_config.service, ServiceKind::Yukicoder);
-        assert_eq!(new_config.contest, "no");
-        assert_eq!(new_config.language, "rust");
+        assert_eq!(old_target.service, ServiceKind::Atcoder);
+        assert_eq!(old_target.contest, "arc100");
+        assert_eq!(old_target.language, "c++");
+        assert_eq!(new_target.service, ServiceKind::Yukicoder);
+        assert_eq!(new_target.contest, "no");
+        assert_eq!(new_target.language, "rust");
 
+        assert_eq!(str::from_utf8(stdout.get_ref())?, "");
         assert_eq!(
-            str::from_utf8(stdout.get_ref())?,
+            str::from_utf8(stderr.get_ref())?,
             format!(
                 "service:  \x1b[1m\"atcoder\"\x1b[0m -> \x1b[1m\"yukicoder\"\x1b[0m\n\
                  contest:  \x1b[1m\"arc100\"\x1b[0m  -> \x1b[1m\"no\"\x1b[0m\n\
                  language: \x1b[1m\"c++\"\x1b[0m     -> \x1b[1m\"rust\"\x1b[0m\n\
                  Wrote {}\n",
-                tempdir.path().join(super::CONFIG_FILE_NAME).display(),
+                json_path.display(),
             ),
         );
-        assert!(stderr.get_ref().is_empty());
         Ok(())
     }
 

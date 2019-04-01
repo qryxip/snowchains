@@ -101,9 +101,7 @@ $ snowchains submit a --open             # executes `judge` command before submi
 ### Config File (snowchains.toml)
 
 ```toml
-service = "atcoder"
-contest = "arc100"
-language = "c++"
+target = ".snowchains/target.json"
 
 [console]
 cjk = false
@@ -118,7 +116,7 @@ bash = ["/usr/bin/bash", "-c", "${command}"]
 # cmd = ["C:/Windows/System32/cmd.exe", "/C", "${command}"]
 
 [testfiles]
-path = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}.${extension}"
+path = ".snowchains/tests/${service}/${snake_case(contest)}/${snake_case(problem)}.${extension}"
 
 [session]
 timeout = "60s"
@@ -351,6 +349,14 @@ working_directory = "${service}/${snake_case(contest)}/txt"
 [languages.text.names]
 atcoder = "Text (cat)"
 yukicoder = "Text (cat 8.22)"
+```
+
+```json
+{
+  "service": "atcoder",
+  "contest": "arc100",
+  "language": "c++"
+}
 ```
 
 ### Test file

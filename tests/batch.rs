@@ -67,15 +67,30 @@ fn main() {
 
     let tempdir = TempDir::new("batch_it_works")?;
 
-    let dir = tempdir.path().join("atcoder").join("practice");
-    let src_dir = dir.join("rs").join("src").join("bin");
+    let src_dir = tempdir
+        .path()
+        .join("atcoder")
+        .join("practice")
+        .join("rs")
+        .join("src")
+        .join("bin");
     let src_path = src_dir.join("a.rs");
-    let suite_dir = dir.join("tests");
+    let suite_dir = tempdir
+        .path()
+        .join(".snowchains")
+        .join("tests")
+        .join("atcoder")
+        .join("practice");
     let suite_path = suite_dir.join("a.yml");
 
     std::fs::write(
         tempdir.path().join("snowchains.toml"),
-        include_bytes!("./snowchains.toml").as_ref(),
+        &include_bytes!("./snowchains.toml")[..],
+    )?;
+    std::fs::create_dir_all(tempdir.path().join(".snowchains"))?;
+    std::fs::write(
+        tempdir.path().join(".snowchains").join("target.json"),
+        &include_bytes!("./target.json")[..],
     )?;
     std::fs::create_dir_all(&src_dir)?;
     std::fs::create_dir_all(&suite_dir)?;

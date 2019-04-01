@@ -406,7 +406,7 @@ impl<T: Term> App<T> {
                 } = cli_args;
                 let wd = working_dir.join_canonicalizing_lossy(&directory);
                 self.term.attempt_enable_ansi(*color_choice);
-                config::init(self.term.stdout(), &wd)?;
+                config::init(self.term.stderr(), &wd)?;
             }
             Opt::Switch(cli_args) => {
                 let Switch {

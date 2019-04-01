@@ -45,9 +45,10 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
             }))?;
             let download_dir = app
                 .working_dir
+                .join(".snowchains")
+                .join("tests")
                 .join("atcoder")
-                .join("practice")
-                .join("tests");
+                .join("practice");
             check_yaml_md5(&download_dir, "a", "f9da086de05e439ebe3bac66cfc1ef89")?;
             check_yaml_md5(&download_dir, "b", "4cccced6eee33d234bc084c12b2db7c2")?;
             Ok(())
@@ -70,7 +71,12 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
             }))?;
-            let download_dir = app.working_dir.join("atcoder").join("abc100").join("tests");
+            let download_dir = app
+                .working_dir
+                .join(".snowchains")
+                .join("tests")
+                .join("atcoder")
+                .join("abc100");
             check_yaml_md5(&download_dir, "a", "86531ee215ce7634434b1a0b8ed9d932")?;
             check_yaml_md5(&download_dir, "b", "8aa1291a4fdba2ebc2f1fdc6fc484394")?;
             check_yaml_md5(&download_dir, "c", "61e0e720317997d3f27a0fa4fed0bb51")?;
@@ -96,7 +102,12 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
                 color_choice: AnsiColorChoice::Never,
             }))?;
             // "ARC058_ABC042"
-            let download_dir = app.working_dir.join("atcoder").join("abc099").join("tests");
+            let download_dir = app
+                .working_dir
+                .join(".snowchains")
+                .join("tests")
+                .join("atcoder")
+                .join("abc099");
             just_confirm_num_samples_and_timelimit(&download_dir, "a", 9, "2000ms")
         },
     )

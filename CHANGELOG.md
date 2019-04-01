@@ -11,6 +11,7 @@
 
 * Make `env` field more configurable
 * Now it prints most of the information to stderr, not stdout
+* Move `service`, `contest` and `language` fields of `snowchains.toml` to another file
 
 ### Removed
 
