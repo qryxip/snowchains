@@ -6,7 +6,7 @@ use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps,
-    PrintTargets as _, RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
+    PrintTargets as _, RestoreProps, Service, SessionProps, SubmitProps,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
@@ -328,7 +328,7 @@ impl<T: Term> Atcoder<T> {
                 Some(problems) => problems.iter().any(|p| p == name),
             })
             .collect::<Vec<_>>();
-        let mut outcome = DownloadOutcome::new(ServiceKind::Atcoder, contest, *open_in_browser);
+        let mut outcome = DownloadOutcome::new(contest);
         for (name, url) in names_and_urls {
             let suite = match contest.preset_suite(&name) {
                 Some(suite) => suite,

@@ -180,21 +180,37 @@ fi
 
 [[hooks.download]]
 bash = '''
-if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .open_in_browser)" = true ]; then
-  service="$(echo "$SNOWCHAINS_RESULT" | jq -r .service)"
+if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .command_line_arguments.open)" = true ]; then
+  service="$(echo "$SNOWCHAINS_RESULT" | jq -r .target.service)"
   echo "$SNOWCHAINS_RESULT" |
     jq -r '
       . as $root
       | .problems
-      | map("./" + $root.service + "/" + $root.contest.slug_snake_case + "/rs/src/bin/" + .name_kebab_case + ".rs")
+      | map(
+          "./"
+          + $root.target.service
+          + "/" + $root.contest.slug_snake_case
+          + "/rs/src/bin/"
+          + .name_kebab_case
+          + ".rs"
+        )
       | join("\n")
     ' | xargs -d \\n -I % -r cp "./templates/rs/src/bin/$service.rs" % &&
   echo "$SNOWCHAINS_RESULT" |
     jq -r '
       . as $root
       | .problems
-      | map(["./" + $root.service + "/" + $root.contest.slug_snake_case + "/rs/src/bin/" + .name_kebab_case + ".rs", .test_suite_path])
-      | flatten
+      | map(
+          "./"
+          + $root.target.service
+          + "/"
+          + $root.contest.slug_snake_case
+          + "/rs/src/bin/"
+          + .name_kebab_case
+          + ".rs"
+          + "\n"
+          + .test_suite_path
+        )
       | join("\n")
     ' | xargs -d \\n -r emacsclient -n
 fi

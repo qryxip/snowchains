@@ -612,6 +612,18 @@ impl Config {
         })
     }
 
+    pub(crate) fn inner(&self) -> &Inner {
+        &self.inner
+    }
+
+    pub(crate) fn target(&self) -> &Target {
+        &self.target
+    }
+
+    pub(crate) fn base_dir(&self) -> &AbsPath {
+        &self.base_dir
+    }
+
     /// Gets `service`.
     pub(crate) fn service(&self) -> ServiceKind {
         self.target.service
@@ -1325,7 +1337,7 @@ struct Language {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Target {
+pub(crate) struct Target {
     service: ServiceKind,
     contest: String,
     language: String,

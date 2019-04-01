@@ -7,7 +7,7 @@ use crate::errors::{
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps,
-    PrintTargets as _, RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
+    PrintTargets as _, RestoreProps, Service, SessionProps, SubmitProps,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, TestSuite};
@@ -212,7 +212,7 @@ impl<T: Term> Codeforces<T> {
         let problems = problems.as_ref();
         let top_path = format!("/contest/{}", contest.id);
 
-        let mut outcome = DownloadOutcome::new(ServiceKind::Codeforces, &contest, open_in_browser);
+        let mut outcome = DownloadOutcome::new(&contest);
 
         let mut res = self.get(&top_path).acceptable(&[200, 302]).send()?;
         if res.status() == 302 {

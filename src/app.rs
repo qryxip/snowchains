@@ -1,7 +1,7 @@
 use crate::config::{self, Config};
 use crate::errors::ExpandTemplateResult;
 use crate::judging::{self, JudgeParams};
-use crate::path::AbsPathBuf;
+use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::{
     atcoder, codeforces, yukicoder, DownloadProps, ListLangsProps, RestoreProps, ServiceKind,
     SessionProps, SubmitProps,
@@ -421,7 +421,7 @@ impl<T: Term> App<T> {
                 let (_, stdout, stderr) = self.term.split_mut();
                 let (config, outcome) =
                     config::switch(stdout, stderr, &working_dir, *service, contest, language)?;
-                let outcome = WithCliArgs::new(cli_args, outcome);
+                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
                 let hooks = config.switch_hooks(&outcome).expand()?;
                 hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
@@ -487,7 +487,7 @@ impl<T: Term> App<T> {
                     ServiceKind::Yukicoder => yukicoder::download(props, term),
                     ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
                 }?;
-                let outcome = WithCliArgs::new(cli_args, outcome);
+                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
                 let hooks = config.download_hooks(&outcome).expand()?;
                 hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
@@ -654,16 +654,22 @@ impl<T: Term> App<T> {
 }
 
 #[derive(Serialize)]
-struct WithCliArgs<'a, A: Serialize, T: Serialize> {
+struct WithCliArgsAndConfig<'a, A: Serialize, T: Serialize> {
     command_line_arguments: &'a A,
+    config: &'a config::Inner,
+    target: &'a config::Target,
+    base_directory: &'a AbsPath,
     #[serde(flatten)]
     repr: T,
 }
 
-impl<'a, A: Serialize, T: Serialize> WithCliArgs<'a, A, T> {
-    fn new(command_line_arguments: &'a A, repr: T) -> Self {
+impl<'a, A: Serialize, T: Serialize> WithCliArgsAndConfig<'a, A, T> {
+    fn new(command_line_arguments: &'a A, config: &'a Config, repr: T) -> Self {
         Self {
             command_line_arguments,
+            config: config.inner(),
+            target: config.target(),
+            base_directory: config.base_dir(),
             repr,
         }
     }

@@ -279,8 +279,6 @@ pub(self) enum ZipEntriesSorting {
 
 #[derive(Serialize)]
 pub(crate) struct DownloadOutcome {
-    service: ServiceKind,
-    open_in_browser: bool,
     contest: DownloadOutcomeContest,
     pub(self) problems: Vec<DownloadOutcomeProblem>,
 }
@@ -324,10 +322,8 @@ fn ser_as_path<S: Serializer>(
 }
 
 impl DownloadOutcome {
-    pub(self) fn new(service: ServiceKind, contest: &impl Contest, open_in_browser: bool) -> Self {
+    pub(self) fn new(contest: &impl Contest) -> Self {
         Self {
-            service,
-            open_in_browser,
             contest: DownloadOutcomeContest {
                 slug: contest.slug().into(),
                 slug_lower_case: contest.slug().to_lowercase(),
