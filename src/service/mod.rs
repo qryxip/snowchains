@@ -9,7 +9,9 @@ pub(self) mod download;
 use crate::config::{self, Config};
 use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceResult};
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
+use crate::service::session::{
+    HttpSession, HttpSessionInitParams, IntoRelativeOrAbsoluteUrl, UrlBase,
+};
 use crate::template::Template;
 use crate::terminal::WriteAnsi;
 use crate::testsuite::{DownloadDestinations, SuiteFilePath, TestSuite};
@@ -117,17 +119,17 @@ pub(self) trait Service {
         &mut Runtime,
     );
 
-    fn get(&mut self, url: &str) -> session::Request<&mut Self::Stderr> {
+    fn get(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> session::Request<&mut Self::Stderr> {
         let (_, stderr, sess, runtime) = self.requirements();
         sess.get(url, stderr, runtime)
     }
 
-    fn post(&mut self, url: &str) -> session::Request<&mut Self::Stderr> {
+    fn post(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> session::Request<&mut Self::Stderr> {
         let (_, stderr, sess, runtime) = self.requirements();
         sess.post(url, stderr, runtime)
     }
 
-    fn open_in_browser(&mut self, url: &str) -> ServiceResult<()> {
+    fn open_in_browser(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<()> {
         let (_, stderr, sess, _) = self.requirements();
         sess.open_in_browser(url, stderr)
     }
@@ -278,6 +280,12 @@ pub(self) enum ZipEntriesSorting {
 }
 
 #[derive(Serialize)]
+pub(crate) struct LoginOutcome {}
+
+#[derive(Serialize)]
+pub(crate) struct ParticipateOutcome {}
+
+#[derive(Serialize)]
 pub(crate) struct DownloadOutcome {
     contest: DownloadOutcomeContest,
     pub(self) problems: Vec<DownloadOutcomeProblem>,
@@ -356,6 +364,28 @@ impl DownloadOutcome {
             test_suite_path: path,
             test_suite: suite,
         })
+    }
+}
+
+#[derive(Serialize)]
+pub(crate) struct RestoreOutcome {}
+
+#[derive(Serialize)]
+pub(crate) struct SubmitOutcome {}
+
+#[derive(Serialize)]
+pub(crate) struct ListLangsOutcome {
+    #[serde(serialize_with = "util::serde::ser_as_ref_str")]
+    url: Url,
+    available_languages: NonEmptyIndexMap<String, String>,
+}
+
+impl ListLangsOutcome {
+    fn new(url: Url, available_languages: NonEmptyIndexMap<String, String>) -> Self {
+        Self {
+            url,
+            available_languages,
+        }
     }
 }
 

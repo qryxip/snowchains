@@ -5,12 +5,13 @@ mod text;
 use crate::command::JudgingCommand;
 use crate::config::{self, Config};
 use crate::errors::{JudgeError, JudgeErrorKind, JudgeResult};
-use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _};
+use crate::terminal::{TermOut, WriteAnsi};
 use crate::testsuite::{TestCase, TestCases};
 use crate::util::collections::NonEmptyVec;
 use crate::util::lang_unstable::Never;
 
 use futures::{task, try_ready, Async, Future, Poll};
+use serde_derive::Serialize;
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
@@ -18,7 +19,7 @@ use std::fmt::{self, Write as _};
 use std::io::{self, Cursor, Write as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::{cmp, mem, vec};
+use std::{mem, vec};
 
 pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
     stderr: E,
@@ -42,7 +43,7 @@ pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
 /// # Errors
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
-pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResult<()> {
+pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResult<JudgeOutcome> {
     struct Progress<W, S, C, F: Future> {
         jobs: NonZeroUsize,
         color: bool,
@@ -274,7 +275,7 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
         cases: NonEmptyVec<C>,
         solver: &Arc<JudgingCommand>,
         judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<F>,
-    ) -> JudgeResult<()>
+    ) -> JudgeResult<JudgeOutcome>
     where
         F::Item: Outcome + Send + 'static,
     {
@@ -320,7 +321,7 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
                 plural!(num_cases.get(), "test", "tests")
             )?;
             stderr.flush()?;
-            Ok(())
+            Ok(JudgeOutcome {})
         }
     }
 
@@ -393,49 +394,13 @@ pub(crate) struct JudgeParams<'a, E: TermOut> {
     pub jobs: Option<NonZeroUsize>,
 }
 
+#[derive(Serialize)]
+pub(crate) struct JudgeOutcome {}
+
 pub(self) trait Outcome: fmt::Display {
     fn failure(&self) -> bool;
     fn color(&self) -> u8;
     fn print_details(&self, display_limit: Option<usize>, out: impl TermOut) -> io::Result<()>;
-
-    fn print_title(
-        &self,
-        mut out: impl TermOut,
-        i: impl DisplayableNum,
-        n: impl DisplayableNum,
-        name: &str,
-        name_width: Option<usize>,
-    ) -> io::Result<()> {
-        if name_width.is_some() {
-            out.write_spaces(n.num_digits() - i.num_digits())?;
-        }
-        out.with_reset(|o| write!(o.bold()?, "{}/{} ({})", i, n, name))?;
-        let l = out.str_width(name);
-        let name_width = name_width.unwrap_or(0);
-        out.write_spaces(cmp::max(name_width, l) - l + 1)?;
-        out.with_reset(|o| writeln!(o.fg(self.color())?, "{}", self))
-    }
-}
-
-trait DisplayableNum: fmt::Display + Copy {
-    fn num_digits(self) -> usize;
-}
-
-impl DisplayableNum for usize {
-    fn num_digits(mut self) -> usize {
-        let mut r = 1;
-        while self > 9 {
-            self /= 10;
-            r += 1;
-        }
-        r
-    }
-}
-
-impl DisplayableNum for NonZeroUsize {
-    fn num_digits(self) -> usize {
-        self.get().num_digits()
-    }
 }
 
 pub(self) fn writeln_size(mut out: impl WriteAnsi, size: usize) -> io::Result<()> {

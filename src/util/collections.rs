@@ -2,6 +2,7 @@ use indexmap::IndexMap;
 use itertools::Itertools as _;
 use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_derive::Serialize;
 
 use std::cmp::Ord;
 use std::collections::BTreeMap;
@@ -127,6 +128,8 @@ impl<'a, T> IntoIterator for &'a mut NonEmptyVec<T> {
     }
 }
 
+#[derive(Serialize)]
+#[serde(transparent)]
 pub(crate) struct NonEmptyIndexMap<K: Eq + Hash, V> {
     inner: IndexMap<K, V>,
 }

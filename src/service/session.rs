@@ -148,19 +148,15 @@ impl HttpSession {
 
     /// If `url` starts with '/' and the base host is present, returns
     /// http(s)://<host><url>.
-    pub(super) fn resolve_url(&self, url: &str) -> ServiceResult<Url> {
-        match self.base.as_ref() {
-            Some(base) => base.with(url),
-            None => Url::parse(url)
-                .map_err(|e| e.context(ServiceErrorKind::ParseUrl(url.to_owned())).into()),
-        }
+    pub(super) fn resolve_url(&self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<Url> {
+        url.with(self.base.as_ref())
     }
 
     /// Opens `url`, which is relative or absolute, with default browser
     /// printing a message.
     pub(super) fn open_in_browser(
         &mut self,
-        url: &str,
+        url: impl IntoRelativeOrAbsoluteUrl,
         mut out: impl WriteAnsi,
     ) -> ServiceResult<()> {
         let url = self.resolve_url(url)?;
@@ -176,7 +172,7 @@ impl HttpSession {
 
     pub(super) fn get<'a, 'b, O: WriteAnsi>(
         &'a mut self,
-        url: &str,
+        url: impl IntoRelativeOrAbsoluteUrl,
         out: O,
         runtime: &'b mut Runtime,
     ) -> self::Request<'a, 'b, O> {
@@ -185,7 +181,7 @@ impl HttpSession {
 
     pub(super) fn post<'a, 'b, O: WriteAnsi>(
         &'a mut self,
-        url: &str,
+        url: impl IntoRelativeOrAbsoluteUrl,
         out: O,
         runtime: &'b mut Runtime,
     ) -> self::Request<'a, 'b, O> {
@@ -194,7 +190,7 @@ impl HttpSession {
 
     fn request<'a, 'b, O: WriteAnsi>(
         &'a mut self,
-        url: &str,
+        url: impl IntoRelativeOrAbsoluteUrl,
         method: Method,
         acceptable: Vec<StatusCode>,
         out: O,
@@ -212,7 +208,7 @@ impl HttpSession {
 
     fn try_request(
         &mut self,
-        url: &str,
+        url: impl IntoRelativeOrAbsoluteUrl,
         method: Method,
     ) -> ServiceResult<reqwest::r#async::RequestBuilder> {
         let url = self.resolve_url(url)?;
@@ -516,26 +512,50 @@ pub(super) struct UrlBase {
     port: Option<u16>,
 }
 
-impl UrlBase {
-    fn with(&self, relative_or_absolute_url: &str) -> ServiceResult<Url> {
-        let mut url = Cow::from(relative_or_absolute_url);
-        if url.starts_with('/') {
-            url = format!(
-                "http{}://{}{}{}",
-                if self.https { "s" } else { "" },
-                self.host,
-                match self.port {
-                    Some(port) => format!(":{}", port),
-                    None => "".to_owned(),
-                },
-                url,
-            )
-            .into();
+pub(super) trait IntoRelativeOrAbsoluteUrl {
+    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url>;
+}
+
+impl IntoRelativeOrAbsoluteUrl for Url {
+    fn with(self, _: Option<&UrlBase>) -> ServiceResult<Url> {
+        Ok(self)
+    }
+}
+
+impl<'a> IntoRelativeOrAbsoluteUrl for &'a Url {
+    fn with(self, _: Option<&UrlBase>) -> ServiceResult<Url> {
+        Ok(self.clone())
+    }
+}
+
+impl<'a> IntoRelativeOrAbsoluteUrl for &'a str {
+    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url> {
+        let mut url = Cow::from(self);
+        if let Some(base) = base {
+            if url.starts_with('/') {
+                url = format!(
+                    "http{}://{}{}{}",
+                    if base.https { "s" } else { "" },
+                    base.host,
+                    match base.port {
+                        Some(port) => format!(":{}", port),
+                        None => "".to_owned(),
+                    },
+                    url,
+                )
+                .into();
+            }
         }
         Url::parse(&url).map_err(|e| {
             e.context(ServiceErrorKind::ParseUrl(url.into_owned()))
                 .into()
         })
+    }
+}
+
+impl<'a> IntoRelativeOrAbsoluteUrl for &'a String {
+    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url> {
+        self.as_str().with(base)
     }
 }
 

@@ -687,9 +687,39 @@ impl Config {
         self.hooks(|hs| &hs.switch, outcome)
     }
 
+    /// Gets `hooks.login`.
+    pub(crate) fn login_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
+        self.hooks(|hs| &hs.login, outcome)
+    }
+
+    /// Gets `hooks.participate`.
+    pub(crate) fn participate_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
+        self.hooks(|hs| &hs.participate, outcome)
+    }
+
     /// Gets `hooks.download`.
     pub(crate) fn download_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
         self.hooks(|hs| &hs.download, outcome)
+    }
+
+    /// Gets `hooks.restore`.
+    pub(crate) fn restore_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
+        self.hooks(|hs| &hs.restore, outcome)
+    }
+
+    /// Gets `hooks.judge`.
+    pub(crate) fn judge_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
+        self.hooks(|hs| &hs.judge, outcome)
+    }
+
+    /// Gets `hooks.submit`.
+    pub(crate) fn submit_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
+        self.hooks(|hs| &hs.submit, outcome)
+    }
+
+    /// Gets `hooks.list_langs`.
+    pub(crate) fn list_langs_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
+        self.hooks(|hs| &hs.list_langs, outcome)
     }
 
     fn hooks(
@@ -1314,6 +1344,8 @@ struct Hooks {
     judge: TemplateBuilder<HookCommands>,
     #[serde(default)]
     submit: TemplateBuilder<HookCommands>,
+    #[serde(default)]
+    list_langs: TemplateBuilder<HookCommands>,
 }
 
 #[derive(Serialize, Deserialize)]

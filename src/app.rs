@@ -435,12 +435,15 @@ impl<T: Term> App<T> {
                 self.term.apply_conf(config.console());
                 let props = self.sess_props(&config)?;
                 let term = &mut self.term;
-                match service {
+                let outcome = match service {
                     ServiceKind::Atcoder => atcoder::login(props, term),
                     ServiceKind::Codeforces => codeforces::login(props, term),
                     ServiceKind::Yukicoder => yukicoder::login(props, term),
                     ServiceKind::Other => unreachable!(),
                 }?;
+                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
+                let hooks = config.login_hooks(&outcome).expand()?;
+                hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
             Opt::Participate(cli_args) => {
                 let Participate {
@@ -453,10 +456,13 @@ impl<T: Term> App<T> {
                 self.term.apply_conf(config.console());
                 let props = self.sess_props(&config)?;
                 let term = &mut self.term;
-                match service {
+                let outcome = match service {
                     ServiceKind::Atcoder => atcoder::participate(contest, props, term),
                     _ => unreachable!(),
                 }?;
+                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
+                let hooks = config.participate_hooks(&outcome).expand()?;
+                hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
             Opt::Download(cli_args) => {
                 let Download {
@@ -508,11 +514,14 @@ impl<T: Term> App<T> {
                 let restore_props = RestoreProps::new(&config, *mode, problems)?;
                 let props = (sess_props, restore_props);
                 let term = &mut self.term;
-                match config.service() {
+                let outcome = match config.service() {
                     ServiceKind::Atcoder => atcoder::restore(props, term)?,
                     ServiceKind::Codeforces => codeforces::restore(props, term)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
+                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
+                let hooks = config.restore_hooks(&outcome).expand()?;
+                hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
             Opt::Judge(cli_args) => {
                 let Judge {
@@ -536,7 +545,7 @@ impl<T: Term> App<T> {
                 self.term.attempt_enable_ansi(*color_choice);
                 let config = Config::load(*service, contest, language, &working_dir)?;
                 self.term.apply_conf(config.console());
-                judging::judge::<T::Stdout, _>(JudgeParams {
+                let outcome = judging::judge::<T::Stdout, _>(JudgeParams {
                     stderr: self.term.stderr(),
                     config: &config,
                     mode,
@@ -544,6 +553,9 @@ impl<T: Term> App<T> {
                     force_compile: *force_compile,
                     jobs: *jobs,
                 })?;
+                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
+                let hooks = config.judge_hooks(&outcome).expand()?;
+                hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
             Opt::Submit(cli_args) => {
                 let Submit {
@@ -599,12 +611,15 @@ impl<T: Term> App<T> {
                 )?;
                 let props = (sess_props, submit_props);
                 let term = &mut self.term;
-                match config.service() {
+                let outcome = match config.service() {
                     ServiceKind::Atcoder => atcoder::submit(props, term)?,
                     ServiceKind::Codeforces => codeforces::submit(props, term)?,
                     ServiceKind::Yukicoder => yukicoder::submit(props, term)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
+                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
+                let hooks = config.submit_hooks(&outcome).expand()?;
+                hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
             Opt::ListLangs(cli_args) => {
                 let ListLangs {
@@ -622,12 +637,15 @@ impl<T: Term> App<T> {
                 let list_langs_props = ListLangsProps { contest, problem };
                 let props = (sess_props, list_langs_props);
                 let term = &mut self.term;
-                match config.service() {
+                let outcome = match config.service() {
                     ServiceKind::Atcoder => atcoder::list_langs(props, term)?,
                     ServiceKind::Codeforces => codeforces::list_langs(props, term)?,
                     ServiceKind::Yukicoder => yukicoder::list_langs(props, term)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
-                }
+                };
+                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
+                let hooks = config.list_langs_hooks(&outcome).expand()?;
+                hooks.run::<T::Stdout, _>(self.term.stderr())?;
             }
         }
         Ok(())

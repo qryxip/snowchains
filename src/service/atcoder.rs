@@ -5,8 +5,9 @@ use crate::path::AbsPath;
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps,
-    PrintTargets as _, RestoreProps, Service, SessionProps, SubmitProps,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsOutcome,
+    ListLangsProps, LoginOutcome, ParticipateOutcome, PrintTargets as _, RestoreOutcome,
+    RestoreProps, Service, SessionProps, SubmitOutcome, SubmitProps,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
@@ -29,6 +30,7 @@ use select::predicate::{Predicate, Text};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::runtime::Runtime;
+use url::Url;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -40,14 +42,14 @@ use std::time::Duration;
 use std::{f64, vec};
 
 /// Logins to "atcoder.jp".
-pub(crate) fn login(mut props: SessionProps, term: impl Term) -> ServiceResult<()> {
+pub(crate) fn login(mut props: SessionProps, term: impl Term) -> ServiceResult<LoginOutcome> {
     let dropbox_path = props.dropbox_path.take();
     let mut atcoder = Atcoder::try_new(props, term)?;
     atcoder.login_if_not(true)?;
     if let Some(dropbox_path) = dropbox_path {
         atcoder.auth_dropbox(&dropbox_path, true)?;
     }
-    Ok(())
+    Ok(LoginOutcome {})
 }
 
 /// Participates in a `contest_name`.
@@ -55,7 +57,7 @@ pub(crate) fn participate(
     contest: &str,
     props: SessionProps,
     term: impl Term,
-) -> ServiceResult<()> {
+) -> ServiceResult<ParticipateOutcome> {
     Atcoder::try_new(props, term)?.register_explicitly(&AtcoderContest::new(contest))
 }
 
@@ -80,7 +82,7 @@ pub(crate) fn download(
 pub(crate) fn restore(
     props: (SessionProps, RestoreProps<String>),
     mut term: impl Term,
-) -> ServiceResult<()> {
+) -> ServiceResult<RestoreOutcome> {
     let (sess_props, restore_props) = props;
     let restore_props = restore_props
         .convert_problems(CaseConversion::Upper)
@@ -94,7 +96,7 @@ pub(crate) fn restore(
 pub(crate) fn submit(
     props: (SessionProps, SubmitProps<String>),
     mut term: impl Term,
-) -> ServiceResult<()> {
+) -> ServiceResult<SubmitOutcome> {
     let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
@@ -107,7 +109,7 @@ pub(crate) fn submit(
 pub(crate) fn list_langs(
     props: (SessionProps, ListLangsProps<String>),
     mut term: impl Term,
-) -> ServiceResult<()> {
+) -> ServiceResult<ListLangsOutcome> {
     let (sess_props, list_langs_props) = props;
     let list_langs_props = list_langs_props
         .convert_problem(CaseConversion::Upper)
@@ -259,7 +261,10 @@ impl<T: Term> Atcoder<T> {
         Ok(auth.access_token)
     }
 
-    fn register_explicitly(&mut self, contest: &AtcoderContest) -> ServiceResult<()> {
+    fn register_explicitly(
+        &mut self,
+        contest: &AtcoderContest,
+    ) -> ServiceResult<ParticipateOutcome> {
         self.register_if_active_or_explicit(contest, true)
     }
 
@@ -280,7 +285,7 @@ impl<T: Term> Atcoder<T> {
         &mut self,
         contest: &AtcoderContest,
         explicit: bool,
-    ) -> ServiceResult<()> {
+    ) -> ServiceResult<ParticipateOutcome> {
         let res = self
             .get(&contest.url_top())
             .acceptable(&[200, 302])
@@ -304,7 +309,7 @@ impl<T: Term> Atcoder<T> {
             let payload = hashmap!("csrf_token" => csrf_token);
             self.post(&url).send_form(&payload)?;
         }
-        Ok(())
+        Ok(ParticipateOutcome {})
     }
 
     fn download(
@@ -544,7 +549,7 @@ impl<T: Term> Atcoder<T> {
         self.stderr().flush().map_err(Into::into)
     }
 
-    fn restore(&mut self, props: &RestoreProps<AtcoderContest>) -> ServiceResult<()> {
+    fn restore(&mut self, props: &RestoreProps<AtcoderContest>) -> ServiceResult<RestoreOutcome> {
         fn collect_urls(
             detail_urls: &mut HashMap<(String, String), String>,
             submissions: vec::IntoIter<Submission>,
@@ -626,10 +631,10 @@ impl<T: Term> Atcoder<T> {
         let stderr = self.stderr();
         writeln!(stderr, "Saved {}.", plural!(results.len(), "file", "files"))?;
         stderr.flush()?;
-        Ok(())
+        Ok(RestoreOutcome {})
     }
 
-    fn submit(&mut self, props: &SubmitProps<AtcoderContest>) -> ServiceResult<()> {
+    fn submit(&mut self, props: &SubmitProps<AtcoderContest>) -> ServiceResult<SubmitOutcome> {
         let SubmitProps {
             contest,
             problem,
@@ -738,22 +743,29 @@ impl<T: Term> Atcoder<T> {
         if *open_in_browser {
             self.open_in_browser(&contest.url_submissions_me(1))?;
         }
-        Ok(())
+        Ok(SubmitOutcome {})
     }
 
-    fn list_langs(&mut self, props: ListLangsProps<AtcoderContest>) -> ServiceResult<()> {
+    fn list_langs(
+        &mut self,
+        props: ListLangsProps<AtcoderContest>,
+    ) -> ServiceResult<ListLangsOutcome> {
         let ListLangsProps { contest, problem } = props;
         self.login_if_not(false)?;
         let url = match problem {
             None => contest.url_submit(),
-            Some(problem) => self
-                .fetch_tasks_page(&contest)?
-                .extract_task_urls_with_names()?
-                .remove(&problem)
-                .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?,
+            Some(problem) => {
+                let url = self
+                    .fetch_tasks_page(&contest)?
+                    .extract_task_urls_with_names()?
+                    .remove(&problem)
+                    .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
+                self.session.resolve_url(&url)?
+            }
         };
         let langs = self.get(&url).recv_html()?.extract_langs()?;
-        self.print_lang_list(&langs).map_err(Into::into)
+        self.print_lang_list(&langs)?;
+        Ok(ListLangsOutcome::new(url, langs))
     }
 }
 
@@ -808,24 +820,35 @@ impl AtcoderContest {
         }
     }
 
-    fn url_top(&self) -> String {
-        format!("/contests/{}", self.slug())
+    fn url_top(&self) -> Url {
+        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        ret.set_path(&format!("/contests/{}", self.slug()));
+        ret
     }
 
-    fn url_tasks(&self) -> String {
-        format!("{}/tasks", self.url_top())
+    fn url_tasks(&self) -> Url {
+        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        ret.set_path(&format!("/contests/{}/tasks", self.slug()));
+        ret
     }
 
-    fn url_register(&self) -> String {
-        format!("{}/register", self.url_top())
+    fn url_register(&self) -> Url {
+        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        ret.set_path(&format!("/contests/{}/register", self.slug()));
+        ret
     }
 
-    fn url_submit(&self) -> String {
-        format!("{}/submit", self.url_top())
+    fn url_submit(&self) -> Url {
+        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        ret.set_path(&format!("/contests/{}/submit", self.slug()));
+        ret
     }
 
-    fn url_submissions_me(&self, page: u32) -> String {
-        format!("{}/submissions/me?page={}", self.url_top(), page)
+    fn url_submissions_me(&self, page: u32) -> Url {
+        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        ret.set_path(&format!("/contests/{}/submissions/me", self.slug()));
+        ret.query_pairs_mut().append_pair("page", &page.to_string());
+        ret
     }
 
     fn preset_suite(&self, problem: &str) -> Option<TestSuite> {
@@ -1440,7 +1463,7 @@ mod tests {
             let expected_url = format!("/contests/{}/tasks/{}", contest.slug(), expected_slug);
             assert_eq!(actual_name, expected_name);
             assert_eq!(*actual_url, expected_url);
-            let problem_page = atcoder.get(&actual_url).recv_html()?;
+            let problem_page = atcoder.get(actual_url).recv_html()?;
             let actual_suite = problem_page.extract_as_suite()?;
             let actual_md5 = actual_suite.md5()?;
             actual_suite.assert_serialize_correctly()?;
