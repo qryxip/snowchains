@@ -177,7 +177,8 @@ impl Template<HookCommands> {
                         }
                     }
                 }
-                Ok(HookCommand::new(args, base_dir.clone(), envs.clone()))
+                HookCommand::try_new(args, base_dir.clone(), envs.clone())
+                    .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
             })
             .collect()
     }
@@ -230,7 +231,8 @@ impl Template<TranspilationCommand> {
                 }
             }
         }
-        Ok(TranspilationCommand::new(args, wd, src, transpiled, envs))
+        TranspilationCommand::try_new(args, wd, src, transpiled, envs)
+            .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
     }
 }
 
@@ -291,7 +293,8 @@ impl Template<CompilationCommand> {
                 }
             }
         }
-        Ok(CompilationCommand::new(args, wd, src, bin, envs))
+        CompilationCommand::try_new(args, wd, src, bin, envs)
+            .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
     }
 }
 

@@ -12,11 +12,11 @@ use tokio_process::CommandExt as _;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::io;
 use std::iter::FromIterator;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
+use std::{env, io};
 
 pub(crate) struct HookCommands(Option<NonEmptyVec<HookCommand>>);
 
@@ -44,14 +44,13 @@ pub(crate) struct HookCommand {
 }
 
 impl HookCommand {
-    pub(crate) fn new(
+    pub(crate) fn try_new(
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         envs: HashMap<String, OsString>,
-    ) -> Self {
-        Self {
-            inner: Inner::new(args, working_dir, envs),
-        }
+    ) -> std::result::Result<Self, (OsString, which::Error)> {
+        let inner = Inner::try_new(args, working_dir, envs)?;
+        Ok(Self { inner })
     }
 
     fn run<O: TermOut, E: TermOut>(&self) -> HookCommandResult<()> {
@@ -84,16 +83,15 @@ pub(crate) struct TranspilationCommand {
 
 impl TranspilationCommand {
     /// Constructs a new `TranspilationCommand`.
-    pub(crate) fn new(
+    pub(crate) fn try_new(
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
         transpiled: Option<AbsPathBuf>,
         envs: HashMap<String, OsString>,
-    ) -> Self {
-        Self {
-            repr: BuildCommand::new(args, working_dir, src, transpiled, "transpiled", envs),
-        }
+    ) -> std::result::Result<Self, (OsString, which::Error)> {
+        BuildCommand::try_new(args, working_dir, src, transpiled, "transpiled", envs)
+            .map(|repr| Self { repr })
     }
 
     /// Executes the command.
@@ -120,16 +118,14 @@ pub(crate) struct CompilationCommand {
 
 impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
-    pub(crate) fn new(
+    pub(crate) fn try_new(
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
         bin: Option<AbsPathBuf>,
         envs: HashMap<String, OsString>,
-    ) -> Self {
-        Self {
-            repr: BuildCommand::new(args, working_dir, src, bin, "bin", envs),
-        }
+    ) -> std::result::Result<Self, (OsString, which::Error)> {
+        BuildCommand::try_new(args, working_dir, src, bin, "bin", envs).map(|repr| Self { repr })
     }
 
     /// Executes the command.
@@ -164,22 +160,22 @@ struct BuildCommand {
 }
 
 impl BuildCommand {
-    fn new(
+    fn try_new(
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         src: AbsPathBuf,
         target: Option<AbsPathBuf>,
         target_name: &'static str,
         envs: HashMap<String, OsString>,
-    ) -> Self {
+    ) -> std::result::Result<Self, (OsString, which::Error)> {
         let envs = envs.into_iter().collect();
-        let inner = Inner::new(args, working_dir, envs);
-        Self {
+        let inner = Inner::try_new(args, working_dir, envs)?;
+        Ok(Self {
             inner,
             src,
             target,
             target_name,
-        }
+        })
     }
 
     fn run<O: TermOut, E: TermOut>(
@@ -345,6 +341,27 @@ impl Inner {
             working_dir,
             envs: envs.into_iter().collect(),
         }
+    }
+
+    fn try_new(
+        args: Vec<OsString>,
+        working_dir: AbsPathBuf,
+        envs: HashMap<String, OsString>,
+    ) -> std::result::Result<Self, (OsString, which::Error)> {
+        let mut args = NonEmptyVec::try_new(args).unwrap_or_default();
+        // https://github.com/rust-lang/rust/issues/37519
+        let path = envs
+            .get("PATH")
+            .map(ToOwned::to_owned)
+            .or_else(|| env::var_os("PATH"));
+        args[0] = which::which_in(&args[0], path, &working_dir)
+            .map_err(|e| (args[0].to_owned(), e))?
+            .into();
+        Ok(Self {
+            args,
+            working_dir,
+            envs: envs.into_iter().collect(),
+        })
     }
 
     fn format_args(&self) -> Vec<String> {

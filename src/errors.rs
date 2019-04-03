@@ -336,6 +336,8 @@ pub enum ExpandTemplateErrorKind {
         tokens: Tokens,
         base_dir: AbsPathBuf,
     },
+    #[display(fmt = "Failed to find {:?}", _0)]
+    Which(OsString),
     #[display(fmt = "{:?} not found in the config", _0)]
     NoSuchShell(String),
     #[display(fmt = "Undefined namespace: {:?}", _0)]
