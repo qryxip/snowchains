@@ -14,7 +14,6 @@ use derive_more::From;
 use derive_new::new;
 use failure::Fail as _;
 use itertools::{EitherOrBoth, Itertools as _};
-use log::warn;
 use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
@@ -533,7 +532,6 @@ impl BatchSuite {
                             emitter.dump(&Yaml::String(s.to_owned())).unwrap();
                         }
                         if buf.starts_with("---\n") {
-                            warn!(r#"Expected "---\n.*", got {:?}"#, buf);
                             buf = buf[4..].to_owned();
                         } else {
                             buf = format!("{:?}", s);

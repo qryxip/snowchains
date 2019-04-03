@@ -8,7 +8,6 @@ use cookie::CookieJar;
 use derive_new::new;
 use failure::{Fail as _, Fallible, ResultExt as _};
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
-use log::info;
 use maplit::hashmap;
 use mime::Mime;
 use reqwest::header::{self, HeaderValue};
@@ -299,7 +298,6 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         let req = req.build()?;
         let client = &self.session.client;
         let runtime = self.runtime;
-        req.log_method();
         if let Some(out) = self.out.as_mut() {
             req.echo_method(out)?;
         }
@@ -322,7 +320,6 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         if let Some(out) = self.out.as_mut() {
             res.echo_status(&self.acceptable, out)?;
         }
-        res.log_status();
         if !self.no_cookie {
             if let Some(jar) = self.session.jar.as_mut() {
                 jar.update(&res)?;
@@ -447,15 +444,10 @@ impl Deref for Response {
 }
 
 trait RequestExt {
-    fn log_method(&self);
     fn echo_method(&self, out: impl WriteAnsi) -> io::Result<()>;
 }
 
 impl RequestExt for reqwest::r#async::Request {
-    fn log_method(&self) {
-        info!("{}: {}", self.method(), self.url());
-    }
-
     fn echo_method(&self, mut out: impl WriteAnsi) -> io::Result<()> {
         out.with_reset(|o| o.bold()?.write_str(self.method()))?;
         out.write_str(" ")?;
@@ -466,16 +458,11 @@ impl RequestExt for reqwest::r#async::Request {
 }
 
 trait ResponseExt: Sized {
-    fn log_status(&self);
     fn echo_status(&self, expected_statuses: &[StatusCode], out: impl WriteAnsi) -> io::Result<()>;
     fn filter_by_status(self, expected: Vec<StatusCode>) -> ServiceResult<Self>;
 }
 
 impl ResponseExt for reqwest::r#async::Response {
-    fn log_status(&self) {
-        info!("{}", self.status());
-    }
-
     fn echo_status(
         &self,
         expected_statuses: &[StatusCode],
@@ -655,7 +642,6 @@ mod tests {
 
     #[test]
     fn it_works() -> Fallible<()> {
-        let _ = env_logger::try_init();
         let filter_ua = warp::filters::header::exact("User-Agent", service::USER_AGENT);
         let index = warp::path::end()
             .and(filter_ua)
@@ -749,7 +735,6 @@ mod tests {
             })
         }
 
-        let _ = env_logger::try_init();
         let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive")?;
         let path = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
         let path = path.as_path();

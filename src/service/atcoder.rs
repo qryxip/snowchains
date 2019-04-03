@@ -1316,7 +1316,6 @@ mod tests {
 
     #[test]
     fn it_extracts_task_urls_from_arc001() -> ServiceResult<()> {
-        let _ = env_logger::try_init();
         let mut atcoder = start()?;
         let page = atcoder.fetch_tasks_page(&AtcoderContest::new("arc001"))?;
         let urls_and_names = page.extract_task_urls_with_names()?;
@@ -1338,7 +1337,6 @@ mod tests {
 
     #[test]
     fn it_extracts_a_timelimit_from_apg4b_b() -> ServiceResult<()> {
-        let _ = env_logger::try_init();
         let mut atcoder = start()?;
         let page = atcoder.get("/contests/apg4b/tasks/APG4b_b").recv_html()?;
         match page.extract_as_suite()? {
@@ -1355,7 +1353,6 @@ mod tests {
             ("C", "arc001_3", "fadc6a33d9b009b679d35c837d509ee7"),
             ("D", "arc001_4", "a7b8f7528a89fe733a18b829cefdadd5"),
         ];
-        let _ = env_logger::try_init();
         test_sample_extraction("arc001", EXPECTED)
     }
 
@@ -1367,7 +1364,6 @@ mod tests {
             ("C", "arc002_3", "ed797649ddb36669b5c83c0bb520fa4d"),
             ("D", "arc002_4", "91aaf382f4f2071185b5646ca48b26ef"),
         ];
-        let _ = env_logger::try_init();
         test_sample_extraction("arc002", EXPECTED)
     }
 
@@ -1379,7 +1375,6 @@ mod tests {
             ("E", "arc058_c", "2f04c46c9245f7a5378dd72e074a0983"),
             ("F", "arc058_d", "8c456a84332f2921703eeefca0493245"),
         ];
-        let _ = env_logger::try_init();
         test_sample_extraction("arc058", EXPECTED)
     }
 
@@ -1391,7 +1386,6 @@ mod tests {
             ("C", "abc011_3", "74cfb5ae94304b069245ba49a71b136f"),
             ("D", "abc011_4", "0cb6050b366d4f51e23d12a811a3a93d"),
         ];
-        let _ = env_logger::try_init();
         test_sample_extraction("abc011", EXPECTED)
     }
 
@@ -1403,7 +1397,6 @@ mod tests {
             ("C", "abc041_c", "2fae4d4d77d851bbdba6f9cfec6c6bde"),
             ("D", "abc041_d", "bb30dd61021373384657c6fe52e81a27"),
         ];
-        let _ = env_logger::try_init();
         test_sample_extraction("abc041", EXPECTED)
     }
 
@@ -1437,7 +1430,6 @@ mod tests {
             ("Y", "dp_y", "7f88d4dfe1220f2a1e2a6ffc54432a39"),
             ("Z", "dp_z", "909d93bcbb5d7efea059c02a5932c77f"),
         ];
-        let _ = env_logger::try_init();
         test_sample_extraction("dp", EXPECTED)
     }
 
@@ -1467,7 +1459,6 @@ mod tests {
     #[test]
     fn it_extracts_a_submitted_source_code() -> ServiceResult<()> {
         static URL: &str = "/contests/utpc2011/submissions/2067";
-        let _ = env_logger::try_init();
         let mut atcoder = start()?;
         let page = atcoder.get(URL).recv_html()?;
         let code = page.extract_submitted_code()?;

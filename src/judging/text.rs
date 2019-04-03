@@ -282,7 +282,6 @@ mod tests {
 
     #[test]
     fn it_parses_command_output() {
-        let _ = env_logger::try_init();
         static S: &str = "a b 1\n\
                           ccc 2\n  \
                           \t  \n";

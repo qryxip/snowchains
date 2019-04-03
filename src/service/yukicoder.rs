@@ -669,25 +669,21 @@ mod tests {
 
     #[test]
     fn it_extracts_samples_from_problem1() -> Fallible<()> {
-        let _ = env_logger::try_init();
         test_extracting_samples("/problems/no/1", "cf65ae411bc8d32b75beb771905c9dc0")
     }
 
     #[test]
     fn it_extracts_samples_from_problem188() -> Fallible<()> {
-        let _ = env_logger::try_init();
         test_extracting_samples("/problems/no/188", "671c7191064f7703abcb5e06fad3f32e")
     }
 
     #[test]
     fn it_extracts_samples_from_problem192() -> Fallible<()> {
-        let _ = env_logger::try_init();
         test_extracting_samples("/problems/no/192", "f8ce3328c431737dcb748770abd9a09b")
     }
 
     #[test]
     fn it_extracts_samples_from_problem246() -> Fallible<()> {
-        let _ = env_logger::try_init();
         test_extracting_samples("/problems/no/246", "9debfd89a82271d763b717313363acda")
     }
 
@@ -710,7 +706,6 @@ mod tests {
             ("E", "/problems/no/195"),
             ("F", "/problems/no/196"),
         ];
-        let _ = env_logger::try_init();
         let document = get_html("/contests/100")?;
         let problems = document.extract_problems()?;
         assert_eq!(own_pairs(EXPECTED), problems);

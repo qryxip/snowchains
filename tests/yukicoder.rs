@@ -25,14 +25,12 @@ fn it_logins() -> Fallible<()> {
         service::login(app, ServiceKind::Yukicoder)
     }
 
-    let _ = env_logger::try_init();
     let stdin = format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?);
     service::test_in_tempdir("it_logins", &stdin, login)
 }
 
 #[test]
 fn it_downloads_testcases() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_downloads_test_cases_from_master",
         &format!("Y\n{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
@@ -52,7 +50,6 @@ fn it_downloads_testcases() -> Fallible<()> {
 
 #[test]
 fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_fails_to_submit_if_the_lang_name_is_invalid",
         &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
@@ -96,7 +93,6 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
 #[test]
 #[ignore]
 fn it_submits_to_no_9000() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_submits_to_no_9000",
         &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
@@ -135,7 +131,6 @@ fn it_list_languages() -> Fallible<()> {
         available_languages: IndexMap<String, String>,
     }
 
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_list_languages",
         &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),

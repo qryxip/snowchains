@@ -32,14 +32,12 @@ fn it_logins() -> Fallible<()> {
         Ok(())
     }
 
-    let _ = env_logger::try_init();
     let stdin = credentials_as_input()?;
     service::test_in_tempdir("it_logins", &stdin, login)
 }
 
 #[test]
 fn it_scrapes_samples_from_practice() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_scrapes_samples_from_practice",
         &credentials_as_input()?,
@@ -68,7 +66,6 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
 
 #[test]
 fn it_scrapes_samples_from_abc100() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_scrapes_samples_from_abc100",
         &credentials_as_input()?,
@@ -99,7 +96,6 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
 
 #[test]
 fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_scrapes_samples_and_download_files_from_abc099_a",
         &credentials_as_input()?,
@@ -170,7 +166,6 @@ fn just_confirm_num_samples_and_timelimit(
 
 #[test]
 fn restore_command_works_without_error() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_restores_source_code",
         &credentials_as_input()?,
@@ -205,7 +200,6 @@ GET https://atcoder.jp/contests/practice ... 200 OK
 
 #[test]
 fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_fails_to_submit_if_the_lang_name_is_invalid",
         &credentials_as_input()?,
@@ -249,7 +243,6 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
 #[test]
 #[ignore]
 fn it_submits_to_practice_a() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_submits_to_practice_a",
         &credentials_as_input()?,
@@ -288,7 +281,6 @@ if __name__ == '__main__':
 
 #[test]
 fn it_lists_languages_in_practice() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_lists_languages_in_practice",
         &credentials_as_input()?,
@@ -438,7 +430,6 @@ GET https://atcoder.jp/contests/practice/submit ... 200 OK
 
 #[test]
 fn it_lists_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_lists_languages_in_tenka1_2016_final_open_a",
         &credentials_as_input()?,

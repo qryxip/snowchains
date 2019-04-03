@@ -9,7 +9,6 @@ use std::io::{self, BufWriter, Write as _};
 use std::process;
 
 fn main() -> Fallible<()> {
-    env_logger::init();
     snowchains::signal::start_catching_ctrl_c()?;
     let opt = Opt::from_args();
     let (stdin, stdout) = (io::stdin(), io::stdout());

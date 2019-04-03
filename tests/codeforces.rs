@@ -59,7 +59,6 @@ API Key: API Secret: GET https://codeforces.com/api/user.info?apiKey=███�
 
 #[test]
 fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_fails_to_submit_if_the_lang_name_is_invalid",
         &credentials_as_input()?,
@@ -107,7 +106,6 @@ fn it_list_languages() -> Fallible<()> {
         available_languages: IndexMap<String, String>,
     }
 
-    let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_list_languages",
         &credentials_as_input()?,

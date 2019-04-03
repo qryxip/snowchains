@@ -908,7 +908,6 @@ mod tests {
   }
 }"##;
 
-        let _ = env_logger::try_init();
         let s1 = serde_json::from_str::<S>(JSON)?;
         let re_serialized = serde_json::to_string_pretty(&s1)?;
         let s2 = serde_json::from_str::<S>(&re_serialized)?;
@@ -930,7 +929,6 @@ mod tests {
             OsStr::new(expected)
         }
 
-        let _ = env_logger::try_init();
         test!(""                          => "");
         test!("text"                      => "text");
         test!("${var}"                    => "foo");
@@ -973,7 +971,6 @@ mod tests {
             }
         }
 
-        let _ = env_logger::try_init();
         if cfg!(windows) {
             test!(r"C:\absolute" => r"C:\absolute");
         } else {

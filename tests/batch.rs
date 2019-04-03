@@ -63,8 +63,6 @@ fn main() {
 }
 "#;
 
-    let _ = env_logger::try_init();
-
     let tempdir = TempDir::new("batch_it_works")?;
 
     let src_dir = tempdir
