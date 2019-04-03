@@ -33,56 +33,56 @@ pub enum Opt {
         about = "Creates a config file (\"snowchains.toml\")",
         name = "init",
         usage = "snowchains <i|init> [OPTIONS] [directory]",
-        raw(alias = "\"i\"", display_order = "1")
+        raw(visible_alias = "\"i\"", display_order = "1")
     )]
     Init(Init),
     #[structopt(
         about = "Modifies values in a config file",
         name = "switch",
         usage = "snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]",
-        raw(aliases = r#"&["w", "checkout", "c"]"#, display_order = "2")
+        raw(visible_aliases = r#"&["w", "checkout", "c"]"#, display_order = "2")
     )]
     Switch(Switch),
     #[structopt(
         about = "Logges in to a service",
         name = "login",
         usage = "snowchains <l|login> [FLAGS] [OPTIONS] <service>",
-        raw(alias = "\"l\"", display_order = "3")
+        raw(visible_alias = "\"l\"", display_order = "3")
     )]
     Login(Login),
     #[structopt(
         about = "Participates in a contest",
         name = "participate",
         usage = "snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>",
-        raw(alias = "\"p\"", display_order = "4")
+        raw(visible_alias = "\"p\"", display_order = "4")
     )]
     Participate(Participate),
     #[structopt(
         about = "Downloads test cases",
         name = "download",
         usage = "snowchains <d|download> [FLAGS] [OPTIONS]",
-        raw(alias = "\"d\"", display_order = "5")
+        raw(visible_alias = "\"d\"", display_order = "5")
     )]
     Download(Download),
     #[structopt(
         about = "Downloads source files you have submitted",
         name = "restore",
         usage = "snowchains <r|restore> [FLAGS] [OPTIONS]",
-        raw(alias = "\"r\"", display_order = "6")
+        raw(visible_alias = "\"r\"", display_order = "6")
     )]
     Restore(Restore),
     #[structopt(
         about = "Tests a binary or script",
         name = "judge",
         usage = "snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>",
-        raw(aliases = r#"&["j", "test", "t"]"#, display_order = "7")
+        raw(visible_aliases = r#"&["j", "test", "t"]"#, display_order = "7")
     )]
     Judge(Judge),
     #[structopt(
         about = "Submits a source file",
         name = "submit",
         usage = "snowchains <s|submit> [FLAGS] [OPTIONS] <problem>",
-        raw(alias = "\"s\"", display_order = "8")
+        raw(visible_alias = "\"s\"", display_order = "8")
     )]
     Submit(Submit),
     #[structopt(

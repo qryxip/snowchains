@@ -72,14 +72,14 @@ FLAGS:
     -V, --version    Prints version information
 
 SUBCOMMANDS:
-    init           Creates a config file ("snowchains.toml")
-    switch         Modifies values in a config file
-    login          Logges in to a service
-    participate    Participates in a contest
-    download       Downloads test cases
-    restore        Downloads source files you have submitted
-    judge          Tests a binary or script
-    submit         Submits a source file
+    init           Creates a config file ("snowchains.toml") [aliases: i]
+    switch         Modifies values in a config file [aliases: w, checkout, c]
+    login          Logges in to a service [aliases: l]
+    participate    Participates in a contest [aliases: p]
+    download       Downloads test cases [aliases: d]
+    restore        Downloads source files you have submitted [aliases: r]
+    judge          Tests a binary or script [aliases: j, test, t]
+    submit         Submits a source file [aliases: s]
     list-langs     List available languages
     help           Prints this message or the help of the given subcommand(s)
 ```
