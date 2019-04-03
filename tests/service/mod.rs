@@ -6,6 +6,7 @@ use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
 use failure::Fallible;
+use pretty_assertions::assert_eq;
 use serde_derive::Deserialize;
 use serde_json::json;
 use tempdir::TempDir;

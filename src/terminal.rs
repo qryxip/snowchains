@@ -804,6 +804,7 @@ mod tests {
     };
 
     use failure::Fallible;
+    use pretty_assertions::assert_eq;
 
     use std::borrow::Borrow as _;
     use std::{io, str};

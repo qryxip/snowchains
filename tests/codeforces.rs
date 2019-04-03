@@ -6,11 +6,13 @@ use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
 
+use difference::assert_diff;
 use failure::Fallible;
 use if_chain::if_chain;
 use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
+use pretty_assertions::assert_eq;
 use regex::Regex;
 use serde_derive::Deserialize;
 
@@ -38,13 +40,15 @@ fn it_logins() -> Fallible<()> {
         let stderr = MASK_TIME.replace(&stderr, "time=██████████");
         let stderr = MASK_API_SIG.replace(&stderr, "apiSig=██████████");
         serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(stdout)?;
-        assert_eq!(
-            stderr,
+        assert_diff!(
+            &stderr,
             r#"GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
 GET https://codeforces.com/enter ... 302 Found
 API Key: API Secret: GET https://codeforces.com/api/user.info?apiKey=██████████&handles=██████████&time=██████████&apiSig=██████████ ... 200 OK
 "#,
+            "\n",
+            0
         );
         Ok(())
     }
@@ -120,8 +124,8 @@ fn it_list_languages() -> Fallible<()> {
             let stderr = str::from_utf8(stderr.get_ref())?;
             let stdout = serde_json::from_str::<Stdout>(stdout)?;
             assert_eq!(stdout.available_languages.len(), 28);
-            assert_eq!(
-                stderr,
+            assert_diff!(
+                &stderr,
                 r#"Target: 1000/A
 GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
@@ -186,7 +190,9 @@ GET https://codeforces.com/contest/1000/submit ... 200 OK
 +---------------------------+----+
 | Node.js 9.4.0             | 55 |
 +---------------------------+----+
-"#
+"#,
+                "\n",
+                0
             );
             Ok(())
         },

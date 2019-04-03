@@ -643,6 +643,7 @@ mod tests {
     use failure::Fallible;
     use futures::Future as _;
     use if_chain::if_chain;
+    use pretty_assertions::assert_eq;
     use reqwest::StatusCode;
     use tempdir::TempDir;
     use tokio::runtime::Runtime;

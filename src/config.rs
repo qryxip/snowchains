@@ -1360,7 +1360,9 @@ mod tests {
     use crate::service::ServiceKind;
     use crate::terminal::Ansi;
 
+    use difference::assert_diff;
     use failure::Fallible;
+    use pretty_assertions::assert_eq;
     use tempdir::TempDir;
 
     use std::fs::File;
@@ -1380,13 +1382,15 @@ mod tests {
         let json_path = tempdir.path().join(".snowchains").join("target.json");
         serde_json::from_reader::<_, Target>(File::open(&json_path)?)?;
 
-        assert_eq!(
+        assert_diff!(
             str::from_utf8(stderr.get_ref())?,
-            format!(
+            &format!(
                 "Wrote {}\nWrote {}\n",
                 toml_path.display(),
                 json_path.display(),
             ),
+            "\n",
+            0
         );
         Ok(())
     }

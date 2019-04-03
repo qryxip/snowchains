@@ -77,6 +77,8 @@ winapi = "0.3.6"
 winapi-util = "0.1.2"
 
 [dev-dependencies]
+difference = "2.0.0"
 md5 = "0.6.1"
+pretty_assertions = "0.6.1"
 tempdir = "0.3.7"
-warp = "0.1.14"
+warp = "0.1.15"

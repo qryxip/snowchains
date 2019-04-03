@@ -7,11 +7,13 @@ use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
 
+use difference::assert_diff;
 use failure::Fallible;
 use if_chain::if_chain;
 use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
+use pretty_assertions::assert_eq;
 use regex::Regex;
 use serde_derive::Deserialize;
 
@@ -151,8 +153,8 @@ fn it_list_languages() -> Fallible<()> {
             let stderr = String::from_utf8(mem::replace(app.term.stderr().get_mut(), vec![]))?;
             let stdout = serde_json::from_str::<Stdout>(&stdout)?;
             assert_eq!(stdout.available_languages.len(), 43);
-            assert_eq!(
-                MASK_USERNAME.replace(&stderr, "Username: ██████████"),
+            assert_diff!(
+                &MASK_USERNAME.replace(&stderr, "Username: ██████████"),
                 r#"Target: no/9000
 GET https://yukicoder.me/ ... 200 OK
 
@@ -254,6 +256,8 @@ GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
 | Whitespace (0.3)                             | Whitespace  |
 +----------------------------------------------+-------------+
 "#,
+                "\n",
+                0
             );
             Ok(())
         },

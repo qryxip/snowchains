@@ -209,6 +209,8 @@ impl<'de, K: Ord + Deserialize<'de>, V: Deserialize<'de>> Deserialize<'de>
 mod tests {
     use crate::util::collections::{NonEmptyVec, SingleKeyValue};
 
+    use pretty_assertions::assert_eq;
+
     #[test]
     fn test_non_empty_vec() {
         assert_eq!(NonEmptyVec::<()>::try_new(vec![]), None);

@@ -821,6 +821,7 @@ mod tests {
 
     use failure::Fallible;
     use itertools::Itertools as _;
+    use pretty_assertions::assert_eq;
     use select::document::Document;
     use url::Url;
 

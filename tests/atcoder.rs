@@ -6,9 +6,11 @@ use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
 
+use difference::assert_diff;
 use failure::Fallible;
 use if_chain::if_chain;
 use indexmap::IndexMap;
+use pretty_assertions::assert_eq;
 use serde_derive::Deserialize;
 
 use std::fs::File;
@@ -26,7 +28,7 @@ fn it_logins() -> Fallible<()> {
         let stdout = String::from_utf8(mem::replace(app.term.stdout().get_mut(), vec![]))?;
         let stderr = String::from_utf8(mem::replace(app.term.stdout().get_mut(), vec![]))?;
         serde_json::from_str::<serde_json::Value>(&stdout)?;
-        assert_eq!(stderr, "");
+        assert_diff!(&stderr, "", "\n", 0);
         Ok(())
     }
 
@@ -302,8 +304,8 @@ fn it_lists_languages_in_practice() -> Fallible<()> {
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             let stdout = serde_json::from_str::<ListLangsStdout>(&stdout)?;
             assert_eq!(stdout.available_languages.len(), 56);
-            assert_eq!(
-                stderr,
+            assert_diff!(
+                &stderr,
                 r#"Targets: practice contest/*
 GET https://atcoder.jp/login ... 200 OK
 Username: Password: POST https://atcoder.jp/login ... 302 Found
@@ -425,7 +427,9 @@ GET https://atcoder.jp/contests/practice/submit ... 200 OK
 +---------------------------------+------+
 | COBOL - Free (OpenCOBOL 1.1.0)  | 3526 |
 +---------------------------------+------+
-"#
+"#,
+                "\n",
+                0
             );
             Ok(())
         },
@@ -450,8 +454,8 @@ fn it_lists_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             let stdout = serde_json::from_str::<ListLangsStdout>(&stdout)?;
             assert_eq!(stdout.available_languages.len(), 1);
-            assert_eq!(
-                stderr,
+            assert_diff!(
+                &stderr,
                 r#"Target: tenka1-2016-final-open/A
 GET https://atcoder.jp/login ... 200 OK
 Username: Password: POST https://atcoder.jp/login ... 302 Found
@@ -464,7 +468,9 @@ GET https://atcoder.jp/contests/tenka1-2016-final-open/tasks/tenka1_2016_final_a
 +------------+----+
 | Text (cat) | 17 |
 +------------+----+
-"#
+"#,
+                "\n",
+                0
             );
             Ok(())
         },

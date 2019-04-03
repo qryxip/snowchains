@@ -480,6 +480,7 @@ mod tests {
 
     use derive_new::new;
     use failure::Fail;
+    use pretty_assertions::assert_eq;
 
     use std::fmt;
 

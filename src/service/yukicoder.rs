@@ -661,6 +661,7 @@ mod tests {
     use crate::service::yukicoder::Extract;
 
     use failure::Fallible;
+    use pretty_assertions::assert_eq;
     use select::document::Document;
 
     use std::borrow::Borrow;

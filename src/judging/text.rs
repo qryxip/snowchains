@@ -277,6 +277,7 @@ impl PartialEq for Word {
 mod tests {
     use crate::judging::text::{Line, Text, Word};
 
+    use pretty_assertions::assert_eq;
     use std::sync::Arc;
 
     #[test]

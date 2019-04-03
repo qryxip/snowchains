@@ -865,8 +865,10 @@ mod tests {
     use crate::path::AbsPathBuf;
     use crate::service::ServiceKind;
 
+    use difference::assert_diff;
     use failure::Fallible;
     use maplit::hashmap;
+    use pretty_assertions::assert_eq;
     use serde_derive::{Deserialize, Serialize};
 
     use std::ffi::{OsStr, OsString};
@@ -910,7 +912,7 @@ mod tests {
         let s1 = serde_json::from_str::<S>(JSON)?;
         let re_serialized = serde_json::to_string_pretty(&s1)?;
         let s2 = serde_json::from_str::<S>(&re_serialized)?;
-        assert_eq!(JSON, re_serialized);
+        assert_diff!(JSON, &re_serialized, "\n", 0);
         assert_eq!(s1, s2);
         Ok(())
     }

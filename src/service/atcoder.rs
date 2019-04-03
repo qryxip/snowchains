@@ -1308,6 +1308,7 @@ mod tests {
 
     use failure::Fallible;
     use itertools::Itertools as _;
+    use pretty_assertions::assert_eq;
     use tokio::runtime::Runtime;
     use url::Host;
 
