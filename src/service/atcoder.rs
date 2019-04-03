@@ -135,19 +135,10 @@ impl<T: Term> HasTerm for Atcoder<T> {
 }
 
 impl<T: Term> Service for Atcoder<T> {
-    type Stdout = T::Stdout;
     type Stderr = T::Stderr;
 
-    fn requirements(
-        &mut self,
-    ) -> (
-        &mut T::Stdout,
-        &mut T::Stderr,
-        &mut HttpSession,
-        &mut Runtime,
-    ) {
-        let (_, stdout, stderr) = self.term.split_mut();
-        (stdout, stderr, &mut self.session, &mut self.runtime)
+    fn requirements(&mut self) -> (&mut T::Stderr, &mut HttpSession, &mut Runtime) {
+        (self.term.stderr(), &mut self.session, &mut self.runtime)
     }
 }
 

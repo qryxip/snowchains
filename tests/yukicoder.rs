@@ -9,9 +9,13 @@ use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
 
 use failure::Fallible;
 use if_chain::if_chain;
+use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
 use regex::Regex;
+use serde_derive::Deserialize;
+
+use std::mem;
 
 #[test]
 fn it_logins() -> Fallible<()> {
@@ -57,6 +61,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
             std::fs::write(&dir.join("9000.py"), CODE)?;
             let err = app
                 .run(Opt::Submit(Submit {
+                    json: false,
                     open: false,
                     force_compile: false,
                     only_transpile: false,
@@ -99,6 +104,7 @@ fn it_submits_to_no_9000() -> Fallible<()> {
             std::fs::create_dir_all(&dir)?;
             std::fs::write(&dir.join("9000.txt"), CODE)?;
             app.run(Opt::Submit(Submit {
+                json: true,
                 open: false,
                 force_compile: false,
                 only_transpile: false,
@@ -112,14 +118,21 @@ fn it_submits_to_no_9000() -> Fallible<()> {
                 jobs: None,
                 color_choice: AnsiColorChoice::Never,
                 problem: "9000".to_owned(),
-            }))
-            .map_err(Into::into)
+            }))?;
+            let stdout = String::from_utf8(mem::replace(app.term.stdout().get_mut(), vec![]))?;
+            serde_json::from_str::<serde_json::Value>(&stdout)?;
+            Ok(())
         },
     )
 }
 
 #[test]
 fn it_list_languages() -> Fallible<()> {
+    #[derive(Deserialize)]
+    struct Stdout {
+        available_languages: IndexMap<String, String>,
+    }
+
     let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_list_languages",
@@ -128,16 +141,30 @@ fn it_list_languages() -> Fallible<()> {
             static MASK_USERNAME: Lazy<Regex> = sync_lazy!(Regex::new("Username: .*").unwrap());
 
             app.run(Opt::ListLangs(ListLangs {
+                json: true,
                 service: Some(ServiceKind::Yukicoder),
                 contest: Some("no".to_owned()),
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("9000".to_owned()),
             }))?;
-            let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
-            let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
+            let stdout = String::from_utf8(mem::replace(app.term.stdout().get_mut(), vec![]))?;
+            let stderr = String::from_utf8(mem::replace(app.term.stderr().get_mut(), vec![]))?;
+            let stdout = serde_json::from_str::<Stdout>(&stdout)?;
+            assert_eq!(stdout.available_languages.len(), 43);
             assert_eq!(
-                stdout,
-                r#"+----------------------------------------------+-------------+
+                MASK_USERNAME.replace(&stderr, "Username: ██████████"),
+                r#"Target: no/9000
+GET https://yukicoder.me/ ... 200 OK
+
+Input "REVEL_SESSION".
+
+Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
+Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
+
+REVEL_SESSION: GET https://yukicoder.me/ ... 200 OK
+Username: ██████████
+GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
++----------------------------------------------+-------------+
 | Name                                         | ID          |
 +----------------------------------------------+-------------+
 | C++11 (gcc 4.8.5)                            | cpp         |
@@ -226,21 +253,6 @@ fn it_list_languages() -> Fallible<()> {
 +----------------------------------------------+-------------+
 | Whitespace (0.3)                             | Whitespace  |
 +----------------------------------------------+-------------+
-"#,
-            );
-            assert_eq!(
-                MASK_USERNAME.replace(&stderr, "Username: ██████████"),
-                r#"Target: no/9000
-GET https://yukicoder.me/ ... 200 OK
-
-Input "REVEL_SESSION".
-
-Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
-Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
-
-REVEL_SESSION: GET https://yukicoder.me/ ... 200 OK
-Username: ██████████
-GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
 "#,
             );
             Ok(())

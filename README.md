@@ -58,14 +58,14 @@ Tools for online programming contests
 
 USAGE:
     snowchains <i|init> [OPTIONS] [directory]
-    snowchains <w|switch|c|checkout> [OPTIONS]
-    snowchains <l|login> [OPTIONS] <service>
-    snowchains <p|participate> [OPTIONS] <service> <contest>
+    snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]
+    snowchains <l|login> [FLAGS] [OPTIONS] <service>
+    snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>
     snowchains <d|download> [FLAGS] [OPTIONS]
-    snowchains <r|restore> [OPTIONS]
+    snowchains <r|restore> [FLAGS] [OPTIONS]
     snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>
     snowchains <s|submit> [FLAGS] [OPTIONS] <problem>
-    snowchains list-langs [OPTIONS] [problem]
+    snowchains list-langs [FLAGS] [OPTIONS] [problem]
 
 FLAGS:
     -h, --help       Prints help information

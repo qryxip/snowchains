@@ -8,14 +8,45 @@ use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
 
 use failure::Fallible;
 use if_chain::if_chain;
+use indexmap::IndexMap;
+use once_cell::sync::Lazy;
+use once_cell::sync_lazy;
+use regex::Regex;
+use serde_derive::Deserialize;
+
+use std::str;
 
 #[test]
 fn it_logins() -> Fallible<()> {
-    fn login(mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> snowchains::Result<()> {
+    fn login(mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> Fallible<()> {
+        static MASK_API_KEY: Lazy<Regex> = sync_lazy!(Regex::new("apiKey=[0-9a-f]+").unwrap());
+        static MASK_HANDLES: Lazy<Regex> =
+            sync_lazy!(Regex::new(r"handles=[0-9a-zA-Z_\-]+").unwrap());
+        static MASK_TIME: Lazy<Regex> = sync_lazy!(Regex::new("time=[0-9]+").unwrap());
+        static MASK_API_SIG: Lazy<Regex> = sync_lazy!(Regex::new("apiSig=[0-9a-f]+").unwrap());
+
         app.run(Opt::Login(Login {
+            json: true,
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Codeforces,
-        }))
+        }))?;
+        let (_, stdout, stderr) = app.term.split_mut();
+        let stdout = str::from_utf8(stdout.get_ref())?;
+        let stderr = str::from_utf8(stderr.get_ref())?;
+        let stderr = MASK_API_KEY.replace(stderr, "apiKey=██████████");
+        let stderr = MASK_HANDLES.replace(&stderr, "handles=██████████");
+        let stderr = MASK_TIME.replace(&stderr, "time=██████████");
+        let stderr = MASK_API_SIG.replace(&stderr, "apiSig=██████████");
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(stdout)?;
+        assert_eq!(
+            stderr,
+            r#"GET https://codeforces.com/enter ... 200 OK
+Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
+GET https://codeforces.com/enter ... 302 Found
+API Key: API Secret: GET https://codeforces.com/api/user.info?apiKey=██████████&handles=██████████&time=██████████&apiSig=██████████ ... 200 OK
+"#,
+        );
+        Ok(())
     }
 
     let stdin = credentials_as_input()?;
@@ -35,6 +66,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
             std::fs::write(&dir.join("a.py"), CODE)?;
             let err = app
                 .run(Opt::Submit(Submit {
+                    json: false,
                     open: false,
                     force_compile: false,
                     only_transpile: false,
@@ -66,22 +98,36 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
 
 #[test]
 fn it_list_languages() -> Fallible<()> {
+    #[derive(Deserialize)]
+    struct Stdout {
+        available_languages: IndexMap<String, String>,
+    }
+
     let _ = env_logger::try_init();
     service::test_in_tempdir(
         "it_list_languages",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::ListLangs(ListLangs {
+                json: true,
                 service: Some(ServiceKind::Codeforces),
                 contest: Some("1000".to_owned()),
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("a".to_owned()),
             }))?;
-            let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
-            let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
+            let (_, stdout, stderr) = app.term.split_mut();
+            let stdout = str::from_utf8(stdout.get_ref())?;
+            let stderr = str::from_utf8(stderr.get_ref())?;
+            let stdout = serde_json::from_str::<Stdout>(stdout)?;
+            assert_eq!(stdout.available_languages.len(), 28);
             assert_eq!(
-                stdout,
-                r#"+---------------------------+----+
+                stderr,
+                r#"Target: 1000/A
+GET https://codeforces.com/enter ... 200 OK
+Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
+GET https://codeforces.com/enter ... 302 Found
+GET https://codeforces.com/contest/1000/submit ... 200 OK
++---------------------------+----+
 | Name                      | ID |
 +---------------------------+----+
 | GNU GCC C11 5.1.0         | 43 |
@@ -140,15 +186,6 @@ fn it_list_languages() -> Fallible<()> {
 +---------------------------+----+
 | Node.js 9.4.0             | 55 |
 +---------------------------+----+
-"#,
-            );
-            assert_eq!(
-                stderr,
-                r#"Target: 1000/A
-GET https://codeforces.com/enter ... 200 OK
-Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
-GET https://codeforces.com/enter ... 302 Found
-GET https://codeforces.com/contest/1000/submit ... 200 OK
 "#
             );
             Ok(())

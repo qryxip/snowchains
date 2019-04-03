@@ -8,19 +8,26 @@ use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
 
 use failure::Fallible;
 use if_chain::if_chain;
+use indexmap::IndexMap;
 use serde_derive::Deserialize;
 
 use std::fs::File;
 use std::path::Path;
-use std::{io, str};
+use std::{io, mem, str};
 
 #[test]
 fn it_logins() -> Fallible<()> {
-    fn login(mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> snowchains::Result<()> {
+    fn login(mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> Fallible<()> {
         app.run(Opt::Login(Login {
+            json: true,
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Atcoder,
-        }))
+        }))?;
+        let stdout = String::from_utf8(mem::replace(app.term.stdout().get_mut(), vec![]))?;
+        let stderr = String::from_utf8(mem::replace(app.term.stdout().get_mut(), vec![]))?;
+        serde_json::from_str::<serde_json::Value>(&stdout)?;
+        assert_eq!(stderr, "");
+        Ok(())
     }
 
     let _ = env_logger::try_init();
@@ -36,6 +43,7 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download(Download {
+                json: false,
                 open: false,
                 only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
@@ -64,6 +72,7 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Download(Download {
+                json: false,
                 open: false,
                 only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
@@ -94,6 +103,7 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::Download(Download {
+                json: false,
                 open: false,
                 only_scraped: false,
                 service: Some(ServiceKind::Atcoder),
@@ -164,6 +174,7 @@ fn restore_command_works_without_error() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::Restore(Restore {
+                json: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 mode: config::Mode::Debug,
@@ -172,7 +183,7 @@ fn restore_command_works_without_error() -> Fallible<()> {
             }))?;
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
-            assert_eq!(stdout, "");
+            serde_json::from_str::<serde_json::Value>(&stdout)?;
             assert!(stderr.starts_with(
                 r#"Targets: practice contest/*
 GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 302 Found
@@ -203,6 +214,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
             std::fs::write(&wd.join("a.py"), CODE)?;
             let err = app
                 .run(Opt::Submit(Submit {
+                    json: false,
                     open: false,
                     force_compile: false,
                     only_transpile: false,
@@ -252,6 +264,7 @@ if __name__ == '__main__':
             std::fs::create_dir_all(&wd)?;
             std::fs::write(&wd.join("a.py"), CODE)?;
             app.run(Opt::Submit(Submit {
+                json: false,
                 open: false,
                 force_compile: false,
                 only_transpile: false,
@@ -279,6 +292,7 @@ fn it_lists_languages_in_practice() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::ListLangs(ListLangs {
+                json: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 color_choice: AnsiColorChoice::Never,
@@ -286,9 +300,17 @@ fn it_lists_languages_in_practice() -> Fallible<()> {
             }))?;
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
+            let stdout = serde_json::from_str::<ListLangsStdout>(&stdout)?;
+            assert_eq!(stdout.available_languages.len(), 56);
             assert_eq!(
-                stdout,
-                r#"+---------------------------------+------+
+                stderr,
+                r#"Targets: practice contest/*
+GET https://atcoder.jp/login ... 200 OK
+Username: Password: POST https://atcoder.jp/login ... 302 Found
+GET https://atcoder.jp/settings ... 200 OK
+Successfully logged in.
+GET https://atcoder.jp/contests/practice/submit ... 200 OK
++---------------------------------+------+
 | Name                            | ID   |
 +---------------------------------+------+
 | C++14 (GCC 5.4.1)               | 3003 |
@@ -403,16 +425,6 @@ fn it_lists_languages_in_practice() -> Fallible<()> {
 +---------------------------------+------+
 | COBOL - Free (OpenCOBOL 1.1.0)  | 3526 |
 +---------------------------------+------+
-"#,
-            );
-            assert_eq!(
-                stderr,
-                r#"Targets: practice contest/*
-GET https://atcoder.jp/login ... 200 OK
-Username: Password: POST https://atcoder.jp/login ... 302 Found
-GET https://atcoder.jp/settings ... 200 OK
-Successfully logged in.
-GET https://atcoder.jp/contests/practice/submit ... 200 OK
 "#
             );
             Ok(())
@@ -428,6 +440,7 @@ fn it_lists_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::ListLangs(ListLangs {
+                json: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("tenka1-2016-final-open".to_owned()),
                 color_choice: AnsiColorChoice::Never,
@@ -435,15 +448,8 @@ fn it_lists_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
             }))?;
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
-            assert_eq!(
-                stdout,
-                r#"+------------+----+
-| Name       | ID |
-+------------+----+
-| Text (cat) | 17 |
-+------------+----+
-"#,
-            );
+            let stdout = serde_json::from_str::<ListLangsStdout>(&stdout)?;
+            assert_eq!(stdout.available_languages.len(), 1);
             assert_eq!(
                 stderr,
                 r#"Target: tenka1-2016-final-open/A
@@ -453,6 +459,11 @@ GET https://atcoder.jp/settings ... 200 OK
 Successfully logged in.
 GET https://atcoder.jp/contests/tenka1-2016-final-open/tasks ... 200 OK
 GET https://atcoder.jp/contests/tenka1-2016-final-open/tasks/tenka1_2016_final_a ... 200 OK
++------------+----+
+| Name       | ID |
++------------+----+
+| Text (cat) | 17 |
++------------+----+
 "#
             );
             Ok(())
@@ -464,4 +475,9 @@ fn credentials_as_input() -> Fallible<String> {
     let username = service::env_var("ATCODER_USERNAME")?;
     let password = service::env_var("ATCODER_PASSWORD")?;
     Ok(format!("{}\n{}\n", username, password))
+}
+
+#[derive(Deserialize)]
+struct ListLangsStdout {
+    available_languages: IndexMap<String, String>,
 }

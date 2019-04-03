@@ -2,28 +2,29 @@
 
 ### Added
 
-* `--mode` option to `judge`, `restore`, and `submit`
-* `--release` option to `judge`, which equivalent to `--mode release`
-* `--debug` option to `submit`, which equivalent to `--mode debug`
+* `--mode` option to `judge`, `restore`, and `submit`.
+* `--release` option to `judge`, which equivalent to `--mode release`.
+* `--debug` option to `submit`, which equivalent to `--mode debug`.
 * Add `.command_line_arguments`, `.config`, `.base_directory`, and `.target` to `$SNOWCHAINS_RESULT` s.
+* Add `--json` flags.
 
 ### Changed
 
-* Make `env` field more configurable
-* Now it prints most of the information to stderr, not stdout
-* Move `service`, `contest` and `language` fields of `snowchains.toml` to another file
+* Make `env` field more configurable.
+* Now it prints most of the information to stderr, not stdout.
+* Move `service`, `contest` and `language` fields of `snowchains.toml` to another file.
 
 ### Removed
 
-* `show _` commands
-* `modify _` commands
+* `show _` commands.
+* `modify _` commands.
 
 ### Fixed
 
-* Fix the condition of enabling ANSI color when `--color auto`
-* Fix a bug where `list-langs` displays &lt;number of problems&gt; copies of a list
-* Prevent `list-langs` from displaying unavailable languages when `problem` is specified
-* Change the default value of `jobs` from `1` to the number of CPUs
+* Fix the condition of enabling ANSI color when `--color auto`.
+* Fix a bug where `list-langs` displays &lt;number of problems&gt; copies of a list.
+* Prevent `list-langs` from displaying unavailable languages when `problem` is specified.
+* Change the default value of `jobs` from `1` to the number of CPUs.
 
 ## [0.2.0] - 2019-03-03
 

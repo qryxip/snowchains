@@ -583,6 +583,10 @@ impl<W: StandardOutput> TermOutImpl<W> {
     pub fn get_ref(&self) -> &W {
         &self.wtr
     }
+
+    pub fn get_mut(&mut self) -> &mut W {
+        &mut self.wtr
+    }
 }
 
 impl<W: StandardOutput> Write for TermOutImpl<W> {

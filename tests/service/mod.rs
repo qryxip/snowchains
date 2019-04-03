@@ -59,6 +59,7 @@ pub fn login(
     service: ServiceKind,
 ) -> snowchains::Result<()> {
     app.run(Opt::Login(Login {
+        json: true,
         color_choice: AnsiColorChoice::Never,
         service,
     }))
@@ -71,6 +72,7 @@ pub fn download(
     problems: &[&str],
 ) -> snowchains::Result<()> {
     app.run(Opt::Download(Download {
+        json: true,
         open: false,
         only_scraped: false,
         service: Some(service),

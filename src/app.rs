@@ -1,4 +1,4 @@
-use crate::config::{self, Config};
+use crate::config::{self, Config, SubCommandKind};
 use crate::errors::ExpandTemplateResult;
 use crate::judging::{self, JudgeParams};
 use crate::path::{AbsPath, AbsPathBuf};
@@ -20,14 +20,14 @@ use std::path::PathBuf;
 
 #[derive(Debug, StructOpt)]
 #[structopt(usage = "snowchains <i|init> [OPTIONS] [directory]\
-                     \n    snowchains <w|switch|c|checkout> [OPTIONS]\
-                     \n    snowchains <l|login> [OPTIONS] <service>\
-                     \n    snowchains <p|participate> [OPTIONS] <service> <contest>\
+                     \n    snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]\
+                     \n    snowchains <l|login> [FLAGS] [OPTIONS] <service>\
+                     \n    snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>\
                      \n    snowchains <d|download> [FLAGS] [OPTIONS]\
-                     \n    snowchains <r|restore> [OPTIONS]\
+                     \n    snowchains <r|restore> [FLAGS] [OPTIONS]\
                      \n    snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>\
                      \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>\
-                     \n    snowchains list-langs [OPTIONS] [problem]")]
+                     \n    snowchains list-langs [FLAGS] [OPTIONS] [problem]")]
 pub enum Opt {
     #[structopt(
         about = "Creates a config file (\"snowchains.toml\")",
@@ -39,21 +39,21 @@ pub enum Opt {
     #[structopt(
         about = "Modifies values in a config file",
         name = "switch",
-        usage = "snowchains <w|switch|c|checkout> [OPTIONS]",
+        usage = "snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]",
         raw(aliases = r#"&["w", "checkout", "c"]"#, display_order = "2")
     )]
     Switch(Switch),
     #[structopt(
         about = "Logges in to a service",
         name = "login",
-        usage = "snowchains <l|login> [OPTIONS] <service>",
+        usage = "snowchains <l|login> [FLAGS] [OPTIONS] <service>",
         raw(alias = "\"l\"", display_order = "3")
     )]
     Login(Login),
     #[structopt(
         about = "Participates in a contest",
         name = "participate",
-        usage = "snowchains <p|participate> [OPTIONS] <service> <contest>",
+        usage = "snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>",
         raw(alias = "\"p\"", display_order = "4")
     )]
     Participate(Participate),
@@ -67,7 +67,7 @@ pub enum Opt {
     #[structopt(
         about = "Downloads source files you have submitted",
         name = "restore",
-        usage = "snowchains <r|restore> [OPTIONS]",
+        usage = "snowchains <r|restore> [FLAGS] [OPTIONS]",
         raw(alias = "\"r\"", display_order = "6")
     )]
     Restore(Restore),
@@ -107,6 +107,8 @@ pub struct Init {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Switch {
+    #[structopt(raw(json = "1"))]
+    json: bool,
     #[structopt(raw(service = r#"SERVICE_VALUES, Kind::Option(1)"#))]
     service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -119,6 +121,8 @@ pub struct Switch {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Login {
+    #[structopt(raw(json = "1"))]
+    pub json: bool,
     #[structopt(raw(color_choice = "1"))]
     pub color_choice: AnsiColorChoice,
     #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Arg"#))]
@@ -127,6 +131,8 @@ pub struct Login {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Participate {
+    #[structopt(raw(json = "1"))]
+    json: bool,
     #[structopt(raw(color_choice = "1"))]
     color_choice: AnsiColorChoice,
     #[structopt(raw(service = r#"&["atcoder"], Kind::Arg"#))]
@@ -137,7 +143,9 @@ pub struct Participate {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Download {
-    #[structopt(raw(open = "1"))]
+    #[structopt(raw(json = "1"))]
+    pub json: bool,
+    #[structopt(raw(open = "2"))]
     pub open: bool,
     #[structopt(
         long = "only-scraped",
@@ -157,6 +165,8 @@ pub struct Download {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Restore {
+    #[structopt(raw(json = "1"))]
+    pub json: bool,
     #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -171,7 +181,9 @@ pub struct Restore {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Judge {
-    #[structopt(raw(force_compile = "1"))]
+    #[structopt(raw(json = "1"))]
+    pub json: bool,
+    #[structopt(raw(force_compile = "2"))]
     pub force_compile: bool,
     #[structopt(
         long = "release",
@@ -200,9 +212,11 @@ pub struct Judge {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Submit {
-    #[structopt(raw(open = "1"))]
+    #[structopt(raw(json = "1"))]
+    pub json: bool,
+    #[structopt(raw(open = "2"))]
     pub open: bool,
-    #[structopt(raw(conflicts_with = "\"no_judge\"", force_compile = "2"))]
+    #[structopt(raw(conflicts_with = "\"no_judge\"", force_compile = "3"))]
     pub force_compile: bool,
     #[structopt(
         long = "only-transpile",
@@ -252,6 +266,8 @@ pub struct Submit {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct ListLangs {
+    #[structopt(raw(json = "1"))]
+    pub json: bool,
     #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -272,6 +288,7 @@ enum Kind {
 }
 
 trait ArgExt {
+    fn json(self, order: usize) -> Self;
     fn force_compile(self, order: usize) -> Self;
     fn open(self, order: usize) -> Self;
     fn language(self, order: usize) -> Self;
@@ -287,6 +304,12 @@ trait ArgExt {
 }
 
 impl ArgExt for Arg<'static, 'static> {
+    fn json(self, order: usize) -> Self {
+        self.long("json")
+            .help("Prints the result as a JSON")
+            .display_order(order)
+    }
+
     fn force_compile(self, order: usize) -> Self {
         self.long("force-compile")
             .help("Force to transpile and to compile")
@@ -410,6 +433,7 @@ impl<T: Term> App<T> {
             }
             Opt::Switch(cli_args) => {
                 let Switch {
+                    json,
                     service,
                     contest,
                     language,
@@ -421,12 +445,18 @@ impl<T: Term> App<T> {
                 let (_, stdout, stderr) = self.term.split_mut();
                 let (config, outcome) =
                     config::switch(stdout, stderr, &working_dir, *service, contest, language)?;
-                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
-                let hooks = config.switch_hooks(&outcome).expand()?;
-                hooks.run::<T::Stdout, _>(self.term.stderr())?;
+                finish(
+                    &outcome,
+                    cli_args,
+                    &config,
+                    SubCommandKind::Switch,
+                    *json,
+                    &mut self.term,
+                )?;
             }
             Opt::Login(cli_args) => {
                 let Login {
+                    json,
                     color_choice,
                     service,
                 } = cli_args;
@@ -441,12 +471,18 @@ impl<T: Term> App<T> {
                     ServiceKind::Yukicoder => yukicoder::login(props, term),
                     ServiceKind::Other => unreachable!(),
                 }?;
-                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
-                let hooks = config.login_hooks(&outcome).expand()?;
-                hooks.run::<T::Stdout, _>(self.term.stderr())?;
+                finish(
+                    &outcome,
+                    cli_args,
+                    &config,
+                    SubCommandKind::Login,
+                    *json,
+                    &mut self.term,
+                )?;
             }
             Opt::Participate(cli_args) => {
                 let Participate {
+                    json,
                     color_choice,
                     service,
                     contest,
@@ -460,12 +496,18 @@ impl<T: Term> App<T> {
                     ServiceKind::Atcoder => atcoder::participate(contest, props, term),
                     _ => unreachable!(),
                 }?;
-                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
-                let hooks = config.participate_hooks(&outcome).expand()?;
-                hooks.run::<T::Stdout, _>(self.term.stderr())?;
+                finish(
+                    &outcome,
+                    cli_args,
+                    &config,
+                    SubCommandKind::Participate,
+                    *json,
+                    &mut self.term,
+                )?;
             }
             Opt::Download(cli_args) => {
                 let Download {
+                    json,
                     open,
                     only_scraped,
                     service,
@@ -493,12 +535,18 @@ impl<T: Term> App<T> {
                     ServiceKind::Yukicoder => yukicoder::download(props, term),
                     ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
                 }?;
-                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
-                let hooks = config.download_hooks(&outcome).expand()?;
-                hooks.run::<T::Stdout, _>(self.term.stderr())?;
+                finish(
+                    &outcome,
+                    cli_args,
+                    &config,
+                    SubCommandKind::Download,
+                    *json,
+                    &mut self.term,
+                )?;
             }
             Opt::Restore(cli_args) => {
                 let Restore {
+                    json,
                     service,
                     contest,
                     mode,
@@ -519,12 +567,18 @@ impl<T: Term> App<T> {
                     ServiceKind::Codeforces => codeforces::restore(props, term)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
-                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
-                let hooks = config.restore_hooks(&outcome).expand()?;
-                hooks.run::<T::Stdout, _>(self.term.stderr())?;
+                finish(
+                    &outcome,
+                    cli_args,
+                    &config,
+                    SubCommandKind::Restore,
+                    *json,
+                    &mut self.term,
+                )?;
             }
             Opt::Judge(cli_args) => {
                 let Judge {
+                    json,
                     force_compile,
                     release,
                     service,
@@ -553,12 +607,18 @@ impl<T: Term> App<T> {
                     force_compile: *force_compile,
                     jobs: *jobs,
                 })?;
-                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
-                let hooks = config.judge_hooks(&outcome).expand()?;
-                hooks.run::<T::Stdout, _>(self.term.stderr())?;
+                finish(
+                    &outcome,
+                    cli_args,
+                    &config,
+                    SubCommandKind::Judge,
+                    *json,
+                    &mut self.term,
+                )?;
             }
             Opt::Submit(cli_args) => {
                 let Submit {
+                    json,
                     open,
                     force_compile,
                     only_transpile,
@@ -617,12 +677,18 @@ impl<T: Term> App<T> {
                     ServiceKind::Yukicoder => yukicoder::submit(props, term)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
-                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
-                let hooks = config.submit_hooks(&outcome).expand()?;
-                hooks.run::<T::Stdout, _>(self.term.stderr())?;
+                finish(
+                    &outcome,
+                    cli_args,
+                    &config,
+                    SubCommandKind::Submit,
+                    *json,
+                    &mut self.term,
+                )?;
             }
             Opt::ListLangs(cli_args) => {
                 let ListLangs {
+                    json,
                     service,
                     contest,
                     color_choice,
@@ -643,9 +709,14 @@ impl<T: Term> App<T> {
                     ServiceKind::Yukicoder => yukicoder::list_langs(props, term)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
-                let outcome = WithCliArgsAndConfig::new(cli_args, &config, outcome);
-                let hooks = config.list_langs_hooks(&outcome).expand()?;
-                hooks.run::<T::Stdout, _>(self.term.stderr())?;
+                finish(
+                    &outcome,
+                    cli_args,
+                    &config,
+                    SubCommandKind::ListLangs,
+                    *json,
+                    &mut self.term,
+                )?;
             }
         }
         Ok(())
@@ -671,24 +742,37 @@ impl<T: Term> App<T> {
     }
 }
 
-#[derive(Serialize)]
-struct WithCliArgsAndConfig<'a, A: Serialize, T: Serialize> {
-    command_line_arguments: &'a A,
-    config: &'a config::Inner,
-    target: &'a config::Target,
-    base_directory: &'a AbsPath,
-    #[serde(flatten)]
-    repr: T,
-}
-
-impl<'a, A: Serialize, T: Serialize> WithCliArgsAndConfig<'a, A, T> {
-    fn new(command_line_arguments: &'a A, config: &'a Config, repr: T) -> Self {
-        Self {
-            command_line_arguments,
-            config: config.inner(),
-            target: config.target(),
-            base_directory: config.base_dir(),
-            repr,
-        }
+fn finish<O: Serialize, A: Serialize, T: Term>(
+    outcome: &O,
+    command_line_arguments: &A,
+    config: &Config,
+    subcommand: SubCommandKind,
+    json: bool,
+    mut term: T,
+) -> crate::Result<()> {
+    #[derive(Serialize)]
+    struct WithCliArgsAndConfig<'a, A: Serialize, T: Serialize> {
+        command_line_arguments: &'a A,
+        config: &'a config::Inner,
+        target: &'a config::Target,
+        base_directory: &'a AbsPath,
+        #[serde(flatten)]
+        outcome: T,
     }
+
+    let outcome = WithCliArgsAndConfig {
+        command_line_arguments,
+        config: config.inner(),
+        target: config.target(),
+        base_directory: config.base_dir(),
+        outcome,
+    };
+    let hooks = config.hooks(subcommand, &outcome).expand()?;
+    hooks.run::<T::Stdout, _>(term.stderr())?;
+    if json {
+        let json = serde_json::to_string_pretty(&outcome)?;
+        writeln!(term.stdout(), "{}", json)?;
+        term.stdout().flush()?;
+    }
+    Ok(())
 }

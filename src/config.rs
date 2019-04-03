@@ -15,6 +15,8 @@ use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use if_chain::if_chain;
 use indexmap::IndexMap;
 use maplit::hashmap;
+use once_cell::sync::Lazy;
+use once_cell::sync_lazy;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
@@ -682,56 +684,22 @@ impl Config {
         self.inner.judge.display_limit
     }
 
-    /// Gets `hooks.switch`.
-    pub(crate) fn switch_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
-        self.hooks(|hs| &hs.switch, outcome)
-    }
-
-    /// Gets `hooks.login`.
-    pub(crate) fn login_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
-        self.hooks(|hs| &hs.login, outcome)
-    }
-
-    /// Gets `hooks.participate`.
-    pub(crate) fn participate_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
-        self.hooks(|hs| &hs.participate, outcome)
-    }
-
-    /// Gets `hooks.download`.
-    pub(crate) fn download_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
-        self.hooks(|hs| &hs.download, outcome)
-    }
-
-    /// Gets `hooks.restore`.
-    pub(crate) fn restore_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
-        self.hooks(|hs| &hs.restore, outcome)
-    }
-
-    /// Gets `hooks.judge`.
-    pub(crate) fn judge_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
-        self.hooks(|hs| &hs.judge, outcome)
-    }
-
-    /// Gets `hooks.submit`.
-    pub(crate) fn submit_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
-        self.hooks(|hs| &hs.submit, outcome)
-    }
-
-    /// Gets `hooks.list_langs`.
-    pub(crate) fn list_langs_hooks(&self, outcome: &impl Serialize) -> Template<HookCommands> {
-        self.hooks(|hs| &hs.list_langs, outcome)
-    }
-
-    fn hooks(
+    pub(crate) fn hooks(
         &self,
-        f: fn(&Hooks) -> &TemplateBuilder<HookCommands>,
+        kind: SubCommandKind,
         outcome: &impl Serialize,
     ) -> Template<HookCommands> {
-        f(&self.inner.hooks).build(HookCommandsRequirements {
-            base_dir: self.base_dir.clone(),
-            shell: self.inner.shell.clone(),
-            result: Arc::new(serde_json::to_string(outcome)),
-        })
+        static DEFAULT: Lazy<TemplateBuilder<HookCommands>> =
+            sync_lazy!(TemplateBuilder::default());
+        self.inner
+            .hooks
+            .get(&kind)
+            .unwrap_or(&DEFAULT)
+            .build(HookCommandsRequirements {
+                base_dir: self.base_dir.clone(),
+                shell: self.inner.shell.clone(),
+                result: Arc::new(serde_json::to_string(outcome)),
+            })
     }
 
     /// Constructs a `DownloadDestinations`.
@@ -964,7 +932,7 @@ pub(crate) struct Inner {
     #[serde(default)]
     env: Env,
     #[serde(default)]
-    hooks: Hooks,
+    hooks: BTreeMap<SubCommandKind, TemplateBuilder<HookCommands>>,
     tester: Option<Language>,
     languages: HashMap<String, Language>,
 }
@@ -1328,24 +1296,34 @@ impl<'de> Deserialize<'de> for Predicate {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
-struct Hooks {
-    #[serde(default)]
-    switch: TemplateBuilder<HookCommands>,
-    #[serde(default)]
-    login: TemplateBuilder<HookCommands>,
-    #[serde(default)]
-    participate: TemplateBuilder<HookCommands>,
-    #[serde(default)]
-    download: TemplateBuilder<HookCommands>,
-    #[serde(default)]
-    restore: TemplateBuilder<HookCommands>,
-    #[serde(default)]
-    judge: TemplateBuilder<HookCommands>,
-    #[serde(default)]
-    submit: TemplateBuilder<HookCommands>,
-    #[serde(default)]
-    list_langs: TemplateBuilder<HookCommands>,
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SubCommandKind {
+    Switch,
+    Login,
+    Participate,
+    Download,
+    Restore,
+    Judge,
+    Submit,
+    ListLangs,
+    Other,
+}
+
+impl<'de> Deserialize<'de> for SubCommandKind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        match String::deserialize(deserializer)?.as_str() {
+            "switch" => Ok(SubCommandKind::Switch),
+            "login" => Ok(SubCommandKind::Login),
+            "participate" => Ok(SubCommandKind::Participate),
+            "download" => Ok(SubCommandKind::Download),
+            "restore" => Ok(SubCommandKind::Restore),
+            "judge" => Ok(SubCommandKind::Judge),
+            "submit" => Ok(SubCommandKind::Submit),
+            "list_langs" => Ok(SubCommandKind::ListLangs),
+            _ => Ok(SubCommandKind::Other),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
