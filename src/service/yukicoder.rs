@@ -2,9 +2,9 @@ use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ExtractZip, ListLangsProps,
-    PrintTargets as _, Service, ServiceKind, SessionProps, SubmitProps, ZipEntries,
-    ZipEntriesSorting,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ExtractZip, ListLangsOutcome,
+    ListLangsProps, LoginOutcome, PrintTargets as _, Service, SessionProps, SubmitOutcome,
+    SubmitProps, ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
@@ -32,7 +32,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, mem};
 
-pub(crate) fn login(props: SessionProps, term: impl Term) -> ServiceResult<()> {
+pub(crate) fn login(props: SessionProps, term: impl Term) -> ServiceResult<LoginOutcome> {
     Yukicoder::try_new(props, term)?.login(true)
 }
 
@@ -52,7 +52,7 @@ pub(crate) fn download(
 pub(crate) fn submit(
     props: (SessionProps, SubmitProps<String>),
     mut term: impl Term,
-) -> ServiceResult<()> {
+) -> ServiceResult<SubmitOutcome> {
     let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
@@ -65,7 +65,7 @@ pub(crate) fn submit(
 pub(crate) fn list_langs(
     props: (SessionProps, ListLangsProps<String>),
     mut term: impl Term,
-) -> ServiceResult<()> {
+) -> ServiceResult<ListLangsOutcome> {
     let (sess_props, list_langs_props) = props;
     let list_langs_props = list_langs_props
         .convert_problem(CaseConversion::Upper)
@@ -92,19 +92,10 @@ impl<T: Term> HasTerm for Yukicoder<T> {
 }
 
 impl<T: Term> Service for Yukicoder<T> {
-    type Stdout = T::Stdout;
     type Stderr = T::Stderr;
 
-    fn requirements(
-        &mut self,
-    ) -> (
-        &mut T::Stdout,
-        &mut T::Stderr,
-        &mut HttpSession,
-        &mut Runtime,
-    ) {
-        let (_, stdout, stderr) = self.term.split_mut();
-        (stdout, stderr, &mut self.session, &mut self.runtime)
+    fn requirements(&mut self) -> (&mut T::Stderr, &mut HttpSession, &mut Runtime) {
+        (self.term.stderr(), &mut self.session, &mut self.runtime)
     }
 }
 
@@ -137,7 +128,7 @@ impl<T: Term> Yukicoder<T> {
         })
     }
 
-    fn login(&mut self, assure: bool) -> ServiceResult<()> {
+    fn login(&mut self, assure: bool) -> ServiceResult<LoginOutcome> {
         self.fetch_username()?;
         if self.username.name().is_none() {
             let (mut first, mut retries) = (true, self.login_retries);
@@ -169,7 +160,8 @@ impl<T: Term> Yukicoder<T> {
         }
         let username = self.username.clone();
         writeln!(self.stderr(), "Username: {}", username)?;
-        self.stderr().flush().map_err(Into::into)
+        self.stderr().flush()?;
+        Ok(LoginOutcome {})
     }
 
     fn confirm_revel_session(&mut self, revel_session: String) -> ServiceResult<bool> {
@@ -203,7 +195,7 @@ impl<T: Term> Yukicoder<T> {
                 let path = destinations.expand(problem)?;
                 Ok((suite, path))
             };
-        let mut outcome = DownloadOutcome::new(ServiceKind::Yukicoder, contest, *open_in_browser);
+        let mut outcome = DownloadOutcome::new(contest);
         match (contest, problems.as_ref()) {
             (YukicoderContest::No, None) => {
                 return Err(ServiceErrorKind::PleaseSpecifyProblems.into());
@@ -330,7 +322,7 @@ impl<T: Term> Yukicoder<T> {
         Ok(outcome)
     }
 
-    fn submit(&mut self, props: &SubmitProps<YukicoderContest>) -> ServiceResult<()> {
+    fn submit(&mut self, props: &SubmitProps<YukicoderContest>) -> ServiceResult<SubmitOutcome> {
         let SubmitProps {
             contest,
             problem,
@@ -381,14 +373,14 @@ impl<T: Term> Yukicoder<T> {
                     .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?,
             ),
         };
-        if let Some(location) = location.as_ref() {
+        if let Some(&location) = location.as_ref() {
             if location.contains("/submissions/") {
                 writeln!(self.stderr(), "Success: {:?}", location)?;
                 self.stderr().flush()?;
                 if *open_in_browser {
                     self.open_in_browser(location)?;
                 }
-                return Ok(());
+                return Ok(SubmitOutcome {});
             }
         }
         Err(ServiceErrorKind::SubmissionRejected {
@@ -401,13 +393,17 @@ impl<T: Term> Yukicoder<T> {
         .into())
     }
 
-    fn list_langs(&mut self, props: ListLangsProps<YukicoderContest>) -> ServiceResult<()> {
+    fn list_langs(
+        &mut self,
+        props: ListLangsProps<YukicoderContest>,
+    ) -> ServiceResult<ListLangsOutcome> {
         let ListLangsProps { contest, problem } = props;
         let problem = problem.ok_or(ServiceErrorKind::PleaseSpecifyProblem)?;
         self.login(true)?;
         let url = self.get_submit_url(&contest, &problem)?;
         let langs = self.get(url.as_str()).recv_html()?.extract_langs()?;
-        self.print_lang_list(&langs).map_err(Into::into)
+        self.print_lang_list(&langs)?;
+        Ok(ListLangsOutcome::new(url, langs))
     }
 
     fn filter_solved<'b>(
@@ -665,6 +661,7 @@ mod tests {
     use crate::service::yukicoder::Extract;
 
     use failure::Fallible;
+    use pretty_assertions::assert_eq;
     use select::document::Document;
 
     use std::borrow::Borrow;
@@ -672,25 +669,21 @@ mod tests {
 
     #[test]
     fn it_extracts_samples_from_problem1() -> Fallible<()> {
-        let _ = env_logger::try_init();
         test_extracting_samples("/problems/no/1", "cf65ae411bc8d32b75beb771905c9dc0")
     }
 
     #[test]
     fn it_extracts_samples_from_problem188() -> Fallible<()> {
-        let _ = env_logger::try_init();
         test_extracting_samples("/problems/no/188", "671c7191064f7703abcb5e06fad3f32e")
     }
 
     #[test]
     fn it_extracts_samples_from_problem192() -> Fallible<()> {
-        let _ = env_logger::try_init();
         test_extracting_samples("/problems/no/192", "f8ce3328c431737dcb748770abd9a09b")
     }
 
     #[test]
     fn it_extracts_samples_from_problem246() -> Fallible<()> {
-        let _ = env_logger::try_init();
         test_extracting_samples("/problems/no/246", "9debfd89a82271d763b717313363acda")
     }
 
@@ -713,7 +706,6 @@ mod tests {
             ("E", "/problems/no/195"),
             ("F", "/problems/no/196"),
         ];
-        let _ = env_logger::try_init();
         let document = get_html("/contests/100")?;
         let problems = document.extract_problems()?;
         assert_eq!(own_pairs(EXPECTED), problems);

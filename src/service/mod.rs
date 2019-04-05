@@ -9,7 +9,9 @@ pub(self) mod download;
 use crate::config::{self, Config};
 use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceResult};
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
+use crate::service::session::{
+    HttpSession, HttpSessionInitParams, IntoRelativeOrAbsoluteUrl, UrlBase,
+};
 use crate::template::Template;
 use crate::terminal::WriteAnsi;
 use crate::testsuite::{DownloadDestinations, SuiteFilePath, TestSuite};
@@ -105,35 +107,27 @@ impl<'de> Deserialize<'de> for ServiceKind {
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/qryxip/snowchains>";
 
 pub(self) trait Service {
-    type Stdout: WriteAnsi;
     type Stderr: WriteAnsi;
 
-    fn requirements(
-        &mut self,
-    ) -> (
-        &mut Self::Stdout,
-        &mut Self::Stderr,
-        &mut HttpSession,
-        &mut Runtime,
-    );
+    fn requirements(&mut self) -> (&mut Self::Stderr, &mut HttpSession, &mut Runtime);
 
-    fn get(&mut self, url: &str) -> session::Request<&mut Self::Stderr> {
-        let (_, stderr, sess, runtime) = self.requirements();
+    fn get(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> session::Request<&mut Self::Stderr> {
+        let (stderr, sess, runtime) = self.requirements();
         sess.get(url, stderr, runtime)
     }
 
-    fn post(&mut self, url: &str) -> session::Request<&mut Self::Stderr> {
-        let (_, stderr, sess, runtime) = self.requirements();
+    fn post(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> session::Request<&mut Self::Stderr> {
+        let (stderr, sess, runtime) = self.requirements();
         sess.post(url, stderr, runtime)
     }
 
-    fn open_in_browser(&mut self, url: &str) -> ServiceResult<()> {
-        let (_, stderr, sess, _) = self.requirements();
+    fn open_in_browser(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<()> {
+        let (stderr, sess, _) = self.requirements();
         sess.open_in_browser(url, stderr)
     }
 
     fn print_lang_list(&mut self, lang_list: &NonEmptyIndexMap<String, String>) -> io::Result<()> {
-        let (stdout, _, _, _) = self.requirements();
+        let (stderr, _, _) = self.requirements();
 
         let mut table = Table::new();
         table.add_row(row!["Name", "ID"]);
@@ -141,8 +135,8 @@ pub(self) trait Service {
             table.add_row(row![name, id]);
         }
 
-        write!(stdout, "{}", table)?;
-        stdout.flush()
+        write!(stderr, "{}", table)?;
+        stderr.flush()
     }
 }
 
@@ -278,9 +272,13 @@ pub(self) enum ZipEntriesSorting {
 }
 
 #[derive(Serialize)]
+pub(crate) struct LoginOutcome {}
+
+#[derive(Serialize)]
+pub(crate) struct ParticipateOutcome {}
+
+#[derive(Serialize)]
 pub(crate) struct DownloadOutcome {
-    service: ServiceKind,
-    open_in_browser: bool,
     contest: DownloadOutcomeContest,
     pub(self) problems: Vec<DownloadOutcomeProblem>,
 }
@@ -324,10 +322,8 @@ fn ser_as_path<S: Serializer>(
 }
 
 impl DownloadOutcome {
-    pub(self) fn new(service: ServiceKind, contest: &impl Contest, open_in_browser: bool) -> Self {
+    pub(self) fn new(contest: &impl Contest) -> Self {
         Self {
-            service,
-            open_in_browser,
             contest: DownloadOutcomeContest {
                 slug: contest.slug().into(),
                 slug_lower_case: contest.slug().to_lowercase(),
@@ -360,6 +356,28 @@ impl DownloadOutcome {
             test_suite_path: path,
             test_suite: suite,
         })
+    }
+}
+
+#[derive(Serialize)]
+pub(crate) struct RestoreOutcome {}
+
+#[derive(Serialize)]
+pub(crate) struct SubmitOutcome {}
+
+#[derive(Serialize)]
+pub(crate) struct ListLangsOutcome {
+    #[serde(serialize_with = "util::serde::ser_as_ref_str")]
+    url: Url,
+    available_languages: NonEmptyIndexMap<String, String>,
+}
+
+impl ListLangsOutcome {
+    fn new(url: Url, available_languages: NonEmptyIndexMap<String, String>) -> Self {
+        Self {
+            url,
+            available_languages,
+        }
     }
 }
 

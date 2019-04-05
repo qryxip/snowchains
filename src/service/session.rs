@@ -8,7 +8,6 @@ use cookie::CookieJar;
 use derive_new::new;
 use failure::{Fail as _, Fallible, ResultExt as _};
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
-use log::info;
 use maplit::hashmap;
 use mime::Mime;
 use reqwest::header::{self, HeaderValue};
@@ -148,19 +147,15 @@ impl HttpSession {
 
     /// If `url` starts with '/' and the base host is present, returns
     /// http(s)://<host><url>.
-    pub(super) fn resolve_url(&self, url: &str) -> ServiceResult<Url> {
-        match self.base.as_ref() {
-            Some(base) => base.with(url),
-            None => Url::parse(url)
-                .map_err(|e| e.context(ServiceErrorKind::ParseUrl(url.to_owned())).into()),
-        }
+    pub(super) fn resolve_url(&self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<Url> {
+        url.with(self.base.as_ref())
     }
 
     /// Opens `url`, which is relative or absolute, with default browser
     /// printing a message.
     pub(super) fn open_in_browser(
         &mut self,
-        url: &str,
+        url: impl IntoRelativeOrAbsoluteUrl,
         mut out: impl WriteAnsi,
     ) -> ServiceResult<()> {
         let url = self.resolve_url(url)?;
@@ -176,7 +171,7 @@ impl HttpSession {
 
     pub(super) fn get<'a, 'b, O: WriteAnsi>(
         &'a mut self,
-        url: &str,
+        url: impl IntoRelativeOrAbsoluteUrl,
         out: O,
         runtime: &'b mut Runtime,
     ) -> self::Request<'a, 'b, O> {
@@ -185,7 +180,7 @@ impl HttpSession {
 
     pub(super) fn post<'a, 'b, O: WriteAnsi>(
         &'a mut self,
-        url: &str,
+        url: impl IntoRelativeOrAbsoluteUrl,
         out: O,
         runtime: &'b mut Runtime,
     ) -> self::Request<'a, 'b, O> {
@@ -194,7 +189,7 @@ impl HttpSession {
 
     fn request<'a, 'b, O: WriteAnsi>(
         &'a mut self,
-        url: &str,
+        url: impl IntoRelativeOrAbsoluteUrl,
         method: Method,
         acceptable: Vec<StatusCode>,
         out: O,
@@ -212,7 +207,7 @@ impl HttpSession {
 
     fn try_request(
         &mut self,
-        url: &str,
+        url: impl IntoRelativeOrAbsoluteUrl,
         method: Method,
     ) -> ServiceResult<reqwest::r#async::RequestBuilder> {
         let url = self.resolve_url(url)?;
@@ -257,9 +252,7 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
 
     pub(super) fn bearer_auth(self, token: impl fmt::Display) -> Self {
         Self {
-            inner: self
-                .inner
-                .map(|inner| inner.header(header::AUTHORIZATION, format!("Bearer {}", token))),
+            inner: self.inner.map(|inner| inner.bearer_auth(token)),
             ..self
         }
     }
@@ -305,7 +298,6 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         let req = req.build()?;
         let client = &self.session.client;
         let runtime = self.runtime;
-        req.log_method();
         if let Some(out) = self.out.as_mut() {
             req.echo_method(out)?;
         }
@@ -328,7 +320,6 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         if let Some(out) = self.out.as_mut() {
             res.echo_status(&self.acceptable, out)?;
         }
-        res.log_status();
         if !self.no_cookie {
             if let Some(jar) = self.session.jar.as_mut() {
                 jar.update(&res)?;
@@ -453,15 +444,10 @@ impl Deref for Response {
 }
 
 trait RequestExt {
-    fn log_method(&self);
     fn echo_method(&self, out: impl WriteAnsi) -> io::Result<()>;
 }
 
 impl RequestExt for reqwest::r#async::Request {
-    fn log_method(&self) {
-        info!("{}: {}", self.method(), self.url());
-    }
-
     fn echo_method(&self, mut out: impl WriteAnsi) -> io::Result<()> {
         out.with_reset(|o| o.bold()?.write_str(self.method()))?;
         out.write_str(" ")?;
@@ -472,16 +458,11 @@ impl RequestExt for reqwest::r#async::Request {
 }
 
 trait ResponseExt: Sized {
-    fn log_status(&self);
     fn echo_status(&self, expected_statuses: &[StatusCode], out: impl WriteAnsi) -> io::Result<()>;
     fn filter_by_status(self, expected: Vec<StatusCode>) -> ServiceResult<Self>;
 }
 
 impl ResponseExt for reqwest::r#async::Response {
-    fn log_status(&self) {
-        info!("{}", self.status());
-    }
-
     fn echo_status(
         &self,
         expected_statuses: &[StatusCode],
@@ -518,26 +499,50 @@ pub(super) struct UrlBase {
     port: Option<u16>,
 }
 
-impl UrlBase {
-    fn with(&self, relative_or_absolute_url: &str) -> ServiceResult<Url> {
-        let mut url = Cow::from(relative_or_absolute_url);
-        if url.starts_with('/') {
-            url = format!(
-                "http{}://{}{}{}",
-                if self.https { "s" } else { "" },
-                self.host,
-                match self.port {
-                    Some(port) => format!(":{}", port),
-                    None => "".to_owned(),
-                },
-                url,
-            )
-            .into();
+pub(super) trait IntoRelativeOrAbsoluteUrl {
+    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url>;
+}
+
+impl IntoRelativeOrAbsoluteUrl for Url {
+    fn with(self, _: Option<&UrlBase>) -> ServiceResult<Url> {
+        Ok(self)
+    }
+}
+
+impl<'a> IntoRelativeOrAbsoluteUrl for &'a Url {
+    fn with(self, _: Option<&UrlBase>) -> ServiceResult<Url> {
+        Ok(self.clone())
+    }
+}
+
+impl<'a> IntoRelativeOrAbsoluteUrl for &'a str {
+    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url> {
+        let mut url = Cow::from(self);
+        if let Some(base) = base {
+            if url.starts_with('/') {
+                url = format!(
+                    "http{}://{}{}{}",
+                    if base.https { "s" } else { "" },
+                    base.host,
+                    match base.port {
+                        Some(port) => format!(":{}", port),
+                        None => "".to_owned(),
+                    },
+                    url,
+                )
+                .into();
+            }
         }
         Url::parse(&url).map_err(|e| {
             e.context(ServiceErrorKind::ParseUrl(url.into_owned()))
                 .into()
         })
+    }
+}
+
+impl<'a> IntoRelativeOrAbsoluteUrl for &'a String {
+    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url> {
+        self.as_str().with(base)
     }
 }
 
@@ -625,6 +630,7 @@ mod tests {
     use failure::Fallible;
     use futures::Future as _;
     use if_chain::if_chain;
+    use pretty_assertions::assert_eq;
     use reqwest::StatusCode;
     use tempdir::TempDir;
     use tokio::runtime::Runtime;
@@ -632,11 +638,10 @@ mod tests {
     use warp::Filter;
 
     use std::net::Ipv4Addr;
-    use std::{io, panic, str};
+    use std::{env, io, panic, str};
 
     #[test]
     fn it_works() -> Fallible<()> {
-        let _ = env_logger::try_init();
         let filter_ua = warp::filters::header::exact("User-Agent", service::USER_AGENT);
         let index = warp::path::end()
             .and(filter_ua)
@@ -654,7 +659,8 @@ mod tests {
         let server = warp::serve(index.or(confirm_cookie).or(robots_txt));
         let mut runtime = Runtime::new()?;
         runtime.spawn(server.bind(([127, 0, 0, 1], 2000)));
-        let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive")?;
+        let tempdir = dunce::canonicalize(&env::temp_dir())?;
+        let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
         let result = panic::catch_unwind::<_, Fallible<()>>(|| {
             let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
             let client = service::reqwest_async_client(None)?;
@@ -730,8 +736,8 @@ mod tests {
             })
         }
 
-        let _ = env_logger::try_init();
-        let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive")?;
+        let tempdir = dunce::canonicalize(&env::temp_dir())?;
+        let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
         let path = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
         let path = path.as_path();
         let mut wtr = Ansi::new(io::sink());

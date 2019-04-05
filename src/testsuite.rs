@@ -14,7 +14,6 @@ use derive_more::From;
 use derive_new::new;
 use failure::Fail as _;
 use itertools::{EitherOrBoth, Itertools as _};
-use log::warn;
 use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
@@ -325,6 +324,8 @@ impl TestSuite {
 
     #[cfg(test)]
     pub(crate) fn assert_serialize_correctly(&self) -> Fallible<()> {
+        use pretty_assertions::assert_eq;
+
         let serialized = self.to_string_pretty(SuiteFileExtension::Json)?;
         let deserialized = serde_json::from_str(&serialized)?;
         assert_eq!(*self, deserialized);
@@ -531,7 +532,6 @@ impl BatchSuite {
                             emitter.dump(&Yaml::String(s.to_owned())).unwrap();
                         }
                         if buf.starts_with("---\n") {
-                            warn!(r#"Expected "---\n.*", got {:?}"#, buf);
                             buf = buf[4..].to_owned();
                         } else {
                             buf = format!("{:?}", s);
@@ -878,9 +878,11 @@ mod tests {
     };
     use crate::util::num::PositiveFinite;
 
+    use difference::assert_diff;
     use failure::Fallible;
     use if_chain::if_chain;
     use maplit::{btreeset, hashmap};
+    use pretty_assertions::assert_eq;
     use tempdir::TempDir;
 
     use std::env;
@@ -972,15 +974,8 @@ each_args:
 type: unsubmittable
 "#;
 
-        let tempdir = if cfg!(windows) {
-            env::temp_dir()
-        } else {
-            env::temp_dir().canonicalize()?
-        };
-        let tempdir = TempDir::new_in(
-            &tempdir,
-            "snowchains_test_testsuite_tests_test_test_case_loader",
-        )?;
+        let tempdir = dunce::canonicalize(&env::temp_dir())?;
+        let tempdir = TempDir::new_in(&tempdir, "test_test_case_loader")?;
         let template_builder =
             "${service}/${snake_case(contest)}/tests/${snake_case(problem)}.${extension}"
                 .parse::<TemplateBuilder<AbsPathBuf>>()?;
@@ -1187,8 +1182,8 @@ type: unsubmittable
                 },
             ],
         });
-        assert_eq!(
-            atcoder_arc100_c.to_string_pretty(SuiteFileExtension::Json)?,
+        assert_diff!(
+            &atcoder_arc100_c.to_string_pretty(SuiteFileExtension::Json)?,
             r#"{
   "type": "batch",
   "timelimit": "2000ms",
@@ -1216,9 +1211,11 @@ type: unsubmittable
     }
   ]
 }"#,
+            "\n",
+            0
         );
-        assert_eq!(
-            atcoder_arc100_c.to_string_pretty(SuiteFileExtension::Toml)?,
+        assert_diff!(
+            &atcoder_arc100_c.to_string_pretty(SuiteFileExtension::Toml)?,
             r#"type = 'batch'
 timelimit = '2000ms'
 match = 'exact'
@@ -1263,9 +1260,11 @@ out = '''
 6
 '''
 "#,
+            "\n",
+            0
         );
-        assert_eq!(
-            atcoder_arc100_c.to_string_pretty(SuiteFileExtension::Yml)?,
+        assert_diff!(
+            &atcoder_arc100_c.to_string_pretty(SuiteFileExtension::Yml)?,
             r#"---
 type: batch
 timelimit: 2000ms
@@ -1296,6 +1295,8 @@ cases:
     out: |
       6
 "#,
+            "\n",
+            0
         );
 
         let atcoder_abc117_a = TestSuite::Batch(BatchSuite {
@@ -1324,8 +1325,8 @@ cases:
                 },
             ],
         });
-        assert_eq!(
-            atcoder_abc117_a.to_string_pretty(SuiteFileExtension::Json)?,
+        assert_diff!(
+            &atcoder_abc117_a.to_string_pretty(SuiteFileExtension::Json)?,
             r#"{
   "type": "batch",
   "timelimit": "2000ms",
@@ -1353,9 +1354,11 @@ cases:
     }
   ]
 }"#,
+            "\n",
+            0
         );
-        assert_eq!(
-            atcoder_abc117_a.to_string_pretty(SuiteFileExtension::Toml)?,
+        assert_diff!(
+            &atcoder_abc117_a.to_string_pretty(SuiteFileExtension::Toml)?,
             r#"type = 'batch'
 timelimit = '2000ms'
 
@@ -1390,9 +1393,11 @@ out = '''
 0.0100000000
 '''
 "#,
+            "\n",
+            0
         );
-        assert_eq!(
-            atcoder_abc117_a.to_string_pretty(SuiteFileExtension::Yml)?,
+        assert_diff!(
+            &atcoder_abc117_a.to_string_pretty(SuiteFileExtension::Yml)?,
             r#"---
 type: batch
 timelimit: 2000ms
@@ -1417,14 +1422,16 @@ cases:
     out: |
       0.0100000000
 "#,
+            "\n",
+            0
         );
 
         let atcoder_arc078_e = TestSuite::Interactive(InteractiveSuite {
             timelimit: Some(Duration::from_secs(2)),
             each_args: vec![vec![]],
         });
-        assert_eq!(
-            atcoder_arc078_e.to_string_pretty(SuiteFileExtension::Json)?,
+        assert_diff!(
+            &atcoder_arc078_e.to_string_pretty(SuiteFileExtension::Json)?,
             r#"{
   "type": "interactive",
   "timelimit": "2000ms",
@@ -1432,39 +1439,51 @@ cases:
     []
   ]
 }"#,
+            "\n",
+            0
         );
-        assert_eq!(
-            atcoder_arc078_e.to_string_pretty(SuiteFileExtension::Toml)?,
+        assert_diff!(
+            &atcoder_arc078_e.to_string_pretty(SuiteFileExtension::Toml)?,
             r#"type = 'interactive'
 timelimit = '2000ms'
 each_args = [[]]
 "#,
+            "\n",
+            0
         );
-        assert_eq!(
-            atcoder_arc078_e.to_string_pretty(SuiteFileExtension::Yml)?,
+        assert_diff!(
+            &atcoder_arc078_e.to_string_pretty(SuiteFileExtension::Yml)?,
             r#"---
 type: interactive
 timelimit: 2000ms
 each_args:
   - []"#,
+            "\n",
+            0
         );
 
         let atcoder_apg4b_b = TestSuite::Unsubmittable;
-        assert_eq!(
-            atcoder_apg4b_b.to_string_pretty(SuiteFileExtension::Json)?,
+        assert_diff!(
+            &atcoder_apg4b_b.to_string_pretty(SuiteFileExtension::Json)?,
             r#"{
   "type": "unsubmittable"
 }"#,
+            "\n",
+            0
         );
-        assert_eq!(
-            atcoder_apg4b_b.to_string_pretty(SuiteFileExtension::Toml)?,
+        assert_diff!(
+            &atcoder_apg4b_b.to_string_pretty(SuiteFileExtension::Toml)?,
             r#"type = 'unsubmittable'
 "#,
+            "\n",
+            0
         );
-        assert_eq!(
-            atcoder_apg4b_b.to_string_pretty(SuiteFileExtension::Yml)?,
+        assert_diff!(
+            &atcoder_apg4b_b.to_string_pretty(SuiteFileExtension::Yml)?,
             r#"---
 type: unsubmittable"#,
+            "\n",
+            0
         );
 
         Ok(())

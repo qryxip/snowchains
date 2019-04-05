@@ -6,8 +6,9 @@ use crate::errors::{
 };
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsProps,
-    PrintTargets as _, RestoreProps, Service, ServiceKind, SessionProps, SubmitProps,
+    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsOutcome,
+    ListLangsProps, LoginOutcome, PrintTargets as _, RestoreOutcome, RestoreProps, Service,
+    SessionProps, SubmitOutcome, SubmitProps,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, TestSuite};
@@ -39,7 +40,7 @@ use std::io::{self, Write as _};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-pub(crate) fn login(props: SessionProps, term: impl Term) -> ServiceResult<()> {
+pub(crate) fn login(props: SessionProps, term: impl Term) -> ServiceResult<LoginOutcome> {
     Codeforces::try_new(props, term)?.login(LoginOption::Explicit)
 }
 
@@ -58,7 +59,7 @@ pub(crate) fn download(
 pub(crate) fn restore(
     props: (SessionProps, RestoreProps<String>),
     mut term: impl Term,
-) -> ServiceResult<()> {
+) -> ServiceResult<RestoreOutcome> {
     let (sess_props, restore_props) = props;
     let restore_props = restore_props
         .convert_problems(CaseConversion::Upper)
@@ -70,7 +71,7 @@ pub(crate) fn restore(
 pub(crate) fn submit(
     props: (SessionProps, SubmitProps<String>),
     mut term: impl Term,
-) -> ServiceResult<()> {
+) -> ServiceResult<SubmitOutcome> {
     let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
@@ -82,7 +83,7 @@ pub(crate) fn submit(
 pub(crate) fn list_langs(
     props: (SessionProps, ListLangsProps<String>),
     mut term: impl Term,
-) -> ServiceResult<()> {
+) -> ServiceResult<ListLangsOutcome> {
     let (sess_props, list_langs_props) = props;
     let list_langs_props = list_langs_props
         .convert_problem(CaseConversion::Upper)
@@ -109,19 +110,10 @@ impl<T: Term> HasTerm for Codeforces<T> {
 }
 
 impl<T: Term> Service for Codeforces<T> {
-    type Stdout = T::Stdout;
     type Stderr = T::Stderr;
 
-    fn requirements(
-        &mut self,
-    ) -> (
-        &mut T::Stdout,
-        &mut T::Stderr,
-        &mut HttpSession,
-        &mut Runtime,
-    ) {
-        let (_, stdout, stderr) = self.term.split_mut();
-        (stdout, stderr, &mut self.session, &mut self.runtime)
+    fn requirements(&mut self) -> (&mut T::Stderr, &mut HttpSession, &mut Runtime) {
+        (self.term.stderr(), &mut self.session, &mut self.runtime)
     }
 }
 
@@ -139,7 +131,7 @@ impl<T: Term> Codeforces<T> {
         })
     }
 
-    fn login(&mut self, option: LoginOption) -> ServiceResult<()> {
+    fn login(&mut self, option: LoginOption) -> ServiceResult<LoginOutcome> {
         static HANDLE: Lazy<Regex> = lazy_regex!(r#"\A/profile/([a-zA-Z0-9_\-]+)\z"#);
 
         let mut res = self.get("/enter").acceptable(&[200, 302]).send()?;
@@ -194,7 +186,7 @@ impl<T: Term> Codeforces<T> {
             self.api::<Vec<User>>("user.info", &[("handles", &handle)])?;
         }
         self.handle = Some(handle);
-        Ok(())
+        Ok(LoginOutcome {})
     }
 
     fn download(
@@ -212,7 +204,7 @@ impl<T: Term> Codeforces<T> {
         let problems = problems.as_ref();
         let top_path = format!("/contest/{}", contest.id);
 
-        let mut outcome = DownloadOutcome::new(ServiceKind::Codeforces, &contest, open_in_browser);
+        let mut outcome = DownloadOutcome::new(&contest);
 
         let mut res = self.get(&top_path).acceptable(&[200, 302]).send()?;
         if res.status() == 302 {
@@ -272,7 +264,7 @@ impl<T: Term> Codeforces<T> {
         Ok(outcome)
     }
 
-    fn restore(&mut self, props: RestoreProps<CodeforcesContest>) -> ServiceResult<()> {
+    fn restore(&mut self, props: RestoreProps<CodeforcesContest>) -> ServiceResult<RestoreOutcome> {
         #[derive(Deserialize)]
         struct SubmitSource {
             source: String,
@@ -303,7 +295,7 @@ impl<T: Term> Codeforces<T> {
         unimplemented!()
     }
 
-    fn submit(&mut self, props: SubmitProps<CodeforcesContest>) -> ServiceResult<()> {
+    fn submit(&mut self, props: SubmitProps<CodeforcesContest>) -> ServiceResult<SubmitOutcome> {
         let SubmitProps {
             contest,
             problem,
@@ -382,15 +374,21 @@ impl<T: Term> Codeforces<T> {
         if open_in_browser {
             self.open_in_browser(&format!("/contest/{}/my", contest.id))?;
         }
-        Ok(())
+        Ok(SubmitOutcome {})
     }
 
-    fn list_langs(&mut self, props: ListLangsProps<CodeforcesContest>) -> ServiceResult<()> {
+    fn list_langs(
+        &mut self,
+        props: ListLangsProps<CodeforcesContest>,
+    ) -> ServiceResult<ListLangsOutcome> {
         let ListLangsProps { contest, .. } = props;
         self.login(LoginOption::WithHandle)?;
-        let submit_path = format!("/contest/{}/submit", contest.id);
-        let lang_names = self.get(&submit_path).recv_html()?.extract_langs()?;
-        self.print_lang_list(&lang_names).map_err(Into::into)
+        let url = self
+            .session
+            .resolve_url(&format!("/contest/{}/submit", contest.id))?;
+        let langs = self.get(&url).recv_html()?.extract_langs()?;
+        self.print_lang_list(&langs)?;
+        Ok(ListLangsOutcome::new(url, langs))
     }
 
     fn api<E: DeserializeOwned + Send + Sync + 'static>(
@@ -823,6 +821,7 @@ mod tests {
 
     use failure::Fallible;
     use itertools::Itertools as _;
+    use pretty_assertions::assert_eq;
     use select::document::Document;
     use url::Url;
 

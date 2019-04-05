@@ -58,28 +58,28 @@ Tools for online programming contests
 
 USAGE:
     snowchains <i|init> [OPTIONS] [directory]
-    snowchains <w|switch|c|checkout> [OPTIONS]
-    snowchains <l|login> [OPTIONS] <service>
-    snowchains <p|participate> [OPTIONS] <service> <contest>
+    snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]
+    snowchains <l|login> [FLAGS] [OPTIONS] <service>
+    snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>
     snowchains <d|download> [FLAGS] [OPTIONS]
-    snowchains <r|restore> [OPTIONS]
+    snowchains <r|restore> [FLAGS] [OPTIONS]
     snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>
     snowchains <s|submit> [FLAGS] [OPTIONS] <problem>
-    snowchains list-langs [OPTIONS] [problem]
+    snowchains list-langs [FLAGS] [OPTIONS] [problem]
 
 FLAGS:
     -h, --help       Prints help information
     -V, --version    Prints version information
 
 SUBCOMMANDS:
-    init           Creates a config file ("snowchains.toml")
-    switch         Modifies values in a config file
-    login          Logges in to a service
-    participate    Participates in a contest
-    download       Downloads test cases
-    restore        Downloads source files you have submitted
-    judge          Tests a binary or script
-    submit         Submits a source file
+    init           Creates a config file ("snowchains.toml") [aliases: i]
+    switch         Modifies values in a config file [aliases: w, checkout, c]
+    login          Logges in to a service [aliases: l]
+    participate    Participates in a contest [aliases: p]
+    download       Downloads test cases [aliases: d]
+    restore        Downloads source files you have submitted [aliases: r]
+    judge          Tests a binary or script [aliases: j, test, t]
+    submit         Submits a source file [aliases: s]
     list-langs     List available languages
     help           Prints this message or the help of the given subcommand(s)
 ```
@@ -101,9 +101,7 @@ $ snowchains submit a --open             # executes `judge` command before submi
 ### Config File (snowchains.toml)
 
 ```toml
-service = "atcoder"
-contest = "arc100"
-language = "c++"
+target = ".snowchains/target.json"
 
 [console]
 cjk = false
@@ -118,7 +116,7 @@ bash = ["/usr/bin/bash", "-c", "${command}"]
 # cmd = ["C:/Windows/System32/cmd.exe", "/C", "${command}"]
 
 [testfiles]
-path = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}.${extension}"
+path = ".snowchains/tests/${service}/${snake_case(contest)}/${snake_case(problem)}.${extension}"
 
 [session]
 timeout = "60s"
@@ -182,21 +180,37 @@ fi
 
 [[hooks.download]]
 bash = '''
-if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .open_in_browser)" = true ]; then
-  service="$(echo "$SNOWCHAINS_RESULT" | jq -r .service)"
+if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .command_line_arguments.open)" = true ]; then
+  service="$(echo "$SNOWCHAINS_RESULT" | jq -r .target.service)"
   echo "$SNOWCHAINS_RESULT" |
     jq -r '
       . as $root
       | .problems
-      | map("./" + $root.service + "/" + $root.contest.slug_snake_case + "/rs/src/bin/" + .name_kebab_case + ".rs")
+      | map(
+          "./"
+          + $root.target.service
+          + "/" + $root.contest.slug_snake_case
+          + "/rs/src/bin/"
+          + .name_kebab_case
+          + ".rs"
+        )
       | join("\n")
     ' | xargs -d \\n -I % -r cp "./templates/rs/src/bin/$service.rs" % &&
   echo "$SNOWCHAINS_RESULT" |
     jq -r '
       . as $root
       | .problems
-      | map(["./" + $root.service + "/" + $root.contest.slug_snake_case + "/rs/src/bin/" + .name_kebab_case + ".rs", .test_suite_path])
-      | flatten
+      | map(
+          "./"
+          + $root.target.service
+          + "/"
+          + $root.contest.slug_snake_case
+          + "/rs/src/bin/"
+          + .name_kebab_case
+          + ".rs"
+          + "\n"
+          + .test_suite_path
+        )
       | join("\n")
     ' | xargs -d \\n -r emacsclient -n
 fi
@@ -351,6 +365,14 @@ working_directory = "${service}/${snake_case(contest)}/txt"
 [languages.text.names]
 atcoder = "Text (cat)"
 yukicoder = "Text (cat 8.22)"
+```
+
+```json
+{
+  "service": "atcoder",
+  "contest": "arc100",
+  "language": "c++"
+}
 ```
 
 ### Test file

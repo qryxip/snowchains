@@ -1,4 +1,4 @@
-use snowchains::app::{App, Opt};
+use snowchains::app::{App, Judge, Opt};
 use snowchains::config;
 use snowchains::errors::{JudgeError, JudgeErrorKind};
 use snowchains::path::AbsPathBuf;
@@ -9,6 +9,7 @@ use failure::Fallible;
 use if_chain::if_chain;
 use tempdir::TempDir;
 
+use std::env;
 use std::path::Path;
 
 #[test]
@@ -63,19 +64,33 @@ fn main() {
 }
 "#;
 
-    let _ = env_logger::try_init();
+    let tempdir = dunce::canonicalize(&env::temp_dir())?;
+    let tempdir = TempDir::new_in(&tempdir, "it_works")?;
 
-    let tempdir = TempDir::new("batch_it_works")?;
-
-    let dir = tempdir.path().join("atcoder").join("practice");
-    let src_dir = dir.join("rs").join("src").join("bin");
+    let src_dir = tempdir
+        .path()
+        .join("atcoder")
+        .join("practice")
+        .join("rs")
+        .join("src")
+        .join("bin");
     let src_path = src_dir.join("a.rs");
-    let suite_dir = dir.join("tests");
+    let suite_dir = tempdir
+        .path()
+        .join(".snowchains")
+        .join("tests")
+        .join("atcoder")
+        .join("practice");
     let suite_path = suite_dir.join("a.yml");
 
     std::fs::write(
         tempdir.path().join("snowchains.toml"),
-        include_bytes!("./snowchains.toml").as_ref(),
+        &include_bytes!("./snowchains.toml")[..],
+    )?;
+    std::fs::create_dir_all(tempdir.path().join(".snowchains"))?;
+    std::fs::write(
+        tempdir.path().join(".snowchains").join("target.json"),
+        &include_bytes!("./target.json")[..],
     )?;
     std::fs::create_dir_all(&src_dir)?;
     std::fs::create_dir_all(&suite_dir)?;
@@ -122,7 +137,8 @@ trait AppExt {
 impl<T: Term> AppExt for App<T> {
     fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<()> {
         std::fs::write(src_path, code)?;
-        self.run(Opt::Judge {
+        self.run(Opt::Judge(Judge {
+            json: false,
             force_compile: false,
             release: false,
             service: Some(ServiceKind::Atcoder),
@@ -132,6 +148,6 @@ impl<T: Term> AppExt for App<T> {
             jobs: None,
             color_choice: AnsiColorChoice::Never,
             problem: "a".to_owned(),
-        })
+        }))
     }
 }

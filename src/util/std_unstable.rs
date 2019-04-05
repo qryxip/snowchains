@@ -16,6 +16,8 @@ impl<T: PartialEq> RemoveItem_ for Vec<T> {
 mod tests {
     use crate::util::std_unstable::RemoveItem_ as _;
 
+    use pretty_assertions::assert_eq;
+
     #[test]
     fn test_remove_item_() {
         assert_eq!(vec!['a'].remove_item_(&'a'), Some('a'));

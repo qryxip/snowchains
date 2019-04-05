@@ -3,7 +3,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::{Borrow, Cow};
 use std::ffi::{OsStr, OsString};
 use std::ops::Deref;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::{env, fmt, io};
 
 #[repr(transparent)]
@@ -51,27 +51,31 @@ impl AbsPath {
         }
     }
 
-    pub(crate) fn join_expanding_tilde(&self, path: impl AsRef<OsStr>) -> io::Result<AbsPathBuf> {
+    pub(crate) fn join_expanding_user(&self, path: impl AsRef<OsStr>) -> io::Result<AbsPathBuf> {
         let path = Path::new(path.as_ref());
-        let new = if path.is_absolute() {
+        let inner = if path.is_absolute() {
             path.to_owned()
-        } else if path.iter().next() == Some(OsStr::new("~")) {
-            let home = dirs::home_dir().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::NotFound, "Home directory not found")
-            })?;
-            path.iter().skip(1).fold(home, |mut r, p| {
-                r.push(p);
-                r
-            })
-        } else if path.to_string_lossy().starts_with('~') {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Unsupported use of '~': {}", path.display()),
-            ));
+        } else if let Some(Component::Normal(first)) = path.components().next() {
+            if first == "~" {
+                let home = dirs::home_dir().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::NotFound, "Home directory not found")
+                })?;
+                path.components().skip(1).fold(home, |mut r, c| {
+                    r.push(c);
+                    r
+                })
+            } else if first.to_string_lossy().starts_with('~') {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Unsupported use of '~': {}", path.display()),
+                ));
+            } else {
+                self.inner.join(path)
+            }
         } else {
             self.inner.join(path)
         };
-        Ok(AbsPathBuf { inner: new }.canonicalize_lossy().into_owned())
+        Ok(AbsPathBuf { inner }.canonicalize_lossy().into_owned())
     }
 
     #[cfg(not(windows))]
@@ -85,32 +89,50 @@ impl AbsPath {
     #[cfg(windows)]
     #[cfg_attr(tarpaulin, skip)]
     fn canonicalize_lossy(&self) -> Cow<Self> {
-        let mut inner = PathBuf::new();
-        for s in self.inner.iter() {
-            if s == OsStr::new("..") {
-                inner.pop();
-            } else if s != OsStr::new(".") {
-                inner.push(s);
+        use if_chain::if_chain;
+
+        use std::path::Prefix;
+
+        // `dunce` does not strip a UNC prefix when:
+        // - the prefix is not `VerbatimDisk`
+        // - the whole path is not a valid Unicode
+        let inner = if_chain! {
+            if let Ok(inner) = dunce::canonicalize(&self.inner);
+            if let Some(Component::Prefix(prefix)) = inner.components().next();
+            if let Prefix::Disk(_) = prefix.kind();
+            then {
+                inner
+            } else {
+                let mut inner = PathBuf::new();
+                for component in self.inner.components() {
+                    if component == Component::ParentDir {
+                        inner.pop();
+                    } else if component != Component::CurDir {
+                        inner.push(component);
+                    }
+                    if let Ok(link) = inner.read_link() {
+                        inner = link;
+                    }
+                    if inner.metadata().is_err() {
+                        return self.remove_single_dots();
+                    }
+                }
+                inner
             }
-            if let Ok(link) = inner.read_link() {
-                inner = link;
-            }
-            if inner.metadata().is_err() {
-                return self.remove_single_dots();
-            }
-        }
+        };
         AbsPathBuf { inner }.into()
     }
 
     fn remove_single_dots(&self) -> Cow<Self> {
-        if self.inner.iter().any(|s| s == OsStr::new(".")) {
-            let inner = self.inner.iter().filter(|&s| s != OsStr::new(".")).fold(
-                PathBuf::new(),
-                |mut r, s| {
-                    r.push(s);
+        if self.inner.components().any(|c| c == Component::CurDir) {
+            let inner = self
+                .inner
+                .components()
+                .filter(|&c| c != Component::CurDir)
+                .fold(PathBuf::new(), |mut r, c| {
+                    r.push(c);
                     r
-                },
-            );
+                });
             AbsPathBuf { inner }.into()
         } else {
             self.into()
@@ -167,14 +189,9 @@ pub struct AbsPathBuf {
 
 impl AbsPathBuf {
     pub fn cwd() -> io::Result<Self> {
-        #[derive(Debug)]
+        #[derive(derive_more::Display, Debug)]
+        #[display(fmt = "Failed to get the current directory")]
         struct GetcwdError(io::Error);
-
-        impl fmt::Display for GetcwdError {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "Failed to get the current directory")
-            }
-        }
 
         impl std::error::Error for GetcwdError {
             fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
@@ -184,10 +201,10 @@ impl AbsPathBuf {
 
         env::current_dir()
             .and_then(|inner| {
-                if inner.is_relative() {
-                    Err(io::Error::from(io::ErrorKind::Other))
-                } else {
+                if inner.is_absolute() {
                     Ok(Self { inner })
+                } else {
+                    Err(io::ErrorKind::Other.into())
                 }
             })
             .map_err(|e| io::Error::new(e.kind(), GetcwdError(e)))
@@ -205,23 +222,6 @@ impl AbsPathBuf {
 
     pub(crate) fn pop(&mut self) -> bool {
         self.inner.pop()
-    }
-}
-
-impl Default for AbsPathBuf {
-    #[cfg(not(windows))]
-    fn default() -> Self {
-        Self {
-            inner: PathBuf::from("/"),
-        }
-    }
-
-    #[cfg(windows)]
-    #[cfg_attr(tarpaulin, skip)]
-    fn default() -> Self {
-        Self {
-            inner: PathBuf::from("C:\\"),
-        }
     }
 }
 
@@ -293,6 +293,7 @@ mod tests {
     use super::{AbsPath, AbsPathBuf};
 
     use dirs;
+    use pretty_assertions::assert_eq;
 
     use std::io;
     use std::path::Path;
@@ -320,10 +321,17 @@ mod tests {
     }
 
     #[test]
-    fn it_expands_tilde() -> io::Result<()> {
+    fn it_expands_user() -> io::Result<()> {
         let home = dirs::home_dir().unwrap();
         let expected = home.join("foo");
-        let actual = AbsPathBuf::default().join_expanding_tilde("~/foo")?.inner;
+        let actual = if cfg!(windows) {
+            AbsPathBuf::try_new("C:\\")
+        } else {
+            AbsPathBuf::try_new("/")
+        }
+        .unwrap()
+        .join_expanding_user("~/foo")?
+        .inner;
         assert_eq!(expected, actual);
         Ok(())
     }

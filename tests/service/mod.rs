@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
-use snowchains::app::{App, Opt};
+use snowchains::app::{App, Download, Login, Opt};
 use snowchains::path::{AbsPath, AbsPathBuf};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
 
 use failure::Fallible;
+use pretty_assertions::assert_eq;
 use serde_derive::Deserialize;
 use serde_json::json;
 use tempdir::TempDir;
@@ -19,12 +20,18 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     stdin: &str,
     f: impl FnOnce(App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> Result<(), E> + UnwindSafe,
 ) -> Fallible<()> {
-    let tempdir = TempDir::new(tempdir_prefix)?;
+    let tempdir = dunce::canonicalize(&env::temp_dir())?;
+    let tempdir = TempDir::new_in(&tempdir, tempdir_prefix)?;
     let tempdir_path = tempdir.path().to_owned();
     let result = panic::catch_unwind(move || -> Fallible<()> {
         std::fs::write(
             tempdir_path.join("snowchains.toml"),
-            include_bytes!("../snowchains.toml").as_ref(),
+            &include_bytes!("../snowchains.toml")[..],
+        )?;
+        std::fs::create_dir(tempdir_path.join(".snowchains"))?;
+        std::fs::write(
+            tempdir_path.join(".snowchains").join("target.json"),
+            &include_bytes!("../target.json")[..],
         )?;
         std::fs::create_dir(tempdir_path.join("local"))?;
         serde_json::to_writer(
@@ -53,10 +60,11 @@ pub fn login(
     mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>,
     service: ServiceKind,
 ) -> snowchains::Result<()> {
-    app.run(Opt::Login {
+    app.run(Opt::Login(Login {
+        json: true,
         color_choice: AnsiColorChoice::Never,
         service,
-    })
+    }))
 }
 
 pub fn download(
@@ -65,14 +73,15 @@ pub fn download(
     contest: &str,
     problems: &[&str],
 ) -> snowchains::Result<()> {
-    app.run(Opt::Download {
+    app.run(Opt::Download(Download {
+        json: true,
         open: false,
         only_scraped: false,
         service: Some(service),
         contest: Some(contest.to_owned()),
         problems: problems.iter().map(|&s| s.to_owned()).collect(),
         color_choice: AnsiColorChoice::Never,
-    })
+    }))
 }
 
 pub fn confirm_num_cases(
@@ -87,7 +96,13 @@ pub fn confirm_num_cases(
     }
 
     for &(problem, expected_num_cases) in pairs {
-        let path = wd.join(format!("{}/{}/tests/{}.yml", service, contest, problem));
+        let path = wd
+            .join(".snowchains")
+            .join("tests")
+            .join(Into::<&str>::into(service))
+            .join(contest)
+            .join(problem)
+            .with_extension("yml");
         let file = File::open(&path)?;
         let suite = serde_yaml::from_reader::<_, BatchSuite>(file)?;
         assert_eq!(expected_num_cases, suite.cases.len());

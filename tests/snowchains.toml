@@ -1,9 +1,7 @@
-service = "other"
-contest = ""
-language = "text"
+target = ".snowchains/target.json"
 
 [testfiles]
-path = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}.${extension}"
+path = ".snowchains/tests/${service}/${snake_case(contest)}/${snake_case(problem)}.${extension}"
 
 [session]
 timeout = "60s"

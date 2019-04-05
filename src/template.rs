@@ -177,7 +177,8 @@ impl Template<HookCommands> {
                         }
                     }
                 }
-                Ok(HookCommand::new(args, base_dir.clone(), envs.clone()))
+                HookCommand::try_new(args, base_dir.clone(), envs.clone())
+                    .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
             })
             .collect()
     }
@@ -230,7 +231,8 @@ impl Template<TranspilationCommand> {
                 }
             }
         }
-        Ok(TranspilationCommand::new(args, wd, src, transpiled, envs))
+        TranspilationCommand::try_new(args, wd, src, transpiled, envs)
+            .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
     }
 }
 
@@ -291,7 +293,8 @@ impl Template<CompilationCommand> {
                 }
             }
         }
-        Ok(CompilationCommand::new(args, wd, src, bin, envs))
+        CompilationCommand::try_new(args, wd, src, bin, envs)
+            .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
     }
 }
 
@@ -824,7 +827,7 @@ impl Tokens {
         envs: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<OsStr>>,
     ) -> ExpandTemplateResult<AbsPathBuf> {
         self.expand_as_os_string(vars, envs).and_then(|s| {
-            base_dir.join_expanding_tilde(&s).map_err(|e| {
+            base_dir.join_expanding_user(&s).map_err(|e| {
                 StdError::from(e)
                     .context(ExpandTemplateErrorKind::Path {
                         tokens: self.clone(),
@@ -865,8 +868,10 @@ mod tests {
     use crate::path::AbsPathBuf;
     use crate::service::ServiceKind;
 
+    use difference::assert_diff;
     use failure::Fallible;
     use maplit::hashmap;
+    use pretty_assertions::assert_eq;
     use serde_derive::{Deserialize, Serialize};
 
     use std::ffi::{OsStr, OsString};
@@ -906,11 +911,10 @@ mod tests {
   }
 }"##;
 
-        let _ = env_logger::try_init();
         let s1 = serde_json::from_str::<S>(JSON)?;
         let re_serialized = serde_json::to_string_pretty(&s1)?;
         let s2 = serde_json::from_str::<S>(&re_serialized)?;
-        assert_eq!(JSON, re_serialized);
+        assert_diff!(JSON, &re_serialized, "\n", 0);
         assert_eq!(s1, s2);
         Ok(())
     }
@@ -928,7 +932,6 @@ mod tests {
             OsStr::new(expected)
         }
 
-        let _ = env_logger::try_init();
         test!(""                          => "");
         test!("text"                      => "text");
         test!("${var}"                    => "foo");
@@ -971,7 +974,6 @@ mod tests {
             }
         }
 
-        let _ = env_logger::try_init();
         if cfg!(windows) {
             test!(r"C:\absolute" => r"C:\absolute");
         } else {

@@ -2,6 +2,7 @@ pub(crate) mod collections;
 pub(crate) mod combine;
 pub(crate) mod lang_unstable;
 pub(crate) mod num;
+pub(crate) mod serde;
 pub(crate) mod std_unstable;
 pub(crate) mod str;
 
