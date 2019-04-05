@@ -974,15 +974,8 @@ each_args:
 type: unsubmittable
 "#;
 
-        let tempdir = if cfg!(windows) {
-            env::temp_dir()
-        } else {
-            env::temp_dir().canonicalize()?
-        };
-        let tempdir = TempDir::new_in(
-            &tempdir,
-            "snowchains_test_testsuite_tests_test_test_case_loader",
-        )?;
+        let tempdir = dunce::canonicalize(&env::temp_dir())?;
+        let tempdir = TempDir::new_in(&tempdir, "test_test_case_loader")?;
         let template_builder =
             "${service}/${snake_case(contest)}/tests/${snake_case(problem)}.${extension}"
                 .parse::<TemplateBuilder<AbsPathBuf>>()?;

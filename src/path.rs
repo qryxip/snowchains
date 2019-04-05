@@ -325,7 +325,7 @@ mod tests {
         let home = dirs::home_dir().unwrap();
         let expected = home.join("foo");
         let actual = if cfg!(windows) {
-            AbsPathBuf::try_new("C:")
+            AbsPathBuf::try_new("C:\\")
         } else {
             AbsPathBuf::try_new("/")
         }

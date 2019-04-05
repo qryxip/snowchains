@@ -638,7 +638,7 @@ mod tests {
     use warp::Filter;
 
     use std::net::Ipv4Addr;
-    use std::{io, panic, str};
+    use std::{env, io, panic, str};
 
     #[test]
     fn it_works() -> Fallible<()> {
@@ -659,7 +659,8 @@ mod tests {
         let server = warp::serve(index.or(confirm_cookie).or(robots_txt));
         let mut runtime = Runtime::new()?;
         runtime.spawn(server.bind(([127, 0, 0, 1], 2000)));
-        let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive")?;
+        let tempdir = dunce::canonicalize(&env::temp_dir())?;
+        let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
         let result = panic::catch_unwind::<_, Fallible<()>>(|| {
             let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
             let client = service::reqwest_async_client(None)?;
@@ -735,7 +736,8 @@ mod tests {
             })
         }
 
-        let tempdir = TempDir::new("it_keeps_a_file_locked_while_alive")?;
+        let tempdir = dunce::canonicalize(&env::temp_dir())?;
+        let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
         let path = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
         let path = path.as_path();
         let mut wtr = Ansi::new(io::sink());

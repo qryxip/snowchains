@@ -9,6 +9,7 @@ use failure::Fallible;
 use if_chain::if_chain;
 use tempdir::TempDir;
 
+use std::env;
 use std::path::Path;
 
 #[test]
@@ -63,7 +64,8 @@ fn main() {
 }
 "#;
 
-    let tempdir = TempDir::new("batch_it_works")?;
+    let tempdir = dunce::canonicalize(&env::temp_dir())?;
+    let tempdir = TempDir::new_in(&tempdir, "it_works")?;
 
     let src_dir = tempdir
         .path()

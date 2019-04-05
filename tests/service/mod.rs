@@ -20,7 +20,8 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
     stdin: &str,
     f: impl FnOnce(App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> Result<(), E> + UnwindSafe,
 ) -> Fallible<()> {
-    let tempdir = TempDir::new(tempdir_prefix)?;
+    let tempdir = dunce::canonicalize(&env::temp_dir())?;
+    let tempdir = TempDir::new_in(&tempdir, tempdir_prefix)?;
     let tempdir_path = tempdir.path().to_owned();
     let result = panic::catch_unwind(move || -> Fallible<()> {
         std::fs::write(

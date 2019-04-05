@@ -1366,11 +1366,12 @@ mod tests {
     use tempdir::TempDir;
 
     use std::fs::File;
-    use std::str;
+    use std::{env, str};
 
     #[test]
     fn test_init() -> Fallible<()> {
-        let tempdir = TempDir::new("config_test_init")?;
+        let tempdir = dunce::canonicalize(&env::temp_dir())?;
+        let tempdir = TempDir::new_in(&tempdir, "config_test_init")?;
         let mut stderr = Ansi::new(vec![]);
 
         super::init(&mut stderr, AbsPath::try_new(tempdir.path()).unwrap())?;
@@ -1404,7 +1405,8 @@ mod tests {
 }
 "#;
 
-        let tempdir = TempDir::new("config_test_init")?;
+        let tempdir = dunce::canonicalize(&env::temp_dir())?;
+        let tempdir = TempDir::new_in(&tempdir, "config_test_switch")?;
         let mut stdout = Ansi::new(vec![]);
         let mut stderr = Ansi::new(vec![]);
 
