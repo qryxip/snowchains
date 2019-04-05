@@ -420,14 +420,14 @@ pub struct App<T: Term> {
 
 impl<T: Term> App<T> {
     pub fn run(&mut self, opt: Opt) -> crate::Result<()> {
-        let working_dir = self.working_dir.clone();
+        let wd = self.working_dir.clone();
         match &opt {
             Opt::Init(cli_args) => {
                 let Init {
                     color_choice,
                     directory,
                 } = cli_args;
-                let wd = working_dir.join_canonicalizing_lossy(&directory);
+                let wd = wd.join_canonicalizing_lossy(&directory);
                 self.term.attempt_enable_ansi(*color_choice);
                 config::init(self.term.stderr(), &wd)?;
             }
@@ -444,7 +444,7 @@ impl<T: Term> App<T> {
                 self.term.attempt_enable_ansi(*color_choice);
                 let (_, stdout, stderr) = self.term.split_mut();
                 let (config, outcome) =
-                    config::switch(stdout, stderr, &working_dir, *service, contest, language)?;
+                    config::switch(stdout, stderr, &wd, *service, contest, language)?;
                 finish(
                     &outcome,
                     cli_args,
@@ -461,7 +461,7 @@ impl<T: Term> App<T> {
                     service,
                 } = cli_args;
                 self.term.attempt_enable_ansi(*color_choice);
-                let config = Config::load(Some(*service), None, None, &working_dir)?;
+                let config = Config::load(Some(*service), None, None, &wd)?;
                 self.term.apply_conf(config.console());
                 let props = self.sess_props(&config)?;
                 let term = &mut self.term;
@@ -488,7 +488,7 @@ impl<T: Term> App<T> {
                     contest,
                 } = cli_args;
                 self.term.attempt_enable_ansi(*color_choice);
-                let config = Config::load(Some(*service), Some(contest), None, &working_dir)?;
+                let config = Config::load(Some(*service), Some(contest), None, &wd)?;
                 self.term.apply_conf(config.console());
                 let props = self.sess_props(&config)?;
                 let term = &mut self.term;
@@ -517,7 +517,7 @@ impl<T: Term> App<T> {
                 } = cli_args;
                 let contest = contest.as_ref().map(AsRef::as_ref);
                 self.term.attempt_enable_ansi(*color_choice);
-                let config = Config::load(*service, contest, None, &working_dir)?;
+                let config = Config::load(*service, contest, None, &wd)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 let download_props = DownloadProps {
@@ -556,7 +556,7 @@ impl<T: Term> App<T> {
                 let contest = contest.as_ref().map(AsRef::as_ref);
                 let problems = problems.clone();
                 self.term.attempt_enable_ansi(*color_choice);
-                let config = Config::load(*service, contest, None, &working_dir)?;
+                let config = Config::load(*service, contest, None, &wd)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
                 let restore_props = RestoreProps::new(&config, *mode, problems)?;
@@ -597,7 +597,7 @@ impl<T: Term> App<T> {
                     *mode
                 };
                 self.term.attempt_enable_ansi(*color_choice);
-                let config = Config::load(*service, contest, language, &working_dir)?;
+                let config = Config::load(*service, contest, language, &wd)?;
                 self.term.apply_conf(config.console());
                 let outcome = judging::judge::<T::Stdout, _>(JudgeParams {
                     stderr: self.term.stderr(),
@@ -637,7 +637,7 @@ impl<T: Term> App<T> {
                 let language = language.as_ref().map(AsRef::as_ref);
                 let mode = if *debug { config::Mode::Debug } else { *mode };
                 self.term.attempt_enable_ansi(*color_choice);
-                let config = Config::load(*service, contest, language, &working_dir)?;
+                let config = Config::load(*service, contest, language, &wd)?;
                 self.term.apply_conf(config.console());
                 if *only_transpile {
                     let mut stderr = self.term.stderr();
@@ -697,7 +697,7 @@ impl<T: Term> App<T> {
                 let contest = contest.as_ref().map(AsRef::as_ref);
                 let problem = problem.clone();
                 self.term.attempt_enable_ansi(*color_choice);
-                let config = Config::load(*service, contest, None, &working_dir)?;
+                let config = Config::load(*service, contest, None, &wd)?;
                 let contest = config.contest().to_owned();
                 let sess_props = self.sess_props(&config)?;
                 let list_langs_props = ListLangsProps { contest, problem };

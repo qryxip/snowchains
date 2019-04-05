@@ -67,6 +67,7 @@ webbrowser = "0.5.1"
 which = "2.0.1"
 yaml-rust = "0.4.3"
 zip = "0.5.1"
+dunce = "1.0.0"
 
 [target.'cfg(not(windows))'.dependencies]
 term_size = "0.3.1"

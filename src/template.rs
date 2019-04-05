@@ -827,7 +827,7 @@ impl Tokens {
         envs: &HashMap<impl Borrow<str> + Eq + Hash, impl AsRef<OsStr>>,
     ) -> ExpandTemplateResult<AbsPathBuf> {
         self.expand_as_os_string(vars, envs).and_then(|s| {
-            base_dir.join_expanding_tilde(&s).map_err(|e| {
+            base_dir.join_expanding_user(&s).map_err(|e| {
                 StdError::from(e)
                     .context(ExpandTemplateErrorKind::Path {
                         tokens: self.clone(),

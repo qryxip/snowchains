@@ -488,7 +488,7 @@ pub(crate) fn switch(
     let path = crate::fs::find_path(CONFIG_FILE_NAME, directory)?;
     let base_dir = path.parent().unwrap().to_owned();
     let inner = crate::fs::read_toml::<Inner>(&path)?;
-    let path = directory.join_expanding_tilde(&inner.target)?;
+    let path = directory.join_expanding_user(&inner.target)?;
     let old_target = crate::fs::read_json::<Target>(&path)?;
 
     let new_target = Target {
@@ -602,7 +602,7 @@ impl Config {
         let path = crate::fs::find_path(CONFIG_FILE_NAME, dir)?;
         let inner = crate::fs::read_toml::<Inner>(&path)?;
         let base_dir = path.parent().unwrap().to_owned();
-        let path = base_dir.join_expanding_tilde(&inner.target)?;
+        let path = base_dir.join_expanding_user(&inner.target)?;
         let mut target = crate::fs::read_json::<Target>(&path)?;
         target.service = service.unwrap_or(target.service);
         target.contest = contest.map(ToOwned::to_owned).unwrap_or(target.contest);
