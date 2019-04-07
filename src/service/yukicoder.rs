@@ -2,9 +2,9 @@ use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ExtractZip, ListLangsOutcome,
-    ListLangsProps, LoginOutcome, PrintTargets as _, Service, SessionProps, SubmitOutcome,
-    SubmitProps, ZipEntries, ZipEntriesSorting,
+    Contest, ExtractZip, LoginOutcome, PrintTargets as _, RetrieveLangsOutcome, RetrieveLangsProps,
+    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service,
+    SessionProps, SubmitOutcome, SubmitProps, ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
@@ -36,17 +36,30 @@ pub(crate) fn login(props: SessionProps, term: impl Term) -> ServiceResult<Login
     Yukicoder::try_new(props, term)?.login(true)
 }
 
-pub(crate) fn download(
-    props: (SessionProps, DownloadProps<String>),
+pub(crate) fn retrieve_testcases(
+    props: (SessionProps, RetrieveTestCasesProps<String>),
     mut term: impl Term,
-) -> ServiceResult<DownloadOutcome> {
-    let (sess_props, download_props) = props;
-    let download_props = download_props
+) -> ServiceResult<RetrieveTestCasesOutcome> {
+    let (sess_props, retrieve_props) = props;
+    let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    download_props.print_targets(term.stderr())?;
-    Yukicoder::try_new(sess_props, term)?.download(&download_props)
+    retrieve_props.print_targets(term.stderr())?;
+    Yukicoder::try_new(sess_props, term)?.retrieve_testcases(&retrieve_props)
+}
+
+pub(crate) fn retrieve_langs(
+    props: (SessionProps, RetrieveLangsProps<String>),
+    mut term: impl Term,
+) -> ServiceResult<RetrieveLangsOutcome> {
+    let (sess_props, retrieve_props) = props;
+    let retrieve_props = retrieve_props
+        .convert_problem(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
+    retrieve_props.print_targets(term.stderr())?;
+    Yukicoder::try_new(sess_props, term)?.retrieve_langs(retrieve_props)
 }
 
 pub(crate) fn submit(
@@ -60,19 +73,6 @@ pub(crate) fn submit(
         .unwrap();
     submit_props.print_targets(term.stderr())?;
     Yukicoder::try_new(sess_props, term)?.submit(&submit_props)
-}
-
-pub(crate) fn list_langs(
-    props: (SessionProps, ListLangsProps<String>),
-    mut term: impl Term,
-) -> ServiceResult<ListLangsOutcome> {
-    let (sess_props, list_langs_props) = props;
-    let list_langs_props = list_langs_props
-        .convert_problem(CaseConversion::Upper)
-        .parse_contest()
-        .unwrap();
-    list_langs_props.print_targets(term.stderr())?;
-    Yukicoder::try_new(sess_props, term)?.list_langs(list_langs_props)
 }
 
 struct Yukicoder<T: Term> {
@@ -177,17 +177,17 @@ impl<T: Term> Yukicoder<T> {
         Ok(())
     }
 
-    fn download(
+    fn retrieve_testcases(
         &mut self,
-        download_props: &DownloadProps<YukicoderContest>,
-    ) -> ServiceResult<DownloadOutcome> {
-        let DownloadProps {
+        props: &RetrieveTestCasesProps<YukicoderContest>,
+    ) -> ServiceResult<RetrieveTestCasesOutcome> {
+        let RetrieveTestCasesProps {
             contest,
             problems,
             destinations,
             open_in_browser,
             only_scraped,
-        } = download_props;
+        } = props;
         self.login(false)?;
         let scrape =
             |document: &Document, problem: &str| -> ServiceResult<(TestSuite, SuiteFilePath)> {
@@ -195,7 +195,7 @@ impl<T: Term> Yukicoder<T> {
                 let path = destinations.expand(problem)?;
                 Ok((suite, path))
             };
-        let mut outcome = DownloadOutcome::new(contest);
+        let mut outcome = RetrieveTestCasesOutcome::new(contest);
         match (contest, problems.as_ref()) {
             (YukicoderContest::No, None) => {
                 return Err(ServiceErrorKind::PleaseSpecifyProblems.into());
@@ -294,7 +294,7 @@ impl<T: Term> Yukicoder<T> {
                 })
                 .collect::<ServiceResult<Vec<_>>>()?
         };
-        for DownloadOutcomeProblem {
+        for RetrieveTestCasesOutcomeProblem {
             name,
             test_suite,
             test_suite_path,
@@ -315,11 +315,24 @@ impl<T: Term> Yukicoder<T> {
             test_suite.save(name, test_suite_path, self.stderr())?;
         }
         if *open_in_browser {
-            for DownloadOutcomeProblem { url, .. } in &outcome.problems {
+            for RetrieveTestCasesOutcomeProblem { url, .. } in &outcome.problems {
                 self.open_in_browser(url.as_str())?;
             }
         }
         Ok(outcome)
+    }
+
+    fn retrieve_langs(
+        &mut self,
+        props: RetrieveLangsProps<YukicoderContest>,
+    ) -> ServiceResult<RetrieveLangsOutcome> {
+        let RetrieveLangsProps { contest, problem } = props;
+        let problem = problem.ok_or(ServiceErrorKind::PleaseSpecifyProblem)?;
+        self.login(true)?;
+        let url = self.get_submit_url(&contest, &problem)?;
+        let langs = self.get(url.as_str()).recv_html()?.extract_langs()?;
+        self.print_lang_list(&langs)?;
+        Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
     fn submit(&mut self, props: &SubmitProps<YukicoderContest>) -> ServiceResult<SubmitOutcome> {
@@ -391,19 +404,6 @@ impl<T: Term> Yukicoder<T> {
             location: location.map(ToOwned::to_owned),
         }
         .into())
-    }
-
-    fn list_langs(
-        &mut self,
-        props: ListLangsProps<YukicoderContest>,
-    ) -> ServiceResult<ListLangsOutcome> {
-        let ListLangsProps { contest, problem } = props;
-        let problem = problem.ok_or(ServiceErrorKind::PleaseSpecifyProblem)?;
-        self.login(true)?;
-        let url = self.get_submit_url(&contest, &problem)?;
-        let langs = self.get(url.as_str()).recv_html()?.extract_langs()?;
-        self.print_lang_list(&langs)?;
-        Ok(ListLangsOutcome::new(url, langs))
     }
 
     fn filter_solved<'b>(

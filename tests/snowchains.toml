@@ -11,7 +11,7 @@ cookies = "local/${service}"
 api_tokens = "local/api_tokens/${service}.json"
 dropbox = { auth = "local/dropbox.json" }
 
-[session.download]
+[session.retrieve]
 extension = "yml"
 text_file_dir = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}"
 

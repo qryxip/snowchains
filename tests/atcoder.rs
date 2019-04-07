@@ -1,6 +1,8 @@
 mod service;
 
-use snowchains::app::{App, Download, ListLangs, Login, Opt, Restore, Submit};
+use snowchains::app::{
+    App, Login, Opt, Retrieve, RetrieveLanguages, RetrieveSubmissions, RetrieveTestcases, Submit,
+};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
@@ -42,7 +44,7 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
         "it_scrapes_samples_from_practice",
         &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
-            app.run(Opt::Download(Download {
+            app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 json: false,
                 open: false,
                 only_scraped: true,
@@ -50,15 +52,15 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
                 contest: Some("practice".to_owned()),
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
-            }))?;
-            let download_dir = app
+            })))?;
+            let dir = app
                 .working_dir
                 .join(".snowchains")
                 .join("tests")
                 .join("atcoder")
                 .join("practice");
-            check_yaml_md5(&download_dir, "a", "f9da086de05e439ebe3bac66cfc1ef89")?;
-            check_yaml_md5(&download_dir, "b", "4cccced6eee33d234bc084c12b2db7c2")?;
+            check_yaml_md5(&dir, "a", "f9da086de05e439ebe3bac66cfc1ef89")?;
+            check_yaml_md5(&dir, "b", "4cccced6eee33d234bc084c12b2db7c2")?;
             Ok(())
         },
     )
@@ -70,7 +72,7 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
         "it_scrapes_samples_from_abc100",
         &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
-            app.run(Opt::Download(Download {
+            app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 json: false,
                 open: false,
                 only_scraped: true,
@@ -78,17 +80,17 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
                 contest: Some("abc100".to_owned()),
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
-            }))?;
-            let download_dir = app
+            })))?;
+            let dir = app
                 .working_dir
                 .join(".snowchains")
                 .join("tests")
                 .join("atcoder")
                 .join("abc100");
-            check_yaml_md5(&download_dir, "a", "86531ee215ce7634434b1a0b8ed9d932")?;
-            check_yaml_md5(&download_dir, "b", "8aa1291a4fdba2ebc2f1fdc6fc484394")?;
-            check_yaml_md5(&download_dir, "c", "61e0e720317997d3f27a0fa4fed0bb51")?;
-            check_yaml_md5(&download_dir, "d", "599ec4fb07dcc02532944cab6f8e49f8")?;
+            check_yaml_md5(&dir, "a", "86531ee215ce7634434b1a0b8ed9d932")?;
+            check_yaml_md5(&dir, "b", "8aa1291a4fdba2ebc2f1fdc6fc484394")?;
+            check_yaml_md5(&dir, "c", "61e0e720317997d3f27a0fa4fed0bb51")?;
+            check_yaml_md5(&dir, "d", "599ec4fb07dcc02532944cab6f8e49f8")?;
             Ok(())
         },
     )
@@ -100,7 +102,7 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
         "it_scrapes_samples_and_download_files_from_abc099_a",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
-            app.run(Opt::Download(Download {
+            app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 json: false,
                 open: false,
                 only_scraped: false,
@@ -108,15 +110,15 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
                 contest: Some("abc099".to_owned()),
                 problems: vec!["a".to_owned()],
                 color_choice: AnsiColorChoice::Never,
-            }))?;
+            })))?;
             // "ARC058_ABC042"
-            let download_dir = app
+            let dir = app
                 .working_dir
                 .join(".snowchains")
                 .join("tests")
                 .join("atcoder")
                 .join("abc099");
-            just_confirm_num_samples_and_timelimit(&download_dir, "a", 9, "2000ms")
+            just_confirm_num_samples_and_timelimit(&dir, "a", 9, "2000ms")
         },
     )
 }
@@ -165,19 +167,19 @@ fn just_confirm_num_samples_and_timelimit(
 }
 
 #[test]
-fn restore_command_works_without_error() -> Fallible<()> {
+fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
     service::test_in_tempdir(
-        "it_restores_source_code",
+        "retrieve_submissions_command_works_without_error",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
-            app.run(Opt::Restore(Restore {
+            app.run(Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
                 json: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 mode: config::Mode::Debug,
                 problems: vec![],
                 color_choice: AnsiColorChoice::Never,
-            }))?;
+            })))?;
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             serde_json::from_str::<serde_json::Value>(&stdout)?;
@@ -280,21 +282,21 @@ if __name__ == '__main__':
 }
 
 #[test]
-fn it_lists_languages_in_practice() -> Fallible<()> {
+fn it_retrieves_languages_in_practice() -> Fallible<()> {
     service::test_in_tempdir(
-        "it_lists_languages_in_practice",
+        "it_retrieves_languages_in_practice",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
-            app.run(Opt::ListLangs(ListLangs {
+            app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
                 json: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 color_choice: AnsiColorChoice::Never,
                 problem: None,
-            }))?;
+            })))?;
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
-            let stdout = serde_json::from_str::<ListLangsStdout>(&stdout)?;
+            let stdout = serde_json::from_str::<RetrieveLangsStdout>(&stdout)?;
             assert_eq!(stdout.available_languages.len(), 56);
             assert_diff!(
                 &stderr,
@@ -429,21 +431,21 @@ GET https://atcoder.jp/contests/practice/submit ... 200 OK
 }
 
 #[test]
-fn it_lists_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
+fn it_retrieves_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
     service::test_in_tempdir(
-        "it_lists_languages_in_tenka1_2016_final_open_a",
+        "it_retrieves_languages_in_tenka1_2016_final_open_a",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
-            app.run(Opt::ListLangs(ListLangs {
+            app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
                 json: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("tenka1-2016-final-open".to_owned()),
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("a".to_owned()),
-            }))?;
+            })))?;
             let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
-            let stdout = serde_json::from_str::<ListLangsStdout>(&stdout)?;
+            let stdout = serde_json::from_str::<RetrieveLangsStdout>(&stdout)?;
             assert_eq!(stdout.available_languages.len(), 1);
             assert_diff!(
                 &stderr,
@@ -475,6 +477,6 @@ fn credentials_as_input() -> Fallible<String> {
 }
 
 #[derive(Deserialize)]
-struct ListLangsStdout {
+struct RetrieveLangsStdout {
     available_languages: IndexMap<String, String>,
 }

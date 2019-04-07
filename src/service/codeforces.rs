@@ -6,9 +6,10 @@ use crate::errors::{
 };
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsOutcome,
-    ListLangsProps, LoginOutcome, PrintTargets as _, RestoreOutcome, RestoreProps, Service,
-    SessionProps, SubmitOutcome, SubmitProps,
+    Contest, LoginOutcome, PrintTargets as _, RetrieveLangsOutcome, RetrieveLangsProps,
+    RetrieveSubmissionsOutcome, RetrieveSubmissionsProps, RetrieveTestCasesOutcome,
+    RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service, SessionProps, SubmitOutcome,
+    SubmitProps,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, TestSuite};
@@ -44,28 +45,40 @@ pub(crate) fn login(props: SessionProps, term: impl Term) -> ServiceResult<Login
     Codeforces::try_new(props, term)?.login(LoginOption::Explicit)
 }
 
-pub(crate) fn download(
-    props: (SessionProps, DownloadProps<String>),
+pub(crate) fn retrieve_testcases(
+    props: (SessionProps, RetrieveTestCasesProps<String>),
     mut term: impl Term,
-) -> ServiceResult<DownloadOutcome> {
-    let (sess_props, download_props) = props;
-    let download_props = download_props
+) -> ServiceResult<RetrieveTestCasesOutcome> {
+    let (sess_props, retrieve_props) = props;
+    let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    download_props.print_targets(term.stderr())?;
-    Codeforces::try_new(sess_props, term)?.download(download_props)
+    retrieve_props.print_targets(term.stderr())?;
+    Codeforces::try_new(sess_props, term)?.retrieve_testcases(retrieve_props)
 }
 
-pub(crate) fn restore(
-    props: (SessionProps, RestoreProps<String>),
+pub(crate) fn retrieve_langs(
+    props: (SessionProps, RetrieveLangsProps<String>),
     mut term: impl Term,
-) -> ServiceResult<RestoreOutcome> {
-    let (sess_props, restore_props) = props;
-    let restore_props = restore_props
+) -> ServiceResult<RetrieveLangsOutcome> {
+    let (sess_props, retrieve_props) = props;
+    let retrieve_props = retrieve_props
+        .convert_problem(CaseConversion::Upper)
+        .parse_contest()?;
+    retrieve_props.print_targets(term.stderr())?;
+    Codeforces::try_new(sess_props, term)?.retrieve_langs(retrieve_props)
+}
+
+pub(crate) fn retrieve_submissiosn(
+    props: (SessionProps, RetrieveSubmissionsProps<String>),
+    mut term: impl Term,
+) -> ServiceResult<RetrieveSubmissionsOutcome> {
+    let (sess_props, retrieve_props) = props;
+    let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    restore_props.print_targets(term.stderr())?;
-    Codeforces::try_new(sess_props, term)?.restore(restore_props)
+    retrieve_props.print_targets(term.stderr())?;
+    Codeforces::try_new(sess_props, term)?.retrieve_submissions(retrieve_props)
 }
 
 pub(crate) fn submit(
@@ -78,18 +91,6 @@ pub(crate) fn submit(
         .parse_contest()?;
     submit_props.print_targets(term.stderr())?;
     Codeforces::try_new(sess_props, term)?.submit(submit_props)
-}
-
-pub(crate) fn list_langs(
-    props: (SessionProps, ListLangsProps<String>),
-    mut term: impl Term,
-) -> ServiceResult<ListLangsOutcome> {
-    let (sess_props, list_langs_props) = props;
-    let list_langs_props = list_langs_props
-        .convert_problem(CaseConversion::Upper)
-        .parse_contest()?;
-    list_langs_props.print_targets(term.stderr())?;
-    Codeforces::try_new(sess_props, term)?.list_langs(list_langs_props)
 }
 
 struct Codeforces<T: Term> {
@@ -189,11 +190,11 @@ impl<T: Term> Codeforces<T> {
         Ok(LoginOutcome {})
     }
 
-    fn download(
+    fn retrieve_testcases(
         &mut self,
-        props: DownloadProps<CodeforcesContest>,
-    ) -> ServiceResult<DownloadOutcome> {
-        let DownloadProps {
+        props: RetrieveTestCasesProps<CodeforcesContest>,
+    ) -> ServiceResult<RetrieveTestCasesOutcome> {
+        let RetrieveTestCasesProps {
             contest,
             problems,
             destinations,
@@ -204,7 +205,7 @@ impl<T: Term> Codeforces<T> {
         let problems = problems.as_ref();
         let top_path = format!("/contest/{}", contest.id);
 
-        let mut outcome = DownloadOutcome::new(&contest);
+        let mut outcome = RetrieveTestCasesOutcome::new(&contest);
 
         let mut res = self.get(&top_path).acceptable(&[200, 302]).send()?;
         if res.status() == 302 {
@@ -236,7 +237,7 @@ impl<T: Term> Codeforces<T> {
             .map(|ps| ps.iter().collect::<Vec<_>>())
             .unwrap_or_default();
 
-        for DownloadOutcomeProblem {
+        for RetrieveTestCasesOutcomeProblem {
             name,
             test_suite,
             test_suite_path,
@@ -256,7 +257,7 @@ impl<T: Term> Codeforces<T> {
 
         if open_in_browser {
             self.open_in_browser(&format!("/contest/{}/my", contest.id))?;
-            for DownloadOutcomeProblem { url, .. } in &outcome.problems {
+            for RetrieveTestCasesOutcomeProblem { url, .. } in &outcome.problems {
                 self.open_in_browser(url.as_str())?;
             }
         }
@@ -264,13 +265,30 @@ impl<T: Term> Codeforces<T> {
         Ok(outcome)
     }
 
-    fn restore(&mut self, props: RestoreProps<CodeforcesContest>) -> ServiceResult<RestoreOutcome> {
+    fn retrieve_langs(
+        &mut self,
+        props: RetrieveLangsProps<CodeforcesContest>,
+    ) -> ServiceResult<RetrieveLangsOutcome> {
+        let RetrieveLangsProps { contest, .. } = props;
+        self.login(LoginOption::WithHandle)?;
+        let url = self
+            .session
+            .resolve_url(&format!("/contest/{}/submit", contest.id))?;
+        let langs = self.get(&url).recv_html()?.extract_langs()?;
+        self.print_lang_list(&langs)?;
+        Ok(RetrieveLangsOutcome::new(url, langs))
+    }
+
+    fn retrieve_submissions(
+        &mut self,
+        props: RetrieveSubmissionsProps<CodeforcesContest>,
+    ) -> ServiceResult<RetrieveSubmissionsOutcome> {
         #[derive(Deserialize)]
         struct SubmitSource {
             source: String,
         }
 
-        let RestoreProps { contest, .. } = props;
+        let RetrieveSubmissionsProps { contest, .. } = props;
 
         self.login(LoginOption::WithHandle)?;
 
@@ -375,20 +393,6 @@ impl<T: Term> Codeforces<T> {
             self.open_in_browser(&format!("/contest/{}/my", contest.id))?;
         }
         Ok(SubmitOutcome {})
-    }
-
-    fn list_langs(
-        &mut self,
-        props: ListLangsProps<CodeforcesContest>,
-    ) -> ServiceResult<ListLangsOutcome> {
-        let ListLangsProps { contest, .. } = props;
-        self.login(LoginOption::WithHandle)?;
-        let url = self
-            .session
-            .resolve_url(&format!("/contest/{}/submit", contest.id))?;
-        let langs = self.get(&url).recv_html()?.extract_langs()?;
-        self.print_lang_list(&langs)?;
-        Ok(ListLangsOutcome::new(url, langs))
     }
 
     fn api<E: DeserializeOwned + Send + Sync + 'static>(
@@ -840,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn test_download_from_educational_codeforces_round_46() -> Fallible<()> {
+    fn test_retrieve_from_educational_codeforces_round_46() -> Fallible<()> {
         static URLS: &[(&str, &str)] = &[
             ("A", "https://codeforces.com/contest/1000/problem/A"),
             ("B", "https://codeforces.com/contest/1000/problem/B"),

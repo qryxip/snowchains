@@ -203,19 +203,19 @@ impl TestCaseLoader<'_> {
     }
 }
 
-pub(crate) struct DownloadDestinations {
+pub(crate) struct Destinations {
     scraped: Template<AbsPathBuf>,
     text_file_dir: Template<AbsPathBuf>,
     extension: SuiteFileExtension,
 }
 
-impl DownloadDestinations {
+impl Destinations {
     pub(crate) fn new(
         scraped: Template<AbsPathBuf>,
         text_file_dir: Template<AbsPathBuf>,
         extension: SuiteFileExtension,
     ) -> Self {
-        Self {
+        Destinations {
             scraped,
             text_file_dir,
             extension,

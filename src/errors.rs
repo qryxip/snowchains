@@ -142,7 +142,7 @@ pub enum ServiceErrorKind {
     #[display(fmt = "No such problem: {:?}", _0)]
     NoSuchProblem(String),
     #[display(
-        fmt = "{:?} not found. Run `list-langs` to list the available languages",
+        fmt = "{:?} not found. Run `retrieve languages` to list the available languages",
         _0
     )]
     NoSuchLang(String),
@@ -258,7 +258,7 @@ pub enum TestSuiteErrorKind {
     #[display(fmt = "Failed to serialize the data")]
     Serialize,
     #[display(
-        fmt = "No test case found in {}. Execute \"download\" command first",
+        fmt = "No test case found in {}. Execute `retrieve testcases` command first",
         _0
     )]
     NoTestcase(String),
@@ -305,7 +305,8 @@ pub enum ConfigErrorKind {
     #[display(fmt = "No such language: {:?}", _0)]
     NoSuchLanguage(String),
     #[display(
-        fmt = "`languages.{}.names.{}` required. Run `list-langs` to find the ID",
+        fmt = "`languages.{}.names.{}` required. \
+               Run `retrieve languages` to list the available languages",
         _0,
         _1
     )]

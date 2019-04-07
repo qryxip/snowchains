@@ -1,6 +1,6 @@
 mod service;
 
-use snowchains::app::{App, ListLangs, Login, Opt, Submit};
+use snowchains::app::{App, Login, Opt, Retrieve, RetrieveLanguages, Submit};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
@@ -100,23 +100,23 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
 }
 
 #[test]
-fn it_list_languages() -> Fallible<()> {
+fn it_retrieves_languages() -> Fallible<()> {
     #[derive(Deserialize)]
     struct Stdout {
         available_languages: IndexMap<String, String>,
     }
 
     service::test_in_tempdir(
-        "it_list_languages",
+        "it_retrieves_languages",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
-            app.run(Opt::ListLangs(ListLangs {
+            app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
                 json: true,
                 service: Some(ServiceKind::Codeforces),
                 contest: Some("1000".to_owned()),
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("a".to_owned()),
-            }))?;
+            })))?;
             let (_, stdout, stderr) = app.term.split_mut();
             let stdout = str::from_utf8(stdout.get_ref())?;
             let stderr = str::from_utf8(stderr.get_ref())?;

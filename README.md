@@ -62,10 +62,11 @@ USAGE:
     snowchains <l|login> [FLAGS] [OPTIONS] <service>
     snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>
     snowchains <d|download> [FLAGS] [OPTIONS]
-    snowchains <r|restore> [FLAGS] [OPTIONS]
+    snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]
+    snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]
+    snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]
     snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>
     snowchains <s|submit> [FLAGS] [OPTIONS] <problem>
-    snowchains list-langs [FLAGS] [OPTIONS] [problem]
 
 FLAGS:
     -h, --help       Prints help information
@@ -76,11 +77,10 @@ SUBCOMMANDS:
     switch         Modifies values in a config file [aliases: w, checkout, c]
     login          Logges in to a service [aliases: l]
     participate    Participates in a contest [aliases: p]
-    download       Downloads test cases [aliases: d]
-    restore        Downloads source files you have submitted [aliases: r]
+    download       Equivalents to `retrieve testcases` [aliases: d]
+    retrieve       Retrieves data [aliases: r]
     judge          Tests a binary or script [aliases: j, test, t]
     submit         Submits a source file [aliases: s]
-    list-langs     List available languages
     help           Prints this message or the help of the given subcommand(s)
 ```
 
@@ -89,7 +89,7 @@ $ snowchains init ./
 $ snowchains switch --service atcoder --contest practice --language c++
 $ # snowchains login atcoder
 $ # snowchains participate atcoder practice
-$ snowchains download --open             # does not ask your username and password unless they are needed
+$ snowchains retrieve testcases --open   # does not ask your username and password unless they are needed
 $ $EDITOR ./atcoder/practice/tests/a.yml # add more test cases
 $ $EDITOR ./atcoder/practice/cpp/a.cpp
 $ # snowchains judge a
@@ -127,7 +127,7 @@ api_tokens = "~/.local/share/snowchains/api_tokens/${service}.json"
 dropbox = false
 # dropbox = { auth: "~/.local/share/snowchains/dropbox.json" }
 
-[session.download]
+[session.retrieve]
 extension = "yml"
 text_file_dir = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}"
 

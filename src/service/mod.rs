@@ -14,7 +14,7 @@ use crate::service::session::{
 };
 use crate::template::Template;
 use crate::terminal::WriteAnsi;
-use crate::testsuite::{DownloadDestinations, SuiteFilePath, TestSuite};
+use crate::testsuite::{Destinations, SuiteFilePath, TestSuite};
 use crate::util;
 use crate::util::collections::{NonEmptyIndexMap, NonEmptyVec};
 use crate::util::str::CaseConversion;
@@ -278,13 +278,13 @@ pub(crate) struct LoginOutcome {}
 pub(crate) struct ParticipateOutcome {}
 
 #[derive(Serialize)]
-pub(crate) struct DownloadOutcome {
-    contest: DownloadOutcomeContest,
-    pub(self) problems: Vec<DownloadOutcomeProblem>,
+pub(crate) struct RetrieveTestCasesOutcome {
+    contest: RetrieveTestCasesOutcomeContest,
+    pub(self) problems: Vec<RetrieveTestCasesOutcomeProblem>,
 }
 
 #[derive(Serialize)]
-struct DownloadOutcomeContest {
+struct RetrieveTestCasesOutcomeContest {
     slug: String,
     slug_lower_case: String,
     slug_upper_case: String,
@@ -295,7 +295,7 @@ struct DownloadOutcomeContest {
 }
 
 #[derive(Serialize)]
-pub(self) struct DownloadOutcomeProblem {
+pub(self) struct RetrieveTestCasesOutcomeProblem {
     #[serde(serialize_with = "ser_as_str")]
     pub(self) url: Url,
     pub(self) name: String,
@@ -321,10 +321,10 @@ fn ser_as_path<S: Serializer>(
     AsRef::<AbsPath>::as_ref(path).serialize(serializer)
 }
 
-impl DownloadOutcome {
+impl RetrieveTestCasesOutcome {
     pub(self) fn new(contest: &impl Contest) -> Self {
         Self {
-            contest: DownloadOutcomeContest {
+            contest: RetrieveTestCasesOutcomeContest {
                 slug: contest.slug().into(),
                 slug_lower_case: contest.slug().to_lowercase(),
                 slug_upper_case: contest.slug().to_uppercase(),
@@ -344,7 +344,7 @@ impl DownloadOutcome {
         suite: TestSuite,
         path: SuiteFilePath,
     ) {
-        self.problems.push(DownloadOutcomeProblem {
+        self.problems.push(RetrieveTestCasesOutcomeProblem {
             url,
             name_lower_case: name.to_lowercase(),
             name_upper_case: name.to_uppercase(),
@@ -360,19 +360,16 @@ impl DownloadOutcome {
 }
 
 #[derive(Serialize)]
-pub(crate) struct RestoreOutcome {}
+pub(crate) struct RetrieveSubmissionsOutcome {}
 
 #[derive(Serialize)]
-pub(crate) struct SubmitOutcome {}
-
-#[derive(Serialize)]
-pub(crate) struct ListLangsOutcome {
+pub(crate) struct RetrieveLangsOutcome {
     #[serde(serialize_with = "util::serde::ser_as_ref_str")]
     url: Url,
     available_languages: NonEmptyIndexMap<String, String>,
 }
 
-impl ListLangsOutcome {
+impl RetrieveLangsOutcome {
     fn new(url: Url, available_languages: NonEmptyIndexMap<String, String>) -> Self {
         Self {
             url,
@@ -380,6 +377,9 @@ impl ListLangsOutcome {
         }
     }
 }
+
+#[derive(Serialize)]
+pub(crate) struct SubmitOutcome {}
 
 pub(crate) struct SessionProps {
     pub(crate) domain: Option<&'static str>,
@@ -450,17 +450,17 @@ pub(self) fn reqwest_sync_client(
     builder.build()
 }
 
-pub(crate) struct DownloadProps<C: Contest> {
+pub(crate) struct RetrieveTestCasesProps<C: Contest> {
     pub(crate) contest: C,
     pub(crate) problems: Option<NonEmptyVec<String>>,
-    pub(crate) destinations: DownloadDestinations,
+    pub(crate) destinations: Destinations,
     pub(crate) open_in_browser: bool,
     pub(crate) only_scraped: bool,
 }
 
-impl DownloadProps<String> {
+impl RetrieveTestCasesProps<String> {
     pub(self) fn convert_problems(self, conversion: CaseConversion) -> Self {
-        Self {
+        RetrieveTestCasesProps {
             problems: self.problems.map(|ps| ps.map(|p| conversion.apply(&p))),
             ..self
         }
@@ -468,8 +468,8 @@ impl DownloadProps<String> {
 
     pub(self) fn parse_contest<C: Contest>(
         self,
-    ) -> std::result::Result<DownloadProps<C>, <C as FromStr>::Err> {
-        Ok(DownloadProps {
+    ) -> std::result::Result<RetrieveTestCasesProps<C>, <C as FromStr>::Err> {
+        Ok(RetrieveTestCasesProps {
             contest: self.contest.parse()?,
             problems: self.problems,
             destinations: self.destinations,
@@ -479,7 +479,7 @@ impl DownloadProps<String> {
     }
 }
 
-impl<C: Contest> PrintTargets for DownloadProps<C> {
+impl<C: Contest> PrintTargets for RetrieveTestCasesProps<C> {
     type Contest = C;
 
     fn contest(&self) -> &C {
@@ -491,20 +491,20 @@ impl<C: Contest> PrintTargets for DownloadProps<C> {
     }
 }
 
-pub(crate) struct RestoreProps<'a, C: Contest> {
+pub(crate) struct RetrieveSubmissionsProps<'a, C: Contest> {
     pub(self) contest: C,
     pub(self) problems: Option<NonEmptyVec<String>>,
     pub(self) src_paths: HashMap<&'a str, Template<AbsPathBuf>>,
 }
 
-impl<'a> RestoreProps<'a, String> {
+impl<'a> RetrieveSubmissionsProps<'a, String> {
     pub(crate) fn new(
         config: &'a Config,
         mode: config::Mode,
         problems: Vec<String>,
     ) -> ConfigResult<Self> {
         let src_paths = config.src_paths(mode)?;
-        Ok(Self {
+        Ok(RetrieveSubmissionsProps {
             contest: config.contest().to_owned(),
             problems: NonEmptyVec::try_new(problems),
             src_paths,
@@ -512,7 +512,7 @@ impl<'a> RestoreProps<'a, String> {
     }
 
     pub(self) fn convert_problems(self, conversion: CaseConversion) -> Self {
-        Self {
+        RetrieveSubmissionsProps {
             problems: self.problems.map(|ps| ps.map(|p| conversion.apply(&p))),
             ..self
         }
@@ -520,8 +520,8 @@ impl<'a> RestoreProps<'a, String> {
 
     pub(self) fn parse_contest<C: Contest>(
         self,
-    ) -> std::result::Result<RestoreProps<'a, C>, <C as FromStr>::Err> {
-        Ok(RestoreProps {
+    ) -> std::result::Result<RetrieveSubmissionsProps<'a, C>, <C as FromStr>::Err> {
+        Ok(RetrieveSubmissionsProps {
             contest: self.contest.parse()?,
             problems: self.problems,
             src_paths: self.src_paths,
@@ -529,7 +529,7 @@ impl<'a> RestoreProps<'a, String> {
     }
 }
 
-impl<'a, C: Contest> PrintTargets for RestoreProps<'a, C> {
+impl<'a, C: Contest> PrintTargets for RetrieveSubmissionsProps<'a, C> {
     type Contest = C;
 
     fn contest(&self) -> &Self::Contest {
@@ -604,12 +604,12 @@ impl<C: Contest> PrintTargets for SubmitProps<C> {
     }
 }
 
-pub(crate) struct ListLangsProps<C: Contest> {
+pub(crate) struct RetrieveLangsProps<C: Contest> {
     pub(crate) contest: C,
     pub(crate) problem: Option<String>,
 }
 
-impl ListLangsProps<String> {
+impl RetrieveLangsProps<String> {
     pub(self) fn convert_problem(self, conversion: CaseConversion) -> Self {
         Self {
             contest: self.contest,
@@ -619,15 +619,15 @@ impl ListLangsProps<String> {
 
     pub(self) fn parse_contest<C: Contest>(
         self,
-    ) -> std::result::Result<ListLangsProps<C>, <C as FromStr>::Err> {
-        Ok(ListLangsProps {
+    ) -> std::result::Result<RetrieveLangsProps<C>, <C as FromStr>::Err> {
+        Ok(RetrieveLangsProps {
             contest: self.contest.parse()?,
             problem: self.problem,
         })
     }
 }
 
-impl<C: Contest> PrintTargets for ListLangsProps<C> {
+impl<C: Contest> PrintTargets for RetrieveLangsProps<C> {
     type Contest = C;
 
     fn contest(&self) -> &C {

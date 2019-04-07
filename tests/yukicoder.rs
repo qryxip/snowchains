@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 mod service;
 
-use snowchains::app::{App, ListLangs, Opt, Submit};
+use snowchains::app::{App, Opt, Retrieve, RetrieveLanguages, Submit};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
@@ -30,14 +30,19 @@ fn it_logins() -> Fallible<()> {
 }
 
 #[test]
-fn it_downloads_testcases() -> Fallible<()> {
+fn it_scrapes_and_downloads_testcases() -> Fallible<()> {
     service::test_in_tempdir(
         "it_downloads_test_cases_from_master",
         &format!("Y\n{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
         |app| -> Fallible<()> {
             static CONTEST: &str = "no";
             let wd = app.working_dir.clone();
-            service::download(app, ServiceKind::Yukicoder, CONTEST, &["3", "725", "726"])?;
+            service::retrieve_testcases(
+                app,
+                ServiceKind::Yukicoder,
+                CONTEST,
+                &["3", "725", "726"],
+            )?;
             service::confirm_num_cases(
                 &wd,
                 ServiceKind::Yukicoder,
@@ -125,25 +130,25 @@ fn it_submits_to_no_9000() -> Fallible<()> {
 }
 
 #[test]
-fn it_list_languages() -> Fallible<()> {
+fn it_retrieves_languages() -> Fallible<()> {
     #[derive(Deserialize)]
     struct Stdout {
         available_languages: IndexMap<String, String>,
     }
 
     service::test_in_tempdir(
-        "it_list_languages",
+        "it_retrieves_languages",
         &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
         |mut app| -> Fallible<()> {
             static MASK_USERNAME: Lazy<Regex> = sync_lazy!(Regex::new("Username: .*").unwrap());
 
-            app.run(Opt::ListLangs(ListLangs {
+            app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
                 json: true,
                 service: Some(ServiceKind::Yukicoder),
                 contest: Some("no".to_owned()),
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("9000".to_owned()),
-            }))?;
+            })))?;
             let stdout = String::from_utf8(mem::replace(app.term.stdout().get_mut(), vec![]))?;
             let stderr = String::from_utf8(mem::replace(app.term.stderr().get_mut(), vec![]))?;
             let stdout = serde_json::from_str::<Stdout>(&stdout)?;
