@@ -165,10 +165,10 @@ pub enum Retrieve {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct RetrieveTestcases {
-    #[structopt(raw(json = "1"))]
-    pub json: bool,
-    #[structopt(raw(open = "2"))]
+    #[structopt(raw(open = "1"))]
     pub open: bool,
+    #[structopt(raw(json = "2"))]
+    pub json: bool,
     #[structopt(
         long = "only-scraped",
         help = "Does not download official test cases",
@@ -217,19 +217,19 @@ pub struct RetrieveSubmissions {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Judge {
-    #[structopt(raw(json = "1"))]
-    pub json: bool,
-    #[structopt(raw(force_compile = "2"))]
+    #[structopt(raw(force_compile = "1"))]
     pub force_compile: bool,
     #[structopt(
         long = "release",
         raw(
-            help = "\"Equivalent to `--mode release`\"",
+            help = "\"Equivalents to `--mode release`\"",
             conflicts_with = "\"mode\"",
             display_order = "2",
         )
     )]
     pub release: bool,
+    #[structopt(raw(json = "3"))]
+    pub json: bool,
     #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -248,11 +248,9 @@ pub struct Judge {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Submit {
-    #[structopt(raw(json = "1"))]
-    pub json: bool,
-    #[structopt(raw(open = "2"))]
+    #[structopt(raw(open = "1"))]
     pub open: bool,
-    #[structopt(raw(conflicts_with = "\"no_judge\"", force_compile = "3"))]
+    #[structopt(raw(conflicts_with = "\"no_judge\"", force_compile = "2"))]
     pub force_compile: bool,
     #[structopt(
         long = "only-transpile",
@@ -272,7 +270,7 @@ pub struct Submit {
     #[structopt(
         long = "debug",
         raw(
-            help = "\"Equivalent to `--mode debug`\"",
+            help = "\"Equivalents to `--mode debug`\"",
             conflicts_with = "\"mode\"",
             display_order = "5",
         )
@@ -281,9 +279,11 @@ pub struct Submit {
     #[structopt(
         long = "no-check-duplication",
         help = "Submits even if the contest is active and you have already solved the problem",
-        raw(display_order = "5")
+        raw(display_order = "6")
     )]
     pub no_check_duplication: bool,
+    #[structopt(raw(json = "7"))]
+    pub json: bool,
     #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]

@@ -65,13 +65,13 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
             std::fs::write(&dir.join("9000.py"), CODE)?;
             let err = app
                 .run(Opt::Submit(Submit {
-                    json: false,
                     open: false,
                     force_compile: false,
                     only_transpile: false,
                     no_judge: true,
                     debug: false,
                     no_check_duplication: false,
+                    json: false,
                     service: Some(ServiceKind::Yukicoder),
                     contest: Some("no".to_owned()),
                     language: Some("python3-with-invalid-lang-names".to_owned()),
@@ -107,13 +107,13 @@ fn it_submits_to_no_9000() -> Fallible<()> {
             std::fs::create_dir_all(&dir)?;
             std::fs::write(&dir.join("9000.txt"), CODE)?;
             app.run(Opt::Submit(Submit {
-                json: true,
                 open: false,
                 force_compile: false,
                 only_transpile: false,
                 no_judge: true,
                 debug: false,
                 no_check_duplication: false,
+                json: true,
                 service: Some(ServiceKind::Yukicoder),
                 contest: Some("no".to_owned()),
                 language: Some("text".to_owned()),

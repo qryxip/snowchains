@@ -69,13 +69,13 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
             std::fs::write(&dir.join("a.py"), CODE)?;
             let err = app
                 .run(Opt::Submit(Submit {
-                    json: false,
                     open: false,
                     force_compile: false,
                     only_transpile: false,
                     no_judge: true,
                     debug: false,
                     no_check_duplication: false,
+                    json: false,
                     service: Some(ServiceKind::Codeforces),
                     contest: Some("1000".to_owned()),
                     language: Some("python3-with-invalid-lang-names".to_owned()),

@@ -74,8 +74,8 @@ pub fn retrieve_testcases(
     problems: &[&str],
 ) -> snowchains::Result<()> {
     app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
-        json: true,
         open: false,
+        json: true,
         only_scraped: false,
         service: Some(service),
         contest: Some(contest.to_owned()),

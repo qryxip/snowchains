@@ -45,8 +45,8 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
-                json: false,
                 open: false,
+                json: false,
                 only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
@@ -73,8 +73,8 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> snowchains::Result<()> {
             app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
-                json: false,
                 open: false,
+                json: false,
                 only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("abc100".to_owned()),
@@ -103,8 +103,8 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
-                json: false,
                 open: false,
+                json: false,
                 only_scraped: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("abc099".to_owned()),
@@ -212,13 +212,13 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
             std::fs::write(&wd.join("a.py"), CODE)?;
             let err = app
                 .run(Opt::Submit(Submit {
-                    json: false,
                     open: false,
                     force_compile: false,
                     only_transpile: false,
                     no_judge: true,
                     debug: false,
                     no_check_duplication: false,
+                    json: false,
                     service: Some(ServiceKind::Atcoder),
                     contest: Some("practice".to_owned()),
                     language: Some("python3-with-invalid-lang-names".to_owned()),
@@ -261,13 +261,13 @@ if __name__ == '__main__':
             std::fs::create_dir_all(&wd)?;
             std::fs::write(&wd.join("a.py"), CODE)?;
             app.run(Opt::Submit(Submit {
-                json: false,
                 open: false,
                 force_compile: false,
                 only_transpile: false,
                 no_judge: true,
                 debug: false,
                 no_check_duplication: false,
+                json: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 language: Some("python3".to_owned()),
