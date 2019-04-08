@@ -204,7 +204,6 @@ pub trait StandardOutput: Write {
     fn columns() -> Option<usize>;
 
     #[cfg(windows)]
-    #[cfg_attr(tarpaulin, skip)]
     fn columns() -> Option<usize> {
         let handle = Self::windows_handle_ref()?;
         let info = winapi_util::console::screen_buffer_info(handle).ok()?;
@@ -239,7 +238,6 @@ impl<W: StandardOutput> StandardOutput for BufWriter<W> {
     }
 
     #[cfg(windows)]
-    #[cfg_attr(tarpaulin, skip)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
         W::windows_handle_ref()
     }
@@ -266,7 +264,6 @@ impl StandardOutput for StdoutLock<'_> {
     }
 
     #[cfg(windows)]
-    #[cfg_attr(tarpaulin, skip)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
         Some(winapi_util::HandleRef::stdout())
     }
@@ -293,7 +290,6 @@ impl StandardOutput for Stderr {
     }
 
     #[cfg(windows)]
-    #[cfg_attr(tarpaulin, skip)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
         Some(winapi_util::HandleRef::stdout())
     }
@@ -320,7 +316,6 @@ impl StandardOutput for Vec<u8> {
     }
 
     #[cfg(windows)]
-    #[cfg_attr(tarpaulin, skip)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
         None
     }
@@ -347,7 +342,6 @@ impl StandardOutput for io::Sink {
     }
 
     #[cfg(windows)]
-    #[cfg_attr(tarpaulin, skip)]
     fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
         None
     }
@@ -648,7 +642,6 @@ impl<W: StandardOutput> TermOut for TermOutImpl<W> {
     }
 
     #[cfg(windows)]
-    #[cfg_attr(tarpaulin, skip)]
     fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice) {
         fn virtual_terminal_processing_enabled(handle: &winapi_util::HandleRef) -> bool {
             use winapi::um::wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;

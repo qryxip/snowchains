@@ -1,10 +1,4 @@
-dist: trusty
 language: rust
-sudo: true
-addons:
-  apt:
-    packages:
-      - libssl-dev
 
 rust:
   - stable
@@ -24,6 +18,17 @@ env:
 matrix:
   include:
     - os: linux
+      dist: trusty
+      sudo: true
+      addons:
+        apt:
+          packages:
+            - libcurl4-openssl-dev
+            - libelf-dev
+            - libdw-dev
+            - binutils-dev
+            - libiberty-dev
+            - g++
       env: |
         TARGET=snowchains
         RUSTUP_HOST=x86_64-unknown-linux-gnu
@@ -51,19 +56,18 @@ install:
   - cargo make --version
   - |
     if [ "${RUSTUP_HOST}" = x86_64-unknown-linux-gnu -a "${TRAVIS_BRANCH}" = master -a "${TRAVIS_PULL_REQUEST}" = false ]; then
-      rustup install nightly &&
-      RUSTFLAGS="--cfg procmacro2_semver_exempt" cargo +nightly install cargo-tarpaulin &&
-      rustc +nightly -vV &&
-      cargo +nightly -vV &&
-      cargo +nightly tarpaulin -V
+      cargo install cargo-kcov &&
+      cargo kcov --print-install-kcov-sh | sh &&
+      kcov --version &&
+      cargo-kcov --version
     fi
 
 script:
   - cargo make check-format
   - cargo make clippy
   - |
-    if [ -f ~/.cargo/bin/cargo-tarpaulin ]; then
-      cargo tarpaulin --ignored --out Xml &&
+    if [ -f ~/.cargo/bin/cargo-kcov ]; then
+      cargo kcov --all &&
       bash <(curl -s https://codecov.io/bash)
     elif [ "${TRAVIS_SECURE_ENV_VARS}" = true ]; then
       cargo test --all
