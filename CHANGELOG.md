@@ -7,6 +7,7 @@
 * `--debug` option to `submit`, which equivalent to `--mode debug`.
 * Add `.command_line_arguments`, `.config`, `.base_directory`, and `.target` to `$SNOWCHAINS_RESULT` s.
 * Add `--json` flags.
+* Add `--fetch-all` flag to `retrieve submissions` command.
 
 ### Changed
 

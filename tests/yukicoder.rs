@@ -155,8 +155,7 @@ fn it_retrieves_languages() -> Fallible<()> {
             assert_eq!(stdout.available_languages.len(), 43);
             assert_diff!(
                 &MASK_USERNAME.replace(&stderr, "Username: ██████████"),
-                r#"Target: no/9000
-GET https://yukicoder.me/ ... 200 OK
+                r#"GET https://yukicoder.me/ ... 200 OK
 
 Input "REVEL_SESSION".
 

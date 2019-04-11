@@ -1,4 +1,4 @@
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools as _;
 use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -8,7 +8,7 @@ use std::cmp::Ord;
 use std::collections::BTreeMap;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ops::{Deref, Index, IndexMut};
 use std::slice::{self, SliceIndex};
 use std::vec;
 
@@ -142,6 +142,10 @@ impl<K: Eq + Hash, V> NonEmptyIndexMap<K, V> {
             Some(Self { inner })
         }
     }
+
+    pub(crate) fn into_element(mut self, key: &(impl Hash + indexmap::Equivalent<K>)) -> Option<V> {
+        self.inner.remove(key)
+    }
 }
 
 impl<K: Eq + Hash, V> Deref for NonEmptyIndexMap<K, V> {
@@ -149,12 +153,6 @@ impl<K: Eq + Hash, V> Deref for NonEmptyIndexMap<K, V> {
 
     fn deref(&self) -> &IndexMap<K, V> {
         &self.inner
-    }
-}
-
-impl<K: Eq + Hash, V> DerefMut for NonEmptyIndexMap<K, V> {
-    fn deref_mut(&mut self) -> &mut IndexMap<K, V> {
-        &mut self.inner
     }
 }
 
@@ -173,6 +171,34 @@ impl<K: Eq + Hash, V> IntoIterator for NonEmptyIndexMap<K, V> {
 
     fn into_iter(self) -> indexmap::map::IntoIter<K, V> {
         self.inner.into_iter()
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct NonEmptyIndexSet<T> {
+    inner: IndexSet<T>,
+}
+
+impl<T> NonEmptyIndexSet<T> {
+    pub(crate) fn try_new(inner: IndexSet<T>) -> Option<Self> {
+        guard!(!inner.is_empty());
+        Some(Self { inner })
+    }
+}
+
+impl<T: Hash + Eq> NonEmptyIndexSet<T> {
+    pub(crate) fn ref_map<B: Hash + Eq, F: FnMut(&T) -> B>(&self, f: F) -> NonEmptyIndexSet<B> {
+        NonEmptyIndexSet {
+            inner: self.inner.iter().map(f).collect(),
+        }
+    }
+}
+
+impl<T> Deref for NonEmptyIndexSet<T> {
+    type Target = IndexSet<T>;
+
+    fn deref(&self) -> &IndexSet<T> {
+        &self.inner
     }
 }
 
@@ -224,7 +250,7 @@ mod tests {
             NonEmptyVec::try_new(vec![3, 1, 2])
                 .unwrap()
                 .max(|&x| 10 - x),
-            9
+            9,
         );
         assert_eq!(&mut NonEmptyVec::<()>::default()[0], &mut ());
         assert_eq!(NonEmptyVec::<()>::default(), NonEmptyVec(vec![()]));

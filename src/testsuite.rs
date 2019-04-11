@@ -26,7 +26,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write as _;
 use std::iter::FromIterator;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -246,6 +246,12 @@ impl SuiteFilePath {
     pub(crate) fn new(path: &AbsPath, extension: SuiteFileExtension) -> Self {
         let path = path.to_owned();
         Self { path, extension }
+    }
+}
+
+impl AsRef<Path> for SuiteFilePath {
+    fn as_ref(&self) -> &Path {
+        self.path.as_ref()
     }
 }
 

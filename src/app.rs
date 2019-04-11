@@ -201,7 +201,13 @@ pub struct RetrieveLanguages {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct RetrieveSubmissions {
-    #[structopt(raw(json = "1"))]
+    #[structopt(
+        long = "fetch-all",
+        help = "Fetches all of the code",
+        raw(display_order = "1")
+    )]
+    pub fetch_all: bool,
+    #[structopt(raw(json = "2"))]
     pub json: bool,
     #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
@@ -567,6 +573,7 @@ impl<T: Term> App<T> {
             }
             Opt::Retrieve(Retrieve::Submissions(cli_args)) => {
                 let RetrieveSubmissions {
+                    fetch_all,
                     json,
                     service,
                     contest,
@@ -580,7 +587,8 @@ impl<T: Term> App<T> {
                 let config = Config::load(*service, contest, None, &wd)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
-                let retrieve_props = RetrieveSubmissionsProps::new(&config, *mode, problems)?;
+                let retrieve_props =
+                    RetrieveSubmissionsProps::new(&config, *mode, problems, *fetch_all)?;
                 let props = (sess_props, retrieve_props);
                 let term = &mut self.term;
                 let outcome = match config.service() {

@@ -16,18 +16,20 @@ use crate::template::Template;
 use crate::terminal::WriteAnsi;
 use crate::testsuite::{Destinations, SuiteFilePath, TestSuite};
 use crate::util;
-use crate::util::collections::{NonEmptyIndexMap, NonEmptyVec};
+use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet, NonEmptyVec};
 use crate::util::str::CaseConversion;
 
+use chrono::{DateTime, FixedOffset};
 use failure::ResultExt as _;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
+use indexmap::IndexMap;
 use maplit::hashmap;
 use prettytable::{cell, row, Table};
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::RedirectPolicy;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer};
 use serde_derive::Serialize;
 use strum_macros::IntoStaticStr;
 use tokio::runtime::Runtime;
@@ -38,11 +40,10 @@ use zip::ZipArchive;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{self, Cursor, Write as _};
-use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{cmp, fmt, mem, slice};
+use std::{cmp, fmt, mem};
 
 #[derive(
     Clone,
@@ -296,7 +297,7 @@ struct RetrieveTestCasesOutcomeContest {
 
 #[derive(Serialize)]
 pub(self) struct RetrieveTestCasesOutcomeProblem {
-    #[serde(serialize_with = "ser_as_str")]
+    #[serde(serialize_with = "util::serde::ser_as_ref_str")]
     pub(self) url: Url,
     pub(self) name: String,
     name_lower_case: String,
@@ -305,20 +306,9 @@ pub(self) struct RetrieveTestCasesOutcomeProblem {
     name_kebab_case: String,
     name_mixed_case: String,
     name_pascal_case: String,
-    #[serde(serialize_with = "ser_as_path")]
+    #[serde(serialize_with = "util::serde::ser_as_ref_path")]
     pub(self) test_suite_path: SuiteFilePath,
     pub(self) test_suite: TestSuite,
-}
-
-fn ser_as_str<S: Serializer>(url: &Url, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-    url.as_str().serialize(serializer)
-}
-
-fn ser_as_path<S: Serializer>(
-    path: &SuiteFilePath,
-    serializer: S,
-) -> std::result::Result<S::Ok, S::Error> {
-    AsRef::<AbsPath>::as_ref(path).serialize(serializer)
 }
 
 impl RetrieveTestCasesOutcome {
@@ -359,8 +349,70 @@ impl RetrieveTestCasesOutcome {
     }
 }
 
+#[derive(Default, Serialize)]
+pub(crate) struct RetrieveSubmissionsOutcome {
+    #[serde(serialize_with = "util::serde::ser_indexmap_with_as_ref_str_keys")]
+    submissions: IndexMap<Url, RetrieveSubmissionsOutcomeSubmission>,
+}
+
+impl RetrieveSubmissionsOutcome {
+    pub(self) fn new() -> Self {
+        Self::default()
+    }
+}
+
 #[derive(Serialize)]
-pub(crate) struct RetrieveSubmissionsOutcome {}
+pub(self) struct RetrieveSubmissionsOutcomeSubmission {
+    pub(self) problem: RetrieveSubmissionsOutcomeSubmissionProblem,
+    pub(self) language: String,
+    pub(self) date_time: DateTime<FixedOffset>,
+    pub(self) verdict: RetrieveSubmissionsOutcomeSubmissionVerdict,
+    pub(self) saved_as: Option<AbsPathBuf>,
+    pub(self) detail: Option<RetrieveSubmissionsOutcomeSubmissionDetail>,
+}
+
+#[derive(Serialize)]
+pub(self) struct RetrieveSubmissionsOutcomeSubmissionProblem {
+    #[serde(serialize_with = "util::serde::ser_as_ref_str")]
+    url: Url,
+    pub(self) slug: String,
+    slug_lower_case: String,
+    slug_upper_case: String,
+    slug_snake_case: String,
+    slug_kebab_case: String,
+    slug_mixed_case: String,
+    slug_pascal_case: String,
+    display_name: String,
+    screen_name: String,
+}
+
+impl RetrieveSubmissionsOutcomeSubmissionProblem {
+    pub(self) fn new(url: &Url, slug: &str, display: &str, screen: &str) -> Self {
+        Self {
+            url: url.clone(),
+            slug: slug.to_owned(),
+            slug_lower_case: slug.to_lowercase(),
+            slug_upper_case: slug.to_uppercase(),
+            slug_snake_case: slug.to_snake_case(),
+            slug_kebab_case: slug.to_kebab_case(),
+            slug_mixed_case: slug.to_mixed_case(),
+            slug_pascal_case: slug.to_camel_case(),
+            display_name: display.to_owned(),
+            screen_name: screen.to_owned(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub(self) struct RetrieveSubmissionsOutcomeSubmissionVerdict {
+    pub(self) is_ok: bool,
+    pub(self) string: String,
+}
+
+#[derive(Serialize)]
+pub(self) struct RetrieveSubmissionsOutcomeSubmissionDetail {
+    pub(self) code: String,
+}
 
 #[derive(Serialize)]
 pub(crate) struct RetrieveLangsOutcome {
@@ -479,22 +531,11 @@ impl RetrieveTestCasesProps<String> {
     }
 }
 
-impl<C: Contest> PrintTargets for RetrieveTestCasesProps<C> {
-    type Contest = C;
-
-    fn contest(&self) -> &C {
-        &self.contest
-    }
-
-    fn problems(&self) -> Option<&[String]> {
-        self.problems.as_ref().map(Deref::deref)
-    }
-}
-
 pub(crate) struct RetrieveSubmissionsProps<'a, C: Contest> {
     pub(self) contest: C,
-    pub(self) problems: Option<NonEmptyVec<String>>,
+    pub(self) problems: Option<NonEmptyIndexSet<String>>,
     pub(self) src_paths: HashMap<&'a str, Template<AbsPathBuf>>,
+    pub(self) fetch_all: bool,
 }
 
 impl<'a> RetrieveSubmissionsProps<'a, String> {
@@ -502,18 +543,20 @@ impl<'a> RetrieveSubmissionsProps<'a, String> {
         config: &'a Config,
         mode: config::Mode,
         problems: Vec<String>,
+        fetch_all: bool,
     ) -> ConfigResult<Self> {
         let src_paths = config.src_paths(mode)?;
         Ok(RetrieveSubmissionsProps {
             contest: config.contest().to_owned(),
-            problems: NonEmptyVec::try_new(problems),
+            problems: NonEmptyIndexSet::try_new(problems.into_iter().collect()),
             src_paths,
+            fetch_all,
         })
     }
 
     pub(self) fn convert_problems(self, conversion: CaseConversion) -> Self {
         RetrieveSubmissionsProps {
-            problems: self.problems.map(|ps| ps.map(|p| conversion.apply(&p))),
+            problems: self.problems.map(|ps| ps.ref_map(|p| conversion.apply(&p))),
             ..self
         }
     }
@@ -525,19 +568,8 @@ impl<'a> RetrieveSubmissionsProps<'a, String> {
             contest: self.contest.parse()?,
             problems: self.problems,
             src_paths: self.src_paths,
+            fetch_all: self.fetch_all,
         })
-    }
-}
-
-impl<'a, C: Contest> PrintTargets for RetrieveSubmissionsProps<'a, C> {
-    type Contest = C;
-
-    fn contest(&self) -> &Self::Contest {
-        &self.contest
-    }
-
-    fn problems(&self) -> Option<&[String]> {
-        self.problems.as_ref().map(Deref::deref)
     }
 }
 
@@ -592,18 +624,6 @@ impl SubmitProps<String> {
     }
 }
 
-impl<C: Contest> PrintTargets for SubmitProps<C> {
-    type Contest = C;
-
-    fn contest(&self) -> &Self::Contest {
-        &self.contest
-    }
-
-    fn problems(&self) -> Option<&[String]> {
-        Some(slice::from_ref(&self.problem))
-    }
-}
-
 pub(crate) struct RetrieveLangsProps<C: Contest> {
     pub(crate) contest: C,
     pub(crate) problem: Option<String>,
@@ -627,18 +647,6 @@ impl RetrieveLangsProps<String> {
     }
 }
 
-impl<C: Contest> PrintTargets for RetrieveLangsProps<C> {
-    type Contest = C;
-
-    fn contest(&self) -> &C {
-        &self.contest
-    }
-
-    fn problems(&self) -> Option<&[String]> {
-        self.problem.as_ref().map(slice::from_ref)
-    }
-}
-
 pub(crate) trait Contest: fmt::Display + FromStr {
     fn slug(&self) -> Cow<str>;
 }
@@ -646,49 +654,5 @@ pub(crate) trait Contest: fmt::Display + FromStr {
 impl Contest for String {
     fn slug(&self) -> Cow<str> {
         self.as_str().into()
-    }
-}
-
-pub(self) trait PrintTargets {
-    type Contest: Contest;
-
-    fn contest(&self) -> &Self::Contest;
-    fn problems(&self) -> Option<&[String]>;
-
-    fn print_targets(&self, mut out: impl WriteAnsi) -> io::Result<()> {
-        fn print_common(
-            mut out: impl WriteAnsi,
-            multi: bool,
-            contest: impl fmt::Display,
-        ) -> io::Result<()> {
-            let s = if multi { "Targets" } else { "Target" };
-            out.with_reset(|o| o.fg(13)?.bold()?.write_str(s))?;
-            out.with_reset(|o| o.fg(13)?.write_str(":"))?;
-            write!(out, " {}/", contest)
-        }
-
-        match self.problems() {
-            None => {
-                print_common(&mut out, true, self.contest())?;
-                out.with_reset(|o| o.bold()?.write_str("*"))?;
-            }
-            Some([problem]) => {
-                print_common(&mut out, false, self.contest())?;
-                out.with_reset(|o| o.bold()?.write_str(problem))?;
-            }
-            Some(problems) => {
-                print_common(&mut out, true, self.contest())?;
-                out.write_str("{")?;
-                for (i, problem) in problems.iter().enumerate() {
-                    if i > 0 {
-                        out.write_all(b", ")?;
-                    }
-                    out.with_reset(|o| o.bold()?.write_str(problem))?;
-                }
-                out.write_str("}")?;
-            }
-        }
-        writeln!(out)?;
-        out.flush()
     }
 }

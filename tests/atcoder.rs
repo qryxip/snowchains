@@ -173,6 +173,7 @@ fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
             app.run(Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
+                fetch_all: false,
                 json: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
@@ -184,8 +185,7 @@ fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
             let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
             serde_json::from_str::<serde_json::Value>(&stdout)?;
             assert!(stderr.starts_with(
-                r#"Targets: practice contest/*
-GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 302 Found
+                r#"GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 302 Found
 GET https://atcoder.jp/contests/practice ... 200 OK
 GET https://atcoder.jp/settings ... 302 Found
 GET https://atcoder.jp/login ... 200 OK
@@ -300,8 +300,7 @@ fn it_retrieves_languages_in_practice() -> Fallible<()> {
             assert_eq!(stdout.available_languages.len(), 56);
             assert_diff!(
                 &stderr,
-                r#"Targets: practice contest/*
-GET https://atcoder.jp/login ... 200 OK
+                r#"GET https://atcoder.jp/login ... 200 OK
 Username: Password: POST https://atcoder.jp/login ... 302 Found
 GET https://atcoder.jp/settings ... 200 OK
 Successfully logged in.
@@ -449,8 +448,7 @@ fn it_retrieves_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
             assert_eq!(stdout.available_languages.len(), 1);
             assert_diff!(
                 &stderr,
-                r#"Target: tenka1-2016-final-open/A
-GET https://atcoder.jp/login ... 200 OK
+                r#"GET https://atcoder.jp/login ... 200 OK
 Username: Password: POST https://atcoder.jp/login ... 302 Found
 GET https://atcoder.jp/settings ... 200 OK
 Successfully logged in.

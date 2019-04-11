@@ -6,10 +6,9 @@ use crate::errors::{
 };
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, LoginOutcome, PrintTargets as _, RetrieveLangsOutcome, RetrieveLangsProps,
-    RetrieveSubmissionsOutcome, RetrieveSubmissionsProps, RetrieveTestCasesOutcome,
-    RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service, SessionProps, SubmitOutcome,
-    SubmitProps,
+    Contest, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps, RetrieveSubmissionsOutcome,
+    RetrieveSubmissionsProps, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem,
+    RetrieveTestCasesProps, Service, SessionProps, SubmitOutcome, SubmitProps,
 };
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, TestSuite};
@@ -47,49 +46,45 @@ pub(crate) fn login(props: SessionProps, term: impl Term) -> ServiceResult<Login
 
 pub(crate) fn retrieve_testcases(
     props: (SessionProps, RetrieveTestCasesProps<String>),
-    mut term: impl Term,
+    term: impl Term,
 ) -> ServiceResult<RetrieveTestCasesOutcome> {
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    retrieve_props.print_targets(term.stderr())?;
     Codeforces::try_new(sess_props, term)?.retrieve_testcases(retrieve_props)
 }
 
 pub(crate) fn retrieve_langs(
     props: (SessionProps, RetrieveLangsProps<String>),
-    mut term: impl Term,
+    term: impl Term,
 ) -> ServiceResult<RetrieveLangsOutcome> {
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    retrieve_props.print_targets(term.stderr())?;
     Codeforces::try_new(sess_props, term)?.retrieve_langs(retrieve_props)
 }
 
 pub(crate) fn retrieve_submissiosn(
     props: (SessionProps, RetrieveSubmissionsProps<String>),
-    mut term: impl Term,
+    term: impl Term,
 ) -> ServiceResult<RetrieveSubmissionsOutcome> {
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    retrieve_props.print_targets(term.stderr())?;
     Codeforces::try_new(sess_props, term)?.retrieve_submissions(retrieve_props)
 }
 
 pub(crate) fn submit(
     props: (SessionProps, SubmitProps<String>),
-    mut term: impl Term,
+    term: impl Term,
 ) -> ServiceResult<SubmitOutcome> {
     let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    submit_props.print_targets(term.stderr())?;
     Codeforces::try_new(sess_props, term)?.submit(submit_props)
 }
 

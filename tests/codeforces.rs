@@ -124,8 +124,7 @@ fn it_retrieves_languages() -> Fallible<()> {
             assert_eq!(stdout.available_languages.len(), 28);
             assert_diff!(
                 &stderr,
-                r#"Target: 1000/A
-GET https://codeforces.com/enter ... 200 OK
+                r#"GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
 GET https://codeforces.com/enter ... 302 Found
 GET https://codeforces.com/contest/1000/submit ... 200 OK

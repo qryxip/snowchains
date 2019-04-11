@@ -1308,6 +1308,7 @@ struct Hooks {
     login: Option<TemplateBuilder<HookCommands>>,
     participate: Option<TemplateBuilder<HookCommands>>,
     download: Option<TemplateBuilder<HookCommands>>,
+    #[serde(default)]
     retrieve: HooksRetrieve,
     judge: Option<TemplateBuilder<HookCommands>>,
     submit: Option<TemplateBuilder<HookCommands>>,
