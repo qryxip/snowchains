@@ -479,8 +479,12 @@ impl<I: TermIn, O: StandardOutput, E: StandardOutput> Term for TermImpl<I, O, E>
         loop {
             match &self.prompt_reply_stderr(&prompt)? {
                 s if s.is_empty() => break Ok(default),
-                s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
-                s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
+                s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => {
+                    break Ok(true)
+                }
+                s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => {
+                    break Ok(false)
+                }
                 _ => self.stderr().with_reset(|o| {
                     o.fg(11)?
                         .write_str("Answer \"y\", \"yes\", \"n\", \"no\", or \"\".")

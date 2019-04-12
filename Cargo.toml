@@ -54,7 +54,7 @@ serde_urlencoded = "0.5.4"
 serde_yaml = "0.8.8"
 sha2 = "0.8.0"
 snowchains_proc_macros = { path = "./proc_macros", version = "0.1.0" }
-structopt = { version = "0.2.15", features = ["wrap_help"] }
+structopt = { git = "https://github.com/qryxip/structopt", rev = "6b18a14b8bb74471c54606581392894b6233a071", features = ["wrap_help"] }
 strum = "0.15.0"
 strum_macros = "0.15.0"
 tokio = "0.1.18"

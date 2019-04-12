@@ -308,7 +308,7 @@ pub(super) struct InteractiveOutcome {
 
 impl InteractiveOutcome {
     fn success(&self) -> bool {
-        self.outputs.iter().all(|o| o.success())
+        self.outputs.iter().all(Output::success)
     }
 }
 

@@ -16,7 +16,6 @@ use crate::template::Template;
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, Destinations, InteractiveSuite, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
-use crate::util::lang_unstable::Never;
 use crate::util::num::PositiveFinite;
 use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
@@ -38,6 +37,8 @@ use url::Url;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::convert::Infallible;
+use std::convert::TryInto as _;
 use std::io::Write as _;
 use std::ops::Deref;
 use std::path::Path;
@@ -932,9 +933,9 @@ impl Contest for AtcoderContest {
 }
 
 impl FromStr for AtcoderContest {
-    type Err = Never;
+    type Err = Infallible;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Never> {
+    fn from_str(s: &str) -> std::result::Result<Self, Infallible> {
         Ok(Self::new(s))
     }
 }
@@ -1184,7 +1185,7 @@ impl Extract for Document {
             let caps = R.captures(s)?;
             let base = caps[1].parse::<f64>().ok()?;
             let exp = caps[2].parse::<f64>().ok()?;
-            PositiveFinite::try_new(base.powf(exp)).ok()
+            base.powf(exp).try_into().ok()
         }
 
         fn parse_zenkaku<T: FromStr>(s: &str) -> Result<T, T::Err> {

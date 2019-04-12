@@ -9,7 +9,6 @@ use crate::service::{
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
-use crate::util::lang_unstable::Never;
 use crate::util::str::CaseConversion;
 
 use cookie::Cookie;
@@ -27,6 +26,7 @@ use tokio::runtime::Runtime;
 use url::Url;
 
 use std::borrow::Cow;
+use std::convert::Infallible;
 use std::io::Write;
 use std::str::FromStr;
 use std::time::Duration;
@@ -472,9 +472,9 @@ impl Contest for YukicoderContest {
 }
 
 impl FromStr for YukicoderContest {
-    type Err = Never;
+    type Err = Infallible;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Never> {
+    fn from_str(s: &str) -> std::result::Result<Self, Infallible> {
         Ok(if s.eq_ignore_ascii_case("no") {
             YukicoderContest::No
         } else {
