@@ -48,12 +48,10 @@ install:
   - rustup set default-host $RUSTUP_HOST
   - rustup update $TRAVIS_RUST_VERSION
   - rustup component add clippy rustfmt
-  - cargo install --debug cargo-make
   - rustc --version --verbose
   - cargo --version --verbose
   - cargo clippy --version
   - rustfmt --version
-  - cargo make --version
   - |
     if [ "${RUSTUP_HOST}" = x86_64-unknown-linux-gnu -a "${TRAVIS_BRANCH}" = master -a "${TRAVIS_PULL_REQUEST}" = false ]; then
       cargo install cargo-kcov &&
@@ -63,8 +61,14 @@ install:
     fi
 
 script:
-  - cargo make check-format
-  - cargo make clippy
+  - rustfmt --check ./proc_macros/src/lib.rs
+  - cargo fmt --all -- --check
+  # https://github.com/rust-lang/rust/issues/59909
+  - bash -c 'cd ./proc_macros && cargo check'
+  - cargo check
+  - find ./src ./tests ./proc_macros/src -type f | xargs touch
+  - bash -c 'cd ./proc_macros && cargo clippy -- -D warnings'
+  - cargo clippy -- -D warnings
   - |
     if [ -f ~/.cargo/bin/cargo-kcov ]; then
       cargo kcov --all &&
