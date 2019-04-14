@@ -3,6 +3,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_derive::Serialize;
 
+use std::convert::TryFrom;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
@@ -16,7 +17,7 @@ pub(crate) struct PositiveFinite<F: Float> {
 }
 
 impl<F: Float> PositiveFinite<F> {
-    pub(crate) fn try_new(value: F) -> std::result::Result<Self, &'static str> {
+    fn try_new(value: F) -> std::result::Result<Self, &'static str> {
         if value.is_sign_positive() && value.is_finite() {
             Ok(Self { inner: value })
         } else {
@@ -41,9 +42,17 @@ impl<'de, F: Float + DeserializeOwned> Deserialize<'de> for PositiveFinite<F> {
     }
 }
 
-impl Into<f64> for PositiveFinite<f64> {
-    fn into(self) -> f64 {
-        self.inner
+impl TryFrom<f64> for PositiveFinite<f64> {
+    type Error = &'static str;
+
+    fn try_from(value: f64) -> std::result::Result<Self, &'static str> {
+        Self::try_new(value)
+    }
+}
+
+impl From<PositiveFinite<f64>> for f64 {
+    fn from(from: PositiveFinite<f64>) -> Self {
+        from.inner
     }
 }
 
@@ -51,6 +60,7 @@ impl Into<f64> for PositiveFinite<f64> {
 mod tests {
     use crate::util::num::PositiveFinite;
 
+    use std::convert::TryFrom as _;
     use std::f64;
 
     #[test]
@@ -59,15 +69,15 @@ mod tests {
             assert!((a - b).abs() < f64::EPSILON);
         }
 
-        PositiveFinite::try_new(0.0).map_err(ToOwned::to_owned)?;
-        PositiveFinite::try_new(1.0).map_err(ToOwned::to_owned)?;
-        PositiveFinite::try_new(1.175_494_2e-38).map_err(ToOwned::to_owned)?;
-        PositiveFinite::try_new(-0.0).unwrap_err();
-        PositiveFinite::try_new(f64::INFINITY).unwrap_err();
-        PositiveFinite::try_new(f64::NAN).unwrap_err();
+        PositiveFinite::try_from(0.0).map_err(ToOwned::to_owned)?;
+        PositiveFinite::try_from(1.0).map_err(ToOwned::to_owned)?;
+        PositiveFinite::try_from(1.175_494_2e-38).map_err(ToOwned::to_owned)?;
+        PositiveFinite::try_from(-0.0).unwrap_err();
+        PositiveFinite::try_from(f64::INFINITY).unwrap_err();
+        PositiveFinite::try_from(f64::NAN).unwrap_err();
         "0.0".parse::<PositiveFinite<f64>>()?;
         assert_f64_eq(
-            Into::<f64>::into(PositiveFinite::try_new(42.0).map_err(ToOwned::to_owned)?),
+            f64::from(PositiveFinite::try_from(42.0).map_err(ToOwned::to_owned)?),
             42.0,
         );
         Ok(())

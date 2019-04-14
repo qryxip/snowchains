@@ -57,9 +57,6 @@ fi
 script_runner = "bash"
 script_extension = "bash"
 
-[tasks.test.windows]
-script_runner = 'C:\Program Files\Git\usr\bin\bash.exe'
-
 [tasks.format]
 category = "Development"
 command = "cargo"
@@ -106,9 +103,6 @@ category = "Development"
 script = ["find ./src ./tests ./proc_macros/src -type f | xargs touch"]
 script_runner = "bash"
 script_extension = "bash"
-
-[tasks.touch.windows]
-script_runner = 'C:\Program Files\Git\usr\bin\bash.exe'
 
 [tasks.default]
 category = "Disabled"

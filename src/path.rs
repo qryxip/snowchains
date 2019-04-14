@@ -87,7 +87,6 @@ impl AbsPath {
     }
 
     #[cfg(windows)]
-    #[cfg_attr(tarpaulin, skip)]
     fn canonicalize_lossy(&self) -> Cow<Self> {
         use if_chain::if_chain;
 

@@ -25,7 +25,7 @@ impl HookCommands {
         if let HookCommands(Some(this)) = self {
             stderr.with_reset(|o| o.bold()?.write_str("Running hooks...\n"))?;
             stderr.flush()?;
-            this.iter().try_for_each(|c| c.run::<O, E>())?;
+            this.iter().try_for_each(HookCommand::run::<O, E>)?;
             stderr.with_reset(|o| o.bold()?.write_str("Done.\n"))?;
             stderr.flush()?;
         }

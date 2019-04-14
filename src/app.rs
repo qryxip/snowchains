@@ -3,8 +3,8 @@ use crate::errors::ExpandTemplateResult;
 use crate::judging::{self, JudgeParams};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::{
-    atcoder, codeforces, yukicoder, DownloadProps, ListLangsProps, RestoreProps, ServiceKind,
-    SessionProps, SubmitProps,
+    atcoder, codeforces, yukicoder, RetrieveLangsProps, RetrieveSubmissionsProps,
+    RetrieveTestCasesProps, ServiceKind, SessionProps, SubmitProps,
 };
 use crate::terminal::{AnsiColorChoice, Term};
 use crate::util::collections::NonEmptyVec;
@@ -24,10 +24,11 @@ use std::path::PathBuf;
                      \n    snowchains <l|login> [FLAGS] [OPTIONS] <service>\
                      \n    snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>\
                      \n    snowchains <d|download> [FLAGS] [OPTIONS]\
-                     \n    snowchains <r|restore> [FLAGS] [OPTIONS]\
+                     \n    snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]\
+                     \n    snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]\
+                     \n    snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]\
                      \n    snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>\
-                     \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>\
-                     \n    snowchains list-langs [FLAGS] [OPTIONS] [problem]")]
+                     \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>")]
 pub enum Opt {
     #[structopt(
         about = "Creates a config file (\"snowchains.toml\")",
@@ -58,19 +59,21 @@ pub enum Opt {
     )]
     Participate(Participate),
     #[structopt(
-        about = "Downloads test cases",
+        about = "Equivalents to `retrieve testcases`",
         name = "download",
         usage = "snowchains <d|download> [FLAGS] [OPTIONS]",
         raw(visible_alias = "\"d\"", display_order = "5")
     )]
-    Download(Download),
+    Download(RetrieveTestcases),
     #[structopt(
-        about = "Downloads source files you have submitted",
-        name = "restore",
-        usage = "snowchains <r|restore> [FLAGS] [OPTIONS]",
+        about = "Retrieves data",
+        name = "retrieve",
+        usage = "snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]\
+                 \n    snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]\
+                 \n    snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]",
         raw(visible_alias = "\"r\"", display_order = "6")
     )]
-    Restore(Restore),
+    Retrieve(Retrieve),
     #[structopt(
         about = "Tests a binary or script",
         name = "judge",
@@ -85,12 +88,6 @@ pub enum Opt {
         raw(visible_alias = "\"s\"", display_order = "8")
     )]
     Submit(Submit),
-    #[structopt(
-        about = "List available languages",
-        name = "list-langs",
-        raw(display_order = "9")
-    )]
-    ListLangs(ListLangs),
 }
 
 #[derive(Debug, Serialize, StructOpt)]
@@ -142,11 +139,36 @@ pub struct Participate {
 }
 
 #[derive(Debug, Serialize, StructOpt)]
-pub struct Download {
-    #[structopt(raw(json = "1"))]
-    pub json: bool,
-    #[structopt(raw(open = "2"))]
+pub enum Retrieve {
+    #[structopt(
+        about = "Retrieves test cases",
+        name = "testcases",
+        usage = "snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]",
+        raw(visible_alias = "\"t\"", display_order = "1")
+    )]
+    Testcases(RetrieveTestcases),
+    #[structopt(
+        about = "Retrieves available languages",
+        name = "languages",
+        usage = "snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]",
+        raw(visible_alias = "\"l\"", display_order = "2")
+    )]
+    Languages(RetrieveLanguages),
+    #[structopt(
+        about = "Retrieves source files you have submitted",
+        name = "submissions",
+        usage = "snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]",
+        raw(visible_alias = "\"s\"", display_order = "3")
+    )]
+    Submissions(RetrieveSubmissions),
+}
+
+#[derive(Debug, Serialize, StructOpt)]
+pub struct RetrieveTestcases {
+    #[structopt(raw(open = "1"))]
     pub open: bool,
+    #[structopt(raw(json = "2"))]
+    pub json: bool,
     #[structopt(
         long = "only-scraped",
         help = "Does not download official test cases",
@@ -164,8 +186,28 @@ pub struct Download {
 }
 
 #[derive(Debug, Serialize, StructOpt)]
-pub struct Restore {
+pub struct RetrieveLanguages {
     #[structopt(raw(json = "1"))]
+    pub json: bool,
+    #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
+    pub service: Option<ServiceKind>,
+    #[structopt(raw(contest = "Kind::Option(2)"))]
+    pub contest: Option<String>,
+    #[structopt(raw(color_choice = "3"))]
+    pub color_choice: AnsiColorChoice,
+    #[structopt(raw(problem = ""))]
+    pub problem: Option<String>,
+}
+
+#[derive(Debug, Serialize, StructOpt)]
+pub struct RetrieveSubmissions {
+    #[structopt(
+        long = "fetch-all",
+        help = "Fetches all of the code",
+        raw(display_order = "1")
+    )]
+    pub fetch_all: bool,
+    #[structopt(raw(json = "2"))]
     pub json: bool,
     #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
@@ -181,19 +223,19 @@ pub struct Restore {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Judge {
-    #[structopt(raw(json = "1"))]
-    pub json: bool,
-    #[structopt(raw(force_compile = "2"))]
+    #[structopt(raw(force_compile = "1"))]
     pub force_compile: bool,
     #[structopt(
         long = "release",
         raw(
-            help = "\"Equivalent to `--mode release`\"",
+            help = "\"Equivalents to `--mode release`\"",
             conflicts_with = "\"mode\"",
             display_order = "2",
         )
     )]
     pub release: bool,
+    #[structopt(raw(json = "3"))]
+    pub json: bool,
     #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -212,11 +254,9 @@ pub struct Judge {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Submit {
-    #[structopt(raw(json = "1"))]
-    pub json: bool,
-    #[structopt(raw(open = "2"))]
+    #[structopt(raw(open = "1"))]
     pub open: bool,
-    #[structopt(raw(conflicts_with = "\"no_judge\"", force_compile = "3"))]
+    #[structopt(raw(conflicts_with = "\"no_judge\"", force_compile = "2"))]
     pub force_compile: bool,
     #[structopt(
         long = "only-transpile",
@@ -236,7 +276,7 @@ pub struct Submit {
     #[structopt(
         long = "debug",
         raw(
-            help = "\"Equivalent to `--mode debug`\"",
+            help = "\"Equivalents to `--mode debug`\"",
             conflicts_with = "\"mode\"",
             display_order = "5",
         )
@@ -245,9 +285,11 @@ pub struct Submit {
     #[structopt(
         long = "no-check-duplication",
         help = "Submits even if the contest is active and you have already solved the problem",
-        raw(display_order = "5")
+        raw(display_order = "6")
     )]
     pub no_check_duplication: bool,
+    #[structopt(raw(json = "7"))]
+    pub json: bool,
     #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -262,20 +304,6 @@ pub struct Submit {
     pub color_choice: AnsiColorChoice,
     #[structopt(raw(problem = ""))]
     pub problem: String,
-}
-
-#[derive(Debug, Serialize, StructOpt)]
-pub struct ListLangs {
-    #[structopt(raw(json = "1"))]
-    pub json: bool,
-    #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
-    pub service: Option<ServiceKind>,
-    #[structopt(raw(contest = "Kind::Option(2)"))]
-    pub contest: Option<String>,
-    #[structopt(raw(color_choice = "3"))]
-    pub color_choice: AnsiColorChoice,
-    #[structopt(raw(problem = ""))]
-    pub problem: Option<String>,
 }
 
 static SERVICE_VALUES: &[&str] = &["atcoder", "codeforces", "yukicoder", "other"];
@@ -506,46 +534,46 @@ impl<T: Term> App<T> {
                 )?;
             }
             Opt::Download(cli_args) => {
-                let Download {
+                self.on_retrieve_testcases(cli_args, SubCommandKind::Download)?
+            }
+            Opt::Retrieve(Retrieve::Testcases(cli_args)) => {
+                self.on_retrieve_testcases(cli_args, SubCommandKind::RetrieveTestcases)?
+            }
+            Opt::Retrieve(Retrieve::Languages(cli_args)) => {
+                let RetrieveLanguages {
                     json,
-                    open,
-                    only_scraped,
                     service,
                     contest,
-                    problems,
                     color_choice,
+                    problem,
                 } = cli_args;
                 let contest = contest.as_ref().map(AsRef::as_ref);
+                let problem = problem.clone();
                 self.term.attempt_enable_ansi(*color_choice);
                 let config = Config::load(*service, contest, None, &wd)?;
-                self.term.apply_conf(config.console());
+                let contest = config.contest().to_owned();
                 let sess_props = self.sess_props(&config)?;
-                let download_props = DownloadProps {
-                    contest: config.contest().to_owned(),
-                    problems: NonEmptyVec::try_new(problems.clone()),
-                    destinations: config.download_destinations(None),
-                    open_in_browser: *open,
-                    only_scraped: *only_scraped,
-                };
-                let props = (sess_props, download_props);
+                let retrieve_props = RetrieveLangsProps { contest, problem };
+                let props = (sess_props, retrieve_props);
                 let term = &mut self.term;
                 let outcome = match config.service() {
-                    ServiceKind::Atcoder => atcoder::download(props, term),
-                    ServiceKind::Codeforces => codeforces::download(props, term),
-                    ServiceKind::Yukicoder => yukicoder::download(props, term),
-                    ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
-                }?;
+                    ServiceKind::Atcoder => atcoder::retrieve_langs(props, term)?,
+                    ServiceKind::Codeforces => codeforces::retrieve_langs(props, term)?,
+                    ServiceKind::Yukicoder => yukicoder::retrieve_langs(props, term)?,
+                    _ => return Err(crate::ErrorKind::Unimplemented.into()),
+                };
                 finish(
                     &outcome,
                     cli_args,
                     &config,
-                    SubCommandKind::Download,
+                    SubCommandKind::RetrieveLanguages,
                     *json,
                     &mut self.term,
                 )?;
             }
-            Opt::Restore(cli_args) => {
-                let Restore {
+            Opt::Retrieve(Retrieve::Submissions(cli_args)) => {
+                let RetrieveSubmissions {
+                    fetch_all,
                     json,
                     service,
                     contest,
@@ -559,19 +587,20 @@ impl<T: Term> App<T> {
                 let config = Config::load(*service, contest, None, &wd)?;
                 self.term.apply_conf(config.console());
                 let sess_props = self.sess_props(&config)?;
-                let restore_props = RestoreProps::new(&config, *mode, problems)?;
-                let props = (sess_props, restore_props);
+                let retrieve_props =
+                    RetrieveSubmissionsProps::new(&config, *mode, problems, *fetch_all)?;
+                let props = (sess_props, retrieve_props);
                 let term = &mut self.term;
                 let outcome = match config.service() {
-                    ServiceKind::Atcoder => atcoder::restore(props, term)?,
-                    ServiceKind::Codeforces => codeforces::restore(props, term)?,
+                    ServiceKind::Atcoder => atcoder::retrieve_submissions(props, term)?,
+                    ServiceKind::Codeforces => codeforces::retrieve_submissiosn(props, term)?,
                     _ => return Err(crate::ErrorKind::Unimplemented.into()),
                 };
                 finish(
                     &outcome,
                     cli_args,
                     &config,
-                    SubCommandKind::Restore,
+                    SubCommandKind::RetrieveSubmissions,
                     *json,
                     &mut self.term,
                 )?;
@@ -686,40 +715,45 @@ impl<T: Term> App<T> {
                     &mut self.term,
                 )?;
             }
-            Opt::ListLangs(cli_args) => {
-                let ListLangs {
-                    json,
-                    service,
-                    contest,
-                    color_choice,
-                    problem,
-                } = cli_args;
-                let contest = contest.as_ref().map(AsRef::as_ref);
-                let problem = problem.clone();
-                self.term.attempt_enable_ansi(*color_choice);
-                let config = Config::load(*service, contest, None, &wd)?;
-                let contest = config.contest().to_owned();
-                let sess_props = self.sess_props(&config)?;
-                let list_langs_props = ListLangsProps { contest, problem };
-                let props = (sess_props, list_langs_props);
-                let term = &mut self.term;
-                let outcome = match config.service() {
-                    ServiceKind::Atcoder => atcoder::list_langs(props, term)?,
-                    ServiceKind::Codeforces => codeforces::list_langs(props, term)?,
-                    ServiceKind::Yukicoder => yukicoder::list_langs(props, term)?,
-                    _ => return Err(crate::ErrorKind::Unimplemented.into()),
-                };
-                finish(
-                    &outcome,
-                    cli_args,
-                    &config,
-                    SubCommandKind::ListLangs,
-                    *json,
-                    &mut self.term,
-                )?;
-            }
         }
         Ok(())
+    }
+
+    fn on_retrieve_testcases(
+        &mut self,
+        cli_args: &RetrieveTestcases,
+        kind: SubCommandKind,
+    ) -> crate::Result<()> {
+        let RetrieveTestcases {
+            json,
+            open,
+            only_scraped,
+            service,
+            contest,
+            problems,
+            color_choice,
+        } = cli_args;
+        let contest = contest.as_ref().map(AsRef::as_ref);
+        self.term.attempt_enable_ansi(*color_choice);
+        let config = Config::load(*service, contest, None, &self.working_dir)?;
+        self.term.apply_conf(config.console());
+        let sess_props = self.sess_props(&config)?;
+        let retrieve_props = RetrieveTestCasesProps {
+            contest: config.contest().to_owned(),
+            problems: NonEmptyVec::try_new(problems.clone()),
+            destinations: config.destinations(None),
+            open_in_browser: *open,
+            only_scraped: *only_scraped,
+        };
+        let props = (sess_props, retrieve_props);
+        let term = &mut self.term;
+        let outcome = match config.service() {
+            ServiceKind::Atcoder => atcoder::retrieve_testcases(props, term),
+            ServiceKind::Codeforces => codeforces::retrieve_testcases(props, term),
+            ServiceKind::Yukicoder => yukicoder::retrieve_testcases(props, term),
+            ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
+        }?;
+        finish(&outcome, cli_args, &config, kind, *json, &mut self.term)
     }
 
     fn sess_props(&mut self, config: &Config) -> ExpandTemplateResult<SessionProps> {

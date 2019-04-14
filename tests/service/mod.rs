@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use snowchains::app::{App, Download, Login, Opt};
+use snowchains::app::{App, Login, Opt, Retrieve, RetrieveTestcases};
 use snowchains::path::{AbsPath, AbsPathBuf};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, TermImpl};
@@ -67,21 +67,21 @@ pub fn login(
     }))
 }
 
-pub fn download(
+pub fn retrieve_testcases(
     mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>,
     service: ServiceKind,
     contest: &str,
     problems: &[&str],
 ) -> snowchains::Result<()> {
-    app.run(Opt::Download(Download {
-        json: true,
+    app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
         open: false,
+        json: true,
         only_scraped: false,
         service: Some(service),
         contest: Some(contest.to_owned()),
         problems: problems.iter().map(|&s| s.to_owned()).collect(),
         color_choice: AnsiColorChoice::Never,
-    }))
+    })))
 }
 
 pub fn confirm_num_cases(

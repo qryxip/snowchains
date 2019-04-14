@@ -138,9 +138,9 @@ impl<T: Term> AppExt for App<T> {
     fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<()> {
         std::fs::write(src_path, code)?;
         self.run(Opt::Judge(Judge {
-            json: false,
             force_compile: false,
             release: false,
+            json: false,
             service: Some(ServiceKind::Atcoder),
             contest: Some("practice".to_owned()),
             language: Some("rust".to_owned()),

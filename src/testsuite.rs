@@ -26,7 +26,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write as _;
 use std::iter::FromIterator;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -90,14 +90,14 @@ impl TestCaseLoader<'_> {
                 .collect::<Vec<_>>();
             while same_nexts(&css, VecDeque::front) {
                 let mut css = css.iter_mut();
-                pref_common.extend(css.next().and_then(|cs| cs.pop_front()));
+                pref_common.extend(css.next().and_then(VecDeque::pop_front));
                 for cs in css {
                     cs.pop_front();
                 }
             }
             while same_nexts(&css, VecDeque::back) {
                 let mut css = css.iter_mut().rev();
-                suf_common_rev.extend(css.next().and_then(|cs| cs.pop_back()));
+                suf_common_rev.extend(css.next().and_then(VecDeque::pop_back));
                 for cs in css {
                     cs.pop_back();
                 }
@@ -203,19 +203,19 @@ impl TestCaseLoader<'_> {
     }
 }
 
-pub(crate) struct DownloadDestinations {
+pub(crate) struct Destinations {
     scraped: Template<AbsPathBuf>,
     text_file_dir: Template<AbsPathBuf>,
     extension: SuiteFileExtension,
 }
 
-impl DownloadDestinations {
+impl Destinations {
     pub(crate) fn new(
         scraped: Template<AbsPathBuf>,
         text_file_dir: Template<AbsPathBuf>,
         extension: SuiteFileExtension,
     ) -> Self {
-        Self {
+        Destinations {
             scraped,
             text_file_dir,
             extension,
@@ -246,6 +246,12 @@ impl SuiteFilePath {
     pub(crate) fn new(path: &AbsPath, extension: SuiteFileExtension) -> Self {
         let path = path.to_owned();
         Self { path, extension }
+    }
+}
+
+impl AsRef<Path> for SuiteFilePath {
+    fn as_ref(&self) -> &Path {
+        self.path.as_ref()
     }
 }
 
@@ -885,6 +891,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempdir::TempDir;
 
+    use std::convert::TryFrom as _;
     use std::env;
     use std::path::Path;
     use std::time::Duration;
@@ -1303,8 +1310,8 @@ cases:
             head: BatchSuiteSchemaHead {
                 timelimit: Some(Duration::from_secs(2)),
                 output_match: Match::Float {
-                    relative_error: Some(PositiveFinite::try_new(0.001).unwrap()),
-                    absolute_error: Some(PositiveFinite::try_new(0.001).unwrap()),
+                    relative_error: Some(PositiveFinite::try_from(0.001).unwrap()),
+                    absolute_error: Some(PositiveFinite::try_from(0.001).unwrap()),
                 },
             },
             cases: vec![

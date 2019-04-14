@@ -1,7 +1,6 @@
 use crate::errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::session::HttpSession;
 use crate::terminal::{TermOut, WriteAnsi as _};
-use crate::util::lang_unstable::Never;
 
 use failure::ResultExt as _;
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
@@ -9,6 +8,7 @@ use reqwest::{header, StatusCode};
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
+use std::convert::Infallible;
 use std::io::{self, Cursor, Write as _};
 use std::time::{Duration, Instant};
 use std::{char, mem};
@@ -99,7 +99,7 @@ pub(super) trait DownloadProgress {
 }
 
 struct Downloading<
-    C: Future<Item = Never, Error = ServiceError> + Send + 'static,
+    C: Future<Item = Infallible, Error = ServiceError> + Send + 'static,
     W: AsyncWrite,
     R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
 > {
@@ -128,7 +128,7 @@ struct ProgressPending {
 }
 
 impl<
-        C: Future<Item = Never, Error = ServiceError> + Send + 'static,
+        C: Future<Item = Infallible, Error = ServiceError> + Send + 'static,
         W: AsyncWrite,
         R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
     > Downloading<C, W, R>
@@ -273,7 +273,7 @@ impl<
 }
 
 impl<
-        C: Future<Item = Never, Error = ServiceError> + Send + 'static,
+        C: Future<Item = Infallible, Error = ServiceError> + Send + 'static,
         W: AsyncWrite,
         R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
     > Future for Downloading<C, W, R>

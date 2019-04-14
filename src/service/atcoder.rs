@@ -1,25 +1,28 @@
 use crate::errors::{
     FileResult, ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult,
 };
-use crate::path::AbsPath;
+use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
-    Contest, DownloadOutcome, DownloadOutcomeProblem, DownloadProps, ListLangsOutcome,
-    ListLangsProps, LoginOutcome, ParticipateOutcome, PrintTargets as _, RestoreOutcome,
-    RestoreProps, Service, SessionProps, SubmitOutcome, SubmitProps,
+    Contest, LoginOutcome, ParticipateOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
+    RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeSubmission,
+    RetrieveSubmissionsOutcomeSubmissionDetail, RetrieveSubmissionsOutcomeSubmissionProblem,
+    RetrieveSubmissionsOutcomeSubmissionVerdict, RetrieveSubmissionsProps,
+    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service,
+    SessionProps, SubmitOutcome, SubmitProps,
 };
+use crate::template::Template;
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
-use crate::testsuite::{self, BatchSuite, DownloadDestinations, InteractiveSuite, TestSuite};
+use crate::testsuite::{self, BatchSuite, Destinations, InteractiveSuite, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
-use crate::util::lang_unstable::Never;
 use crate::util::num::PositiveFinite;
 use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
 
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, FixedOffset, Local, Utc};
 use failure::ResultExt as _;
-use indexmap::IndexMap;
+use indexmap::{indexset, IndexMap, IndexSet};
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
@@ -34,6 +37,8 @@ use url::Url;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::convert::Infallible;
+use std::convert::TryInto as _;
 use std::io::Write as _;
 use std::ops::Deref;
 use std::path::Path;
@@ -63,60 +68,56 @@ pub(crate) fn participate(
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
-pub(crate) fn download(
-    props: (SessionProps, DownloadProps<String>),
-    mut term: impl Term,
-) -> ServiceResult<DownloadOutcome> {
-    let (mut sess_props, download_props) = props;
+pub(crate) fn retrieve_testcases(
+    props: (SessionProps, RetrieveTestCasesProps<String>),
+    term: impl Term,
+) -> ServiceResult<RetrieveTestCasesOutcome> {
+    let (mut sess_props, retrieve_props) = props;
     let dropbox_path = sess_props.dropbox_path.take();
     let dropbox_path = dropbox_path.as_ref().map(Deref::deref);
-    let download_props = download_props
+    let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    download_props.print_targets(term.stderr())?;
-    Atcoder::try_new(sess_props, term)?.download(&download_props, dropbox_path)
+    Atcoder::try_new(sess_props, term)?.retrieve_testcases(&retrieve_props, dropbox_path)
+}
+
+pub(crate) fn retrieve_langs(
+    props: (SessionProps, RetrieveLangsProps<String>),
+    term: impl Term,
+) -> ServiceResult<RetrieveLangsOutcome> {
+    let (sess_props, retrieve_props) = props;
+    let retrieve_props = retrieve_props
+        .convert_problem(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
+    Atcoder::try_new(sess_props, term)?.retrieve_langs(retrieve_props)
 }
 
 /// Downloads submitted source codes.
-pub(crate) fn restore(
-    props: (SessionProps, RestoreProps<String>),
-    mut term: impl Term,
-) -> ServiceResult<RestoreOutcome> {
-    let (sess_props, restore_props) = props;
-    let restore_props = restore_props
+pub(crate) fn retrieve_submissions(
+    props: (SessionProps, RetrieveSubmissionsProps<String>),
+    term: impl Term,
+) -> ServiceResult<RetrieveSubmissionsOutcome> {
+    let (sess_props, retrieve_props) = props;
+    let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    restore_props.print_targets(term.stderr())?;
-    Atcoder::try_new(sess_props, term)?.restore(&restore_props)
+    Atcoder::try_new(sess_props, term)?.retrieve_submissions(&retrieve_props)
 }
 
 /// Submits a source code.
 pub(crate) fn submit(
     props: (SessionProps, SubmitProps<String>),
-    mut term: impl Term,
+    term: impl Term,
 ) -> ServiceResult<SubmitOutcome> {
     let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    submit_props.print_targets(term.stderr())?;
     Atcoder::try_new(sess_props, term)?.submit(&submit_props)
-}
-
-pub(crate) fn list_langs(
-    props: (SessionProps, ListLangsProps<String>),
-    mut term: impl Term,
-) -> ServiceResult<ListLangsOutcome> {
-    let (sess_props, list_langs_props) = props;
-    let list_langs_props = list_langs_props
-        .convert_problem(CaseConversion::Upper)
-        .parse_contest()
-        .unwrap();
-    list_langs_props.print_targets(term.stderr())?;
-    Atcoder::try_new(sess_props, term)?.list_langs(list_langs_props)
 }
 
 pub(self) struct Atcoder<T: Term> {
@@ -303,12 +304,12 @@ impl<T: Term> Atcoder<T> {
         Ok(ParticipateOutcome {})
     }
 
-    fn download(
+    fn retrieve_testcases(
         &mut self,
-        props: &DownloadProps<AtcoderContest>,
+        props: &RetrieveTestCasesProps<AtcoderContest>,
         dropbox_path: Option<&AbsPath>,
-    ) -> ServiceResult<DownloadOutcome> {
-        let DownloadProps {
+    ) -> ServiceResult<RetrieveTestCasesOutcome> {
+        let RetrieveTestCasesProps {
             contest,
             problems,
             destinations,
@@ -324,7 +325,7 @@ impl<T: Term> Atcoder<T> {
                 Some(problems) => problems.iter().any(|p| p == name),
             })
             .collect::<Vec<_>>();
-        let mut outcome = DownloadOutcome::new(contest);
+        let mut outcome = RetrieveTestCasesOutcome::new(contest);
         for (name, url) in names_and_urls {
             let suite = match contest.preset_suite(&name) {
                 Some(suite) => suite,
@@ -345,10 +346,10 @@ impl<T: Term> Atcoder<T> {
                     .iter_mut()
                     .map(|p| (p.name.as_str(), &mut p.test_suite))
                     .collect::<BTreeMap<_, _>>();
-                self.download_from_dropbox(dropbox_path, &contest.slug(), suites, destinations)?;
+                self.retrieve_from_dropbox(dropbox_path, &contest.slug(), suites, destinations)?;
             }
         }
-        for DownloadOutcomeProblem {
+        for RetrieveTestCasesOutcomeProblem {
             name,
             test_suite,
             test_suite_path,
@@ -366,19 +367,19 @@ impl<T: Term> Atcoder<T> {
         }
         if *open_in_browser {
             self.open_in_browser(&contest.url_submissions_me(1))?;
-            for DownloadOutcomeProblem { url, .. } in &outcome.problems {
+            for RetrieveTestCasesOutcomeProblem { url, .. } in &outcome.problems {
                 self.open_in_browser(url.as_str())?;
             }
         }
         Ok(outcome)
     }
 
-    fn download_from_dropbox(
+    fn retrieve_from_dropbox(
         &mut self,
         auth_path: &AbsPath,
         contest_slug: &str,
         mut suites: BTreeMap<&str, &mut TestSuite>,
-        destinations: &DownloadDestinations,
+        destinations: &Destinations,
     ) -> ServiceResult<()> {
         static URL: &str =
             "https://www.dropbox.com/sh/arnpe0ef5wds8cv/AAAk_SECQ2Nc6SVGii3rHX6Fa?dl=0";
@@ -445,7 +446,7 @@ impl<T: Term> Atcoder<T> {
                 .recv_json()
         }
 
-        fn download_files(
+        fn retrieve_files(
             this: &mut Atcoder<impl Term>,
             token: &str,
             prefix: &str,
@@ -497,10 +498,10 @@ impl<T: Term> Atcoder<T> {
             .map(|problem| {
                 let in_dir = format!("/{}/{}/in", contest_slug, problem);
                 let entries = list_folder(self, &token, &in_dir)?.entries;
-                let in_contents = download_files(self, &token, &in_dir, &entries)?;
+                let in_contents = retrieve_files(self, &token, &in_dir, &entries)?;
                 let out_dir = format!("/{}/{}/out", contest_slug, problem);
                 let entries = list_folder(self, &token, &out_dir)?.entries;
-                let mut out_contents = download_files(self, &token, &out_dir, &entries)?;
+                let mut out_contents = retrieve_files(self, &token, &out_dir, &entries)?;
                 let contents = in_contents
                     .into_iter()
                     .filter_map(|(name, i)| out_contents.remove(&name).map(|o| (name, (i, o))))
@@ -540,23 +541,37 @@ impl<T: Term> Atcoder<T> {
         self.stderr().flush().map_err(Into::into)
     }
 
-    fn restore(&mut self, props: &RestoreProps<AtcoderContest>) -> ServiceResult<RestoreOutcome> {
-        fn collect_urls(
-            detail_urls: &mut HashMap<(String, String), String>,
-            submissions: vec::IntoIter<Submission>,
-        ) {
-            for submission in submissions {
-                let key = (submission.task_name, submission.lang_name);
-                if detail_urls.get(&key).is_none() {
-                    detail_urls.insert(key, submission.detail_url);
-                }
+    fn retrieve_langs(
+        &mut self,
+        props: RetrieveLangsProps<AtcoderContest>,
+    ) -> ServiceResult<RetrieveLangsOutcome> {
+        let RetrieveLangsProps { contest, problem } = props;
+        self.login_if_not(false)?;
+        let url = match problem {
+            None => contest.url_submit(),
+            Some(problem) => {
+                let url = self
+                    .fetch_tasks_page(&contest)?
+                    .extract_task_urls_with_names()?
+                    .into_element(&problem)
+                    .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
+                self.session.resolve_url(&url)?
             }
-        }
+        };
+        let langs = self.get(&url).recv_html()?.extract_langs()?;
+        self.print_lang_list(&langs)?;
+        Ok(RetrieveLangsOutcome::new(url, langs))
+    }
 
-        let RestoreProps {
+    fn retrieve_submissions(
+        &mut self,
+        props: &RetrieveSubmissionsProps<AtcoderContest>,
+    ) -> ServiceResult<RetrieveSubmissionsOutcome> {
+        let RetrieveSubmissionsProps {
             contest,
             problems,
             src_paths,
+            fetch_all,
         } = props;
 
         let first_page = {
@@ -573,56 +588,123 @@ impl<T: Term> Atcoder<T> {
                     .recv_html()?
             }
         };
-        let (submissions, num_pages) = first_page.extract_submissions()?;
-        let mut detail_urls = HashMap::new();
-        collect_urls(&mut detail_urls, submissions);
-        for i in 2..=num_pages {
-            let page = self.get(&contest.url_submissions_me(i)).recv_html()?;
-            let (submission, _) = page.extract_submissions()?;
-            collect_urls(&mut detail_urls, submission);
-        }
-        let mut results = vec![];
-        for ((task_name, lang_name), detail_url) in detail_urls {
-            if problems.is_some() && !problems.as_ref().unwrap().iter().any(|p| p == &task_name) {
-                continue;
+
+        let submissions = {
+            let (mut submissions, num_pages) = first_page.extract_submissions()?;
+            for i in 2..=num_pages {
+                let page = self.get(&contest.url_submissions_me(i)).recv_html()?;
+                submissions.extend(page.extract_submissions()?.0);
             }
-            let code = self
-                .get(&detail_url)
-                .recv_html()?
-                .extract_submitted_code()?;
-            if let Some(path_template) = src_paths.get(lang_name.as_str()) {
-                let path = path_template.expand(Some(&task_name.to_lowercase()))?;
-                crate::fs::write(&path, code.as_bytes())?;
-                results.push((task_name, lang_name, path));
-            } else {
-                self.stderr()
-                    .with_reset(|o| writeln!(o.fg(11)?, "Ignoring {:?}", lang_name))?;
-                self.stderr().flush()?;
-            }
-        }
-        let mut not_found = match problems.as_ref() {
-            None => vec![],
-            Some(problems) => problems.iter().collect(),
+            submissions
         };
-        for (task_name, lang_name, path) in &results {
-            writeln!(
-                self.stderr(),
-                "{} - {:?}: Saved to {}",
-                task_name,
-                lang_name,
-                path.display()
-            )?;
-            not_found.remove_item_(&task_name);
+
+        let mut outcome = RetrieveSubmissionsOutcome::new();
+
+        let mut found = indexset!();
+        for submission in submissions {
+            let mut retrieve_code = || -> ServiceResult<_> {
+                self.get(&submission.url)
+                    .recv_html()?
+                    .extract_submitted_code()
+                    .map_err(Into::into)
+            };
+            let save_code =
+                |path: &Template<AbsPathBuf>, code: &str| -> ServiceResult<AbsPathBuf> {
+                    let path = path.expand(Some(&submission.task_slug))?;
+                    crate::fs::write(&path, code.as_bytes())?;
+                    Ok(path)
+                };
+            if problems
+                .as_ref()
+                .map_or(true, |ps| ps.contains(&submission.task_slug))
+            {
+                let (code, saved_as) = match src_paths.get(submission.lang.as_str()) {
+                    Some(path) if *fetch_all => {
+                        let code = retrieve_code()?;
+                        if found.contains(submission.lang.as_str()) {
+                            (Some(code), None)
+                        } else {
+                            found.insert(submission.lang.clone());
+                            let path = save_code(path, &code)?;
+                            (Some(code), Some(path))
+                        }
+                    }
+                    Some(path) => {
+                        if found.contains(submission.lang.as_str()) {
+                            (None, None)
+                        } else {
+                            found.insert(submission.lang.clone());
+                            let code = retrieve_code()?;
+                            let path = save_code(path, &code)?;
+                            (Some(code), Some(path))
+                        }
+                    }
+                    None if *fetch_all => (Some(retrieve_code()?), None),
+                    None => {
+                        self.stderr().with_reset(|o| {
+                            writeln!(o.fg(11)?, "Ignoring {:?}", submission.lang)
+                        })?;
+                        self.stderr().flush()?;
+                        (None, None)
+                    }
+                };
+                let url = submission.url;
+                let submission = RetrieveSubmissionsOutcomeSubmission {
+                    problem: RetrieveSubmissionsOutcomeSubmissionProblem::new(
+                        &submission.task_url,
+                        &submission.task_slug,
+                        &submission.task_display,
+                        &submission.task_screen,
+                    ),
+                    language: submission.lang,
+                    date_time: submission.datetime,
+                    verdict: RetrieveSubmissionsOutcomeSubmissionVerdict {
+                        is_ok: submission.verdict_is_ac,
+                        string: submission.verdict,
+                    },
+                    detail: code.map(|code| RetrieveSubmissionsOutcomeSubmissionDetail { code }),
+                    saved_as,
+                };
+                outcome.submissions.insert(url, submission);
+            }
         }
+
+        let mut not_found = problems
+            .as_ref()
+            .map(|ps| ps.iter().collect::<IndexSet<_>>())
+            .unwrap_or_default();
+
+        for (_, submission) in &outcome.submissions {
+            if let Some(saved_as) = &submission.saved_as {
+                writeln!(
+                    self.stderr(),
+                    "{} - {:?}: Saved to {}",
+                    submission.problem.slug,
+                    submission.language,
+                    saved_as.display(),
+                )?;
+            }
+            not_found.remove(&submission.problem.slug);
+        }
+
         if !not_found.is_empty() {
             self.stderr()
                 .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
             self.stderr().flush()?;
         }
-        let stderr = self.stderr();
-        writeln!(stderr, "Saved {}.", plural!(results.len(), "file", "files"))?;
-        stderr.flush()?;
-        Ok(RestoreOutcome {})
+
+        let num_saved = outcome
+            .submissions
+            .iter()
+            .filter(|(_, s)| s.saved_as.is_some())
+            .count();
+        writeln!(
+            self.stderr(),
+            "Saved {}.",
+            plural!(num_saved, "file", "files"),
+        )?;
+        self.stderr().flush()?;
+        Ok(outcome)
     }
 
     fn submit(&mut self, props: &SubmitProps<AtcoderContest>) -> ServiceResult<SubmitOutcome> {
@@ -644,22 +726,25 @@ impl<T: Term> Atcoder<T> {
             };
         let url = tasks_page
             .extract_task_urls_with_names()?
-            .remove(problem)
+            .into_element(problem)
             .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
-        let task_screen_name = {
-            static SCREEN_NAME: Lazy<Regex> =
+        let task_screen = {
+            static SCREEN: Lazy<Regex> =
                 lazy_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$");
-            SCREEN_NAME
+            SCREEN
                 .captures(&url)
                 .map(|cs| cs[1].to_owned())
                 .ok_or_else(ScrapeError::new)?
         };
         if checks_if_accepted {
-            let (mut submissions, num_pages) = self
+            let (submissions, num_pages) = self
                 .get(&contest.url_submissions_me(1))
                 .recv_html()?
                 .extract_submissions()?;
-            if submissions.any(|s| s.task_screen_name == task_screen_name && s.is_ac) {
+            if submissions
+                .iter()
+                .any(|s| s.task_screen == task_screen && s.verdict_is_ac)
+            {
                 return Err(ServiceErrorKind::AlreadyAccepted.into());
             }
             for i in 2..=num_pages {
@@ -668,7 +753,8 @@ impl<T: Term> Atcoder<T> {
                     .recv_html()?
                     .extract_submissions()?
                     .0
-                    .any(|s| s.task_screen_name == task_screen_name && s.is_ac)
+                    .iter()
+                    .any(|s| s.task_screen == task_screen && s.verdict_is_ac)
                 {
                     return Err(ServiceErrorKind::AlreadyAccepted.into());
                 }
@@ -691,7 +777,7 @@ impl<T: Term> Atcoder<T> {
         let csrf_token = document.extract_csrf_token()?;
         let url = contest.url_submit();
         let payload = hashmap!(
-            "data.TaskScreenName" => task_screen_name.as_str(),
+            "data.TaskScreenName" => task_screen.as_str(),
             "data.LanguageId" => &lang_id,
             "sourceCode" => &source_code,
             "csrf_token" => &csrf_token,
@@ -735,28 +821,6 @@ impl<T: Term> Atcoder<T> {
             self.open_in_browser(&contest.url_submissions_me(1))?;
         }
         Ok(SubmitOutcome {})
-    }
-
-    fn list_langs(
-        &mut self,
-        props: ListLangsProps<AtcoderContest>,
-    ) -> ServiceResult<ListLangsOutcome> {
-        let ListLangsProps { contest, problem } = props;
-        self.login_if_not(false)?;
-        let url = match problem {
-            None => contest.url_submit(),
-            Some(problem) => {
-                let url = self
-                    .fetch_tasks_page(&contest)?
-                    .extract_task_urls_with_names()?
-                    .remove(&problem)
-                    .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
-                self.session.resolve_url(&url)?
-            }
-        };
-        let langs = self.get(&url).recv_html()?.extract_langs()?;
-        self.print_lang_list(&langs)?;
-        Ok(ListLangsOutcome::new(url, langs))
     }
 }
 
@@ -869,9 +933,9 @@ impl Contest for AtcoderContest {
 }
 
 impl FromStr for AtcoderContest {
-    type Err = Never;
+    type Err = Infallible;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Never> {
+    fn from_str(s: &str) -> std::result::Result<Self, Infallible> {
         Ok(Self::new(s))
     }
 }
@@ -916,11 +980,15 @@ impl ContestDuration {
 }
 
 struct Submission {
-    task_name: String,
-    task_screen_name: String,
-    lang_name: String,
-    detail_url: String,
-    is_ac: bool,
+    url: Url,
+    task_url: Url,
+    task_slug: String,
+    task_display: String,
+    task_screen: String,
+    datetime: DateTime<FixedOffset>,
+    lang: String,
+    verdict_is_ac: bool,
+    verdict: String,
 }
 
 trait Extract {
@@ -928,7 +996,7 @@ trait Extract {
     fn extract_task_urls_with_names(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
     fn extract_as_suite(&self) -> ScrapeResult<TestSuite>;
     fn extract_contest_duration(&self) -> ScrapeResult<ContestDuration>;
-    fn extract_submissions(&self) -> ScrapeResult<(vec::IntoIter<Submission>, u32)>;
+    fn extract_submissions(&self) -> ScrapeResult<(Vec<Submission>, u32)>;
     fn extract_submitted_code(&self) -> ScrapeResult<String>;
     fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String>;
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
@@ -1117,7 +1185,7 @@ impl Extract for Document {
             let caps = R.captures(s)?;
             let base = caps[1].parse::<f64>().ok()?;
             let exp = caps[2].parse::<f64>().ok()?;
-            PositiveFinite::try_new(base.powf(exp)).ok()
+            base.powf(exp).try_into().ok()
         }
 
         fn parse_zenkaku<T: FromStr>(s: &str) -> Result<T, T::Err> {
@@ -1202,7 +1270,7 @@ impl Extract for Document {
         }
     }
 
-    fn extract_submissions(&self) -> ScrapeResult<(vec::IntoIter<Submission>, u32)> {
+    fn extract_submissions(&self) -> ScrapeResult<(Vec<Submission>, u32)> {
         let extract = || {
             let num_pages = self
                 .find(
@@ -1220,40 +1288,53 @@ impl Extract for Document {
                  > div.table-responsive > table.table > tbody > tr",
             );
             for tr in self.find(pred) {
-                let (task_name, task_screen_name) = {
-                    static SCREEN_NAME: Lazy<Regex> = lazy_regex!(r"\A(\w+).*\z");
-                    static TASK_SCREEN_NAME: Lazy<Regex> =
+                let (task_url, task_slug, task_display, task_screen, datetime) = {
+                    static SLUG: Lazy<Regex> = lazy_regex!(r"\A(\w+).*\z");
+                    static SCREEN: Lazy<Regex> =
                         lazy_regex!(r"\A/contests/[\w-]+/tasks/([\w-]+)\z");
+                    static DATETIME: &'static str = "%F %T%z";
                     let a = tr.find(selector!("td > a")).nth(0)?;
-                    let task_full_name = a.find(Text).next()?.text();
-                    let task_name = SCREEN_NAME.captures(&task_full_name)?[1].to_owned();
-                    let task_url = a.attr("href")?;
-                    let task_screen_name = TASK_SCREEN_NAME.captures(task_url)?[1].to_owned();
-                    (task_name, task_screen_name)
+                    let task_display = a.find(Text).next()?.text();
+                    let task_slug = SLUG.captures(&task_display)?[1].to_owned();
+                    let task_path = a.attr("href")?;
+                    let task_screen = SCREEN.captures(task_path)?[1].to_owned();
+                    let mut task_url = "https://atcoder.jp".parse::<Url>().unwrap();
+                    task_url.set_path(&task_path);
+                    let datetime = tr
+                        .find(selector!("td > time").child(Text))
+                        .next()?
+                        .as_text()
+                        .unwrap();
+                    let datetime = DateTime::parse_from_str(datetime, DATETIME).ok()?;
+                    (task_url, task_slug, task_display, task_screen, datetime)
                 };
-                let lang_name = tr.find(selector!("td")).nth(3)?.find(Text).next()?.text();
-                let is_ac = {
-                    let status = tr.find(selector!("td > span").child(Text)).nth(0)?.text();
-                    status == "AC"
-                };
-                let detail_url = tr
+                let lang = tr.find(selector!("td")).nth(3)?.find(Text).next()?.text();
+                let verdict = tr.find(selector!("td > span").child(Text)).nth(0)?.text();
+                let url = tr
                     .find(selector!("td.text-center > a"))
-                    .flat_map(|a| -> Option<String> {
+                    .flat_map(|a| {
                         let text = a.find(Text).next()?.text();
                         guard!(["詳細", "Detail"].contains(&text.as_str()));
-                        a.attr("href").map(ToOwned::to_owned)
+                        let mut url = "https://atcoder.jp".parse::<Url>().unwrap();
+                        url.set_path(a.attr("href")?);
+                        Some(url)
                     })
                     .next()?;
                 submissions.push(Submission {
-                    task_name,
-                    task_screen_name,
-                    lang_name,
-                    detail_url,
-                    is_ac,
+                    url,
+                    task_url,
+                    task_slug,
+                    task_display,
+                    task_screen,
+                    lang,
+                    datetime,
+                    verdict_is_ac: verdict == "AC",
+                    verdict,
                 })
             }
-            Some((submissions.into_iter(), num_pages))
+            Some((submissions, num_pages))
         };
+
         extract().ok_or_else(ScrapeError::new)
     }
 

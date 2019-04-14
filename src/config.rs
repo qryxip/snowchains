@@ -7,7 +7,7 @@ use crate::template::{
     JudgingCommandRequirements, Template, TemplateBuilder, TranspilationCommandRequirements,
 };
 use crate::terminal::{TermOut, WriteSpaces as _};
-use crate::testsuite::{DownloadDestinations, SuiteFileExtension, TestCaseLoader};
+use crate::testsuite::{Destinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
 use crate::util::combine::OnelinePosition;
 
@@ -264,7 +264,7 @@ api_tokens = {session_api_tokens}
 dropbox = false
 # dropbox = {{ auth: {session_dropbox} }}
 
-[session.download]
+[session.retrieve]
 extension = "yml"
 text_file_dir = "${{service}}/${{snake_case(contest)}}/tests/${{snake_case(problem)}}"
 
@@ -305,7 +305,16 @@ RUST_VERSION = "1.30.1"
 
 # [hooks]
 # switch = {{ {jq} }}
+# login = {{ {jq} }}
+# participate = {{ {jq} }}
 # download = {{ {jq} }}
+# judge = {{ {jq} }}
+# submit = {{ {jq} }}
+
+# [hooks.retrieve]
+# testcases = {{ {jq} }}
+# submissions = {{ {jq} }}
+# languages = {{ {jq} }}
 
 [tester]
 src = "testers/py/${{kebab_case(problem)}}.py"
@@ -693,7 +702,7 @@ impl Config {
             sync_lazy!(TemplateBuilder::default());
         self.inner
             .hooks
-            .get(&kind)
+            .get(kind)
             .unwrap_or(&DEFAULT)
             .build(HookCommandsRequirements {
                 base_dir: self.base_dir.clone(),
@@ -702,16 +711,13 @@ impl Config {
             })
     }
 
-    /// Constructs a `DownloadDestinations`.
-    pub(crate) fn download_destinations(
-        &self,
-        ext: Option<SuiteFileExtension>,
-    ) -> DownloadDestinations {
+    /// Constructs a `Destinations`.
+    pub(crate) fn destinations(&self, ext: Option<SuiteFileExtension>) -> Destinations {
         let scraped = self.build_path_template(&self.inner.testfiles.path, None);
         let text_file_dir =
-            self.build_path_template(&self.inner.session.download.text_file_dir, None);
-        let ext = ext.unwrap_or(self.inner.session.download.extension);
-        DownloadDestinations::new(scraped, text_file_dir, ext)
+            self.build_path_template(&self.inner.session.retrieve.text_file_dir, None);
+        let ext = ext.unwrap_or(self.inner.session.retrieve.extension);
+        Destinations::new(scraped, text_file_dir, ext)
     }
 
     /// Constructs a `TestCaseLoader`.
@@ -932,7 +938,7 @@ pub(crate) struct Inner {
     #[serde(default)]
     env: Env,
     #[serde(default)]
-    hooks: BTreeMap<SubCommandKind, TemplateBuilder<HookCommands>>,
+    hooks: Hooks,
     tester: Option<Language>,
     languages: HashMap<String, Language>,
 }
@@ -965,7 +971,7 @@ struct Session {
     cookies: TemplateBuilder<AbsPathBuf>,
     #[serde(default)]
     dropbox: Dropbox,
-    download: Download,
+    retrieve: Retrieve,
 }
 
 const fn const_true() -> bool {
@@ -1018,7 +1024,7 @@ impl<'de> Deserialize<'de> for Dropbox {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Download {
+struct Retrieve {
     extension: SuiteFileExtension,
     text_file_dir: TemplateBuilder<AbsPathBuf>,
 }
@@ -1296,34 +1302,52 @@ impl<'de> Deserialize<'de> for Predicate {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Default, Serialize, Deserialize)]
+struct Hooks {
+    switch: Option<TemplateBuilder<HookCommands>>,
+    login: Option<TemplateBuilder<HookCommands>>,
+    participate: Option<TemplateBuilder<HookCommands>>,
+    download: Option<TemplateBuilder<HookCommands>>,
+    #[serde(default)]
+    retrieve: HooksRetrieve,
+    judge: Option<TemplateBuilder<HookCommands>>,
+    submit: Option<TemplateBuilder<HookCommands>>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct HooksRetrieve {
+    testcases: Option<TemplateBuilder<HookCommands>>,
+    languages: Option<TemplateBuilder<HookCommands>>,
+    submissions: Option<TemplateBuilder<HookCommands>>,
+}
+
+impl Hooks {
+    fn get(&self, kind: SubCommandKind) -> Option<&TemplateBuilder<HookCommands>> {
+        match kind {
+            SubCommandKind::Switch => self.switch.as_ref(),
+            SubCommandKind::Login => self.login.as_ref(),
+            SubCommandKind::Participate => self.participate.as_ref(),
+            SubCommandKind::Download => self.download.as_ref(),
+            SubCommandKind::RetrieveTestcases => self.retrieve.testcases.as_ref(),
+            SubCommandKind::RetrieveLanguages => self.retrieve.languages.as_ref(),
+            SubCommandKind::RetrieveSubmissions => self.retrieve.submissions.as_ref(),
+            SubCommandKind::Judge => self.judge.as_ref(),
+            SubCommandKind::Submit => self.submit.as_ref(),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(crate) enum SubCommandKind {
     Switch,
     Login,
     Participate,
     Download,
-    Restore,
+    RetrieveTestcases,
+    RetrieveLanguages,
+    RetrieveSubmissions,
     Judge,
     Submit,
-    ListLangs,
-    Other,
-}
-
-impl<'de> Deserialize<'de> for SubCommandKind {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        match String::deserialize(deserializer)?.as_str() {
-            "switch" => Ok(SubCommandKind::Switch),
-            "login" => Ok(SubCommandKind::Login),
-            "participate" => Ok(SubCommandKind::Participate),
-            "download" => Ok(SubCommandKind::Download),
-            "restore" => Ok(SubCommandKind::Restore),
-            "judge" => Ok(SubCommandKind::Judge),
-            "submit" => Ok(SubCommandKind::Submit),
-            "list_langs" => Ok(SubCommandKind::ListLangs),
-            _ => Ok(SubCommandKind::Other),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize)]

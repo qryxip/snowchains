@@ -4,7 +4,6 @@ use crate::util::num::PositiveFinite;
 use combine::Parser as _;
 use derive_new::new;
 
-use std::fmt::Write as _;
 use std::sync::Arc;
 use std::{cmp, f64, io};
 
@@ -49,12 +48,7 @@ impl Text {
             let codepoints = many1::<String, _>(satisfy(|c: char| {
                 ![' ', '\t', '\r', '\n'].contains(&c) && (c.is_whitespace() || c.is_control())
             }))
-            .map(|s| {
-                Word::CodePoints(Arc::new(s.chars().fold("".to_owned(), |mut s, c| {
-                    write!(s, "{}", c.escape_unicode()).unwrap();
-                    s
-                })))
-            });
+            .map(|s| Word::CodePoints(Arc::new(s.escape_unicode().collect())));
             let plain =
                 many1(satisfy(|c: char| !(c.is_whitespace() || c.is_control()))).map(on_plain);
             let lf = char('\n').map(|_| None);

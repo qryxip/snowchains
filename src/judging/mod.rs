@@ -8,13 +8,13 @@ use crate::errors::{JudgeError, JudgeErrorKind, JudgeResult};
 use crate::terminal::{TermOut, WriteAnsi};
 use crate::testsuite::{TestCase, TestCases};
 use crate::util::collections::NonEmptyVec;
-use crate::util::lang_unstable::Never;
 
 use futures::{task, try_ready, Async, Future, Poll};
 use serde_derive::Serialize;
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
+use std::convert::Infallible;
 use std::fmt::{self, Write as _};
 use std::io::{self, Cursor, Write as _};
 use std::num::NonZeroUsize;
@@ -90,7 +90,7 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
 
     impl<
             W: AsyncWrite,
-            S: Future<Item = Never, Error = JudgeError>,
+            S: Future<Item = Infallible, Error = JudgeError>,
             C,
             F: Future<Error = io::Error>,
         > Future for Progress<W, S, C, F>
@@ -280,7 +280,7 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
         F::Item: Outcome + Send + 'static,
     {
         let num_cases = cases.len();
-        let names = cases.ref_map(|c| c.name());
+        let names = cases.ref_map(TestCase::name);
         let name_max_width = names.iter().map(|s| stderr.str_width(s)).max().unwrap_or(0);
 
         let mut runtime = Runtime::new()?;
