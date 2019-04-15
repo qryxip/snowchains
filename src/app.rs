@@ -59,7 +59,7 @@ pub enum Opt {
     )]
     Participate(Participate),
     #[structopt(
-        about = "Equivalents to `retrieve testcases`",
+        about = "An alias for `retrieve testcases`",
         name = "download",
         usage = "snowchains <d|download> [FLAGS] [OPTIONS]",
         raw(visible_alias = "\"d\"", display_order = "5")
@@ -533,11 +533,44 @@ impl<T: Term> App<T> {
                     &mut self.term,
                 )?;
             }
-            Opt::Download(cli_args) => {
-                self.on_retrieve_testcases(cli_args, SubCommandKind::Download)?
-            }
-            Opt::Retrieve(Retrieve::Testcases(cli_args)) => {
-                self.on_retrieve_testcases(cli_args, SubCommandKind::RetrieveTestcases)?
+            Opt::Download(cli_args) | Opt::Retrieve(Retrieve::Testcases(cli_args)) => {
+                let RetrieveTestcases {
+                    json,
+                    open,
+                    only_scraped,
+                    service,
+                    contest,
+                    problems,
+                    color_choice,
+                } = cli_args;
+                let contest = contest.as_ref().map(AsRef::as_ref);
+                self.term.attempt_enable_ansi(*color_choice);
+                let config = Config::load(*service, contest, None, &self.working_dir)?;
+                self.term.apply_conf(config.console());
+                let sess_props = self.sess_props(&config)?;
+                let retrieve_props = RetrieveTestCasesProps {
+                    contest: config.contest().to_owned(),
+                    problems: NonEmptyVec::try_new(problems.clone()),
+                    destinations: config.destinations(None),
+                    open_in_browser: *open,
+                    only_scraped: *only_scraped,
+                };
+                let props = (sess_props, retrieve_props);
+                let term = &mut self.term;
+                let outcome = match config.service() {
+                    ServiceKind::Atcoder => atcoder::retrieve_testcases(props, term),
+                    ServiceKind::Codeforces => codeforces::retrieve_testcases(props, term),
+                    ServiceKind::Yukicoder => yukicoder::retrieve_testcases(props, term),
+                    ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
+                }?;
+                finish(
+                    &outcome,
+                    cli_args,
+                    &config,
+                    SubCommandKind::RetrieveTestcases,
+                    *json,
+                    &mut self.term,
+                )?;
             }
             Opt::Retrieve(Retrieve::Languages(cli_args)) => {
                 let RetrieveLanguages {
@@ -717,43 +750,6 @@ impl<T: Term> App<T> {
             }
         }
         Ok(())
-    }
-
-    fn on_retrieve_testcases(
-        &mut self,
-        cli_args: &RetrieveTestcases,
-        kind: SubCommandKind,
-    ) -> crate::Result<()> {
-        let RetrieveTestcases {
-            json,
-            open,
-            only_scraped,
-            service,
-            contest,
-            problems,
-            color_choice,
-        } = cli_args;
-        let contest = contest.as_ref().map(AsRef::as_ref);
-        self.term.attempt_enable_ansi(*color_choice);
-        let config = Config::load(*service, contest, None, &self.working_dir)?;
-        self.term.apply_conf(config.console());
-        let sess_props = self.sess_props(&config)?;
-        let retrieve_props = RetrieveTestCasesProps {
-            contest: config.contest().to_owned(),
-            problems: NonEmptyVec::try_new(problems.clone()),
-            destinations: config.destinations(None),
-            open_in_browser: *open,
-            only_scraped: *only_scraped,
-        };
-        let props = (sess_props, retrieve_props);
-        let term = &mut self.term;
-        let outcome = match config.service() {
-            ServiceKind::Atcoder => atcoder::retrieve_testcases(props, term),
-            ServiceKind::Codeforces => codeforces::retrieve_testcases(props, term),
-            ServiceKind::Yukicoder => yukicoder::retrieve_testcases(props, term),
-            ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
-        }?;
-        finish(&outcome, cli_args, &config, kind, *json, &mut self.term)
     }
 
     fn sess_props(&mut self, config: &Config) -> ExpandTemplateResult<SessionProps> {

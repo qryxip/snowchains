@@ -166,22 +166,19 @@ CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wex
 CXXFLAGS = "-std=gnu++1z -lm -O2 -Wall -Wextra"
 RUST_VERSION = "1.30.1"
 
-[[hooks.switch]]
+[[hooks.retrieve.testcases]]
 bash = '''
-service="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.service)"
-contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .new.contest_snake_case)"
-if [ ! -d "./$service/$contest/rs" ]; then
-  mkdir -p "./$service/$contest" &&
-  cargo new --vcs none --lib --edition 2015 --name "${service}_${contest}" "./$service/$contest/rs" &&
-  mkdir "./$service/$contest/rs/src/bin" &&
-  rm "./$service/$contest/rs/src/lib.rs"
-fi
-'''
-
-[[hooks.download]]
-bash = '''
-if [ "$(echo "$SNOWCHAINS_RESULT" | jq -r .command_line_arguments.open)" = true ]; then
+json="$(echo "$SNOWCHAINS_RESULT" | jq -r .command_line_arguments.json)"
+open="$(echo "$SNOWCHAINS_RESULT" | jq -r .command_line_arguments.open)"
+if [ "$json" = false ] && [ "$open" = true ]; then
   service="$(echo "$SNOWCHAINS_RESULT" | jq -r .target.service)"
+  contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .target.contest)"
+  if [ ! -d "./$service/$contest/rs" ]; then
+    mkdir -p "./$service/$contest" &&
+    cargo new --vcs none --lib --edition 2015 --name "${service}_${contest}" "./$service/$contest/rs" &&
+    mkdir "./$service/$contest/rs/src/bin" &&
+    rm "./$service/$contest/rs/src/lib.rs"
+  fi
   echo "$SNOWCHAINS_RESULT" |
     jq -r '
       . as $root
