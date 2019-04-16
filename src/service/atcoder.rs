@@ -15,8 +15,10 @@ use crate::service::{
 use crate::template::Template;
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, Destinations, InteractiveSuite, TestSuite};
+use crate::util;
 use crate::util::collections::NonEmptyIndexMap;
 use crate::util::num::PositiveFinite;
+use crate::util::scraper::ElementRefExt as _;
 use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
 
@@ -28,8 +30,7 @@ use maplit::hashmap;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::{header, StatusCode};
-use select::document::Document;
-use select::predicate::{Predicate, Text};
+use scraper::{Html, Selector};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::runtime::Runtime;
@@ -260,13 +261,13 @@ impl<T: Term> Atcoder<T> {
         self.register_if_active_or_explicit(contest, true)
     }
 
-    fn fetch_tasks_page(&mut self, contest: &AtcoderContest) -> ServiceResult<Document> {
+    fn fetch_tasks_page(&mut self, contest: &AtcoderContest) -> ServiceResult<Html> {
         let res = self
             .get(&contest.url_tasks())
             .acceptable(&[200, 302, 404])
             .send()?;
         if res.status() == 200 {
-            res.document(&mut self.runtime)
+            res.html(&mut self.runtime)
         } else {
             self.register_if_active_or_explicit(contest, false)?;
             self.get(&contest.url_tasks()).recv_html()
@@ -285,7 +286,7 @@ impl<T: Term> Atcoder<T> {
         if res.status() == StatusCode::FOUND {
             return Err(ServiceErrorKind::ContestNotFound(contest.to_string()).into());
         }
-        let page = res.document(&mut self.runtime)?;
+        let page = res.html(&mut self.runtime)?;
         let duration = page.extract_contest_duration()?;
         let status = duration.check_current_status(contest.to_string());
         if !explicit {
@@ -580,7 +581,7 @@ impl<T: Term> Atcoder<T> {
                 .acceptable(&[200, 302])
                 .send()?;
             if res.status() == 200 {
-                res.document(&mut self.runtime)?
+                res.html(&mut self.runtime)?
             } else {
                 self.register_if_active_or_explicit(contest, false)?;
                 self.get(&contest.url_submissions_me(1))
@@ -762,8 +763,8 @@ impl<T: Term> Atcoder<T> {
         }
 
         let source_code = crate::fs::read_to_string(src_path)?;
-        let document = self.get(&url).recv_html()?;
-        let lang_id = document
+        let html = self.get(&url).recv_html()?;
+        let lang_id = html
             .extract_langs()?
             .get(lang_name)
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
@@ -774,7 +775,7 @@ impl<T: Term> Atcoder<T> {
             lang_name,
             lang_id,
         )?;
-        let csrf_token = document.extract_csrf_token()?;
+        let csrf_token = html.extract_csrf_token()?;
         let url = contest.url_submit();
         let payload = hashmap!(
             "data.TaskScreenName" => task_screen.as_str(),
@@ -1002,12 +1003,13 @@ trait Extract {
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
 }
 
-impl Extract for Document {
+impl Extract for Html {
     fn extract_csrf_token(&self) -> ScrapeResult<String> {
         let extract_csrf_token = || {
             let token = self
-                .find(selector!("[name=\"csrf_token\"]"))
+                .select(selector!("[name=\"csrf_token\"]"))
                 .next()?
+                .value()
                 .attr("value")?
                 .to_owned();
             guard!(!token.is_empty());
@@ -1017,16 +1019,16 @@ impl Extract for Document {
     }
 
     fn extract_task_urls_with_names(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
-        self.find(selector!(
+        self.select(selector!(
             "#main-container > div.row > div.col-sm-12 > div.panel > table.table > tbody > tr",
         ))
-        .map(|node| {
-            let node = node.find(selector!("td.text-center > a")).next()?;
-            let name = node.find(Text).next()?.text();
-            let url = node.attr("href")?.to_owned();
+        .map(|tr| {
+            let a = tr.select(selector!("td.text-center > a")).next()?;
+            let name = a.text().next()?.to_owned();
+            let url = a.value().attr("href")?.to_owned();
             Some((name, url))
         })
-        .collect::<Option<IndexMap<String, String>>>()
+        .collect::<Option<IndexMap<_, _>>>()
         .and_then(NonEmptyIndexMap::try_new)
         .ok_or_else(ScrapeError::new)
     }
@@ -1037,7 +1039,7 @@ impl Extract for Document {
             Interactive,
         }
 
-        fn extract_samples(this: &Document) -> Option<Samples> {
+        fn extract_samples(this: &Html) -> Option<Samples> {
             // TODO:
             // - https://atcoder.jp/contests/arc019/tasks/arc019_4 (interactive)
             // - https://atcoder.jp/contests/arc021/tasks/arc021_4 (interactive)
@@ -1051,70 +1053,76 @@ impl Extract for Document {
             static OUT_EN: Lazy<Regex> = lazy_regex!(r"\ASample Output\s?([0-9]{1,2}).*\z");
 
             // Current style (Japanese)
-            let p1_head =
+            static P1_HEAD: &Lazy<Selector> =
                 selector!("#task-statement > span.lang > span.lang-ja > div.part > section > h3");
-            let p1_content =
+            static P1_CONTENT: &Lazy<Selector> =
                 selector!("#task-statement > span.lang > span.lang-ja > div.part > section > pre");
             // Current style (English)
-            let p2_head =
+            static P2_HEAD: &Lazy<Selector> =
                 selector!("#task-statement > span.lang > span.lang-en > div.part > section > h3");
-            let p2_content =
+            static P2_CONTENT: &Lazy<Selector> =
                 selector!("#task-statement>span.lang>span.lang-en>div.part>section>pre");
             // ARC019..ARC057 \ {ARC019/C, ARC046/D, ARC050, ARC052/{A, C}, ARC053, ARC055},
             // ABC007..ABC040 \ {ABC036}, ATC001, ATC002
-            let p3_head = selector!("#task-statement > div.part > section > h3");
-            let p3_content = selector!("#task-statement > div.part > section > pre");
+            static P3_HEAD: &Lazy<Selector> =
+                selector!("#task-statement > div.part > section > h3");
+            static P3_CONTENT: &Lazy<Selector> =
+                selector!("#task-statement > div.part > section > pre");
             // ARC002..ARC018, ARC019/C, ABC001..ABC006
-            let p4_head = selector!("#task-statement > div.part > h3,pre");
-            let p4_content = selector!("#task-statement > div.part > section > pre");
+            static P4_HEAD: &Lazy<Selector> = selector!("#task-statement > div.part > h3,pre");
+            static P4_CONTENT: &Lazy<Selector> =
+                selector!("#task-statement > div.part > section > pre");
             // ARC001, dwacon2018-final/{A, B}
-            let p5_head = selector!("#task-statement > h3,pre");
-            let p5_content = selector!("#task-statement > section > pre");
+            static P5_HEAD: &Lazy<Selector> = selector!("#task-statement > h3,pre");
+            static P5_CONTENT: &Lazy<Selector> = selector!("#task-statement > section > pre");
             // ARC046/D, ARC050, ARC052/{A, C}, ARC053, ARC055, ABC036, ABC041
-            let p6_head = selector!("#task-statement > section > h3");
-            let p6_content = selector!("#task-statement > section > pre");
+            static P6_HEAD: &Lazy<Selector> = selector!("#task-statement > section > h3");
+            static P6_CONTENT: &Lazy<Selector> = selector!("#task-statement > section > pre");
             // ABC034
-            let p7_head = selector!("#task-statement > span.lang > span.lang-ja > section > h3");
-            let p7_content =
+            static P7_HEAD: &Lazy<Selector> =
+                selector!("#task-statement > span.lang > span.lang-ja > section > h3");
+            static P7_CONTENT: &Lazy<Selector> =
                 selector!("#task-statement > span.lang > span.lang-ja > section > pre");
             // practice contest (Japanese)
-            let p8_head = selector!("#task-statement > span.lang > span.lang-ja > div.part > h3");
-            let p8_content =
+            static P8_HEAD: &Lazy<Selector> =
+                selector!("#task-statement > span.lang > span.lang-ja > div.part > h3");
+            static P8_CONTENT: &Lazy<Selector> =
                 selector!("#task-statement > span.lang > span.lang-ja > div.part > section > pre");
 
-            try_extract_samples(this, p1_head, p1_content, &IN_JA, &OUT_JA)
-                .or_else(|| try_extract_samples(this, p2_head, p2_content, &IN_EN, &OUT_EN))
-                .or_else(|| try_extract_samples(this, p3_head, p3_content, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(this, p4_head, p4_content, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(this, p5_head, p5_content, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(this, p6_head, p6_content, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(this, p7_head, p7_content, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(this, p8_head, p8_content, &IN_JA, &OUT_JA))
+            try_extract_samples(this, P1_HEAD, P1_CONTENT, &IN_JA, &OUT_JA)
+                .or_else(|| try_extract_samples(this, P2_HEAD, P2_CONTENT, &IN_EN, &OUT_EN))
+                .or_else(|| try_extract_samples(this, P3_HEAD, P3_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(this, P4_HEAD, P4_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(this, P5_HEAD, P5_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(this, P6_HEAD, P6_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(this, P7_HEAD, P7_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(this, P8_HEAD, P8_CONTENT, &IN_JA, &OUT_JA))
         }
 
         fn try_extract_samples(
-            this: &Document,
-            predicate_for_header: impl Predicate,
-            predicate_for_content: impl Predicate,
+            this: &Html,
+            selector_for_header: &'static Selector,
+            selector_for_content: &'static Selector,
             re_input: &'static Regex,
             re_output: &'static Regex,
         ) -> Option<Samples> {
-            for strong in this.find(selector!("#task-statement strong")) {
-                let text = strong.text();
-                for word in &["インタラクティブ", "Interactive"] {
-                    if text.find(word).is_some() {
-                        return Some(Samples::Interactive);
-                    }
-                }
+            if this
+                .select(selector!("#task-statement strong"))
+                .flat_map(|r| r.text())
+                .any(|t| t.contains("インタラクティブ") || t.contains("Interactive"))
+            {
+                return Some(Samples::Interactive);
             }
+
             let matching = {
                 let error = this
-                    .find(selector!("#task-statement var").child(Text))
-                    .flat_map(|var| parse_floating_error(&var.text()))
+                    .select(selector!("#task-statement var"))
+                    .flat_map(|r| r.text())
+                    .flat_map(|t| parse_floating_error(t))
                     .next();
                 let all_text = this
-                    .find(selector!("#task-statement").descendant(Text))
-                    .map(|text| text.text())
+                    .select(selector!("#task-statement"))
+                    .flat_map(|r| r.text())
                     .collect::<Vec<_>>();
                 let relative = all_text
                     .iter()
@@ -1141,20 +1149,22 @@ impl Extract for Document {
             let mut inputs = BTreeMap::<usize, _>::new();
             let mut outputs = BTreeMap::<usize, _>::new();
             let mut next = None;
-            for node in this.find(predicate_for_header.or(predicate_for_content)) {
-                if node.name() == Some("h3") {
-                    let text = node.text();
+            let selector = util::scraper::or(selector_for_header, selector_for_content);
+            for elem_ref in this.select(&selector) {
+                if elem_ref.value().name() == "h3" {
+                    let text = elem_ref.collect_text();
                     if let Some(caps) = re_input.captures(&text) {
                         next = Some((true, parse_zenkaku(&caps[1]).ok()?));
                     } else if let Some(caps) = re_output.captures(&text) {
                         next = Some((false, parse_zenkaku(&caps[1]).ok()?));
                     }
-                } else if [Some("pre"), Some("section")].contains(&node.name()) {
+                } else if ["pre", "section"].contains(&elem_ref.value().name()) {
                     if let Some((is_input, n)) = next {
+                        let text = elem_ref.collect_text();
                         if is_input {
-                            inputs.insert(n, node.text());
+                            inputs.insert(n, text);
                         } else {
-                            outputs.insert(n, node.text());
+                            outputs.insert(n, text);
                         }
                     }
                     next = None;
@@ -1214,14 +1224,15 @@ impl Extract for Document {
                     })
         }
 
-        fn extract_timelimit(this: &Document) -> Option<Duration> {
+        fn extract_timelimit(this: &Html) -> Option<Duration> {
             static TIMELIMIT: Lazy<Regex> =
                 lazy_regex!(r"\A\D*([0-9]{1,9})(\.[0-9]{1,3})?\s*(m)?sec.*\z");
             let text = this
-                .find(selector!("#main-container > div.row > div.col-sm-12 > p").child(Text))
+                .select(selector!("#main-container > div.row > div.col-sm-12 > p"))
                 .next()?
-                .text();
-            let caps = TIMELIMIT.captures(&text)?;
+                .text()
+                .next()?;
+            let caps = TIMELIMIT.captures(text)?;
             let (mut b, mut e) = (caps[1].parse::<u64>().unwrap(), 0);
             if let Some(cap) = caps.get(2) {
                 let n = cap.as_str().len() as u32 - 1;
@@ -1255,12 +1266,13 @@ impl Extract for Document {
     }
 
     fn extract_contest_duration(&self) -> ScrapeResult<ContestDuration> {
-        fn extract(this: &Document) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+        fn extract(this: &Html) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
             static FORMAT: &'static str = "%F %T%z";
-            let t1 = this.find(selector!("time").child(Text)).nth(0)?.text();
-            let t2 = this.find(selector!("time").child(Text)).nth(1)?.text();
-            let t1 = DateTime::parse_from_str(&t1, FORMAT).ok()?;
-            let t2 = DateTime::parse_from_str(&t2, FORMAT).ok()?;
+            let mut it = this.select(selector!("time"));
+            let t1 = it.next()?.text().next()?;
+            let t2 = it.next()?.text().next()?;
+            let t1 = DateTime::parse_from_str(t1, FORMAT).ok()?;
+            let t2 = DateTime::parse_from_str(t2, FORMAT).ok()?;
             Some((t1.with_timezone(&Utc), t2.with_timezone(&Utc)))
         }
 
@@ -1273,50 +1285,49 @@ impl Extract for Document {
     fn extract_submissions(&self) -> ScrapeResult<(Vec<Submission>, u32)> {
         let extract = || {
             let num_pages = self
-                .find(
-                    selector!(
-                        "#main-container > div.row > div.col-sm-12 > div.text-center > ul > li > a",
-                    )
-                    .child(Text),
-                )
-                .filter_map(|text| text.text().parse::<u32>().ok())
+                .select(selector!(
+                    "#main-container > div.row > div.col-sm-12 > div.text-center > ul > li > a",
+                ))
+                .flat_map(|r| r.text())
+                .flat_map(|t| t.parse::<u32>().ok())
                 .max()
                 .unwrap_or(1);
             let mut submissions = vec![];
-            let pred = selector!(
+            let selector = selector!(
                 "#main-container > div.row > div.col-sm-12 > div.panel-submission
                  > div.table-responsive > table.table > tbody > tr",
             );
-            for tr in self.find(pred) {
+            for tr in self.select(selector) {
                 let (task_url, task_slug, task_display, task_screen, datetime) = {
                     static SLUG: Lazy<Regex> = lazy_regex!(r"\A(\w+).*\z");
                     static SCREEN: Lazy<Regex> =
                         lazy_regex!(r"\A/contests/[\w-]+/tasks/([\w-]+)\z");
                     static DATETIME: &'static str = "%F %T%z";
-                    let a = tr.find(selector!("td > a")).nth(0)?;
-                    let task_display = a.find(Text).next()?.text();
+                    let a = tr.select(selector!("td > a")).nth(0)?;
+                    let task_display = a.text().next()?.to_owned();
                     let task_slug = SLUG.captures(&task_display)?[1].to_owned();
-                    let task_path = a.attr("href")?;
+                    let task_path = a.value().attr("href")?;
                     let task_screen = SCREEN.captures(task_path)?[1].to_owned();
                     let mut task_url = "https://atcoder.jp".parse::<Url>().unwrap();
-                    task_url.set_path(&task_path);
-                    let datetime = tr
-                        .find(selector!("td > time").child(Text))
-                        .next()?
-                        .as_text()
-                        .unwrap();
+                    task_url.set_path(task_path);
+                    let datetime = tr.select(selector!("td > time")).next()?.text().next()?;
                     let datetime = DateTime::parse_from_str(datetime, DATETIME).ok()?;
                     (task_url, task_slug, task_display, task_screen, datetime)
                 };
-                let lang = tr.find(selector!("td")).nth(3)?.find(Text).next()?.text();
-                let verdict = tr.find(selector!("td > span").child(Text)).nth(0)?.text();
+                let lang = tr.select(selector!("td")).nth(3)?.text().next()?.to_owned();
+                let verdict = tr
+                    .select(selector!("td > span"))
+                    .nth(0)?
+                    .text()
+                    .next()?
+                    .to_owned();
                 let url = tr
-                    .find(selector!("td.text-center > a"))
+                    .select(selector!("td.text-center > a"))
                     .flat_map(|a| {
-                        let text = a.find(Text).next()?.text();
-                        guard!(["詳細", "Detail"].contains(&text.as_str()));
+                        let text = a.text().next()?;
+                        guard!(["詳細", "Detail"].contains(&text));
                         let mut url = "https://atcoder.jp".parse::<Url>().unwrap();
-                        url.set_path(a.attr("href")?);
+                        url.set_path(a.value().attr("href")?);
                         Some(url)
                     })
                     .next()?;
@@ -1340,36 +1351,28 @@ impl Extract for Document {
 
     fn extract_submitted_code(&self) -> ScrapeResult<String> {
         let submission_code = self
-            .find(selector!("#submission-code"))
+            .select(selector!("#submission-code"))
             .next()
             .ok_or_else(ScrapeError::new)?;
-        Ok(submission_code
-            .find(Text)
-            .next()
-            .map(|t| t.text())
-            .unwrap_or_else(|| "".to_owned()))
+        Ok(submission_code.text().next().unwrap_or_default().to_owned())
     }
 
     fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String> {
-        for option in self.find(selector!("#select-language > option")) {
-            if let Some(text) = option.find(Text).next().map(|n| n.text()) {
-                if text == name {
-                    return option
-                        .attr("value")
-                        .map(ToOwned::to_owned)
-                        .ok_or_else(ScrapeError::new);
-                }
-            }
-        }
-        Err(ScrapeError::new())
+        self.select(selector!("#select-language > option"))
+            .find(|r| r.text().next().map_or(false, |t| t == name))
+            .ok_or_else(ScrapeError::new)?
+            .value()
+            .attr("value")
+            .map(ToOwned::to_owned)
+            .ok_or_else(ScrapeError::new)
     }
 
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
         let names = self
-            .find(selector!("#select-lang option"))
+            .select(selector!("#select-lang option"))
             .map(|option| {
-                let name = option.find(Text).next()?.text();
-                let id = option.attr("value")?.to_owned();
+                let name = option.text().next()?.to_owned();
+                let id = option.value().attr("value")?.to_owned();
                 Some((name, id))
             })
             .map(|p| p.ok_or_else(ScrapeError::new))

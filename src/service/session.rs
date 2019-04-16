@@ -14,7 +14,7 @@ use reqwest::header::{self, HeaderValue};
 use reqwest::r#async::Decoder;
 use reqwest::{Method, StatusCode};
 use robots_txt::{Robots, SimpleMatcher};
-use select::document::Document;
+use scraper::Html;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::runtime::Runtime;
@@ -344,9 +344,9 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
         self.send()
     }
 
-    pub(super) fn recv_html(self) -> ServiceResult<Document> {
+    pub(super) fn recv_html(self) -> ServiceResult<Html> {
         let (res, runtime) = self.send_internal()?;
-        res.document(runtime)
+        res.html(runtime)
     }
 
     pub(super) fn recv_json<T: DeserializeOwned + Send + Sync + 'static>(self) -> ServiceResult<T> {
@@ -418,8 +418,9 @@ impl Response {
         })
     }
 
-    pub(super) fn document(self, runtime: &mut Runtime) -> ServiceResult<Document> {
-        Ok(Document::from(self.text(runtime)?.as_str()))
+    pub(super) fn html(self, runtime: &mut Runtime) -> ServiceResult<Html> {
+        let text = self.text(runtime)?;
+        Ok(Html::parse_document(&text))
     }
 
     pub(super) fn json<T: DeserializeOwned + Send + Sync + 'static>(
