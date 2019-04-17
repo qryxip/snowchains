@@ -1198,7 +1198,7 @@ impl Extract for Html {
 
             for (input, output) in &mut samples {
                 for s in &mut [input, output] {
-                    if !s.ends_with('\n') {
+                    if !(s.is_empty() || s.ends_with('\n')) {
                         s.push('\n');
                     }
                     guard!(is_valid_text(s));
@@ -1509,7 +1509,7 @@ mod tests {
             ("C", "dp_c", "548ed4cfa13f83bb5420b596de282eb9"),
             ("D", "dp_d", "6f52641c6508bfecb4249d37d1448b26"),
             ("E", "dp_e", "2d6f370dcf5b035b8ee6919a04ae757b"),
-            ("F", "dp_f", "ce5fbf4be0003ba508acd37131b4b726"),
+            ("F", "dp_f", "8ef36c34cbf19287835d43da6f821a6d"),
             ("G", "dp_g", "caf6f77d3ad22d379ad4c5f31433bc97"),
             ("H", "dp_h", "da82bdf7e006bc9b8feac5a80ae1ffe2"),
             ("I", "dp_i", "0082fa046f474d23e12d293e4888b5dd"),
