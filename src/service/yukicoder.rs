@@ -346,9 +346,9 @@ impl<T: Term> Yukicoder<T> {
         self.login(true)?;
         let url = self.get_submit_url(contest, problem)?;
         let no = {
-            static NO: Lazy<Regex> =
-                lazy_regex!(r"\A(https://yukicoder\.me)?/problems/no/(\d+)/submit\z");
-            NO.captures(url.as_ref()).map(|caps| caps[2].to_owned())
+            lazy_regex!(r"\A(https://yukicoder\.me)?/problems/no/(\d+)/submit\z")
+                .captures(url.as_ref())
+                .map(|caps| caps[2].to_owned())
         };
         if let Some(no) = no {
             if !(self.filter_solved(&[no])?.is_empty() || *skip_checking_if_accepted) {
@@ -548,15 +548,15 @@ impl Extract for Html {
         }
 
         let extract = || {
-            static R: Lazy<Regex> = lazy_regex!(
-                "\\A / 実行時間制限 : 1ケース (\\d)\\.(\\d{3})秒 / メモリ制限 : \\d+ MB / \
-                 (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z"
-            );
             let text = self
                 .select(selector!("#content > div"))
                 .flat_map(|r| r.text())
                 .nth(1)?;
-            let caps = R.captures(text)?;
+            let caps = lazy_regex!(
+                "\\A / 実行時間制限 : 1ケース (\\d)\\.(\\d{3})秒 / メモリ制限 : \\d+ MB / \
+                 (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z",
+            )
+            .captures(text)?;
             let timelimit = {
                 let s = caps[1].parse::<u64>().unwrap();
                 let m = caps[2].parse::<u64>().unwrap();
@@ -637,12 +637,13 @@ impl Extract for Html {
     }
 
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
-        static WS: Lazy<Regex> = lazy_regex!(r"[\s\n]+");
         let names = self
             .select(selector!("#lang > option"))
             .map(|option| {
                 let name = option.text().next()?;
-                let name = WS.replace_all(name.trim(), " ").into_owned();
+                let name = lazy_regex!(r"[\s\n]+")
+                    .replace_all(name.trim(), " ")
+                    .into_owned();
                 let id = option.value().attr("value")?.to_owned();
                 Some((name, id))
             })

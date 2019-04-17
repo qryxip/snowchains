@@ -730,9 +730,7 @@ impl<T: Term> Atcoder<T> {
             .into_element(problem)
             .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
         let task_screen = {
-            static SCREEN: Lazy<Regex> =
-                lazy_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$");
-            SCREEN
+            lazy_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$")
                 .captures(&url)
                 .map(|cs| cs[1].to_owned())
                 .ok_or_else(ScrapeError::new)?
@@ -849,8 +847,7 @@ enum AtcoderContest {
 
 impl AtcoderContest {
     fn new(s: &str) -> Self {
-        static NAME: Lazy<Regex> = lazy_regex!(r"\A\s*([a-zA-Z_]+)(\d{3})\s*\z");
-        if let Some(caps) = NAME.captures(s) {
+        if let Some(caps) = lazy_regex!(r"\A\s*([a-zA-Z_]+)(\d{3})\s*\z").captures(s) {
             let name = caps[1].to_lowercase();
             let number = caps[2].parse::<u32>().unwrap_or(0);
             if name == "abc" {
@@ -1047,10 +1044,10 @@ impl Extract for Html {
             // - https://atcoder.jp/contests/jag2016-domestic/tasks
             // - https://atcoder.jp/contests/chokudai001/tasks/chokudai_001_a
 
-            static IN_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*入力例\s*(\d{1,2})[.\n]*\z");
-            static OUT_JA: Lazy<Regex> = lazy_regex!(r"\A[\s\n]*出力例\s*(\d{1,2})[.\n]*\z");
-            static IN_EN: Lazy<Regex> = lazy_regex!(r"\ASample Input\s?([0-9]{1,2}).*\z");
-            static OUT_EN: Lazy<Regex> = lazy_regex!(r"\ASample Output\s?([0-9]{1,2}).*\z");
+            static IN_JA: &Lazy<Regex> = lazy_regex!(r"\A[\s\n]*入力例\s*(\d{1,2})[.\n]*\z");
+            static OUT_JA: &Lazy<Regex> = lazy_regex!(r"\A[\s\n]*出力例\s*(\d{1,2})[.\n]*\z");
+            static IN_EN: &Lazy<Regex> = lazy_regex!(r"\ASample Input\s?([0-9]{1,2}).*\z");
+            static OUT_EN: &Lazy<Regex> = lazy_regex!(r"\ASample Output\s?([0-9]{1,2}).*\z");
 
             // Current style (Japanese)
             static P1_HEAD: &Lazy<Selector> =
@@ -1089,14 +1086,14 @@ impl Extract for Html {
             static P8_CONTENT: &Lazy<Selector> =
                 selector!("#task-statement > span.lang > span.lang-ja > div.part > section > pre");
 
-            try_extract_samples(this, P1_HEAD, P1_CONTENT, &IN_JA, &OUT_JA)
-                .or_else(|| try_extract_samples(this, P2_HEAD, P2_CONTENT, &IN_EN, &OUT_EN))
-                .or_else(|| try_extract_samples(this, P3_HEAD, P3_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(this, P4_HEAD, P4_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(this, P5_HEAD, P5_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(this, P6_HEAD, P6_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(this, P7_HEAD, P7_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(this, P8_HEAD, P8_CONTENT, &IN_JA, &OUT_JA))
+            try_extract_samples(this, P1_HEAD, P1_CONTENT, IN_JA, OUT_JA)
+                .or_else(|| try_extract_samples(this, P2_HEAD, P2_CONTENT, IN_EN, OUT_EN))
+                .or_else(|| try_extract_samples(this, P3_HEAD, P3_CONTENT, IN_JA, OUT_JA))
+                .or_else(|| try_extract_samples(this, P4_HEAD, P4_CONTENT, IN_JA, OUT_JA))
+                .or_else(|| try_extract_samples(this, P5_HEAD, P5_CONTENT, IN_JA, OUT_JA))
+                .or_else(|| try_extract_samples(this, P6_HEAD, P6_CONTENT, IN_JA, OUT_JA))
+                .or_else(|| try_extract_samples(this, P7_HEAD, P7_CONTENT, IN_JA, OUT_JA))
+                .or_else(|| try_extract_samples(this, P8_HEAD, P8_CONTENT, IN_JA, OUT_JA))
         }
 
         fn try_extract_samples(
@@ -1191,8 +1188,7 @@ impl Extract for Html {
         }
 
         fn parse_floating_error(s: &str) -> Option<PositiveFinite<f64>> {
-            static R: Lazy<Regex> = lazy_regex!(r"\A([0-9]{1,2})\^\{(-?[0-9]{1,2})\}\z");
-            let caps = R.captures(s)?;
+            let caps = lazy_regex!(r"\A([0-9]{1,2})\^\{(-?[0-9]{1,2})\}\z").captures(s)?;
             let base = caps[1].parse::<f64>().ok()?;
             let exp = caps[2].parse::<f64>().ok()?;
             base.powf(exp).try_into().ok()
@@ -1225,14 +1221,13 @@ impl Extract for Html {
         }
 
         fn extract_timelimit(this: &Html) -> Option<Duration> {
-            static TIMELIMIT: Lazy<Regex> =
-                lazy_regex!(r"\A\D*([0-9]{1,9})(\.[0-9]{1,3})?\s*(m)?sec.*\z");
             let text = this
                 .select(selector!("#main-container > div.row > div.col-sm-12 > p"))
                 .next()?
                 .text()
                 .next()?;
-            let caps = TIMELIMIT.captures(text)?;
+            let caps =
+                lazy_regex!(r"\A\D*([0-9]{1,9})(\.[0-9]{1,3})?\s*(m)?sec.*\z").captures(text)?;
             let (mut b, mut e) = (caps[1].parse::<u64>().unwrap(), 0);
             if let Some(cap) = caps.get(2) {
                 let n = cap.as_str().len() as u32 - 1;
@@ -1293,14 +1288,14 @@ impl Extract for Html {
                 .max()
                 .unwrap_or(1);
             let mut submissions = vec![];
-            let selector = selector!(
+            static SELECTOR: &Lazy<Selector> = selector!(
                 "#main-container > div.row > div.col-sm-12 > div.panel-submission
                  > div.table-responsive > table.table > tbody > tr",
             );
-            for tr in self.select(selector) {
+            for tr in self.select(SELECTOR) {
                 let (task_url, task_slug, task_display, task_screen, datetime) = {
-                    static SLUG: Lazy<Regex> = lazy_regex!(r"\A(\w+).*\z");
-                    static SCREEN: Lazy<Regex> =
+                    static SLUG: &Lazy<Regex> = lazy_regex!(r"\A(\w+).*\z");
+                    static SCREEN: &Lazy<Regex> =
                         lazy_regex!(r"\A/contests/[\w-]+/tasks/([\w-]+)\z");
                     static DATETIME: &'static str = "%F %T%z";
                     let a = tr.select(selector!("td > a")).nth(0)?;

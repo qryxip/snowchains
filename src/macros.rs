@@ -29,8 +29,13 @@ macro_rules! plural {
 }
 
 macro_rules! lazy_regex {
-    ($expr:expr) => {
-        ::once_cell::sync_lazy!(::regex::Regex::new($expr).unwrap())
+    ($expr:expr) => {{
+        static REGEX: ::once_cell::sync::Lazy<::regex::Regex> =
+            ::once_cell::sync_lazy!(::regex::Regex::new($expr).unwrap());
+        &REGEX
+    }};
+    ($expr:expr,) => {
+        lazy_regex!($expr)
     };
 }
 

@@ -127,7 +127,7 @@ impl<T: Term> Codeforces<T> {
     }
 
     fn login(&mut self, option: LoginOption) -> ServiceResult<LoginOutcome> {
-        static HANDLE: Lazy<Regex> = lazy_regex!(r#"\A/profile/([a-zA-Z0-9_\-]+)\z"#);
+        static HANDLE: &Lazy<Regex> = lazy_regex!(r#"\A/profile/([a-zA-Z0-9_\-]+)\z"#);
 
         let mut res = self.get("/enter").acceptable(&[200, 302]).send()?;
         let mut sent = false;
@@ -697,8 +697,7 @@ impl Extract for Html {
             .select(selector!("#pageContent div.time-limit"))
             .flat_map(|r| r.text())
             .flat_map(|text| {
-                static R: Lazy<Regex> = lazy_regex!(r#"\A([0-9]{1,9})(\.[0-9])? seconds?\z"#);
-                let caps = R.captures(text)?;
+                let caps = lazy_regex!(r#"\A([0-9]{1,9})(\.[0-9])? seconds?\z"#).captures(text)?;
                 let secs = caps[1].parse::<u64>().unwrap();
                 let nanos = caps
                     .get(2)
