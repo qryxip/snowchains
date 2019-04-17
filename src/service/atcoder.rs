@@ -1,7 +1,7 @@
 use crate::errors::{
     FileResult, ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult,
 };
-use crate::path::{AbsPath, AbsPathBuf};
+use crate::path::AbsPath;
 use crate::service::download::DownloadProgress;
 use crate::service::session::HttpSession;
 use crate::service::{
@@ -12,11 +12,10 @@ use crate::service::{
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service,
     SessionProps, SubmitOutcome, SubmitProps,
 };
-use crate::template::Template;
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, Destinations, InteractiveSuite, TestSuite};
 use crate::util;
-use crate::util::collections::NonEmptyIndexMap;
+use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet};
 use crate::util::num::PositiveFinite;
 use crate::util::scraper::ElementRefExt as _;
 use crate::util::std_unstable::RemoveItem_ as _;
@@ -601,7 +600,27 @@ impl<T: Term> Atcoder<T> {
 
         let mut outcome = RetrieveSubmissionsOutcome::new();
 
-        let mut found = indexset!();
+        #[derive(Default)]
+        struct Found {
+            inner: IndexMap<String, IndexSet<String>>,
+        }
+
+        impl Found {
+            fn contains(&self, submission: &Submission) -> bool {
+                self.inner
+                    .get(submission.task_slug.as_str())
+                    .map_or(false, |m| m.contains(submission.lang.as_str()))
+            }
+
+            fn insert(&mut self, submission: &Submission) {
+                self.inner
+                    .entry(submission.task_slug.clone())
+                    .or_insert_with(IndexSet::new)
+                    .insert(submission.lang.clone());
+            }
+        }
+
+        let (mut found, mut ignored) = (Found::default(), indexset!());
         for submission in submissions {
             let mut retrieve_code = || -> ServiceResult<_> {
                 self.get(&submission.url)
@@ -609,46 +628,38 @@ impl<T: Term> Atcoder<T> {
                     .extract_submitted_code()
                     .map_err(Into::into)
             };
-            let save_code =
-                |path: &Template<AbsPathBuf>, code: &str| -> ServiceResult<AbsPathBuf> {
-                    let path = path.expand(Some(&submission.task_slug))?;
-                    crate::fs::write(&path, code.as_bytes())?;
-                    Ok(path)
-                };
             if problems
                 .as_ref()
                 .map_or(true, |ps| ps.contains(&submission.task_slug))
             {
-                let (code, saved_as) = match src_paths.get(submission.lang.as_str()) {
+                let (code, path_to_save) = match src_paths.get(submission.lang.as_str()) {
                     Some(path) if *fetch_all => {
                         let code = retrieve_code()?;
-                        if found.contains(submission.lang.as_str()) {
+                        if found.contains(&submission) {
                             (Some(code), None)
                         } else {
-                            found.insert(submission.lang.clone());
-                            let path = save_code(path, &code)?;
-                            (Some(code), Some(path))
-                        }
-                    }
-                    Some(path) => {
-                        if found.contains(submission.lang.as_str()) {
-                            (None, None)
-                        } else {
-                            found.insert(submission.lang.clone());
-                            let code = retrieve_code()?;
-                            let path = save_code(path, &code)?;
+                            found.insert(&submission);
                             (Some(code), Some(path))
                         }
                     }
                     None if *fetch_all => (Some(retrieve_code()?), None),
+                    Some(path) => {
+                        if found.contains(&submission) {
+                            (None, None)
+                        } else {
+                            found.insert(&submission);
+                            let code = retrieve_code()?;
+                            (Some(code), Some(path))
+                        }
+                    }
                     None => {
-                        self.stderr().with_reset(|o| {
-                            writeln!(o.fg(11)?, "Ignoring {:?}", submission.lang)
-                        })?;
-                        self.stderr().flush()?;
+                        ignored.insert(submission.lang.clone());
                         (None, None)
                     }
                 };
+                let path_to_save = path_to_save
+                    .map(|p| p.expand(Some(&submission.task_slug)))
+                    .transpose()?;
                 let url = submission.url;
                 let submission = RetrieveSubmissionsOutcomeSubmission {
                     problem: RetrieveSubmissionsOutcomeSubmissionProblem::new(
@@ -664,26 +675,43 @@ impl<T: Term> Atcoder<T> {
                         string: submission.verdict,
                     },
                     detail: code.map(|code| RetrieveSubmissionsOutcomeSubmissionDetail { code }),
-                    saved_as,
+                    saved_as: path_to_save,
                 };
                 outcome.submissions.insert(url, submission);
             }
         }
 
+        if let Some(ignored) = NonEmptyIndexSet::try_new(ignored) {
+            self.stderr().with_reset(|o| {
+                writeln!(
+                    o.fg(11)?,
+                    "Ignored: [{}]",
+                    ignored
+                        .iter()
+                        .format_with(", ", |l, f| f(&format_args!("{:?}", l)))
+                )
+            })?;
+        }
+
+        let mut num_saved = 0;
         let mut not_found = problems
             .as_ref()
             .map(|ps| ps.iter().collect::<IndexSet<_>>())
             .unwrap_or_default();
 
         for (_, submission) in &outcome.submissions {
-            if let Some(saved_as) = &submission.saved_as {
+            let path = &submission.saved_as;
+            let code = submission.detail.as_ref().map(|d| &d.code);
+            if let (Some(path), Some(code)) = (path, code) {
+                crate::fs::write(path, code.as_ref())?;
                 writeln!(
                     self.stderr(),
                     "{} - {:?}: Saved to {}",
                     submission.problem.slug,
                     submission.language,
-                    saved_as.display(),
+                    path.display(),
                 )?;
+                num_saved += 1;
             }
             not_found.remove(&submission.problem.slug);
         }
@@ -691,14 +719,8 @@ impl<T: Term> Atcoder<T> {
         if !not_found.is_empty() {
             self.stderr()
                 .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
-            self.stderr().flush()?;
         }
 
-        let num_saved = outcome
-            .submissions
-            .iter()
-            .filter(|(_, s)| s.saved_as.is_some())
-            .count();
         writeln!(
             self.stderr(),
             "Saved {}.",
