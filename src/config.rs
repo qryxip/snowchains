@@ -307,7 +307,6 @@ RUST_VERSION = "1.30.1"
 # switch = {{ {jq} }}
 # login = {{ {jq} }}
 # participate = {{ {jq} }}
-# download = {{ {jq} }}
 # judge = {{ {jq} }}
 # submit = {{ {jq} }}
 
@@ -1307,7 +1306,6 @@ struct Hooks {
     switch: Option<TemplateBuilder<HookCommands>>,
     login: Option<TemplateBuilder<HookCommands>>,
     participate: Option<TemplateBuilder<HookCommands>>,
-    download: Option<TemplateBuilder<HookCommands>>,
     #[serde(default)]
     retrieve: HooksRetrieve,
     judge: Option<TemplateBuilder<HookCommands>>,
@@ -1327,7 +1325,6 @@ impl Hooks {
             SubCommandKind::Switch => self.switch.as_ref(),
             SubCommandKind::Login => self.login.as_ref(),
             SubCommandKind::Participate => self.participate.as_ref(),
-            SubCommandKind::Download => self.download.as_ref(),
             SubCommandKind::RetrieveTestcases => self.retrieve.testcases.as_ref(),
             SubCommandKind::RetrieveLanguages => self.retrieve.languages.as_ref(),
             SubCommandKind::RetrieveSubmissions => self.retrieve.submissions.as_ref(),
@@ -1342,7 +1339,6 @@ pub(crate) enum SubCommandKind {
     Switch,
     Login,
     Participate,
-    Download,
     RetrieveTestcases,
     RetrieveLanguages,
     RetrieveSubmissions,

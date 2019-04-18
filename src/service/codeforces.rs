@@ -13,6 +13,7 @@ use crate::service::{
 use crate::terminal::{HasTerm, Term, WriteAnsi as _};
 use crate::testsuite::{self, BatchSuite, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
+use crate::util::scraper::ElementRefExt as _;
 use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
 
@@ -24,9 +25,7 @@ use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
 use reqwest::{header, StatusCode};
-use select::document::Document;
-use select::node::Node;
-use select::predicate::{Predicate, Text};
+use scraper::{ElementRef, Html, Node, Selector};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
@@ -128,7 +127,7 @@ impl<T: Term> Codeforces<T> {
     }
 
     fn login(&mut self, option: LoginOption) -> ServiceResult<LoginOutcome> {
-        static HANDLE: Lazy<Regex> = lazy_regex!(r#"\A/profile/([a-zA-Z0-9_\-]+)\z"#);
+        static HANDLE: &Lazy<Regex> = lazy_regex!(r#"\A/profile/([a-zA-Z0-9_\-]+)\z"#);
 
         let mut res = self.get("/enter").acceptable(&[200, 302]).send()?;
         let mut sent = false;
@@ -140,7 +139,7 @@ impl<T: Term> Codeforces<T> {
             let mut retries = self.login_retries;
             loop {
                 let mut payload = res
-                    .document(&mut self.runtime)?
+                    .html(&mut self.runtime)?
                     .extract_hidden_values(selector!("#enterForm"))?;
                 let handle_or_email = self.prompt_reply_stderr("Handle/Email: ")?;
                 let password = self.prompt_password_stderr("Password: ")?;
@@ -220,11 +219,11 @@ impl<T: Term> Codeforces<T> {
             }
             res = self.get(&top_path).send()?;
         }
-        for (name, url) in res.document(&mut self.runtime)?.extract_problems()? {
-            if problems.map_or(true, |ps| ps.contains(&name)) {
+        for (slug, url) in res.html(&mut self.runtime)?.extract_problems()? {
+            if problems.map_or(true, |ps| ps.contains(&slug)) {
                 let suite = self.get(url.as_ref()).recv_html()?.extract_test_suite()?;
-                let path = destinations.expand(&name)?;
-                outcome.push_problem(name.clone(), url, suite, path);
+                let path = destinations.expand(&slug)?;
+                outcome.push_problem(slug.clone(), url, suite, path);
             }
         }
 
@@ -233,14 +232,14 @@ impl<T: Term> Codeforces<T> {
             .unwrap_or_default();
 
         for RetrieveTestCasesOutcomeProblem {
-            name,
+            slug,
             test_suite,
             test_suite_path,
             ..
         } in &outcome.problems
         {
-            test_suite.save(name, test_suite_path, self.stderr())?;
-            not_found.remove_item_(&name);
+            test_suite.save(slug, test_suite_path, self.stderr())?;
+            not_found.remove_item_(&slug);
         }
         self.stderr().flush()?;
 
@@ -348,9 +347,9 @@ impl<T: Term> Codeforces<T> {
 
         let submit_path = format!("/contest/{}/submit", contest.id);
 
-        let doc = self.get(&submit_path).recv_html()?;
+        let html = self.get(&submit_path).recv_html()?;
 
-        let lang_id = doc
+        let lang_id = html
             .extract_langs()?
             .get(&lang_name)
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
@@ -362,7 +361,7 @@ impl<T: Term> Codeforces<T> {
             lang_id,
         )?;
 
-        let mut values = doc.extract_hidden_values(selector!("form.submit-form"))?;
+        let mut values = html.extract_hidden_values(selector!("form.submit-form"))?;
         values.insert("contestId".to_owned(), contest.id.to_string());
         values.insert("submittedProblemIndex".to_owned(), problem.clone());
         values.insert("tabSize".to_owned(), "4".to_owned());
@@ -648,18 +647,20 @@ struct Standings {
 }
 
 trait Extract {
-    fn extract_hidden_values(&self, form: impl Predicate) -> ScrapeResult<HashMap<String, String>>;
+    fn extract_hidden_values(&self, form: &Selector) -> ScrapeResult<HashMap<String, String>>;
     fn extract_problems(&self) -> ScrapeResult<NonEmptyIndexMap<String, Url>>;
     fn extract_test_suite(&self) -> ScrapeResult<TestSuite>;
     fn extract_meta_x_csrf_token(&self) -> ScrapeResult<String>;
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
 }
 
-impl Extract for Document {
-    fn extract_hidden_values(&self, form: impl Predicate) -> ScrapeResult<HashMap<String, String>> {
+impl Extract for Html {
+    fn extract_hidden_values(&self, form: &Selector) -> ScrapeResult<HashMap<String, String>> {
         let mut values = self
-            .find(form.descendant(selector!("input[type=\"hidden\"]")))
+            .select(form)
+            .flat_map(|r| r.select(selector!("input[type=\"hidden\"]")))
             .flat_map(|input| {
+                let input = input.value();
                 let name = input.attr("name")?.to_owned();
                 let value = input.attr("value")?.to_owned();
                 Some((name, value))
@@ -680,12 +681,12 @@ impl Extract for Document {
 
     fn extract_problems(&self) -> ScrapeResult<NonEmptyIndexMap<String, Url>> {
         let problems = self
-            .find(selector!("table.problems > tbody > tr > td.id > a"))
+            .select(selector!("table.problems > tbody > tr > td.id > a"))
             .map(|a| {
-                let name = a.find(Text).assert_one()?.text().trim().to_owned();
+                let slug = a.text().assert_one()?.trim().to_owned();
                 let mut href = base_url();
-                href.set_path(a.attr("href").ok_or_else(ScrapeError::new)?);
-                Ok((name, href))
+                href.set_path(a.value().attr("href").ok_or_else(ScrapeError::new)?);
+                Ok((slug, href))
             })
             .collect::<ScrapeResult<IndexMap<_, _>>>()?;
         NonEmptyIndexMap::try_new(problems).ok_or_else(ScrapeError::new)
@@ -693,11 +694,10 @@ impl Extract for Document {
 
     fn extract_test_suite(&self) -> ScrapeResult<TestSuite> {
         let timelimit = self
-            .find(selector!("#pageContent div.time-limit").child(Text))
+            .select(selector!("#pageContent div.time-limit"))
+            .flat_map(|r| r.text())
             .flat_map(|text| {
-                static R: Lazy<Regex> = lazy_regex!(r#"\A([0-9]{1,9})(\.[0-9])? seconds?\z"#);
-                let text = text.text();
-                let caps = R.captures(&text)?;
+                let caps = lazy_regex!(r#"\A([0-9]{1,9})(\.[0-9])? seconds?\z"#).captures(text)?;
                 let secs = caps[1].parse::<u64>().unwrap();
                 let nanos = caps
                     .get(2)
@@ -706,27 +706,31 @@ impl Extract for Document {
                 Some(Duration::new(secs, nanos))
             })
             .assert_one()?;
+        dbg!(self
+            .select(selector!("#pageContent div.input-file"))
+            .flat_map(|r| r.text())
+            .collect::<Vec<_>>());
         let input_file = self
-            .find(selector!("#pageContent div.input-file").child(Text))
-            .assert_one()?
-            .text();
+            .select(selector!("#pageContent div.input-file"))
+            .flat_map(|r| r.children_text())
+            .assert_one()?;
         let output_file = self
-            .find(selector!("#pageContent div.output-file").child(Text))
-            .assert_one()?
-            .text();
+            .select(selector!("#pageContent div.output-file"))
+            .flat_map(|r| r.children_text())
+            .assert_one()?;
         if input_file != "standard input" || output_file != "standard output" {
             unimplemented!();
         }
 
         let sample_test = self
-            .find(selector!("#pageContent div.sample-test"))
+            .select(selector!("#pageContent div.sample-test"))
             .assert_one()?;
         let ins = sample_test
-            .find(selector!("div.input > pre"))
+            .select(selector!("div.input > pre"))
             .map(|p| p.fold_text_and_br())
             .collect::<Vec<_>>();
         let outs = sample_test
-            .find(selector!("div.output > pre"))
+            .select(selector!("div.output > pre"))
             .map(|p| p.fold_text_and_br())
             .collect::<Vec<_>>();
         if ins.is_empty() || ins.len() != outs.len() {
@@ -741,26 +745,26 @@ impl Extract for Document {
     }
 
     fn extract_meta_x_csrf_token(&self) -> ScrapeResult<String> {
-        self.find(selector!("meta[name=\"X-Csrf-Token\"]"))
+        self.select(selector!("meta[name=\"X-Csrf-Token\"]"))
             .next()
-            .and_then(|m| m.attr("content").map(ToOwned::to_owned))
+            .and_then(|r| r.value().attr("content").map(ToOwned::to_owned))
             .ok_or_else(ScrapeError::new)
     }
 
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
         let td = self
-            .find(selector!("form.submit-form > table > tbody > tr > td"))
+            .select(selector!("form.submit-form > table > tbody > tr > td"))
             .find(|td| {
-                td.find(selector!("select[name=\"programTypeId\"]"))
+                td.select(selector!("select[name=\"programTypeId\"]"))
                     .next()
                     .is_some()
             })
             .ok_or_else(ScrapeError::new)?;
         let names = td
-            .find(selector!("option"))
+            .select(selector!("option"))
             .map(|option| {
-                let name = option.find(Text).next()?.text();
-                let id = option.attr("value")?.to_owned();
+                let name = option.text().next()?.to_owned();
+                let id = option.value().attr("value")?.to_owned();
                 Some((name, id))
             })
             .map(|o| o.ok_or_else(ScrapeError::new))
@@ -795,16 +799,16 @@ trait FoldTextAndBr {
     fn fold_text_and_br(&self) -> String;
 }
 
-impl<'a> FoldTextAndBr for Node<'a> {
+impl<'a> FoldTextAndBr for ElementRef<'a> {
     fn fold_text_and_br(&self) -> String {
-        self.find(selector!("br").or(Text))
-            .fold("".to_owned(), |mut ret, node| {
-                match node.as_text() {
-                    None => ret.push('\n'),
-                    Some(text) => ret += text,
-                }
-                ret
-            })
+        self.children().fold("".to_owned(), |mut ret, node| {
+            match node.value() {
+                Node::Text(t) => ret += t,
+                Node::Element(e) if e.name() == "br" => ret.push('\n'),
+                _ => {}
+            }
+            ret
+        })
     }
 }
 
@@ -821,7 +825,7 @@ mod tests {
     use failure::Fallible;
     use itertools::Itertools as _;
     use pretty_assertions::assert_eq;
-    use select::document::Document;
+    use scraper::Html;
     use url::Url;
 
     use std::time::Duration;
@@ -875,18 +879,18 @@ mod tests {
     }
 
     trait GetHtml {
-        fn get_html(&self, url_or_path: &str) -> reqwest::Result<Document>;
+        fn get_html(&self, url_or_path: &str) -> reqwest::Result<Html>;
     }
 
     impl GetHtml for reqwest::Client {
-        fn get_html(&self, url_or_path: &str) -> reqwest::Result<Document> {
+        fn get_html(&self, url_or_path: &str) -> reqwest::Result<Html> {
             let url = url_or_path.parse::<Url>().unwrap_or_else(|_| {
                 let mut url = "https://codeforces.com".parse::<Url>().unwrap();
                 url.set_path(url_or_path);
                 url
             });
             let text = self.get(url).send()?.error_for_status()?.text()?;
-            Ok(Document::from(text.as_str()))
+            Ok(Html::parse_document(&text))
         }
     }
 }

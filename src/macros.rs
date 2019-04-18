@@ -29,19 +29,23 @@ macro_rules! plural {
 }
 
 macro_rules! lazy_regex {
-    ($expr:expr) => {
-        ::once_cell::sync_lazy!(::regex::Regex::new($expr).unwrap())
+    ($expr:expr) => {{
+        static REGEX: ::once_cell::sync::Lazy<::regex::Regex> =
+            ::once_cell::sync_lazy!(::regex::Regex::new($expr).unwrap());
+        &REGEX
+    }};
+    ($expr:expr,) => {
+        lazy_regex!($expr)
     };
 }
 
 macro_rules! selector {
-    ($($tt:tt)*) => {{
-        enum Gen {}
-
-        impl Gen {
-            ::snowchains_proc_macros::def_gen_predicate!($($tt)*);
-        }
-
-        Gen::gen()
+    ($selectors:literal) => {{
+        static SELECTOR: ::once_cell::sync::Lazy<::scraper::selector::Selector> =
+            ::once_cell::sync_lazy!(::scraper::selector::Selector::parse($selectors).unwrap());
+        &SELECTOR
     }};
+    ($selectors:literal,) => {
+        selector!($selectors)
+    };
 }

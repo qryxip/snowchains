@@ -299,13 +299,13 @@ struct RetrieveTestCasesOutcomeContest {
 pub(self) struct RetrieveTestCasesOutcomeProblem {
     #[serde(serialize_with = "util::serde::ser_as_ref_str")]
     pub(self) url: Url,
-    pub(self) name: String,
-    name_lower_case: String,
-    name_upper_case: String,
-    name_snake_case: String,
-    name_kebab_case: String,
-    name_mixed_case: String,
-    name_pascal_case: String,
+    pub(self) slug: String,
+    slug_lower_case: String,
+    slug_upper_case: String,
+    slug_snake_case: String,
+    slug_kebab_case: String,
+    slug_mixed_case: String,
+    slug_pascal_case: String,
     #[serde(serialize_with = "util::serde::ser_as_ref_path")]
     pub(self) test_suite_path: SuiteFilePath,
     pub(self) test_suite: TestSuite,
@@ -329,20 +329,20 @@ impl RetrieveTestCasesOutcome {
 
     pub(self) fn push_problem(
         &mut self,
-        name: String,
+        slug: String,
         url: Url,
         suite: TestSuite,
         path: SuiteFilePath,
     ) {
         self.problems.push(RetrieveTestCasesOutcomeProblem {
             url,
-            name_lower_case: name.to_lowercase(),
-            name_upper_case: name.to_uppercase(),
-            name_snake_case: name.to_snake_case(),
-            name_kebab_case: name.to_kebab_case(),
-            name_mixed_case: name.to_mixed_case(),
-            name_pascal_case: name.to_camel_case(),
-            name,
+            slug_lower_case: slug.to_lowercase(),
+            slug_upper_case: slug.to_uppercase(),
+            slug_snake_case: slug.to_snake_case(),
+            slug_kebab_case: slug.to_kebab_case(),
+            slug_mixed_case: slug.to_mixed_case(),
+            slug_pascal_case: slug.to_camel_case(),
+            slug,
             test_suite_path: path,
             test_suite: suite,
         })

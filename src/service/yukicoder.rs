@@ -19,8 +19,7 @@ use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
 use regex::Regex;
 use reqwest::{header, StatusCode};
-use select::document::Document;
-use select::predicate::{Predicate as _, Text};
+use scraper::Html;
 use serde_derive::Deserialize;
 use tokio::runtime::Runtime;
 use url::Url;
@@ -186,12 +185,11 @@ impl<T: Term> Yukicoder<T> {
             only_scraped,
         } = props;
         self.login(false)?;
-        let scrape =
-            |document: &Document, problem: &str| -> ServiceResult<(TestSuite, SuiteFilePath)> {
-                let suite = document.extract_samples()?;
-                let path = destinations.expand(problem)?;
-                Ok((suite, path))
-            };
+        let scrape = |html: &Html, problem: &str| -> ServiceResult<(TestSuite, SuiteFilePath)> {
+            let suite = html.extract_samples()?;
+            let path = destinations.expand(problem)?;
+            Ok((suite, path))
+        };
         let mut outcome = RetrieveTestCasesOutcome::new(contest);
         match (contest, problems.as_ref()) {
             (YukicoderContest::No, None) => {
@@ -203,17 +201,18 @@ impl<T: Term> Yukicoder<T> {
                     let url = format!("/problems/no/{}", problem);
                     let res = self.get(&url).acceptable(&[200, 404]).send()?;
                     let status = res.status();
-                    let document = res.document(&mut self.runtime)?;
-                    let public = document
-                        .find(selector!("#content").child(Text))
+                    let html = res.html(&mut self.runtime)?;
+                    let public = html
+                        .select(selector!("#content"))
+                        .flat_map(|r| r.text())
                         .next()
-                        .map_or(true, |t| !t.text().contains("非表示"));
+                        .map_or(true, |t| !t.contains("非表示"));
                     if status == StatusCode::NOT_FOUND {
                         not_found.push(problem);
                     } else if !public {
                         not_public.push(problem);
                     } else {
-                        let (suite, path) = scrape(&document, problem)?;
+                        let (suite, path) = scrape(&html, problem)?;
                         let url = self.session.resolve_url(&url)?;
                         outcome.push_problem(problem.to_owned(), url, suite, path);
                     }
@@ -233,12 +232,12 @@ impl<T: Term> Yukicoder<T> {
                     .get(&format!("/contests/{}", contest))
                     .recv_html()?
                     .extract_problems()?;
-                for (name, href) in target_problems {
-                    if problems.is_none() || problems.as_ref().unwrap().contains(&name) {
-                        let document = self.get(&href).recv_html()?;
-                        let (suite, path) = scrape(&document, &name)?;
+                for (slug, href) in target_problems {
+                    if problems.is_none() || problems.as_ref().unwrap().contains(&slug) {
+                        let html = self.get(&href).recv_html()?;
+                        let (suite, path) = scrape(&html, &slug)?;
                         let url = self.session.resolve_url(&href)?;
-                        outcome.push_problem(name, url, suite, path);
+                        outcome.push_problem(slug, url, suite, path);
                     }
                 }
             }
@@ -246,7 +245,7 @@ impl<T: Term> Yukicoder<T> {
         let nos = outcome
             .problems
             .iter()
-            .map(|p| p.name.clone())
+            .map(|p| p.slug.clone())
             .collect::<Vec<_>>();
         let solved_batch_nos = if *only_scraped {
             vec![]
@@ -258,7 +257,7 @@ impl<T: Term> Yukicoder<T> {
                         .problems
                         .iter()
                         .any(|problem| match &problem.test_suite {
-                            TestSuite::Batch(_) => problem.name == *no,
+                            TestSuite::Batch(_) => problem.slug == *no,
                             _ => false,
                         })
                 })
@@ -292,14 +291,14 @@ impl<T: Term> Yukicoder<T> {
                 .collect::<ServiceResult<Vec<_>>>()?
         };
         for RetrieveTestCasesOutcomeProblem {
-            name,
+            slug,
             test_suite,
             test_suite_path,
             ..
         } in &mut outcome.problems
         {
             for (no, text_file_paths) in &text_file_paths {
-                if name == no {
+                if slug == no {
                     *test_suite = match mem::replace(test_suite, TestSuite::Unsubmittable) {
                         TestSuite::Batch(suite) => {
                             suite.without_cases().paths(text_file_paths.clone()).into()
@@ -309,7 +308,7 @@ impl<T: Term> Yukicoder<T> {
                     break;
                 }
             }
-            test_suite.save(name, test_suite_path, self.stderr())?;
+            test_suite.save(slug, test_suite_path, self.stderr())?;
         }
         if *open_in_browser {
             for RetrieveTestCasesOutcomeProblem { url, .. } in &outcome.problems {
@@ -347,17 +346,17 @@ impl<T: Term> Yukicoder<T> {
         self.login(true)?;
         let url = self.get_submit_url(contest, problem)?;
         let no = {
-            static NO: Lazy<Regex> =
-                lazy_regex!(r"\A(https://yukicoder\.me)?/problems/no/(\d+)/submit\z");
-            NO.captures(url.as_ref()).map(|caps| caps[2].to_owned())
+            lazy_regex!(r"\A(https://yukicoder\.me)?/problems/no/(\d+)/submit\z")
+                .captures(url.as_ref())
+                .map(|caps| caps[2].to_owned())
         };
         if let Some(no) = no {
             if !(self.filter_solved(&[no])?.is_empty() || *skip_checking_if_accepted) {
                 return Err(ServiceErrorKind::AlreadyAccepted.into());
             }
         }
-        let document = self.get(url.as_ref()).recv_html()?;
-        let lang_id = document
+        let html = self.get(url.as_ref()).recv_html()?;
+        let lang_id = html
             .extract_langs()?
             .get(lang_name)
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
@@ -368,12 +367,12 @@ impl<T: Term> Yukicoder<T> {
             lang_name,
             lang_id,
         )?;
-        let token = document.extract_csrf_token_from_submit_page()?;
+        let token = html.extract_csrf_token_from_submit_page()?;
         let form = reqwest::r#async::multipart::Form::new()
             .text("csrf_token", token)
             .text("lang", lang_id.clone())
             .text("source", code.clone());
-        let url = document.extract_url_from_submit_page()?;
+        let url = html.extract_url_from_submit_page()?;
         let res = self.post(&url).send_multipart(form)?;
         let location = match res.headers().get(header::LOCATION) {
             None => None,
@@ -523,12 +522,12 @@ trait Extract {
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
 }
 
-impl Extract for Document {
+impl Extract for Html {
     fn extract_username(&self) -> Username {
         let extract = || {
-            let a = self.find(selector!("#usermenu > a")).next()?;
-            let name = a.find(Text).next()?.text();
-            let src = a.find(selector!("img")).next()?.attr("src")?;
+            let a = self.select(selector!("#usermenu > a")).next()?;
+            let name = a.text().next()?.to_owned();
+            let src = a.select(selector!("img")).next()?.value().attr("src")?;
             Some(if src == "/public/img/anony.png" {
                 Username::Yukicoder(name)
             } else if src.starts_with("https://avatars2.githubusercontent.com") {
@@ -549,15 +548,15 @@ impl Extract for Document {
         }
 
         let extract = || {
-            static R: Lazy<Regex> = lazy_regex!(
-                "\\A / 実行時間制限 : 1ケース (\\d)\\.(\\d{3})秒 / メモリ制限 : \\d+ MB / \
-                 (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z"
-            );
             let text = self
-                .find(selector!("#content > div").child(Text))
-                .map(|text| text.text())
+                .select(selector!("#content > div"))
+                .flat_map(|r| r.text())
                 .nth(1)?;
-            let caps = R.captures(&text)?;
+            let caps = lazy_regex!(
+                "\\A / 実行時間制限 : 1ケース (\\d)\\.(\\d{3})秒 / メモリ制限 : \\d+ MB / \
+                 (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z",
+            )
+            .captures(text)?;
             let timelimit = {
                 let s = caps[1].parse::<u64>().unwrap();
                 let m = caps[2].parse::<u64>().unwrap();
@@ -572,16 +571,17 @@ impl Extract for Document {
             match kind {
                 ProblemKind::Regular | ProblemKind::Special => {
                     let mut samples = vec![];
-                    for paragraph in self.find(selector!(
+                    for paragraph in self.select(selector!(
                         "#content > div.block > div.sample > div.paragraph",
                     )) {
                         let pres = paragraph
-                            .find(selector!("pre").child(Text))
+                            .select(selector!("pre"))
+                            .flat_map(|r| r.text())
                             .collect::<Vec<_>>();
                         guard!(pres.len() == 2);
-                        let input = pres[0].text();
+                        let input = pres[0].to_owned();
                         let output = match kind {
-                            ProblemKind::Regular => Some(pres[1].text()),
+                            ProblemKind::Regular => Some(pres[1].to_owned()),
                             ProblemKind::Special => None,
                             ProblemKind::Reactive => unreachable!(),
                         };
@@ -603,13 +603,14 @@ impl Extract for Document {
     fn extract_problems(&self) -> ScrapeResult<Vec<(String, String)>> {
         let extract = || {
             let mut problems = vec![];
-            for tr in self.find(selector!("#content > div.left > table.table > tbody > tr")) {
-                let name = tr.find(selector!("td")).nth(0)?.text();
+            for tr in self.select(selector!("#content > div.left > table.table > tbody > tr")) {
+                let name = tr.select(selector!("td")).nth(0)?.text().next()?.to_owned();
                 let href = tr
-                    .find(selector!("td"))
+                    .select(selector!("td"))
                     .nth(2)?
-                    .find(selector!("a"))
+                    .select(selector!("a"))
                     .next()?
+                    .value()
                     .attr("href")?
                     .to_owned();
                 problems.push((name, href));
@@ -624,25 +625,26 @@ impl Extract for Document {
     }
 
     fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String> {
-        self.find(selector!("#submit_form > input[name=\"csrf_token\"]"))
-            .find_map(|input| input.attr("value").map(ToOwned::to_owned))
+        self.select(selector!("#submit_form > input[name=\"csrf_token\"]"))
+            .find_map(|r| r.value().attr("value").map(ToOwned::to_owned))
             .ok_or_else(ScrapeError::new)
     }
 
     fn extract_url_from_submit_page(&self) -> ScrapeResult<String> {
-        self.find(selector!("#submit_form"))
-            .find_map(|form| form.attr("action").map(ToOwned::to_owned))
+        self.select(selector!("#submit_form"))
+            .find_map(|r| r.value().attr("action").map(ToOwned::to_owned))
             .ok_or_else(ScrapeError::new)
     }
 
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
-        static WS: Lazy<Regex> = lazy_regex!(r"[\s\n]+");
         let names = self
-            .find(selector!("#lang > option"))
+            .select(selector!("#lang > option"))
             .map(|option| {
-                let name = option.find(Text).next()?.as_text().unwrap();
-                let name = WS.replace_all(name.trim(), " ").into_owned();
-                let id = option.attr("value")?.to_owned();
+                let name = option.text().next()?;
+                let name = lazy_regex!(r"[\s\n]+")
+                    .replace_all(name.trim(), " ")
+                    .into_owned();
+                let id = option.value().attr("value")?.to_owned();
                 Some((name, id))
             })
             .map(|p| p.ok_or_else(ScrapeError::new))
@@ -659,7 +661,7 @@ mod tests {
 
     use failure::Fallible;
     use pretty_assertions::assert_eq;
-    use select::document::Document;
+    use scraper::Html;
 
     use std::borrow::Borrow;
     use std::time::Duration;
@@ -685,8 +687,8 @@ mod tests {
     }
 
     fn test_extracting_samples(rel_url: &str, expected_md5: &str) -> Fallible<()> {
-        let document = get_html(rel_url)?;
-        let suite = document.extract_samples()?;
+        let html = get_html(rel_url)?;
+        let suite = html.extract_samples()?;
         let actual_md5 = suite.md5()?;
         suite.assert_serialize_correctly()?;
         assert_eq!(format!("{:x}", actual_md5), expected_md5);
@@ -703,8 +705,8 @@ mod tests {
             ("E", "/problems/no/195"),
             ("F", "/problems/no/196"),
         ];
-        let document = get_html("/contests/100")?;
-        let problems = document.extract_problems()?;
+        let html = get_html("/contests/100")?;
+        let problems = html.extract_problems()?;
         assert_eq!(own_pairs(EXPECTED), problems);
         Ok(())
     }
@@ -716,10 +718,10 @@ mod tests {
             .collect()
     }
 
-    fn get_html(rel_url: &str) -> reqwest::Result<Document> {
+    fn get_html(rel_url: &str) -> reqwest::Result<Html> {
         let client = service::reqwest_sync_client(Duration::from_secs(60))?;
         let url = format!("https://yukicoder.me{}", rel_url);
-        let content = client.get(&url).send()?.text()?;
-        Ok(Document::from(content.as_str()))
+        let text = client.get(&url).send()?.text()?;
+        Ok(Html::parse_document(&text))
     }
 }
