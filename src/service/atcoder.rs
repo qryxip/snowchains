@@ -29,7 +29,7 @@ use maplit::hashmap;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::{header, StatusCode};
-use scraper::{Html, Selector};
+use scraper::{ElementRef, Html, Selector};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::runtime::Runtime;
@@ -316,24 +316,25 @@ impl<T: Term> Atcoder<T> {
             open_in_browser,
             only_scraped,
         } = props;
-        let names_and_urls = self
+        let problems = problems.as_ref();
+        let slugs_and_urls = self
             .fetch_tasks_page(contest)?
-            .extract_task_urls_with_names()?
-            .into_iter()
-            .filter(|(name, _)| match problems.as_ref() {
-                None => true,
-                Some(problems) => problems.iter().any(|p| p == name),
-            })
-            .collect::<Vec<_>>();
+            .extract_task_slugs_and_urls()?;
+        let suites = self
+            .get(&contest.url_tasks_print())
+            .recv_html()?
+            .extract_as_suites(&contest.slug())?;
+        if slugs_and_urls.len() != suites.len() {
+            return Err(ScrapeError::new().into());
+        }
         let mut outcome = RetrieveTestCasesOutcome::new(contest);
-        for (name, url) in names_and_urls {
-            let suite = match contest.preset_suite(&name) {
-                Some(suite) => suite,
-                None => self.get(&url).recv_html()?.extract_as_suite()?,
-            };
-            let path = destinations.expand(&name)?;
-            let url = self.session.resolve_url(&url)?;
-            outcome.push_problem(name, url, suite, path);
+        for ((slug, url), (display_name, suite)) in slugs_and_urls.into_iter().zip_eq(suites) {
+            let _ = display_name;
+            if problems.map_or(true, |ps| ps.iter().any(|p| *p == slug)) {
+                let path = destinations.expand(&slug)?;
+                let url = self.session.resolve_url(&url)?;
+                outcome.push_problem(slug, url, suite, path);
+            }
         }
         let mut not_found = match problems.as_ref() {
             None => vec![],
@@ -344,20 +345,20 @@ impl<T: Term> Atcoder<T> {
                 let suites = outcome
                     .problems
                     .iter_mut()
-                    .map(|p| (p.name.as_str(), &mut p.test_suite))
+                    .map(|p| (p.slug.as_str(), &mut p.test_suite))
                     .collect::<BTreeMap<_, _>>();
                 self.retrieve_from_dropbox(dropbox_path, &contest.slug(), suites, destinations)?;
             }
         }
         for RetrieveTestCasesOutcomeProblem {
-            name,
+            slug,
             test_suite,
             test_suite_path,
             ..
         } in &outcome.problems
         {
-            test_suite.save(name, test_suite_path, self.stderr())?;
-            not_found.remove_item_(&name);
+            test_suite.save(slug, test_suite_path, self.stderr())?;
+            not_found.remove_item_(&slug);
         }
         self.stderr().flush()?;
         if !not_found.is_empty() {
@@ -552,7 +553,7 @@ impl<T: Term> Atcoder<T> {
             Some(problem) => {
                 let url = self
                     .fetch_tasks_page(&contest)?
-                    .extract_task_urls_with_names()?
+                    .extract_task_slugs_and_urls()?
                     .into_element(&problem)
                     .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
                 self.session.resolve_url(&url)?
@@ -748,7 +749,7 @@ impl<T: Term> Atcoder<T> {
                 status.is_active()
             };
         let url = tasks_page
-            .extract_task_urls_with_names()?
+            .extract_task_slugs_and_urls()?
             .into_element(problem)
             .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
         let task_screen = {
@@ -907,6 +908,12 @@ impl AtcoderContest {
         ret
     }
 
+    fn url_tasks_print(&self) -> Url {
+        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        ret.set_path(&format!("/contests/{}/tasks_print", self.slug()));
+        ret
+    }
+
     fn url_register(&self) -> Url {
         let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
         ret.set_path(&format!("/contests/{}/register", self.slug()));
@@ -924,15 +931,6 @@ impl AtcoderContest {
         ret.set_path(&format!("/contests/{}/submissions/me", self.slug()));
         ret.query_pairs_mut().append_pair("page", &page.to_string());
         ret
-    }
-
-    fn preset_suite(&self, problem: &str) -> Option<TestSuite> {
-        match (self, problem) {
-            (AtcoderContest::Arc(19), "D") => Some(InteractiveSuite::new(Duration::from_secs(2))),
-            (AtcoderContest::Arc(21), "D") => Some(InteractiveSuite::new(Duration::from_secs(4))),
-            _ => None,
-        }
-        .map(Into::into)
     }
 }
 
@@ -1013,8 +1011,11 @@ struct Submission {
 
 trait Extract {
     fn extract_csrf_token(&self) -> ScrapeResult<String>;
-    fn extract_task_urls_with_names(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
-    fn extract_as_suite(&self) -> ScrapeResult<TestSuite>;
+    fn extract_task_slugs_and_urls(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
+    fn extract_as_suites(
+        &self,
+        contest_slug: &str,
+    ) -> ScrapeResult<NonEmptyIndexMap<String, TestSuite>>;
     fn extract_contest_duration(&self) -> ScrapeResult<ContestDuration>;
     fn extract_submissions(&self) -> ScrapeResult<(Vec<Submission>, u32)>;
     fn extract_submitted_code(&self) -> ScrapeResult<String>;
@@ -1037,28 +1038,52 @@ impl Extract for Html {
         extract_csrf_token().ok_or_else(ScrapeError::new)
     }
 
-    fn extract_task_urls_with_names(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
+    fn extract_task_slugs_and_urls(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
         self.select(selector!(
             "#main-container > div.row > div.col-sm-12 > div.panel > table.table > tbody > tr",
         ))
         .map(|tr| {
             let a = tr.select(selector!("td.text-center > a")).next()?;
-            let name = a.text().next()?.to_owned();
+            let slug = a.text().next()?.to_owned();
             let url = a.value().attr("href")?.to_owned();
-            Some((name, url))
+            Some((slug, url))
         })
         .collect::<Option<IndexMap<_, _>>>()
         .and_then(NonEmptyIndexMap::try_new)
         .ok_or_else(ScrapeError::new)
     }
 
-    fn extract_as_suite(&self) -> ScrapeResult<TestSuite> {
+    fn extract_as_suites(
+        &self,
+        contest_slug: &str,
+    ) -> ScrapeResult<NonEmptyIndexMap<String, TestSuite>> {
         enum Samples {
             Batch(Vec<(String, String)>, testsuite::Match),
             Interactive,
         }
 
-        fn extract_samples(this: &Html) -> Option<Samples> {
+        fn parse_timelimit(text: &str) -> Option<Duration> {
+            let caps =
+                lazy_regex!(r"\A\D*([0-9]{1,9})(\.[0-9]{1,3})?\s*(m)?sec.*\z").captures(text)?;
+            let (mut b, mut e) = (caps[1].parse::<u64>().unwrap(), 0);
+            if let Some(cap) = caps.get(2) {
+                let n = cap.as_str().len() as u32 - 1;
+                b *= 10u64.pow(n);
+                b += cap.as_str()[1..].parse::<u64>().ok()?;
+                e -= n as i32;
+            }
+            if caps.get(3).is_none() {
+                e += 3;
+            }
+            let timelimit = if e < 0 {
+                b / 10u64.pow(-e as u32)
+            } else {
+                b * 10u64.pow(e as u32)
+            };
+            Some(Duration::from_millis(timelimit))
+        }
+
+        fn extract_samples(task_statement: ElementRef) -> Option<Samples> {
             // TODO:
             // - https://atcoder.jp/contests/arc019/tasks/arc019_4 (interactive)
             // - https://atcoder.jp/contests/arc021/tasks/arc021_4 (interactive)
@@ -1073,60 +1098,56 @@ impl Extract for Html {
 
             // Current style (Japanese)
             static P1_HEAD: &Lazy<Selector> =
-                selector!("#task-statement > span.lang > span.lang-ja > div.part > section > h3");
+                selector!("span.lang > span.lang-ja > div.part > section > h3");
             static P1_CONTENT: &Lazy<Selector> =
-                selector!("#task-statement > span.lang > span.lang-ja > div.part > section > pre");
+                selector!("span.lang > span.lang-ja > div.part > section > pre");
             // Current style (English)
             static P2_HEAD: &Lazy<Selector> =
-                selector!("#task-statement > span.lang > span.lang-en > div.part > section > h3");
+                selector!("span.lang > span.lang-en > div.part > section > h3");
             static P2_CONTENT: &Lazy<Selector> =
-                selector!("#task-statement>span.lang>span.lang-en>div.part>section>pre");
+                selector!("span.lang>span.lang-en>div.part>section>pre");
             // ARC019..ARC057 \ {ARC019/C, ARC046/D, ARC050, ARC052/{A, C}, ARC053, ARC055},
             // ABC007..ABC040 \ {ABC036}, ATC001, ATC002
-            static P3_HEAD: &Lazy<Selector> =
-                selector!("#task-statement > div.part > section > h3");
-            static P3_CONTENT: &Lazy<Selector> =
-                selector!("#task-statement > div.part > section > pre");
+            static P3_HEAD: &Lazy<Selector> = selector!("div.part > section > h3");
+            static P3_CONTENT: &Lazy<Selector> = selector!("div.part > section > pre");
             // ARC002..ARC018, ARC019/C, ABC001..ABC006
-            static P4_HEAD: &Lazy<Selector> = selector!("#task-statement > div.part > h3,pre");
-            static P4_CONTENT: &Lazy<Selector> =
-                selector!("#task-statement > div.part > section > pre");
+            static P4_HEAD: &Lazy<Selector> = selector!("div.part > h3,pre");
+            static P4_CONTENT: &Lazy<Selector> = selector!("div.part > section > pre");
             // ARC001, dwacon2018-final/{A, B}
-            static P5_HEAD: &Lazy<Selector> = selector!("#task-statement > h3,pre");
-            static P5_CONTENT: &Lazy<Selector> = selector!("#task-statement > section > pre");
+            static P5_HEAD: &Lazy<Selector> = selector!("h3,pre");
+            static P5_CONTENT: &Lazy<Selector> = selector!("section > pre");
             // ARC046/D, ARC050, ARC052/{A, C}, ARC053, ARC055, ABC036, ABC041
-            static P6_HEAD: &Lazy<Selector> = selector!("#task-statement > section > h3");
-            static P6_CONTENT: &Lazy<Selector> = selector!("#task-statement > section > pre");
+            static P6_HEAD: &Lazy<Selector> = selector!("section > h3");
+            static P6_CONTENT: &Lazy<Selector> = selector!("section > pre");
             // ABC034
-            static P7_HEAD: &Lazy<Selector> =
-                selector!("#task-statement > span.lang > span.lang-ja > section > h3");
+            static P7_HEAD: &Lazy<Selector> = selector!("span.lang > span.lang-ja > section > h3");
             static P7_CONTENT: &Lazy<Selector> =
-                selector!("#task-statement > span.lang > span.lang-ja > section > pre");
+                selector!("span.lang > span.lang-ja > section > pre");
             // practice contest (Japanese)
-            static P8_HEAD: &Lazy<Selector> =
-                selector!("#task-statement > span.lang > span.lang-ja > div.part > h3");
+            static P8_HEAD: &Lazy<Selector> = selector!("span.lang > span.lang-ja > div.part > h3");
             static P8_CONTENT: &Lazy<Selector> =
-                selector!("#task-statement > span.lang > span.lang-ja > div.part > section > pre");
+                selector!("span.lang > span.lang-ja > div.part > section > pre");
 
-            try_extract_samples(this, P1_HEAD, P1_CONTENT, IN_JA, OUT_JA)
-                .or_else(|| try_extract_samples(this, P2_HEAD, P2_CONTENT, IN_EN, OUT_EN))
-                .or_else(|| try_extract_samples(this, P3_HEAD, P3_CONTENT, IN_JA, OUT_JA))
-                .or_else(|| try_extract_samples(this, P4_HEAD, P4_CONTENT, IN_JA, OUT_JA))
-                .or_else(|| try_extract_samples(this, P5_HEAD, P5_CONTENT, IN_JA, OUT_JA))
-                .or_else(|| try_extract_samples(this, P6_HEAD, P6_CONTENT, IN_JA, OUT_JA))
-                .or_else(|| try_extract_samples(this, P7_HEAD, P7_CONTENT, IN_JA, OUT_JA))
-                .or_else(|| try_extract_samples(this, P8_HEAD, P8_CONTENT, IN_JA, OUT_JA))
+            let stmt = task_statement;
+            try_extract_samples(stmt, P1_HEAD, P1_CONTENT, IN_JA, OUT_JA)
+                .or_else(|| try_extract_samples(stmt, P2_HEAD, P2_CONTENT, IN_EN, OUT_EN))
+                .or_else(|| try_extract_samples(stmt, P3_HEAD, P3_CONTENT, IN_JA, OUT_JA))
+                .or_else(|| try_extract_samples(stmt, P4_HEAD, P4_CONTENT, IN_JA, OUT_JA))
+                .or_else(|| try_extract_samples(stmt, P5_HEAD, P5_CONTENT, IN_JA, OUT_JA))
+                .or_else(|| try_extract_samples(stmt, P6_HEAD, P6_CONTENT, IN_JA, OUT_JA))
+                .or_else(|| try_extract_samples(stmt, P7_HEAD, P7_CONTENT, IN_JA, OUT_JA))
+                .or_else(|| try_extract_samples(stmt, P8_HEAD, P8_CONTENT, IN_JA, OUT_JA))
         }
 
         fn try_extract_samples(
-            this: &Html,
+            task_statement: ElementRef,
             selector_for_header: &'static Selector,
             selector_for_content: &'static Selector,
             re_input: &'static Regex,
             re_output: &'static Regex,
         ) -> Option<Samples> {
-            if this
-                .select(selector!("#task-statement strong"))
+            if task_statement
+                .select(selector!("strong"))
                 .flat_map(|r| r.text())
                 .any(|t| t.contains("インタラクティブ") || t.contains("Interactive"))
             {
@@ -1134,20 +1155,16 @@ impl Extract for Html {
             }
 
             let matching = {
-                let error = this
-                    .select(selector!("#task-statement var"))
+                let error = task_statement
+                    .select(selector!("var"))
                     .flat_map(|r| r.text())
                     .flat_map(|t| parse_floating_error(t))
                     .next();
-                let all_text = this
-                    .select(selector!("#task-statement"))
-                    .flat_map(|r| r.text())
-                    .collect::<Vec<_>>();
-                let relative = all_text
-                    .iter()
+                let relative = task_statement
+                    .text()
                     .any(|s| s.contains("相対誤差") || s.contains("relative error"));
-                let absolute = all_text
-                    .iter()
+                let absolute = task_statement
+                    .text()
                     .any(|s| s.contains("絶対誤差") || s.contains("absolute error"));
                 match (error, relative, absolute) {
                     (Some(error), true, true) => testsuite::Match::Float {
@@ -1169,7 +1186,7 @@ impl Extract for Html {
             let mut outputs = BTreeMap::<usize, _>::new();
             let mut next = None;
             let selector = util::scraper::or(selector_for_header, selector_for_content);
-            for elem_ref in this.select(&selector) {
+            for elem_ref in task_statement.select(&selector) {
                 if elem_ref.value().name() == "h3" {
                     let text = elem_ref.collect_text();
                     if let Some(caps) = re_input.captures(&text) {
@@ -1242,43 +1259,62 @@ impl Extract for Html {
                     })
         }
 
-        fn extract_timelimit(this: &Html) -> Option<Duration> {
-            let text = this
-                .select(selector!("#main-container > div.row > div.col-sm-12 > p"))
-                .next()?
-                .text()
-                .next()?;
-            let caps =
-                lazy_regex!(r"\A\D*([0-9]{1,9})(\.[0-9]{1,3})?\s*(m)?sec.*\z").captures(text)?;
-            let (mut b, mut e) = (caps[1].parse::<u64>().unwrap(), 0);
-            if let Some(cap) = caps.get(2) {
-                let n = cap.as_str().len() as u32 - 1;
-                b *= 10u64.pow(n);
-                b += cap.as_str()[1..].parse::<u64>().ok()?;
-                e -= n as i32;
-            }
-            if caps.get(3).is_none() {
-                e += 3;
-            }
-            let timelimit = if e < 0 {
-                b / 10u64.pow(-e as u32)
-            } else {
-                b * 10u64.pow(e as u32)
-            };
-            Some(Duration::from_millis(timelimit))
-        }
+        let outcome = self
+            .select(selector!(
+                "#main-container > div.row > div[class=\"col-sm-12\"]",
+            ))
+            .map(|div| {
+                let display_name = div
+                    .select(selector!("span"))
+                    .flat_map(|r| r.text())
+                    .next()?
+                    .to_owned();
+                let timelimit = div
+                    .select(selector!("p"))
+                    .flat_map(|r| r.text())
+                    .flat_map(parse_timelimit)
+                    .next()?;
+                // In `tasks_print`, there are multiple `#task-statement`s.
+                let samples = div
+                    .select(selector!("div[id=\"task-statement\"]"))
+                    .next()
+                    .and_then(extract_samples);
+                Some((display_name, timelimit, samples))
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(ScrapeError::new)?;
 
-        let timelimit = extract_timelimit(self).ok_or_else(ScrapeError::new)?;
-        if timelimit == Duration::from_millis(0) {
-            return Ok(TestSuite::Unsubmittable);
-        }
-        match extract_samples(self) {
-            None => Ok(BatchSuite::new(timelimit).into()),
-            Some(Samples::Batch(cases, matching)) => Ok(BatchSuite::new(timelimit)
-                .matching(matching)
-                .sample_cases(cases.into_iter(), |i| format!("Sample {}", i + 1))
-                .into()),
-            Some(Samples::Interactive) => Ok(InteractiveSuite::new(timelimit).into()),
+        if outcome.is_empty() {
+            Err(ScrapeError::new())
+        } else {
+            let ret = outcome
+                .into_iter()
+                .map(|(display_name, timelimit, samples)| {
+                    let suite = if timelimit == Duration::new(0, 0) {
+                        TestSuite::Unsubmittable
+                    } else if [
+                        // https://atcoder.jp/contests/arc019/tasks/arc019_4
+                        ("arc019", "D - ほんとうのたたかい"),
+                        // https://atcoder.jp/contests/arc021/tasks/arc021_4
+                        ("arc021", "D - だいたい最小全域木"),
+                    ]
+                    .contains(&(contest_slug, &display_name))
+                    {
+                        InteractiveSuite::new(timelimit).into()
+                    } else {
+                        match samples {
+                            None => BatchSuite::new(timelimit).into(),
+                            Some(Samples::Batch(cases, matching)) => BatchSuite::new(timelimit)
+                                .matching(matching)
+                                .sample_cases(cases.into_iter(), |i| format!("Sample {}", i + 1))
+                                .into(),
+                            Some(Samples::Interactive) => InteractiveSuite::new(timelimit).into(),
+                        }
+                    };
+                    (display_name, suite)
+                })
+                .collect::<IndexMap<_, _>>();
+            NonEmptyIndexMap::try_new(ret).ok_or_else(ScrapeError::new)
         }
     }
 
@@ -1401,47 +1437,25 @@ impl Extract for Html {
 #[cfg(test)]
 mod tests {
     use crate::errors::ServiceResult;
-    use crate::service::atcoder::{Atcoder, AtcoderContest, Extract as _};
-    use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
-    use crate::service::{self, Contest, Service as _};
-    use crate::terminal::{Term, TermImpl};
+    use crate::service;
+    use crate::service::atcoder::Extract as _;
     use crate::testsuite::TestSuite;
 
     use failure::Fallible;
     use itertools::Itertools as _;
     use pretty_assertions::assert_eq;
-    use tokio::runtime::Runtime;
-    use url::Host;
+    use scraper::Html;
+    use url::Url;
 
     use std::time::Duration;
 
     #[test]
-    fn it_extracts_task_urls_from_arc001() -> ServiceResult<()> {
-        let mut atcoder = start()?;
-        let page = atcoder.fetch_tasks_page(&AtcoderContest::new("arc001"))?;
-        let urls_and_names = page.extract_task_urls_with_names()?;
-        static EXPECTED: &[(&str, &str)] = &[
-            ("A", "/contests/arc001/tasks/arc001_1"),
-            ("B", "/contests/arc001/tasks/arc001_2"),
-            ("C", "/contests/arc001/tasks/arc001_3"),
-            ("D", "/contests/arc001/tasks/arc001_4"),
-        ];
-        assert_eq!(EXPECTED.len(), urls_and_names.len());
-        for ((actual_name, actual_url), &(expected_name, expected_url)) in
-            urls_and_names.into_iter().zip_eq(EXPECTED)
-        {
-            assert_eq!(expected_name, actual_name);
-            assert_eq!(expected_url, actual_url);
-        }
-        Ok(())
-    }
-
-    #[test]
     fn it_extracts_a_timelimit_from_apg4b_b() -> ServiceResult<()> {
-        let mut atcoder = start()?;
-        let page = atcoder.get("/contests/apg4b/tasks/APG4b_b").recv_html()?;
-        match page.extract_as_suite()? {
-            TestSuite::Unsubmittable => Ok(()),
+        let suites = service::reqwest_sync_client(Duration::from_secs(60))?
+            .get_html("/contests/apg4b/tasks/APG4b_b")?
+            .extract_as_suites("apg4b")?;
+        match suites.get("B - 1.01.出力とコメント") {
+            Some(TestSuite::Unsubmittable) => Ok(()),
             suite => panic!("Got {:?}", suite),
         }
     }
@@ -1466,6 +1480,28 @@ mod tests {
             ("D", "arc002_4", "91aaf382f4f2071185b5646ca48b26ef"),
         ];
         test_sample_extraction("arc002", EXPECTED)
+    }
+
+    #[test]
+    fn it_extracts_timelimits_and_sample_cases_from_arc019() -> Fallible<()> {
+        static EXPECTED: &[(&str, &str, &str)] = &[
+            ("A", "arc019_1", "f4f9813e9b83d964ddec2c86a814ed88"),
+            ("B", "arc019_2", "c3213ee3db31947143bb6e33e06c5a35"),
+            ("C", "arc019_3", "05a26fe2160257e1a6208b9389d4ae64"),
+            ("D", "arc019_4", "9debfd89a82271d763b717313363acda"),
+        ];
+        test_sample_extraction("arc019", EXPECTED)
+    }
+
+    #[test]
+    fn it_extracts_timelimits_and_sample_cases_from_arc021() -> Fallible<()> {
+        static EXPECTED: &[(&str, &str, &str)] = &[
+            ("A", "arc021_1", "25ddfb733bce9101f8f53cbd694ae19f"),
+            ("B", "arc021_2", "6dc19eaba78778063b8ccf0a1bc4e575"),
+            ("C", "arc021_3", "b455b810fbc5cded70623ab538a3ef7b"),
+            ("D", "arc021_4", "a818e644c08e2a2daf2ad316e4b3d1dd"),
+        ];
+        test_sample_extraction("arc021", EXPECTED)
     }
 
     #[test]
@@ -1538,58 +1574,50 @@ mod tests {
         contest: &str,
         expected: &'static [(&'static str, &'static str, &'static str)],
     ) -> Fallible<()> {
-        let mut atcoder = start()?;
-        let contest = AtcoderContest::new(contest);
-        let page = atcoder.fetch_tasks_page(&contest)?;
-        let urls_and_names = page.extract_task_urls_with_names()?;
-        for ((actual_name, actual_url), (expected_name, expected_slug, expected_md5)) in
-            urls_and_names.iter().zip_eq(expected.iter())
+        let client = service::reqwest_sync_client(Duration::from_secs(60))?;
+        let slugs_and_urls = client
+            .get_html(&format!("/contests/{}/tasks", contest))?
+            .extract_task_slugs_and_urls()?;
+        let suites = client
+            .get_html(&format!("/contests/{}/tasks_print", contest))?
+            .extract_as_suites(contest)?;
+        for (
+            ((expected_slug, expected_screen, expected_md5), (actual_slug, actual_url)),
+            (_, actual_suite),
+        ) in expected.iter().zip_eq(&slugs_and_urls).zip_eq(&suites)
         {
-            let expected_url = format!("/contests/{}/tasks/{}", contest.slug(), expected_slug);
-            assert_eq!(actual_name, expected_name);
-            assert_eq!(*actual_url, expected_url);
-            let problem_page = atcoder.get(actual_url).recv_html()?;
-            let actual_suite = problem_page.extract_as_suite()?;
+            let expected_url = format!("/contests/{}/tasks/{}", contest, expected_screen);
+            assert_eq!(*expected_slug, actual_slug);
+            assert_eq!(expected_url, *actual_url);
             let actual_md5 = actual_suite.md5()?;
             actual_suite.assert_serialize_correctly()?;
-            assert_eq!(format!("{:x}", actual_md5), *expected_md5);
+            assert_eq!(*expected_md5, format!("{:x}", actual_md5));
         }
         Ok(())
     }
 
     #[test]
     fn it_extracts_a_submitted_source_code() -> ServiceResult<()> {
-        static URL: &str = "/contests/utpc2011/submissions/2067";
-        let mut atcoder = start()?;
-        let page = atcoder.get(URL).recv_html()?;
-        let code = page.extract_submitted_code()?;
+        let code = service::reqwest_sync_client(Duration::from_secs(60))?
+            .get_html("/contests/utpc2011/submissions/2067")?
+            .extract_submitted_code()?;
         assert_eq!(
-            format!("{:x}", md5::compute(&code)),
             "1d805f5f226cd9d6dd90081a47505b7b",
+            format!("{:x}", md5::compute(&code)),
         );
         Ok(())
     }
 
-    fn start() -> ServiceResult<Atcoder<impl Term>> {
-        let client = service::reqwest_async_client(Duration::from_secs(60))?;
-        let base = UrlBase::new(Host::Domain("atcoder.jp"), true, None);
-        let mut term = TermImpl::null();
-        let mut runtime = Runtime::new()?;
-        let session = HttpSession::try_new(HttpSessionInitParams {
-            out: term.stderr(),
-            runtime: &mut runtime,
-            robots: true,
-            client,
-            base: Some(base),
-            cookies_path: None,
-            api_token_path: None,
-            silent: true,
-        })?;
-        Ok(Atcoder {
-            login_retries: Some(0),
-            term,
-            session,
-            runtime,
-        })
+    trait GetHtml {
+        fn get_html(&self, path: &str) -> reqwest::Result<Html>;
+    }
+
+    impl GetHtml for reqwest::Client {
+        fn get_html(&self, path: &str) -> reqwest::Result<Html> {
+            let mut url = "https://atcoder.jp".parse::<Url>().unwrap();
+            url.set_path(path);
+            let text = self.get(url).send()?.error_for_status()?.text()?;
+            Ok(Html::parse_document(&text))
+        }
     }
 }

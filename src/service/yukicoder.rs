@@ -232,12 +232,12 @@ impl<T: Term> Yukicoder<T> {
                     .get(&format!("/contests/{}", contest))
                     .recv_html()?
                     .extract_problems()?;
-                for (name, href) in target_problems {
-                    if problems.is_none() || problems.as_ref().unwrap().contains(&name) {
+                for (slug, href) in target_problems {
+                    if problems.is_none() || problems.as_ref().unwrap().contains(&slug) {
                         let html = self.get(&href).recv_html()?;
-                        let (suite, path) = scrape(&html, &name)?;
+                        let (suite, path) = scrape(&html, &slug)?;
                         let url = self.session.resolve_url(&href)?;
-                        outcome.push_problem(name, url, suite, path);
+                        outcome.push_problem(slug, url, suite, path);
                     }
                 }
             }
@@ -245,7 +245,7 @@ impl<T: Term> Yukicoder<T> {
         let nos = outcome
             .problems
             .iter()
-            .map(|p| p.name.clone())
+            .map(|p| p.slug.clone())
             .collect::<Vec<_>>();
         let solved_batch_nos = if *only_scraped {
             vec![]
@@ -257,7 +257,7 @@ impl<T: Term> Yukicoder<T> {
                         .problems
                         .iter()
                         .any(|problem| match &problem.test_suite {
-                            TestSuite::Batch(_) => problem.name == *no,
+                            TestSuite::Batch(_) => problem.slug == *no,
                             _ => false,
                         })
                 })
@@ -291,14 +291,14 @@ impl<T: Term> Yukicoder<T> {
                 .collect::<ServiceResult<Vec<_>>>()?
         };
         for RetrieveTestCasesOutcomeProblem {
-            name,
+            slug,
             test_suite,
             test_suite_path,
             ..
         } in &mut outcome.problems
         {
             for (no, text_file_paths) in &text_file_paths {
-                if name == no {
+                if slug == no {
                     *test_suite = match mem::replace(test_suite, TestSuite::Unsubmittable) {
                         TestSuite::Batch(suite) => {
                             suite.without_cases().paths(text_file_paths.clone()).into()
@@ -308,7 +308,7 @@ impl<T: Term> Yukicoder<T> {
                     break;
                 }
             }
-            test_suite.save(name, test_suite_path, self.stderr())?;
+            test_suite.save(slug, test_suite_path, self.stderr())?;
         }
         if *open_in_browser {
             for RetrieveTestCasesOutcomeProblem { url, .. } in &outcome.problems {

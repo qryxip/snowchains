@@ -219,11 +219,11 @@ impl<T: Term> Codeforces<T> {
             }
             res = self.get(&top_path).send()?;
         }
-        for (name, url) in res.html(&mut self.runtime)?.extract_problems()? {
-            if problems.map_or(true, |ps| ps.contains(&name)) {
+        for (slug, url) in res.html(&mut self.runtime)?.extract_problems()? {
+            if problems.map_or(true, |ps| ps.contains(&slug)) {
                 let suite = self.get(url.as_ref()).recv_html()?.extract_test_suite()?;
-                let path = destinations.expand(&name)?;
-                outcome.push_problem(name.clone(), url, suite, path);
+                let path = destinations.expand(&slug)?;
+                outcome.push_problem(slug.clone(), url, suite, path);
             }
         }
 
@@ -232,14 +232,14 @@ impl<T: Term> Codeforces<T> {
             .unwrap_or_default();
 
         for RetrieveTestCasesOutcomeProblem {
-            name,
+            slug,
             test_suite,
             test_suite_path,
             ..
         } in &outcome.problems
         {
-            test_suite.save(name, test_suite_path, self.stderr())?;
-            not_found.remove_item_(&name);
+            test_suite.save(slug, test_suite_path, self.stderr())?;
+            not_found.remove_item_(&slug);
         }
         self.stderr().flush()?;
 
@@ -683,10 +683,10 @@ impl Extract for Html {
         let problems = self
             .select(selector!("table.problems > tbody > tr > td.id > a"))
             .map(|a| {
-                let name = a.text().assert_one()?.trim().to_owned();
+                let slug = a.text().assert_one()?.trim().to_owned();
                 let mut href = base_url();
                 href.set_path(a.value().attr("href").ok_or_else(ScrapeError::new)?);
-                Ok((name, href))
+                Ok((slug, href))
             })
             .collect::<ScrapeResult<IndexMap<_, _>>>()?;
         NonEmptyIndexMap::try_new(problems).ok_or_else(ScrapeError::new)

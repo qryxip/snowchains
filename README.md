@@ -188,7 +188,7 @@ if [ "$json" = false ] && [ "$open" = true ]; then
           + $root.target.service
           + "/" + $root.contest.slug_snake_case
           + "/rs/src/bin/"
-          + .name_kebab_case
+          + .slug_kebab_case
           + ".rs"
         )
       | join("\n")
@@ -203,7 +203,7 @@ if [ "$json" = false ] && [ "$open" = true ]; then
           + "/"
           + $root.contest.slug_snake_case
           + "/rs/src/bin/"
-          + .name_kebab_case
+          + .slug_kebab_case
           + ".rs"
           + "\n"
           + .test_suite_path
