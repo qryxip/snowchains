@@ -8,6 +8,7 @@ use crate::errors::{JudgeError, JudgeErrorKind, JudgeResult};
 use crate::terminal::{TermOut, WriteAnsi};
 use crate::testsuite::{TestCase, TestCases};
 use crate::util::collections::NonEmptyVec;
+use crate::util::io::AsyncBufferedWriter;
 
 use futures::{task, try_ready, Async, Future, Poll};
 use serde_derive::Serialize;
@@ -16,10 +17,9 @@ use tokio::runtime::Runtime;
 
 use std::convert::Infallible;
 use std::fmt::{self, Write as _};
-use std::io::{self, Cursor, Write as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::{mem, vec};
+use std::{io, mem, vec};
 
 pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
     stderr: E,
@@ -44,17 +44,15 @@ pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
 pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResult<JudgeOutcome> {
-    struct Progress<W, S, C, F: Future> {
+    struct Progress<W: AsyncWrite, S, C, F: Future> {
         jobs: NonZeroUsize,
         color: bool,
-        wtr: W,
+        bufwtr: AsyncBufferedWriter<W>,
         ctrlc: S,
-        content: Cursor<Vec<u8>>,
-        needs_flush: bool,
         processes: Vec<(Title, Process<C, F>)>, // non-empty until `Finished`
     }
 
-    impl<W, S, C, F: Future> Progress<W, S, C, F> {
+    impl<W: AsyncWrite, S, C, F: Future> Progress<W, S, C, F> {
         fn new(
             color: bool,
             wtr: W,
@@ -65,24 +63,27 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
             Self {
                 jobs,
                 color,
-                wtr,
-                ctrlc,
-                needs_flush: false,
-                content: Cursor::new({
-                    let mut inner = "".to_owned();
+                bufwtr: {
+                    let mut bufwtr = AsyncBufferedWriter::new(wtr);
                     if color {
                         for (i, (title, _)) in processes.iter().enumerate() {
-                            write!(inner, "\x1b[1m{}\x1b[0m Running...", title.with_padding)
-                                .unwrap();
+                            bufwtr.push_ansi_bold();
+                            bufwtr.push_str(&title.with_padding);
+                            bufwtr.push_ansi_reset();
+                            bufwtr.push_str(" Running...");
                             if i + 1 < processes.len().get() {
-                                inner.push('\n');
+                                bufwtr.push_char('\n');
                             }
                         }
                     } else {
-                        inner = format!("0/{} test finished (0 failure)\n", processes.len());
+                        bufwtr.write_fmt_to_buf(format_args!(
+                            "0/{} test finished (0 failure)\n",
+                            processes.len(),
+                        ));
                     }
-                    inner.into()
-                }),
+                    bufwtr
+                },
+                ctrlc,
                 processes: processes.into(),
             }
         }
@@ -132,32 +133,17 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
                 }
             }
 
-            if self.needs_flush {
-                try_ready!(self.wtr.poll_flush());
-                self.needs_flush = false;
-                if self.processes.iter().all(|(_, p)| p.is_finished()) {
-                    let outcomes = mem::replace(&mut self.processes, vec![])
-                        .into_iter()
-                        .map(|(t, o)| (t, o.finished().unwrap()))
-                        .collect();
-                    return Ok(Async::Ready(outcomes));
-                }
-            }
-            if self.content.position() < self.content.get_ref().len() as u64 {
-                let n = try_ready!(self
-                    .wtr
-                    .poll_write(&self.content.get_ref()[self.content.position() as usize..]));
-                self.content
-                    .set_position(self.content.position() + n as u64);
-                if self.content.position() >= self.content.get_ref().len() as u64 {
-                    self.content.set_position(0);
-                    self.content.get_mut().clear();
-                    self.needs_flush = true;
-                }
+            try_ready!(self.bufwtr.poll_flush_buf());
+
+            if self.processes.iter().all(|(_, p)| p.is_finished()) && !newly_finished {
+                let outcomes = mem::replace(&mut self.processes, vec![])
+                    .into_iter()
+                    .map(|(t, o)| (t, o.finished().unwrap()))
+                    .collect();
+                return Ok(Async::Ready(outcomes));
             }
 
-            if newly_finished && self.content.get_ref().is_empty() {
-                let out = self.content.get_mut();
+            if newly_finished {
                 let num_cases = self.processes.len();
                 let (mut num_finished, mut num_failures) = (0, 0);
                 for (_, process) in &self.processes {
@@ -170,35 +156,38 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
                 }
                 if self.color {
                     match num_cases - 1 {
-                        0 => out.extend_from_slice(b"\x1b[0G"),
-                        n => write!(out, "\x1b[{}F", n).unwrap(),
+                        0 => self.bufwtr.push_ansi_cursor_horizontal_absolute(0),
+                        n => self.bufwtr.push_ansi_cursor_previous_line(n),
                     }
                     for (i, (title, process)) in self.processes.iter().enumerate() {
-                        write!(out, "\x1b[2K\x1b[1m{}\x1b[0m ", title.with_padding).unwrap();
+                        self.bufwtr.push_ansi_erase_in_line_entire();
+                        self.bufwtr.push_ansi_bold();
+                        self.bufwtr.push_str(&title.with_padding);
+                        self.bufwtr.push_ansi_reset();
+                        self.bufwtr.push_char(' ');
                         match process {
-                            Process::NotRunning(..) => out.extend_from_slice(b"Waiting..."),
-                            Process::Running(_) => out.extend_from_slice(b"Running..."),
+                            Process::NotRunning(..) => self.bufwtr.push_str("Waiting..."),
+                            Process::Running(_) => self.bufwtr.push_str("Running..."),
                             Process::Finished(outcome) => {
-                                out.extend_from_slice(b"\x1b[38;5;");
-                                write!(out, "{}m{}\x1b[0m", outcome.color(), outcome).unwrap();
+                                self.bufwtr.push_ansi_fg_256(outcome.color());
+                                self.bufwtr.write_fmt_to_buf(format_args!("{}", outcome));
+                                self.bufwtr.push_ansi_reset();
                             }
                         }
                         if i + 1 < num_cases {
-                            out.extend_from_slice(b"\x1b[1E");
+                            self.bufwtr.push_ansi_cursor_next_line(1);
                         } else if num_finished == num_cases {
-                            out.push(b'\n');
+                            self.bufwtr.push_char('\n');
                         }
                     }
                 } else {
-                    writeln!(
-                        out,
+                    self.bufwtr.write_fmt_to_buf(format_args!(
                         "{}/{} {} finished ({})",
                         num_finished,
                         num_cases,
                         if num_finished > 1 { "tests" } else { "test" },
                         plural!(num_failures, "failure", "failures"),
-                    )
-                    .unwrap();
+                    ));
                 }
             }
             if needs_notify {
