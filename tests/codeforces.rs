@@ -1,10 +1,12 @@
-mod service;
+mod common;
+
+use crate::common::{service, Dumb};
 
 use snowchains::app::{App, Login, Opt, Retrieve, RetrieveLanguages, Submit};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
-use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
+use snowchains::terminal::{AnsiColorChoice, TtyOrPiped};
 
 use difference::assert_diff;
 use failure::Fallible;
@@ -16,11 +18,12 @@ use pretty_assertions::assert_eq;
 use regex::Regex;
 use serde_derive::Deserialize;
 
+use std::convert::TryFrom as _;
 use std::str;
 
 #[test]
 fn it_logins() -> Fallible<()> {
-    fn login(mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> Fallible<()> {
+    fn login(mut app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> {
         static MASK_API_KEY: Lazy<Regex> = sync_lazy!(Regex::new("apiKey=[0-9a-f]+").unwrap());
         static MASK_HANDLES: Lazy<Regex> =
             sync_lazy!(Regex::new(r"handles=[0-9a-zA-Z_\-]+").unwrap());
@@ -32,21 +35,23 @@ fn it_logins() -> Fallible<()> {
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Codeforces,
         }))?;
-        let (_, stdout, stderr) = app.term.split_mut();
-        let stdout = str::from_utf8(stdout.get_ref())?;
-        let stderr = str::from_utf8(stderr.get_ref())?;
-        let stderr = MASK_API_KEY.replace(stderr, "apiKey=██████████");
+
+        let stdout = String::try_from(app.stdout)?;
+        let stderr = String::try_from(app.stderr)?;
+
+        serde_json::from_str::<serde_json::Value>(&stdout)?;
+
+        let stderr = MASK_API_KEY.replace(&stderr, "apiKey=██████████");
         let stderr = MASK_HANDLES.replace(&stderr, "handles=██████████");
         let stderr = MASK_TIME.replace(&stderr, "time=██████████");
         let stderr = MASK_API_SIG.replace(&stderr, "apiSig=██████████");
-        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(stdout)?;
         assert_diff!(
-            &stderr,
             r#"GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
 GET https://codeforces.com/enter ... 302 Found
 API Key: API Secret: GET https://codeforces.com/api/user.info?apiKey=██████████&handles=██████████&time=██████████&apiSig=██████████ ... 200 OK
 "#,
+            &stderr,
             "\n",
             0
         );
@@ -117,13 +122,11 @@ fn it_retrieves_languages() -> Fallible<()> {
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("a".to_owned()),
             })))?;
-            let (_, stdout, stderr) = app.term.split_mut();
-            let stdout = str::from_utf8(stdout.get_ref())?;
-            let stderr = str::from_utf8(stderr.get_ref())?;
-            let stdout = serde_json::from_str::<Stdout>(stdout)?;
-            assert_eq!(stdout.available_languages.len(), 28);
+            let stdout = String::try_from(app.stdout)?;
+            let stderr = String::try_from(app.stderr)?;
+            let stdout = serde_json::from_str::<Stdout>(&stdout)?;
+            assert_eq!(28, stdout.available_languages.len());
             assert_diff!(
-                &stderr,
                 r#"GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
 GET https://codeforces.com/enter ... 302 Found
@@ -188,6 +191,7 @@ GET https://codeforces.com/contest/1000/submit ... 200 OK
 | Node.js 9.4.0             | 55 |
 +---------------------------+----+
 "#,
+                &stderr,
                 "\n",
                 0
             );

@@ -1,8 +1,9 @@
-use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _};
+use crate::terminal::{HasTermProps, WriteColorExt as _, WriteExt as _};
 use crate::util::num::PositiveFinite;
 
 use combine::Parser as _;
 use derive_new::new;
+use termcolor::WriteColor;
 
 use std::sync::Arc;
 use std::{cmp, f64, io};
@@ -12,7 +13,11 @@ pub(super) trait Width {
 }
 
 pub(super) trait PrintAligned: Width {
-    fn print_aligned<W: TermOut>(&self, out: W, min_width: usize) -> io::Result<()>;
+    fn print_aligned<W: WriteColor + HasTermProps>(
+        &self,
+        out: W,
+        min_width: usize,
+    ) -> io::Result<()>;
 }
 
 #[cfg_attr(test, derive(Debug))]
@@ -147,48 +152,51 @@ pub(super) enum Word {
 }
 
 impl Word {
-    pub fn print_as_common(&self, mut out: impl TermOut) -> io::Result<()> {
-        fn write_ntimes(mut out: impl WriteAnsi, n: usize, s: &str) -> io::Result<()> {
-            out.with_reset(|o| {
-                o.fg(11)?.bold()?;
-                (0..n).try_for_each(|_| o.write_str(s))
+    pub fn print_as_common(&self, mut out: impl WriteColor + HasTermProps) -> io::Result<()> {
+        fn write_ntimes(mut out: impl WriteColor, n: usize, s: &str) -> io::Result<()> {
+            out.with_reset(|out| {
+                let out = out.fg(11).bold().set()?;
+                (0..n).try_for_each(|_| out.write_str(s))
             })
         }
+
         match self {
             Word::Plain(s) => out.write_str(s.as_str()),
             Word::U0020(n) => out.write_spaces(*n),
-            Word::LeadTrailU0020(n) => out.with_reset(|o| o.bg(11)?.write_spaces(*n)),
+            Word::LeadTrailU0020(n) => out.with_reset(|o| o.bg(11).set()?.write_spaces(*n)),
             Word::Tab(n) => write_ntimes(out, *n, "\\t"),
             Word::Cr(n) => write_ntimes(out, *n, "\\r"),
-            Word::CodePoints(s) => out.with_reset(|o| o.fg(11)?.bold()?.write_str(s.as_str())),
+            Word::CodePoints(s) => out.with_reset(|o| o.fg(11).bold().set()?.write_str(s.as_str())),
             Word::FloatLeft { string, .. } | Word::FloatRight { string, .. } => {
-                out.with_reset(|o| o.fg(6)?.bold()?.write_str(string.as_str()))
+                out.with_reset(|o| o.fg(6).bold().set()?.write_str(string.as_str()))
             }
-            Word::Noeol => out.with_reset(|o| o.fg(11)?.bold()?.write_str("<noeol>")),
+            Word::Noeol => out.with_reset(|o| o.fg(11).bold().set()?.write_str("<noeol>")),
         }
     }
 
-    pub fn print_as_difference(&self, mut out: impl TermOut) -> io::Result<()> {
-        fn write_ntimes(mut out: impl WriteAnsi, n: usize, s: &str) -> io::Result<()> {
-            out.with_reset(|o| {
-                o.fg(9)?.bold()?.underline()?;
-                (0..n).try_for_each(|_| o.write_str(s))
+    pub fn print_as_difference(&self, mut out: impl WriteColor + HasTermProps) -> io::Result<()> {
+        fn write_ntimes(mut out: impl WriteColor, n: usize, s: &str) -> io::Result<()> {
+            out.with_reset(|out| {
+                let out = out.fg(9).bold().underline().set()?;
+                (0..n).try_for_each(|_| out.write_str(s))
             })
         }
         match self {
-            Word::Plain(s) => out.with_reset(|o| o.fg(9)?.underline()?.write_str(s.as_str())),
-            Word::U0020(n) => out.with_reset(|o| o.fg(9)?.underline()?.write_spaces(*n)),
+            Word::Plain(s) => out.with_reset(|o| o.fg(9).underline().set()?.write_str(s.as_str())),
+            Word::U0020(n) => out.with_reset(|o| o.fg(9).underline().set()?.write_spaces(*n)),
             Word::LeadTrailU0020(n) => {
-                out.with_reset(|o| o.fg(9)?.bg(11)?.underline()?.write_spaces(*n))
+                out.with_reset(|o| o.fg(9).bg(11).underline().set()?.write_spaces(*n))
             }
             Word::Tab(n) => write_ntimes(out, *n, "\\t"),
             Word::Cr(n) => write_ntimes(out, *n, "\\r"),
             Word::CodePoints(s)
             | Word::FloatLeft { string: s, .. }
             | Word::FloatRight { string: s, .. } => {
-                out.with_reset(|o| o.fg(9)?.bold()?.underline()?.write_str(s.as_str()))
+                out.with_reset(|o| o.fg(9).bold().underline().set()?.write_str(s.as_str()))
             }
-            Word::Noeol => out.with_reset(|o| o.fg(9)?.bold()?.underline()?.write_str("<noeol>")),
+            Word::Noeol => {
+                out.with_reset(|o| o.fg(9).bold().underline().set()?.write_str("<noeol>"))
+            }
         }
     }
 }

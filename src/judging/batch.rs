@@ -2,7 +2,7 @@ use crate::command::JudgingCommand;
 use crate::errors::JudgeResult;
 use crate::judging::text::{Line, PrintAligned, Text, Width, Word};
 use crate::judging::Outcome;
-use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _};
+use crate::terminal::{HasTermProps, WriteColorExt as _, WriteExt as _};
 use crate::testsuite::{BatchCase, ExpectedStdout};
 use crate::time::MillisRoundedUp as _;
 use crate::util::num::PositiveFinite;
@@ -10,6 +10,7 @@ use crate::util::num::PositiveFinite;
 use derive_more::From;
 use futures::{task, try_ready, Async, Future, Poll};
 use itertools::Itertools as _;
+use termcolor::WriteColor;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use std::process::ExitStatus;
@@ -338,19 +339,23 @@ impl Outcome for BatchOutcome {
         }
     }
 
-    fn print_details(&self, display_limit: Option<usize>, out: impl TermOut) -> io::Result<()> {
-        struct Writer<W: WriteAnsi> {
+    fn print_details(
+        &self,
+        display_limit: Option<usize>,
+        out: impl WriteColor + HasTermProps,
+    ) -> io::Result<()> {
+        struct Writer<W: WriteColor> {
             out: W,
             display_limit: Option<usize>,
         }
 
-        impl<W: TermOut> Writer<W> {
+        impl<W: WriteColor + HasTermProps> Writer<W> {
             fn write_section(&mut self, title: &str, text: &Text) -> io::Result<()> {
                 let (out, display_limit) = (&mut self.out, self.display_limit);
-                out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+                out.with_reset(|o| o.fg(13).bold().set()?.write_str(title))?;
                 out.write_str("\n")?;
                 if text.is_empty() {
-                    out.with_reset(|o| o.fg(11)?.bold()?.write_str("EMPTY\n"))
+                    out.with_reset(|o| o.fg(11).bold().set()?.write_str("EMPTY\n"))
                 } else if display_limit.map_or(false, |l| text.size() > l) {
                     super::writeln_size(out, text.size())
                 } else {
@@ -365,7 +370,7 @@ impl Outcome for BatchOutcome {
             ) -> io::Result<()> {
                 if let Some(text) = text.into() {
                     let (out, display_limit) = (&mut self.out, self.display_limit);
-                    out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+                    out.with_reset(|o| o.fg(13).bold().set()?.write_str(title))?;
                     out.write_str("\n")?;
                     if display_limit.map_or(false, |l| text.size() > l) {
                         super::writeln_size(out, text.size())?;
@@ -378,7 +383,7 @@ impl Outcome for BatchOutcome {
 
             fn write_diff(&mut self, title: &str, diff: &TextDiff) -> io::Result<()> {
                 let (out, display_limit) = (&mut self.out, self.display_limit);
-                out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+                out.with_reset(|o| o.fg(13).bold().set()?.write_str(title))?;
                 out.write_str("\n")?;
                 if display_limit.map_or(false, |l| diff.size() > l) {
                     super::writeln_size(out, diff.size())
@@ -556,10 +561,10 @@ impl TextDiff {
         }
     }
 
-    fn print(&self, out: impl TermOut) -> io::Result<()> {
+    fn print(&self, out: impl WriteColor + HasTermProps) -> io::Result<()> {
         fn print(
             lines: &[(impl PrintAligned, impl PrintAligned)],
-            mut out: impl TermOut,
+            mut out: impl WriteColor + HasTermProps,
         ) -> io::Result<()> {
             let (l_max_width, r_max_width) = {
                 let (mut l_max_width, mut r_max_width) = (0, 0);
@@ -571,10 +576,10 @@ impl TextDiff {
             };
             let (wl, wr) = (cmp::max(l_max_width, 8), cmp::max(r_max_width, 6));
             out.write_str("│")?;
-            out.with_reset(|o| o.fg(13)?.bold()?.write_str("expected"))?;
+            out.with_reset(|o| o.fg(13).bold().set()?.write_str("expected"))?;
             out.write_spaces(wl - 8)?;
             out.write_str("│")?;
-            out.with_reset(|o| o.fg(13)?.bold()?.write_str("stdout"))?;
+            out.with_reset(|o| o.fg(13).bold().set()?.write_str("stdout"))?;
             out.write_spaces(wr - 6)?;
             out.write_str("│\n")?;
             for (l, r) in lines {
@@ -614,7 +619,11 @@ type LineDiffDetialed = Line<Diff<Word>>;
 type LineDiff = Diff<Line<Word>>;
 
 impl PrintAligned for LineDiffDetialed {
-    fn print_aligned<W: TermOut>(&self, mut out: W, min_width: usize) -> io::Result<()> {
+    fn print_aligned<W: WriteColor + HasTermProps>(
+        &self,
+        mut out: W,
+        min_width: usize,
+    ) -> io::Result<()> {
         for word_diff in self.words() {
             match word_diff {
                 Diff::Common(w) => w.print_as_common(&mut out),
@@ -627,7 +636,11 @@ impl PrintAligned for LineDiffDetialed {
 }
 
 impl PrintAligned for LineDiff {
-    fn print_aligned<W: TermOut>(&self, mut out: W, min_width: usize) -> io::Result<()> {
+    fn print_aligned<W: WriteColor + HasTermProps>(
+        &self,
+        mut out: W,
+        min_width: usize,
+    ) -> io::Result<()> {
         let (l, f): (_, fn(&Word, &mut W) -> io::Result<()>) = match self {
             Diff::Common(l) => (l, |w, out| w.print_as_common(out)),
             Diff::NotCommon(l) => (l, |w, out| w.print_as_difference(out)),
@@ -667,7 +680,7 @@ impl Text {
         Self::new(s, on_plain)
     }
 
-    fn print_all(&self, mut out: impl TermOut) -> io::Result<()> {
+    fn print_all(&self, mut out: impl WriteColor + HasTermProps) -> io::Result<()> {
         for line in self.lines() {
             for word in line.words() {
                 word.print_as_common(&mut out)?;

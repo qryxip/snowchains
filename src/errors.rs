@@ -93,6 +93,8 @@ pub enum ServiceError {
 
 #[derive(Debug, derive_more::Display)]
 pub enum ServiceErrorKind {
+    #[display(fmt = "`service` is `other`")]
+    ServiceIsOther,
     #[display(
         fmt = "Received non UTF-8 content (encoding = {:?})",
         r#"_0.as_ref().map(String::as_str).unwrap_or("<none>")"#

@@ -1,9 +1,10 @@
 use snowchains::app::{App, Opt};
 use snowchains::path::AbsPathBuf;
-use snowchains::terminal::{Term as _, TermImpl, TermInImpl, WriteAnsi as _, WriteSpaces as _};
+use snowchains::terminal::{AnsiStandardStream, TtyOrPiped};
 
 use failure::{Fail, Fallible};
 use structopt::StructOpt;
+use termcolor::{Color, ColorSpec, WriteColor as _};
 
 use std::io::{self, BufWriter, Write as _};
 use std::process;
@@ -11,20 +12,18 @@ use std::process;
 fn main() -> Fallible<()> {
     snowchains::signal::start_catching_ctrl_c()?;
     let opt = Opt::from_args();
-    let (stdin, stdout) = (io::stdin(), io::stdout());
-    let mut term = TermImpl::new(
-        TermInImpl::new(&stdin),
-        BufWriter::new(stdout.lock()),
-        BufWriter::new(io::stderr()),
-    );
+    let stdin = io::stdin();
+    let mut stdout = AnsiStandardStream::new(BufWriter::new(io::stdout()));
+    let mut stderr = AnsiStandardStream::new(BufWriter::new(io::stderr()));
     let result = App {
         working_dir: AbsPathBuf::cwd()?,
         login_retries: None,
-        term: &mut term,
+        stdin: TtyOrPiped::auto(&stdin),
+        stdout: &mut stdout,
+        stderr: &mut stderr,
     }
     .run(opt);
     if let Err(err) = result {
-        let (_, stdout, stderr) = term.split_mut();
         stdout.flush()?;
         writeln!(stderr)?;
         for (i, cause) in Fail::iter_chain(&err).enumerate() {
@@ -35,10 +34,16 @@ fn main() -> Fallible<()> {
             } else {
                 "caused by: "
             };
-            stderr.with_reset(|o| o.fg(1)?.bold()?.write_str(head))?;
+            stderr.set_color(
+                ColorSpec::new()
+                    .set_fg(Some(Color::Ansi256(1)))
+                    .set_bold(true),
+            )?;
+            stderr.write_all(head.as_ref())?;
+            stderr.reset()?;
             for (i, line) in cause.to_string().lines().enumerate() {
                 if i > 0 {
-                    stderr.write_spaces(head.len())?;
+                    (0..head.len()).try_for_each(|_| stderr.write_all(b" "))?;
                 }
                 writeln!(stderr, "{}", line)?;
             }

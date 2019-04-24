@@ -2,31 +2,39 @@ use crate::errors::{
     HookCommandErrorKind, HookCommandResult, JudgeErrorKind, JudgeResult, StdError,
 };
 use crate::path::AbsPathBuf;
-use crate::terminal::{TermOut, WriteSpaces as _};
+use crate::terminal::{HasTermProps, WriteColorExt as _, WriteExt as _};
 use crate::util::collections::NonEmptyVec;
 
 use failure::Fail as _;
 use itertools::Itertools as _;
+use termcolor::WriteColor;
 use tokio_process::CommandExt as _;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::env;
 use std::ffi::OsString;
+use std::io::{self, Write as _};
 use std::iter::FromIterator;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
-use std::{env, io};
 
 pub(crate) struct HookCommands(Option<NonEmptyVec<HookCommand>>);
 
 impl HookCommands {
-    pub(crate) fn run<O: TermOut, E: TermOut>(&self, mut stderr: E) -> HookCommandResult<()> {
+    pub(crate) fn run(
+        &self,
+        stdout: impl HasTermProps,
+        mut stderr: impl WriteColor + HasTermProps,
+    ) -> HookCommandResult<()> {
         if let HookCommands(Some(this)) = self {
-            stderr.with_reset(|o| o.bold()?.write_str("Running hooks...\n"))?;
+            stderr.with_reset(|o| o.bold().set()?.write_str("Running hooks...\n"))?;
             stderr.flush()?;
-            this.iter().try_for_each(HookCommand::run::<O, E>)?;
-            stderr.with_reset(|o| o.bold()?.write_str("Done.\n"))?;
+            for cmd in this {
+                HookCommand::run(cmd, &stdout, &stderr)?;
+            }
+            stderr.with_reset(|o| o.bold().set()?.write_str("Done.\n"))?;
             stderr.flush()?;
         }
         Ok(())
@@ -53,13 +61,13 @@ impl HookCommand {
         Ok(Self { inner })
     }
 
-    fn run<O: TermOut, E: TermOut>(&self) -> HookCommandResult<()> {
+    fn run(&self, stdout: impl HasTermProps, stderr: impl HasTermProps) -> HookCommandResult<()> {
         let status = self
             .inner
             .build_checking_wd()?
             .stdin(Stdio::null())
-            .stdout(O::process_redirection())
-            .stderr(E::process_redirection())
+            .stdout(stdout.process_redirection())
+            .stderr(stderr.process_redirection())
             .status()
             .map_err(|e| {
                 let arg0 = self.inner.args[0].clone();
@@ -95,7 +103,12 @@ impl TranspilationCommand {
     }
 
     /// Executes the command.
-    pub(crate) fn run<O: TermOut, E: TermOut>(&self, stderr: E, force: bool) -> JudgeResult<()> {
+    pub(crate) fn run(
+        &self,
+        stdout: impl HasTermProps,
+        stderr: impl WriteColor + HasTermProps,
+        force: bool,
+    ) -> JudgeResult<()> {
         let messages = Messages {
             command: "Transpilation Command:",
             wd: "Working directory:    ",
@@ -105,7 +118,7 @@ impl TranspilationCommand {
             noun: "transpilation",
             status,
         };
-        self.repr.run::<O, _>(stderr, force, messages, error)
+        self.repr.run(stdout, stderr, force, messages, error)
     }
 }
 
@@ -129,7 +142,12 @@ impl CompilationCommand {
     }
 
     /// Executes the command.
-    pub(crate) fn run<O: TermOut, E: TermOut>(&self, stderr: E, force: bool) -> JudgeResult<()> {
+    pub(crate) fn run(
+        &self,
+        stdout: impl HasTermProps,
+        stderr: impl WriteColor + HasTermProps,
+        force: bool,
+    ) -> JudgeResult<()> {
         let messages = Messages {
             command: "Compilation Command:",
             wd: "Working directory:  ",
@@ -139,7 +157,7 @@ impl CompilationCommand {
             noun: "compilation",
             status,
         };
-        self.repr.run::<O, _>(stderr, force, messages, error)
+        self.repr.run(stdout, stderr, force, messages, error)
     }
 }
 
@@ -178,21 +196,25 @@ impl BuildCommand {
         })
     }
 
-    fn run<O: TermOut, E: TermOut>(
+    fn run(
         &self,
-        mut stderr: E,
+        stdout: impl HasTermProps,
+        mut stderr: impl WriteColor + HasTermProps,
         force: bool,
         messages: Messages,
         error: fn(ExitStatus) -> JudgeErrorKind,
     ) -> JudgeResult<()> {
         if !self.src.exists() {
-            stderr
-                .with_reset(|o| writeln!(o.fg(11)?, "Warning: {} not found", self.src.display()))?;
+            stderr.with_reset(|stderr| {
+                let stderr = stderr.fg(11).set()?;
+                writeln!(stderr, "Warning: {} not found", self.src.display())
+            })?;
             stderr.flush()?;
         }
         if self.target.as_ref().is_none() {
-            stderr.with_reset(|o| {
-                writeln!(o.fg(11)?, "Warning: {:?} not present", self.target_name)
+            stderr.with_reset(|stderr| {
+                let stderr = stderr.fg(11).set()?;
+                writeln!(stderr, "Warning: {:?} not present", self.target_name)
             })?;
             stderr.flush()?;
         }
@@ -221,8 +243,8 @@ impl BuildCommand {
 
         let mut proc = self.inner.build_checking_wd()?;
         proc.stdin(Stdio::null())
-            .stdout(O::process_redirection())
-            .stderr(E::process_redirection());
+            .stdout(stdout.process_redirection())
+            .stderr(stderr.process_redirection());
         let start = Instant::now();
         let status = proc.status().map_err(|e| {
             StdError::from(e).context(JudgeErrorKind::Command(self.inner.args[0].clone()))
@@ -234,13 +256,14 @@ impl BuildCommand {
             Some(code) => (Cow::from(format!("Exited with {}", code)), 9),
             None => (Cow::from("Exited without code"), 11),
         };
-        stderr.with_reset(|o| writeln!(o.fg(color)?.bold()?, "{} in {:?}.", mes, elapsed))?;
+        stderr.with_reset(|w| writeln!(w.fg(color).bold().set()?, "{} in {:?}.", mes, elapsed))?;
 
         if status.success() {
             if let Some(target) = &self.target {
                 if !target.exists() {
-                    stderr.with_reset(|o| {
-                        writeln!(o.fg(11)?, "Warning: {} not created", target.display())
+                    stderr.with_reset(|stderr| {
+                        let stderr = stderr.fg(11).set()?;
+                        writeln!(stderr, "Warning: {} not created", target.display())
                     })?;
                     stderr.flush()?;
                 }
@@ -287,7 +310,7 @@ impl JudgingCommand {
     /// """
     pub(crate) fn write_info(
         &self,
-        mut out: impl TermOut,
+        mut out: impl WriteColor + HasTermProps,
         paths_formatted: &str,
     ) -> io::Result<()> {
         let args = self.inner.format_args();
@@ -386,8 +409,12 @@ impl Inner {
     }
 }
 
-fn write_info<O: TermOut>(mut out: O, title: &str, rest: &[impl AsRef<str>]) -> io::Result<()> {
-    out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+fn write_info(
+    mut out: impl WriteColor + HasTermProps,
+    title: &str,
+    rest: &[impl AsRef<str>],
+) -> io::Result<()> {
+    out.with_reset(|o| o.fg(13).bold().set()?.write_str(title))?;
     out.write_str(" ")?;
     if let Some(w) = out.columns() {
         let o = out.str_width(title) + 1;
@@ -406,7 +433,7 @@ fn write_info<O: TermOut>(mut out: O, title: &str, rest: &[impl AsRef<str>]) -> 
             }
             if o + l > w && x == 0 {
                 for c in s.chars() {
-                    let l = out.char_width_or_zero(c);
+                    let l = out.char_width(c).unwrap_or(0);
                     if o + x + l > w {
                         next_line!();
                     }

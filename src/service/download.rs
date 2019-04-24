@@ -1,11 +1,12 @@
 use crate::errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::session::HttpSession;
-use crate::terminal::{TermOut, WriteAnsi as _};
+use crate::terminal::HasTermProps;
 use crate::util::io::AsyncBufferedWriter;
 
 use failure::ResultExt as _;
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
 use reqwest::{header, StatusCode};
+use termcolor::WriteColor;
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
@@ -14,7 +15,7 @@ use std::time::{Duration, Instant};
 use std::{char, io, mem};
 
 pub(super) trait DownloadProgress {
-    type Write: TermOut;
+    type Write: WriteColor + HasTermProps;
 
     fn requirements(&mut self) -> (&mut Self::Write, &HttpSession, &mut Runtime);
 
@@ -57,7 +58,7 @@ pub(super) trait DownloadProgress {
                 urls
             }
         };
-        let cjk = out.char_width_or_zero('\u{2588}') == 2;
+        let cjk = out.char_width('\u{2588}') == Some(2);
         let progresses = match alt_reqs {
             None => names
                 .into_iter()
@@ -76,10 +77,10 @@ pub(super) trait DownloadProgress {
                 .map(|(s, r)| (s, Progress::Response(r.send())))
                 .collect(),
         };
-        if out.supports_color() {
+        if out.supports_color() && !out.is_synchronous() {
             runtime.block_on(Downloading::new(
                 crate::signal::ctrl_c(),
-                Self::Write::async_wtr(),
+                out.ansi_async_wtr(),
                 progresses,
                 cjk,
             ))

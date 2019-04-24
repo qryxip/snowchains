@@ -7,13 +7,13 @@ pub(crate) mod yukicoder;
 pub(self) mod download;
 
 use crate::config::{self, Config};
-use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceResult};
+use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceErrorKind, ServiceResult};
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::session::{
     HttpSession, HttpSessionInitParams, IntoRelativeOrAbsoluteUrl, UrlBase,
 };
 use crate::template::Template;
-use crate::terminal::WriteAnsi;
+use crate::terminal::{HasTermProps, Input, WriteColorExt as _, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFilePath, TestSuite};
 use crate::util;
 use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet, NonEmptyVec};
@@ -32,6 +32,7 @@ use reqwest::RedirectPolicy;
 use serde::{Deserialize, Deserializer};
 use serde_derive::Serialize;
 use strum_macros::IntoStaticStr;
+use termcolor::WriteColor;
 use tokio::runtime::Runtime;
 use url::{Host, Url};
 use zip::result::ZipResult;
@@ -44,6 +45,102 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{cmp, fmt, mem};
+
+pub(crate) fn login(
+    service: ServiceKind,
+    props: SessionProps,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
+) -> ServiceResult<LoginOutcome> {
+    match service {
+        ServiceKind::Atcoder => atcoder::login(props, stdin, stderr),
+        ServiceKind::Codeforces => codeforces::login(props, stdin, stderr),
+        ServiceKind::Yukicoder => yukicoder::login(props, stdin, stderr),
+        ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
+    }
+}
+
+pub(crate) fn participate(
+    service: ServiceKind,
+    sess_props: SessionProps,
+    contest: &str,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
+) -> ServiceResult<ParticipateOutcome> {
+    let props = (sess_props, contest);
+    match service {
+        ServiceKind::Atcoder => atcoder::participate(props, stdin, stderr),
+        ServiceKind::Codeforces => unimplemented!(),
+        ServiceKind::Yukicoder => unimplemented!(),
+        ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
+    }
+}
+
+pub(crate) fn retrieve_testcases(
+    service: ServiceKind,
+    sess_props: SessionProps,
+    retrieve_props: RetrieveTestCasesProps<String>,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
+) -> ServiceResult<RetrieveTestCasesOutcome> {
+    let props = (sess_props, retrieve_props);
+    match service {
+        ServiceKind::Atcoder => atcoder::retrieve_testcases(props, stdin, stderr),
+        ServiceKind::Codeforces => codeforces::retrieve_testcases(props, stdin, stderr),
+        ServiceKind::Yukicoder => yukicoder::retrieve_testcases(props, stdin, stderr),
+        ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
+    }
+}
+
+pub(crate) fn retrieve_langs(
+    service: ServiceKind,
+    sess_props: SessionProps,
+    retrieve_props: RetrieveLangsProps<String>,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
+) -> ServiceResult<RetrieveLangsOutcome> {
+    let props = (sess_props, retrieve_props);
+    match service {
+        ServiceKind::Atcoder => atcoder::retrieve_langs(props, stdin, stderr),
+        ServiceKind::Codeforces => codeforces::retrieve_langs(props, stdin, stderr),
+        ServiceKind::Yukicoder => yukicoder::retrieve_langs(props, stdin, stderr),
+        ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
+    }
+}
+
+/// Downloads submitted source codes.
+pub(crate) fn retrieve_submissions(
+    service: ServiceKind,
+    sess_props: SessionProps,
+    retrieve_props: RetrieveSubmissionsProps<String>,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
+) -> ServiceResult<RetrieveSubmissionsOutcome> {
+    let props = (sess_props, retrieve_props);
+    match service {
+        ServiceKind::Atcoder => atcoder::retrieve_submissions(props, stdin, stderr),
+        ServiceKind::Codeforces => codeforces::retrieve_submissions(props, stdin, stderr),
+        ServiceKind::Yukicoder => unimplemented!(),
+        ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
+    }
+}
+
+/// Submits a source code.
+pub(crate) fn submit(
+    service: ServiceKind,
+    sess_props: SessionProps,
+    submit_props: SubmitProps<String>,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
+) -> ServiceResult<SubmitOutcome> {
+    let props = (sess_props, submit_props);
+    match service {
+        ServiceKind::Atcoder => atcoder::submit(props, stdin, stderr),
+        ServiceKind::Codeforces => codeforces::submit(props, stdin, stderr),
+        ServiceKind::Yukicoder => yukicoder::submit(props, stdin, stderr),
+        ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
+    }
+}
 
 #[derive(
     Clone,
@@ -108,27 +205,54 @@ impl<'de> Deserialize<'de> for ServiceKind {
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/qryxip/snowchains>";
 
 pub(self) trait Service {
-    type Stderr: WriteAnsi;
+    type Stdin: Input;
+    type Stderr: WriteColor;
 
-    fn requirements(&mut self) -> (&mut Self::Stderr, &mut HttpSession, &mut Runtime);
+    fn requirements(
+        &mut self,
+    ) -> (
+        &mut Self::Stdin,
+        &mut Self::Stderr,
+        &mut HttpSession,
+        &mut Runtime,
+    );
 
     fn get(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> session::Request<&mut Self::Stderr> {
-        let (stderr, sess, runtime) = self.requirements();
+        let (_, stderr, sess, runtime) = self.requirements();
         sess.get(url, stderr, runtime)
     }
 
     fn post(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> session::Request<&mut Self::Stderr> {
-        let (stderr, sess, runtime) = self.requirements();
+        let (_, stderr, sess, runtime) = self.requirements();
         sess.post(url, stderr, runtime)
     }
 
     fn open_in_browser(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<()> {
-        let (stderr, sess, _) = self.requirements();
+        let (_, stderr, sess, _) = self.requirements();
         sess.open_in_browser(url, stderr)
     }
 
+    fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
+        let (stdin, stderr, _, _) = self.requirements();
+        stderr.write_str(prompt)?;
+        stderr.flush()?;
+        stdin.read_reply()
+    }
+
+    fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
+        let (stdin, stderr, _, _) = self.requirements();
+        stderr.write_str(prompt)?;
+        stderr.flush()?;
+        stdin.read_password()
+    }
+
+    fn ask_yes_or_no(&mut self, mes: &str, default: bool) -> io::Result<bool> {
+        let (stdin, stderr, _, _) = self.requirements();
+        ask_yes_or_no(mes, default, stdin, stderr)
+    }
+
     fn print_lang_list(&mut self, lang_list: &NonEmptyIndexMap<String, String>) -> io::Result<()> {
-        let (stderr, _, _) = self.requirements();
+        let (_, stderr, _, _) = self.requirements();
 
         let mut table = Table::new();
         table.add_row(row!["Name", "ID"]);
@@ -141,8 +265,30 @@ pub(self) trait Service {
     }
 }
 
+fn ask_yes_or_no(
+    mes: &str,
+    default: bool,
+    mut stdin: impl Input,
+    mut stderr: impl WriteColor,
+) -> io::Result<bool> {
+    let prompt = format!("{}{} ", mes, if default { "(Y/n)" } else { "(y/N)" });
+    loop {
+        stderr.write_str(&prompt)?;
+        stderr.flush()?;
+        match &stdin.read_password()? {
+            s if s.is_empty() => break Ok(default),
+            s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
+            s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
+            _ => {
+                static MES: &str = r#"Answer "y", "yes", "n", "no", or ""."#;
+                stderr.with_reset(|w| w.fg(11).set()?.write_str(MES))?;
+            }
+        }
+    }
+}
+
 pub(self) trait ExtractZip {
-    type Write: WriteAnsi;
+    type Write: WriteColor;
 
     fn out(&mut self) -> &mut Self::Write;
 
@@ -164,7 +310,7 @@ pub(self) trait ExtractZip {
             sortings,
         } = entries;
 
-        out.with_reset(|o| o.bold()?.write_str(name))?;
+        out.with_reset(|o| o.bold().set()?.write_str(name))?;
         out.write_str(": Unzipping...\n")?;
         out.flush()?;
 
@@ -246,7 +392,7 @@ pub(self) trait ExtractZip {
                 Ok((name, in_path, out_path))
             })
             .collect::<FileResult<Vec<_>>>()?;
-        out.with_reset(|o| o.bold()?.write_str(name))?;
+        out.with_reset(|o| o.bold().set()?.write_str(name))?;
         writeln!(
             out,
             ": Saved {} to {}",
@@ -447,7 +593,7 @@ pub(crate) struct SessionProps {
 impl SessionProps {
     pub(self) fn start_session(
         &self,
-        out: impl WriteAnsi,
+        out: impl WriteColor,
         runtime: &mut Runtime,
     ) -> ServiceResult<HttpSession> {
         let client = reqwest_async_client(self.timeout)?;
@@ -654,5 +800,52 @@ pub(crate) trait Contest: fmt::Display + FromStr {
 impl Contest for String {
     fn slug(&self) -> Cow<str> {
         self.as_str().into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::service::ask_yes_or_no;
+    use crate::terminal::TtyOrPiped;
+
+    use failure::Fallible;
+    use pretty_assertions::assert_eq;
+    use termcolor::{Ansi, Color, ColorSpec, WriteColor as _};
+
+    use std::io::{self, Write as _};
+    use std::str;
+
+    #[test]
+    fn test_ask_yes_or_no() -> Fallible<()> {
+        let mut rdr = "y\nn\n\ny\nn\nヌ\n\n".as_bytes();
+        let mut stdin = TtyOrPiped::Piped(&mut rdr);
+        let mut stderr = Ansi::new(vec![]);
+
+        let mut ask = |mes: &str, default: bool| -> io::Result<_> {
+            ask_yes_or_no(mes, default, &mut stdin, &mut stderr)
+        };
+
+        assert_eq!(ask("Yes?: ", true)?, true);
+        assert_eq!(ask("Yes?: ", true)?, false);
+        assert_eq!(ask("Yes?: ", true)?, true);
+        assert_eq!(ask("No?: ", false)?, true);
+        assert_eq!(ask("No?: ", false)?, false);
+        assert_eq!(ask("No?: ", false)?, false);
+        assert_eq!(ask("Yes?: ", true)?, true);
+
+        assert_eq!(&b""[..], rdr);
+
+        let mut expected = Ansi::new(vec![]);
+        expected
+            .write_all(b"Yes?: (Y/n) Yes?: (Y/n) Yes?: (Y/n) No?: (y/N) No?: (y/N) No?: (y/N) ")?;
+        expected.set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(11))))?;
+        expected.write_all(br#"Answer "y", "yes", "n", "no", or ""."#)?;
+        expected.reset()?;
+        expected.write_all(b"No?: (y/N) Yes?: (Y/n) ")?;
+
+        let expected = str::from_utf8(expected.get_ref())?;
+        let stderr = str::from_utf8(stderr.get_ref())?;
+        assert_eq!(expected, stderr);
+        Ok(())
     }
 }

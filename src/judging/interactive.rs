@@ -1,13 +1,14 @@
 use crate::errors::JudgeResult;
 use crate::judging::text::{Line, Text, Width, Word};
 use crate::judging::{JudgingCommand, Outcome};
-use crate::terminal::{TermOut, WriteSpaces as _};
+use crate::terminal::{HasTermProps, WriteColorExt as _, WriteExt as _};
 use crate::testsuite::InteractiveCase;
 use crate::time::MillisRoundedUp as _;
 use crate::util::collections::NonEmptyVec;
 
 use derive_new::new;
 use futures::{task, try_ready, Async, Future, Poll, Stream};
+use termcolor::WriteColor;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use std::sync::Arc;
@@ -336,25 +337,29 @@ impl Outcome for InteractiveOutcome {
         }
     }
 
-    fn print_details(&self, display_limit: Option<usize>, mut out: impl TermOut) -> io::Result<()> {
+    fn print_details(
+        &self,
+        display_limit: Option<usize>,
+        mut out: impl WriteColor + HasTermProps,
+    ) -> io::Result<()> {
         fn print_str_left_aligned(
-            mut out: impl TermOut,
+            mut out: impl WriteColor + HasTermProps,
             color: Option<u8>,
             s: &str,
             width: usize,
         ) -> io::Result<()> {
-            out.with_reset(|o| {
+            out.with_reset(|out| {
                 if let Some(color) = color {
-                    o.fg(color)?;
+                    out.fg(color);
                 }
-                o.bold()?.write_str(s)
+                out.bold().set()?.write_str(s)
             })?;
             let str_width = out.str_width(s);
             out.write_spaces(cmp::max(width, str_width) - str_width)
         }
 
         fn print_line_left_aligned(
-            mut out: impl TermOut,
+            mut out: impl WriteColor + HasTermProps,
             line: &Line<Word>,
             width: usize,
         ) -> io::Result<()> {

@@ -5,24 +5,27 @@ mod text;
 use crate::command::JudgingCommand;
 use crate::config::{self, Config};
 use crate::errors::{JudgeError, JudgeErrorKind, JudgeResult};
-use crate::terminal::{TermOut, WriteAnsi};
+use crate::terminal::{HasTermProps, WriteColorExt as _, WriteExt as _};
 use crate::testsuite::{TestCase, TestCases};
 use crate::util::collections::NonEmptyVec;
 use crate::util::io::AsyncBufferedWriter;
 
 use futures::{task, try_ready, Async, Future, Poll};
 use serde_derive::Serialize;
+use termcolor::WriteColor;
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
 use std::convert::Infallible;
 use std::fmt::{self, Write as _};
+use std::io::{self, Write as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::{io, mem, vec};
+use std::{mem, vec};
 
-pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
-    stderr: E,
+pub(crate) fn only_transpile(
+    stdout: impl HasTermProps,
+    stderr: impl WriteColor + HasTermProps,
     config: &Config,
     mode: config::Mode,
     problem: &str,
@@ -32,7 +35,7 @@ pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
         None => Ok(false),
         Some(transpilation) => {
             let transpilation = transpilation.expand(problem)?;
-            transpilation.run::<O, _>(stderr, force)?;
+            transpilation.run(stdout, stderr, force)?;
             Ok(true)
         }
     }
@@ -43,7 +46,9 @@ pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
 /// # Errors
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
-pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResult<JudgeOutcome> {
+pub(crate) fn judge(
+    params: JudgeParams<impl HasTermProps, impl WriteColor + HasTermProps>,
+) -> JudgeResult<JudgeOutcome> {
     struct Progress<W: AsyncWrite, S, C, F: Future> {
         jobs: NonZeroUsize,
         color: bool,
@@ -254,7 +259,7 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
     }
 
     fn judge_all<
-        E: TermOut,
+        E: WriteColor + HasTermProps,
         C: TestCase + Send + 'static,
         F: Future<Error = io::Error> + Send + 'static,
     >(
@@ -274,8 +279,8 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
 
         let mut runtime = Runtime::new()?;
         let progress = Progress::new(
-            stderr.supports_color(),
-            E::async_wtr(),
+            stderr.supports_color() && !stderr.is_synchronous(),
+            stderr.ansi_async_wtr(),
             crate::signal::ctrl_c(),
             {
                 names.zip_eq(cases).enumerate_map(|idx, (name, case)| {
@@ -296,9 +301,9 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
         let num_failures = outcomes.iter().filter(|(_, o)| o.failure()).count();
         if let Some(num_failures) = NonZeroUsize::new(num_failures) {
             for (title, outcome) in &outcomes {
-                stderr.with_reset(|w| write!(w.bold()?, "\n{}", title.without_padding))?;
+                stderr.with_reset(|w| write!(w.bold().set()?, "\n{}", title.without_padding))?;
                 stderr.write_str(" ")?;
-                stderr.with_reset(|w| writeln!(w.fg(outcome.color())?, "{}", outcome))?;
+                stderr.with_reset(|w| writeln!(w.fg(outcome.color()).set()?, "{}", outcome))?;
                 outcome.print_details(display_limit, &mut stderr)?;
             }
             stderr.flush()?;
@@ -315,6 +320,7 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
     }
 
     let JudgeParams {
+        stdout,
         mut stderr,
         config,
         mode,
@@ -342,19 +348,19 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
     };
 
     for tester_transpilation in tester_transpilations {
-        tester_transpilation.run::<O, _>(&mut stderr, force_compile)?;
+        tester_transpilation.run(&stdout, &mut stderr, force_compile)?;
         writeln!(stderr)?;
     }
     for tester_compilation in tester_compilations {
-        tester_compilation.run::<O, _>(&mut stderr, force_compile)?;
+        tester_compilation.run(&stdout, &mut stderr, force_compile)?;
         writeln!(stderr)?;
     }
     if let Some(solver_transpilation) = solver_transpilation {
-        solver_transpilation.run::<O, _>(&mut stderr, force_compile)?;
+        solver_transpilation.run(&stdout, &mut stderr, force_compile)?;
         writeln!(stderr)?;
     }
     if let Some(solver_compilation) = solver_compilation {
-        solver_compilation.run::<O, _>(&mut stderr, force_compile)?;
+        solver_compilation.run(&stdout, &mut stderr, force_compile)?;
         writeln!(stderr)?;
     }
 
@@ -374,7 +380,8 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
     }
 }
 
-pub(crate) struct JudgeParams<'a, E: TermOut> {
+pub(crate) struct JudgeParams<'a, O: HasTermProps, E: WriteColor + HasTermProps> {
+    pub stdout: O,
     pub stderr: E,
     pub config: &'a Config,
     pub mode: config::Mode,
@@ -389,16 +396,20 @@ pub(crate) struct JudgeOutcome {}
 pub(self) trait Outcome: fmt::Display {
     fn failure(&self) -> bool;
     fn color(&self) -> u8;
-    fn print_details(&self, display_limit: Option<usize>, out: impl TermOut) -> io::Result<()>;
+    fn print_details(
+        &self,
+        display_limit: Option<usize>,
+        out: impl WriteColor + HasTermProps,
+    ) -> io::Result<()>;
 }
 
-pub(self) fn writeln_size(mut out: impl WriteAnsi, size: usize) -> io::Result<()> {
+pub(self) fn writeln_size(mut out: impl WriteColor, size: usize) -> io::Result<()> {
     let gib = size / 2usize.pow(30);
     let mib = (size / 2usize.pow(20)) & 0x3ff;
     let kib = (size / 2usize.pow(10)) & 0x3ff;
     let b = size & 0x3ff;
     out.with_reset(|out| {
-        out.fg(11)?.bold()?;
+        let out = out.fg(11).bold().set()?;
         match (gib, mib, kib, b) {
             (0, 0, 0, b) => writeln!(out, "{}B", b),
             (0, 0, k, b) => writeln!(out, "{}.{}KiB", k, b / 0x67),

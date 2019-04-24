@@ -6,7 +6,7 @@ use crate::service::{
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service,
     SessionProps, SubmitOutcome, SubmitProps, ZipEntries, ZipEntriesSorting,
 };
-use crate::terminal::{HasTerm, Term, WriteAnsi as _};
+use crate::terminal::{HasTermProps, Input, WriteColorExt as _};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
 use crate::util::str::CaseConversion;
@@ -21,6 +21,7 @@ use regex::Regex;
 use reqwest::{header, StatusCode};
 use scraper::Html;
 use serde_derive::Deserialize;
+use termcolor::WriteColor;
 use tokio::runtime::Runtime;
 use url::Url;
 
@@ -31,93 +32,100 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, mem};
 
-pub(crate) fn login(props: SessionProps, term: impl Term) -> ServiceResult<LoginOutcome> {
-    Yukicoder::try_new(props, term)?.login(true)
+pub(super) fn login(
+    props: SessionProps,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
+) -> ServiceResult<LoginOutcome> {
+    Yukicoder::try_new(props, stdin, stderr)?.login(true)
 }
 
-pub(crate) fn retrieve_testcases(
+pub(super) fn retrieve_testcases(
     props: (SessionProps, RetrieveTestCasesProps<String>),
-    term: impl Term,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<RetrieveTestCasesOutcome> {
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Yukicoder::try_new(sess_props, term)?.retrieve_testcases(&retrieve_props)
+    Yukicoder::try_new(sess_props, stdin, stderr)?.retrieve_testcases(&retrieve_props)
 }
 
-pub(crate) fn retrieve_langs(
+pub(super) fn retrieve_langs(
     props: (SessionProps, RetrieveLangsProps<String>),
-    term: impl Term,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<RetrieveLangsOutcome> {
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Yukicoder::try_new(sess_props, term)?.retrieve_langs(retrieve_props)
+    Yukicoder::try_new(sess_props, stdin, stderr)?.retrieve_langs(retrieve_props)
 }
 
-pub(crate) fn submit(
+pub(super) fn submit(
     props: (SessionProps, SubmitProps<String>),
-    term: impl Term,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<SubmitOutcome> {
     let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Yukicoder::try_new(sess_props, term)?.submit(&submit_props)
+    Yukicoder::try_new(sess_props, stdin, stderr)?.submit(&submit_props)
 }
 
-struct Yukicoder<T: Term> {
+struct Yukicoder<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
-    term: T,
+    stdin: I,
+    stderr: E,
     session: HttpSession,
     runtime: Runtime,
     username: Username,
 }
 
-impl<T: Term> HasTerm for Yukicoder<T> {
-    type Term = T;
+impl<I: Input, E: WriteColor + HasTermProps> Service for Yukicoder<I, E> {
+    type Stdin = I;
+    type Stderr = E;
 
-    fn term(&mut self) -> &mut T {
-        &mut self.term
+    fn requirements(&mut self) -> (&mut I, &mut E, &mut HttpSession, &mut Runtime) {
+        (
+            &mut self.stdin,
+            &mut self.stderr,
+            &mut self.session,
+            &mut self.runtime,
+        )
     }
 }
 
-impl<T: Term> Service for Yukicoder<T> {
-    type Stderr = T::Stderr;
+impl<I: Input, E: WriteColor + HasTermProps> DownloadProgress for Yukicoder<I, E> {
+    type Write = E;
 
-    fn requirements(&mut self) -> (&mut T::Stderr, &mut HttpSession, &mut Runtime) {
-        (self.term.stderr(), &mut self.session, &mut self.runtime)
+    fn requirements(&mut self) -> (&mut E, &HttpSession, &mut Runtime) {
+        (&mut self.stderr, &self.session, &mut self.runtime)
     }
 }
 
-impl<T: Term> DownloadProgress for Yukicoder<T> {
-    type Write = T::Stderr;
+impl<I: Input, E: WriteColor + HasTermProps> ExtractZip for Yukicoder<I, E> {
+    type Write = E;
 
-    fn requirements(&mut self) -> (&mut T::Stderr, &HttpSession, &mut Runtime) {
-        (self.term.stderr(), &self.session, &mut self.runtime)
+    fn out(&mut self) -> &mut E {
+        &mut self.stderr
     }
 }
 
-impl<T: Term> ExtractZip for Yukicoder<T> {
-    type Write = T::Stderr;
-
-    fn out(&mut self) -> &mut T::Stderr {
-        self.term.stderr()
-    }
-}
-
-impl<T: Term> Yukicoder<T> {
-    fn try_new(props: SessionProps, mut term: T) -> ServiceResult<Self> {
+impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
+    fn try_new(props: SessionProps, stdin: I, mut stderr: E) -> ServiceResult<Self> {
         let mut runtime = Runtime::new()?;
-        let session = props.start_session(term.stderr(), &mut runtime)?;
+        let session = props.start_session(&mut stderr, &mut runtime)?;
         Ok(Self {
             login_retries: props.login_retries,
-            term,
+            stdin,
+            stderr,
             session,
             runtime,
             username: Username::None,
@@ -134,7 +142,7 @@ impl<T: Term> Yukicoder<T> {
                         break;
                     }
                     writeln!(
-                        self.stderr(),
+                        self.stderr,
                         "\nInput \"REVEL_SESSION\".\n\n\
                          Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies \
                          WHERE baseDomain=\"yukicoder.me\" AND name=\"REVEL_SESSION\"'\n\
@@ -150,13 +158,13 @@ impl<T: Term> Yukicoder<T> {
                     return Err(ServiceErrorKind::LoginRetriesExceeded.into());
                 }
                 retries = retries.map(|n| n - 1);
-                writeln!(self.stderr(), "Wrong \"REVEL_SESSION\".")?;
-                self.stderr().flush()?;
+                writeln!(self.stderr, "Wrong \"REVEL_SESSION\".")?;
+                self.stderr.flush()?;
             }
         }
         let username = self.username.clone();
-        writeln!(self.stderr(), "Username: {}", username)?;
-        self.stderr().flush()?;
+        writeln!(self.stderr, "Username: {}", username)?;
+        self.stderr.flush()?;
         Ok(LoginOutcome {})
     }
 
@@ -217,13 +225,16 @@ impl<T: Term> Yukicoder<T> {
                         outcome.push_problem(problem.to_owned(), url, suite, path);
                     }
                 }
-                let stderr = self.stderr();
+                let stderr = &mut self.stderr;
                 if !not_found.is_empty() {
-                    stderr.with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
+                    stderr
+                        .with_reset(|w| writeln!(w.fg(11).set()?, "Not found: {:?}", not_found))?;
                     stderr.flush()?;
                 }
                 if !not_public.is_empty() {
-                    stderr.with_reset(|o| writeln!(o.fg(11)?, "Not public: {:?}", not_public))?;
+                    stderr.with_reset(|w| {
+                        writeln!(w.fg(11).set()?, "Not public: {:?}", not_public)
+                    })?;
                     stderr.flush()?;
                 }
             }
@@ -308,7 +319,7 @@ impl<T: Term> Yukicoder<T> {
                     break;
                 }
             }
-            test_suite.save(slug, test_suite_path, self.stderr())?;
+            test_suite.save(slug, test_suite_path, &mut self.stderr)?;
         }
         if *open_in_browser {
             for RetrieveTestCasesOutcomeProblem { url, .. } in &outcome.problems {
@@ -362,10 +373,9 @@ impl<T: Term> Yukicoder<T> {
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
         writeln!(
-            self.stderr(),
+            self.stderr,
             "Submitting as {:?} (ID: {:?})",
-            lang_name,
-            lang_id,
+            lang_name, lang_id,
         )?;
         let token = html.extract_csrf_token_from_submit_page()?;
         let form = reqwest::r#async::multipart::Form::new()
@@ -384,8 +394,8 @@ impl<T: Term> Yukicoder<T> {
         };
         if let Some(&location) = location.as_ref() {
             if location.contains("/submissions/") {
-                writeln!(self.stderr(), "Success: {:?}", location)?;
-                self.stderr().flush()?;
+                writeln!(self.stderr, "Success: {:?}", location)?;
+                self.stderr.flush()?;
                 if *open_in_browser {
                     self.open_in_browser(location)?;
                 }

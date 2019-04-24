@@ -5,7 +5,7 @@ use crate::errors::{
 };
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
-use crate::terminal::WriteAnsi;
+use crate::terminal::{WriteColorExt as _, WriteExt as _};
 use crate::time;
 use crate::util::collections::NonEmptyVec;
 use crate::util::num::PositiveFinite;
@@ -17,6 +17,7 @@ use itertools::{EitherOrBoth, Itertools as _};
 use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
+use termcolor::WriteColor;
 use yaml_rust::{Yaml, YamlEmitter};
 
 #[cfg(test)]
@@ -25,6 +26,7 @@ use failure::Fallible;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::Write as _;
+use std::io::Write as _;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -286,24 +288,24 @@ impl TestSuite {
         &self,
         name: &str,
         path: &SuiteFilePath,
-        mut out: impl WriteAnsi,
+        mut out: impl WriteColor,
     ) -> TestSuiteResult<()> {
         let (path, extension) = (&path.path, path.extension);
         let serialized = self.to_string_pretty(extension)?;
         crate::fs::write(path, serialized.as_bytes())?;
-        out.with_reset(|o| o.bold()?.write_str(name))?;
+        out.with_reset(|o| o.bold().set()?.write_str(name))?;
         write!(out, ": Saved to {} ", path.display())?;
         match self {
             TestSuite::Batch(s) => match s.cases.len() {
-                0 => out.with_reset(|o| o.fg(11)?.write_str("(no test case)\n")),
-                1 => out.with_reset(|o| o.fg(10)?.write_str("(1 test case)\n")),
-                n => out.with_reset(|o| writeln!(o.fg(10)?, "({} test cases)", n)),
+                0 => out.with_reset(|o| o.fg(11).set()?.write_str("(no test case)\n")),
+                1 => out.with_reset(|o| o.fg(10).set()?.write_str("(1 test case)\n")),
+                n => out.with_reset(|o| writeln!(o.fg(10).set()?, "({} test cases)", n)),
             },
             TestSuite::Interactive(_) => {
-                out.with_reset(|o| o.fg(10)?.write_str("(interactive problem)\n"))
+                out.with_reset(|o| o.fg(10).set()?.write_str("(interactive problem)\n"))
             }
             TestSuite::Unsubmittable => {
-                out.with_reset(|o| o.fg(10)?.write_str("(unsubmittable problem)\n"))
+                out.with_reset(|o| o.fg(10).set()?.write_str("(unsubmittable problem)\n"))
             }
         }
         .map_err(Into::into)

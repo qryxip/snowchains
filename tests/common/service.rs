@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 
+use crate::Dumb;
+
 use snowchains::app::{App, Login, Opt, Retrieve, RetrieveTestcases};
 use snowchains::path::{AbsPath, AbsPathBuf};
 use snowchains::service::ServiceKind;
-use snowchains::terminal::{AnsiColorChoice, TermImpl};
+use snowchains::terminal::{AnsiColorChoice, TtyOrPiped};
 
 use failure::Fallible;
 use pretty_assertions::assert_eq;
@@ -15,10 +17,10 @@ use std::fs::File;
 use std::panic::UnwindSafe;
 use std::{env, panic};
 
-pub fn test_in_tempdir<E: Into<failure::Error>>(
+pub(crate) fn test_in_tempdir(
     tempdir_prefix: &str,
     stdin: &str,
-    f: impl FnOnce(App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> Result<(), E> + UnwindSafe,
+    f: impl FnOnce(App<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> + UnwindSafe,
 ) -> Fallible<()> {
     let tempdir = dunce::canonicalize(&env::temp_dir())?;
     let tempdir = TempDir::new_in(&tempdir, tempdir_prefix)?;
@@ -41,23 +43,25 @@ pub fn test_in_tempdir<E: Into<failure::Error>>(
         let app = App {
             working_dir: AbsPathBuf::try_new(&tempdir_path).unwrap(),
             login_retries: Some(0),
-            term: TermImpl::new(stdin.as_bytes(), vec![], vec![]),
+            stdin: TtyOrPiped::Piped(stdin.as_ref()),
+            stdout: Dumb::new(),
+            stderr: Dumb::new(),
         };
-        f(app).map_err(Into::into)
+        f(app)
     });
     tempdir.close()?;
     match result {
-        Err(panic) => panic::resume_unwind(panic),
         Ok(result) => result,
+        Err(panic) => panic::resume_unwind(panic),
     }
 }
 
-pub fn env_var(name: &'static str) -> Fallible<String> {
+pub(crate) fn env_var(name: &'static str) -> Fallible<String> {
     env::var(name).map_err(|err| failure::err_msg(format!("Failed to read {:?}: {}", name, err)))
 }
 
-pub fn login(
-    mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>,
+pub(crate) fn login(
+    mut app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>,
     service: ServiceKind,
 ) -> snowchains::Result<()> {
     app.run(Opt::Login(Login {
@@ -67,8 +71,8 @@ pub fn login(
     }))
 }
 
-pub fn retrieve_testcases(
-    mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>,
+pub(crate) fn retrieve_testcases(
+    mut app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>,
     service: ServiceKind,
     contest: &str,
     problems: &[&str],
@@ -84,7 +88,7 @@ pub fn retrieve_testcases(
     })))
 }
 
-pub fn confirm_num_cases(
+pub(crate) fn confirm_num_cases(
     wd: &AbsPath,
     service: ServiceKind,
     contest: &str,

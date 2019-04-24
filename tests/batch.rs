@@ -1,16 +1,22 @@
+mod common;
+
+use common::Dumb;
+
 use snowchains::app::{App, Judge, Opt};
 use snowchains::config;
 use snowchains::errors::{JudgeError, JudgeErrorKind};
 use snowchains::path::AbsPathBuf;
 use snowchains::service::ServiceKind;
-use snowchains::terminal::{AnsiColorChoice, Term, TermImpl};
+use snowchains::terminal::{
+    AnsiColorChoice, AttemptEnableColor, Input, ModifyTermProps, TtyOrPiped,
+};
 
 use failure::Fallible;
 use if_chain::if_chain;
 use tempdir::TempDir;
 
-use std::env;
 use std::path::Path;
+use std::{env, io};
 
 #[test]
 fn it_works_for_atcoder_practice_a() -> Fallible<()> {
@@ -99,7 +105,9 @@ fn main() {
     let mut app = App {
         working_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
         login_retries: Some(0),
-        term: TermImpl::null(),
+        stdin: TtyOrPiped::Piped(io::empty()),
+        stdout: Dumb::new(),
+        stderr: Dumb::new(),
     };
 
     app.test(&src_path, CODE)?;
@@ -134,7 +142,12 @@ trait AppExt {
     fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<()>;
 }
 
-impl<T: Term> AppExt for App<T> {
+impl<
+        I: Input,
+        O: AttemptEnableColor + ModifyTermProps,
+        E: AttemptEnableColor + ModifyTermProps,
+    > AppExt for App<I, O, E>
+{
     fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<()> {
         std::fs::write(src_path, code)?;
         self.run(Opt::Judge(Judge {
