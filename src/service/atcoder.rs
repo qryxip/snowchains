@@ -16,9 +16,9 @@ use crate::terminal::{HasTermProps, Input, WriteColorExt as _, WriteExt as _};
 use crate::testsuite::{self, BatchSuite, Destinations, InteractiveSuite, TestSuite};
 use crate::util;
 use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet};
+use crate::util::indexmap::IndexSetAsRefStrExt as _;
 use crate::util::num::PositiveFinite;
 use crate::util::scraper::ElementRefExt as _;
-use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
 
 use chrono::{DateTime, FixedOffset, Local, Utc};
@@ -346,10 +346,9 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 outcome.push_problem(slug, url, suite, path);
             }
         }
-        let mut not_found = match problems.as_ref() {
-            None => vec![],
-            Some(problems) => problems.iter().collect(),
-        };
+        let mut not_found = problems
+            .map(|ps| ps.iter().collect::<IndexSet<_>>())
+            .unwrap_or_default();
         if !*only_scraped {
             if let Some(dropbox_path) = dropbox_path {
                 let suites = outcome
@@ -368,12 +367,14 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         } in &outcome.problems
         {
             test_suite.save(slug, test_suite_path, &mut self.stderr)?;
-            not_found.remove_item_(&slug);
+            not_found.remove(&slug);
         }
         self.stderr.flush()?;
         if !not_found.is_empty() {
-            self.stderr
-                .with_reset(|w| writeln!(w.fg(11).set()?, "Not found: {:?}", not_found))?;
+            self.stderr.with_reset(|stderr| {
+                let stderr = stderr.fg(11).set()?;
+                writeln!(stderr, "Not found: {}", not_found.format_as_str_list())
+            })?;
             self.stderr.flush()?;
         }
         if *open_in_browser {
@@ -696,10 +697,8 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             self.stderr.with_reset(|stderr| {
                 writeln!(
                     stderr.fg(11).set()?,
-                    "Ignored: [{}]",
-                    ignored
-                        .iter()
-                        .format_with(", ", |l, f| f(&format_args!("{:?}", l)))
+                    "Ignored: {}",
+                    ignored.format_as_str_list(),
                 )
             })?;
         }
@@ -728,8 +727,10 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         }
 
         if !not_found.is_empty() {
-            self.stderr
-                .with_reset(|w| writeln!(w.fg(11).set()?, "Not found: {:?}", not_found))?;
+            self.stderr.with_reset(|stderr| {
+                let stderr = stderr.fg(11).set()?;
+                writeln!(stderr, "Not found: {}", not_found.format_as_str_list())
+            })?;
         }
 
         writeln!(

@@ -1,10 +1,10 @@
 pub(crate) mod collections;
 pub(crate) mod combine;
+pub(crate) mod indexmap;
 pub(crate) mod io;
 pub(crate) mod num;
 pub(crate) mod scraper;
 pub(crate) mod serde;
-pub(crate) mod std_unstable;
 pub(crate) mod str;
 
 use std::io::Read;

@@ -13,12 +13,12 @@ use crate::service::{
 use crate::terminal::{HasTermProps, Input, WriteColorExt as _};
 use crate::testsuite::{self, BatchSuite, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
+use crate::util::indexmap::IndexSetAsRefStrExt as _;
 use crate::util::scraper::ElementRefExt as _;
-use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
 
 use if_chain::if_chain;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
@@ -237,7 +237,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         }
 
         let mut not_found = problems
-            .map(|ps| ps.iter().collect::<Vec<_>>())
+            .map(|ps| ps.iter().collect::<IndexSet<_>>())
             .unwrap_or_default();
 
         for RetrieveTestCasesOutcomeProblem {
@@ -248,13 +248,18 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         } in &outcome.problems
         {
             test_suite.save(slug, test_suite_path, &mut self.stderr)?;
-            not_found.remove_item_(&slug);
+            not_found.remove(&slug);
         }
         self.stderr.flush()?;
 
         if !not_found.is_empty() {
-            self.stderr
-                .with_reset(|w| writeln!(w.fg(11).set()?, "Not found: {:?}", not_found))?;
+            self.stderr.with_reset(|w| {
+                writeln!(
+                    w.fg(11).set()?,
+                    "Not found: {}",
+                    not_found.format_as_str_list(),
+                )
+            })?;
             self.stderr.flush()?;
         }
 
