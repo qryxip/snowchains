@@ -126,7 +126,7 @@ fn it_submits_to_no_9000() -> Fallible<()> {
             let stdout = String::try_from(app.stdout)?;
             let stderr = String::try_from(app.stderr)?;
             serde_json::from_str::<serde_json::Value>(&stdout)?;
-            assert_diff!("", &stderr, "\n", 0);
+            assert_diff!(&stderr, "", "\n", 0);
             Ok(())
         },
     )

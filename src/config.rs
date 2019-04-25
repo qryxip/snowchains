@@ -1470,9 +1470,9 @@ mod tests {
         print_line("language: ", "\"c++\"", "     -> ", "\"rust\"");
         writeln!(expected, "Wrote {}", json_path.display()).unwrap();
 
+        let actual = str::from_utf8(stderr.get_ref())?;
         let expected = str::from_utf8(expected.get_ref()).unwrap();
-        let stderr = str::from_utf8(stderr.get_ref())?;
-        assert_eq!(expected, stderr);
+        assert_eq!(actual, expected);
         Ok(())
     }
 

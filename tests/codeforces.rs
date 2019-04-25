@@ -46,12 +46,12 @@ fn it_logins() -> Fallible<()> {
         let stderr = MASK_TIME.replace(&stderr, "time=██████████");
         let stderr = MASK_API_SIG.replace(&stderr, "apiSig=██████████");
         assert_diff!(
+            &stderr,
             r#"GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
 GET https://codeforces.com/enter ... 302 Found
 API Key: API Secret: GET https://codeforces.com/api/user.info?apiKey=██████████&handles=██████████&time=██████████&apiSig=██████████ ... 200 OK
 "#,
-            &stderr,
             "\n",
             0
         );
@@ -125,8 +125,9 @@ fn it_retrieves_languages() -> Fallible<()> {
             let stdout = String::try_from(app.stdout)?;
             let stderr = String::try_from(app.stderr)?;
             let stdout = serde_json::from_str::<Stdout>(&stdout)?;
-            assert_eq!(28, stdout.available_languages.len());
+            assert_eq!(stdout.available_languages.len(), 28);
             assert_diff!(
+                &stderr,
                 r#"GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
 GET https://codeforces.com/enter ... 302 Found
@@ -191,7 +192,6 @@ GET https://codeforces.com/contest/1000/submit ... 200 OK
 | Node.js 9.4.0             | 55 |
 +---------------------------+----+
 "#,
-                &stderr,
                 "\n",
                 0
             );

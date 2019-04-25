@@ -28,12 +28,12 @@ pub(crate) fn test_in_tempdir(
     let result = panic::catch_unwind(move || -> Fallible<()> {
         std::fs::write(
             tempdir_path.join("snowchains.toml"),
-            &include_bytes!("../snowchains.toml")[..],
+            &include_bytes!("./snowchains.toml")[..],
         )?;
         std::fs::create_dir(tempdir_path.join(".snowchains"))?;
         std::fs::write(
             tempdir_path.join(".snowchains").join("target.json"),
-            &include_bytes!("../target.json")[..],
+            &include_bytes!("./target.json")[..],
         )?;
         std::fs::create_dir(tempdir_path.join("local"))?;
         serde_json::to_writer(
@@ -109,7 +109,7 @@ pub(crate) fn confirm_num_cases(
             .with_extension("yml");
         let file = File::open(&path)?;
         let suite = serde_yaml::from_reader::<_, BatchSuite>(file)?;
-        assert_eq!(expected_num_cases, suite.cases.len());
+        assert_eq!(suite.cases.len(), expected_num_cases);
     }
     Ok(())
 }

@@ -322,16 +322,17 @@ mod tests {
     #[test]
     fn it_expands_user() -> io::Result<()> {
         let home = dirs::home_dir().unwrap();
-        let expected = home.join("foo");
-        let actual = if cfg!(windows) {
-            AbsPathBuf::try_new("C:\\")
-        } else {
-            AbsPathBuf::try_new("/")
-        }
-        .unwrap()
-        .join_expanding_user("~/foo")?
-        .inner;
-        assert_eq!(expected, actual);
+        assert_eq!(
+            if cfg!(windows) {
+                AbsPathBuf::try_new("C:\\")
+            } else {
+                AbsPathBuf::try_new("/")
+            }
+            .unwrap()
+            .join_expanding_user("~/foo")?
+            .inner,
+            home.join("foo"),
+        );
         Ok(())
     }
 }

@@ -1596,11 +1596,11 @@ mod tests {
         ) in expected.iter().zip_eq(&slugs_and_urls).zip_eq(&suites)
         {
             let expected_url = format!("/contests/{}/tasks/{}", contest, expected_screen);
-            assert_eq!(*expected_slug, actual_slug);
-            assert_eq!(expected_url, *actual_url);
+            assert_eq!(actual_slug, *expected_slug);
+            assert_eq!(*actual_url, expected_url);
             let actual_md5 = actual_suite.md5()?;
             actual_suite.assert_serialize_correctly()?;
-            assert_eq!(*expected_md5, format!("{:x}", actual_md5));
+            assert_eq!(format!("{:x}", actual_md5), *expected_md5);
         }
         Ok(())
     }
@@ -1611,8 +1611,8 @@ mod tests {
             .get_html("/contests/utpc2011/submissions/2067")?
             .extract_submitted_code()?;
         assert_eq!(
-            "1d805f5f226cd9d6dd90081a47505b7b",
             format!("{:x}", md5::compute(&code)),
+            "1d805f5f226cd9d6dd90081a47505b7b",
         );
         Ok(())
     }

@@ -450,6 +450,8 @@ mod tests {
     use crate::terminal::{Input as _, TtyOrPiped, WriteColorExt as _, WriteExt as _};
 
     use failure::Fallible;
+    use once_cell::sync::Lazy;
+    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
     use termcolor::{Ansi, Color, ColorSpec, WriteColor as _};
 
@@ -468,44 +470,53 @@ mod tests {
 
     #[test]
     fn test_write_ansi() -> Fallible<()> {
-        let mut wtr1 = Ansi::new(vec![]);
-        wtr1.set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(4))))?;
-        wtr1.write_all(b"foo")?;
-        wtr1.reset()?;
-        wtr1.set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(14))))?;
-        wtr1.write_all(b"bar")?;
-        wtr1.reset()?;
-        wtr1.set_color(ColorSpec::new().set_bg(Some(Color::Ansi256(195))))?;
-        wtr1.write_all(b"baz")?;
-        wtr1.reset()?;
-        wtr1.set_color(ColorSpec::new().set_bold(true))?;
-        wtr1.write_all(b"qux")?;
-        wtr1.reset()?;
-        wtr1.set_color(ColorSpec::new().set_underline(true))?;
-        wtr1.write_all(b"quux")?;
-        wtr1.reset()?;
+        let mut actual = Ansi::new(vec![]);
+        actual.with_reset(|w| w.fg(4).set().unwrap().write_str("foo"))?;
+        actual.with_reset(|w| w.fg(14).set().unwrap().write_str("bar"))?;
+        actual.with_reset(|w| w.bg(195).set().unwrap().write_str("baz"))?;
+        actual.with_reset(|w| w.bold().set().unwrap().write_str("qux"))?;
+        actual.with_reset(|w| w.underline().set().unwrap().write_str("quux"))?;
 
-        let mut wtr2 = Ansi::new(vec![]);
-        wtr2.with_reset(|w| w.fg(4).set()?.write_str("foo"))?;
-        wtr2.with_reset(|w| w.fg(14).set()?.write_str("bar"))?;
-        wtr2.with_reset(|w| w.bg(195).set()?.write_str("baz"))?;
-        wtr2.with_reset(|w| w.bold().set()?.write_str("qux"))?;
-        wtr2.with_reset(|w| w.underline().set()?.write_str("quux"))?;
+        static EXPECTED: Lazy<String> = sync_lazy! {
+            let mut expected = Ansi::new(vec![]);
+            expected
+                .set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(4))))
+                .unwrap();
+            expected.write_all(b"foo").unwrap();
+            expected.reset().unwrap();
+            expected
+                .set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(14))))
+                .unwrap();
+            expected.write_all(b"bar").unwrap();
+            expected.reset().unwrap();
+            expected
+                .set_color(ColorSpec::new().set_bg(Some(Color::Ansi256(195))))
+                .unwrap();
+            expected.write_all(b"baz").unwrap();
+            expected.reset().unwrap();
+            expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
+            expected.write_all(b"qux").unwrap();
+            expected.reset().unwrap();
+            expected
+                .set_color(ColorSpec::new().set_underline(true))
+                .unwrap();
+            expected.write_all(b"quux").unwrap();
+            expected.reset().unwrap();
+            String::from_utf8(expected.into_inner()).unwrap()
+        };
 
-        assert_eq!(
-            str::from_utf8(wtr1.get_ref())?,
-            str::from_utf8(wtr2.get_ref())?,
-        );
+        let actual = str::from_utf8(actual.get_ref())?;
+        assert_eq!(actual, &*EXPECTED);
         Ok(())
     }
 
     #[test]
     fn test_read_reply() -> io::Result<()> {
         let mut piped = TtyOrPiped::Piped(&b"foo\nbar\nbaz"[..]);
-        assert_eq!("foo", piped.read_reply()?);
-        assert_eq!("bar", piped.read_reply()?);
+        assert_eq!(piped.read_reply()?, "foo");
+        assert_eq!(piped.read_reply()?, "bar");
         let err = piped.read_reply().unwrap_err();
-        assert_eq!(io::ErrorKind::UnexpectedEof, err.kind());
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
         Ok(())
     }
 
@@ -513,11 +524,11 @@ mod tests {
     fn test_read_password() -> io::Result<()> {
         let mut rdr = &b"foo\nbar\nbaz"[..];
         let mut piped = TtyOrPiped::Piped(&mut rdr);
-        assert_eq!("foo", piped.read_password()?);
-        assert_eq!("bar", piped.read_password()?);
-        assert_eq!("baz", piped.read_password()?);
-        assert_eq!("", piped.read_password()?);
-        assert_eq!(b"", rdr);
+        assert_eq!(piped.read_password()?, "foo");
+        assert_eq!(piped.read_password()?, "bar");
+        assert_eq!(piped.read_password()?, "baz");
+        assert_eq!(piped.read_password()?, "");
+        assert_eq!(rdr, b"");
         Ok(())
     }
 }

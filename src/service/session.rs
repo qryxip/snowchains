@@ -633,10 +633,12 @@ mod tests {
     use failure::Fallible;
     use futures::Future as _;
     use if_chain::if_chain;
+    use once_cell::sync::Lazy;
+    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
     use reqwest::StatusCode;
     use tempdir::TempDir;
-    use termcolor::{Ansi, Color, ColorSpec, WriteColor};
+    use termcolor::{Ansi, Color, ColorSpec, NoColor, WriteColor};
     use tokio::runtime::Runtime;
     use url::Host;
     use warp::Filter;
@@ -703,40 +705,42 @@ mod tests {
                 then {} else { return Err(err.into()) }
             }
 
-            let mut expected = Ansi::new(vec![]);
+            static EXPECTED: Lazy<String> = sync_lazy! {
+                let mut expected = Ansi::new(vec![]);
 
-            let mut print_line = |path: &str, status_color: u8, status: &str| {
-                expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
-                expected.write_all(b"GET").unwrap();
-                expected.reset().unwrap();
-                expected.write_all(b" ").unwrap();
-                expected
-                    .set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(14))))
-                    .unwrap();
-                write!(expected, "http://127.0.0.1:{}{}", LOCALHOST_PORT, path).unwrap();
-                expected.reset().unwrap();
-                expected.write_all(b" ... ").unwrap();
-                expected
-                    .set_color(
-                        ColorSpec::new()
-                            .set_fg(Some(Color::Ansi256(status_color)))
-                            .set_bold(true),
-                    )
-                    .unwrap();
-                expected.write_all(status.as_ref()).unwrap();
-                expected.reset().unwrap();
-                expected.write_all(b"\n").unwrap();
+                let mut print_line = |path: &str, status_color: u8, status: &str| {
+                    expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
+                    expected.write_all(b"GET").unwrap();
+                    expected.reset().unwrap();
+                    expected.write_all(b" ").unwrap();
+                    expected
+                        .set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(14))))
+                        .unwrap();
+                    write!(expected, "http://127.0.0.1:{}{}", LOCALHOST_PORT, path).unwrap();
+                    expected.reset().unwrap();
+                    expected.write_all(b" ... ").unwrap();
+                    expected
+                        .set_color(
+                            ColorSpec::new()
+                                .set_fg(Some(Color::Ansi256(status_color)))
+                                .set_bold(true),
+                        )
+                        .unwrap();
+                    expected.write_all(status.as_ref()).unwrap();
+                    expected.reset().unwrap();
+                    expected.write_all(b"\n").unwrap();
+                };
+
+                print_line("/robots.txt", 10, "200 OK");
+                print_line("/", 10, "200 OK");
+                print_line("/confirm-cookie", 10, "200 OK");
+                print_line("/nonexisting", 10, "404 Not Found");
+                print_line("/nonexisting", 9, "404 Not Found");
+
+                String::from_utf8(expected.into_inner()).unwrap()
             };
 
-            print_line("/robots.txt", 10, "200 OK");
-            print_line("/", 10, "200 OK");
-            print_line("/confirm-cookie", 10, "200 OK");
-            print_line("/nonexisting", 10, "404 Not Found");
-            print_line("/nonexisting", 9, "404 Not Found");
-
-            let expected = str::from_utf8(expected.get_ref()).unwrap();
-            let actual = str::from_utf8(wtr.get_ref())?;
-            assert_eq!(expected, actual);
+            assert_eq!(str::from_utf8(wtr.get_ref())?, &*EXPECTED);
             Ok(())
         });
 
@@ -769,14 +773,14 @@ mod tests {
         let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
         let path = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
         let path = path.as_path();
-        let mut wtr = Ansi::new(io::sink());
+        let mut sink = NoColor::new(io::sink());
         let mut rt = Runtime::new()?;
         let client = service::reqwest_async_client(None)?;
-        construct_session(&mut wtr, &mut rt, &client, path)?;
-        construct_session(&mut wtr, &mut rt, &client, path)?;
-        let _session = construct_session(&mut wtr, &mut rt, &client, path)?;
+        construct_session(&mut sink, &mut rt, &client, path)?;
+        construct_session(&mut sink, &mut rt, &client, path)?;
+        let _session = construct_session(&mut sink, &mut rt, &client, path)?;
         if_chain! {
-            let err = construct_session(&mut wtr, &mut rt, &client, path).unwrap_err();
+            let err = construct_session(&mut sink, &mut rt, &client, path).unwrap_err();
             if let ServiceError::File(FileError::Context(kind)) = &err;
             if let FileErrorKind::Lock(_) = kind.get_context();
             then { Ok(()) } else { Err(err.into()) }

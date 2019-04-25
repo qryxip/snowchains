@@ -717,7 +717,7 @@ mod tests {
         ];
         let html = get_html("/contests/100")?;
         let problems = html.extract_problems()?;
-        assert_eq!(own_pairs(EXPECTED), problems);
+        assert_eq!(problems, own_pairs(EXPECTED));
         Ok(())
     }
 

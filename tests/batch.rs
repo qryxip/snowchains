@@ -91,12 +91,12 @@ fn main() {
 
     std::fs::write(
         tempdir.path().join("snowchains.toml"),
-        &include_bytes!("./snowchains.toml")[..],
+        &include_bytes!("./common/snowchains.toml")[..],
     )?;
     std::fs::create_dir_all(tempdir.path().join(".snowchains"))?;
     std::fs::write(
         tempdir.path().join(".snowchains").join("target.json"),
-        &include_bytes!("./target.json")[..],
+        &include_bytes!("./common/target.json")[..],
     )?;
     std::fs::create_dir_all(&src_dir)?;
     std::fs::create_dir_all(&suite_dir)?;

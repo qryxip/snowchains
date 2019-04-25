@@ -809,6 +809,8 @@ mod tests {
     use crate::terminal::TtyOrPiped;
 
     use failure::Fallible;
+    use once_cell::sync::Lazy;
+    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
     use termcolor::{Ansi, Color, ColorSpec, WriteColor as _};
 
@@ -833,19 +835,20 @@ mod tests {
         assert_eq!(ask("No?: ", false)?, false);
         assert_eq!(ask("Yes?: ", true)?, true);
 
-        assert_eq!(&b""[..], rdr);
+        assert_eq!(rdr, &b""[..]);
 
-        let mut expected = Ansi::new(vec![]);
-        expected
-            .write_all(b"Yes?: (Y/n) Yes?: (Y/n) Yes?: (Y/n) No?: (y/N) No?: (y/N) No?: (y/N) ")?;
-        expected.set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(11))))?;
-        expected.write_all(br#"Answer "y", "yes", "n", "no", or ""."#)?;
-        expected.reset()?;
-        expected.write_all(b"No?: (y/N) Yes?: (Y/n) ")?;
-
-        let expected = str::from_utf8(expected.get_ref())?;
-        let stderr = str::from_utf8(stderr.get_ref())?;
-        assert_eq!(expected, stderr);
+        static EXPECTED: Lazy<String> = sync_lazy! {
+            let mut expected = Ansi::new(vec![]);
+            expected
+                .write_all(b"Yes?: (Y/n) Yes?: (Y/n) Yes?: (Y/n) No?: (y/N) No?: (y/N) No?: (y/N) ")
+                .unwrap();
+            expected.set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(11)))).unwrap();
+            expected.write_all(br#"Answer "y", "yes", "n", "no", or ""."#).unwrap();
+            expected.reset().unwrap();
+            expected.write_all(b"No?: (y/N) Yes?: (Y/n) ").unwrap();
+            String::from_utf8(expected.into_inner()).unwrap()
+        };
+        assert_eq!(str::from_utf8(stderr.get_ref())?, &*EXPECTED);
         Ok(())
     }
 }

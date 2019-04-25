@@ -34,13 +34,13 @@ fn it_logins() -> Fallible<()> {
         let stderr = String::try_from(app.stderr)?;
         serde_json::from_str::<serde_json::Value>(&stdout)?;
         assert_diff!(
+            &stderr,
             "GET https://atcoder.jp/login ... 200 OK\n\
              Username: Password: POST https://atcoder.jp/login ... 302 Found\n\
              GET https://atcoder.jp/settings ... 200 OK\n\
              Successfully logged in.\n\
              POST https://api.dropboxapi.com/2/users/get_current_account ... 200 OK\n\
              Already authorized.\n",
-            &stderr,
             "\n",
             0
         );
@@ -165,15 +165,15 @@ fn just_confirm_num_samples_and_timelimit(
     let file = File::open(&path)?;
     match serde_yaml::from_reader::<_, TestSuite>(file)? {
         TestSuite::Batch { timelimit, cases } => {
-            assert_eq!(t, timelimit);
-            assert_eq!(n, cases.len())
+            assert_eq!(timelimit, t);
+            assert_eq!(cases.len(), n)
         }
         TestSuite::Interactive {
             timelimit,
             each_args,
         } => {
-            assert_eq!(t, timelimit);
-            assert_eq!(n, each_args.len())
+            assert_eq!(timelimit, t);
+            assert_eq!(each_args.len(), n)
         }
     }
     Ok(())
