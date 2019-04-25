@@ -40,6 +40,7 @@ pub(super) fn judge(
     })
 }
 
+#[derive(Debug)]
 struct Judge {
     input: Arc<String>,
     expected: Arc<ExpectedStdout>,
@@ -88,6 +89,7 @@ impl Future for Judge {
     }
 }
 
+#[derive(Debug)]
 enum Writing<W: AsyncWrite> {
     NotReady(W, usize),
     Ready,
@@ -125,6 +127,7 @@ impl<W: AsyncWrite> Writing<W> {
     }
 }
 
+#[derive(Debug)]
 enum Waiting<F: Future<Item = ExitStatus>> {
     NotReady(F, Instant, Option<Instant>), // _1 <= _2
     Ready(ExitStatus, Duration),
@@ -171,6 +174,7 @@ impl<F: Future<Item = ExitStatus>> Waiting<F> {
     }
 }
 
+#[derive(Debug)]
 enum Reading<R: AsyncRead> {
     NotReady(R, Vec<u8>, bool),
     Ready(String),
@@ -231,6 +235,7 @@ impl<R: AsyncRead> Reading<R> {
     }
 }
 
+#[derive(Debug)]
 struct CommandOutcome {
     status: ExitStatus,
     elapsed: Duration,
@@ -293,8 +298,7 @@ impl CommandOutcome {
 }
 
 /// Test result.
-#[cfg_attr(test, derive(Debug))]
-#[derive(From)]
+#[derive(Debug, From)]
 pub(super) struct BatchOutcome {
     inner: BatchOutcomeInner,
 }
@@ -439,7 +443,7 @@ impl Outcome for BatchOutcome {
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 enum BatchOutcomeInner {
     Accepted {
         elapsed: Duration,
@@ -469,7 +473,7 @@ enum BatchOutcomeInner {
     },
 }
 
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub(super) enum TextDiff {
     SameNumLines {
         size: usize,
@@ -599,8 +603,7 @@ impl TextDiff {
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(super) enum Diff<T> {
     Common(T),
     NotCommon(T),

@@ -311,6 +311,7 @@ static SERVICE_VALUES: &[&str] = &["atcoder", "codeforces", "yukicoder", "other"
 
 static EXCEPT_OTHER: &[&str] = &["atcoder", "codeforces", "yukicoder"];
 
+#[derive(Debug)]
 enum Kind {
     Option(usize),
     Arg,
@@ -441,6 +442,7 @@ fn parse_non_zero_usize(s: &str) -> std::result::Result<NonZeroUsize, String> {
     NonZeroUsize::new(n).ok_or_else(|| "must be non-zero".to_owned())
 }
 
+#[derive(Debug)]
 pub struct App<
     I: Input,
     O: AttemptEnableColor + ModifyTermProps,

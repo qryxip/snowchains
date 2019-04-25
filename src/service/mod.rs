@@ -403,6 +403,7 @@ pub(self) trait ExtractZip {
     }
 }
 
+#[derive(Debug)]
 pub(self) struct ZipEntries {
     pub(self) in_entry: Regex,
     pub(self) in_match_group: usize,
@@ -413,24 +414,25 @@ pub(self) struct ZipEntries {
     pub(self) sortings: Vec<ZipEntriesSorting>,
 }
 
+#[derive(Debug)]
 pub(self) enum ZipEntriesSorting {
     Dictionary,
     Number,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(crate) struct LoginOutcome {}
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(crate) struct ParticipateOutcome {}
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(crate) struct RetrieveTestCasesOutcome {
     contest: RetrieveTestCasesOutcomeContest,
     pub(self) problems: Vec<RetrieveTestCasesOutcomeProblem>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct RetrieveTestCasesOutcomeContest {
     slug: String,
     slug_lower_case: String,
@@ -441,7 +443,7 @@ struct RetrieveTestCasesOutcomeContest {
     slug_pascal_case: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(self) struct RetrieveTestCasesOutcomeProblem {
     #[serde(serialize_with = "util::serde::ser_as_ref_str")]
     pub(self) url: Url,
@@ -495,7 +497,7 @@ impl RetrieveTestCasesOutcome {
     }
 }
 
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub(crate) struct RetrieveSubmissionsOutcome {
     #[serde(serialize_with = "util::serde::ser_indexmap_with_as_ref_str_keys")]
     submissions: IndexMap<Url, RetrieveSubmissionsOutcomeSubmission>,
@@ -507,7 +509,7 @@ impl RetrieveSubmissionsOutcome {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(self) struct RetrieveSubmissionsOutcomeSubmission {
     pub(self) problem: RetrieveSubmissionsOutcomeSubmissionProblem,
     pub(self) language: String,
@@ -517,7 +519,7 @@ pub(self) struct RetrieveSubmissionsOutcomeSubmission {
     pub(self) detail: Option<RetrieveSubmissionsOutcomeSubmissionDetail>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(self) struct RetrieveSubmissionsOutcomeSubmissionProblem {
     #[serde(serialize_with = "util::serde::ser_as_ref_str")]
     url: Url,
@@ -549,18 +551,18 @@ impl RetrieveSubmissionsOutcomeSubmissionProblem {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(self) struct RetrieveSubmissionsOutcomeSubmissionVerdict {
     pub(self) is_ok: bool,
     pub(self) string: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(self) struct RetrieveSubmissionsOutcomeSubmissionDetail {
     pub(self) code: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(crate) struct RetrieveLangsOutcome {
     #[serde(serialize_with = "util::serde::ser_as_ref_str")]
     url: Url,
@@ -576,7 +578,7 @@ impl RetrieveLangsOutcome {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(crate) struct SubmitOutcome {}
 
 pub(crate) struct SessionProps {
@@ -648,6 +650,7 @@ pub(self) fn reqwest_sync_client(
     builder.build()
 }
 
+#[derive(Debug)]
 pub(crate) struct RetrieveTestCasesProps<C: Contest> {
     pub(crate) contest: C,
     pub(crate) problems: Option<NonEmptyVec<String>>,
@@ -677,6 +680,7 @@ impl RetrieveTestCasesProps<String> {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct RetrieveSubmissionsProps<'a, C: Contest> {
     pub(self) contest: C,
     pub(self) problems: Option<NonEmptyIndexSet<String>>,
@@ -719,6 +723,7 @@ impl<'a> RetrieveSubmissionsProps<'a, String> {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct SubmitProps<C: Contest> {
     pub(self) contest: C,
     pub(self) problem: String,
@@ -770,6 +775,7 @@ impl SubmitProps<String> {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct RetrieveLangsProps<C: Contest> {
     pub(crate) contest: C,
     pub(crate) problem: Option<String>,

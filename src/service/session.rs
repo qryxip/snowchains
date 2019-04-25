@@ -28,6 +28,7 @@ use std::io::{self, Write as _};
 use std::mem;
 use std::ops::Deref;
 
+#[derive(Debug)]
 pub(super) struct HttpSessionInitParams<'a, W: WriteColor> {
     pub(super) out: W,
     pub(super) runtime: &'a mut Runtime,
@@ -231,6 +232,7 @@ impl HttpSession {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct Request<'a, 'b, O: WriteColor> {
     inner: ServiceResult<reqwest::r#async::RequestBuilder>,
     out: Option<O>,
@@ -361,7 +363,7 @@ impl<'a, 'b, O: WriteColor> Request<'a, 'b, O> {
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub(super) struct Response {
     inner: reqwest::r#async::Response,
 }

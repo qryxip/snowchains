@@ -4,6 +4,7 @@ use tokio::io::AsyncWrite;
 use std::fmt::{self, Write as _};
 use std::{io, str};
 
+#[derive(Debug)]
 pub(crate) struct AsyncBufferedWriter<W: AsyncWrite> {
     wtr: W,
     buf: String,
@@ -91,7 +92,7 @@ impl<W: AsyncWrite> AsyncBufferedWriter<W> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum State {
     Empty,
     Writing(usize),

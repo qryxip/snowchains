@@ -95,6 +95,7 @@ pub(super) trait DownloadProgress {
     }
 }
 
+#[derive(Debug)]
 struct Downloading<
     C: Future<Item = Infallible, Error = ServiceError> + Send + 'static,
     W: AsyncWrite,
@@ -110,6 +111,7 @@ struct Downloading<
     cjk: bool,
 }
 
+#[derive(Debug)]
 enum Progress<R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static>
 {
     Response(R),
@@ -117,6 +119,7 @@ enum Progress<R: Future<Item = reqwest::r#async::Response, Error = reqwest::Erro
     Finished { buf: Vec<u8>, time: Duration },
 }
 
+#[derive(Debug)]
 struct ProgressPending {
     decoder: reqwest::r#async::Decoder,
     buf: Vec<u8>,

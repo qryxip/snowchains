@@ -20,8 +20,7 @@ pub(super) trait PrintAligned: Width {
     ) -> io::Result<()>;
 }
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(super) struct Text {
     size: usize,
     lines: Vec<Line<Word>>,
@@ -105,8 +104,7 @@ impl Width for Text {
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone, PartialEq, new)]
+#[derive(Debug, Clone, PartialEq, new)]
 pub(super) struct Line<W> {
     words: Vec<W>,
 }
@@ -129,8 +127,7 @@ impl<W: Width> Width for Line<W> {
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(super) enum Word {
     Plain(Arc<String>),
     U0020(usize),

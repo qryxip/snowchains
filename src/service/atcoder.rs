@@ -130,7 +130,8 @@ pub(super) fn submit(
     Atcoder::try_new(sess_props, stdin, stderr)?.submit(&submit_props)
 }
 
-pub(self) struct Atcoder<I: Input, E: WriteColor + HasTermProps> {
+#[derive(Debug)]
+struct Atcoder<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
     stdin: I,
     stderr: E,
@@ -856,7 +857,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, derive_more::Display)]
+#[derive(Clone, PartialEq, Eq, Debug, derive_more::Display)]
 enum AtcoderContest {
     #[display(fmt = "practice contest")]
     Practice,
@@ -992,6 +993,7 @@ impl ContestStatus {
     }
 }
 
+#[derive(Debug)]
 struct ContestDuration(DateTime<Utc>, DateTime<Utc>);
 
 impl ContestDuration {
@@ -1007,6 +1009,7 @@ impl ContestDuration {
     }
 }
 
+#[derive(Debug)]
 struct Submission {
     url: Url,
     task_url: Url,

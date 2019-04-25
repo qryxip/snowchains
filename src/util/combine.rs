@@ -2,7 +2,7 @@ use combine::stream::state::Positioner;
 use combine::stream::Resetable;
 
 /// Represents a 0-based position.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct OnelinePosition {
     pos: usize,
 }

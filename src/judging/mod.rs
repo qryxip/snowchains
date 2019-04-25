@@ -380,6 +380,7 @@ pub(crate) fn judge(
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct JudgeParams<'a, O: HasTermProps, E: WriteColor + HasTermProps> {
     pub stdout: O,
     pub stderr: E,
@@ -390,7 +391,7 @@ pub(crate) struct JudgeParams<'a, O: HasTermProps, E: WriteColor + HasTermProps>
     pub jobs: Option<NonZeroUsize>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(crate) struct JudgeOutcome {}
 
 pub(self) trait Outcome: fmt::Display {

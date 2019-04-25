@@ -139,6 +139,12 @@ impl AbsPath {
     }
 }
 
+impl fmt::Debug for AbsPath {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&self.inner, fmt)
+    }
+}
+
 impl ToOwned for AbsPath {
     type Owned = AbsPathBuf;
 

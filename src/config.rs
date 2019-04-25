@@ -467,13 +467,13 @@ yukicoder = "Text (cat 8.22)"
     )
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(crate) struct SwitchOutcome {
     old: SwitchOutcomeAttrs,
     new: SwitchOutcomeAttrs,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct SwitchOutcomeAttrs {
     service: ServiceKind,
     contest: String,
@@ -589,6 +589,7 @@ pub enum Mode {
 }
 
 /// Config.
+#[derive(Debug)]
 pub(crate) struct Config {
     inner: Inner,
     target: Target,
@@ -919,7 +920,7 @@ impl Config {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Inner {
     target: PathBuf,
     #[serde(default)]
@@ -937,19 +938,19 @@ pub(crate) struct Inner {
     languages: HashMap<String, Language>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Console {
     #[serde(default)]
     pub(crate) cjk: bool,
     pub(crate) alt_width: Option<usize>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Testfiles {
     path: TemplateBuilder<AbsPathBuf>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Session {
     #[serde(
         serialize_with = "time::ser_secs",
@@ -972,6 +973,7 @@ const fn const_true() -> bool {
     true
 }
 
+#[derive(Debug)]
 enum Dropbox {
     None,
     Some { auth: TemplateBuilder<AbsPathBuf> },
@@ -1017,13 +1019,13 @@ impl<'de> Deserialize<'de> for Dropbox {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Retrieve {
     extension: SuiteFileExtension,
     text_file_dir: TemplateBuilder<AbsPathBuf>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Judge {
     testfile_extensions: BTreeSet<SuiteFileExtension>,
     jobs: Option<NonZeroUsize>,
@@ -1080,7 +1082,7 @@ fn parse_size(s: &str) -> std::result::Result<usize, &'static str> {
         .ok_or_else(|| "invalid format")
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 #[serde(transparent)]
 struct Env {
     values: IndexMap<Predicate, BTreeMap<String, String>>,
@@ -1296,7 +1298,7 @@ impl<'de> Deserialize<'de> for Predicate {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 struct Hooks {
     switch: Option<TemplateBuilder<HookCommands>>,
     login: Option<TemplateBuilder<HookCommands>>,
@@ -1307,7 +1309,7 @@ struct Hooks {
     submit: Option<TemplateBuilder<HookCommands>>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 struct HooksRetrieve {
     testcases: Option<TemplateBuilder<HookCommands>>,
     languages: Option<TemplateBuilder<HookCommands>>,
@@ -1329,7 +1331,7 @@ impl Hooks {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum SubCommandKind {
     Switch,
     Login,
@@ -1341,7 +1343,7 @@ pub(crate) enum SubCommandKind {
     Submit,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Language {
     src: TemplateBuilder<AbsPathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1361,7 +1363,7 @@ struct Language {
     names: BTreeMap<ServiceKind, String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Target {
     service: ServiceKind,
     contest: String,

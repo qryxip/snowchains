@@ -12,6 +12,7 @@ use std::io::{self, Sink, Write};
 use std::process;
 use std::string::FromUtf8Error;
 
+#[derive(Debug)]
 pub(crate) struct Dumb {
     buf: Vec<u8>,
     props: TermProps<Sink>,

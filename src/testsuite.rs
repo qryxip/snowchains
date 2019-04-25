@@ -72,7 +72,7 @@ impl FromStr for SuiteFileExtension {
     }
 }
 
-#[derive(new)]
+#[derive(Debug, new)]
 pub(crate) struct TestCaseLoader<'a> {
     template: Template<AbsPathBuf>,
     extensions: &'a BTreeSet<SuiteFileExtension>,
@@ -205,6 +205,7 @@ impl TestCaseLoader<'_> {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Destinations {
     scraped: Template<AbsPathBuf>,
     text_file_dir: Template<AbsPathBuf>,
@@ -239,6 +240,7 @@ impl Destinations {
 }
 
 /// File path which extension is 'json', 'toml', 'yaml', or 'yml'.
+#[derive(Debug)]
 pub(crate) struct SuiteFilePath {
     path: AbsPathBuf,
     extension: SuiteFileExtension,
@@ -717,7 +719,7 @@ impl<T, E: std::error::Error + Send + Sync + 'static> SerContext for std::result
 }
 
 /// `Vec<BatchCase>` or `Vec<ReducibleCase>`.
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub(crate) enum TestCases {
     Batch(NonEmptyVec<BatchCase>),
     Interactive(NonEmptyVec<InteractiveCase>),
@@ -753,8 +755,7 @@ pub(crate) trait TestCase {
 }
 
 /// Pair of `input` and `expected`.
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct BatchCase {
     name: Arc<String>,
     input: Arc<String>,
@@ -815,8 +816,8 @@ impl BatchCase {
     }
 }
 
-#[derive(Clone)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Debug)]
 pub(crate) enum ExpectedStdout {
     Any {
         example: Option<String>,
@@ -847,8 +848,8 @@ impl Default for Match {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Debug)]
 pub(crate) struct InteractiveCase {
     name: Arc<String>,
     timelimit: Option<Duration>,

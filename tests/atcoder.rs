@@ -487,7 +487,7 @@ fn credentials_as_input() -> Fallible<String> {
     Ok(format!("{}\n{}\n", username, password))
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct RetrieveLangsStdout {
     available_languages: IndexMap<String, String>,
 }

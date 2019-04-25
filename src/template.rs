@@ -25,8 +25,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{env, fmt, iter};
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct TemplateBuilder<T: Target>(T::Inner);
 
 impl<T: Target> Default for TemplateBuilder<T>
@@ -78,6 +78,7 @@ impl TemplateBuilder<JudgingCommand> {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Template<T: Target> {
     inner: T::Inner,
     requirements: T::Requirements,
@@ -459,15 +460,15 @@ impl Target for JudgingCommand {
     type Requirements = JudgingCommandRequirements;
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum CommandTemplateInner {
     Args(Vec<Tokens>),
     Shell(SingleKeyValue<String, String>),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct AbsPathBufRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,
@@ -475,14 +476,14 @@ pub(crate) struct AbsPathBufRequirements {
     pub(crate) mode: Option<config::Mode>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct HookCommandsRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) result: Arc<serde_json::Result<String>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct TranspilationCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,
@@ -494,7 +495,7 @@ pub(crate) struct TranspilationCommandRequirements {
     pub(crate) transpiled: Option<TemplateBuilder<AbsPathBuf>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct CompilationCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,
@@ -507,7 +508,7 @@ pub(crate) struct CompilationCommandRequirements {
     pub(crate) bin: Option<TemplateBuilder<AbsPathBuf>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct JudgingCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,

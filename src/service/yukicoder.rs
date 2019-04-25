@@ -79,6 +79,7 @@ pub(super) fn submit(
     Yukicoder::try_new(sess_props, stdin, stderr)?.submit(&submit_props)
 }
 
+#[derive(Debug)]
 struct Yukicoder<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
     stdin: I,
@@ -460,6 +461,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
     }
 }
 
+#[derive(Debug)]
 enum YukicoderContest {
     No,
     Contest(String),

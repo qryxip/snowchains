@@ -6,7 +6,7 @@ use tokio::io::AsyncWrite;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use std::io::{self, BufRead, BufWriter, Stderr, Stdin, StdinLock, Stdout, Write};
-use std::{env, process};
+use std::{env, fmt, process};
 
 pub trait Input {
     fn read_reply(&mut self) -> io::Result<String>;
@@ -23,6 +23,7 @@ impl<'a, I: Input + ?Sized> Input for &'a mut I {
     }
 }
 
+#[derive(Debug)]
 pub enum TtyOrPiped<R: BufRead> {
     Tty,
     Piped(R),
@@ -120,6 +121,7 @@ pub(crate) trait WriteColorExt: WriteColor {
 
 impl<W: WriteColor + ?Sized> WriteColorExt for W {}
 
+#[derive(Debug)]
 pub(crate) struct WithReset<W: WriteColor> {
     wtr: W,
     spec: ColorSpec,
@@ -240,6 +242,12 @@ pub struct TermProps<W: AsyncWrite + Send + 'static> {
     pub str_width: fn(&str) -> usize,
 }
 
+impl<W: AsyncWrite + Send + 'static> fmt::Debug for TermProps<W> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.write_str("TermProps { .. }")
+    }
+}
+
 pub struct AnsiStandardStream<W: AnsiStandardOutput> {
     wtr: Either<W, Ansi<W>>,
     props: TermProps<W::AnsiAsyncWrite>,
@@ -264,6 +272,19 @@ impl<W: AnsiStandardOutput> AnsiStandardStream<W> {
             Either::Left(w) => w,
             Either::Right(w) => w.get_mut(),
         }
+    }
+}
+
+impl<W: AnsiStandardOutput + fmt::Debug> fmt::Debug for AnsiStandardStream<W> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        let wtr = match &self.wtr {
+            Either::Left(w) => Either::Left(w),
+            Either::Right(_) => Either::Right(format_args!("_")),
+        };
+        fmt.debug_struct("AnsiStandardStream")
+            .field("wtr", &wtr)
+            .field("props", &self.props)
+            .finish()
     }
 }
 

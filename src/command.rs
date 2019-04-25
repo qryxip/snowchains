@@ -20,6 +20,7 @@ use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
 
+#[derive(Debug)]
 pub(crate) struct HookCommands(Option<NonEmptyVec<HookCommand>>);
 
 impl HookCommands {
@@ -47,6 +48,7 @@ impl FromIterator<HookCommand> for HookCommands {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct HookCommand {
     inner: Inner,
 }
@@ -83,8 +85,7 @@ impl HookCommand {
 }
 
 /// Transpilation command.
-#[cfg_attr(test, derive(Debug))]
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Debug, Hash)]
 pub(crate) struct TranspilationCommand {
     repr: BuildCommand,
 }
@@ -123,8 +124,7 @@ impl TranspilationCommand {
 }
 
 /// Compilation command.
-#[cfg_attr(test, derive(Debug))]
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub(crate) struct CompilationCommand {
     repr: BuildCommand,
 }
@@ -161,15 +161,14 @@ impl CompilationCommand {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct Messages {
     command: &'static str,
     wd: &'static str,
     finished: &'static str,
 }
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Debug, Hash)]
 struct BuildCommand {
     inner: Inner,
     src: AbsPathBuf,
@@ -276,7 +275,8 @@ impl BuildCommand {
 }
 
 /// Command for batch/interactive testing.
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
 pub(crate) struct JudgingCommand {
     inner: Inner,
     crlf_to_lf: bool,
@@ -341,8 +341,7 @@ impl JudgingCommand {
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Inner {
     args: NonEmptyVec<OsString>,
     working_dir: AbsPathBuf,

@@ -96,6 +96,7 @@ pub(super) fn submit(
     Codeforces::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
 
+#[derive(Debug)]
 struct Codeforces<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
     stdin: I,
@@ -518,7 +519,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
     }
 }
 
-#[derive(Clone, Copy, derive_more::Display)]
+#[derive(Clone, Copy, Debug, derive_more::Display)]
 #[display(fmt = "{}", id)]
 struct CodeforcesContest {
     id: u64,
@@ -540,13 +541,13 @@ impl Contest for CodeforcesContest {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum LoginOption {
     WithHandle,
     Explicit,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ApiKey {
     key: String,
     secret: String,
@@ -562,7 +563,7 @@ enum ContestPhase {
     Finished,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct User {
     // handle: String,
 // email: Option<String>,
@@ -585,7 +586,7 @@ struct User {
 // titlePhoto: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct ContestEntity {
     // id: u64,
     // name: String,
@@ -606,7 +607,7 @@ struct ContestEntity {
     // season: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Problem {
     // contestId: Option<u64>,
     // problemsetName: Option<String>,
@@ -617,7 +618,7 @@ struct Problem {
     // tags: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Submission {
     id: u64,
     // contestId: Option<u64>,
@@ -633,7 +634,7 @@ struct Submission {
     // memoryConsumedBytes: f64,
 }
 
-#[derive(PartialEq, Deserialize)]
+#[derive(Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 enum SubmissionVerdict {
     Failed,
@@ -655,7 +656,7 @@ enum SubmissionVerdict {
     Rejected,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Standings {
     contest: ContestEntity,
     problems: Vec<Problem>,

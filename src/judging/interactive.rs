@@ -45,6 +45,7 @@ pub(super) fn judge(
     }))
 }
 
+#[derive(Debug)]
 struct Interaction {
     tester_to_solver: Pipe<tokio_process::ChildStdout, tokio_process::ChildStdin>,
     solver_to_tester: Pipe<tokio_process::ChildStdout, tokio_process::ChildStdin>,
@@ -87,7 +88,7 @@ impl Stream for Interaction {
     }
 }
 
-#[derive(new)]
+#[derive(Debug, new)]
 struct Waiting {
     #[new(value = "false")]
     finished: bool,
@@ -124,6 +125,7 @@ impl Stream for Waiting {
     }
 }
 
+#[derive(Debug)]
 enum Pipe<O: AsyncRead, I: AsyncWrite> {
     Ready,
     NotReady {
@@ -236,7 +238,7 @@ impl<O: AsyncRead, I: AsyncWrite> Stream for Pipe<O, I> {
     }
 }
 
-#[derive(new)]
+#[derive(Debug, new)]
 struct Reading<R: AsyncRead> {
     rdr: R,
     #[new(value = "Vec::with_capacity(1024)")]
@@ -437,6 +439,7 @@ impl Outcome for InteractiveOutcome {
     }
 }
 
+#[derive(Debug)]
 enum Output {
     SolverStdout(Text, Duration),
     SolverStderr(Text, Duration),
