@@ -9,7 +9,6 @@ use crate::template::{
 use crate::terminal::{WriteColorExt as _, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
-use crate::util::combine::OnelinePosition;
 
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use if_chain::if_chain;
@@ -1190,13 +1189,13 @@ impl<'de> Deserialize<'de> for Predicate {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         use combine::char::{char, spaces};
         use combine::parser::choice::or;
-        use combine::stream::state::State;
+        use combine::stream::state::{IndexPositioner, State};
         use combine::{choice, easy, eof, many, many1, none_of, optional, parser, satisfy};
         use combine::{ParseResult, Parser};
 
         fn parse_predicate<'a>(
-            input: &mut easy::Stream<State<&'a str, OnelinePosition>>,
-        ) -> ParseResult<Predicate, easy::Stream<State<&'a str, OnelinePosition>>> {
+            input: &mut easy::Stream<State<&'a str, IndexPositioner>>,
+        ) -> ParseResult<Predicate, easy::Stream<State<&'a str, IndexPositioner>>> {
             enum EqRhsOrFnArg {
                 EqRhs(Atom),
                 FnArg(Vec<Predicate>),
@@ -1259,20 +1258,20 @@ impl<'de> Deserialize<'de> for Predicate {
         }
 
         fn atom<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Atom>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Atom>
         {
             or(identifier().map(Atom::Symbol), literal())
         }
 
         fn literal<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Atom>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Atom>
         {
             or(literal_with('\''), literal_with('"'))
         }
 
         fn literal_with<'a>(
             quote: char,
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Atom>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Atom>
         {
             char(quote)
                 .with(many1(none_of(iter::once(quote))))
@@ -1281,7 +1280,7 @@ impl<'de> Deserialize<'de> for Predicate {
         }
 
         fn identifier<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = String>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = String>
         {
             many1(satisfy(|c| match c {
                 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
@@ -1292,7 +1291,7 @@ impl<'de> Deserialize<'de> for Predicate {
         let input = String::deserialize(deserializer)?;
         parser(parse_predicate)
             .skip(eof())
-            .easy_parse(State::with_positioner(&input, OnelinePosition::new()))
+            .easy_parse(State::with_positioner(&input, IndexPositioner::new()))
             .map(|(p, _)| p)
             .map_err(serde::de::Error::custom)
     }

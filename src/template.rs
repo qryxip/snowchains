@@ -7,7 +7,6 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
 use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
-use crate::util::combine::OnelinePosition;
 use crate::util::str::CaseConversion;
 
 use failure::{Backtrace, Fail, ResultExt as _};
@@ -548,20 +547,20 @@ impl FromStr for Tokens {
         use combine::char::{char, spaces, string};
         use combine::parser::choice::or;
         use combine::parser::function::parser;
-        use combine::stream::state::State;
+        use combine::stream::state::{IndexPositioner, State};
         use combine::{choice, easy, eof, many, many1, satisfy, Parser};
 
         fn escape<'a>(
             from: &'static str,
             to: &'static str,
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Token>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Token>
         {
             string(from).map(move |_| Token::Plain(to.to_owned()))
         }
 
         fn parse_expr<'a>(
-            input: &mut easy::Stream<State<&'a str, OnelinePosition>>,
-        ) -> combine::ParseResult<Expr, easy::Stream<State<&'a str, OnelinePosition>>> {
+            input: &mut easy::Stream<State<&'a str, IndexPositioner>>,
+        ) -> combine::ParseResult<Expr, easy::Stream<State<&'a str, IndexPositioner>>> {
             enum Right {
                 Comma(String),
                 Arg(Expr),
@@ -591,7 +590,7 @@ impl FromStr for Tokens {
         }
 
         fn identifier<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = String>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = String>
         {
             many1(satisfy(|c| match c {
                 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
@@ -616,7 +615,7 @@ impl FromStr for Tokens {
             dollar_or_expr,
         )))
         .skip(eof())
-        .easy_parse(State::with_positioner(input, OnelinePosition::new()))
+        .easy_parse(State::with_positioner(input, IndexPositioner::new()))
         .map(|(tokens, _)| Tokens(tokens))
         .map_err(|e| ParseTemplateError::new(input, e))
     }
