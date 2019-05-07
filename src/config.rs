@@ -337,7 +337,7 @@ working_directory = "${{service}}/${{snake_case(contest)}}/cpp"
 [languages.'c++'.names]
 atcoder = "C++14 (GCC 5.4.1)"
 codeforces = "GNU G++17 7.3.0"
-yukicoder = "C++17(1z） (gcc 8.2.0)"
+yukicoder = "C++17(1z) (gcc 8.2.0)"
 
 [languages.rust]
 src = "${{service}}/${{snake_case(contest)}}/rs/src/bin/${{kebab_case(problem)}}.rs"
