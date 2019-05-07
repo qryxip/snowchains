@@ -1,6 +1,6 @@
 mod common;
 
-use common::Dumb;
+use crate::common::Dumb;
 
 use snowchains::app::{App, Judge, Opt};
 use snowchains::config;

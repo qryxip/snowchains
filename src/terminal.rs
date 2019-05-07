@@ -5,8 +5,8 @@ use termcolor::{Ansi, Color, ColorSpec, WriteColor};
 use tokio::io::AsyncWrite;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use std::io::{self, BufRead, BufWriter, Stderr, Stdin, StdinLock, Stdout, Write};
-use std::{env, fmt, process};
+use std::io::{self, BufRead, BufWriter, Sink, Stderr, Stdin, StdinLock, Stdout, Write};
+use std::{env, fmt, process, str};
 
 pub trait Input {
     fn read_reply(&mut self) -> io::Result<String>;
@@ -94,6 +94,10 @@ pub enum AnsiColorChoice {
     Always,
 }
 
+pub(crate) trait PrintPretty {
+    fn print_pretty(&self, wtr: impl WriteColor + HasTermProps) -> io::Result<()>;
+}
+
 pub(crate) trait WriteExt: Write {
     fn write_str(&mut self, s: impl AsRef<str>) -> io::Result<()> {
         self.write_all(s.as_ref().as_ref())
@@ -133,18 +137,8 @@ impl<W: WriteColor> WithReset<W> {
         self
     }
 
-    pub(crate) fn bg(&mut self, color: impl IntoColor) -> &mut Self {
-        self.spec.set_bg(Some(color.into_color()));
-        self
-    }
-
     pub(crate) fn bold(&mut self) -> &mut Self {
         self.spec.set_bold(true);
-        self
-    }
-
-    pub(crate) fn underline(&mut self) -> &mut Self {
-        self.spec.set_underline(true);
         self
     }
 
@@ -240,6 +234,18 @@ pub struct TermProps<W: AsyncWrite + Send + 'static> {
     pub columns: fn() -> Option<usize>,
     pub char_width: fn(char) -> Option<usize>,
     pub str_width: fn(&str) -> usize,
+}
+
+impl Default for TermProps<Sink> {
+    fn default() -> Self {
+        Self {
+            ansi_async_wtr: io::sink,
+            process_redirection: process::Stdio::null,
+            columns: || None,
+            char_width: UnicodeWidthChar::width,
+            str_width: UnicodeWidthStr::width,
+        }
+    }
 }
 
 impl<W: AsyncWrite + Send + 'static> fmt::Debug for TermProps<W> {
@@ -494,9 +500,8 @@ mod tests {
         let mut actual = Ansi::new(vec![]);
         actual.with_reset(|w| w.fg(4).set().unwrap().write_str("foo"))?;
         actual.with_reset(|w| w.fg(14).set().unwrap().write_str("bar"))?;
-        actual.with_reset(|w| w.bg(195).set().unwrap().write_str("baz"))?;
+        actual.with_reset(|w| w.fg(195).set().unwrap().write_str("baz"))?;
         actual.with_reset(|w| w.bold().set().unwrap().write_str("qux"))?;
-        actual.with_reset(|w| w.underline().set().unwrap().write_str("quux"))?;
 
         static EXPECTED: Lazy<String> = sync_lazy! {
             let mut expected = Ansi::new(vec![]);
@@ -511,17 +516,12 @@ mod tests {
             expected.write_all(b"bar").unwrap();
             expected.reset().unwrap();
             expected
-                .set_color(ColorSpec::new().set_bg(Some(Color::Ansi256(195))))
+                .set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(195))))
                 .unwrap();
             expected.write_all(b"baz").unwrap();
             expected.reset().unwrap();
             expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
             expected.write_all(b"qux").unwrap();
-            expected.reset().unwrap();
-            expected
-                .set_color(ColorSpec::new().set_underline(true))
-                .unwrap();
-            expected.write_all(b"quux").unwrap();
             expected.reset().unwrap();
             String::from_utf8(expected.into_inner()).unwrap()
         };

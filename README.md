@@ -567,14 +567,14 @@ main :: IO ()
 main = do
   RIO.hSetBuffering stdout LineBuffering
   bs <- (!! 0) <$> getArgs
-  let n                   = length bs
-      q                   = if n == 5 then 7 else 100 :: Int
-      reply c1 c2         = B.putStr (if weight c1 < weight c2 then "<\n" else ">\n")
+  let n = length bs
+      q = if n == 5 then 7 else 100 :: Int
+      reply c1 c2 = B.putStr (if weight c1 < weight c2 then "<\n" else ">\n")
       judge a | a == bs   = exitSuccess
               | otherwise = die "wrong"
-      weight c            = fromMaybe (error "out of bounds") (c `elemIndex` bs)
+      weight c = fromMaybe (error "out of bounds") (c `elemIndex` bs)
   printf "%d %d\n" n q
-  forM_ [1..q] $ \_ -> words <$> getLine >>= \case
+  forM_ [1 .. q] $ \_ -> words <$> getLine >>= \case
     ["?", [c1], [c2]] -> reply c1 c2
     ["!", a]          -> judge a
     _                 -> error "invalid"

@@ -1,4 +1,5 @@
 use futures::{task, try_ready, Async, Poll};
+use termcolor::{Color, ColorSpec};
 use tokio::io::AsyncWrite;
 
 use std::fmt::{self, Write as _};
@@ -67,12 +68,46 @@ impl<W: AsyncWrite> AsyncBufferedWriter<W> {
         self.buf.push_str("\x1b[0m");
     }
 
-    pub(crate) fn push_ansi_bold(&mut self) {
-        self.buf.push_str("\x1b[1m");
+    pub(crate) fn push_ansi_color(&mut self, spec: &ColorSpec) {
+        fn try_to_ansi_256(color: Color, intense: bool) -> Option<u8> {
+            match color {
+                Color::Black if intense => Some(8),
+                Color::Red if intense => Some(9),
+                Color::Green if intense => Some(10),
+                Color::Yellow if intense => Some(11),
+                Color::Blue if intense => Some(12),
+                Color::Magenta if intense => Some(13),
+                Color::Cyan if intense => Some(14),
+                Color::White if intense => Some(15),
+                Color::Black => Some(0),
+                Color::Red => Some(1),
+                Color::Green => Some(2),
+                Color::Yellow => Some(3),
+                Color::Blue => Some(4),
+                Color::Magenta => Some(5),
+                Color::Cyan => Some(6),
+                Color::White => Some(7),
+                Color::Ansi256(n) => Some(n),
+                _ => None,
+            }
+        }
+
+        if spec.bold() {
+            self.buf.push_str("\x1b[1m");
+        }
+        if spec.underline() {
+            self.buf.push_str("\x1b[4m");
+        }
+        if let Some(fg) = spec.fg().and_then(|&c| try_to_ansi_256(c, spec.intense())) {
+            write_ansi_256_color(&mut self.buf, fg, true);
+        }
+        if let Some(bg) = spec.bg().and_then(|&c| try_to_ansi_256(c, spec.intense())) {
+            write_ansi_256_color(&mut self.buf, bg, true);
+        }
     }
 
-    pub(crate) fn push_ansi_fg_256(&mut self, color: u8) {
-        write_ansi_256_color(&mut self.buf, color, true);
+    pub(crate) fn push_ansi_bold(&mut self) {
+        self.buf.push_str("\x1b[1m");
     }
 
     pub(crate) fn push_ansi_cursor_next_line(&mut self, n: usize) {

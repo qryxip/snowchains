@@ -7,6 +7,7 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
 use crate::terminal::{WriteColorExt as _, WriteExt as _};
 use crate::time;
+use crate::util;
 use crate::util::collections::NonEmptyVec;
 use crate::util::num::PositiveFinite;
 
@@ -380,8 +381,16 @@ struct BatchSuiteSchemaCase {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum BatchSuiteText {
-    String(String),
-    Path { path: PathBuf },
+    String(
+        #[serde(
+            serialize_with = "util::serde::ser_arc_string",
+            deserialize_with = "util::serde::de_to_arc_string"
+        )]
+        Arc<String>,
+    ),
+    Path {
+        path: PathBuf,
+    },
 }
 
 impl BatchSuite {
@@ -409,15 +418,16 @@ impl BatchSuite {
         cases: I,
         name: fn(usize) -> String,
     ) -> Self {
-        self.cases.extend(
-            cases
-                .enumerate()
-                .map(|(i, (input, output))| BatchSuiteSchemaCase {
+        self.cases
+            .extend(cases.enumerate().map(|(i, (input, output))| {
+                BatchSuiteSchemaCase {
                     name: Some(name(i)),
-                    input: BatchSuiteText::String(input.into()),
-                    output: output.into().map(|o| BatchSuiteText::String(o.into())),
-                }),
-        );
+                    input: BatchSuiteText::String(Arc::new(input.into())),
+                    output: output
+                        .into()
+                        .map(|o| BatchSuiteText::String(Arc::new(o.into()))),
+                }
+            }));
         self
     }
 
@@ -463,21 +473,23 @@ impl BatchSuite {
                     Some(name) => format!("{}[{}]: {:?}", filename, i, name),
                 };
                 let input = match case.input {
-                    BatchSuiteText::String(input) => input,
-                    BatchSuiteText::Path { path } => crate::fs::read_to_string(&dir.join(path))?,
+                    BatchSuiteText::String(input) => input.clone(),
+                    BatchSuiteText::Path { path } => {
+                        Arc::new(crate::fs::read_to_string(&dir.join(path))?)
+                    }
                 };
                 let output = match case.output {
                     None => None,
-                    Some(BatchSuiteText::String(output)) => Some(output),
+                    Some(BatchSuiteText::String(output)) => Some(output.clone()),
                     Some(BatchSuiteText::Path { path }) => {
-                        Some(crate::fs::read_to_string(&dir.join(path))?)
+                        Some(Arc::new(crate::fs::read_to_string(&dir.join(path))?))
                     }
                 };
                 Ok(BatchCase::new(
                     &name,
                     timelimit,
-                    &input,
-                    output.as_ref().map(AsRef::as_ref),
+                    input,
+                    output,
                     output_match,
                 ))
             })
@@ -759,7 +771,7 @@ pub(crate) trait TestCase {
 pub(crate) struct BatchCase {
     name: Arc<String>,
     input: Arc<String>,
-    expected: Arc<ExpectedStdout>,
+    expected: ExpectedStdout,
     timelimit: Option<Duration>,
 }
 
@@ -773,11 +785,11 @@ impl BatchCase {
     fn new(
         name: &str,
         timelimit: Option<Duration>,
-        input: &str,
-        output: Option<&str>,
+        input: Arc<String>,
+        output: Option<Arc<String>>,
         output_match: Match,
     ) -> Self {
-        let expected = match (output_match, output.map(ToOwned::to_owned)) {
+        let expected = match (output_match, output) {
             (Match::Any, example) => ExpectedStdout::Any { example },
             (Match::Exact, None) | (Match::Float { .. }, None) => {
                 ExpectedStdout::Any { example: None }
@@ -785,20 +797,22 @@ impl BatchCase {
             (Match::Exact, Some(output)) => ExpectedStdout::Exact(output),
             (
                 Match::Float {
-                    absolute_error,
                     relative_error,
+                    absolute_error,
                 },
                 Some(string),
             ) => ExpectedStdout::Float {
                 string,
-                absolute_error,
-                relative_error,
+                errors: FloatErrors {
+                    relative: relative_error,
+                    absolute: absolute_error,
+                },
             },
         };
         Self {
             name: Arc::new(name.to_owned()),
-            input: Arc::new(input.to_owned()),
-            expected: Arc::new(expected),
+            input,
+            expected,
             timelimit,
         }
     }
@@ -807,8 +821,8 @@ impl BatchCase {
         self.input.clone()
     }
 
-    pub(crate) fn expected(&self) -> Arc<ExpectedStdout> {
-        self.expected.clone()
+    pub(crate) fn expected(&self) -> &ExpectedStdout {
+        &self.expected
     }
 
     pub(crate) fn timelimit(&self) -> Option<Duration> {
@@ -820,13 +834,12 @@ impl BatchCase {
 #[derive(Clone, Debug)]
 pub(crate) enum ExpectedStdout {
     Any {
-        example: Option<String>,
+        example: Option<Arc<String>>,
     },
-    Exact(String),
+    Exact(Arc<String>),
     Float {
-        string: String,
-        relative_error: Option<PositiveFinite<f64>>,
-        absolute_error: Option<PositiveFinite<f64>>,
+        string: Arc<String>,
+        errors: FloatErrors,
     },
 }
 
@@ -846,6 +859,13 @@ impl Default for Match {
     fn default() -> Self {
         Match::Exact
     }
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) struct FloatErrors {
+    pub(crate) relative: Option<PositiveFinite<f64>>,
+    pub(crate) absolute: Option<PositiveFinite<f64>>,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -897,6 +917,7 @@ mod tests {
     use std::convert::TryFrom as _;
     use std::env;
     use std::path::Path;
+    use std::sync::Arc;
     use std::time::Duration;
 
     #[test]
@@ -1172,23 +1193,23 @@ type: unsubmittable
             cases: vec![
                 BatchSuiteSchemaCase {
                     name: Some("Sample 1".to_owned()),
-                    input: BatchSuiteText::String("5\n2 2 3 5 5\n".to_owned()),
-                    output: Some(BatchSuiteText::String("2\n".to_owned())),
+                    input: BatchSuiteText::string("5\n2 2 3 5 5\n"),
+                    output: Some(BatchSuiteText::string("2\n")),
                 },
                 BatchSuiteSchemaCase {
                     name: Some("Sample 2".to_owned()),
-                    input: BatchSuiteText::String("9\n1 2 3 4 5 6 7 8 9\n".to_owned()),
-                    output: Some(BatchSuiteText::String("0\n".to_owned())),
+                    input: BatchSuiteText::string("9\n1 2 3 4 5 6 7 8 9\n"),
+                    output: Some(BatchSuiteText::string("0\n")),
                 },
                 BatchSuiteSchemaCase {
                     name: Some("Sample 3".to_owned()),
-                    input: BatchSuiteText::String("6\n6 5 4 3 2 1\n".to_owned()),
-                    output: Some(BatchSuiteText::String("18\n".to_owned())),
+                    input: BatchSuiteText::string("6\n6 5 4 3 2 1\n"),
+                    output: Some(BatchSuiteText::string("18\n")),
                 },
                 BatchSuiteSchemaCase {
                     name: Some("Sample 4".to_owned()),
-                    input: BatchSuiteText::String("7\n1 1 1 1 2 3 4\n".to_owned()),
-                    output: Some(BatchSuiteText::String("6\n".to_owned())),
+                    input: BatchSuiteText::string("7\n1 1 1 1 2 3 4\n"),
+                    output: Some(BatchSuiteText::string("6\n")),
                 },
             ],
         });
@@ -1320,18 +1341,18 @@ cases:
             cases: vec![
                 BatchSuiteSchemaCase {
                     name: Some("Sample 1".to_owned()),
-                    input: BatchSuiteText::String("8 3\n".to_owned()),
-                    output: Some(BatchSuiteText::String("2.6666666667\n".to_owned())),
+                    input: BatchSuiteText::string("8 3\n"),
+                    output: Some(BatchSuiteText::string("2.6666666667\n")),
                 },
                 BatchSuiteSchemaCase {
                     name: Some("Sample 2".to_owned()),
-                    input: BatchSuiteText::String("99 1\n".to_owned()),
-                    output: Some(BatchSuiteText::String("99.0000000000\n".to_owned())),
+                    input: BatchSuiteText::string("99 1\n"),
+                    output: Some(BatchSuiteText::string("99.0000000000\n")),
                 },
                 BatchSuiteSchemaCase {
                     name: Some("Sample 3".to_owned()),
-                    input: BatchSuiteText::String("1 100\n".to_owned()),
-                    output: Some(BatchSuiteText::String("0.0100000000\n".to_owned())),
+                    input: BatchSuiteText::string("1 100\n"),
+                    output: Some(BatchSuiteText::string("0.0100000000\n")),
                 },
             ],
         });
@@ -1497,5 +1518,11 @@ type: unsubmittable"#,
         );
 
         Ok(())
+    }
+
+    impl BatchSuiteText {
+        fn string(s: &str) -> Self {
+            BatchSuiteText::String(Arc::new(s.to_owned()))
+        }
     }
 }

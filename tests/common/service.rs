@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::Dumb;
+use crate::common::Dumb;
 
 use snowchains::app::{App, Login, Opt, Retrieve, RetrieveTestcases};
 use snowchains::path::{AbsPath, AbsPathBuf};

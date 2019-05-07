@@ -12,7 +12,8 @@ use std::ops::{Deref, Index, IndexMut};
 use std::slice::{self, SliceIndex};
 use std::vec;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
 pub(crate) struct NonEmptyVec<T>(Vec<T>);
 
 impl<T> NonEmptyVec<T> {
@@ -59,10 +60,6 @@ impl<T> NonEmptyVec<T> {
 
     pub(crate) fn map<B, F: FnMut(T) -> B>(self, f: F) -> NonEmptyVec<B> {
         NonEmptyVec(self.0.into_iter().map(f).collect())
-    }
-
-    pub(crate) fn max<R: Ord>(&self, f: impl Fn(&T) -> R) -> R {
-        self.0.iter().map(&f).max().unwrap()
     }
 }
 
@@ -238,12 +235,6 @@ mod tests {
         assert_eq!(
             NonEmptyVec::try_new(vec![(); 10]).unwrap().iter().count(),
             10
-        );
-        assert_eq!(
-            NonEmptyVec::try_new(vec![3, 1, 2])
-                .unwrap()
-                .max(|&x| 10 - x),
-            9,
         );
         assert_eq!(&mut NonEmptyVec::<()>::default()[0], &mut ());
         assert_eq!(NonEmptyVec::<()>::default(), NonEmptyVec(vec![()]));
