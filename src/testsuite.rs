@@ -5,11 +5,9 @@ use crate::errors::{
 };
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::template::Template;
-use crate::terminal::{WriteColorExt as _, WriteExt as _};
-use crate::time;
-use crate::util;
 use crate::util::collections::NonEmptyVec;
 use crate::util::num::PositiveFinite;
+use crate::{time, util};
 
 use derive_more::From;
 use derive_new::new;
@@ -18,7 +16,6 @@ use itertools::{EitherOrBoth, Itertools as _};
 use maplit::{hashmap, hashset};
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
-use termcolor::WriteColor;
 use yaml_rust::{Yaml, YamlEmitter};
 
 #[cfg(test)]
@@ -26,8 +23,7 @@ use failure::Fallible;
 
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet, VecDeque};
-use std::fmt::Write as _;
-use std::io::Write as _;
+use std::fmt::{self, Write as _};
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -252,6 +248,10 @@ impl SuiteFilePath {
         let path = path.to_owned();
         Self { path, extension }
     }
+
+    pub(crate) fn display(&self) -> std::path::Display {
+        self.path.display()
+    }
 }
 
 impl AsRef<Path> for SuiteFilePath {
@@ -287,31 +287,10 @@ impl TestSuite {
     }
 
     /// Serializes `self` and save it to given path.
-    pub fn save(
-        &self,
-        name: &str,
-        path: &SuiteFilePath,
-        mut out: impl WriteColor,
-    ) -> TestSuiteResult<()> {
+    pub fn save(&self, path: &SuiteFilePath) -> TestSuiteResult<()> {
         let (path, extension) = (&path.path, path.extension);
         let serialized = self.to_string_pretty(extension)?;
-        crate::fs::write(path, serialized.as_bytes())?;
-        out.with_reset(|o| o.bold().set()?.write_str(name))?;
-        write!(out, ": Saved to {} ", path.display())?;
-        match self {
-            TestSuite::Batch(s) => match s.cases.len() {
-                0 => out.with_reset(|o| o.fg(11).set()?.write_str("(no test case)\n")),
-                1 => out.with_reset(|o| o.fg(10).set()?.write_str("(1 test case)\n")),
-                n => out.with_reset(|o| writeln!(o.fg(10).set()?, "({} test cases)", n)),
-            },
-            TestSuite::Interactive(_) => {
-                out.with_reset(|o| o.fg(10).set()?.write_str("(interactive problem)\n"))
-            }
-            TestSuite::Unsubmittable => {
-                out.with_reset(|o| o.fg(10).set()?.write_str("(unsubmittable problem)\n"))
-            }
-        }
-        .map_err(Into::into)
+        crate::fs::write(path, serialized.as_bytes()).map_err(Into::into)
     }
 
     fn to_string_pretty(&self, ext: SuiteFileExtension) -> TestSuiteResult<String> {
@@ -383,8 +362,8 @@ struct BatchSuiteSchemaCase {
 enum BatchSuiteText {
     String(
         #[serde(
-            serialize_with = "util::serde::ser_arc_string",
-            deserialize_with = "util::serde::de_to_arc_string"
+            serialize_with = "util::serde::ser_arc",
+            deserialize_with = "util::serde::de_to_arc"
         )]
         Arc<String>,
     ),
@@ -407,6 +386,10 @@ impl BatchSuite {
     pub(crate) fn matching(mut self, matching: Match) -> Self {
         self.head.output_match = matching;
         self
+    }
+
+    pub(crate) fn num_cases(&self) -> usize {
+        self.cases.len()
     }
 
     pub(crate) fn sample_cases<
@@ -761,15 +744,17 @@ impl TestCases {
     }
 }
 
-pub(crate) trait TestCase {
+pub(crate) trait TestCase: fmt::Debug + Clone + Serialize {
     /// Gets `name`.
     fn name(&self) -> Arc<String>;
 }
 
 /// Pair of `input` and `expected`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct BatchCase {
+    #[serde(serialize_with = "util::serde::ser_arc")]
     name: Arc<String>,
+    #[serde(serialize_with = "util::serde::ser_arc")]
     input: Arc<String>,
     expected: ExpectedStdout,
     timelimit: Option<Duration>,
@@ -831,13 +816,16 @@ impl BatchCase {
 }
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum ExpectedStdout {
     Any {
+        #[serde(serialize_with = "util::serde::ser_option_arc")]
         example: Option<Arc<String>>,
     },
-    Exact(Arc<String>),
+    Exact(#[serde(serialize_with = "util::serde::ser_arc")] Arc<String>),
     Float {
+        #[serde(serialize_with = "util::serde::ser_arc")]
         string: Arc<String>,
         errors: FloatErrors,
     },
@@ -862,19 +850,23 @@ impl Default for Match {
 }
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize)]
 pub(crate) struct FloatErrors {
     pub(crate) relative: Option<PositiveFinite<f64>>,
     pub(crate) absolute: Option<PositiveFinite<f64>>,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct InteractiveCase {
+    #[serde(serialize_with = "util::serde::ser_arc")]
     name: Arc<String>,
     timelimit: Option<Duration>,
+    #[serde(serialize_with = "util::serde::ser_arc")]
     tester: Arc<JudgingCommand>,
+    #[serde(serialize_with = "util::serde::ser_option_arc")]
     tester_transpilation: Option<Arc<TranspilationCommand>>,
+    #[serde(serialize_with = "util::serde::ser_option_arc")]
     tester_compilation: Option<Arc<CompilationCommand>>,
 }
 
@@ -1091,7 +1083,7 @@ type: unsubmittable
             contest: "arc078".to_owned(),
             mode: None,
         });
-        let tester_command = TemplateBuilder::dummy().build(JudgingCommandRequirements {
+        let tester_command = TemplateBuilder::bash().build(JudgingCommandRequirements {
             base_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
             service: ServiceKind::Atcoder,
             contest: "arc078".to_owned(),

@@ -10,7 +10,7 @@ use crate::service::{
     RetrieveSubmissionsOutcomeSubmissionDetail, RetrieveSubmissionsOutcomeSubmissionProblem,
     RetrieveSubmissionsOutcomeSubmissionVerdict, RetrieveSubmissionsProps,
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service,
-    SessionProps, SubmitOutcome, SubmitProps,
+    SessionProps, SubmitOutcome, SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
 };
 use crate::terminal::{HasTermProps, Input, WriteColorExt as _, WriteExt as _};
 use crate::testsuite::{self, BatchSuite, Destinations, InteractiveSuite, TestSuite};
@@ -22,7 +22,7 @@ use crate::util::scraper::ElementRefExt as _;
 use crate::util::str::CaseConversion;
 
 use chrono::{DateTime, FixedOffset, Local, Utc};
-use failure::ResultExt as _;
+use if_chain::if_chain;
 use indexmap::{indexset, IndexMap, IndexSet};
 use itertools::Itertools as _;
 use maplit::hashmap;
@@ -127,7 +127,7 @@ pub(super) fn submit(
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Atcoder::try_new(sess_props, stdin, stderr)?.submit(&submit_props)
+    Atcoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
 
 #[derive(Debug)]
@@ -367,7 +367,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             ..
         } in &outcome.problems
         {
-            test_suite.save(slug, test_suite_path, &mut self.stderr)?;
+            test_suite.save(test_suite_path)?;
             not_found.remove(&slug);
         }
         self.stderr.flush()?;
@@ -572,7 +572,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             }
         };
         let langs = self.get(&url).recv_html()?.extract_langs()?;
-        self.print_lang_list(&langs)?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
@@ -743,7 +742,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         Ok(outcome)
     }
 
-    fn submit(&mut self, props: &SubmitProps<AtcoderContest>) -> ServiceResult<SubmitOutcome> {
+    fn submit(&mut self, props: SubmitProps<AtcoderContest>) -> ServiceResult<SubmitOutcome> {
         let SubmitProps {
             contest,
             problem,
@@ -754,7 +753,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         } = props;
         let tasks_page = self.fetch_tasks_page(&contest)?;
         let checks_if_accepted =
-            !skip_checking_if_accepted && *contest != AtcoderContest::Practice && {
+            !skip_checking_if_accepted && contest != AtcoderContest::Practice && {
                 let duration = tasks_page.extract_contest_duration()?;
                 let status = duration.check_current_status(contest.to_string());
                 status.raise_if_not_begun()?;
@@ -762,7 +761,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             };
         let url = tasks_page
             .extract_task_slugs_and_urls()?
-            .into_element(problem)
+            .into_element(&problem)
             .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
         let task_screen = {
             lazy_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$")
@@ -795,65 +794,61 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             }
         }
 
-        let source_code = crate::fs::read_to_string(src_path)?;
+        let code = crate::fs::read_to_string(&src_path)?;
         let html = self.get(&url).recv_html()?;
         let lang_id = html
             .extract_langs()?
-            .get(lang_name)
+            .get(&lang_name)
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
-        writeln!(
-            self.stderr,
-            "Submitting as {:?} (ID: {:?})",
-            lang_name, lang_id,
-        )?;
         let csrf_token = html.extract_csrf_token()?;
         let url = contest.url_submit();
         let payload = hashmap!(
             "data.TaskScreenName" => task_screen.as_str(),
             "data.LanguageId" => &lang_id,
-            "sourceCode" => &source_code,
+            "sourceCode" => &code,
             "csrf_token" => &csrf_token,
         );
 
-        let error = |status: StatusCode, location: Option<String>| -> _ {
-            ServiceError::from(ServiceErrorKind::SubmissionRejected {
-                lang_name: lang_name.clone(),
-                lang_id: lang_id.clone(),
-                size: source_code.len(),
-                status,
-                location,
-            })
-        };
-
+        let (rejected, status, header_location);
         match self.post(&url).send_form(&payload) {
             Ok(res) => {
-                let location = res
-                    .headers()
-                    .get(header::LOCATION)
-                    .ok_or_else(|| error(res.status(), None))?;
-                let location = location
-                    .to_str()
-                    .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
-                if !(location.starts_with("/contests/") && location.ends_with("/submissions/me")) {
-                    return Err(error(res.status(), Some(location.to_owned())));
-                }
+                status = res.status();
+                header_location = res.header_location()?.map(ToOwned::to_owned);
+                rejected = header_location.as_ref().map_or(true, |l| {
+                    !(l.starts_with("/contests/") && l.ends_with("/submissions/me"))
+                });
             }
-            Err(err) => {
-                if let ServiceError::Context(ctx) = &err {
-                    if let ServiceErrorKind::UnexpectedStatusCode(_, status, _) = ctx.get_context()
-                    {
-                        return Err(error(*status, None));
-                    }
+            Err(err) => if_chain! {
+                if let ServiceError::Context(ctx) = &err;
+                if let ServiceErrorKind::UnexpectedStatusCode(_, st, _) = ctx.get_context();
+                then {
+                    rejected = true;
+                    status = *st;
+                    header_location = None;
+                } else {
+                    return Err(err);
                 }
-                return Err(err);
-            }
+            },
         }
 
-        if *open_in_browser {
+        if !rejected && open_in_browser {
             self.open_in_browser(&contest.url_submissions_me(1))?;
         }
-        Ok(SubmitOutcome {})
+
+        Ok(SubmitOutcome {
+            rejected,
+            response: SubmitOutcomeResponse {
+                status,
+                header_location,
+            },
+            language: SubmitOutcomeLanguage {
+                name: lang_name,
+                id: lang_id,
+            },
+            file: src_path,
+            code,
+        })
     }
 }
 

@@ -305,7 +305,7 @@ fn string_from_utf8(bytes: Vec<u8>) -> io::Result<String> {
 }
 
 #[derive(Debug, Serialize)]
-pub(super) struct InteractiveVerdict {
+pub(crate) struct InteractiveVerdict {
     outputs: NonEmptyVec<Output>,
 }
 

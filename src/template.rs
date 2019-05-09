@@ -70,10 +70,13 @@ impl<T: Target> TemplateBuilder<T> {
 
 #[cfg(test)]
 impl TemplateBuilder<JudgingCommand> {
-    pub(crate) fn dummy() -> Self {
-        TemplateBuilder(CommandTemplateInner::Args(vec![Tokens(vec![
-            Token::Plain("executable".to_owned()),
-        ])]))
+    /// `bash` is in the `$PATH` by default on almost every platform including Windows.
+    pub(crate) fn bash() -> Self {
+        TemplateBuilder(CommandTemplateInner::Args(vec![
+            Tokens(vec![Token::Plain("bash".to_owned())]),
+            Tokens(vec![Token::Plain("-c".to_owned())]),
+            Tokens(vec![]),
+        ]))
     }
 }
 
@@ -355,7 +358,9 @@ impl Template<JudgingCommand> {
                 }
             }
         }
-        Ok(JudgingCommand::new(args, wd, *crlf_to_lf, envs))
+
+        JudgingCommand::try_new(args, wd, *crlf_to_lf, envs)
+            .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
     }
 }
 

@@ -1,14 +1,15 @@
 #![allow(non_snake_case)]
 
 use crate::errors::{
-    ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceError,
-    ServiceErrorKind, ServiceResult,
+    ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceErrorKind,
+    ServiceResult,
 };
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps, RetrieveSubmissionsOutcome,
     RetrieveSubmissionsProps, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem,
-    RetrieveTestCasesProps, Service, SessionProps, SubmitOutcome, SubmitProps,
+    RetrieveTestCasesProps, Service, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
+    SubmitOutcomeResponse, SubmitProps,
 };
 use crate::terminal::{HasTermProps, Input, WriteColorExt as _};
 use crate::testsuite::{self, BatchSuite, TestSuite};
@@ -24,7 +25,7 @@ use maplit::hashmap;
 use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
-use reqwest::{header, StatusCode};
+use reqwest::header;
 use scraper::{ElementRef, Html, Node, Selector};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
@@ -248,7 +249,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             ..
         } in &outcome.problems
         {
-            test_suite.save(slug, test_suite_path, &mut self.stderr)?;
+            test_suite.save(test_suite_path)?;
             not_found.remove(&slug);
         }
         self.stderr.flush()?;
@@ -284,7 +285,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             .session
             .resolve_url(&format!("/contest/{}/submit", contest.id))?;
         let langs = self.get(&url).recv_html()?.extract_langs()?;
-        self.print_lang_list(&langs)?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
@@ -332,8 +332,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             skip_checking_if_accepted,
         } = props;
 
-        let src = crate::fs::read_to_string(&src_path)?;
-        let src_len = src.len();
+        let code = crate::fs::read_to_string(&src_path)?;
 
         self.login(LoginOption::WithHandle)?;
 
@@ -369,38 +368,38 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             .get(&lang_name)
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
-        writeln!(
-            self.stderr,
-            "Submitting as {:?} (ID: {:?})",
-            lang_name, lang_id,
-        )?;
 
         let mut values = html.extract_hidden_values(selector!("form.submit-form"))?;
         values.insert("contestId".to_owned(), contest.id.to_string());
         values.insert("submittedProblemIndex".to_owned(), problem.clone());
         values.insert("tabSize".to_owned(), "4".to_owned());
         values.insert("programTypeId".to_owned(), lang_id.clone());
-        values.insert("source".to_owned(), src);
+        values.insert("source".to_owned(), code.clone());
 
-        let status = self
+        let res = self
             .post(&submit_path)
             .acceptable(&[200, 302])
-            .send_form(&values)?
-            .status();
-        if status == 200 {
-            return Err(ServiceError::from(ServiceErrorKind::SubmissionRejected {
-                lang_name,
-                lang_id,
-                size: src_len,
-                status: StatusCode::OK,
-                location: None,
-            }));
-        }
+            .send_form(&values)?;
+        let rejected = res.status() == 200;
+        let header_location = res.header_location()?.map(ToOwned::to_owned);
 
-        if open_in_browser {
+        if !rejected && open_in_browser {
             self.open_in_browser(&format!("/contest/{}/my", contest.id))?;
         }
-        Ok(SubmitOutcome {})
+
+        Ok(SubmitOutcome {
+            rejected,
+            response: SubmitOutcomeResponse {
+                status: res.status(),
+                header_location,
+            },
+            language: SubmitOutcomeLanguage {
+                name: lang_name,
+                id: lang_id,
+            },
+            file: src_path,
+            code,
+        })
     }
 
     fn api<T: DeserializeOwned + Send + Sync + 'static>(

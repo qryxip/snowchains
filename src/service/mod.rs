@@ -8,6 +8,7 @@ pub(self) mod download;
 
 use crate::config::{self, Config};
 use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceErrorKind, ServiceResult};
+use crate::outcome::Outcome;
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::session::{
     HttpSession, HttpSessionInitParams, IntoRelativeOrAbsoluteUrl, UrlBase,
@@ -28,7 +29,7 @@ use prettytable::{cell, row, Table};
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use regex::Regex;
 use reqwest::header::{self, HeaderMap};
-use reqwest::RedirectPolicy;
+use reqwest::{RedirectPolicy, StatusCode};
 use serde::{Deserialize, Deserializer};
 use serde_derive::Serialize;
 use strum_macros::IntoStaticStr;
@@ -250,19 +251,6 @@ pub(self) trait Service {
         let (stdin, stderr, _, _) = self.requirements();
         ask_yes_or_no(mes, default, stdin, stderr)
     }
-
-    fn print_lang_list(&mut self, lang_list: &NonEmptyIndexMap<String, String>) -> io::Result<()> {
-        let (_, stderr, _, _) = self.requirements();
-
-        let mut table = Table::new();
-        table.add_row(row!["Name", "ID"]);
-        for (name, id) in lang_list {
-            table.add_row(row![name, id]);
-        }
-
-        write!(stderr, "{}", table)?;
-        stderr.flush()
-    }
 }
 
 fn ask_yes_or_no(
@@ -423,8 +411,34 @@ pub(self) enum ZipEntriesSorting {
 #[derive(Debug, Serialize)]
 pub(crate) struct LoginOutcome {}
 
+impl Outcome for LoginOutcome {
+    fn is_success(&self) -> bool {
+        true
+    }
+
+    fn print_pretty(&self, _: impl Sized) -> io::Result<()> {
+        #[cfg(debug)]
+        unreachable!();
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub(crate) struct ParticipateOutcome {}
+
+impl Outcome for ParticipateOutcome {
+    fn is_success(&self) -> bool {
+        true
+    }
+
+    fn print_pretty(&self, _: impl Sized) -> io::Result<()> {
+        #[cfg(debug)]
+        unreachable!();
+
+        Ok(())
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub(crate) struct RetrieveTestCasesOutcome {
@@ -497,6 +511,69 @@ impl RetrieveTestCasesOutcome {
     }
 }
 
+impl Outcome for RetrieveTestCasesOutcome {
+    fn is_success(&self) -> bool {
+        true
+    }
+
+    fn print_pretty(&self, mut stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
+        let columns = self
+            .problems
+            .iter()
+            .map(|problem| {
+                let path = problem.test_suite_path.display().to_string();
+                (&problem.slug, path, &problem.test_suite)
+            })
+            .collect::<Vec<_>>();
+        let str_width = stdout.str_width_fn();
+        let slug_max_width = columns
+            .iter()
+            .map(|(s, _, _)| str_width(s))
+            .max()
+            .unwrap_or(0);
+        let path_max_width = columns
+            .iter()
+            .map(|(_, p, _)| str_width(p))
+            .max()
+            .unwrap_or(0);
+        for (slug, path, suite) in columns {
+            stdout.set_color(color!(bold))?;
+            write!(stdout, "{}:", slug)?;
+            stdout.reset()?;
+            stdout.write_spaces(slug_max_width - str_width(slug) + 1)?;
+            write!(stdout, "Saved to {}", path)?;
+            stdout.write_spaces(path_max_width - str_width(&path) + 1)?;
+            match suite {
+                TestSuite::Batch(suite) => match suite.num_cases() {
+                    0 => {
+                        stdout.set_color(color!(fg(Yellow), intense))?;
+                        stdout.write_str("(no test case)")?;
+                    }
+                    1 => {
+                        stdout.set_color(color!(fg(Green), intense))?;
+                        stdout.write_str("(1 test case)")?;
+                    }
+                    n => {
+                        stdout.set_color(color!(fg(Green), intense))?;
+                        write!(stdout, "({} test cases)", n)?;
+                    }
+                },
+                TestSuite::Interactive(_) => {
+                    stdout.set_color(color!(fg(Green), intense))?;
+                    stdout.write_str("(interactive problem)")?;
+                }
+                TestSuite::Unsubmittable => {
+                    stdout.set_color(color!(fg(Green), intense))?;
+                    stdout.write_str("(unsubmittable problem)")?;
+                }
+            }
+            stdout.reset()?;
+            writeln!(stdout)?;
+        }
+        stdout.flush()
+    }
+}
+
 #[derive(Debug, Default, Serialize)]
 pub(crate) struct RetrieveSubmissionsOutcome {
     #[serde(serialize_with = "util::serde::ser_indexmap_with_as_ref_str_keys")]
@@ -506,6 +583,19 @@ pub(crate) struct RetrieveSubmissionsOutcome {
 impl RetrieveSubmissionsOutcome {
     pub(self) fn new() -> Self {
         Self::default()
+    }
+}
+
+impl Outcome for RetrieveSubmissionsOutcome {
+    fn is_success(&self) -> bool {
+        true
+    }
+
+    fn print_pretty(&self, _: impl Sized) -> io::Result<()> {
+        #[cfg(debug)]
+        unreachable!();
+
+        Ok(())
     }
 }
 
@@ -578,8 +668,80 @@ impl RetrieveLangsOutcome {
     }
 }
 
+impl Outcome for RetrieveLangsOutcome {
+    fn is_success(&self) -> bool {
+        true
+    }
+
+    fn print_pretty(&self, mut stdout: impl WriteColor) -> io::Result<()> {
+        let mut table = Table::new();
+        table.add_row(row!["Name", "ID"]);
+        for (name, id) in &self.available_languages {
+            table.add_row(row![name, id]);
+        }
+        write!(stdout, "{}", table)?;
+        stdout.flush()
+    }
+}
+
 #[derive(Debug, Serialize)]
-pub(crate) struct SubmitOutcome {}
+pub(crate) struct SubmitOutcome {
+    pub(self) rejected: bool,
+    pub(self) response: SubmitOutcomeResponse,
+    pub(self) language: SubmitOutcomeLanguage,
+    pub(self) file: AbsPathBuf,
+    pub(self) code: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(self) struct SubmitOutcomeResponse {
+    #[serde(serialize_with = "util::serde::ser_http_status")]
+    status: StatusCode,
+    header_location: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(self) struct SubmitOutcomeLanguage {
+    name: String,
+    id: String,
+}
+
+impl Outcome for SubmitOutcome {
+    fn is_success(&self) -> bool {
+        !self.rejected
+    }
+
+    fn print_pretty(&self, mut stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
+        if self.rejected {
+            stdout.set_color(color!(fg(Red), intense))?;
+            stdout.write_str("Submission rejected.\n\n")?;
+        } else {
+            stdout.set_color(color!(fg(Green), intense))?;
+            stdout.write_str("Successfully submitted.\n\n")?;
+        }
+        write!(
+            stdout,
+            "Response Status:            {}\n\
+             Response \"Location\" Header: {}\n\
+             Language Name:              {:?}\n\
+             Language ID:                {:?}\n\
+             File:                       {}\n\
+             Code Size:                  {}B",
+            self.response.status,
+            match &self.response.header_location {
+                None => "<none>".to_owned(),
+                Some(l) => format!("{:?}", l),
+            },
+            self.language.name,
+            self.language.id,
+            self.file.display(),
+            self.code.len(),
+        )?;
+        stdout.reset()?;
+        writeln!(stdout)?;
+        stdout.flush()
+    }
+}
 
 pub(crate) struct SessionProps {
     pub(crate) domain: Option<&'static str>,

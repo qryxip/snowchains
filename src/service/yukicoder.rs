@@ -4,7 +4,8 @@ use crate::service::session::HttpSession;
 use crate::service::{
     Contest, ExtractZip, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service,
-    SessionProps, SubmitOutcome, SubmitProps, ZipEntries, ZipEntriesSorting,
+    SessionProps, SubmitOutcome, SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
+    ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTermProps, Input, WriteColorExt as _};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
@@ -12,13 +13,13 @@ use crate::util::collections::NonEmptyIndexMap;
 use crate::util::str::CaseConversion;
 
 use cookie::Cookie;
-use failure::{Fail as _, ResultExt as _};
+use failure::Fail as _;
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
 use regex::Regex;
-use reqwest::{header, StatusCode};
+use reqwest::StatusCode;
 use scraper::Html;
 use serde_derive::Deserialize;
 use termcolor::WriteColor;
@@ -76,7 +77,7 @@ pub(super) fn submit(
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Yukicoder::try_new(sess_props, stdin, stderr)?.submit(&submit_props)
+    Yukicoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
 
 #[derive(Debug)]
@@ -320,7 +321,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
                     break;
                 }
             }
-            test_suite.save(slug, test_suite_path, &mut self.stderr)?;
+            test_suite.save(test_suite_path)?;
         }
         if *open_in_browser {
             for RetrieveTestCasesOutcomeProblem { url, .. } in &outcome.problems {
@@ -339,11 +340,10 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
         self.login(true)?;
         let url = self.get_submit_url(&contest, &problem)?;
         let langs = self.get(url.as_str()).recv_html()?.extract_langs()?;
-        self.print_lang_list(&langs)?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
-    fn submit(&mut self, props: &SubmitProps<YukicoderContest>) -> ServiceResult<SubmitOutcome> {
+    fn submit(&mut self, props: SubmitProps<YukicoderContest>) -> ServiceResult<SubmitOutcome> {
         let SubmitProps {
             contest,
             problem,
@@ -353,31 +353,26 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
             skip_checking_if_accepted,
         } = props;
 
-        let code = crate::fs::read_to_string(src_path)?;
+        let code = crate::fs::read_to_string(&src_path)?;
 
         self.login(true)?;
-        let url = self.get_submit_url(contest, problem)?;
+        let url = self.get_submit_url(&contest, &problem)?;
         let no = {
             lazy_regex!(r"\A(https://yukicoder\.me)?/problems/no/(\d+)/submit\z")
                 .captures(url.as_ref())
                 .map(|caps| caps[2].to_owned())
         };
         if let Some(no) = no {
-            if !(self.filter_solved(&[no])?.is_empty() || *skip_checking_if_accepted) {
+            if !(self.filter_solved(&[no])?.is_empty() || skip_checking_if_accepted) {
                 return Err(ServiceErrorKind::AlreadyAccepted.into());
             }
         }
         let html = self.get(url.as_ref()).recv_html()?;
         let lang_id = html
             .extract_langs()?
-            .get(lang_name)
+            .get(&lang_name)
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
-        writeln!(
-            self.stderr,
-            "Submitting as {:?} (ID: {:?})",
-            lang_name, lang_id,
-        )?;
         let token = html.extract_csrf_token_from_submit_page()?;
         let form = reqwest::r#async::multipart::Form::new()
             .text("csrf_token", token)
@@ -385,32 +380,28 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
             .text("source", code.clone());
         let url = html.extract_url_from_submit_page()?;
         let res = self.post(&url).send_multipart(form)?;
-        let location = match res.headers().get(header::LOCATION) {
-            None => None,
-            Some(location) => Some(
-                location
-                    .to_str()
-                    .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?,
-            ),
-        };
-        if let Some(&location) = location.as_ref() {
-            if location.contains("/submissions/") {
-                writeln!(self.stderr, "Success: {:?}", location)?;
-                self.stderr.flush()?;
-                if *open_in_browser {
-                    self.open_in_browser(location)?;
-                }
-                return Ok(SubmitOutcome {});
+        let header_location = res.header_location()?.map(ToOwned::to_owned);
+        let rejected = header_location
+            .as_ref()
+            .map_or(true, |l| !l.contains("/submissions/"));
+        if let Some(header_location) = &header_location {
+            if !rejected && open_in_browser {
+                self.open_in_browser(header_location)?;
             }
         }
-        Err(ServiceErrorKind::SubmissionRejected {
-            lang_name: lang_name.clone(),
-            lang_id,
-            size: code.len(),
-            status: res.status(),
-            location: location.map(ToOwned::to_owned),
-        }
-        .into())
+        Ok(SubmitOutcome {
+            rejected,
+            response: SubmitOutcomeResponse {
+                status: res.status(),
+                header_location,
+            },
+            language: SubmitOutcomeLanguage {
+                name: lang_name,
+                id: lang_id,
+            },
+            file: src_path,
+            code,
+        })
     }
 
     fn filter_solved<'b>(

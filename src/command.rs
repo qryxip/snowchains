@@ -7,6 +7,7 @@ use crate::util::collections::NonEmptyVec;
 
 use failure::Fail as _;
 use itertools::Itertools as _;
+use serde_derive::Serialize;
 use termcolor::WriteColor;
 use tokio_process::CommandExt as _;
 
@@ -16,7 +17,6 @@ use std::env;
 use std::ffi::OsString;
 use std::io::{self, Write as _};
 use std::iter::FromIterator;
-use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
 
@@ -85,10 +85,9 @@ impl HookCommand {
 }
 
 /// Transpilation command.
-#[derive(PartialEq, Eq, Debug, Hash)]
-pub(crate) struct TranspilationCommand {
-    repr: BuildCommand,
-}
+#[derive(PartialEq, Eq, Debug, Hash, Serialize)]
+#[serde(transparent)]
+pub(crate) struct TranspilationCommand(BuildCommand);
 
 impl TranspilationCommand {
     /// Constructs a new `TranspilationCommand`.
@@ -99,8 +98,7 @@ impl TranspilationCommand {
         transpiled: Option<AbsPathBuf>,
         envs: HashMap<String, OsString>,
     ) -> std::result::Result<Self, (OsString, which::Error)> {
-        BuildCommand::try_new(args, working_dir, src, transpiled, "transpiled", envs)
-            .map(|repr| Self { repr })
+        BuildCommand::try_new(args, working_dir, src, transpiled, "transpiled", envs).map(Self)
     }
 
     /// Executes the command.
@@ -119,15 +117,14 @@ impl TranspilationCommand {
             noun: "transpilation",
             status,
         };
-        self.repr.run(stdout, stderr, force, messages, error)
+        self.0.run(stdout, stderr, force, messages, error)
     }
 }
 
 /// Compilation command.
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub(crate) struct CompilationCommand {
-    repr: BuildCommand,
-}
+#[derive(Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub(crate) struct CompilationCommand(BuildCommand);
 
 impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
@@ -138,7 +135,7 @@ impl CompilationCommand {
         bin: Option<AbsPathBuf>,
         envs: HashMap<String, OsString>,
     ) -> std::result::Result<Self, (OsString, which::Error)> {
-        BuildCommand::try_new(args, working_dir, src, bin, "bin", envs).map(|repr| Self { repr })
+        BuildCommand::try_new(args, working_dir, src, bin, "bin", envs).map(Self)
     }
 
     /// Executes the command.
@@ -157,7 +154,7 @@ impl CompilationCommand {
             noun: "compilation",
             status,
         };
-        self.repr.run(stdout, stderr, force, messages, error)
+        self.0.run(stdout, stderr, force, messages, error)
     }
 }
 
@@ -168,7 +165,7 @@ struct Messages {
     finished: &'static str,
 }
 
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(PartialEq, Eq, Debug, Hash, Serialize)]
 struct BuildCommand {
     inner: Inner,
     src: AbsPathBuf,
@@ -276,7 +273,7 @@ impl BuildCommand {
 
 /// Command for batch/interactive testing.
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) struct JudgingCommand {
     inner: Inner,
     crlf_to_lf: bool,
@@ -284,16 +281,13 @@ pub(crate) struct JudgingCommand {
 
 impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
-    pub(crate) fn new(
+    pub(crate) fn try_new(
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         crlf_to_lf: bool,
         envs: HashMap<String, OsString>,
-    ) -> Self {
-        JudgingCommand {
-            inner: Inner::new(args, working_dir, envs),
-            crlf_to_lf,
-        }
+    ) -> std::result::Result<Self, (OsString, which::Error)> {
+        Inner::try_new(args, working_dir, envs).map(|inner| JudgingCommand { inner, crlf_to_lf })
     }
 
     pub(crate) fn crlf_to_lf(&self) -> bool {
@@ -341,7 +335,7 @@ impl JudgingCommand {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 struct Inner {
     args: NonEmptyVec<OsString>,
     working_dir: AbsPathBuf,
@@ -349,22 +343,6 @@ struct Inner {
 }
 
 impl Inner {
-    fn new(args: Vec<OsString>, working_dir: AbsPathBuf, envs: HashMap<String, OsString>) -> Self {
-        let mut args = NonEmptyVec::try_new(args).unwrap_or_default();
-        // https://github.com/rust-lang/rust/issues/37519
-        if cfg!(windows) && Path::new(&args[0]).is_relative() {
-            let abs = working_dir.join_canonicalizing_lossy(&args[0]);
-            if abs.exists() {
-                args[0] = abs.into();
-            }
-        }
-        Self {
-            args,
-            working_dir,
-            envs: envs.into_iter().collect(),
-        }
-    }
-
     fn try_new(
         args: Vec<OsString>,
         working_dir: AbsPathBuf,

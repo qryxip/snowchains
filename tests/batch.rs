@@ -1,18 +1,17 @@
 mod common;
 
-use crate::common::Dumb;
-
-use snowchains::app::{App, Judge, Opt};
+use snowchains::app::{App, Judge, Opt, OutputKind};
 use snowchains::config;
 use snowchains::errors::{JudgeError, JudgeErrorKind};
 use snowchains::path::AbsPathBuf;
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{
-    AnsiColorChoice, AttemptEnableColor, Input, ModifyTermProps, TtyOrPiped,
+    AnsiColorChoice, AttemptEnableColor, Dumb, Input, ModifyTermProps, TtyOrPiped,
 };
 
 use failure::Fallible;
 use if_chain::if_chain;
+use pretty_assertions::assert_eq;
 use tempdir::TempDir;
 
 use std::path::Path;
@@ -110,7 +109,7 @@ fn main() {
         stderr: Dumb::new(),
     };
 
-    app.test(&src_path, CODE)?;
+    assert_eq!(app.test(&src_path, CODE)?, 0);
 
     if_chain! {
         let err = app.test(&src_path, INVLID_CODE).unwrap_err();
@@ -119,27 +118,16 @@ fn main() {
         then {} else { return Err(err.into()) }
     }
 
-    if_chain! {
-        let err = app.test(&src_path, WRONG_CODE).unwrap_err();
-        if let snowchains::Error::Judge(JudgeError::Context(ctx)) = &err;
-        if let JudgeErrorKind::TestFailed(n, d) = ctx.get_context();
-        if (n.get(), d.get()) == (2, 2);
-        then {} else { return Err(err.into()) }
-    }
+    assert_eq!(app.test(&src_path, WRONG_CODE)?, 1);
 
     std::fs::write(&suite_path, SUITE_WITH_TIMELIMIT)?;
 
-    if_chain! {
-        let err = app.test(&src_path, FREEZING_CODE).unwrap_err();
-        if let snowchains::Error::Judge(JudgeError::Context(ctx)) = &err;
-        if let JudgeErrorKind::TestFailed(n, d) = ctx.get_context();
-        if (n.get(), d.get()) == (1, 1);
-        then { Ok(()) } else { Err(err.into()) }
-    }
+    assert_eq!(app.test(&src_path, FREEZING_CODE)?, 1);
+    Ok(())
 }
 
 trait AppExt {
-    fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<()>;
+    fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<i32>;
 }
 
 impl<
@@ -148,7 +136,7 @@ impl<
         E: AttemptEnableColor + ModifyTermProps,
     > AppExt for App<I, O, E>
 {
-    fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<()> {
+    fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<i32> {
         std::fs::write(src_path, code)?;
         self.run(Opt::Judge(Judge {
             force_compile: false,
@@ -159,6 +147,7 @@ impl<
             language: Some("rust".to_owned()),
             mode: config::Mode::Debug,
             jobs: None,
+            output: OutputKind::Pretty,
             color_choice: AnsiColorChoice::Never,
             problem: "a".to_owned(),
         }))

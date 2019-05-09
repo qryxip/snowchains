@@ -1,5 +1,5 @@
 use crate::judging::text::inner::{TextDiffInner, TextInner};
-use crate::terminal::{HasTermProps, PrintPretty, WriteExt as _};
+use crate::terminal::{HasTermProps, WriteExt as _};
 use crate::testsuite::FloatErrors;
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -34,7 +34,7 @@ pub(super) fn actual_or_diff(
 }
 
 #[derive(Debug)]
-pub(crate) struct Text(TextInner);
+pub(super) struct Text(TextInner);
 
 impl Text {
     pub(super) fn new(string: Arc<String>) -> Self {
@@ -45,17 +45,15 @@ impl Text {
         Self(TextInner::new(string, parse_words_to_slice))
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub(super) fn is_empty(&self) -> bool {
         self.0.string().is_empty()
     }
 
-    pub(crate) fn str_len(&self) -> usize {
+    pub(super) fn str_len(&self) -> usize {
         self.0.string().len()
     }
-}
 
-impl PrintPretty for Text {
-    fn print_pretty(&self, mut wtr: impl WriteColor) -> io::Result<()> {
+    pub(super) fn print_pretty(&self, mut wtr: impl WriteColor) -> io::Result<()> {
         for word in self.0.words() {
             match word {
                 Word::Plain(s) => wtr.write_str(s)?,
@@ -658,7 +656,7 @@ mod inner {
 #[cfg(test)]
 mod tests {
     use crate::judging::text::{Text, TextDiff};
-    use crate::terminal::{HasTermProps, PrintPretty as _, TermProps};
+    use crate::terminal::AnsiWithProps;
 
     use failure::Fallible;
     use once_cell::sync::Lazy;
@@ -668,16 +666,15 @@ mod tests {
     use termcolor::{Ansi, Color, ColorSpec, WriteColor};
 
     use std::convert::TryFrom;
-    use std::io::{self, Sink, Write};
-    use std::string::FromUtf8Error;
+    use std::io::Write;
+    use std::str;
     use std::sync::Arc;
-    use std::{fmt, str};
 
     #[test]
     fn it_parses_and_prints() -> Fallible<()> {
         fn test(s: &str, expected: &'static str) -> Fallible<()> {
             let text = Text::new(Arc::new(s.to_owned()));
-            let mut wtr = Writer::default();
+            let mut wtr = AnsiWithProps::new();
             text.print_pretty(&mut wtr)?;
             assert_eq!(String::try_from(wtr)?, expected);
             Ok(())
@@ -735,7 +732,7 @@ mod tests {
         fn test(left: &str, right: &str, expected: &str) -> Fallible<()> {
             let (left, right) = (Arc::new(left.to_owned()), Arc::new(right.to_owned()));
             let diff = TextDiff::new(left, right, None);
-            let mut wtr = Writer::default();
+            let mut wtr = AnsiWithProps::new();
             diff.print_pretty_with_title("expected:", "actual:", &mut wtr)?;
             assert_eq!(String::try_from(wtr)?, expected);
             Ok(())
@@ -815,73 +812,5 @@ mod tests {
 
         pass::<String>();
         pass::<Arc<String>>();
-    }
-
-    struct Writer {
-        wtr: Ansi<Vec<u8>>,
-        props: TermProps<Sink>,
-    }
-
-    impl Default for Writer {
-        fn default() -> Self {
-            Self {
-                wtr: Ansi::new(vec![]),
-                props: TermProps::default(),
-            }
-        }
-    }
-
-    impl fmt::Debug for Writer {
-        fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-            fmt.debug_struct("Writer")
-                .field("wtr", &format_args!("_"))
-                .field("props", &self.props)
-                .finish()
-        }
-    }
-
-    impl TryFrom<Writer> for String {
-        type Error = FromUtf8Error;
-
-        fn try_from(wtr: Writer) -> std::result::Result<Self, FromUtf8Error> {
-            Self::from_utf8(wtr.wtr.into_inner())
-        }
-    }
-
-    impl Write for Writer {
-        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-            unimplemented!()
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            self.wtr.flush()
-        }
-
-        fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-            self.wtr.write_all(buf)
-        }
-    }
-
-    impl WriteColor for Writer {
-        fn supports_color(&self) -> bool {
-            true
-        }
-
-        fn set_color(&mut self, spec: &ColorSpec) -> io::Result<()> {
-            self.wtr.set_color(spec)
-        }
-
-        fn reset(&mut self) -> io::Result<()> {
-            self.wtr.reset()
-        }
-    }
-
-    impl HasTermProps for Writer {
-        type AnsiAsyncWrite = Sink;
-
-        fn term_props(&self) -> &TermProps<Sink> {
-            static PROPS: Lazy<TermProps<Sink>> = sync_lazy!(TermProps::default());
-            &PROPS
-        }
     }
 }

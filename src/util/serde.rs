@@ -1,6 +1,8 @@
 use indexmap::IndexMap;
+use reqwest::StatusCode;
+use serde::de::DeserializeOwned;
 use serde::ser::SerializeMap as _;
-use serde::{Deserialize as _, Deserializer, Serialize, Serializer};
+use serde::{Deserializer, Serialize, Serializer};
 
 use std::hash::Hash;
 use std::path::Path;
@@ -8,18 +10,33 @@ use std::process::ExitStatus;
 use std::sync::Arc;
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
-pub(crate) fn ser_status<S: Serializer>(
+pub(crate) fn ser_exit_status<S: Serializer>(
     status: &ExitStatus,
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error> {
     status.code().serialize(serializer)
 }
 
-pub(crate) fn ser_arc_string<S: Serializer>(
-    string: &Arc<String>,
+#[allow(clippy::trivially_copy_pass_by_ref)]
+pub(crate) fn ser_http_status<S: Serializer>(
+    status: &StatusCode,
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error> {
-    serializer.serialize_str(string)
+    status.as_u16().serialize(serializer)
+}
+
+pub(crate) fn ser_arc<T: Serialize, S: Serializer>(
+    arc: &Arc<T>,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    (&*arc).serialize(serializer)
+}
+
+pub(crate) fn ser_option_arc<T: Serialize, S: Serializer>(
+    arc: &Option<Arc<T>>,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    arc.as_ref().map(|x| &**x).serialize(serializer)
 }
 
 pub(crate) fn ser_as_ref_str<S: Serializer>(
@@ -52,8 +69,8 @@ pub(crate) fn ser_indexmap_with_as_ref_str_keys<
     serializer.end()
 }
 
-pub(crate) fn de_to_arc_string<'de, D: Deserializer<'de>>(
+pub(crate) fn de_to_arc<'de, T: DeserializeOwned, D: Deserializer<'de>>(
     deserializer: D,
-) -> std::result::Result<Arc<String>, D::Error> {
-    String::deserialize(deserializer).map(Arc::new)
+) -> std::result::Result<Arc<T>, D::Error> {
+    T::deserialize(deserializer).map(Arc::new)
 }

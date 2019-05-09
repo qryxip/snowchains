@@ -1,22 +1,20 @@
 mod common;
 
-use crate::common::{service, Dumb};
+use crate::common::service;
 
-use snowchains::app::{App, Opt, Retrieve, RetrieveLanguages, Submit};
+use snowchains::app::{App, Opt, OutputKind, Retrieve, RetrieveLanguages, Submit};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
-use snowchains::terminal::{AnsiColorChoice, TtyOrPiped};
+use snowchains::terminal::{AnsiColorChoice, Dumb, TtyOrPiped};
 
 use difference::assert_diff;
 use failure::Fallible;
 use if_chain::if_chain;
-use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
 use pretty_assertions::assert_eq;
 use regex::Regex;
-use serde_derive::Deserialize;
 
 use std::convert::TryFrom as _;
 
@@ -78,6 +76,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     language: Some("python3-with-invalid-lang-names".to_owned()),
                     mode: config::Mode::Release,
                     jobs: None,
+                    output: OutputKind::Pretty,
                     color_choice: AnsiColorChoice::Never,
                     problem: "9000".to_owned(),
                 }))
@@ -107,7 +106,7 @@ fn it_submits_to_no_9000() -> Fallible<()> {
             let dir = app.working_dir.join("yukicoder").join("no").join("txt");
             std::fs::create_dir_all(&dir)?;
             std::fs::write(&dir.join("9000.txt"), CODE)?;
-            app.run(Opt::Submit(Submit {
+            let code = app.run(Opt::Submit(Submit {
                 open: false,
                 force_compile: false,
                 only_transpile: false,
@@ -120,9 +119,11 @@ fn it_submits_to_no_9000() -> Fallible<()> {
                 language: Some("text".to_owned()),
                 mode: config::Mode::Release,
                 jobs: None,
+                output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
                 problem: "9000".to_owned(),
             }))?;
+            assert_eq!(code, 0);
             let stdout = String::try_from(app.stdout)?;
             let stderr = String::try_from(app.stderr)?;
             serde_json::from_str::<serde_json::Value>(&stdout)?;
@@ -134,41 +135,26 @@ fn it_submits_to_no_9000() -> Fallible<()> {
 
 #[test]
 fn it_retrieves_languages() -> Fallible<()> {
-    #[derive(Deserialize)]
-    struct Stdout {
-        available_languages: IndexMap<String, String>,
-    }
-
     service::test_in_tempdir(
         "it_retrieves_languages",
         &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
         |mut app| -> _ {
             static MASK_USERNAME: Lazy<Regex> = sync_lazy!(Regex::new("Username: .*").unwrap());
 
-            app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
-                json: true,
+            let code = app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
+                json: false,
                 service: Some(ServiceKind::Yukicoder),
                 contest: Some("no".to_owned()),
+                output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("9000".to_owned()),
             })))?;
+            assert_eq!(code, 0);
             let stdout = String::try_from(app.stdout)?;
             let stderr = String::try_from(app.stderr)?;
-            let stdout = serde_json::from_str::<Stdout>(&stdout)?;
-            assert_eq!(stdout.available_languages.len(), 43);
             assert_diff!(
-                &MASK_USERNAME.replace(&stderr, "Username: ██████████"),
-                r#"GET https://yukicoder.me/ ... 200 OK
-
-Input "REVEL_SESSION".
-
-Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
-Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
-
-REVEL_SESSION: GET https://yukicoder.me/ ... 200 OK
-Username: ██████████
-GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
-+----------------------------------------------+-------------+
+                &stdout,
+                r#"+----------------------------------------------+-------------+
 | Name                                         | ID          |
 +----------------------------------------------+-------------+
 | C++11 (gcc 4.8.5)                            | cpp         |
@@ -257,6 +243,23 @@ GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
 +----------------------------------------------+-------------+
 | Whitespace (0.3)                             | Whitespace  |
 +----------------------------------------------+-------------+
+"#,
+                "\n",
+                0
+            );
+            assert_diff!(
+                &MASK_USERNAME.replace(&stderr, "Username: ██████████"),
+                r#"GET https://yukicoder.me/ ... 200 OK
+
+Input "REVEL_SESSION".
+
+Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
+Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
+
+REVEL_SESSION: GET https://yukicoder.me/ ... 200 OK
+Username: ██████████
+GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
+
 "#,
                 "\n",
                 0

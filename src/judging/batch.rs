@@ -2,7 +2,7 @@ use crate::command::JudgingCommand;
 use crate::errors::JudgeResult;
 use crate::judging::text::{self, Text, TextDiff};
 use crate::judging::Verdict;
-use crate::terminal::{HasTermProps, PrintPretty as _, WriteExt as _};
+use crate::terminal::{HasTermProps, WriteExt as _};
 use crate::testsuite::{BatchCase, ExpectedStdout};
 use crate::time::MillisRoundedUp as _;
 use crate::util;
@@ -297,7 +297,7 @@ impl CommandOutcome {
 
 #[derive(Debug, Serialize)]
 #[serde(transparent)]
-pub(super) struct BatchVerdict(BatchVerdictInner);
+pub(crate) struct BatchVerdict(BatchVerdictInner);
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -326,7 +326,7 @@ enum BatchVerdictInner {
         expected: Option<Text>,
         stdout: Text,
         stderr: Text,
-        #[serde(serialize_with = "util::serde::ser_status")]
+        #[serde(serialize_with = "util::serde::ser_exit_status")]
         status: ExitStatus,
     },
 }

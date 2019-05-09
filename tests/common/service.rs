@@ -1,11 +1,9 @@
 #![allow(dead_code)]
 
-use crate::common::Dumb;
-
-use snowchains::app::{App, Login, Opt, Retrieve, RetrieveTestcases};
+use snowchains::app::{App, Login, Opt, OutputKind, Retrieve, RetrieveTestcases};
 use snowchains::path::{AbsPath, AbsPathBuf};
 use snowchains::service::ServiceKind;
-use snowchains::terminal::{AnsiColorChoice, TtyOrPiped};
+use snowchains::terminal::{AnsiColorChoice, Dumb, TtyOrPiped};
 
 use failure::Fallible;
 use pretty_assertions::assert_eq;
@@ -40,14 +38,13 @@ pub(crate) fn test_in_tempdir(
             File::create(tempdir_path.join("local").join("dropbox.json"))?,
             &json!({ "access_token": env_var("DROPBOX_ACCESS_TOKEN")? }),
         )?;
-        let app = App {
+        f(App {
             working_dir: AbsPathBuf::try_new(&tempdir_path).unwrap(),
             login_retries: Some(0),
             stdin: TtyOrPiped::Piped(stdin.as_ref()),
             stdout: Dumb::new(),
             stderr: Dumb::new(),
-        };
-        f(app)
+        })
     });
     tempdir.close()?;
     match result {
@@ -64,11 +61,14 @@ pub(crate) fn login(
     mut app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>,
     service: ServiceKind,
 ) -> snowchains::Result<()> {
-    app.run(Opt::Login(Login {
+    let code = app.run(Opt::Login(Login {
         json: true,
+        output: OutputKind::None,
         color_choice: AnsiColorChoice::Never,
         service,
-    }))
+    }))?;
+    assert_eq!(code, 0);
+    Ok(())
 }
 
 pub(crate) fn retrieve_testcases(
@@ -77,15 +77,18 @@ pub(crate) fn retrieve_testcases(
     contest: &str,
     problems: &[&str],
 ) -> snowchains::Result<()> {
-    app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+    let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
         open: false,
         json: true,
         only_scraped: false,
         service: Some(service),
         contest: Some(contest.to_owned()),
         problems: problems.iter().map(|&s| s.to_owned()).collect(),
+        output: OutputKind::Pretty,
         color_choice: AnsiColorChoice::Never,
-    })))
+    })))?;
+    assert_eq!(code, 0);
+    Ok(())
 }
 
 pub(crate) fn confirm_num_cases(

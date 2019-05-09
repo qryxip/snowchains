@@ -1,12 +1,13 @@
 use crate::command::{CompilationCommand, HookCommands, JudgingCommand, TranspilationCommand};
 use crate::errors::{ConfigErrorKind, ConfigResult, FileResult};
+use crate::outcome::Outcome;
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
 use crate::template::{
     AbsPathBufRequirements, CompilationCommandRequirements, HookCommandsRequirements,
     JudgingCommandRequirements, Template, TemplateBuilder, TranspilationCommandRequirements,
 };
-use crate::terminal::{WriteColorExt as _, WriteExt as _};
+use crate::terminal::{HasTermProps, ModifyTermProps, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
 
@@ -21,12 +22,12 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use strum_macros::EnumString;
 use termcolor::WriteColor;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::fmt::{self, Write as _};
-use std::io::Write;
+use std::io::{self, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -472,6 +473,52 @@ pub(crate) struct SwitchOutcome {
     new: SwitchOutcomeAttrs,
 }
 
+impl Outcome for SwitchOutcome {
+    fn is_success(&self) -> bool {
+        true
+    }
+
+    fn print_pretty(&self, mut stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
+        let old_service = Some(format!("{:?}", <&str>::from(self.old.service)));
+        let old_contest = Some(format!("{:?}", self.old.contest));
+        let old_language = Some(format!("{:?}", self.old.language));
+        let new_service = Some(format!("{:?}", <&str>::from(self.new.service)));
+        let new_contest = Some(format!("{:?}", self.new.contest));
+        let new_language = Some(format!("{:?}", self.new.language));
+
+        let str_width = stdout.str_width_fn();
+        let max_width = [
+            old_service.as_ref().map(|s| str_width(s)).unwrap_or(1),
+            old_contest.as_ref().map(|s| str_width(s)).unwrap_or(1),
+            old_language.as_ref().map(|s| str_width(s)).unwrap_or(1),
+        ]
+        .iter()
+        .cloned()
+        .max()
+        .unwrap();
+
+        for (title, old, new) in &[
+            ("service:  ", &old_service, &new_service),
+            ("contest:  ", &old_contest, &new_contest),
+            ("language: ", &old_language, &new_language),
+        ] {
+            let old = old.as_ref().map(AsRef::as_ref).unwrap_or("~");
+            let new = new.as_ref().map(AsRef::as_ref).unwrap_or("~");
+            stdout.write_str(title)?;
+            stdout.set_color(color!(bold))?;
+            stdout.write_str(old)?;
+            stdout.reset()?;
+            stdout.write_spaces(max_width - str_width(old))?;
+            stdout.write_str(" -> ")?;
+            stdout.set_color(color!(bold))?;
+            stdout.write_str(new)?;
+            stdout.reset()?;
+            writeln!(stdout)?;
+        }
+        stdout.flush()
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct SwitchOutcomeAttrs {
     service: ServiceKind,
@@ -487,7 +534,8 @@ struct SwitchOutcomeAttrs {
 
 /// Changes attributes.
 pub(crate) fn switch(
-    mut stderr: impl WriteColor,
+    mut stdout: impl ModifyTermProps,
+    mut stderr: impl Write + ModifyTermProps,
     directory: &AbsPath,
     service: Option<ServiceKind>,
     contest: Option<&str>,
@@ -498,54 +546,35 @@ pub(crate) fn switch(
     let inner = crate::fs::read_toml::<Inner>(&path)?;
     let path = directory.join_expanding_user(&inner.target)?;
     let old_target = crate::fs::read_json::<Target>(&path)?;
-
     let new_target = Target {
         service: service.unwrap_or(old_target.service),
         contest: contest.unwrap_or(&old_target.contest).to_owned(),
         language: language.unwrap_or(&old_target.language).to_owned(),
     };
 
-    let old_service = Some(format!("{:?}", <&str>::from(old_target.service)));
-    let old_contest = Some(format!("{:?}", old_target.contest));
-    let old_language = Some(format!("{:?}", old_target.language));
-    let new_service = Some(format!("{:?}", <&str>::from(new_target.service)));
-    let new_contest = Some(format!("{:?}", new_target.contest));
-    let new_language = Some(format!("{:?}", new_target.language));
+    crate::fs::write_json_pretty(&path, &new_target)?;
+    writeln!(stderr, "Wrote {}", path.display())?;
+    stderr.flush()?;
 
+    let char_width: fn(char) -> Option<usize> = if inner.console.cjk {
+        UnicodeWidthChar::width_cjk
+    } else {
+        UnicodeWidthChar::width
+    };
     let str_width: fn(&str) -> usize = if inner.console.cjk {
         UnicodeWidthStr::width_cjk
     } else {
         UnicodeWidthStr::width
     };
 
-    let max_width = [
-        old_service.as_ref().map(|s| str_width(s)).unwrap_or(1),
-        old_contest.as_ref().map(|s| str_width(s)).unwrap_or(1),
-        old_language.as_ref().map(|s| str_width(s)).unwrap_or(1),
-    ]
-    .iter()
-    .cloned()
-    .max()
-    .unwrap();
-
-    for (title, old, new) in &[
-        ("service:  ", &old_service, &new_service),
-        ("contest:  ", &old_contest, &new_contest),
-        ("language: ", &old_language, &new_language),
-    ] {
-        let old = old.as_ref().map(String::as_str).unwrap_or("~");
-        let new = new.as_ref().map(String::as_str).unwrap_or("~");
-        stderr.write_str(title)?;
-        stderr.with_reset(|w| w.bold().set()?.write_str(old))?;
-        stderr.write_spaces(max_width - old.len())?;
-        stderr.write_str(" -> ")?;
-        stderr.with_reset(|w| w.bold().set()?.write_str(new))?;
-        stderr.write_str("\n")?;
-    }
-
-    crate::fs::write_json_pretty(&path, &new_target)?;
-    writeln!(stderr, "Wrote {}", path.display())?;
-    stderr.flush()?;
+    stdout.modify_term_props(|props| {
+        props.char_width = char_width;
+        props.str_width = str_width
+    });
+    stderr.modify_term_props(|props| {
+        props.char_width = char_width;
+        props.str_width = str_width
+    });
 
     let outcome = SwitchOutcome {
         old: SwitchOutcomeAttrs {
@@ -1371,16 +1400,22 @@ pub(crate) struct Target {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::{Inner, Target};
+    use crate::config::{Inner, SwitchOutcome, SwitchOutcomeAttrs, Target};
+    use crate::outcome::Outcome as _;
     use crate::path::AbsPath;
     use crate::service::ServiceKind;
+    use crate::terminal::{AnsiWithProps, HasTermProps as _, ModifyTermProps as _};
 
     use difference::assert_diff;
     use failure::Fallible;
+    use once_cell::sync::Lazy;
+    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
     use tempdir::TempDir;
     use termcolor::{Ansi, ColorSpec, WriteColor as _};
+    use unicode_width::UnicodeWidthStr;
 
+    use std::convert::TryFrom as _;
     use std::fs::File;
     use std::io::Write as _;
     use std::{env, str};
@@ -1389,7 +1424,7 @@ mod tests {
     fn test_init() -> Fallible<()> {
         let tempdir = dunce::canonicalize(&env::temp_dir())?;
         let tempdir = TempDir::new_in(&tempdir, "config_test_init")?;
-        let mut stderr = Ansi::new(vec![]);
+        let mut stderr = vec![];
 
         super::init(&mut stderr, AbsPath::try_new(tempdir.path()).unwrap())?;
 
@@ -1401,7 +1436,7 @@ mod tests {
         serde_json::from_reader::<_, Target>(File::open(&json_path)?)?;
 
         assert_diff!(
-            str::from_utf8(stderr.get_ref())?,
+            str::from_utf8(&stderr)?,
             &format!(
                 "Wrote {}\nWrote {}\n",
                 toml_path.display(),
@@ -1424,7 +1459,10 @@ mod tests {
 
         let tempdir = dunce::canonicalize(&env::temp_dir())?;
         let tempdir = TempDir::new_in(&tempdir, "config_test_switch")?;
-        let mut stderr = Ansi::new(vec![]);
+        let mut stdout = AnsiWithProps::new();
+        let mut stderr = AnsiWithProps::new();
+        stdout.modify_term_props(|p| p.str_width = UnicodeWidthStr::width_cjk);
+        stderr.modify_term_props(|p| p.str_width = UnicodeWidthStr::width_cjk);
 
         let toml = super::generate_toml();
         let old_target = serde_json::from_str::<Target>(OLD_JSON)?;
@@ -1436,6 +1474,7 @@ mod tests {
         std::fs::write(&json_path, OLD_JSON)?;
 
         super::switch(
+            &mut stdout,
             &mut stderr,
             AbsPath::try_new(tempdir.path()).unwrap(),
             Some(ServiceKind::Yukicoder),
@@ -1452,28 +1491,70 @@ mod tests {
         assert_eq!(new_target.contest, "no");
         assert_eq!(new_target.language, "rust");
 
-        let mut expected = Ansi::new(vec![]);
+        const AMBIGUOUS_WIDTH_CHAR: char = '★';
+        assert_eq!(stdout.char_width(AMBIGUOUS_WIDTH_CHAR), Some(1));
+        assert_eq!(stderr.char_width(AMBIGUOUS_WIDTH_CHAR), Some(1));
+        assert_eq!(stdout.str_width(&AMBIGUOUS_WIDTH_CHAR.to_string()), 1);
+        assert_eq!(stderr.str_width(&AMBIGUOUS_WIDTH_CHAR.to_string()), 1);
 
-        let mut print_line = |name: &str, from: &str, arrow: &str, to: &str| {
-            expected.write_all(name.as_ref()).unwrap();
-            expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
-            expected.write_all(from.as_ref()).unwrap();
-            expected.reset().unwrap();
-            expected.write_all(arrow.as_ref()).unwrap();
-            expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
-            expected.write_all(to.as_ref()).unwrap();
-            expected.reset().unwrap();
-            expected.write_all(b"\n").unwrap();
+        let expected_stderr = format!("Wrote {}\n", json_path.display());
+        assert_eq!(String::try_from(stdout)?, "");
+        assert_eq!(String::try_from(stderr)?, expected_stderr);
+        Ok(())
+    }
+
+    #[test]
+    fn test_switch_outcome_print_pretty() -> Fallible<()> {
+        let outcome = SwitchOutcome {
+            old: SwitchOutcomeAttrs {
+                service: ServiceKind::Atcoder,
+                contest: "arc100".to_owned(),
+                contest_lower_case: "arc100".to_owned(),
+                contest_upper_case: "ARC100".to_owned(),
+                contest_snake_case: "arc100".to_owned(),
+                contest_kebab_case: "arc100".to_owned(),
+                contest_mixed_case: "arc100".to_owned(),
+                contest_pascal_case: "Arc100".to_owned(),
+                language: "c++".to_owned(),
+            },
+            new: SwitchOutcomeAttrs {
+                service: ServiceKind::Yukicoder,
+                contest_lower_case: "no".to_owned(),
+                contest_upper_case: "NO".to_owned(),
+                contest_snake_case: "no".to_owned(),
+                contest_kebab_case: "no".to_owned(),
+                contest_mixed_case: "no".to_owned(),
+                contest_pascal_case: "No".to_owned(),
+                contest: "no".to_owned(),
+                language: "rust".to_owned(),
+            },
         };
 
-        print_line("service:  ", "\"atcoder\"", " -> ", "\"yukicoder\"");
-        print_line("contest:  ", "\"arc100\"", "  -> ", "\"no\"");
-        print_line("language: ", "\"c++\"", "     -> ", "\"rust\"");
-        writeln!(expected, "Wrote {}", json_path.display()).unwrap();
+        static EXPECTED: Lazy<String> = sync_lazy! {
+            let mut expected = Ansi::new(vec![]);
 
-        let actual = str::from_utf8(stderr.get_ref())?;
-        let expected = str::from_utf8(expected.get_ref()).unwrap();
-        assert_eq!(actual, expected);
+            let mut print_line = |name: &str, from: &str, arrow: &str, to: &str| {
+                expected.write_all(name.as_ref()).unwrap();
+                expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
+                expected.write_all(from.as_ref()).unwrap();
+                expected.reset().unwrap();
+                expected.write_all(arrow.as_ref()).unwrap();
+                expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
+                expected.write_all(to.as_ref()).unwrap();
+                expected.reset().unwrap();
+                expected.write_all(b"\n").unwrap();
+            };
+
+            print_line("service:  ", "\"atcoder\"", " -> ", "\"yukicoder\"");
+            print_line("contest:  ", "\"arc100\"", "  -> ", "\"no\"");
+            print_line("language: ", "\"c++\"", "     -> ", "\"rust\"");
+
+            String::from_utf8(expected.into_inner()).unwrap()
+        };
+
+        let mut stdout = AnsiWithProps::new();
+        outcome.print_pretty(&mut stdout)?;
+        assert_eq!(String::try_from(stdout)?, *EXPECTED);
         Ok(())
     }
 

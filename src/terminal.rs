@@ -1,11 +1,13 @@
 use either::Either;
 use serde_derive::Serialize;
 use strum_macros::EnumString;
-use termcolor::{Ansi, Color, ColorSpec, WriteColor};
+use termcolor::{Ansi, Color, ColorSpec, NoColor, WriteColor};
 use tokio::io::AsyncWrite;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+use std::convert::TryFrom;
 use std::io::{self, BufRead, BufWriter, Sink, Stderr, Stdin, StdinLock, Stdout, Write};
+use std::string::FromUtf8Error;
 use std::{env, fmt, process, str};
 
 pub trait Input {
@@ -92,10 +94,6 @@ pub enum AnsiColorChoice {
     Never,
     Auto,
     Always,
-}
-
-pub(crate) trait PrintPretty {
-    fn print_pretty(&self, wtr: impl WriteColor + HasTermProps) -> io::Result<()>;
 }
 
 pub(crate) trait WriteExt: Write {
@@ -251,6 +249,117 @@ impl Default for TermProps<Sink> {
 impl<W: AsyncWrite + Send + 'static> fmt::Debug for TermProps<W> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.write_str("TermProps { .. }")
+    }
+}
+
+pub type Dumb = WriterWithProps<NoColor<Vec<u8>>>;
+pub type AnsiWithProps = WriterWithProps<Ansi<Vec<u8>>>;
+
+pub struct WriterWithProps<W: WriteColor> {
+    wtr: W,
+    props: TermProps<Sink>,
+}
+
+impl<W: Write + Default> WriterWithProps<NoColor<W>> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<W: Write + Default> WriterWithProps<Ansi<W>> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl fmt::Debug for WriterWithProps<Ansi<Vec<u8>>> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("Writer")
+            .field("wtr", &format_args!("_")) // `Ansi` and `NoColor` are not `Debug`
+            .field("props", &self.props)
+            .finish()
+    }
+}
+
+impl<W: Write + Default> Default for WriterWithProps<NoColor<W>> {
+    fn default() -> Self {
+        Self {
+            wtr: NoColor::new(W::default()),
+            props: TermProps::default(),
+        }
+    }
+}
+
+impl<W: Write + Default> Default for WriterWithProps<Ansi<W>> {
+    fn default() -> Self {
+        Self {
+            wtr: Ansi::new(W::default()),
+            props: TermProps::default(),
+        }
+    }
+}
+
+impl TryFrom<WriterWithProps<NoColor<Vec<u8>>>> for String {
+    type Error = FromUtf8Error;
+
+    fn try_from(
+        wtr: WriterWithProps<NoColor<Vec<u8>>>,
+    ) -> std::result::Result<Self, FromUtf8Error> {
+        Self::from_utf8(wtr.wtr.into_inner())
+    }
+}
+
+impl TryFrom<WriterWithProps<Ansi<Vec<u8>>>> for String {
+    type Error = FromUtf8Error;
+
+    fn try_from(wtr: WriterWithProps<Ansi<Vec<u8>>>) -> std::result::Result<Self, FromUtf8Error> {
+        Self::from_utf8(wtr.wtr.into_inner())
+    }
+}
+
+impl<W: WriteColor> Write for WriterWithProps<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.wtr.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.wtr.flush()
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.wtr.write_all(buf)
+    }
+}
+
+impl<W: WriteColor> WriteColor for WriterWithProps<W> {
+    fn supports_color(&self) -> bool {
+        true
+    }
+
+    fn set_color(&mut self, spec: &ColorSpec) -> io::Result<()> {
+        self.wtr.set_color(spec)
+    }
+
+    fn reset(&mut self) -> io::Result<()> {
+        self.wtr.reset()
+    }
+}
+
+impl<W: WriteColor> AttemptEnableColor for WriterWithProps<W> {
+    fn attempt_enable_color(&mut self, _: AnsiColorChoice) {}
+}
+
+impl<W: WriteColor> HasTermProps for WriterWithProps<W> {
+    type AnsiAsyncWrite = Sink;
+
+    fn term_props(&self) -> &TermProps<Sink> {
+        &self.props
+    }
+}
+
+impl<W: WriteColor> ModifyTermProps for WriterWithProps<W> {
+    fn modify_term_props(&mut self, f: impl FnOnce(&mut TermProps<Sink>)) {
+        f(&mut self.props);
     }
 }
 

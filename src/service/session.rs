@@ -369,6 +369,18 @@ pub(super) struct Response {
 }
 
 impl Response {
+    pub(super) fn header_location(&self) -> ServiceResult<Option<&str>> {
+        self.headers()
+            .get(header::LOCATION)
+            .map(|location| {
+                location.to_str().map_err(|e| {
+                    e.context(ServiceErrorKind::ReadHeader(header::LOCATION))
+                        .into()
+                })
+            })
+            .transpose()
+    }
+
     fn text(mut self, runtime: &mut Runtime) -> ServiceResult<String> {
         struct BufDecoder {
             decoder: Decoder,

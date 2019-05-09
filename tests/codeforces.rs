@@ -1,25 +1,22 @@
 mod common;
 
-use crate::common::{service, Dumb};
+use crate::common::service;
 
-use snowchains::app::{App, Login, Opt, Retrieve, RetrieveLanguages, Submit};
+use snowchains::app::{App, Login, Opt, OutputKind, Retrieve, RetrieveLanguages, Submit};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
-use snowchains::terminal::{AnsiColorChoice, TtyOrPiped};
+use snowchains::terminal::{AnsiColorChoice, Dumb, TtyOrPiped};
 
 use difference::assert_diff;
 use failure::Fallible;
 use if_chain::if_chain;
-use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use once_cell::sync_lazy;
 use pretty_assertions::assert_eq;
 use regex::Regex;
-use serde_derive::Deserialize;
 
 use std::convert::TryFrom as _;
-use std::str;
 
 #[test]
 fn it_logins() -> Fallible<()> {
@@ -30,11 +27,13 @@ fn it_logins() -> Fallible<()> {
         static MASK_TIME: Lazy<Regex> = sync_lazy!(Regex::new("time=[0-9]+").unwrap());
         static MASK_API_SIG: Lazy<Regex> = sync_lazy!(Regex::new("apiSig=[0-9a-f]+").unwrap());
 
-        app.run(Opt::Login(Login {
+        let code = app.run(Opt::Login(Login {
             json: true,
+            output: OutputKind::None,
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Codeforces,
         }))?;
+        assert_eq!(code, 0);
 
         let stdout = String::try_from(app.stdout)?;
         let stderr = String::try_from(app.stderr)?;
@@ -86,6 +85,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     language: Some("python3-with-invalid-lang-names".to_owned()),
                     mode: config::Mode::Release,
                     jobs: None,
+                    output: OutputKind::Pretty,
                     color_choice: AnsiColorChoice::Never,
                     problem: "a".to_owned(),
                 }))
@@ -106,33 +106,22 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
 
 #[test]
 fn it_retrieves_languages() -> Fallible<()> {
-    #[derive(Deserialize)]
-    struct Stdout {
-        available_languages: IndexMap<String, String>,
-    }
-
     service::test_in_tempdir(
         "it_retrieves_languages",
         &credentials_as_input()?,
         |mut app| -> Fallible<()> {
-            app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
-                json: true,
+            let code = app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
+                json: false,
                 service: Some(ServiceKind::Codeforces),
                 contest: Some("1000".to_owned()),
+                output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("a".to_owned()),
             })))?;
-            let stdout = String::try_from(app.stdout)?;
-            let stderr = String::try_from(app.stderr)?;
-            let stdout = serde_json::from_str::<Stdout>(&stdout)?;
-            assert_eq!(stdout.available_languages.len(), 28);
+            assert_eq!(code, 0);
             assert_diff!(
-                &stderr,
-                r#"GET https://codeforces.com/enter ... 200 OK
-Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
-GET https://codeforces.com/enter ... 302 Found
-GET https://codeforces.com/contest/1000/submit ... 200 OK
-+---------------------------+----+
+                &String::try_from(app.stdout)?,
+                r#"+---------------------------+----+
 | Name                      | ID |
 +---------------------------+----+
 | GNU GCC C11 5.1.0         | 43 |
@@ -191,6 +180,17 @@ GET https://codeforces.com/contest/1000/submit ... 200 OK
 +---------------------------+----+
 | Node.js 9.4.0             | 55 |
 +---------------------------+----+
+"#,
+                "\n",
+                0
+            );
+            assert_diff!(
+                &String::try_from(app.stderr)?,
+                r#"GET https://codeforces.com/enter ... 200 OK
+Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
+GET https://codeforces.com/enter ... 302 Found
+GET https://codeforces.com/contest/1000/submit ... 200 OK
+
 "#,
                 "\n",
                 0

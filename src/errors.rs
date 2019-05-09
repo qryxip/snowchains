@@ -14,7 +14,6 @@ use url::Url;
 use zip::result::ZipError;
 
 use std::ffi::OsString;
-use std::num::NonZeroUsize;
 use std::process::ExitStatus;
 use std::time::SystemTimeError;
 use std::{fmt, io};
@@ -234,13 +233,6 @@ pub enum JudgeErrorKind {
         noun: &'static str,
         status: ExitStatus,
     },
-    #[display(
-        fmt = "{}/{} Test{} failed",
-        _0,
-        _1,
-        r#"if _0.get() > 1 { "s" } else { "" }"#
-    )]
-    TestFailed(NonZeroUsize, NonZeroUsize),
 }
 
 pub(crate) type TestSuiteResult<T> = std::result::Result<T, TestSuiteError>;
