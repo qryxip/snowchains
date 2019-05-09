@@ -2,7 +2,7 @@ use crate::errors::{
     HookCommandErrorKind, HookCommandResult, JudgeErrorKind, JudgeResult, StdError,
 };
 use crate::path::AbsPathBuf;
-use crate::terminal::{HasTermProps, WriteColorExt as _, WriteExt as _};
+use crate::terminal::{HasTermProps, WriteExt as _};
 use crate::util::collections::NonEmptyVec;
 
 use failure::Fail as _;
@@ -11,14 +11,12 @@ use serde_derive::Serialize;
 use termcolor::WriteColor;
 use tokio_process::CommandExt as _;
 
-use std::borrow::Cow;
 use std::collections::HashMap;
-use std::env;
 use std::ffi::OsString;
-use std::io::{self, Write as _};
 use std::iter::FromIterator;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
+use std::{env, io};
 
 #[derive(Debug)]
 pub(crate) struct HookCommands(Option<NonEmptyVec<HookCommand>>);
@@ -30,12 +28,18 @@ impl HookCommands {
         mut stderr: impl WriteColor + HasTermProps,
     ) -> HookCommandResult<()> {
         if let HookCommands(Some(this)) = self {
-            stderr.with_reset(|o| o.bold().set()?.write_str("Running hooks...\n"))?;
+            stderr.set_color(color!(bold))?;
+            stderr.write_str("Running hooks...")?;
+            stderr.reset()?;
+            writeln!(stderr)?;
             stderr.flush()?;
             for cmd in this {
                 HookCommand::run(cmd, &stdout, &stderr)?;
             }
-            stderr.with_reset(|o| o.bold().set()?.write_str("Done.\n"))?;
+            stderr.set_color(color!(bold))?;
+            stderr.write_str("Done.")?;
+            stderr.reset()?;
+            writeln!(stderr)?;
             stderr.flush()?;
         }
         Ok(())
@@ -201,17 +205,17 @@ impl BuildCommand {
         error: fn(ExitStatus) -> JudgeErrorKind,
     ) -> JudgeResult<()> {
         if !self.src.exists() {
-            stderr.with_reset(|stderr| {
-                let stderr = stderr.fg(11).set()?;
-                writeln!(stderr, "Warning: {} not found", self.src.display())
-            })?;
+            stderr.set_color(color!(fg(Yellow), intense))?;
+            write!(stderr, "Warning: {} not found", self.src.display())?;
+            stderr.reset()?;
+            writeln!(stderr)?;
             stderr.flush()?;
         }
         if self.target.as_ref().is_none() {
-            stderr.with_reset(|stderr| {
-                let stderr = stderr.fg(11).set()?;
-                writeln!(stderr, "Warning: {:?} not present", self.target_name)
-            })?;
+            stderr.set_color(color!(fg(Yellow), intense))?;
+            write!(stderr, "Warning: {:?} not present", self.target_name)?;
+            stderr.reset()?;
+            writeln!(stderr)?;
             stderr.flush()?;
         }
 
@@ -247,20 +251,27 @@ impl BuildCommand {
         })?;
         let elapsed = Instant::now() - start;
 
-        let (mes, color) = match status.code() {
-            Some(0) => (Cow::from(messages.finished), 10),
-            Some(code) => (Cow::from(format!("Exited with {}", code)), 9),
-            None => (Cow::from("Exited without code"), 11),
-        };
-        stderr.with_reset(|w| writeln!(w.fg(color).bold().set()?, "{} in {:?}.", mes, elapsed))?;
+        match status.code() {
+            Some(0) => {
+                stderr.set_color(color!(fg(Green), intense, bold))?;
+                writeln!(stderr, "{} in {:?}.", messages.finished, elapsed)?;
+            }
+            Some(code) => {
+                stderr.set_color(color!(fg(Red), intense, bold))?;
+                writeln!(stderr, "Exited with {} in {:?}.", code, elapsed)?;
+            }
+            None => {
+                stderr.set_color(color!(fg(Yellow), intense, bold))?;
+                writeln!(stderr, "Exited without code in {:?}.", elapsed)?;
+            }
+        }
 
         if status.success() {
             if let Some(target) = &self.target {
                 if !target.exists() {
-                    stderr.with_reset(|stderr| {
-                        let stderr = stderr.fg(11).set()?;
-                        writeln!(stderr, "Warning: {} not created", target.display())
-                    })?;
+                    stderr.set_color(color!(fg(Yellow), intense))?;
+                    writeln!(stderr, "Warning: {} not created", target.display())?;
+                    stderr.reset()?;
                     stderr.flush()?;
                 }
             }
@@ -391,7 +402,9 @@ fn write_info(
     title: &str,
     rest: &[impl AsRef<str>],
 ) -> io::Result<()> {
-    out.with_reset(|o| o.fg(13).bold().set()?.write_str(title))?;
+    out.set_color(color!(fg(Magenta), intense, bold))?;
+    out.write_str(title)?;
+    out.reset()?;
     out.write_str(" ")?;
     if let Some(w) = out.columns() {
         let o = out.str_width(title) + 1;

@@ -14,7 +14,7 @@ use crate::service::session::{
     HttpSession, HttpSessionInitParams, IntoRelativeOrAbsoluteUrl, UrlBase,
 };
 use crate::template::Template;
-use crate::terminal::{HasTermProps, Input, WriteColorExt as _, WriteExt as _};
+use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFilePath, TestSuite};
 use crate::util;
 use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet, NonEmptyVec};
@@ -268,8 +268,9 @@ fn ask_yes_or_no(
             s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
             s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
             _ => {
-                static MES: &str = r#"Answer "y", "yes", "n", "no", or ""."#;
-                stderr.with_reset(|w| w.fg(11).set()?.write_str(MES))?;
+                stderr.set_color(color!(fg(Yellow), intense))?;
+                stderr.write_str(r#"Answer "y", "yes", "n", "no", or ""."#)?;
+                stderr.reset()?;
             }
         }
     }
@@ -298,7 +299,9 @@ pub(self) trait ExtractZip {
             sortings,
         } = entries;
 
-        out.with_reset(|o| o.bold().set()?.write_str(name))?;
+        out.set_color(color!(bold))?;
+        out.write_str(name)?;
+        out.reset()?;
         out.write_str(": Unzipping...\n")?;
         out.flush()?;
 
@@ -380,7 +383,9 @@ pub(self) trait ExtractZip {
                 Ok((name, in_path, out_path))
             })
             .collect::<FileResult<Vec<_>>>()?;
-        out.with_reset(|o| o.bold().set()?.write_str(name))?;
+        out.set_color(color!(bold))?;
+        out.write_str(name)?;
+        out.reset()?;
         writeln!(
             out,
             ": Saved {} to {}",

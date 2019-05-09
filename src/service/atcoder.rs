@@ -12,7 +12,7 @@ use crate::service::{
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service,
     SessionProps, SubmitOutcome, SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
 };
-use crate::terminal::{HasTermProps, Input, WriteColorExt as _, WriteExt as _};
+use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{self, BatchSuite, Destinations, InteractiveSuite, TestSuite};
 use crate::util;
 use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet};
@@ -40,7 +40,6 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
 use std::convert::TryInto as _;
-use std::io::Write as _;
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
@@ -372,10 +371,10 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         }
         self.stderr.flush()?;
         if !not_found.is_empty() {
-            self.stderr.with_reset(|stderr| {
-                let stderr = stderr.fg(11).set()?;
-                writeln!(stderr, "Not found: {}", not_found.format_as_str_list())
-            })?;
+            self.stderr.set_color(color!(fg(Yellow), intense))?;
+            write!(self.stderr, "Not found: {}", not_found.format_as_str_list())?;
+            self.stderr.reset()?;
+            writeln!(self.stderr)?;
             self.stderr.flush()?;
         }
         if *open_in_browser {
@@ -536,8 +535,9 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                     Ok((case_name, (in_path, out_path)))
                 })
                 .collect::<FileResult<BTreeMap<_, _>>>()?;
-            self.stderr
-                .with_reset(|w| write!(w.bold().set()?, "{}", problem))?;
+            self.stderr.set_color(color!(bold))?;
+            self.stderr.write_str(problem)?;
+            self.stderr.reset()?;
             writeln!(
                 self.stderr,
                 ": Saved {} to {}",
@@ -694,13 +694,9 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         }
 
         if let Some(ignored) = NonEmptyIndexSet::try_new(ignored) {
-            self.stderr.with_reset(|stderr| {
-                writeln!(
-                    stderr.fg(11).set()?,
-                    "Ignored: {}",
-                    ignored.format_as_str_list(),
-                )
-            })?;
+            self.stderr.set_color(color!(fg(Yellow), intense))?;
+            writeln!(self.stderr, "Ignored: {}", ignored.format_as_str_list())?;
+            self.stderr.reset()?;
         }
 
         let mut num_saved = 0;
@@ -727,10 +723,9 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         }
 
         if !not_found.is_empty() {
-            self.stderr.with_reset(|stderr| {
-                let stderr = stderr.fg(11).set()?;
-                writeln!(stderr, "Not found: {}", not_found.format_as_str_list())
-            })?;
+            self.stderr.set_color(color!(fg(Yellow), intense))?;
+            writeln!(self.stderr, "Not found: {}", not_found.format_as_str_list())?;
+            self.stderr.reset()?;
         }
 
         writeln!(

@@ -1,7 +1,7 @@
 use either::Either;
 use serde_derive::Serialize;
 use strum_macros::EnumString;
-use termcolor::{Ansi, Color, ColorSpec, NoColor, WriteColor};
+use termcolor::{Ansi, ColorSpec, NoColor, WriteColor};
 use tokio::io::AsyncWrite;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -107,54 +107,6 @@ pub(crate) trait WriteExt: Write {
 }
 
 impl<W: Write + ?Sized> WriteExt for W {}
-
-pub(crate) trait WriteColorExt: WriteColor {
-    fn with_reset(
-        &mut self,
-        f: impl FnOnce(&mut WithReset<&mut Self>) -> io::Result<()>,
-    ) -> io::Result<()> {
-        f(&mut WithReset {
-            wtr: self,
-            spec: ColorSpec::new(),
-        })?;
-        self.reset()
-    }
-}
-
-impl<W: WriteColor + ?Sized> WriteColorExt for W {}
-
-#[derive(Debug)]
-pub(crate) struct WithReset<W: WriteColor> {
-    wtr: W,
-    spec: ColorSpec,
-}
-
-impl<W: WriteColor> WithReset<W> {
-    pub(crate) fn fg(&mut self, color: impl IntoColor) -> &mut Self {
-        self.spec.set_fg(Some(color.into_color()));
-        self
-    }
-
-    pub(crate) fn bold(&mut self) -> &mut Self {
-        self.spec.set_bold(true);
-        self
-    }
-
-    pub(crate) fn set(&mut self) -> io::Result<&mut W> {
-        self.wtr.set_color(&self.spec)?;
-        Ok(&mut self.wtr)
-    }
-}
-
-pub(crate) trait IntoColor {
-    fn into_color(self) -> Color;
-}
-
-impl IntoColor for u8 {
-    fn into_color(self) -> Color {
-        Color::Ansi256(self)
-    }
-}
 
 pub trait AttemptEnableColor: WriteColor {
     fn attempt_enable_color(&mut self, choice: AnsiColorChoice);
@@ -583,16 +535,12 @@ impl AnsiStandardOutput for Stderr {
 
 #[cfg(test)]
 mod tests {
-    use crate::terminal::{Input as _, TtyOrPiped, WriteColorExt as _, WriteExt as _};
+    use crate::terminal::{Input as _, TtyOrPiped, WriteExt as _};
 
     use failure::Fallible;
-    use once_cell::sync::Lazy;
-    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
-    use termcolor::{Ansi, Color, ColorSpec, WriteColor as _};
 
-    use std::io::{self, Write as _};
-    use std::str;
+    use std::{io, str};
 
     #[test]
     fn test_write_spaces() -> Fallible<()> {
@@ -601,42 +549,6 @@ mod tests {
         assert_eq!(str::from_utf8(&wtr)?, "");
         wtr.write_spaces(10)?;
         assert_eq!(str::from_utf8(&wtr)?, " ".repeat(10));
-        Ok(())
-    }
-
-    #[test]
-    fn test_write_ansi() -> Fallible<()> {
-        let mut actual = Ansi::new(vec![]);
-        actual.with_reset(|w| w.fg(4).set().unwrap().write_str("foo"))?;
-        actual.with_reset(|w| w.fg(14).set().unwrap().write_str("bar"))?;
-        actual.with_reset(|w| w.fg(195).set().unwrap().write_str("baz"))?;
-        actual.with_reset(|w| w.bold().set().unwrap().write_str("qux"))?;
-
-        static EXPECTED: Lazy<String> = sync_lazy! {
-            let mut expected = Ansi::new(vec![]);
-            expected
-                .set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(4))))
-                .unwrap();
-            expected.write_all(b"foo").unwrap();
-            expected.reset().unwrap();
-            expected
-                .set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(14))))
-                .unwrap();
-            expected.write_all(b"bar").unwrap();
-            expected.reset().unwrap();
-            expected
-                .set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(195))))
-                .unwrap();
-            expected.write_all(b"baz").unwrap();
-            expected.reset().unwrap();
-            expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
-            expected.write_all(b"qux").unwrap();
-            expected.reset().unwrap();
-            String::from_utf8(expected.into_inner()).unwrap()
-        };
-
-        let actual = str::from_utf8(actual.get_ref())?;
-        assert_eq!(actual, &*EXPECTED);
         Ok(())
     }
 

@@ -2,7 +2,7 @@ use crate::errors::{FileResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
 use crate::service::USER_AGENT;
-use crate::terminal::{WriteColorExt as _, WriteExt as _};
+use crate::terminal::WriteExt as _;
 
 use cookie::CookieJar;
 use derive_new::new;
@@ -24,9 +24,8 @@ use url::{Host, Url};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{self, Write as _};
-use std::io::{self, Write as _};
-use std::mem;
 use std::ops::Deref;
+use std::{io, mem};
 
 #[derive(Debug)]
 pub(super) struct HttpSessionInitParams<'a, W: WriteColor> {
@@ -466,9 +465,12 @@ trait RequestExt {
 
 impl RequestExt for reqwest::r#async::Request {
     fn echo_method(&self, mut out: impl WriteColor) -> io::Result<()> {
-        out.with_reset(|o| o.bold().set()?.write_str(self.method()))?;
+        out.set_color(color!(bold))?;
+        out.write_str(self.method())?;
         out.write_str(" ")?;
-        out.with_reset(|o| o.fg(14).set()?.write_str(self.url()))?;
+        out.set_color(color!(fg(Cyan), intense))?;
+        out.write_str(self.url())?;
+        out.reset()?;
         out.write_str(" ... ")?;
         out.flush()
     }
@@ -486,13 +488,14 @@ impl ResponseExt for reqwest::r#async::Response {
         expected_statuses: &[StatusCode],
         mut out: impl WriteColor,
     ) -> io::Result<()> {
-        let color = if expected_statuses.contains(&self.status()) {
-            10
+        if expected_statuses.contains(&self.status()) {
+            out.set_color(color!(fg(Green), intense, bold))?;
         } else {
-            9
+            out.set_color(color!(fg(Red), intense, bold))?;
         };
-        out.with_reset(|o| write!(o.fg(color).bold().set()?, "{}", self.status()))?;
-        out.write_str("\n")?;
+        write!(out, "{}", self.status())?;
+        out.reset()?;
+        writeln!(out)?;
         out.flush()
     }
 
@@ -724,9 +727,7 @@ mod tests {
 
                 let mut print_line = |path: &str, status_color: u8, status: &str| {
                     expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
-                    expected.write_all(b"GET").unwrap();
-                    expected.reset().unwrap();
-                    expected.write_all(b" ").unwrap();
+                    expected.write_all(b"GET ").unwrap();
                     expected
                         .set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(14))))
                         .unwrap();

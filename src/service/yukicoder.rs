@@ -7,7 +7,7 @@ use crate::service::{
     SessionProps, SubmitOutcome, SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
     ZipEntries, ZipEntriesSorting,
 };
-use crate::terminal::{HasTermProps, Input, WriteColorExt as _};
+use crate::terminal::{HasTermProps, Input};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
 use crate::util::str::CaseConversion;
@@ -28,7 +28,6 @@ use url::Url;
 
 use std::borrow::Cow;
 use std::convert::Infallible;
-use std::io::Write;
 use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, mem};
@@ -229,14 +228,17 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
                 }
                 let stderr = &mut self.stderr;
                 if !not_found.is_empty() {
-                    stderr
-                        .with_reset(|w| writeln!(w.fg(11).set()?, "Not found: {:?}", not_found))?;
+                    stderr.set_color(color!(fg(Yellow), intense))?;
+                    write!(stderr, "Not found: {:?}", not_found)?;;
+                    stderr.reset()?;
+                    writeln!(stderr)?;
                     stderr.flush()?;
                 }
                 if !not_public.is_empty() {
-                    stderr.with_reset(|w| {
-                        writeln!(w.fg(11).set()?, "Not public: {:?}", not_public)
-                    })?;
+                    stderr.set_color(color!(fg(Yellow), intense))?;
+                    write!(stderr, "Not public: {:?}", not_public)?;;
+                    stderr.reset()?;
+                    writeln!(stderr)?;
                     stderr.flush()?;
                 }
             }

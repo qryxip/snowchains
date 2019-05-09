@@ -11,7 +11,7 @@ use crate::service::{
     RetrieveTestCasesProps, Service, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
     SubmitOutcomeResponse, SubmitProps,
 };
-use crate::terminal::{HasTermProps, Input, WriteColorExt as _};
+use crate::terminal::{HasTermProps, Input};
 use crate::testsuite::{self, BatchSuite, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
 use crate::util::indexmap::IndexSetAsRefStrExt as _;
@@ -37,7 +37,7 @@ use url::Url;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
-use std::io::{self, Write as _};
+use std::io;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
@@ -255,13 +255,10 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         self.stderr.flush()?;
 
         if !not_found.is_empty() {
-            self.stderr.with_reset(|w| {
-                writeln!(
-                    w.fg(11).set()?,
-                    "Not found: {}",
-                    not_found.format_as_str_list(),
-                )
-            })?;
+            self.stderr.set_color(color!(fg(Yellow), intense))?;
+            write!(self.stderr, "Not found: {}", not_found.format_as_str_list())?;
+            self.stderr.reset()?;
+            writeln!(self.stderr)?;
             self.stderr.flush()?;
         }
 
