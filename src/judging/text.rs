@@ -1,321 +1,816 @@
-use crate::terminal::{TermOut, WriteAnsi, WriteSpaces as _};
-use crate::util::num::PositiveFinite;
+use crate::judging::text::inner::{TextDiffInner, TextInner};
+use crate::terminal::{HasTermProps, WriteExt as _};
+use crate::testsuite::FloatErrors;
 
-use combine::Parser as _;
-use derive_new::new;
+use crossbeam_utils::atomic::AtomicCell;
+use itertools::{EitherOrBoth, Itertools as _};
+use once_cell::sync::Lazy;
+use once_cell::sync_lazy;
+use serde::{Serialize, Serializer};
+use serde_derive::Serialize;
+use smallvec::SmallVec;
+use termcolor::WriteColor;
+use termcolor::{Color, ColorSpec};
 
+use std::collections::VecDeque;
+use std::num::NonZeroUsize;
+use std::str::FromStr;
 use std::sync::Arc;
-use std::{cmp, f64, io};
+use std::{cmp, f64, io, iter, mem};
 
-pub(super) trait Width {
-    fn width(&self, f: fn(&str) -> usize) -> usize;
+pub(super) fn actual_or_diff(
+    expected: Arc<String>,
+    actual: Arc<String>,
+    float_errors: Option<FloatErrors>,
+) -> std::result::Result<Text, TextDiff> {
+    if let Some(float_errors) = float_errors {
+        let diff = TextDiff::new(expected, actual, Some(float_errors));
+        diff.0.try_shrink_right().map(Text).map_err(TextDiff)
+    } else if expected == actual {
+        Ok(Text::new(actual))
+    } else {
+        Err(TextDiff::new(expected, actual, None))
+    }
 }
 
-pub(super) trait PrintAligned: Width {
-    fn print_aligned<W: TermOut>(&self, out: W, min_width: usize) -> io::Result<()>;
-}
-
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone)]
-pub(super) struct Text {
-    size: usize,
-    lines: Vec<Line<Word>>,
-}
+#[derive(Debug)]
+pub(super) struct Text(TextInner);
 
 impl Text {
-    pub(crate) fn exact(s: &str) -> Self {
-        Self::new(s, |s| Word::Plain(Arc::new(s)))
+    pub(super) fn new(string: Arc<String>) -> Self {
+        fn parse_words_to_slice(s: &str) -> Box<[Word]> {
+            parse_words(s, false).collect()
+        }
+
+        Self(TextInner::new(string, parse_words_to_slice))
     }
 
-    pub(crate) fn new(s: &str, on_plain: impl Fn(String) -> Word) -> Self {
-        use combine::char::char;
-        use combine::{choice, eof, many, many1, satisfy};
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.string().is_empty()
+    }
 
-        fn emph_spc(words: &mut Vec<Word>, index: usize) {
-            let n = match words.get(index) {
-                Some(Word::U0020(n)) => Some(*n),
-                _ => None,
-            };
-            if let Some(n) = n {
-                words[index] = Word::LeadTrailU0020(n);
+    pub(super) fn str_len(&self) -> usize {
+        self.0.string().len()
+    }
+
+    pub(super) fn print_pretty(&self, mut wtr: impl WriteColor) -> io::Result<()> {
+        for word in self.0.words() {
+            match word {
+                Word::Plain(s) => wtr.write_str(s)?,
+                Word::Float { string: s, .. } => {
+                    wtr.set_color(color!(fg(Cyan), intense))?;
+                    wtr.write_str(s)?;
+                    wtr.reset()?;
+                }
+                Word::U0020s(n) => wtr.write_spaces(n.get())?,
+                Word::TrailingU0020s(n) => {
+                    wtr.set_color(color!(bg(Yellow), intense, bold))?;
+                    wtr.write_spaces(n.get())?;
+                    wtr.reset()?;
+                }
+                Word::Tab => {
+                    wtr.set_color(color!(fg(Yellow), intense, bold))?;
+                    wtr.write_str("\\t")?;
+                    wtr.reset()?;
+                }
+                Word::Cr => {
+                    wtr.set_color(color!(fg(Yellow), intense, bold))?;
+                    wtr.write_str("\\r")?;
+                    wtr.reset()?;
+                }
+                Word::UnicodeEscape(s) => {
+                    wtr.set_color(color!(fg(Yellow), intense, bold))?;
+                    for c in s.chars() {
+                        write!(wtr, "\\u{:06x}", c as u32)?;
+                    }
+                    wtr.reset()?;
+                }
+                Word::Lf => writeln!(wtr)?,
+            }
+        }
+        if self.0.words().last().map_or(true, |w| !w.is_lf()) {
+            wtr.set_color(color!(fg(Yellow), intense, bold))?;
+            wtr.write_str("<noeol>\n")?;
+            wtr.reset()?;
+        }
+        Ok(())
+    }
+}
+
+impl Serialize for Text {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Repr<'a> {
+            string: &'a str,
+            words: &'a [Word<'a>],
+        }
+
+        let string = self.0.string();
+        let words = self.0.words();
+        Repr { string, words }.serialize(serializer)
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct TextDiff(TextDiffInner);
+
+impl TextDiff {
+    fn new(expected: Arc<String>, actual: Arc<String>, float_errors: Option<FloatErrors>) -> Self {
+        struct Line<'a>(Box<[Word<'a>]>);
+
+        impl PartialEq for Line<'_> {
+            fn eq(&self, other: &Self) -> bool {
+                let (mut left, mut right) = (self.0.iter(), other.0.iter());
+                loop {
+                    match (left.next(), right.next()) {
+                        (Some(left), Some(right)) => {
+                            let same = match (*left, *right) {
+                                (Word::Float { value: v1, .. }, Word::Float { value: v2, .. }) => {
+                                    let FloatErrorsNormalized {
+                                        relative: r,
+                                        absolute: d,
+                                    } = FLOAT_ERRORS.load();
+                                    (v1 - v2).abs() <= d || ((v1 - v2) / v2).abs() <= r
+                                }
+                                (Word::U0020s(n1), Word::U0020s(n2))
+                                | (Word::U0020s(n1), Word::TrailingU0020s(n2))
+                                | (Word::TrailingU0020s(n1), Word::U0020s(n2))
+                                | (Word::TrailingU0020s(n1), Word::TrailingU0020s(n2)) => n1 == n2,
+                                (Word::Plain(s1), Word::Plain(s2))
+                                | (Word::UnicodeEscape(s1), Word::UnicodeEscape(s2)) => s1 == s2,
+                                (Word::Tab, Word::Tab)
+                                | (Word::Cr, Word::Cr)
+                                | (Word::Lf, Word::Lf) => true,
+                                _ => false,
+                            };
+                            if !same {
+                                break false;
+                            }
+                        }
+                        (None, Some(_)) | (Some(_), None) => break false,
+                        (None, None) => break true,
+                    }
+                }
             }
         }
 
-        let mut line_parser = {
-            let spc = many1::<String, _>(char(' ')).map(|s| Word::U0020(s.len()));
-            let tab = many1::<String, _>(char('\t')).map(|s| Word::Tab(s.len()));
-            let cr = many1::<String, _>(char('\r')).map(|s| Word::Cr(s.len()));
-            let codepoints = many1::<String, _>(satisfy(|c: char| {
-                ![' ', '\t', '\r', '\n'].contains(&c) && (c.is_whitespace() || c.is_control())
-            }))
-            .map(|s| Word::CodePoints(Arc::new(s.escape_unicode().collect())));
-            let plain =
-                many1(satisfy(|c: char| !(c.is_whitespace() || c.is_control()))).map(on_plain);
-            let lf = char('\n').map(|_| None);
-            let noeol = eof().map(|_| Some(Word::Noeol));
-            many::<Vec<_>, _>(choice((spc, tab, cr, codepoints, plain)))
-                .and(choice((lf, noeol)))
-                .map(|(mut words, end)| {
-                    let n = words.len();
-                    emph_spc(&mut words, 0);
-                    emph_spc(&mut words, cmp::max(n, 1) - 1);
-                    words.extend(end);
-                    Line { words }
-                })
+        #[derive(Clone, Copy, Default)]
+        struct FloatErrorsNormalized {
+            relative: f64,
+            absolute: f64,
+        }
+
+        static FLOAT_ERRORS: Lazy<AtomicCell<FloatErrorsNormalized>> =
+            sync_lazy!(AtomicCell::new(FloatErrorsNormalized::default()));
+
+        if let Some(float_errors) = float_errors {
+            FLOAT_ERRORS.store(FloatErrorsNormalized {
+                relative: float_errors.relative.map(Into::into).unwrap_or(0.0),
+                absolute: float_errors.absolute.map(Into::into).unwrap_or(0.0),
+            })
         };
-        let size = s.len();
-        let (mut lines, mut s) = (vec![], s);
-        loop {
-            let (line, rest_s) = line_parser.parse(s).unwrap();
-            lines.push(line);
-            s = rest_s;
-            if s.is_empty() {
-                break Self { size, lines };
+
+        Self(TextDiffInner::new(expected, actual, |expected, actual| {
+            fn parse_words_to_lines(s: &str, floats: bool) -> Vec<Line> {
+                let (mut ret, mut current) = (vec![], vec![]);
+                for word in parse_words(s, floats) {
+                    current.push(word);
+                    if word.is_lf() {
+                        ret.push(Line(mem::replace(&mut current, vec![]).into_boxed_slice()));
+                    }
+                }
+                if !current.is_empty() {
+                    ret.push(Line(mem::replace(&mut current, vec![]).into_boxed_slice()));
+                }
+                ret
             }
-        }
-    }
 
-    pub(crate) fn size(&self) -> usize {
-        self.size
+            let expected = parse_words_to_lines(expected, float_errors.is_some());
+            let actual = parse_words_to_lines(actual, float_errors.is_some());
+            diff::slice(&expected, &actual)
+                .into_iter()
+                .map(|diff| match diff {
+                    diff::Result::Both(Line(expected), Line(actual)) => DiffLine::Both {
+                        left: expected.clone(),
+                        right: actual.clone(),
+                    },
+                    diff::Result::Left(Line(expected)) => DiffLine::Left(expected.clone()),
+                    diff::Result::Right(Line(actual)) => DiffLine::Right(actual.clone()),
+                })
+                .collect()
+        }))
     }
+}
 
-    pub(crate) fn lines(&self) -> &[Line<Word>] {
-        &self.lines
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.lines.is_empty() || self.lines.len() == 1 && {
-            let Line { words } = &self.lines[0];
-            match words.as_slice() {
-                [Word::Noeol] => true,
-                _ => false,
+impl TextDiff {
+    pub(super) fn print_pretty_with_title(
+        &self,
+        left_title: &str,
+        right_title: &str,
+        mut wtr: impl WriteColor + HasTermProps,
+    ) -> io::Result<()> {
+        let str_width = wtr.str_width_fn();
+        let (mut left_paddings, mut right_paddings, left_max_width, right_max_width) = {
+            let (mut wsl, mut wsr, mut wl, mut wr) = (vec![], vec![], 0, 0);
+            for line in self.0.diff_lines() {
+                let on_line =
+                    |line: &[Word], widths: &mut Vec<usize>, current_width: &mut usize| {
+                        let mut eol = false;
+                        for word in line {
+                            if let Some(width) = word.width(str_width) {
+                                *current_width += width.get();
+                            } else {
+                                widths.push(mem::replace(current_width, 0));
+                                eol = true
+                            }
+                        }
+                        if !eol {
+                            *current_width += "<noeol>".len();
+                            widths.push(mem::replace(current_width, 0));
+                        }
+                    };
+                match line {
+                    DiffLine::Left(left) => on_line(left, &mut wsl, &mut wl),
+                    DiffLine::Right(right) => on_line(right, &mut wsr, &mut wr),
+                    DiffLine::Both { left, right } => {
+                        on_line(left, &mut wsl, &mut wl);
+                        on_line(right, &mut wsr, &mut wr);
+                    }
+                }
             }
-        }
-    }
-}
-
-impl Width for Text {
-    fn width(&self, f: fn(&str) -> usize) -> usize {
-        self.lines.iter().map(|l| l.width(f)).max().unwrap_or(0)
-    }
-}
-
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone, PartialEq, new)]
-pub(super) struct Line<W> {
-    words: Vec<W>,
-}
-
-impl<W> Line<W> {
-    pub fn words(&self) -> &[W] {
-        &self.words
-    }
-}
-
-impl<W> Default for Line<W> {
-    fn default() -> Self {
-        Self { words: vec![] }
-    }
-}
-
-impl<W: Width> Width for Line<W> {
-    fn width(&self, f: fn(&str) -> usize) -> usize {
-        self.words.iter().map(|w| w.width(f)).sum()
-    }
-}
-
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone)]
-pub(super) enum Word {
-    Plain(Arc<String>),
-    U0020(usize),
-    LeadTrailU0020(usize),
-    Tab(usize),
-    Cr(usize),
-    CodePoints(Arc<String>),
-    FloatLeft {
-        value: f64,
-        string: Arc<String>, // `str::parse<f64>` is not injective
-        relative_error: Option<PositiveFinite<f64>>,
-        absolute_error: Option<PositiveFinite<f64>>,
-    },
-    FloatRight {
-        value: f64,
-        string: Arc<String>,
-    },
-    Noeol,
-}
-
-impl Word {
-    pub fn print_as_common(&self, mut out: impl TermOut) -> io::Result<()> {
-        fn write_ntimes(mut out: impl WriteAnsi, n: usize, s: &str) -> io::Result<()> {
-            out.with_reset(|o| {
-                o.fg(11)?.bold()?;
-                (0..n).try_for_each(|_| o.write_str(s))
-            })
-        }
-        match self {
-            Word::Plain(s) => out.write_str(s.as_str()),
-            Word::U0020(n) => out.write_spaces(*n),
-            Word::LeadTrailU0020(n) => out.with_reset(|o| o.bg(11)?.write_spaces(*n)),
-            Word::Tab(n) => write_ntimes(out, *n, "\\t"),
-            Word::Cr(n) => write_ntimes(out, *n, "\\r"),
-            Word::CodePoints(s) => out.with_reset(|o| o.fg(11)?.bold()?.write_str(s.as_str())),
-            Word::FloatLeft { string, .. } | Word::FloatRight { string, .. } => {
-                out.with_reset(|o| o.fg(6)?.bold()?.write_str(string.as_str()))
-            }
-            Word::Noeol => out.with_reset(|o| o.fg(11)?.bold()?.write_str("<noeol>")),
-        }
-    }
-
-    pub fn print_as_difference(&self, mut out: impl TermOut) -> io::Result<()> {
-        fn write_ntimes(mut out: impl WriteAnsi, n: usize, s: &str) -> io::Result<()> {
-            out.with_reset(|o| {
-                o.fg(9)?.bold()?.underline()?;
-                (0..n).try_for_each(|_| o.write_str(s))
-            })
-        }
-        match self {
-            Word::Plain(s) => out.with_reset(|o| o.fg(9)?.underline()?.write_str(s.as_str())),
-            Word::U0020(n) => out.with_reset(|o| o.fg(9)?.underline()?.write_spaces(*n)),
-            Word::LeadTrailU0020(n) => {
-                out.with_reset(|o| o.fg(9)?.bg(11)?.underline()?.write_spaces(*n))
-            }
-            Word::Tab(n) => write_ntimes(out, *n, "\\t"),
-            Word::Cr(n) => write_ntimes(out, *n, "\\r"),
-            Word::CodePoints(s)
-            | Word::FloatLeft { string: s, .. }
-            | Word::FloatRight { string: s, .. } => {
-                out.with_reset(|o| o.fg(9)?.bold()?.underline()?.write_str(s.as_str()))
-            }
-            Word::Noeol => out.with_reset(|o| o.fg(9)?.bold()?.underline()?.write_str("<noeol>")),
-        }
-    }
-}
-
-impl Width for Word {
-    fn width(&self, f: fn(&str) -> usize) -> usize {
-        match self {
-            Word::Plain(s)
-            | Word::CodePoints(s)
-            | Word::FloatLeft { string: s, .. }
-            | Word::FloatRight { string: s, .. } => f(s),
-            Word::U0020(n) | Word::LeadTrailU0020(n) => *n,
-            Word::Tab(n) | Word::Cr(n) => 2 * *n,
-            Word::Noeol => 7,
-        }
-    }
-}
-
-impl PartialEq for Word {
-    fn eq(&self, other: &Self) -> bool {
-        // not transitive
-        match (self, other) {
-            (Word::Plain(s1), Word::Plain(s2)) | (Word::CodePoints(s1), Word::CodePoints(s2)) => {
-                s1 == s2
-            }
-            (Word::U0020(n1), Word::U0020(n2))
-            | (Word::LeadTrailU0020(n1), Word::LeadTrailU0020(n2))
-            | (Word::Tab(n1), Word::Tab(n2))
-            | (Word::Cr(n1), Word::Cr(n2)) => n1 == n2,
+            let left_max_width = wsl.iter().cloned().max().unwrap_or(0);
+            let left_max_width = cmp::max(left_max_width, left_title.len());
+            let right_max_width = wsr.iter().cloned().max().unwrap_or(0);
+            let right_max_width = cmp::max(right_max_width, right_title.len());
+            let mut left_paddings =
+                iter::once(left_max_width - left_title.len()).collect::<VecDeque<_>>();
+            let mut right_paddings =
+                iter::once(right_max_width - right_title.len()).collect::<VecDeque<_>>();
+            left_paddings.extend(wsl.into_iter().map(|w| left_max_width - w));
+            right_paddings.extend(wsr.into_iter().map(|w| right_max_width - w));
             (
-                Word::FloatLeft {
-                    value: v1,
-                    relative_error: r,
-                    absolute_error: d,
-                    ..
-                },
-                Word::FloatRight { value: v2, .. },
+                left_paddings,
+                right_paddings,
+                left_max_width,
+                right_max_width,
             )
-            | (
-                Word::FloatRight { value: v2, .. },
-                Word::FloatLeft {
-                    value: v1,
-                    relative_error: r,
-                    absolute_error: d,
-                    ..
-                },
-            ) => {
-                let r = r.map(Into::into).unwrap_or(f64::NAN);
-                let d = d.map(Into::into).unwrap_or(f64::NAN);
-                ((v1 - v2).abs() <= d || ((v1 - v2) / v2).abs() <= r)
+        };
+
+        fn print_words_same(
+            mut wtr: impl WriteColor,
+            words: &[Word],
+            padding: usize,
+        ) -> io::Result<()> {
+            debug_assert!(words.iter().filter(|w| w.is_lf()).count() <= 1);
+            wtr.reset()?;
+            let mut eol = false;
+            for word in words {
+                match word {
+                    Word::Plain(s) => wtr.write_str(s)?,
+                    Word::Float { string: s, .. } => {
+                        wtr.set_color(color!(fg(Cyan), intense))?;
+                        wtr.write_str(s)?;
+                        wtr.reset()?;
+                    }
+                    Word::U0020s(n) => wtr.write_spaces(n.get())?,
+                    Word::TrailingU0020s(n) => {
+                        wtr.set_color(color!(bg(Yellow), intense, bold))?;
+                        wtr.write_spaces(n.get())?;
+                        wtr.reset()?;
+                    }
+                    Word::Tab => {
+                        wtr.set_color(color!(fg(Yellow), intense, bold))?;
+                        wtr.write_str("\\t")?;
+                        wtr.reset()?;
+                    }
+                    Word::Cr => {
+                        wtr.set_color(color!(fg(Yellow), intense, bold))?;
+                        wtr.write_str("\\r")?;
+                        wtr.reset()?;
+                    }
+                    Word::UnicodeEscape(s) => {
+                        wtr.set_color(color!(fg(Yellow), intense, bold))?;
+                        for c in s.chars() {
+                            write!(wtr, "\\u{:06x}", c as u32)?;
+                        }
+                        wtr.reset()?;
+                    }
+                    Word::Lf => eol = true,
+                }
             }
-            (
-                Word::FloatLeft {
-                    string: s1,
-                    relative_error: r1,
-                    absolute_error: d1,
-                    ..
-                },
-                Word::FloatLeft {
-                    string: s2,
-                    relative_error: r2,
-                    absolute_error: d2,
-                    ..
-                },
-            ) => {
-                let r1 = r1.map(Into::into).unwrap_or(f64::NAN);
-                let d1 = d1.map(Into::into).unwrap_or(f64::NAN);
-                let r2 = r2.map(Into::into).unwrap_or(f64::NAN);
-                let d2 = d2.map(Into::into).unwrap_or(f64::NAN);
-                s1 == s2 && d1 == d2 && r1 == r2
+            if !eol {
+                wtr.set_color(color!(fg(Yellow), intense, bold))?;
+                wtr.write_str("<noeol>")?;
+                wtr.reset()?;
             }
-            (Word::FloatRight { string: s1, .. }, Word::FloatRight { string: s2, .. }) => s1 == s2,
-            (Word::Noeol, Word::Noeol) => true,
+            wtr.write_spaces(padding)
+        }
+
+        fn print_words_different(
+            mut wtr: impl WriteColor,
+            words: &[Word],
+            padding: usize,
+        ) -> io::Result<()> {
+            debug_assert!(words.iter().filter(|w| w.is_lf()).count() <= 1);
+            let mut eol = false;
+            for word in words {
+                match word {
+                    Word::Plain(s) | Word::Float { string: s, .. } => {
+                        wtr.set_color(color!(fg(Red), intense, underline))?;
+                        wtr.write_str(s)?;
+                    }
+                    Word::U0020s(n) => {
+                        wtr.set_color(color!(fg(Red), intense, underline))?;
+                        wtr.write_spaces(n.get())?
+                    }
+                    Word::TrailingU0020s(n) => {
+                        wtr.set_color(color!(fg(Red), bg(Yellow), intense, underline))?;
+                        wtr.write_spaces(n.get())?
+                    }
+                    Word::Tab => {
+                        wtr.set_color(color!(fg(Red), intense, bold, underline))?;
+                        wtr.write_str("\\t")?;
+                    }
+                    Word::Cr => {
+                        wtr.set_color(color!(fg(Red), intense, bold, underline))?;
+                        wtr.write_str("\\r")?;
+                    }
+                    Word::UnicodeEscape(s) => {
+                        wtr.set_color(color!(fg(Red), intense, bold, underline))?;
+                        for c in s.chars() {
+                            write!(wtr, "\\u{:06x}", c as u32)?;
+                        }
+                    }
+                    Word::Lf => eol = true,
+                }
+            }
+            if !eol {
+                wtr.set_color(color!(fg(Red), intense, bold, underline))?;
+                wtr.write_str("<noeol>")?;
+            }
+            wtr.reset()?;
+            wtr.write_spaces(padding)
+        }
+
+        struct DifferentLines<'a> {
+            left: Vec<&'a [Word<'a>]>,
+            right: Vec<&'a [Word<'a>]>,
+            left_max_width: usize,
+            right_max_width: usize,
+        }
+
+        impl DifferentLines<'_> {
+            fn pop_print(
+                &mut self,
+                left_paddings: &mut VecDeque<usize>,
+                right_paddings: &mut VecDeque<usize>,
+                mut wtr: impl WriteColor,
+            ) -> io::Result<()> {
+                for pair in self.left.iter().zip_longest(&self.right) {
+                    wtr.write_str("│")?;
+                    match pair {
+                        EitherOrBoth::Both(left, right) => {
+                            let left_padding = left_paddings.pop_front().unwrap();
+                            let right_padding = right_paddings.pop_front().unwrap();
+                            print_words_different(&mut wtr, left, left_padding)?;
+                            wtr.write_str("│")?;
+                            print_words_different(&mut wtr, right, right_padding)?;
+                        }
+                        EitherOrBoth::Left(left) => {
+                            let left_padding = left_paddings.pop_front().unwrap();
+                            print_words_different(&mut wtr, left, left_padding)?;
+                            wtr.write_str("│")?;
+                            wtr.write_spaces(self.right_max_width)?;
+                        }
+                        EitherOrBoth::Right(right) => {
+                            let right_padding = right_paddings.pop_front().unwrap();
+                            wtr.write_spaces(self.left_max_width)?;
+                            wtr.write_str("│")?;
+                            print_words_different(&mut wtr, right, right_padding)?;
+                        }
+                    }
+                    wtr.write_str("│\n")?;
+                }
+                self.left.clear();
+                self.right.clear();
+                Ok(())
+            }
+        }
+
+        let mut spec = ColorSpec::new();
+        spec.set_fg(Some(Color::Magenta)).set_bold(true);
+        wtr.write_str("│")?;
+        wtr.set_color(&spec)?;
+        wtr.write_str(left_title)?;
+        wtr.reset()?;
+        wtr.write_spaces(left_paddings.pop_front().unwrap())?;
+        wtr.write_str("│")?;
+        wtr.set_color(&spec)?;
+        wtr.write_str(right_title)?;
+        wtr.reset()?;
+        wtr.write_spaces(right_paddings.pop_front().unwrap())?;
+        wtr.write_str("│\n")?;
+
+        let mut different = DifferentLines {
+            left: vec![],
+            right: vec![],
+            left_max_width,
+            right_max_width,
+        };
+        for line in self.0.diff_lines() {
+            match line {
+                DiffLine::Left(l) => different.left.push(l),
+                DiffLine::Right(r) => different.right.push(r),
+                DiffLine::Both { left, right } => {
+                    different.pop_print(&mut left_paddings, &mut right_paddings, &mut wtr)?;
+                    wtr.write_str("│")?;
+                    print_words_same(&mut wtr, left, left_paddings.pop_front().unwrap())?;
+                    wtr.write_str("│")?;
+                    print_words_same(&mut wtr, right, right_paddings.pop_front().unwrap())?;
+                    wtr.write_str("│\n")?;
+                }
+            }
+        }
+        different.pop_print(&mut left_paddings, &mut right_paddings, &mut wtr)
+    }
+}
+
+impl Serialize for TextDiff {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Repr<'a> {
+            expected: &'a str,
+            actual: &'a str,
+            diff: &'a [DiffLine<'a>],
+        }
+
+        Repr {
+            expected: self.0.left_string(),
+            actual: self.0.right_string(),
+            diff: self.0.diff_lines(),
+        }
+        .serialize(serializer)
+    }
+}
+
+fn parse_words(s: &str, floats: bool) -> impl Iterator<Item = Word> {
+    use combine::char::char;
+    use combine::parser::choice::or;
+    use combine::parser::range::recognize;
+    use combine::stream::state::{IndexPositioner, State};
+    use combine::{choice, easy, eof, many, optional, satisfy, skip_many1, Parser};
+
+    fn no_u0020<'a>(
+        floats: bool,
+    ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Word<'a>> {
+        let plain_or_float = recognize(skip_many1(satisfy(|c: char| {
+            !(c.is_whitespace() || c.is_control())
+        })))
+        .map(move |string| {
+            if floats {
+                match f64::from_str(string) {
+                    Ok(value) => Word::Float { value, string },
+                    Err(_) => Word::Plain(string),
+                }
+            } else {
+                Word::Plain(string)
+            }
+        });
+        let tab = recognize(char('\t')).map(|_| Word::Tab);
+        let cr = recognize(char('\r')).map(|_| Word::Cr);
+        let lf = recognize(char('\n')).map(|_| Word::Lf);
+        let codepoints = recognize(skip_many1(satisfy(|c: char| {
+            (c.is_whitespace() || c.is_control()) && ![' ', '\t', '\r', '\n'].contains(&c)
+        })))
+        .map(Word::UnicodeEscape);
+        choice((plain_or_float, tab, cr, lf, codepoints))
+    }
+
+    let with_u0020s = recognize(skip_many1(char(' ')))
+        .and(optional(no_u0020(floats)))
+        .map::<_, SmallVec<[Word; 2]>>(|(s, word): (&str, _)| {
+            let n = NonZeroUsize::new(s.len()).unwrap();
+            match word {
+                Some(Word::Lf) => [Word::TrailingU0020s(n), Word::Lf].into(),
+                Some(word) => [Word::U0020s(n), word].into(),
+                None => iter::once(Word::TrailingU0020s(n)).collect(),
+            }
+        });
+
+    many::<Vec<_>, _>(or(
+        with_u0020s,
+        no_u0020(floats).map(|w| iter::once(w).collect()),
+    ))
+    .skip(eof())
+    .easy_parse(State::with_positioner(s, IndexPositioner::new()))
+    .unwrap()
+    .0
+    .into_iter()
+    .flatten()
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+enum Word<'a> {
+    Plain(&'a str),
+    U0020s(NonZeroUsize),
+    TrailingU0020s(NonZeroUsize),
+    Tab,
+    Cr,
+    Lf,
+    UnicodeEscape(&'a str),
+    Float { value: f64, string: &'a str },
+}
+
+impl Word<'_> {
+    fn is_lf(self) -> bool {
+        match self {
+            Word::Lf => true,
             _ => false,
+        }
+    }
+
+    fn width(self, str_width: fn(&str) -> usize) -> Option<NonZeroUsize> {
+        match self {
+            Word::Plain(s) => NonZeroUsize::new(str_width(s)),
+            Word::U0020s(n) | Word::TrailingU0020s(n) => Some(n),
+            Word::Tab | Word::Cr => NonZeroUsize::new(2),
+            Word::UnicodeEscape(s) => NonZeroUsize::new(8 * s.chars().count()),
+            Word::Float { string, .. } => NonZeroUsize::new(str_width(string)),
+            Word::Lf => None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DiffLine<'a> {
+    Left(Box<[Word<'a>]>),
+    Right(Box<[Word<'a>]>),
+    Both {
+        left: Box<[Word<'a>]>,
+        right: Box<[Word<'a>]>,
+    },
+}
+
+impl<'a> DiffLine<'a> {
+    pub(self) fn is_both(&self) -> bool {
+        match self {
+            DiffLine::Both { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// # Panics
+    ///
+    /// Panics if `self` is not `Both`.
+    pub(self) fn ref_unwrap_both_right(&self) -> &[Word<'a>] {
+        match self {
+            DiffLine::Both { right, .. } => right,
+            _ => panic!(),
+        }
+    }
+}
+
+mod inner {
+    use crate::judging::text::{DiffLine, Word};
+
+    use std::mem;
+    use std::sync::Arc;
+
+    /// **NOTE:** this is a self-referential struct.
+    #[derive(Debug)]
+    pub(super) struct TextInner {
+        string: Arc<String>,
+        words: Box<[Word<'static>]>, // This `'static` is fake
+    }
+
+    impl TextInner {
+        pub(super) fn new(string: Arc<String>, words: impl FnOnce(&str) -> Box<[Word]>) -> Self {
+            Self {
+                words: unsafe { mem::transmute(words(&string)) },
+                string,
+            }
+        }
+
+        pub(super) fn string(&self) -> &str {
+            &self.string
+        }
+
+        pub(super) fn words<'a>(&'a self) -> &[Word<'a>] {
+            &self.words
+        }
+    }
+
+    /// **NOTE:** this is a self-referential struct.
+    #[derive(Debug)]
+    pub(super) struct TextDiffInner {
+        strings: (Arc<String>, Arc<String>),
+        diff_lines: Box<[DiffLine<'static>]>, // This `'static` is fake
+    }
+
+    impl TextDiffInner {
+        pub(super) fn new(
+            expected: Arc<String>,
+            actual: Arc<String>,
+            diff_lines: impl for<'a> FnOnce(&'a str, &'a str) -> Box<[DiffLine<'a>]>,
+        ) -> Self {
+            Self {
+                diff_lines: unsafe { mem::transmute(diff_lines(&expected, &actual)) },
+                strings: (expected, actual),
+            }
+        }
+
+        pub(super) fn left_string(&self) -> &str {
+            &self.strings.0
+        }
+
+        pub(super) fn right_string(&self) -> &str {
+            &self.strings.1
+        }
+
+        pub(super) fn diff_lines<'a>(&'a self) -> &[DiffLine<'a>] {
+            &self.diff_lines
+        }
+
+        pub(super) fn try_shrink_right(self) -> std::result::Result<TextInner, Self> {
+            if self.diff_lines.iter().all(DiffLine::is_both) {
+                let words = self
+                    .diff_lines
+                    .iter()
+                    .flat_map(DiffLine::ref_unwrap_both_right)
+                    .cloned()
+                    .collect::<Box<[_]>>();
+                drop(self.diff_lines);
+                drop(self.strings.0);
+                Ok(TextInner {
+                    string: self.strings.1,
+                    words,
+                })
+            } else {
+                Err(self)
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::judging::text::{Line, Text, Word};
+    use crate::judging::text::{Text, TextDiff};
+    use crate::terminal::AnsiWithProps;
 
+    use failure::Fallible;
+    use once_cell::sync::Lazy;
+    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
+    use stable_deref_trait::StableDeref;
+    use termcolor::{Ansi, Color, ColorSpec, WriteColor};
+
+    use std::convert::TryFrom;
+    use std::io::Write;
+    use std::str;
     use std::sync::Arc;
 
     #[test]
-    fn it_parses_command_output() {
-        static S: &str = "a b 1\n\
-                          ccc 2\n  \
-                          \t  \n";
-        assert_eq!(
-            Text::exact(S).lines(),
-            text(
-                18,
-                &[
-                    &with_spaces(&[plain("a"), plain("b"), plain("1")]),
-                    &with_spaces(&[plain("ccc"), plain("2")]),
-                    &[lead_trail(2), tab(1), lead_trail(2)],
-                ]
-            )
-            .lines(),
-        );
-        assert_eq!(Text::exact("").lines(), text(0, &[&[Word::Noeol]]).lines());
-    }
-
-    fn text(size: usize, words: &[&[Word]]) -> Text {
-        let lines = words.iter().map(|ws| Line { words: ws.to_vec() }).collect();
-        Text { size, lines }
-    }
-
-    fn with_spaces(words: &[Word]) -> Vec<Word> {
-        let mut r = vec![words[0].clone()];
-        for w in words.iter().skip(1) {
-            r.extend(vec![Word::U0020(1), w.clone()]);
+    fn it_parses_and_prints() -> Fallible<()> {
+        fn test(s: &str, expected: &'static str) -> Fallible<()> {
+            let text = Text::new(Arc::new(s.to_owned()));
+            let mut wtr = AnsiWithProps::new();
+            text.print_pretty(&mut wtr)?;
+            assert_eq!(String::try_from(wtr)?, expected);
+            Ok(())
         }
-        r
+
+        static INPUT1: &str = "foo\n   bar\nbaz\n";
+        static EXPECTED1: &str = "foo\n   bar\nbaz\n";
+
+        static INPUT2: &str = "42.0\n";
+        static EXPECTED2: &str = "42.0\n";
+
+        static INPUT3: &str = "foo\nbar";
+        static EXPECTED3: Lazy<String> = sync_lazy! {
+            let mut wtr = Ansi::new(vec![]);
+            wtr.write_all(b"foo\nbar").unwrap();
+            wtr.set_color(&fg_yellow_intense_bold()).unwrap();
+            wtr.write_all(b"<noeol>\n").unwrap();
+            wtr.reset().unwrap();
+            String::from_utf8(wtr.into_inner()).unwrap()
+        };
+
+        static INPUT4: &str = "foo ";
+        static EXPECTED4: Lazy<String> = sync_lazy! {
+            let mut wtr = Ansi::new(vec![]);
+            wtr.write_all(b"foo").unwrap();
+            wtr.set_color(&bg_yellow_intense_bold()).unwrap();
+            wtr.write_all(b" ").unwrap();
+            wtr.reset().unwrap();
+            wtr.set_color(&fg_yellow_intense_bold()).unwrap();
+            wtr.write_all(b"<noeol>\n").unwrap();
+            wtr.reset().unwrap();
+            String::from_utf8(wtr.into_inner()).unwrap()
+        };
+
+        static INPUT5: &str = "[ \x1b ]\n";
+        static EXPECTED5: Lazy<String> = sync_lazy! {
+            let mut wtr = Ansi::new(vec![]);
+            wtr.write_all(b"[ ").unwrap();
+            wtr.set_color(&fg_yellow_intense_bold()).unwrap();
+            wtr.write_all(b"\\u00001b").unwrap();
+            wtr.reset().unwrap();
+            wtr.write_all(b" ]\n").unwrap();
+            String::from_utf8(wtr.into_inner()).unwrap()
+        };
+
+        test(INPUT1, EXPECTED1)?;
+        test(INPUT2, &EXPECTED2)?;
+        test(INPUT3, &EXPECTED3)?;
+        test(INPUT4, &EXPECTED4)?;
+        test(INPUT5, &EXPECTED5)
     }
 
-    fn plain(s: &str) -> Word {
-        Word::Plain(Arc::new(s.to_owned()))
+    #[test]
+    fn it_prints_diff() -> Fallible<()> {
+        fn test(left: &str, right: &str, expected: &str) -> Fallible<()> {
+            let (left, right) = (Arc::new(left.to_owned()), Arc::new(right.to_owned()));
+            let diff = TextDiff::new(left, right, None);
+            let mut wtr = AnsiWithProps::new();
+            diff.print_pretty_with_title("expected:", "actual:", &mut wtr)?;
+            assert_eq!(String::try_from(wtr)?, expected);
+            Ok(())
+        }
+
+        static LEFT: &str = "foo\n";
+        static RIGHT: &str = "foo";
+        static EXPECTED: Lazy<String> = sync_lazy! {
+            let mut wtr = Ansi::new(vec![]);
+            wtr.write_all("│".as_ref()).unwrap();
+            wtr.set_color(&fg_magenta_bold()).unwrap();
+            wtr.write_all(b"expected:").unwrap();
+            wtr.reset().unwrap();
+            wtr.write_all("│".as_ref()).unwrap();
+            wtr.set_color(&fg_magenta_bold()).unwrap();
+            wtr.write_all(b"actual:").unwrap();
+            wtr.reset().unwrap();
+            wtr.write_all("   │\n│".as_ref()).unwrap();
+            wtr.set_color(&fg_red_intense_underline()).unwrap();
+            wtr.write_all(b"foo").unwrap();
+            wtr.reset().unwrap();
+            wtr.write_all("      │".as_ref()).unwrap();
+            wtr.set_color(&fg_red_intense_underline()).unwrap();
+            wtr.write_all(b"foo").unwrap();
+            wtr.set_color(&fg_red_intense_bold_underline()).unwrap();
+            wtr.write_all(b"<noeol>").unwrap();
+            wtr.reset().unwrap();
+            wtr.write_all("│\n".as_ref()).unwrap();
+            String::from_utf8(wtr.into_inner()).unwrap()
+        };
+
+        test(LEFT, RIGHT, &EXPECTED)
     }
 
-    fn lead_trail(n: usize) -> Word {
-        Word::LeadTrailU0020(n)
+    fn fg_red_intense_underline() -> ColorSpec {
+        let mut ret = ColorSpec::new();
+        ret.set_fg(Some(Color::Red))
+            .set_intense(true)
+            .set_underline(true);
+        ret
     }
 
-    fn tab(n: usize) -> Word {
-        Word::Tab(n)
+    fn fg_red_intense_bold_underline() -> ColorSpec {
+        let mut ret = ColorSpec::new();
+        ret.set_fg(Some(Color::Red))
+            .set_intense(true)
+            .set_bold(true)
+            .set_underline(true);
+        ret
+    }
+
+    fn fg_yellow_intense_bold() -> ColorSpec {
+        let mut ret = ColorSpec::new();
+        ret.set_fg(Some(Color::Yellow))
+            .set_intense(true)
+            .set_bold(true);
+        ret
+    }
+
+    fn fg_magenta_bold() -> ColorSpec {
+        let mut ret = ColorSpec::new();
+        ret.set_fg(Some(Color::Magenta)).set_bold(true);
+        ret
+    }
+
+    fn bg_yellow_intense_bold() -> ColorSpec {
+        let mut ret = ColorSpec::new();
+        ret.set_bg(Some(Color::Yellow))
+            .set_intense(true)
+            .set_bold(true);
+        ret
+    }
+
+    #[allow(dead_code)]
+    fn static_assert_string_and_arc_string_are_stable_deref() {
+        fn pass<T: StableDeref>() {}
+
+        pass::<String>();
+        pass::<Arc<String>>();
     }
 }

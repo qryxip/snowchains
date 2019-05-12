@@ -1,124 +1,135 @@
 #![allow(non_snake_case)]
 
 use crate::errors::{
-    ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceError,
-    ServiceErrorKind, ServiceResult,
+    ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceErrorKind,
+    ServiceResult,
 };
 use crate::service::session::HttpSession;
 use crate::service::{
     Contest, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps, RetrieveSubmissionsOutcome,
     RetrieveSubmissionsProps, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem,
-    RetrieveTestCasesProps, Service, SessionProps, SubmitOutcome, SubmitProps,
+    RetrieveTestCasesProps, Service, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
+    SubmitOutcomeResponse, SubmitProps,
 };
-use crate::terminal::{HasTerm, Term, WriteAnsi as _};
+use crate::terminal::{HasTermProps, Input};
 use crate::testsuite::{self, BatchSuite, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
+use crate::util::indexmap::IndexSetAsRefStrExt as _;
 use crate::util::scraper::ElementRefExt as _;
-use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
 
 use if_chain::if_chain;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
-use reqwest::{header, StatusCode};
+use reqwest::header;
 use scraper::{ElementRef, Html, Node, Selector};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha512};
+use termcolor::WriteColor;
 use tokio::runtime::Runtime;
 use url::Url;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
-use std::io::{self, Write as _};
+use std::io;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-pub(crate) fn login(props: SessionProps, term: impl Term) -> ServiceResult<LoginOutcome> {
-    Codeforces::try_new(props, term)?.login(LoginOption::Explicit)
+pub(super) fn login(
+    props: SessionProps,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
+) -> ServiceResult<LoginOutcome> {
+    Codeforces::try_new(props, stdin, stderr)?.login(LoginOption::Explicit)
 }
 
-pub(crate) fn retrieve_testcases(
+pub(super) fn retrieve_testcases(
     props: (SessionProps, RetrieveTestCasesProps<String>),
-    term: impl Term,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<RetrieveTestCasesOutcome> {
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    Codeforces::try_new(sess_props, term)?.retrieve_testcases(retrieve_props)
+    Codeforces::try_new(sess_props, stdin, stderr)?.retrieve_testcases(retrieve_props)
 }
 
-pub(crate) fn retrieve_langs(
+pub(super) fn retrieve_langs(
     props: (SessionProps, RetrieveLangsProps<String>),
-    term: impl Term,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<RetrieveLangsOutcome> {
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    Codeforces::try_new(sess_props, term)?.retrieve_langs(retrieve_props)
+    Codeforces::try_new(sess_props, stdin, stderr)?.retrieve_langs(retrieve_props)
 }
 
-pub(crate) fn retrieve_submissiosn(
+pub(super) fn retrieve_submissions(
     props: (SessionProps, RetrieveSubmissionsProps<String>),
-    term: impl Term,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<RetrieveSubmissionsOutcome> {
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    Codeforces::try_new(sess_props, term)?.retrieve_submissions(retrieve_props)
+    Codeforces::try_new(sess_props, stdin, stderr)?.retrieve_submissions(retrieve_props)
 }
 
-pub(crate) fn submit(
+pub(super) fn submit(
     props: (SessionProps, SubmitProps<String>),
-    term: impl Term,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<SubmitOutcome> {
     let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    Codeforces::try_new(sess_props, term)?.submit(submit_props)
+    Codeforces::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
 
-struct Codeforces<T: Term> {
+#[derive(Debug)]
+struct Codeforces<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
-    term: T,
+    stdin: I,
+    stderr: E,
     session: HttpSession,
     runtime: Runtime,
     handle: Option<String>,
     api_key: Option<ApiKey>,
 }
 
-impl<T: Term> HasTerm for Codeforces<T> {
-    type Term = T;
+impl<I: Input, E: WriteColor + HasTermProps> Service for Codeforces<I, E> {
+    type Stdin = I;
+    type Stderr = E;
 
-    fn term(&mut self) -> &mut T {
-        &mut self.term
+    fn requirements(&mut self) -> (&mut I, &mut E, &mut HttpSession, &mut Runtime) {
+        (
+            &mut self.stdin,
+            &mut self.stderr,
+            &mut self.session,
+            &mut self.runtime,
+        )
     }
 }
 
-impl<T: Term> Service for Codeforces<T> {
-    type Stderr = T::Stderr;
-
-    fn requirements(&mut self) -> (&mut T::Stderr, &mut HttpSession, &mut Runtime) {
-        (self.term.stderr(), &mut self.session, &mut self.runtime)
-    }
-}
-
-impl<T: Term> Codeforces<T> {
-    fn try_new(props: SessionProps, mut term: T) -> ServiceResult<Self> {
+impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
+    fn try_new(props: SessionProps, stdin: I, mut stderr: E) -> ServiceResult<Self> {
         let mut runtime = Runtime::new()?;
-        let session = props.start_session(term.stderr(), &mut runtime)?;
+        let session = props.start_session(&mut stderr, &mut runtime)?;
         Ok(Self {
             login_retries: props.login_retries,
-            term,
+            stdin,
+            stderr,
             session,
             runtime,
             handle: None,
@@ -133,8 +144,8 @@ impl<T: Term> Codeforces<T> {
         let mut sent = false;
 
         if res.status() == 302 && option == LoginOption::Explicit {
-            writeln!(self.stderr(), "Already logged in.")?;
-            self.stderr().flush()?;
+            writeln!(self.stderr, "Already logged in.")?;
+            self.stderr.flush()?;
         } else if res.status() == 200 {
             let mut retries = self.login_retries;
             loop {
@@ -158,8 +169,8 @@ impl<T: Term> Codeforces<T> {
                     return Err(ServiceErrorKind::LoginRetriesExceeded.into());
                 }
                 retries = retries.map(|n| n - 1);
-                writeln!(self.stderr(), "Failed to login. Try again.")?;
-                self.stderr().flush()?;
+                writeln!(self.stderr, "Failed to login. Try again.")?;
+                self.stderr.flush()?;
             }
         }
 
@@ -228,7 +239,7 @@ impl<T: Term> Codeforces<T> {
         }
 
         let mut not_found = problems
-            .map(|ps| ps.iter().collect::<Vec<_>>())
+            .map(|ps| ps.iter().collect::<IndexSet<_>>())
             .unwrap_or_default();
 
         for RetrieveTestCasesOutcomeProblem {
@@ -238,15 +249,17 @@ impl<T: Term> Codeforces<T> {
             ..
         } in &outcome.problems
         {
-            test_suite.save(slug, test_suite_path, self.stderr())?;
-            not_found.remove_item_(&slug);
+            test_suite.save(test_suite_path)?;
+            not_found.remove(&slug);
         }
-        self.stderr().flush()?;
+        self.stderr.flush()?;
 
         if !not_found.is_empty() {
-            self.stderr()
-                .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
-            self.stderr().flush()?;
+            self.stderr.set_color(color!(fg(Yellow), intense))?;
+            write!(self.stderr, "Not found: {}", not_found.format_as_str_list())?;
+            self.stderr.reset()?;
+            writeln!(self.stderr)?;
+            self.stderr.flush()?;
         }
 
         if open_in_browser {
@@ -269,7 +282,6 @@ impl<T: Term> Codeforces<T> {
             .session
             .resolve_url(&format!("/contest/{}/submit", contest.id))?;
         let langs = self.get(&url).recv_html()?.extract_langs()?;
-        self.print_lang_list(&langs)?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
@@ -317,8 +329,7 @@ impl<T: Term> Codeforces<T> {
             skip_checking_if_accepted,
         } = props;
 
-        let src = crate::fs::read_to_string(&src_path)?;
-        let src_len = src.len();
+        let code = crate::fs::read_to_string(&src_path)?;
 
         self.login(LoginOption::WithHandle)?;
 
@@ -354,49 +365,48 @@ impl<T: Term> Codeforces<T> {
             .get(&lang_name)
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
-        writeln!(
-            self.stderr(),
-            "Submitting as {:?} (ID: {:?})",
-            lang_name,
-            lang_id,
-        )?;
 
         let mut values = html.extract_hidden_values(selector!("form.submit-form"))?;
         values.insert("contestId".to_owned(), contest.id.to_string());
         values.insert("submittedProblemIndex".to_owned(), problem.clone());
         values.insert("tabSize".to_owned(), "4".to_owned());
         values.insert("programTypeId".to_owned(), lang_id.clone());
-        values.insert("source".to_owned(), src);
+        values.insert("source".to_owned(), code.clone());
 
-        let status = self
+        let res = self
             .post(&submit_path)
             .acceptable(&[200, 302])
-            .send_form(&values)?
-            .status();
-        if status == 200 {
-            return Err(ServiceError::from(ServiceErrorKind::SubmissionRejected {
-                lang_name,
-                lang_id,
-                size: src_len,
-                status: StatusCode::OK,
-                location: None,
-            }));
-        }
+            .send_form(&values)?;
+        let rejected = res.status() == 200;
+        let header_location = res.header_location()?.map(ToOwned::to_owned);
 
-        if open_in_browser {
+        if !rejected && open_in_browser {
             self.open_in_browser(&format!("/contest/{}/my", contest.id))?;
         }
-        Ok(SubmitOutcome {})
+
+        Ok(SubmitOutcome {
+            rejected,
+            response: SubmitOutcomeResponse {
+                status: res.status(),
+                header_location,
+            },
+            language: SubmitOutcomeLanguage {
+                name: lang_name,
+                id: lang_id,
+            },
+            file: src_path,
+            code,
+        })
     }
 
-    fn api<E: DeserializeOwned + Send + Sync + 'static>(
+    fn api<T: DeserializeOwned + Send + Sync + 'static>(
         &mut self,
         method: &'static str,
         query_pairs: &[(&'static str, &str)],
-    ) -> ServiceResult<E> {
-        struct ApiOk<E: DeserializeOwned>(E);
+    ) -> ServiceResult<T> {
+        struct ApiOk<T: DeserializeOwned>(T);
 
-        impl<'de, E: DeserializeOwned> Deserialize<'de> for ApiOk<E> {
+        impl<'de, T: DeserializeOwned> Deserialize<'de> for ApiOk<T> {
             fn deserialize<D: Deserializer<'de>>(
                 deserializer: D,
             ) -> std::result::Result<Self, D::Error> {
@@ -407,7 +417,7 @@ impl<T: Term> Codeforces<T> {
                     result: E,
                 }
 
-                let repr = Repr::<E>::deserialize(deserializer)?;
+                let repr = Repr::<T>::deserialize(deserializer)?;
                 if repr.status == "OK" {
                     Ok(ApiOk(repr.result))
                 } else {
@@ -437,7 +447,10 @@ impl<T: Term> Codeforces<T> {
             }
         }
 
-        fn ask_api_key(this: &mut Codeforces<impl Term>, p: &mut bool) -> io::Result<ApiKey> {
+        fn ask_api_key(
+            this: &mut Codeforces<impl Input, impl WriteColor + HasTermProps>,
+            p: &mut bool,
+        ) -> io::Result<ApiKey> {
             *p = true;
             let key = this.prompt_password_stderr("API Key: ")?;
             let secret = this.prompt_password_stderr("API Secret: ")?;
@@ -502,7 +515,7 @@ impl<T: Term> Codeforces<T> {
     }
 }
 
-#[derive(Clone, Copy, derive_more::Display)]
+#[derive(Clone, Copy, Debug, derive_more::Display)]
 #[display(fmt = "{}", id)]
 struct CodeforcesContest {
     id: u64,
@@ -524,13 +537,13 @@ impl Contest for CodeforcesContest {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum LoginOption {
     WithHandle,
     Explicit,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ApiKey {
     key: String,
     secret: String,
@@ -546,7 +559,7 @@ enum ContestPhase {
     Finished,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct User {
     // handle: String,
 // email: Option<String>,
@@ -569,7 +582,7 @@ struct User {
 // titlePhoto: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct ContestEntity {
     // id: u64,
     // name: String,
@@ -590,7 +603,7 @@ struct ContestEntity {
     // season: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Problem {
     // contestId: Option<u64>,
     // problemsetName: Option<String>,
@@ -601,7 +614,7 @@ struct Problem {
     // tags: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Submission {
     id: u64,
     // contestId: Option<u64>,
@@ -617,7 +630,7 @@ struct Submission {
     // memoryConsumedBytes: f64,
 }
 
-#[derive(PartialEq, Deserialize)]
+#[derive(Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 enum SubmissionVerdict {
     Failed,
@@ -639,7 +652,7 @@ enum SubmissionVerdict {
     Rejected,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Standings {
     contest: ContestEntity,
     problems: Vec<Problem>,

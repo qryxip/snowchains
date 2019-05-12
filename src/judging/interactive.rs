@@ -1,23 +1,25 @@
 use crate::errors::JudgeResult;
-use crate::judging::text::{Line, Text, Width, Word};
-use crate::judging::{JudgingCommand, Outcome};
-use crate::terminal::{TermOut, WriteSpaces as _};
+use crate::judging::text::Text;
+use crate::judging::{JudgingCommand, Verdict};
+use crate::terminal::HasTermProps;
 use crate::testsuite::InteractiveCase;
 use crate::time::MillisRoundedUp as _;
 use crate::util::collections::NonEmptyVec;
 
 use derive_new::new;
 use futures::{task, try_ready, Async, Future, Poll, Stream};
+use serde_derive::Serialize;
+use termcolor::{Color, ColorSpec, WriteColor};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{cmp, fmt, io, mem, str};
+use std::{fmt, io, mem};
 
 pub(super) fn judge(
     case: &InteractiveCase,
     solver: &Arc<JudgingCommand>,
-) -> JudgeResult<impl Future<Item = InteractiveOutcome, Error = io::Error>> {
+) -> JudgeResult<impl Future<Item = InteractiveVerdict, Error = io::Error>> {
     let t_trim_crlf = case.tester().crlf_to_lf();
     let s_trim_crlf = solver.crlf_to_lf();
     let mut tester = case.tester().spawn_async_piped()?;
@@ -39,11 +41,12 @@ pub(super) fn judge(
         solver_status: Waiting::new(solver, start, deadline, Output::SolverTerminated),
     }
     .collect();
-    Ok(stream.map(|outputs| InteractiveOutcome {
+    Ok(stream.map(|outputs| InteractiveVerdict {
         outputs: NonEmptyVec::try_new(outputs).unwrap(),
     }))
 }
 
+#[derive(Debug)]
 struct Interaction {
     tester_to_solver: Pipe<tokio_process::ChildStdout, tokio_process::ChildStdin>,
     solver_to_tester: Pipe<tokio_process::ChildStdout, tokio_process::ChildStdin>,
@@ -86,7 +89,7 @@ impl Stream for Interaction {
     }
 }
 
-#[derive(new)]
+#[derive(Debug, new)]
 struct Waiting {
     #[new(value = "false")]
     finished: bool,
@@ -113,7 +116,7 @@ impl Stream for Waiting {
                 let status = try_ready!(self.proc.poll());
                 output = Some((self.construct_output)(
                     status.success(),
-                    Text::exact(&format!("{}\n", status)),
+                    Text::new(Arc::new(format!("{}\n", status))),
                     now - self.start,
                 ));
             }
@@ -123,6 +126,7 @@ impl Stream for Waiting {
     }
 }
 
+#[derive(Debug)]
 enum Pipe<O: AsyncRead, I: AsyncWrite> {
     Ready,
     NotReady {
@@ -183,12 +187,11 @@ impl<O: AsyncRead, I: AsyncWrite> Stream for Pipe<O, I> {
                         }
                     }
                     let elapsed = Instant::now() - *start;
-                    let output = mem::replace(buf, Vec::with_capacity(0));
-                    let output = str_from_utf8(&output)?;
+                    let output = string_from_utf8(mem::replace(buf, Vec::with_capacity(0)))?;
                     let output = if *crlf_to_lf && output.contains("\r\n") {
-                        Text::exact(&output.replace("\r\n", "\n"))
+                        Text::new(Arc::new(output.replace("\r\n", "\n")))
                     } else {
-                        Text::exact(output)
+                        Text::new(Arc::new(output))
                     };
                     let output = construct_output(output, elapsed);
                     return Ok(Async::Ready(Some(output)));
@@ -204,15 +207,15 @@ impl<O: AsyncRead, I: AsyncWrite> Stream for Pipe<O, I> {
                     task::current().notify();
                     if let Some(lf_pos) = buf.iter().rposition(|&c| c == b'\n') {
                         if *pos > lf_pos {
+                            let elapsed = Instant::now() - *start;
                             let mut output = mem::replace(buf, Vec::with_capacity(1024));
                             *buf = output.split_off(*pos);
                             *pos = 0;
-                            let elapsed = Instant::now() - *start;
-                            let output = str_from_utf8(&output)?;
+                            let output = string_from_utf8(output)?;
                             let output = if *crlf_to_lf && output.contains("\r\n") {
-                                Text::exact(&output.replace("\r\n", "\n"))
+                                Text::new(Arc::new(output.replace("\r\n", "\n")))
                             } else {
-                                Text::exact(output)
+                                Text::new(Arc::new(output))
                             };
                             let output = construct_output(output, elapsed);
                             return Ok(Async::Ready(Some(output)));
@@ -235,7 +238,7 @@ impl<O: AsyncRead, I: AsyncWrite> Stream for Pipe<O, I> {
     }
 }
 
-#[derive(new)]
+#[derive(Debug, new)]
 struct Reading<R: AsyncRead> {
     rdr: R,
     #[new(value = "Vec::with_capacity(1024)")]
@@ -254,12 +257,11 @@ impl<R: AsyncRead> Stream for Reading<R> {
             Async::Ready(0) if self.buf.is_empty() => Ok(Async::Ready(None)),
             Async::Ready(0) => {
                 let elapsed = Instant::now() - self.start;
-                let output = mem::replace(&mut self.buf, Vec::with_capacity(0));
-                let output = str_from_utf8(&output)?;
+                let output = string_from_utf8(mem::replace(&mut self.buf, Vec::with_capacity(0)))?;
                 let output = if self.crlf_to_lf && output.contains("\r\n") {
-                    Text::exact(&output.replace("\r\n", "\n"))
+                    Text::new(Arc::new(output.replace("\r\n", "\n")))
                 } else {
-                    Text::exact(output)
+                    Text::new(Arc::new(output))
                 };
                 let output = (self.construct_output)(output, elapsed);
                 Ok(Async::Ready(Some(output)))
@@ -274,14 +276,14 @@ impl<R: AsyncRead> Stream for Reading<R> {
             Async::NotReady => {
                 task::current().notify();
                 if let Some(lf_pos) = self.buf.iter().rposition(|&c| c == b'\n') {
+                    let elapsed = Instant::now() - self.start;
                     let mut output = mem::replace(&mut self.buf, Vec::with_capacity(1024));
                     self.buf = output.split_off(lf_pos + 1);
-                    let elapsed = Instant::now() - self.start;
-                    let output = str_from_utf8(&output)?;
+                    let output = string_from_utf8(output)?;
                     let output = if self.crlf_to_lf && output.contains("\r\n") {
-                        Text::exact(&output.replace("\r\n", "\n"))
+                        Text::new(Arc::new(output.replace("\r\n", "\n")))
                     } else {
-                        Text::exact(output)
+                        Text::new(Arc::new(output))
                     };
                     let output = (self.construct_output)(output, elapsed);
                     Ok(Async::Ready(Some(output)))
@@ -293,8 +295,8 @@ impl<R: AsyncRead> Stream for Reading<R> {
     }
 }
 
-fn str_from_utf8(s: &[u8]) -> io::Result<&str> {
-    str::from_utf8(s).map_err(|_| {
+fn string_from_utf8(bytes: Vec<u8>) -> io::Result<String> {
+    String::from_utf8(bytes).map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             "stream did not contain valid UTF-8",
@@ -302,136 +304,50 @@ fn str_from_utf8(s: &[u8]) -> io::Result<&str> {
     })
 }
 
-pub(super) struct InteractiveOutcome {
+#[derive(Debug, Serialize)]
+pub(crate) struct InteractiveVerdict {
     outputs: NonEmptyVec<Output>,
 }
 
-impl InteractiveOutcome {
-    fn success(&self) -> bool {
-        self.outputs.iter().all(Output::success)
-    }
-}
-
-impl fmt::Display for InteractiveOutcome {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let time = self.outputs.last().time().millis_rounded_up();
-        if self.success() {
-            write!(f, "Success ({}ms)", time)
-        } else {
-            write!(f, "Failure ({}ms)", time)
-        }
-    }
-}
-
-impl Outcome for InteractiveOutcome {
-    fn failure(&self) -> bool {
-        !self.success()
-    }
-
-    fn color(&self) -> u8 {
-        if self.success() {
-            10
-        } else {
-            9
-        }
-    }
-
-    fn print_details(&self, display_limit: Option<usize>, mut out: impl TermOut) -> io::Result<()> {
-        fn print_str_left_aligned(
-            mut out: impl TermOut,
-            color: Option<u8>,
-            s: &str,
-            width: usize,
-        ) -> io::Result<()> {
-            out.with_reset(|o| {
-                if let Some(color) = color {
-                    o.fg(color)?;
-                }
-                o.bold()?.write_str(s)
-            })?;
-            let str_width = out.str_width(s);
-            out.write_spaces(cmp::max(width, str_width) - str_width)
-        }
-
-        fn print_line_left_aligned(
-            mut out: impl TermOut,
-            line: &Line<Word>,
-            width: usize,
-        ) -> io::Result<()> {
-            for word in line.words() {
-                word.print_as_common(&mut out)?;
+impl Verdict for InteractiveVerdict {
+    fn is_success(&self) -> bool {
+        self.outputs.iter().all(|output| match output {
+            Output::SolverStdout(..) | Output::SolverStderr(..) | Output::SolverTerminated(..) => {
+                true
             }
-            let line_width = line.width(out.str_width_fn());
-            out.write_spaces(cmp::max(width, line_width) - line_width)
-        }
+            _ => false,
+        })
+    }
 
-        let size = self.outputs.iter().map(Output::size).sum();
-        if display_limit.map_or(false, |l| l < size) {
-            return super::writeln_size(out, size);
-        }
+    fn color_spec(&self) -> ColorSpec {
+        let fg = if self.is_success() {
+            Color::Green
+        } else {
+            Color::Red
+        };
+        let mut ret = ColorSpec::new();
+        ret.set_fg(Some(fg)).set_intense(true);
+        ret
+    }
 
-        let str_width = out.str_width_fn();
-
-        let title_width = self.outputs.max(|output| match output {
-            Output::TesterStdout(..)
-            | Output::TesterStderr(..)
-            | Output::SolverStdout(..)
-            | Output::SolverStderr(..) => 13,
-            Output::TesterTerminated(..) | Output::SolverTerminated(..) => 17,
-            Output::TimelimitExceeded(_) => 18,
-        });
-        let left_width = self.outputs.max(|output| match output {
-            Output::TesterStdout(text, _)
-            | Output::TesterStderr(text, _)
-            | Output::TesterTerminated(_, text, _) => text.width(str_width),
-            _ => 0,
-        });
-        let right_width = self.outputs.max(|output| match output {
-            Output::SolverStdout(text, _)
-            | Output::SolverStderr(text, _)
-            | Output::SolverTerminated(_, text, _) => text.width(str_width),
-            _ => 0,
-        });
-
-        let dummy = Text::exact("\n");
-
-        for output in &self.outputs {
-            use self::Output::*;
-            let (title, left, right, time, color) = match output {
-                TesterStdout(s, t) => ("Tester Stdout", s, &dummy, t, None),
-                SolverStdout(s, t) => ("Solver Stdout", &dummy, s, t, None),
-                TesterStderr(s, t) => ("Tester Stderr", s, &dummy, t, Some(11)),
-                SolverStderr(s, t) => ("Solver Stderr", &dummy, s, t, Some(11)),
-                TesterTerminated(true, s, t) => ("Tester terminated", s, &dummy, t, Some(10)),
-                SolverTerminated(true, s, t) => ("Solver terminated", &dummy, s, t, Some(10)),
-                TesterTerminated(false, s, t) => ("Tester terminated", s, &dummy, t, Some(9)),
-                SolverTerminated(false, s, t) => ("Solver terminated", &dummy, s, t, Some(9)),
-                TimelimitExceeded(t) => ("Timelimit Exceeded", &dummy, &dummy, t, Some(9)),
-            };
-            let empty_line = Line::<Word>::default();
-            let (left, right) = (left.lines(), right.lines());
-            for i in 0..cmp::max(left.len(), right.len()) {
-                let left = left.get(i).unwrap_or(&empty_line);
-                let right = right.get(i).unwrap_or(&empty_line);
-                write!(out, "│")?;
-                match i {
-                    0 => print_str_left_aligned(&mut out, color, title, title_width),
-                    _ => out.write_spaces(title_width),
-                }?;
-                write!(out, "│")?;
-                print_line_left_aligned(&mut out, left, left_width)?;
-                write!(out, "│")?;
-                print_line_left_aligned(&mut out, right, right_width)?;
-                match i {
-                    0 => writeln!(out, "│{}ms", time.millis_rounded_up()),
-                    _ => writeln!(out, "│"),
-                }?;
-            }
-        }
-        Ok(())
+    fn print_details(&self, _: Option<usize>, _: impl WriteColor + HasTermProps) -> io::Result<()> {
+        unimplemented!("Run with `--json`")
     }
 }
 
+impl fmt::Display for InteractiveVerdict {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        let time = self.outputs.last().time_millis_rounded_up();
+        if self.is_success() {
+            write!(fmt, "Success ({}ms)", time)
+        } else {
+            write!(fmt, "Failure ({}ms)", time)
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 enum Output {
     SolverStdout(Text, Duration),
     SolverStderr(Text, Duration),
@@ -443,37 +359,16 @@ enum Output {
 }
 
 impl Output {
-    fn success(&self) -> bool {
+    fn time_millis_rounded_up(&self) -> u128 {
         match self {
-            Output::SolverTerminated(success, ..) | Output::TesterTerminated(success, ..) => {
-                *success
-            }
-            Output::TimelimitExceeded(_) => false,
-            _ => true,
+            Output::SolverStdout(_, t)
+            | Output::SolverStderr(_, t)
+            | Output::SolverTerminated(_, _, t)
+            | Output::TesterStdout(_, t)
+            | Output::TesterStderr(_, t)
+            | Output::TesterTerminated(_, _, t)
+            | Output::TimelimitExceeded(t) => *t,
         }
-    }
-
-    fn size(&self) -> usize {
-        match self {
-            Output::SolverStdout(text, _)
-            | Output::SolverStderr(text, _)
-            | Output::SolverTerminated(_, text, _)
-            | Output::TesterStdout(text, _)
-            | Output::TesterStderr(text, _)
-            | Output::TesterTerminated(_, text, _) => text.size(),
-            Output::TimelimitExceeded(_) => 0,
-        }
-    }
-
-    fn time(&self) -> Duration {
-        match self {
-            Output::SolverStdout(_, time)
-            | Output::SolverStderr(_, time)
-            | Output::SolverTerminated(_, _, time)
-            | Output::TesterStdout(_, time)
-            | Output::TesterStderr(_, time)
-            | Output::TesterTerminated(_, _, time)
-            | Output::TimelimitExceeded(time) => *time,
-        }
+        .millis_rounded_up()
     }
 }

@@ -12,8 +12,8 @@ use std::ops::{Deref, Index, IndexMut};
 use std::slice::{self, SliceIndex};
 use std::vec;
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
 pub(crate) struct NonEmptyVec<T>(Vec<T>);
 
 impl<T> NonEmptyVec<T> {
@@ -60,10 +60,6 @@ impl<T> NonEmptyVec<T> {
 
     pub(crate) fn map<B, F: FnMut(T) -> B>(self, f: F) -> NonEmptyVec<B> {
         NonEmptyVec(self.0.into_iter().map(f).collect())
-    }
-
-    pub(crate) fn max<R: Ord>(&self, f: impl Fn(&T) -> R) -> R {
-        self.0.iter().map(&f).max().unwrap()
     }
 }
 
@@ -128,23 +124,21 @@ impl<'a, T> IntoIterator for &'a mut NonEmptyVec<T> {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(transparent)]
-pub(crate) struct NonEmptyIndexMap<K: Eq + Hash, V> {
-    inner: IndexMap<K, V>,
-}
+pub(crate) struct NonEmptyIndexMap<K: Eq + Hash, V>(IndexMap<K, V>);
 
 impl<K: Eq + Hash, V> NonEmptyIndexMap<K, V> {
-    pub(crate) fn try_new(inner: IndexMap<K, V>) -> Option<Self> {
-        if inner.is_empty() {
+    pub(crate) fn try_new(map: IndexMap<K, V>) -> Option<Self> {
+        if map.is_empty() {
             None
         } else {
-            Some(Self { inner })
+            Some(Self(map))
         }
     }
 
     pub(crate) fn into_element(mut self, key: &(impl Hash + indexmap::Equivalent<K>)) -> Option<V> {
-        self.inner.remove(key)
+        self.0.remove(key)
     }
 }
 
@@ -152,7 +146,7 @@ impl<K: Eq + Hash, V> Deref for NonEmptyIndexMap<K, V> {
     type Target = IndexMap<K, V>;
 
     fn deref(&self) -> &IndexMap<K, V> {
-        &self.inner
+        &self.0
     }
 }
 
@@ -161,7 +155,7 @@ impl<'a, K: Eq + Hash, V> IntoIterator for &'a NonEmptyIndexMap<K, V> {
     type IntoIter = indexmap::map::Iter<'a, K, V>;
 
     fn into_iter(self) -> indexmap::map::Iter<'a, K, V> {
-        self.inner.iter()
+        self.0.iter()
     }
 }
 
@@ -170,40 +164,36 @@ impl<K: Eq + Hash, V> IntoIterator for NonEmptyIndexMap<K, V> {
     type IntoIter = indexmap::map::IntoIter<K, V>;
 
     fn into_iter(self) -> indexmap::map::IntoIter<K, V> {
-        self.inner.into_iter()
+        self.0.into_iter()
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct NonEmptyIndexSet<T> {
-    inner: IndexSet<T>,
-}
+#[derive(Debug, Clone)]
+pub(crate) struct NonEmptyIndexSet<T: Hash + Eq>(IndexSet<T>);
 
-impl<T> NonEmptyIndexSet<T> {
-    pub(crate) fn try_new(inner: IndexSet<T>) -> Option<Self> {
-        guard!(!inner.is_empty());
-        Some(Self { inner })
+impl<T: Hash + Eq> NonEmptyIndexSet<T> {
+    pub(crate) fn try_new(set: IndexSet<T>) -> Option<Self> {
+        guard!(!set.is_empty());
+        Some(Self(set))
     }
 }
 
 impl<T: Hash + Eq> NonEmptyIndexSet<T> {
     pub(crate) fn ref_map<B: Hash + Eq, F: FnMut(&T) -> B>(&self, f: F) -> NonEmptyIndexSet<B> {
-        NonEmptyIndexSet {
-            inner: self.inner.iter().map(f).collect(),
-        }
+        Self(self.0.iter().map(f).collect())
     }
 }
 
-impl<T> Deref for NonEmptyIndexSet<T> {
+impl<T: Hash + Eq> Deref for NonEmptyIndexSet<T> {
     type Target = IndexSet<T>;
 
     fn deref(&self) -> &IndexSet<T> {
-        &self.inner
+        &self.0
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Debug)]
 pub(crate) struct SingleKeyValue<K, V> {
     pub(crate) key: K,
     pub(crate) value: V,
@@ -245,12 +235,6 @@ mod tests {
         assert_eq!(
             NonEmptyVec::try_new(vec![(); 10]).unwrap().iter().count(),
             10
-        );
-        assert_eq!(
-            NonEmptyVec::try_new(vec![3, 1, 2])
-                .unwrap()
-                .max(|&x| 10 - x),
-            9,
         );
         assert_eq!(&mut NonEmptyVec::<()>::default()[0], &mut ());
         assert_eq!(NonEmptyVec::<()>::default(), NonEmptyVec(vec![()]));

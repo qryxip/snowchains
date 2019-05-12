@@ -3,7 +3,7 @@ use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum CaseConversion {
     Lower,
     Upper,

@@ -234,7 +234,7 @@ working_directory = "${service}/${snake_case(contest)}/cpp"
 [languages.'c++'.names]
 atcoder = "C++14 (GCC 5.4.1)"
 codeforces = "GNU G++17 7.3.0"
-yukicoder = "C++17(1z） (gcc 8.2.0)"
+yukicoder = "C++17(1z) (gcc 8.2.0)"
 
 [languages.rust]
 src = "${service}/${snake_case(contest)}/rs/src/bin/${kebab_case(problem)}.rs"
@@ -567,14 +567,14 @@ main :: IO ()
 main = do
   RIO.hSetBuffering stdout LineBuffering
   bs <- (!! 0) <$> getArgs
-  let n                   = length bs
-      q                   = if n == 5 then 7 else 100 :: Int
-      reply c1 c2         = B.putStr (if weight c1 < weight c2 then "<\n" else ">\n")
+  let n = length bs
+      q = if n == 5 then 7 else 100 :: Int
+      reply c1 c2 = B.putStr (if weight c1 < weight c2 then "<\n" else ">\n")
       judge a | a == bs   = exitSuccess
               | otherwise = die "wrong"
-      weight c            = fromMaybe (error "out of bounds") (c `elemIndex` bs)
+      weight c = fromMaybe (error "out of bounds") (c `elemIndex` bs)
   printf "%d %d\n" n q
-  forM_ [1..q] $ \_ -> words <$> getLine >>= \case
+  forM_ [1 .. q] $ \_ -> words <$> getLine >>= \case
     ["?", [c1], [c2]] -> reply c1 c2
     ["!", a]          -> judge a
     _                 -> error "invalid"

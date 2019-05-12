@@ -1,12 +1,15 @@
-mod service;
+mod common;
+
+use crate::common::service;
 
 use snowchains::app::{
-    App, Login, Opt, Retrieve, RetrieveLanguages, RetrieveSubmissions, RetrieveTestcases, Submit,
+    App, Login, Opt, OutputKind, Retrieve, RetrieveLanguages, RetrieveSubmissions,
+    RetrieveTestcases, Submit,
 };
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
-use snowchains::terminal::{AnsiColorChoice, Term as _, TermImpl};
+use snowchains::terminal::{AnsiColorChoice, Dumb, TtyOrPiped};
 
 use difference::assert_diff;
 use failure::Fallible;
@@ -15,22 +18,35 @@ use indexmap::IndexMap;
 use pretty_assertions::assert_eq;
 use serde_derive::Deserialize;
 
+use std::convert::TryFrom as _;
 use std::fs::File;
 use std::path::Path;
-use std::{io, mem, str};
+use std::{io, str};
 
 #[test]
 fn it_logins() -> Fallible<()> {
-    fn login(mut app: App<TermImpl<&[u8], Vec<u8>, Vec<u8>>>) -> Fallible<()> {
-        app.run(Opt::Login(Login {
+    fn login(mut app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> {
+        let code = app.run(Opt::Login(Login {
             json: true,
+            output: OutputKind::None,
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Atcoder,
         }))?;
-        let stdout = String::from_utf8(mem::replace(app.term.stdout().get_mut(), vec![]))?;
-        let stderr = String::from_utf8(mem::replace(app.term.stdout().get_mut(), vec![]))?;
+        assert_eq!(code, 0);
+        let stdout = String::try_from(app.stdout)?;
+        let stderr = String::try_from(app.stderr)?;
         serde_json::from_str::<serde_json::Value>(&stdout)?;
-        assert_diff!(&stderr, "", "\n", 0);
+        assert_diff!(
+            &stderr,
+            "GET https://atcoder.jp/login ... 200 OK\n\
+             Username: Password: POST https://atcoder.jp/login ... 302 Found\n\
+             GET https://atcoder.jp/settings ... 200 OK\n\
+             Successfully logged in.\n\
+             POST https://api.dropboxapi.com/2/users/get_current_account ... 200 OK\n\
+             Already authorized.\n",
+            "\n",
+            0
+        );
         Ok(())
     }
 
@@ -43,16 +59,18 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
     service::test_in_tempdir(
         "it_scrapes_samples_from_practice",
         &credentials_as_input()?,
-        |mut app| -> snowchains::Result<()> {
-            app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+        |mut app| -> _ {
+            let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 open: false,
                 json: false,
                 only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 problems: vec![],
+                output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
             })))?;
+            assert_eq!(code, 0);
             let dir = app
                 .working_dir
                 .join(".snowchains")
@@ -71,16 +89,18 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
     service::test_in_tempdir(
         "it_scrapes_samples_from_abc100",
         &credentials_as_input()?,
-        |mut app| -> snowchains::Result<()> {
-            app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+        |mut app| -> _ {
+            let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 open: false,
                 json: false,
                 only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("abc100".to_owned()),
                 problems: vec![],
+                output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
             })))?;
+            assert_eq!(code, 0);
             let dir = app
                 .working_dir
                 .join(".snowchains")
@@ -101,16 +121,18 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
     service::test_in_tempdir(
         "it_scrapes_samples_and_download_files_from_abc099_a",
         &credentials_as_input()?,
-        |mut app| -> Fallible<()> {
-            app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+        |mut app| -> _ {
+            let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 open: false,
                 json: false,
                 only_scraped: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("abc099".to_owned()),
                 problems: vec!["a".to_owned()],
+                output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
             })))?;
+            assert_eq!(code, 0);
             // "ARC058_ABC042"
             let dir = app
                 .working_dir
@@ -152,15 +174,15 @@ fn just_confirm_num_samples_and_timelimit(
     let file = File::open(&path)?;
     match serde_yaml::from_reader::<_, TestSuite>(file)? {
         TestSuite::Batch { timelimit, cases } => {
-            assert_eq!(t, timelimit);
-            assert_eq!(n, cases.len())
+            assert_eq!(timelimit, t);
+            assert_eq!(cases.len(), n)
         }
         TestSuite::Interactive {
             timelimit,
             each_args,
         } => {
-            assert_eq!(t, timelimit);
-            assert_eq!(n, each_args.len())
+            assert_eq!(timelimit, t);
+            assert_eq!(each_args.len(), n)
         }
     }
     Ok(())
@@ -171,18 +193,20 @@ fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
     service::test_in_tempdir(
         "retrieve_submissions_command_works_without_error",
         &credentials_as_input()?,
-        |mut app| -> Fallible<()> {
-            app.run(Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
+        |mut app| -> _ {
+            let code = app.run(Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
                 fetch_all: false,
                 json: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 mode: config::Mode::Debug,
                 problems: vec![],
+                output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
             })))?;
-            let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
-            let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
+            assert_eq!(code, 0);
+            let stdout = String::try_from(app.stdout)?;
+            let stderr = String::try_from(app.stderr)?;
             serde_json::from_str::<serde_json::Value>(&stdout)?;
             assert!(stderr.starts_with(
                 r#"GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 302 Found
@@ -205,7 +229,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
     service::test_in_tempdir(
         "it_fails_to_submit_if_the_lang_name_is_invalid",
         &credentials_as_input()?,
-        |mut app| -> Fallible<()> {
+        |mut app| -> _ {
             static CODE: &[u8] = b"#";
             let wd = app.working_dir.join("atcoder").join("practice").join("py");
             std::fs::create_dir_all(&wd)?;
@@ -224,6 +248,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     language: Some("python3-with-invalid-lang-names".to_owned()),
                     mode: config::Mode::Release,
                     jobs: None,
+                    output: OutputKind::Pretty,
                     color_choice: AnsiColorChoice::Never,
                     problem: "a".to_owned(),
                 }))
@@ -248,7 +273,7 @@ fn it_submits_to_practice_a() -> Fallible<()> {
     service::test_in_tempdir(
         "it_submits_to_practice_a",
         &credentials_as_input()?,
-        |mut app| -> Fallible<()> {
+        |mut app| -> _ {
             static CODE: &[u8] = br#"def main():
     (a, (b, c), s) = (int(input()), map(int, input().split()), input())
     print('{} {}'.format(a + b + c, s))
@@ -260,7 +285,7 @@ if __name__ == '__main__':
             let wd = app.working_dir.join("atcoder").join("practice").join("py");
             std::fs::create_dir_all(&wd)?;
             std::fs::write(&wd.join("a.py"), CODE)?;
-            app.run(Opt::Submit(Submit {
+            let code = app.run(Opt::Submit(Submit {
                 open: false,
                 force_compile: false,
                 only_transpile: false,
@@ -273,10 +298,12 @@ if __name__ == '__main__':
                 language: Some("python3".to_owned()),
                 mode: config::Mode::Release,
                 jobs: None,
+                output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
                 problem: "a".to_owned(),
-            }))
-            .map_err(Into::into)
+            }))?;
+            assert_eq!(code, 0);
+            Ok(())
         },
     )
 }
@@ -286,26 +313,19 @@ fn it_retrieves_languages_in_practice() -> Fallible<()> {
     service::test_in_tempdir(
         "it_retrieves_languages_in_practice",
         &credentials_as_input()?,
-        |mut app| -> Fallible<()> {
-            app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
-                json: true,
+        |mut app| -> _ {
+            let code = app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
+                json: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
+                output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
                 problem: None,
             })))?;
-            let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
-            let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
-            let stdout = serde_json::from_str::<RetrieveLangsStdout>(&stdout)?;
-            assert_eq!(stdout.available_languages.len(), 56);
+            assert_eq!(code, 0);
             assert_diff!(
-                &stderr,
-                r#"GET https://atcoder.jp/login ... 200 OK
-Username: Password: POST https://atcoder.jp/login ... 302 Found
-GET https://atcoder.jp/settings ... 200 OK
-Successfully logged in.
-GET https://atcoder.jp/contests/practice/submit ... 200 OK
-+---------------------------------+------+
+                &String::try_from(app.stdout)?,
+                r#"+---------------------------------+------+
 | Name                            | ID   |
 +---------------------------------+------+
 | C++14 (GCC 5.4.1)               | 3003 |
@@ -424,6 +444,18 @@ GET https://atcoder.jp/contests/practice/submit ... 200 OK
                 "\n",
                 0
             );
+            assert_diff!(
+                &String::try_from(app.stderr)?,
+                r#"GET https://atcoder.jp/login ... 200 OK
+Username: Password: POST https://atcoder.jp/login ... 302 Found
+GET https://atcoder.jp/settings ... 200 OK
+Successfully logged in.
+GET https://atcoder.jp/contests/practice/submit ... 200 OK
+
+"#,
+                "\n",
+                0
+            );
             Ok(())
         },
     )
@@ -434,31 +466,35 @@ fn it_retrieves_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
     service::test_in_tempdir(
         "it_retrieves_languages_in_tenka1_2016_final_open_a",
         &credentials_as_input()?,
-        |mut app| -> Fallible<()> {
+        |mut app| -> _ {
             app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
-                json: true,
+                json: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("tenka1-2016-final-open".to_owned()),
+                output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("a".to_owned()),
             })))?;
-            let stdout = String::from_utf8(app.term.stdout().get_ref().to_owned())?;
-            let stderr = String::from_utf8(app.term.stderr().get_ref().to_owned())?;
-            let stdout = serde_json::from_str::<RetrieveLangsStdout>(&stdout)?;
-            assert_eq!(stdout.available_languages.len(), 1);
             assert_diff!(
-                &stderr,
+                &String::try_from(app.stdout)?,
+                r#"+------------+----+
+| Name       | ID |
++------------+----+
+| Text (cat) | 17 |
++------------+----+
+"#,
+                "\n",
+                0
+            );
+            assert_diff!(
+                &String::try_from(app.stderr)?,
                 r#"GET https://atcoder.jp/login ... 200 OK
 Username: Password: POST https://atcoder.jp/login ... 302 Found
 GET https://atcoder.jp/settings ... 200 OK
 Successfully logged in.
 GET https://atcoder.jp/contests/tenka1-2016-final-open/tasks ... 200 OK
 GET https://atcoder.jp/contests/tenka1-2016-final-open/tasks/tenka1_2016_final_a ... 200 OK
-+------------+----+
-| Name       | ID |
-+------------+----+
-| Text (cat) | 17 |
-+------------+----+
+
 "#,
                 "\n",
                 0
@@ -474,7 +510,7 @@ fn credentials_as_input() -> Fallible<String> {
     Ok(format!("{}\n{}\n", username, password))
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct RetrieveLangsStdout {
     available_languages: IndexMap<String, String>,
 }

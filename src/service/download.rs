@@ -1,20 +1,21 @@
 use crate::errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::session::HttpSession;
-use crate::terminal::{TermOut, WriteAnsi as _};
+use crate::terminal::HasTermProps;
+use crate::util::io::AsyncBufferedWriter;
 
 use failure::ResultExt as _;
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
 use reqwest::{header, StatusCode};
+use termcolor::WriteColor;
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
 use std::convert::Infallible;
-use std::io::{self, Cursor, Write as _};
 use std::time::{Duration, Instant};
-use std::{char, mem};
+use std::{char, io, mem};
 
 pub(super) trait DownloadProgress {
-    type Write: TermOut;
+    type Write: WriteColor + HasTermProps;
 
     fn requirements(&mut self) -> (&mut Self::Write, &HttpSession, &mut Runtime);
 
@@ -57,7 +58,7 @@ pub(super) trait DownloadProgress {
                 urls
             }
         };
-        let cjk = out.char_width_or_zero('\u{2588}') == 2;
+        let cjk = out.char_width('\u{2588}') == Some(2);
         let progresses = match alt_reqs {
             None => names
                 .into_iter()
@@ -76,10 +77,10 @@ pub(super) trait DownloadProgress {
                 .map(|(s, r)| (s, Progress::Response(r.send())))
                 .collect(),
         };
-        let (contents, remaining) = if out.supports_color() {
+        if out.supports_color() && !out.is_synchronous() {
             runtime.block_on(Downloading::new(
                 crate::signal::ctrl_c(),
-                Self::Write::async_wtr(),
+                out.ansi_async_wtr(),
                 progresses,
                 cjk,
             ))
@@ -90,23 +91,19 @@ pub(super) trait DownloadProgress {
                 progresses,
                 cjk,
             ))
-        }?;
-        out.write_all(&remaining)?;
-        writeln!(out)?;
-        out.flush()?;
-        Ok(contents)
+        }
     }
 }
 
+#[derive(Debug)]
 struct Downloading<
     C: Future<Item = Infallible, Error = ServiceError> + Send + 'static,
     W: AsyncWrite,
     R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
 > {
     ctrlc: C,
-    wtr: W,
-    writing: Cursor<Vec<u8>>,
-    needs_flush: bool,
+    bufwtr: AsyncBufferedWriter<W>,
+    rendered_final_state: bool,
     progresses: Vec<(String, Progress<R>)>,
     last_refreshed: Option<Instant>,
     min_refresh_interval: Duration,
@@ -114,6 +111,7 @@ struct Downloading<
     cjk: bool,
 }
 
+#[derive(Debug)]
 enum Progress<R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static>
 {
     Response(R),
@@ -121,6 +119,7 @@ enum Progress<R: Future<Item = reqwest::r#async::Response, Error = reqwest::Erro
     Finished { buf: Vec<u8>, time: Duration },
 }
 
+#[derive(Debug)]
 struct ProgressPending {
     decoder: reqwest::r#async::Decoder,
     buf: Vec<u8>,
@@ -136,9 +135,8 @@ impl<
     fn new(ctrlc: C, wtr: W, progresses: Vec<(String, Progress<R>)>, cjk: bool) -> Self {
         Self {
             ctrlc,
-            wtr,
-            writing: Cursor::new(Vec::with_capacity(1024)),
-            needs_flush: false,
+            bufwtr: AsyncBufferedWriter::new(wtr),
+            rendered_final_state: false,
             progresses,
             last_refreshed: None,
             min_refresh_interval: Duration::from_millis(100),
@@ -148,125 +146,114 @@ impl<
     }
 
     fn render(&mut self, elapsed: Duration) {
-        fn write_size(wtr: &mut Vec<u8>, n: usize) {
+        fn write_size(bufwtr: &mut AsyncBufferedWriter<impl AsyncWrite>, n: usize) {
             if n >= 0x70_000_000 {
-                write!(
-                    wtr,
+                bufwtr.write_fmt_to_buf(format_args!(
                     "{}.{} GiB",
                     n / 0x70_000_000,
                     (n % 0x70_000_000) / 0xb_333_334,
-                )
+                ));
             } else if n >= 0x100_000 {
-                write!(
-                    wtr,
+                bufwtr.write_fmt_to_buf(format_args!(
                     "{:>4}.{} MiB",
                     n / 0x100_000,
-                    (n % 0x100_000) / 0x20000
-                )
+                    (n % 0x100_000) / 0x20000,
+                ));
             } else if n >= 0x400 {
-                write!(wtr, "{:>4}.{} KiB", n / 0x400, (n % 0x400) / 0x67)
+                bufwtr.write_fmt_to_buf(format_args!(
+                    "{:>4}.{} KiB",
+                    n / 0x400,
+                    (n % 0x400) / 0x67,
+                ));
             } else {
-                write!(wtr, "  {:>4} B  ", n)
+                bufwtr.write_fmt_to_buf(format_args!("  {:>4} B  ", n));
             }
-            .unwrap();
         }
 
         for (i, (name, progress)) in self.progresses.iter().enumerate() {
             if self.last_refreshed.is_some() {
-                self.writing.get_mut().extend_from_slice(b"\x1b[2K");
+                self.bufwtr.push_ansi_erase_in_line_entire();
             }
             match progress {
                 Progress::Response(_) => {
-                    write!(
-                        self.writing.get_mut(),
-                        "\x1b[1m{}\x1b[0m  Waiting response...",
-                        name,
-                    )
-                    .unwrap();
+                    self.bufwtr.push_ansi_bold();
+                    self.bufwtr.push_str(name);
+                    self.bufwtr.push_ansi_reset();
+                    self.bufwtr.push_str("  Waiting response...");
                 }
                 Progress::Body(progress) => match (progress.buf.len(), progress.content_len) {
                     (n, None) => {
-                        write!(self.writing.get_mut(), "\x1b[1m{}\x1b[0m  ???% ", name).unwrap();
-                        self.writing.get_mut().extend_from_slice(if self.cjk {
-                            b"[                                        ] "
+                        self.bufwtr.push_ansi_bold();
+                        self.bufwtr.push_str(name);
+                        self.bufwtr.push_ansi_reset();
+                        self.bufwtr.push_str("  ???% ");
+                        self.bufwtr.push_str(if self.cjk {
+                            "[                                        ] "
                         } else {
-                            b"[                    ] "
+                            "[                    ] "
                         });
-                        write_size(self.writing.get_mut(), n);
-                        self.writing.get_mut().push(b' ');
-                        write!(
-                            self.writing,
+                        write_size(&mut self.bufwtr, n);
+                        self.bufwtr.push_char(' ');
+                        self.bufwtr.write_fmt_to_buf(format_args!(
                             "{:<02}:{:<02}",
                             elapsed.as_secs() / 60,
                             elapsed.as_secs() % 60,
-                        )
-                        .unwrap();
+                        ));
                     }
                     (n, Some(d)) => {
-                        write!(
-                            self.writing.get_mut(),
+                        self.bufwtr.write_fmt_to_buf(format_args!(
                             "\x1b[1m{}\x1b[0m  {:>3}% [",
                             name,
-                            100 * n / d
-                        )
-                        .unwrap();
+                            100 * n / d,
+                        ));
                         let p = (160 * n / d) as u32;
                         for i in 0..20 {
                             if p <= 8 * i && self.cjk {
-                                self.writing.get_mut().extend_from_slice(b"  ");
+                                self.bufwtr.push_str("  ");
                             } else if p <= 8 * i {
-                                self.writing.get_mut().extend_from_slice(b" ");
+                                self.bufwtr.push_char(' ');
                             } else if p >= 8 * (i + 1) {
-                                self.writing
-                                    .get_mut()
-                                    .extend_from_slice("\u{2588}".as_bytes());
+                                self.bufwtr.push_char('\u{2588}');
                             } else {
                                 let c = char::from_u32(0x2590 - ((p - 8 * i) % 8)).unwrap();
-                                write!(self.writing.get_mut(), "{}", c).unwrap()
+                                self.bufwtr.push_char(c);
                             }
                         }
-                        self.writing.get_mut().extend_from_slice(b"] ");
-                        write_size(self.writing.get_mut(), n);
-                        self.writing.get_mut().push(b' ');
-                        write!(
-                            self.writing.get_mut(),
+                        self.bufwtr.push_str("] ");
+                        write_size(&mut self.bufwtr, n);
+                        self.bufwtr.push_char(' ');
+                        self.bufwtr.write_fmt_to_buf(format_args!(
                             "{:<02}:{:<02}",
                             elapsed.as_secs() / 60,
                             elapsed.as_secs() % 60,
-                        )
-                        .unwrap();
+                        ));
                     }
                 },
                 Progress::Finished { buf, time } => {
-                    let out = self.writing.get_mut();
-                    write!(
-                        out,
-                        "\x1b[1m{}\x1b[0m  100% [\
+                    self.bufwtr.push_ansi_bold();
+                    self.bufwtr.push_str(name);
+                    self.bufwtr.push_ansi_reset();
+                    self.bufwtr.push_str(
+                        "  100% [\
                          \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\
                          \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\
                          \u{2588}\u{2588}\u{2588}\u{2588}] ",
-                        name,
-                    )
-                    .unwrap();
-                    write_size(out, buf.len());
-                    out.push(b' ');
-                    write!(
-                        out,
+                    );
+                    write_size(&mut self.bufwtr, buf.len());
+                    self.bufwtr.push_char(' ');
+                    self.bufwtr.write_fmt_to_buf(format_args!(
                         "{:<02}:{:<02}",
                         time.as_secs() / 60,
-                        time.as_secs() % 60
-                    )
-                    .unwrap();
+                        time.as_secs() % 60,
+                    ));
                 }
             }
             if i + 1 < self.progresses.len() {
-                self.writing
-                    .get_mut()
-                    .extend_from_slice(if self.last_refreshed.is_some() {
-                        b"\x1b[1E"
-                    } else {
-                        b"\n"
-                    });
+                self.bufwtr.push_str(if self.last_refreshed.is_some() {
+                    "\x1b[1E"
+                } else {
+                    "\n"
+                });
             }
         }
     }
@@ -278,41 +265,20 @@ impl<
         R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
     > Future for Downloading<C, W, R>
 {
-    type Item = (Vec<Vec<u8>>, Vec<u8>);
+    type Item = Vec<Vec<u8>>;
     type Error = ServiceError;
 
-    fn poll(&mut self) -> Poll<(Vec<Vec<u8>>, Vec<u8>), ServiceError> {
+    fn poll(&mut self) -> Poll<Vec<Vec<u8>>, ServiceError> {
         #[derive(PartialEq, Clone, Copy)]
         enum Status {
-            AllFinished,
-            AnyPending,
-            NeedsNotify,
+            AllFinished { rendered_final: bool },
+            AnyPending { notify: bool },
         }
 
         self.ctrlc.poll()?;
-        if self.needs_flush {
-            try_ready!(self.wtr.poll_flush());
-            self.needs_flush = false;
-        }
-        if self.writing.position() < self.writing.get_ref().len() as u64 {
-            let n = try_ready!(self
-                .wtr
-                .poll_write(&self.writing.get_ref()[self.writing.position() as usize..]))
-                as u64;
-            self.writing.set_position(self.writing.position() + n);
-            if self.writing.position() >= self.writing.get_ref().len() as u64 {
-                self.writing.get_mut().clear();
-                self.writing.set_position(0);
-                match self.wtr.poll_flush()? {
-                    Async::Ready(()) => {}
-                    Async::NotReady => {
-                        self.needs_flush = true;
-                        return Ok(Async::NotReady);
-                    }
-                }
-            }
-        }
-        let (mut any_not_ready, mut any_ready_some) = (false, false);
+        try_ready!(self.bufwtr.poll_flush_buf());
+
+        let (mut any_not_ready, mut any_newly_ready_some) = (false, false);
         for (_, progress) in &mut self.progresses {
             let next = match progress {
                 Progress::Response(pending) => match pending.poll()? {
@@ -329,7 +295,7 @@ impl<
                             )
                             .into());
                         }
-                        any_ready_some = true;
+                        any_newly_ready_some = true;
                         let (buf, content_len) = match res.headers().get(header::CONTENT_LENGTH) {
                             None => (vec![], None),
                             Some(s) => {
@@ -357,7 +323,7 @@ impl<
                     }
                     Async::Ready(Some(chunk)) => {
                         progress.buf.extend_from_slice(&chunk);
-                        any_ready_some = true;
+                        any_newly_ready_some = true;
                         None
                     }
                     Async::Ready(None) => {
@@ -372,35 +338,57 @@ impl<
                 *progress = next;
             }
         }
+
         let status = if any_not_ready {
-            Status::AnyPending
-        } else if any_ready_some {
-            Status::NeedsNotify
+            Status::AnyPending { notify: false }
+        } else if any_newly_ready_some {
+            Status::AnyPending { notify: true }
         } else {
-            Status::AllFinished
-        };
-        let now = Instant::now();
-        let start_refresh = status == Status::AllFinished
-            || self.last_refreshed.map_or(true, |last_refreshed| {
-                now > last_refreshed + self.min_refresh_interval
-            });
-        if start_refresh {
-            if self.last_refreshed.is_some() {
-                match self.progresses.len() - 1 {
-                    0 => self.writing.get_mut().extend_from_slice(b"\x1b[0G"),
-                    n => write!(self.writing.get_mut(), "\x1b[{}F", n).unwrap(),
-                }
+            Status::AllFinished {
+                rendered_final: self.rendered_final_state,
             }
-            self.render(now - self.started);
-            self.last_refreshed = Some(now);
-        }
+        };
+
         match status {
-            Status::AnyPending => Ok(Async::NotReady),
-            Status::NeedsNotify => {
+            Status::AnyPending { notify } => {
+                let now = Instant::now();
+                let start_refresh = self.last_refreshed.map_or(true, |last_refreshed| {
+                    now > last_refreshed + self.min_refresh_interval
+                });
+                if start_refresh {
+                    if self.last_refreshed.is_some() {
+                        match self.progresses.len() - 1 {
+                            0 => self.bufwtr.push_ansi_cursor_horizontal_absolute(0),
+                            n => self.bufwtr.push_ansi_cursor_previous_line(n),
+                        }
+                    }
+                    self.render(now - self.started);
+                    self.last_refreshed = Some(now);
+                }
+                if notify {
+                    task::current().notify();
+                }
+                Ok(Async::NotReady)
+            }
+            Status::AllFinished {
+                rendered_final: false,
+            } => {
+                let now = Instant::now();
+                if self.last_refreshed.is_some() {
+                    match self.progresses.len() - 1 {
+                        0 => self.bufwtr.push_ansi_cursor_horizontal_absolute(0),
+                        n => self.bufwtr.push_ansi_cursor_previous_line(n),
+                    }
+                }
+                self.render(now - self.started);
+                self.bufwtr.push_char('\n');
+                self.rendered_final_state = true;
                 task::current().notify();
                 Ok(Async::NotReady)
             }
-            Status::AllFinished => Ok(Async::Ready((
+            Status::AllFinished {
+                rendered_final: true,
+            } => Ok(Async::Ready(
                 self.progresses
                     .iter_mut()
                     .map(|(_, progress)| match progress {
@@ -408,8 +396,7 @@ impl<
                         Progress::Finished { buf, .. } => mem::replace(buf, vec![]),
                     })
                     .collect(),
-                mem::replace(self.writing.get_mut(), vec![]),
-            ))),
+            )),
         }
     }
 }

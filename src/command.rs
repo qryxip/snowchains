@@ -2,31 +2,44 @@ use crate::errors::{
     HookCommandErrorKind, HookCommandResult, JudgeErrorKind, JudgeResult, StdError,
 };
 use crate::path::AbsPathBuf;
-use crate::terminal::{TermOut, WriteSpaces as _};
+use crate::terminal::{HasTermProps, WriteExt as _};
 use crate::util::collections::NonEmptyVec;
 
 use failure::Fail as _;
 use itertools::Itertools as _;
+use serde_derive::Serialize;
+use termcolor::WriteColor;
 use tokio_process::CommandExt as _;
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::iter::FromIterator;
-use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
 use std::{env, io};
 
+#[derive(Debug)]
 pub(crate) struct HookCommands(Option<NonEmptyVec<HookCommand>>);
 
 impl HookCommands {
-    pub(crate) fn run<O: TermOut, E: TermOut>(&self, mut stderr: E) -> HookCommandResult<()> {
+    pub(crate) fn run(
+        &self,
+        stdout: impl HasTermProps,
+        mut stderr: impl WriteColor + HasTermProps,
+    ) -> HookCommandResult<()> {
         if let HookCommands(Some(this)) = self {
-            stderr.with_reset(|o| o.bold()?.write_str("Running hooks...\n"))?;
+            stderr.set_color(color!(bold))?;
+            stderr.write_str("Running hooks...")?;
+            stderr.reset()?;
+            writeln!(stderr)?;
             stderr.flush()?;
-            this.iter().try_for_each(HookCommand::run::<O, E>)?;
-            stderr.with_reset(|o| o.bold()?.write_str("Done.\n"))?;
+            for cmd in this {
+                HookCommand::run(cmd, &stdout, &stderr)?;
+            }
+            stderr.set_color(color!(bold))?;
+            stderr.write_str("Done.")?;
+            stderr.reset()?;
+            writeln!(stderr)?;
             stderr.flush()?;
         }
         Ok(())
@@ -39,6 +52,7 @@ impl FromIterator<HookCommand> for HookCommands {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct HookCommand {
     inner: Inner,
 }
@@ -53,13 +67,13 @@ impl HookCommand {
         Ok(Self { inner })
     }
 
-    fn run<O: TermOut, E: TermOut>(&self) -> HookCommandResult<()> {
+    fn run(&self, stdout: impl HasTermProps, stderr: impl HasTermProps) -> HookCommandResult<()> {
         let status = self
             .inner
             .build_checking_wd()?
             .stdin(Stdio::null())
-            .stdout(O::process_redirection())
-            .stderr(E::process_redirection())
+            .stdout(stdout.process_redirection())
+            .stderr(stderr.process_redirection())
             .status()
             .map_err(|e| {
                 let arg0 = self.inner.args[0].clone();
@@ -75,11 +89,9 @@ impl HookCommand {
 }
 
 /// Transpilation command.
-#[cfg_attr(test, derive(Debug))]
-#[derive(PartialEq, Eq, Hash)]
-pub(crate) struct TranspilationCommand {
-    repr: BuildCommand,
-}
+#[derive(PartialEq, Eq, Debug, Hash, Serialize)]
+#[serde(transparent)]
+pub(crate) struct TranspilationCommand(BuildCommand);
 
 impl TranspilationCommand {
     /// Constructs a new `TranspilationCommand`.
@@ -90,12 +102,16 @@ impl TranspilationCommand {
         transpiled: Option<AbsPathBuf>,
         envs: HashMap<String, OsString>,
     ) -> std::result::Result<Self, (OsString, which::Error)> {
-        BuildCommand::try_new(args, working_dir, src, transpiled, "transpiled", envs)
-            .map(|repr| Self { repr })
+        BuildCommand::try_new(args, working_dir, src, transpiled, "transpiled", envs).map(Self)
     }
 
     /// Executes the command.
-    pub(crate) fn run<O: TermOut, E: TermOut>(&self, stderr: E, force: bool) -> JudgeResult<()> {
+    pub(crate) fn run(
+        &self,
+        stdout: impl HasTermProps,
+        stderr: impl WriteColor + HasTermProps,
+        force: bool,
+    ) -> JudgeResult<()> {
         let messages = Messages {
             command: "Transpilation Command:",
             wd: "Working directory:    ",
@@ -105,16 +121,14 @@ impl TranspilationCommand {
             noun: "transpilation",
             status,
         };
-        self.repr.run::<O, _>(stderr, force, messages, error)
+        self.0.run(stdout, stderr, force, messages, error)
     }
 }
 
 /// Compilation command.
-#[cfg_attr(test, derive(Debug))]
-#[derive(PartialEq, Eq, Hash)]
-pub(crate) struct CompilationCommand {
-    repr: BuildCommand,
-}
+#[derive(Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub(crate) struct CompilationCommand(BuildCommand);
 
 impl CompilationCommand {
     /// Constructs a new `CompilationCommand`.
@@ -125,11 +139,16 @@ impl CompilationCommand {
         bin: Option<AbsPathBuf>,
         envs: HashMap<String, OsString>,
     ) -> std::result::Result<Self, (OsString, which::Error)> {
-        BuildCommand::try_new(args, working_dir, src, bin, "bin", envs).map(|repr| Self { repr })
+        BuildCommand::try_new(args, working_dir, src, bin, "bin", envs).map(Self)
     }
 
     /// Executes the command.
-    pub(crate) fn run<O: TermOut, E: TermOut>(&self, stderr: E, force: bool) -> JudgeResult<()> {
+    pub(crate) fn run(
+        &self,
+        stdout: impl HasTermProps,
+        stderr: impl WriteColor + HasTermProps,
+        force: bool,
+    ) -> JudgeResult<()> {
         let messages = Messages {
             command: "Compilation Command:",
             wd: "Working directory:  ",
@@ -139,19 +158,18 @@ impl CompilationCommand {
             noun: "compilation",
             status,
         };
-        self.repr.run::<O, _>(stderr, force, messages, error)
+        self.0.run(stdout, stderr, force, messages, error)
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct Messages {
     command: &'static str,
     wd: &'static str,
     finished: &'static str,
 }
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Debug, Hash, Serialize)]
 struct BuildCommand {
     inner: Inner,
     src: AbsPathBuf,
@@ -178,22 +196,26 @@ impl BuildCommand {
         })
     }
 
-    fn run<O: TermOut, E: TermOut>(
+    fn run(
         &self,
-        mut stderr: E,
+        stdout: impl HasTermProps,
+        mut stderr: impl WriteColor + HasTermProps,
         force: bool,
         messages: Messages,
         error: fn(ExitStatus) -> JudgeErrorKind,
     ) -> JudgeResult<()> {
         if !self.src.exists() {
-            stderr
-                .with_reset(|o| writeln!(o.fg(11)?, "Warning: {} not found", self.src.display()))?;
+            stderr.set_color(color!(fg(Yellow), intense))?;
+            write!(stderr, "Warning: {} not found", self.src.display())?;
+            stderr.reset()?;
+            writeln!(stderr)?;
             stderr.flush()?;
         }
         if self.target.as_ref().is_none() {
-            stderr.with_reset(|o| {
-                writeln!(o.fg(11)?, "Warning: {:?} not present", self.target_name)
-            })?;
+            stderr.set_color(color!(fg(Yellow), intense))?;
+            write!(stderr, "Warning: {:?} not present", self.target_name)?;
+            stderr.reset()?;
+            writeln!(stderr)?;
             stderr.flush()?;
         }
 
@@ -221,27 +243,35 @@ impl BuildCommand {
 
         let mut proc = self.inner.build_checking_wd()?;
         proc.stdin(Stdio::null())
-            .stdout(O::process_redirection())
-            .stderr(E::process_redirection());
+            .stdout(stdout.process_redirection())
+            .stderr(stderr.process_redirection());
         let start = Instant::now();
         let status = proc.status().map_err(|e| {
             StdError::from(e).context(JudgeErrorKind::Command(self.inner.args[0].clone()))
         })?;
         let elapsed = Instant::now() - start;
 
-        let (mes, color) = match status.code() {
-            Some(0) => (Cow::from(messages.finished), 10),
-            Some(code) => (Cow::from(format!("Exited with {}", code)), 9),
-            None => (Cow::from("Exited without code"), 11),
-        };
-        stderr.with_reset(|o| writeln!(o.fg(color)?.bold()?, "{} in {:?}.", mes, elapsed))?;
+        match status.code() {
+            Some(0) => {
+                stderr.set_color(color!(fg(Green), intense, bold))?;
+                writeln!(stderr, "{} in {:?}.", messages.finished, elapsed)?;
+            }
+            Some(code) => {
+                stderr.set_color(color!(fg(Red), intense, bold))?;
+                writeln!(stderr, "Exited with {} in {:?}.", code, elapsed)?;
+            }
+            None => {
+                stderr.set_color(color!(fg(Yellow), intense, bold))?;
+                writeln!(stderr, "Exited without code in {:?}.", elapsed)?;
+            }
+        }
 
         if status.success() {
             if let Some(target) = &self.target {
                 if !target.exists() {
-                    stderr.with_reset(|o| {
-                        writeln!(o.fg(11)?, "Warning: {} not created", target.display())
-                    })?;
+                    stderr.set_color(color!(fg(Yellow), intense))?;
+                    writeln!(stderr, "Warning: {} not created", target.display())?;
+                    stderr.reset()?;
                     stderr.flush()?;
                 }
             }
@@ -253,7 +283,8 @@ impl BuildCommand {
 }
 
 /// Command for batch/interactive testing.
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Serialize)]
 pub(crate) struct JudgingCommand {
     inner: Inner,
     crlf_to_lf: bool,
@@ -261,16 +292,13 @@ pub(crate) struct JudgingCommand {
 
 impl JudgingCommand {
     /// Constructs a new `JudgingCommand`.
-    pub(crate) fn new(
+    pub(crate) fn try_new(
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         crlf_to_lf: bool,
         envs: HashMap<String, OsString>,
-    ) -> Self {
-        JudgingCommand {
-            inner: Inner::new(args, working_dir, envs),
-            crlf_to_lf,
-        }
+    ) -> std::result::Result<Self, (OsString, which::Error)> {
+        Inner::try_new(args, working_dir, envs).map(|inner| JudgingCommand { inner, crlf_to_lf })
     }
 
     pub(crate) fn crlf_to_lf(&self) -> bool {
@@ -287,7 +315,7 @@ impl JudgingCommand {
     /// """
     pub(crate) fn write_info(
         &self,
-        mut out: impl TermOut,
+        mut out: impl WriteColor + HasTermProps,
         paths_formatted: &str,
     ) -> io::Result<()> {
         let args = self.inner.format_args();
@@ -318,8 +346,7 @@ impl JudgingCommand {
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 struct Inner {
     args: NonEmptyVec<OsString>,
     working_dir: AbsPathBuf,
@@ -327,22 +354,6 @@ struct Inner {
 }
 
 impl Inner {
-    fn new(args: Vec<OsString>, working_dir: AbsPathBuf, envs: HashMap<String, OsString>) -> Self {
-        let mut args = NonEmptyVec::try_new(args).unwrap_or_default();
-        // https://github.com/rust-lang/rust/issues/37519
-        if cfg!(windows) && Path::new(&args[0]).is_relative() {
-            let abs = working_dir.join_canonicalizing_lossy(&args[0]);
-            if abs.exists() {
-                args[0] = abs.into();
-            }
-        }
-        Self {
-            args,
-            working_dir,
-            envs: envs.into_iter().collect(),
-        }
-    }
-
     fn try_new(
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
@@ -386,8 +397,14 @@ impl Inner {
     }
 }
 
-fn write_info<O: TermOut>(mut out: O, title: &str, rest: &[impl AsRef<str>]) -> io::Result<()> {
-    out.with_reset(|o| o.fg(13)?.bold()?.write_str(title))?;
+fn write_info(
+    mut out: impl WriteColor + HasTermProps,
+    title: &str,
+    rest: &[impl AsRef<str>],
+) -> io::Result<()> {
+    out.set_color(color!(fg(Magenta), intense, bold))?;
+    out.write_str(title)?;
+    out.reset()?;
     out.write_str(" ")?;
     if let Some(w) = out.columns() {
         let o = out.str_width(title) + 1;
@@ -406,7 +423,7 @@ fn write_info<O: TermOut>(mut out: O, title: &str, rest: &[impl AsRef<str>]) -> 
             }
             if o + l > w && x == 0 {
                 for c in s.chars() {
-                    let l = out.char_width_or_zero(c);
+                    let l = out.char_width(c).unwrap_or(0);
                     if o + x + l > w {
                         next_line!();
                     }

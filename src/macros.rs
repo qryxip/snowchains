@@ -1,3 +1,5 @@
+use termcolor::ColorSpec;
+
 macro_rules! guard {
     ($p:expr) => {
         if !$p {
@@ -19,6 +21,108 @@ impl<T> TryZero for Option<T> {
 impl<T, E: Default> TryZero for std::result::Result<T, E> {
     fn try_zero() -> Self {
         Err(E::default())
+    }
+}
+
+macro_rules! color {
+    () => {
+        &mut ::termcolor::ColorSpec::new()
+    };
+    (fg($fg:ident)) => {
+        ::termcolor::ColorSpec::new().set_fg(Some(::termcolor::Color::$fg))
+    };
+    (bg($bg:ident)) => {
+        ::termcolor::ColorSpec::new().set_bg(Some(::termcolor::Color::$bg))
+    };
+    (fg($fg:ident), bg($bg:ident)) => {
+        ::termcolor::ColorSpec::new()
+            .set_fg(Some(::termcolor::Color::$fg))
+            .set_bg(Some(::termcolor::Color::$bg))
+    };
+    ($attr:ident) => {
+        crate::macros::ColorSpecWrapper(color!()).$attr().0
+    };
+    (fg($fg:ident), $attr:ident) => {
+        crate::macros::ColorSpecWrapper(color!(fg($fg))).$attr().0
+    };
+    (bg($bg:ident), $attr:ident) => {
+        crate::macros::ColorSpecWrapper(color!(bg($bg))).$attr().0
+    };
+    (fg($fg:ident), bg($bg:ident), $attr:ident) => {
+        crate::macros::ColorSpecWrapper(color!(fg($fg), bg($bg)))
+            .$attr()
+            .0
+    };
+    ($attr1:ident, $attr2:ident) => {
+        crate::macros::ColorSpecWrapper(color!())
+            .$attr1()
+            .$attr2()
+            .0
+    };
+    (fg($fg:ident), $attr1:ident, $attr2:ident) => {
+        crate::macros::ColorSpecWrapper(color!(fg($fg)))
+            .$attr1()
+            .$attr2()
+            .0
+    };
+    (bg($bg:ident), $attr1:ident, $attr2:ident) => {
+        crate::macros::ColorSpecWrapper(color!(bg($bg)))
+            .$attr1()
+            .$attr2()
+            .0
+    };
+    (fg($fg:ident), bg($bg:ident), $attr1:ident, $attr2:ident) => {
+        crate::macros::ColorSpecWrapper(color!(fg($fg), bg($bg)))
+            .$attr1()
+            .$attr2()
+            .0
+    };
+    ($attr1:ident, $attr2:ident, $attr3:ident) => {
+        crate::macros::ColorSpecWrapper(color!())
+            .$attr1()
+            .$attr2()
+            .$attr3()
+            .0
+    };
+    (fg($fg:ident), $attr1:ident, $attr2:ident, $attr3:ident) => {
+        crate::macros::ColorSpecWrapper(color!(fg($fg)))
+            .$attr1()
+            .$attr2()
+            .$attr3()
+            .0
+    };
+    (bg($bg:ident), $attr1:ident, $attr2:ident, $attr3:ident) => {
+        crate::macros::ColorSpecWrapper(color!(bg($bg)))
+            .$attr1()
+            .$attr2()
+            .$attr3()
+            .0
+    };
+    (fg($fg:ident), bg($bg:ident), $attr1:ident, $attr2:ident, $attr3:ident) => {
+        crate::macros::ColorSpecWrapper(color!(fg($fg), bg($bg)))
+            .$attr1()
+            .$attr2()
+            .$attr3()
+            .0
+    };
+}
+
+pub(crate) struct ColorSpecWrapper<'a>(pub &'a mut ColorSpec);
+
+impl ColorSpecWrapper<'_> {
+    #[inline]
+    pub(crate) fn bold(self) -> Self {
+        Self(self.0.set_bold(true))
+    }
+
+    #[inline]
+    pub(crate) fn intense(self) -> Self {
+        Self(self.0.set_intense(true))
+    }
+
+    #[inline]
+    pub(crate) fn underline(self) -> Self {
+        Self(self.0.set_underline(true))
     }
 }
 

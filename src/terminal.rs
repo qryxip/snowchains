@@ -1,762 +1,90 @@
-use crate::config;
-
+use either::Either;
 use serde_derive::Serialize;
 use strum_macros::EnumString;
+use termcolor::{Ansi, ColorSpec, NoColor, WriteColor};
 use tokio::io::AsyncWrite;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use std::io::{self, BufRead as _, BufWriter, Read, Stderr, Stdin, StdinLock, StdoutLock, Write};
-use std::{env, process};
+use std::convert::TryFrom;
+use std::io::{self, BufRead, BufWriter, Sink, Stderr, Stdin, StdinLock, Stdout, Write};
+use std::string::FromUtf8Error;
+use std::{env, fmt, process, str};
 
-pub trait WriteSpaces {
-    fn write_spaces(&mut self, n: usize) -> io::Result<()>;
-}
-
-impl<W: Write> WriteSpaces for W {
-    #[inline]
-    fn write_spaces(&mut self, n: usize) -> io::Result<()> {
-        (0..n).try_for_each(|_| self.write_all(b" "))
-    }
-}
-
-pub(crate) trait HasTerm {
-    type Term: Term;
-
-    fn term(&mut self) -> &mut Self::Term;
-
-    #[inline]
-    fn stdout(&mut self) -> &mut <Self::Term as Term>::Stdout {
-        self.term().stdout()
-    }
-
-    #[inline]
-    fn stderr(&mut self) -> &mut <Self::Term as Term>::Stderr {
-        self.term().stderr()
-    }
-
-    #[inline]
-    fn ask_yes_or_no(&mut self, mes: &str, default: bool) -> io::Result<bool> {
-        self.term().ask_yes_or_no(mes, default)
-    }
-
-    #[inline]
-    fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        self.term().prompt_reply_stderr(prompt)
-    }
-
-    #[inline]
-    fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        self.term().prompt_password_stderr(prompt)
-    }
-}
-
-pub trait Term {
-    type Stdin: TermIn;
-    type Stdout: TermOut;
-    type Stderr: TermOut;
-
-    fn split_mut(&mut self) -> (&mut Self::Stdin, &mut Self::Stdout, &mut Self::Stderr);
-    fn ask_yes_or_no(&mut self, mes: &str, default: bool) -> io::Result<bool>;
-    fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String>;
-    fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String>;
-
-    #[inline]
-    fn stdout(&mut self) -> &mut Self::Stdout {
-        self.split_mut().1
-    }
-
-    #[inline]
-    fn stderr(&mut self) -> &mut Self::Stderr {
-        self.split_mut().2
-    }
-
-    fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice) {
-        self.stdout().attempt_enable_ansi(choice);
-        self.stderr().attempt_enable_ansi(choice);
-    }
-
-    fn apply_conf(&mut self, conf: &config::Console) {
-        self.stdout().apply_conf(conf);
-        self.stderr().apply_conf(conf);
-    }
-}
-
-impl<'a, T: Term + ?Sized> Term for &'a mut T {
-    type Stdin = T::Stdin;
-    type Stdout = T::Stdout;
-    type Stderr = T::Stderr;
-
-    #[inline]
-    fn split_mut(&mut self) -> (&mut T::Stdin, &mut T::Stdout, &mut T::Stderr) {
-        (**self).split_mut()
-    }
-
-    fn ask_yes_or_no(&mut self, mes: &str, default: bool) -> io::Result<bool> {
-        (**self).ask_yes_or_no(mes, default)
-    }
-
-    fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        (**self).prompt_reply_stderr(prompt)
-    }
-
-    fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        (**self).prompt_password_stderr(prompt)
-    }
-}
-
-pub trait TermIn: Read {
-    /// Reads a line from `self` removing the trailing "\n" or "\r\n".
-    ///
-    /// # Errors
-    ///
-    /// - Encounters an I/O error
-    /// - The string does not end with "\n" or "\r\n" (same as `rprompt`)
+pub trait Input {
     fn read_reply(&mut self) -> io::Result<String>;
-    /// Reads a line from `self` trimming a trailing "\n" or "\r\n".
-    ///
-    /// # Errors
-    ///
-    /// - Encounters an I/O error
     fn read_password(&mut self) -> io::Result<String>;
 }
 
-impl<'a> TermIn for &'a [u8] {
+impl<'a, I: Input + ?Sized> Input for &'a mut I {
     fn read_reply(&mut self) -> io::Result<String> {
-        let mut ret = "".to_owned();
-        let _ = self.read_line(&mut ret)?;
-        check_remove_trailing_newilne(ret)
+        (**self).read_reply()
     }
 
     fn read_password(&mut self) -> io::Result<String> {
-        let mut ret = "".to_owned();
-        let _ = self.read_line(&mut ret)?;
-        Ok(remove_trailing_newilne(ret))
+        (**self).read_password()
     }
 }
 
-impl TermIn for io::Empty {
-    fn read_reply(&mut self) -> io::Result<String> {
-        check_remove_trailing_newilne("".to_owned())
-    }
-
-    fn read_password(&mut self) -> io::Result<String> {
-        Ok("".to_owned())
-    }
-}
-
-pub trait TermOut: WriteAnsi {
-    fn process_redirection() -> process::Stdio;
-    fn columns(&self) -> Option<usize>;
-    fn str_width_fn(&self) -> fn(&str) -> usize;
-    fn char_width_fn(&self) -> fn(char) -> Option<usize>;
-    fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice);
-    fn apply_conf(&mut self, conf: &config::Console);
-
-    #[inline]
-    fn str_width(&self, s: &str) -> usize {
-        self.str_width_fn()(s)
-    }
-
-    #[inline]
-    fn char_width_or_zero(&self, c: char) -> usize {
-        self.char_width_fn()(c).unwrap_or(0)
-    }
-}
-
-impl<'a, W: TermOut + ?Sized> TermOut for &'a mut W {
-    fn process_redirection() -> process::Stdio {
-        W::process_redirection()
-    }
-
-    fn columns(&self) -> Option<usize> {
-        (**self).columns()
-    }
-
-    #[inline]
-    fn str_width_fn(&self) -> fn(&str) -> usize {
-        (**self).str_width_fn()
-    }
-
-    #[inline]
-    fn char_width_fn(&self) -> fn(char) -> Option<usize> {
-        (**self).char_width_fn()
-    }
-
-    fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice) {
-        (**self).attempt_enable_ansi(choice);
-    }
-
-    fn apply_conf(&mut self, conf: &config::Console) {
-        (**self).apply_conf(conf)
-    }
-}
-
-pub trait StandardOutput: Write {
-    type AsyncWrite: AsyncWrite + Send + 'static;
-
-    fn async_wtr() -> Self::AsyncWrite;
-
-    fn process_redirection() -> process::Stdio;
-
-    fn is_tty() -> bool;
-
-    #[cfg(not(windows))]
-    fn columns() -> Option<usize>;
-
-    #[cfg(windows)]
-    fn columns() -> Option<usize> {
-        let handle = Self::windows_handle_ref()?;
-        let info = winapi_util::console::screen_buffer_info(handle).ok()?;
-        match info.size() {
-            (w, _) if w >= 0 => Some(w as usize),
-            _ => None,
-        }
-    }
-
-    #[cfg(windows)]
-    fn windows_handle_ref() -> Option<winapi_util::HandleRef>;
-}
-
-impl<W: StandardOutput> StandardOutput for BufWriter<W> {
-    type AsyncWrite = W::AsyncWrite;
-
-    fn async_wtr() -> W::AsyncWrite {
-        W::async_wtr()
-    }
-
-    fn process_redirection() -> process::Stdio {
-        W::process_redirection()
-    }
-
-    fn is_tty() -> bool {
-        W::is_tty()
-    }
-
-    #[cfg(not(windows))]
-    fn columns() -> Option<usize> {
-        W::columns()
-    }
-
-    #[cfg(windows)]
-    fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
-        W::windows_handle_ref()
-    }
-}
-
-impl StandardOutput for StdoutLock<'_> {
-    type AsyncWrite = BufWriter<tokio::io::Stdout>;
-
-    fn async_wtr() -> BufWriter<tokio::io::Stdout> {
-        BufWriter::new(tokio::io::stdout())
-    }
-
-    fn process_redirection() -> process::Stdio {
-        process::Stdio::inherit()
-    }
-
-    fn is_tty() -> bool {
-        atty::is(atty::Stream::Stdout)
-    }
-
-    #[cfg(not(windows))]
-    fn columns() -> Option<usize> {
-        term_size::dimensions_stdout().map(|(c, _)| c)
-    }
-
-    #[cfg(windows)]
-    fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
-        Some(winapi_util::HandleRef::stdout())
-    }
-}
-
-impl StandardOutput for Stderr {
-    type AsyncWrite = BufWriter<tokio::io::Stderr>;
-
-    fn async_wtr() -> BufWriter<tokio::io::Stderr> {
-        BufWriter::new(tokio::io::stderr())
-    }
-
-    fn process_redirection() -> process::Stdio {
-        process::Stdio::inherit()
-    }
-
-    fn is_tty() -> bool {
-        atty::is(atty::Stream::Stderr)
-    }
-
-    #[cfg(not(windows))]
-    fn columns() -> Option<usize> {
-        term_size::dimensions_stdout().map(|(c, _)| c)
-    }
-
-    #[cfg(windows)]
-    fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
-        Some(winapi_util::HandleRef::stdout())
-    }
-}
-
-impl StandardOutput for Vec<u8> {
-    type AsyncWrite = io::Sink;
-
-    fn async_wtr() -> io::Sink {
-        io::sink()
-    }
-
-    fn process_redirection() -> process::Stdio {
-        process::Stdio::null()
-    }
-
-    fn is_tty() -> bool {
-        false
-    }
-
-    #[cfg(not(windows))]
-    fn columns() -> Option<usize> {
-        None
-    }
-
-    #[cfg(windows)]
-    fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
-        None
-    }
-}
-
-impl StandardOutput for io::Sink {
-    type AsyncWrite = Self;
-
-    fn async_wtr() -> Self {
-        io::sink()
-    }
-
-    fn process_redirection() -> process::Stdio {
-        process::Stdio::null()
-    }
-
-    fn is_tty() -> bool {
-        false
-    }
-
-    #[cfg(not(windows))]
-    fn columns() -> Option<usize> {
-        None
-    }
-
-    #[cfg(windows)]
-    fn windows_handle_ref() -> Option<winapi_util::HandleRef> {
-        None
-    }
-}
-
-pub trait WriteAnsi: Write + Sized {
-    type AsyncWrite: AsyncWrite + Send + 'static;
-
-    fn async_wtr() -> Self::AsyncWrite;
-
-    fn supports_color(&self) -> bool;
-
-    #[inline]
-    fn with_reset(&mut self, f: impl FnOnce(&mut Self) -> io::Result<()>) -> io::Result<()> {
-        f(self.by_ref())?;
-        if self.supports_color() {
-            self.write_all(b"\x1b[0m")?;
-        }
-        Ok(())
-    }
-
-    #[inline]
-    fn fg(&mut self, fg: u8) -> io::Result<&mut Self> {
-        write_color(self.by_ref(), fg, true).map(|()| self)
-    }
-
-    #[inline]
-    fn bg(&mut self, bg: u8) -> io::Result<&mut Self> {
-        write_color(self.by_ref(), bg, false).map(|()| self)
-    }
-
-    #[inline]
-    fn bold(&mut self) -> io::Result<&mut Self> {
-        if self.supports_color() {
-            self.write_all(b"\x1b[1m")?;
-        }
-        Ok(self)
-    }
-
-    #[inline]
-    fn underline(&mut self) -> io::Result<&mut Self> {
-        if self.supports_color() {
-            self.write_all(b"\x1b[4m")?;
-        }
-        Ok(self)
-    }
-
-    #[inline]
-    fn write_str(&mut self, s: impl AsRef<str>) -> io::Result<()> {
-        self.write_all(s.as_ref().as_bytes())
-    }
-}
-
-#[inline]
-fn write_color<W: WriteAnsi>(mut wtr: W, code: u8, fg: bool) -> io::Result<()> {
-    if wtr.supports_color() {
-        let mut buf: [_; 11] = *b"\x1b[48;5;mmmm";
-        if fg {
-            buf[2] = b'3';
-        }
-        let l;
-        match (code / 100, (code / 10) % 10, code % 10) {
-            (0, 0, c3) => {
-                buf[7] = c3 + b'0';
-                l = 9;
-            }
-            (0, c2, c3) => {
-                buf[7] = c2 + b'0';
-                buf[8] = c3 + b'0';
-                l = 10;
-            }
-            (c1, c2, c3) => {
-                buf[7] = c1 + b'0';
-                buf[8] = c2 + b'0';
-                buf[9] = c3 + b'0';
-                l = 11;
-            }
-        }
-        wtr.write_all(&buf[0..l])?;
-    }
-    Ok(())
-}
-
-impl<'a, W: WriteAnsi> WriteAnsi for &'a mut W {
-    type AsyncWrite = W::AsyncWrite;
-
-    fn async_wtr() -> W::AsyncWrite {
-        W::async_wtr()
-    }
-
-    #[inline]
-    fn supports_color(&self) -> bool {
-        (**self).supports_color()
-    }
-}
-
-pub struct TermImpl<I: TermIn, O: StandardOutput, E: StandardOutput> {
-    stdin: I,
-    stdout: TermOutImpl<O>,
-    stderr: TermOutImpl<E>,
-}
-
-impl<I: TermIn, O: StandardOutput, E: StandardOutput> TermImpl<I, O, E> {
-    pub fn new(stdin: I, stdout: O, stderr: E) -> Self {
-        Self {
-            stdin,
-            stdout: TermOutImpl::new(stdout),
-            stderr: TermOutImpl::new(stderr),
-        }
-    }
-}
-
-impl TermImpl<io::Empty, io::Sink, io::Sink> {
-    pub fn null() -> Self {
-        Self {
-            stdin: io::empty(),
-            stdout: TermOutImpl::new(io::sink()),
-            stderr: TermOutImpl::new(io::sink()),
-        }
-    }
-}
-
-impl<I: TermIn, O: StandardOutput, E: StandardOutput> Term for TermImpl<I, O, E> {
-    type Stdin = I;
-    type Stdout = TermOutImpl<O>;
-    type Stderr = TermOutImpl<E>;
-
-    #[inline]
-    fn split_mut(&mut self) -> (&mut I, &mut TermOutImpl<O>, &mut TermOutImpl<E>) {
-        (&mut self.stdin, &mut self.stdout, &mut self.stderr)
-    }
-
-    fn ask_yes_or_no(&mut self, mes: &str, default: bool) -> io::Result<bool> {
-        let prompt = format!("{}{} ", mes, if default { "(Y/n)" } else { "(y/N)" });
-        loop {
-            match &self.prompt_reply_stderr(&prompt)? {
-                s if s.is_empty() => break Ok(default),
-                s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => {
-                    break Ok(true)
-                }
-                s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => {
-                    break Ok(false)
-                }
-                _ => self.stderr().with_reset(|o| {
-                    o.fg(11)?
-                        .write_str("Answer \"y\", \"yes\", \"n\", \"no\", or \"\".")
-                })?,
-            }
-        }
-    }
-
-    fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        self.stderr.write_all(prompt.as_bytes())?;
-        self.stderr.flush()?;
-        self.stdin.read_reply()
-    }
-
-    fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        self.stderr.write_all(prompt.as_bytes())?;
-        self.stderr.flush()?;
-        self.stdin.read_password().or_else(|_| {
-            self.stderr.write_all(prompt.as_bytes())?;
-            self.stderr.flush()?;
-            self.stdin.read_reply()
-        })
-    }
-}
-
-pub enum TermInImpl<'a> {
+#[derive(Debug)]
+pub enum TtyOrPiped<R: BufRead> {
     Tty,
-    Piped(StdinLock<'a>),
+    Piped(R),
 }
 
-impl<'a> Read for TermInImpl<'a> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
-            TermInImpl::Tty => io::stdin().read(buf),
-            TermInImpl::Piped(stdin) => stdin.read(buf),
+impl<'a> TtyOrPiped<StdinLock<'a>> {
+    /// Creates a new `TtyOrPiped`.
+    ///
+    /// Returns `Tty` if the stdin is a TTY, otherwise `Piped`.
+    pub fn auto(stdin: &'a Stdin) -> Self {
+        if atty::is(atty::Stream::Stdin) && !(cfg!(windows) && env::var_os("MSYSTEM").is_some()) {
+            TtyOrPiped::Tty
+        } else {
+            TtyOrPiped::Piped(stdin.lock())
         }
     }
 }
 
-impl<'a> TermIn for TermInImpl<'a> {
+impl<R: BufRead> Input for TtyOrPiped<R> {
     fn read_reply(&mut self) -> io::Result<String> {
         let mut ret = "".to_owned();
         let _ = match self {
-            TermInImpl::Tty => io::stdin().read_line(&mut ret),
-            TermInImpl::Piped(stdin) => stdin.read_line(&mut ret),
+            TtyOrPiped::Tty => io::stdin().read_line(&mut ret),
+            TtyOrPiped::Piped(rdr) => rdr.read_line(&mut ret),
         }?;
-        check_remove_trailing_newilne(ret)
+
+        // Returns an `Err` when the input does not end with `'\n'` as `rprompt` does.
+        // <https://github.com/conradkdotcom/rprompt/blob/ffcb74304e42f31e03efa44b72163b40d2dde7c2/src/lib.rs#L24-L32>
+        if ret.pop() == Some('\n') {
+            if ret.ends_with('\r') {
+                ret.pop();
+            }
+            Ok(ret)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "input must ends with a newline",
+            ))
+        }
     }
 
     fn read_password(&mut self) -> io::Result<String> {
         match self {
-            TermInImpl::Tty => rpassword::read_password_from_tty(None),
-            TermInImpl::Piped(stdin) => {
+            TtyOrPiped::Tty => rpassword::read_password_from_tty(None),
+            TtyOrPiped::Piped(rdr) => {
                 let mut ret = "".to_owned();
-                let _ = stdin.read_line(&mut ret)?;
-                Ok(remove_trailing_newilne(ret))
-            }
-        }
-    }
-}
+                let _ = rdr.read_line(&mut ret)?;
 
-impl<'a> TermInImpl<'a> {
-    /// Creates a new `TermInImpl`.
-    ///
-    /// Returns `Tty` if the stdin is a TTY, otherwise `Piped`.
-    pub fn new(stdin: &'a Stdin) -> Self {
-        if atty::is(atty::Stream::Stdin) && !(cfg!(windows) && env::var_os("MSYSTEM").is_some()) {
-            TermInImpl::Tty
-        } else {
-            TermInImpl::Piped(stdin.lock())
-        }
-    }
-}
-
-pub struct TermOutImpl<W: StandardOutput> {
-    wtr: W,
-    supports_color: bool,
-    str_width_fn: fn(&str) -> usize,
-    char_width_fn: fn(char) -> Option<usize>,
-    alt_columns: Option<usize>,
-}
-
-impl<W: StandardOutput> TermOutImpl<W> {
-    fn new(wtr: W) -> Self {
-        Self {
-            wtr,
-            supports_color: false,
-            str_width_fn: <str as UnicodeWidthStr>::width,
-            char_width_fn: <char as UnicodeWidthChar>::width,
-            alt_columns: None,
-        }
-    }
-
-    pub fn get_ref(&self) -> &W {
-        &self.wtr
-    }
-
-    pub fn get_mut(&mut self) -> &mut W {
-        &mut self.wtr
-    }
-}
-
-impl<W: StandardOutput> Write for TermOutImpl<W> {
-    #[inline]
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.wtr.write(buf)
-    }
-
-    #[inline]
-    fn flush(&mut self) -> io::Result<()> {
-        self.wtr.flush()
-    }
-}
-
-impl<W: StandardOutput> WriteAnsi for TermOutImpl<W> {
-    type AsyncWrite = W::AsyncWrite;
-
-    fn async_wtr() -> W::AsyncWrite {
-        W::async_wtr()
-    }
-
-    #[inline]
-    fn supports_color(&self) -> bool {
-        self.supports_color
-    }
-}
-
-impl<W: StandardOutput> TermOut for TermOutImpl<W> {
-    fn process_redirection() -> process::Stdio {
-        W::process_redirection()
-    }
-
-    fn columns(&self) -> Option<usize> {
-        W::columns().or(self.alt_columns)
-    }
-
-    #[inline]
-    fn str_width_fn(&self) -> fn(&str) -> usize {
-        self.str_width_fn
-    }
-
-    #[inline]
-    fn char_width_fn(&self) -> fn(char) -> Option<usize> {
-        self.char_width_fn
-    }
-
-    #[cfg(not(windows))]
-    fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice) {
-        let p = match choice {
-            AnsiColorChoice::Never => false,
-            AnsiColorChoice::Always => true,
-            AnsiColorChoice::Auto => {
-                W::is_tty() && env::var_os("TERM").map_or(false, |v| v != "dumb")
-            }
-        };
-        if p {
-            self.supports_color = true;
-        }
-    }
-
-    #[cfg(windows)]
-    fn attempt_enable_ansi(&mut self, choice: AnsiColorChoice) {
-        fn virtual_terminal_processing_enabled(handle: &winapi_util::HandleRef) -> bool {
-            use winapi::um::wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            winapi_util::console::mode(handle)
-                .ok()
-                .map_or(false, |mode| mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0)
-        }
-
-        enum EnvKind {
-            DumbOrCygwin,
-            Msys,
-            PossiblyWinConsole,
-        }
-
-        self.supports_color = match choice {
-            AnsiColorChoice::Never => false,
-            AnsiColorChoice::Always => true,
-            AnsiColorChoice::Auto => {
-                let term = env::var("TERM");
-                let term = term.as_ref().map(String::as_str);
-                let kind = if term == Ok("dumb") || term == Ok("cygwin") {
-                    EnvKind::DumbOrCygwin
-                } else if env::var_os("MSYSTEM").is_some() && term.is_ok() {
-                    EnvKind::Msys
-                } else {
-                    EnvKind::PossiblyWinConsole
-                };
-                match kind {
-                    EnvKind::DumbOrCygwin => false,
-                    EnvKind::Msys => W::is_tty(),
-                    EnvKind::PossiblyWinConsole => {
-                        W::is_tty()
-                            && W::windows_handle_ref()
-                                .map_or(false, |h| virtual_terminal_processing_enabled(&h))
+                // Allows a string which does not end with `'\n'` as `rpassword` does.
+                if ret.ends_with('\n') {
+                    ret.pop();
+                    if ret.ends_with('\r') {
+                        ret.pop();
                     }
                 }
+                Ok(ret)
             }
-        };
-    }
-
-    fn apply_conf(&mut self, conf: &config::Console) {
-        if conf.cjk {
-            self.str_width_fn = <str as UnicodeWidthStr>::width_cjk;
-            self.char_width_fn = <char as UnicodeWidthChar>::width_cjk;
-        } else {
-            self.str_width_fn = <str as UnicodeWidthStr>::width;
-            self.char_width_fn = <char as UnicodeWidthChar>::width;
         }
-        self.alt_columns = conf.alt_width;
     }
-}
-
-#[cfg(test)]
-pub(crate) struct Ansi<W: Write>(W);
-
-#[cfg(test)]
-impl<W: Write> Ansi<W> {
-    pub(crate) fn new(wtr: W) -> Self {
-        Ansi(wtr)
-    }
-
-    pub(crate) fn get_ref(&self) -> &W {
-        &self.0
-    }
-}
-
-#[cfg(test)]
-impl<W: Write> Write for Ansi<W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.0.flush()
-    }
-}
-
-#[cfg(test)]
-impl<W: Write> WriteAnsi for Ansi<W> {
-    type AsyncWrite = io::Sink;
-
-    fn async_wtr() -> io::Sink {
-        io::sink()
-    }
-
-    fn supports_color(&self) -> bool {
-        true
-    }
-}
-
-#[cfg(test)]
-impl<W: Write> TermOut for Ansi<W> {
-    fn process_redirection() -> process::Stdio {
-        process::Stdio::null()
-    }
-
-    fn columns(&self) -> Option<usize> {
-        None
-    }
-
-    fn str_width_fn(&self) -> fn(&str) -> usize {
-        UnicodeWidthStr::width
-    }
-
-    fn char_width_fn(&self) -> fn(char) -> Option<usize> {
-        UnicodeWidthChar::width
-    }
-
-    fn attempt_enable_ansi(&mut self, _: AnsiColorChoice) {}
-
-    fn apply_conf(&mut self, _: &config::Console) {}
 }
 
 #[derive(Clone, Copy, Debug, strum_macros::Display, EnumString, Serialize)]
@@ -768,47 +96,455 @@ pub enum AnsiColorChoice {
     Always,
 }
 
-fn remove_trailing_newilne(mut s: String) -> String {
-    if s.ends_with("\r\n") {
-        s.pop();
-        s.pop();
-    } else if s.ends_with('\n') {
-        s.pop();
+pub(crate) trait WriteExt: Write {
+    fn write_str(&mut self, s: impl AsRef<str>) -> io::Result<()> {
+        self.write_all(s.as_ref().as_ref())
     }
-    s
+
+    fn write_spaces(&mut self, n: usize) -> io::Result<()> {
+        (0..n).try_for_each(|_| self.write_str(" "))
+    }
 }
 
-fn check_remove_trailing_newilne(mut s: String) -> io::Result<String> {
-    if s.ends_with("\r\n") {
-        s.pop();
-        s.pop();
-        Ok(s)
-    } else if s.ends_with('\n') {
-        s.pop();
-        Ok(s)
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "input must ends with a newline",
-        ))
+impl<W: Write + ?Sized> WriteExt for W {}
+
+pub trait AttemptEnableColor: WriteColor {
+    fn attempt_enable_color(&mut self, choice: AnsiColorChoice);
+}
+
+impl<'a, W: AttemptEnableColor> AttemptEnableColor for &'a mut W {
+    fn attempt_enable_color(&mut self, choice: AnsiColorChoice) {
+        (**self).attempt_enable_color(choice);
+    }
+}
+
+pub trait HasTermProps {
+    type AnsiAsyncWrite: AsyncWrite + Send + 'static;
+
+    fn term_props(&self) -> &TermProps<Self::AnsiAsyncWrite>;
+
+    fn ansi_async_wtr(&self) -> Self::AnsiAsyncWrite {
+        (self.term_props().ansi_async_wtr)()
+    }
+
+    fn process_redirection(&self) -> process::Stdio {
+        (self.term_props().process_redirection)()
+    }
+
+    fn columns(&self) -> Option<usize> {
+        (self.term_props().columns)()
+    }
+
+    fn char_width_fn(&self) -> fn(char) -> Option<usize> {
+        self.term_props().char_width
+    }
+
+    fn str_width_fn(&self) -> fn(&str) -> usize {
+        self.term_props().str_width
+    }
+
+    fn char_width(&self, c: char) -> Option<usize> {
+        self.char_width_fn()(c)
+    }
+
+    fn str_width(&self, s: &str) -> usize {
+        self.str_width_fn()(s)
+    }
+}
+
+impl<'a, W: HasTermProps> HasTermProps for &'a W {
+    type AnsiAsyncWrite = W::AnsiAsyncWrite;
+
+    fn term_props(&self) -> &TermProps<Self::AnsiAsyncWrite> {
+        (**self).term_props()
+    }
+}
+
+impl<'a, W: HasTermProps> HasTermProps for &'a mut W {
+    type AnsiAsyncWrite = W::AnsiAsyncWrite;
+
+    fn term_props(&self) -> &TermProps<Self::AnsiAsyncWrite> {
+        (**self).term_props()
+    }
+}
+
+pub trait ModifyTermProps: HasTermProps {
+    fn modify_term_props(&mut self, f: impl FnOnce(&mut TermProps<Self::AnsiAsyncWrite>));
+}
+
+impl<'a, W: ModifyTermProps> ModifyTermProps for &'a mut W {
+    fn modify_term_props(&mut self, f: impl FnOnce(&mut TermProps<Self::AnsiAsyncWrite>)) {
+        (**self).modify_term_props(f)
+    }
+}
+
+pub struct TermProps<W: AsyncWrite + Send + 'static> {
+    pub ansi_async_wtr: fn() -> W,
+    pub process_redirection: fn() -> process::Stdio,
+    pub columns: fn() -> Option<usize>,
+    pub char_width: fn(char) -> Option<usize>,
+    pub str_width: fn(&str) -> usize,
+}
+
+impl Default for TermProps<Sink> {
+    fn default() -> Self {
+        Self {
+            ansi_async_wtr: io::sink,
+            process_redirection: process::Stdio::null,
+            columns: || None,
+            char_width: UnicodeWidthChar::width,
+            str_width: UnicodeWidthStr::width,
+        }
+    }
+}
+
+impl<W: AsyncWrite + Send + 'static> fmt::Debug for TermProps<W> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.write_str("TermProps { .. }")
+    }
+}
+
+pub type Dumb = WriterWithProps<NoColor<Vec<u8>>>;
+pub type AnsiWithProps = WriterWithProps<Ansi<Vec<u8>>>;
+
+pub struct WriterWithProps<W: WriteColor> {
+    wtr: W,
+    props: TermProps<Sink>,
+}
+
+impl<W: Write + Default> WriterWithProps<NoColor<W>> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<W: Write + Default> WriterWithProps<Ansi<W>> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl fmt::Debug for WriterWithProps<Ansi<Vec<u8>>> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("Writer")
+            .field("wtr", &format_args!("_")) // `Ansi` and `NoColor` are not `Debug`
+            .field("props", &self.props)
+            .finish()
+    }
+}
+
+impl<W: Write + Default> Default for WriterWithProps<NoColor<W>> {
+    fn default() -> Self {
+        Self {
+            wtr: NoColor::new(W::default()),
+            props: TermProps::default(),
+        }
+    }
+}
+
+impl<W: Write + Default> Default for WriterWithProps<Ansi<W>> {
+    fn default() -> Self {
+        Self {
+            wtr: Ansi::new(W::default()),
+            props: TermProps::default(),
+        }
+    }
+}
+
+impl TryFrom<WriterWithProps<NoColor<Vec<u8>>>> for String {
+    type Error = FromUtf8Error;
+
+    fn try_from(
+        wtr: WriterWithProps<NoColor<Vec<u8>>>,
+    ) -> std::result::Result<Self, FromUtf8Error> {
+        Self::from_utf8(wtr.wtr.into_inner())
+    }
+}
+
+impl TryFrom<WriterWithProps<Ansi<Vec<u8>>>> for String {
+    type Error = FromUtf8Error;
+
+    fn try_from(wtr: WriterWithProps<Ansi<Vec<u8>>>) -> std::result::Result<Self, FromUtf8Error> {
+        Self::from_utf8(wtr.wtr.into_inner())
+    }
+}
+
+impl<W: WriteColor> Write for WriterWithProps<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.wtr.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.wtr.flush()
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.wtr.write_all(buf)
+    }
+}
+
+impl<W: WriteColor> WriteColor for WriterWithProps<W> {
+    fn supports_color(&self) -> bool {
+        true
+    }
+
+    fn set_color(&mut self, spec: &ColorSpec) -> io::Result<()> {
+        self.wtr.set_color(spec)
+    }
+
+    fn reset(&mut self) -> io::Result<()> {
+        self.wtr.reset()
+    }
+}
+
+impl<W: WriteColor> AttemptEnableColor for WriterWithProps<W> {
+    fn attempt_enable_color(&mut self, _: AnsiColorChoice) {}
+}
+
+impl<W: WriteColor> HasTermProps for WriterWithProps<W> {
+    type AnsiAsyncWrite = Sink;
+
+    fn term_props(&self) -> &TermProps<Sink> {
+        &self.props
+    }
+}
+
+impl<W: WriteColor> ModifyTermProps for WriterWithProps<W> {
+    fn modify_term_props(&mut self, f: impl FnOnce(&mut TermProps<Sink>)) {
+        f(&mut self.props);
+    }
+}
+
+pub struct AnsiStandardStream<W: AnsiStandardOutput> {
+    wtr: Either<W, Ansi<W>>,
+    props: TermProps<W::AnsiAsyncWrite>,
+}
+
+impl<W: AnsiStandardOutput> AnsiStandardStream<W> {
+    pub fn new(wtr: W) -> Self {
+        Self {
+            wtr: Either::Left(wtr),
+            props: TermProps {
+                ansi_async_wtr: W::ansi_async_wtr,
+                process_redirection: process::Stdio::inherit,
+                columns: W::columns,
+                char_width: UnicodeWidthChar::width,
+                str_width: UnicodeWidthStr::width,
+            },
+        }
+    }
+
+    fn inner_mut(&mut self) -> &mut W {
+        match &mut self.wtr {
+            Either::Left(w) => w,
+            Either::Right(w) => w.get_mut(),
+        }
+    }
+}
+
+impl<W: AnsiStandardOutput + fmt::Debug> fmt::Debug for AnsiStandardStream<W> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        let wtr = match &self.wtr {
+            Either::Left(w) => Either::Left(w),
+            Either::Right(_) => Either::Right(format_args!("_")),
+        };
+        fmt.debug_struct("AnsiStandardStream")
+            .field("wtr", &wtr)
+            .field("props", &self.props)
+            .finish()
+    }
+}
+
+impl<W: AnsiStandardOutput> Write for AnsiStandardStream<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.inner_mut().write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner_mut().flush()
+    }
+}
+
+impl<W: AnsiStandardOutput> WriteColor for AnsiStandardStream<W> {
+    fn supports_color(&self) -> bool {
+        self.wtr.is_right()
+    }
+
+    fn set_color(&mut self, spec: &ColorSpec) -> io::Result<()> {
+        match &mut self.wtr {
+            Either::Left(_) => Ok(()),
+            Either::Right(w) => w.set_color(spec),
+        }
+    }
+
+    fn reset(&mut self) -> io::Result<()> {
+        match &mut self.wtr {
+            Either::Left(_) => Ok(()),
+            Either::Right(w) => w.reset(),
+        }
+    }
+}
+
+impl<W: AnsiStandardOutput> AttemptEnableColor for AnsiStandardStream<W> {
+    fn attempt_enable_color(&mut self, choice: AnsiColorChoice) {
+        #[cfg(windows)]
+        fn should_enable_color_on_auto<W: AnsiStandardOutput>() -> bool {
+            use winapi::um::wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+
+            let term = env::var("TERM");
+            let term = term.as_ref().map(String::as_str);
+            if term == Ok("dumb") || term == Ok("cygwin") {
+                false
+            } else if env::var_os("MSYSTEM").is_some() && term.is_ok() {
+                atty::is(W::atty_stream())
+            } else {
+                atty::is(W::atty_stream())
+                    && winapi_util::console::mode(W::windows_handle_ref())
+                        .ok()
+                        .map_or(false, |m| m & ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0)
+            }
+        }
+
+        #[cfg(not(windows))]
+        fn should_enable_color_on_auto<W: AnsiStandardOutput>() -> bool {
+            atty::is(W::atty_stream()) && env::var_os("TERM").map_or(false, |v| v != "dumb")
+        }
+
+        let should_enable_color = match choice {
+            AnsiColorChoice::Never => false,
+            AnsiColorChoice::Always => true,
+            AnsiColorChoice::Auto => should_enable_color_on_auto::<W>(),
+        };
+
+        take_mut::take(&mut self.wtr, |wtr| {
+            let wtr = match wtr {
+                Either::Left(w) => w,
+                Either::Right(w) => w.into_inner(),
+            };
+            if should_enable_color {
+                Either::Right(Ansi::new(wtr))
+            } else {
+                Either::Left(wtr)
+            }
+        });
+    }
+}
+
+impl<W: AnsiStandardOutput> HasTermProps for AnsiStandardStream<W> {
+    type AnsiAsyncWrite = W::AnsiAsyncWrite;
+
+    fn term_props(&self) -> &TermProps<W::AnsiAsyncWrite> {
+        &self.props
+    }
+}
+
+impl<W: AnsiStandardOutput> ModifyTermProps for AnsiStandardStream<W> {
+    fn modify_term_props(&mut self, f: impl FnOnce(&mut TermProps<W::AnsiAsyncWrite>)) {
+        f(&mut self.props);
+    }
+}
+
+pub trait AnsiStandardOutput: Write {
+    type AnsiAsyncWrite: AsyncWrite + Send + 'static;
+
+    fn ansi_async_wtr() -> Self::AnsiAsyncWrite;
+
+    #[cfg(windows)]
+    fn columns() -> Option<usize> {
+        let handle = Self::windows_handle_ref();
+        let info = winapi_util::console::screen_buffer_info(handle).ok()?;
+        match info.size() {
+            (w, _) if w >= 0 => Some(w as usize),
+            _ => None,
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn columns() -> Option<usize>;
+
+    fn atty_stream() -> atty::Stream;
+
+    #[cfg(windows)]
+    fn windows_handle_ref() -> winapi_util::HandleRef;
+}
+
+impl<W: AnsiStandardOutput> AnsiStandardOutput for BufWriter<W> {
+    type AnsiAsyncWrite = W::AnsiAsyncWrite;
+
+    fn ansi_async_wtr() -> W::AnsiAsyncWrite {
+        W::ansi_async_wtr()
+    }
+
+    fn columns() -> Option<usize> {
+        W::columns()
+    }
+
+    fn atty_stream() -> atty::Stream {
+        W::atty_stream()
+    }
+
+    #[cfg(windows)]
+    fn windows_handle_ref() -> winapi_util::HandleRef {
+        W::windows_handle_ref()
+    }
+}
+
+impl AnsiStandardOutput for Stdout {
+    type AnsiAsyncWrite = tokio::io::Stdout;
+
+    fn ansi_async_wtr() -> tokio::io::Stdout {
+        tokio::io::stdout()
+    }
+
+    #[cfg(not(windows))]
+    fn columns() -> Option<usize> {
+        term_size::dimensions_stdout().map(|(w, _)| w)
+    }
+
+    fn atty_stream() -> atty::Stream {
+        atty::Stream::Stdout
+    }
+
+    #[cfg(windows)]
+    fn windows_handle_ref() -> winapi_util::HandleRef {
+        winapi_util::HandleRef::stdout()
+    }
+}
+
+impl AnsiStandardOutput for Stderr {
+    type AnsiAsyncWrite = tokio::io::Stderr;
+
+    fn ansi_async_wtr() -> tokio::io::Stderr {
+        tokio::io::stderr()
+    }
+
+    #[cfg(not(windows))]
+    fn columns() -> Option<usize> {
+        term_size::dimensions_stderr().map(|(w, _)| w)
+    }
+
+    fn atty_stream() -> atty::Stream {
+        atty::Stream::Stderr
+    }
+
+    #[cfg(windows)]
+    fn windows_handle_ref() -> winapi_util::HandleRef {
+        winapi_util::HandleRef::stderr()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::terminal::{
-        Ansi, AnsiColorChoice, Term as _, TermImpl, TermOut as _, WriteAnsi as _, WriteSpaces as _,
-    };
+    use crate::terminal::{Input as _, TtyOrPiped, WriteExt as _};
 
     use failure::Fallible;
     use pretty_assertions::assert_eq;
 
-    use std::borrow::Borrow as _;
     use std::{io, str};
 
     #[test]
     fn test_write_spaces() -> Fallible<()> {
-        let mut wtr = Vec::<u8>::new();
+        let mut wtr = vec![];
         wtr.write_spaces(0)?;
         assert_eq!(str::from_utf8(&wtr)?, "");
         wtr.write_spaces(10)?;
@@ -817,71 +553,24 @@ mod tests {
     }
 
     #[test]
-    fn test_write_ansi() -> Fallible<()> {
-        let mut wtr = Ansi::new(Vec::<u8>::new());
-        wtr.with_reset(|w| w.fg(4)?.write_str("foo"))?;
-        wtr.with_reset(|w| w.fg(14)?.write_str("bar"))?;
-        wtr.with_reset(|w| w.bg(195)?.write_str("baz"))?;
-        wtr.with_reset(|w| w.bold()?.write_str("qux"))?;
-        wtr.with_reset(|w| w.underline()?.write_str("quux"))?;
-        assert_eq!(
-            str::from_utf8(wtr.get_ref())?,
-            "\x1b[38;5;4mfoo\x1b[0m\x1b[38;5;14mbar\x1b[0m\x1b[48;5;195mbaz\x1b[0m\x1b[1mqux\x1b[0m\
-             \x1b[4mquux\x1b[0m",
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_ask_yes_or_no() -> Fallible<()> {
-        let mut term = TermImpl::new("y\nn\n\ny\nn\nヌ\n\n".as_bytes(), vec![], vec![]);
-        term.stderr.attempt_enable_ansi(AnsiColorChoice::Always);
-
-        assert_eq!(term.ask_yes_or_no("Yes?: ", true)?, true);
-        assert_eq!(term.ask_yes_or_no("Yes?: ", true)?, false);
-        assert_eq!(term.ask_yes_or_no("Yes?: ", true)?, true);
-        assert_eq!(term.ask_yes_or_no("No?: ", false)?, true);
-        assert_eq!(term.ask_yes_or_no("No?: ", false)?, false);
-        assert_eq!(term.ask_yes_or_no("No?: ", false)?, false);
-        let err = term.ask_yes_or_no("Yes?: ", true).unwrap_err();
+    fn test_read_reply() -> io::Result<()> {
+        let mut piped = TtyOrPiped::Piped(&b"foo\nbar\nbaz"[..]);
+        assert_eq!(piped.read_reply()?, "foo");
+        assert_eq!(piped.read_reply()?, "bar");
+        let err = piped.read_reply().unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
-
-        assert!(term.stdout.wtr.is_empty());
-        assert_eq!(
-            str::from_utf8(&term.stderr.wtr)?,
-            "Yes?: (Y/n) Yes?: (Y/n) Yes?: (Y/n) No?: (y/N) No?: (y/N) No?: (y/N) \
-             \x1b[38;5;11mAnswer \"y\", \"yes\", \"n\", \"no\", or \"\".\x1b[0m\
-             No?: (y/N) Yes?: (Y/n) ",
-        );
         Ok(())
     }
 
     #[test]
-    fn test_prompt_reply_password_stderr() -> Fallible<()> {
-        type Method =
-            fn(&mut TermImpl<&'static [u8], Vec<u8>, Vec<u8>>, prompt: &str) -> io::Result<String>;
-        static METHODS: &[Method] = &[
-            TermImpl::prompt_reply_stderr,
-            TermImpl::prompt_password_stderr,
-        ];
-        for method in METHODS {
-            let mut term = TermImpl::new(b"foo\nbar\n".borrow(), vec![], vec![]);
-            assert_eq!(method(&mut term, "Prompt: ")?, "foo");
-            assert_eq!(method(&mut term, "Prompt: ")?, "bar");
-            assert!(term.stdout.wtr.is_empty());
-            assert_eq!(str::from_utf8(&term.stderr.wtr)?, "Prompt: Prompt: ");
-        }
-
-        for &input in &["", "foo"] {
-            let mut term = TermImpl::new(input.as_bytes(), vec![], vec![]);
-            assert_eq!(term.prompt_password_stderr("Prompt: ")?, input);
-            assert!(term.stdout.wtr.is_empty());
-            assert_eq!(str::from_utf8(&term.stderr.wtr)?, "Prompt: ");
-
-            let mut term = TermImpl::new(input.as_bytes(), vec![], vec![]);
-            let err = term.prompt_reply_stderr("Prompt: ").unwrap_err();
-            assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
-        }
+    fn test_read_password() -> io::Result<()> {
+        let mut rdr = &b"foo\nbar\nbaz"[..];
+        let mut piped = TtyOrPiped::Piped(&mut rdr);
+        assert_eq!(piped.read_password()?, "foo");
+        assert_eq!(piped.read_password()?, "bar");
+        assert_eq!(piped.read_password()?, "baz");
+        assert_eq!(piped.read_password()?, "");
+        assert_eq!(rdr, b"");
         Ok(())
     }
 }

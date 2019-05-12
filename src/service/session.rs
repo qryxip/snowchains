@@ -2,7 +2,7 @@ use crate::errors::{FileResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
 use crate::service::USER_AGENT;
-use crate::terminal::WriteAnsi;
+use crate::terminal::WriteExt as _;
 
 use cookie::CookieJar;
 use derive_new::new;
@@ -17,6 +17,7 @@ use robots_txt::{Robots, SimpleMatcher};
 use scraper::Html;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use termcolor::WriteColor;
 use tokio::runtime::Runtime;
 use url::{Host, Url};
 
@@ -26,7 +27,8 @@ use std::fmt::{self, Write as _};
 use std::ops::Deref;
 use std::{io, mem};
 
-pub(super) struct HttpSessionInitParams<'a, W: WriteAnsi> {
+#[derive(Debug)]
+pub(super) struct HttpSessionInitParams<'a, W: WriteColor> {
     pub(super) out: W,
     pub(super) runtime: &'a mut Runtime,
     pub(super) robots: bool,
@@ -48,7 +50,7 @@ pub(super) struct HttpSession {
 }
 
 impl HttpSession {
-    pub(super) fn try_new(params: HttpSessionInitParams<impl WriteAnsi>) -> ServiceResult<Self> {
+    pub(super) fn try_new(params: HttpSessionInitParams<impl WriteColor>) -> ServiceResult<Self> {
         let HttpSessionInitParams {
             mut out,
             mut runtime,
@@ -156,7 +158,7 @@ impl HttpSession {
     pub(super) fn open_in_browser(
         &mut self,
         url: impl IntoRelativeOrAbsoluteUrl,
-        mut out: impl WriteAnsi,
+        mut out: impl WriteColor,
     ) -> ServiceResult<()> {
         let url = self.resolve_url(url)?;
         writeln!(out, "Opening {} in default browser...", url)?;
@@ -169,7 +171,7 @@ impl HttpSession {
         }
     }
 
-    pub(super) fn get<'a, 'b, O: WriteAnsi>(
+    pub(super) fn get<'a, 'b, O: WriteColor>(
         &'a mut self,
         url: impl IntoRelativeOrAbsoluteUrl,
         out: O,
@@ -178,7 +180,7 @@ impl HttpSession {
         self.request(url, Method::GET, vec![StatusCode::OK], out, runtime)
     }
 
-    pub(super) fn post<'a, 'b, O: WriteAnsi>(
+    pub(super) fn post<'a, 'b, O: WriteColor>(
         &'a mut self,
         url: impl IntoRelativeOrAbsoluteUrl,
         out: O,
@@ -187,7 +189,7 @@ impl HttpSession {
         self.request(url, Method::POST, vec![StatusCode::FOUND], out, runtime)
     }
 
-    fn request<'a, 'b, O: WriteAnsi>(
+    fn request<'a, 'b, O: WriteColor>(
         &'a mut self,
         url: impl IntoRelativeOrAbsoluteUrl,
         method: Method,
@@ -229,7 +231,8 @@ impl HttpSession {
     }
 }
 
-pub(super) struct Request<'a, 'b, O: WriteAnsi> {
+#[derive(Debug)]
+pub(super) struct Request<'a, 'b, O: WriteColor> {
     inner: ServiceResult<reqwest::r#async::RequestBuilder>,
     out: Option<O>,
     session: &'a mut HttpSession,
@@ -238,7 +241,7 @@ pub(super) struct Request<'a, 'b, O: WriteAnsi> {
     no_cookie: bool,
 }
 
-impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
+impl<'a, 'b, O: WriteColor> Request<'a, 'b, O> {
     pub(super) fn basic_auth(
         self,
         username: impl fmt::Display,
@@ -359,12 +362,24 @@ impl<'a, 'b, O: WriteAnsi> Request<'a, 'b, O> {
     }
 }
 
-#[cfg_attr(test, derive(Debug))]
+#[derive(Debug)]
 pub(super) struct Response {
     inner: reqwest::r#async::Response,
 }
 
 impl Response {
+    pub(super) fn header_location(&self) -> ServiceResult<Option<&str>> {
+        self.headers()
+            .get(header::LOCATION)
+            .map(|location| {
+                location.to_str().map_err(|e| {
+                    e.context(ServiceErrorKind::ReadHeader(header::LOCATION))
+                        .into()
+                })
+            })
+            .transpose()
+    }
+
     fn text(mut self, runtime: &mut Runtime) -> ServiceResult<String> {
         struct BufDecoder {
             decoder: Decoder,
@@ -445,21 +460,25 @@ impl Deref for Response {
 }
 
 trait RequestExt {
-    fn echo_method(&self, out: impl WriteAnsi) -> io::Result<()>;
+    fn echo_method(&self, out: impl WriteColor) -> io::Result<()>;
 }
 
 impl RequestExt for reqwest::r#async::Request {
-    fn echo_method(&self, mut out: impl WriteAnsi) -> io::Result<()> {
-        out.with_reset(|o| o.bold()?.write_str(self.method()))?;
+    fn echo_method(&self, mut out: impl WriteColor) -> io::Result<()> {
+        out.set_color(color!(bold))?;
+        out.write_str(self.method())?;
         out.write_str(" ")?;
-        out.with_reset(|o| o.fg(14)?.write_str(self.url()))?;
+        out.set_color(color!(fg(Cyan), intense))?;
+        out.write_str(self.url())?;
+        out.reset()?;
         out.write_str(" ... ")?;
         out.flush()
     }
 }
 
 trait ResponseExt: Sized {
-    fn echo_status(&self, expected_statuses: &[StatusCode], out: impl WriteAnsi) -> io::Result<()>;
+    fn echo_status(&self, expected_statuses: &[StatusCode], out: impl WriteColor)
+        -> io::Result<()>;
     fn filter_by_status(self, expected: Vec<StatusCode>) -> ServiceResult<Self>;
 }
 
@@ -467,15 +486,16 @@ impl ResponseExt for reqwest::r#async::Response {
     fn echo_status(
         &self,
         expected_statuses: &[StatusCode],
-        mut out: impl WriteAnsi,
+        mut out: impl WriteColor,
     ) -> io::Result<()> {
-        let color = if expected_statuses.contains(&self.status()) {
-            10
+        if expected_statuses.contains(&self.status()) {
+            out.set_color(color!(fg(Green), intense, bold))?;
         } else {
-            9
+            out.set_color(color!(fg(Red), intense, bold))?;
         };
-        out.with_reset(|o| write!(o.fg(color)?.bold()?, "{}", self.status()))?;
-        out.write_str("\n")?;
+        write!(out, "{}", self.status())?;
+        out.reset()?;
+        writeln!(out)?;
         out.flush()
     }
 
@@ -626,23 +646,28 @@ mod tests {
     use crate::path::{AbsPath, AbsPathBuf};
     use crate::service;
     use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
-    use crate::terminal::{Ansi, WriteAnsi};
 
     use failure::Fallible;
     use futures::Future as _;
     use if_chain::if_chain;
+    use once_cell::sync::Lazy;
+    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
     use reqwest::StatusCode;
     use tempdir::TempDir;
+    use termcolor::{Ansi, Color, ColorSpec, NoColor, WriteColor};
     use tokio::runtime::Runtime;
     use url::Host;
     use warp::Filter;
 
+    use std::io::{self, Write as _};
     use std::net::Ipv4Addr;
-    use std::{env, io, panic, str};
+    use std::{env, panic, str};
 
     #[test]
     fn it_works() -> Fallible<()> {
+        const LOCALHOST_PORT: u16 = 2000;
+
         let filter_ua = warp::filters::header::exact("User-Agent", service::USER_AGENT);
         let index = warp::path::end()
             .and(filter_ua)
@@ -658,10 +683,13 @@ mod tests {
             .and(filter_ua)
             .map(|| "User-agent: *\nDisallow: /sensitive");
         let server = warp::serve(index.or(confirm_cookie).or(robots_txt));
+
         let mut runtime = Runtime::new()?;
-        runtime.spawn(server.bind(([127, 0, 0, 1], 2000)));
+        runtime.spawn(server.bind(([127, 0, 0, 1], LOCALHOST_PORT)));
+
         let tempdir = dunce::canonicalize(&env::temp_dir())?;
         let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
+
         let result = panic::catch_unwind::<_, Fallible<()>>(|| {
             let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
             let client = service::reqwest_async_client(None)?;
@@ -678,6 +706,7 @@ mod tests {
                 api_token_path: None,
                 silent: false,
             })?;
+
             sess.get("/", &mut wtr, &mut runtime).send()?;
             sess.get("/confirm-cookie", &mut wtr, &mut runtime).send()?;
             sess.get("/nonexisting", &mut wtr, &mut runtime)
@@ -692,26 +721,44 @@ mod tests {
                 if let ServiceErrorKind::ForbiddenByRobotsTxt = ctx.get_context();
                 then {} else { return Err(err.into()) }
             }
-            assert_eq!(
-                str::from_utf8(wtr.get_ref())?,
-                format!(
-                    "{get} {robots_txt} ... {expected_200}\n\
-                     {get} {index} ... {expected_200}\n\
-                     {get} {confirm_cookie} ... {expected_200}\n\
-                     {get} {nonexisting} ... {expected_404}\n\
-                     {get} {nonexisting} ... {unexpected_404}\n",
-                    get = "\x1b[1mGET\x1b[0m",
-                    robots_txt = "\x1b[38;5;14mhttp://127.0.0.1:2000/robots.txt\x1b[0m",
-                    index = "\x1b[38;5;14mhttp://127.0.0.1:2000/\x1b[0m",
-                    confirm_cookie = "\x1b[38;5;14mhttp://127.0.0.1:2000/confirm-cookie\x1b[0m",
-                    nonexisting = "\x1b[38;5;14mhttp://127.0.0.1:2000/nonexisting\x1b[0m",
-                    expected_200 = "\x1b[38;5;10m\x1b[1m200 OK\x1b[0m",
-                    expected_404 = "\x1b[38;5;10m\x1b[1m404 Not Found\x1b[0m",
-                    unexpected_404 = "\x1b[38;5;9m\x1b[1m404 Not Found\x1b[0m",
-                ),
-            );
+
+            static EXPECTED: Lazy<String> = sync_lazy! {
+                let mut expected = Ansi::new(vec![]);
+
+                let mut print_line = |path: &str, status_color: u8, status: &str| {
+                    expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
+                    expected.write_all(b"GET ").unwrap();
+                    expected
+                        .set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(14))))
+                        .unwrap();
+                    write!(expected, "http://127.0.0.1:{}{}", LOCALHOST_PORT, path).unwrap();
+                    expected.reset().unwrap();
+                    expected.write_all(b" ... ").unwrap();
+                    expected
+                        .set_color(
+                            ColorSpec::new()
+                                .set_fg(Some(Color::Ansi256(status_color)))
+                                .set_bold(true),
+                        )
+                        .unwrap();
+                    expected.write_all(status.as_ref()).unwrap();
+                    expected.reset().unwrap();
+                    expected.write_all(b"\n").unwrap();
+                };
+
+                print_line("/robots.txt", 10, "200 OK");
+                print_line("/", 10, "200 OK");
+                print_line("/confirm-cookie", 10, "200 OK");
+                print_line("/nonexisting", 10, "404 Not Found");
+                print_line("/nonexisting", 9, "404 Not Found");
+
+                String::from_utf8(expected.into_inner()).unwrap()
+            };
+
+            assert_eq!(str::from_utf8(wtr.get_ref())?, &*EXPECTED);
             Ok(())
         });
+
         runtime.shutdown_now().wait().unwrap();
         tempdir.close()?;
         result.unwrap_or_else(|p| panic::resume_unwind(p))
@@ -720,7 +767,7 @@ mod tests {
     #[test]
     fn it_keeps_a_file_locked_while_alive() -> Fallible<()> {
         fn construct_session(
-            out: impl WriteAnsi,
+            out: impl WriteColor,
             runtime: &mut Runtime,
             client: &reqwest::r#async::Client,
             path: &AbsPath,
@@ -741,14 +788,14 @@ mod tests {
         let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
         let path = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
         let path = path.as_path();
-        let mut wtr = Ansi::new(io::sink());
+        let mut sink = NoColor::new(io::sink());
         let mut rt = Runtime::new()?;
         let client = service::reqwest_async_client(None)?;
-        construct_session(&mut wtr, &mut rt, &client, path)?;
-        construct_session(&mut wtr, &mut rt, &client, path)?;
-        let _session = construct_session(&mut wtr, &mut rt, &client, path)?;
+        construct_session(&mut sink, &mut rt, &client, path)?;
+        construct_session(&mut sink, &mut rt, &client, path)?;
+        let _session = construct_session(&mut sink, &mut rt, &client, path)?;
         if_chain! {
-            let err = construct_session(&mut wtr, &mut rt, &client, path).unwrap_err();
+            let err = construct_session(&mut sink, &mut rt, &client, path).unwrap_err();
             if let ServiceError::File(FileError::Context(kind)) = &err;
             if let FileErrorKind::Lock(_) = kind.get_context();
             then { Ok(()) } else { Err(err.into()) }

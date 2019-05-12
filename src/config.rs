@@ -1,15 +1,15 @@
 use crate::command::{CompilationCommand, HookCommands, JudgingCommand, TranspilationCommand};
 use crate::errors::{ConfigErrorKind, ConfigResult, FileResult};
+use crate::outcome::Outcome;
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
 use crate::template::{
     AbsPathBufRequirements, CompilationCommandRequirements, HookCommandsRequirements,
     JudgingCommandRequirements, Template, TemplateBuilder, TranspilationCommandRequirements,
 };
-use crate::terminal::{TermOut, WriteSpaces as _};
+use crate::terminal::{HasTermProps, ModifyTermProps, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
-use crate::util::combine::OnelinePosition;
 
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use if_chain::if_chain;
@@ -21,11 +21,13 @@ use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use strum_macros::EnumString;
+use termcolor::WriteColor;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::fmt::{self, Write as _};
-use std::io::Write;
+use std::io::{self, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -336,7 +338,7 @@ working_directory = "${{service}}/${{snake_case(contest)}}/cpp"
 [languages.'c++'.names]
 atcoder = "C++14 (GCC 5.4.1)"
 codeforces = "GNU G++17 7.3.0"
-yukicoder = "C++17(1z） (gcc 8.2.0)"
+yukicoder = "C++17(1z) (gcc 8.2.0)"
 
 [languages.rust]
 src = "${{service}}/${{snake_case(contest)}}/rs/src/bin/${{kebab_case(problem)}}.rs"
@@ -465,13 +467,59 @@ yukicoder = "Text (cat 8.22)"
     )
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(crate) struct SwitchOutcome {
     old: SwitchOutcomeAttrs,
     new: SwitchOutcomeAttrs,
 }
 
-#[derive(Serialize)]
+impl Outcome for SwitchOutcome {
+    fn is_success(&self) -> bool {
+        true
+    }
+
+    fn print_pretty(&self, mut stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
+        let old_service = Some(format!("{:?}", <&str>::from(self.old.service)));
+        let old_contest = Some(format!("{:?}", self.old.contest));
+        let old_language = Some(format!("{:?}", self.old.language));
+        let new_service = Some(format!("{:?}", <&str>::from(self.new.service)));
+        let new_contest = Some(format!("{:?}", self.new.contest));
+        let new_language = Some(format!("{:?}", self.new.language));
+
+        let str_width = stdout.str_width_fn();
+        let max_width = [
+            old_service.as_ref().map(|s| str_width(s)).unwrap_or(1),
+            old_contest.as_ref().map(|s| str_width(s)).unwrap_or(1),
+            old_language.as_ref().map(|s| str_width(s)).unwrap_or(1),
+        ]
+        .iter()
+        .cloned()
+        .max()
+        .unwrap();
+
+        for (title, old, new) in &[
+            ("service:  ", &old_service, &new_service),
+            ("contest:  ", &old_contest, &new_contest),
+            ("language: ", &old_language, &new_language),
+        ] {
+            let old = old.as_ref().map(AsRef::as_ref).unwrap_or("~");
+            let new = new.as_ref().map(AsRef::as_ref).unwrap_or("~");
+            stdout.write_str(title)?;
+            stdout.set_color(color!(bold))?;
+            stdout.write_str(old)?;
+            stdout.reset()?;
+            stdout.write_spaces(max_width - str_width(old))?;
+            stdout.write_str(" -> ")?;
+            stdout.set_color(color!(bold))?;
+            stdout.write_str(new)?;
+            stdout.reset()?;
+            writeln!(stdout)?;
+        }
+        stdout.flush()
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct SwitchOutcomeAttrs {
     service: ServiceKind,
     contest: String,
@@ -486,8 +534,8 @@ struct SwitchOutcomeAttrs {
 
 /// Changes attributes.
 pub(crate) fn switch(
-    mut stdout: impl TermOut,
-    mut stderr: impl TermOut,
+    mut stdout: impl ModifyTermProps,
+    mut stderr: impl Write + ModifyTermProps,
     directory: &AbsPath,
     service: Option<ServiceKind>,
     contest: Option<&str>,
@@ -498,60 +546,35 @@ pub(crate) fn switch(
     let inner = crate::fs::read_toml::<Inner>(&path)?;
     let path = directory.join_expanding_user(&inner.target)?;
     let old_target = crate::fs::read_json::<Target>(&path)?;
-
     let new_target = Target {
         service: service.unwrap_or(old_target.service),
         contest: contest.unwrap_or(&old_target.contest).to_owned(),
         language: language.unwrap_or(&old_target.language).to_owned(),
     };
 
-    stdout.apply_conf(&inner.console);
-    stderr.apply_conf(&inner.console);
-
-    let old_service = Some(format!("{:?}", <&str>::from(old_target.service)));
-    let old_contest = Some(format!("{:?}", old_target.contest));
-    let old_language = Some(format!("{:?}", old_target.language));
-    let new_service = Some(format!("{:?}", <&str>::from(new_target.service)));
-    let new_contest = Some(format!("{:?}", new_target.contest));
-    let new_language = Some(format!("{:?}", new_target.language));
-
-    let max_width = [
-        old_service
-            .as_ref()
-            .map(|s| stdout.str_width(s))
-            .unwrap_or(1),
-        old_contest
-            .as_ref()
-            .map(|s| stdout.str_width(s))
-            .unwrap_or(1),
-        old_language
-            .as_ref()
-            .map(|s| stdout.str_width(s))
-            .unwrap_or(1),
-    ]
-    .iter()
-    .cloned()
-    .max()
-    .unwrap();
-
-    for (title, old, new) in &[
-        ("service:  ", &old_service, &new_service),
-        ("contest:  ", &old_contest, &new_contest),
-        ("language: ", &old_language, &new_language),
-    ] {
-        let old = old.as_ref().map(String::as_str).unwrap_or("~");
-        let new = new.as_ref().map(String::as_str).unwrap_or("~");
-        stderr.write_str(title)?;
-        stderr.with_reset(|o| o.bold()?.write_str(old))?;
-        stderr.write_spaces(max_width - old.len())?;
-        stderr.write_str(" -> ")?;
-        stderr.with_reset(|o| o.bold()?.write_str(new))?;
-        stderr.write_str("\n")?;
-    }
-
     crate::fs::write_json_pretty(&path, &new_target)?;
     writeln!(stderr, "Wrote {}", path.display())?;
     stderr.flush()?;
+
+    let char_width: fn(char) -> Option<usize> = if inner.console.cjk {
+        UnicodeWidthChar::width_cjk
+    } else {
+        UnicodeWidthChar::width
+    };
+    let str_width: fn(&str) -> usize = if inner.console.cjk {
+        UnicodeWidthStr::width_cjk
+    } else {
+        UnicodeWidthStr::width
+    };
+
+    stdout.modify_term_props(|props| {
+        props.char_width = char_width;
+        props.str_width = str_width
+    });
+    stderr.modify_term_props(|props| {
+        props.char_width = char_width;
+        props.str_width = str_width
+    });
 
     let outcome = SwitchOutcome {
         old: SwitchOutcomeAttrs {
@@ -594,6 +617,7 @@ pub enum Mode {
 }
 
 /// Config.
+#[derive(Debug)]
 pub(crate) struct Config {
     inner: Inner,
     target: Target,
@@ -924,7 +948,7 @@ impl Config {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Inner {
     target: PathBuf,
     #[serde(default)]
@@ -942,19 +966,19 @@ pub(crate) struct Inner {
     languages: HashMap<String, Language>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Console {
     #[serde(default)]
     pub(crate) cjk: bool,
     pub(crate) alt_width: Option<usize>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Testfiles {
     path: TemplateBuilder<AbsPathBuf>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Session {
     #[serde(
         serialize_with = "time::ser_secs",
@@ -977,6 +1001,7 @@ const fn const_true() -> bool {
     true
 }
 
+#[derive(Debug)]
 enum Dropbox {
     None,
     Some { auth: TemplateBuilder<AbsPathBuf> },
@@ -1022,13 +1047,13 @@ impl<'de> Deserialize<'de> for Dropbox {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Retrieve {
     extension: SuiteFileExtension,
     text_file_dir: TemplateBuilder<AbsPathBuf>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Judge {
     testfile_extensions: BTreeSet<SuiteFileExtension>,
     jobs: Option<NonZeroUsize>,
@@ -1085,7 +1110,7 @@ fn parse_size(s: &str) -> std::result::Result<usize, &'static str> {
         .ok_or_else(|| "invalid format")
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 #[serde(transparent)]
 struct Env {
     values: IndexMap<Predicate, BTreeMap<String, String>>,
@@ -1193,13 +1218,13 @@ impl<'de> Deserialize<'de> for Predicate {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         use combine::char::{char, spaces};
         use combine::parser::choice::or;
-        use combine::stream::state::State;
+        use combine::stream::state::{IndexPositioner, State};
         use combine::{choice, easy, eof, many, many1, none_of, optional, parser, satisfy};
         use combine::{ParseResult, Parser};
 
         fn parse_predicate<'a>(
-            input: &mut easy::Stream<State<&'a str, OnelinePosition>>,
-        ) -> ParseResult<Predicate, easy::Stream<State<&'a str, OnelinePosition>>> {
+            input: &mut easy::Stream<State<&'a str, IndexPositioner>>,
+        ) -> ParseResult<Predicate, easy::Stream<State<&'a str, IndexPositioner>>> {
             enum EqRhsOrFnArg {
                 EqRhs(Atom),
                 FnArg(Vec<Predicate>),
@@ -1262,20 +1287,20 @@ impl<'de> Deserialize<'de> for Predicate {
         }
 
         fn atom<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Atom>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Atom>
         {
             or(identifier().map(Atom::Symbol), literal())
         }
 
         fn literal<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Atom>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Atom>
         {
             or(literal_with('\''), literal_with('"'))
         }
 
         fn literal_with<'a>(
             quote: char,
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Atom>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Atom>
         {
             char(quote)
                 .with(many1(none_of(iter::once(quote))))
@@ -1284,7 +1309,7 @@ impl<'de> Deserialize<'de> for Predicate {
         }
 
         fn identifier<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = String>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = String>
         {
             many1(satisfy(|c| match c {
                 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
@@ -1295,13 +1320,13 @@ impl<'de> Deserialize<'de> for Predicate {
         let input = String::deserialize(deserializer)?;
         parser(parse_predicate)
             .skip(eof())
-            .easy_parse(State::with_positioner(&input, OnelinePosition::new()))
+            .easy_parse(State::with_positioner(&input, IndexPositioner::new()))
             .map(|(p, _)| p)
             .map_err(serde::de::Error::custom)
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 struct Hooks {
     switch: Option<TemplateBuilder<HookCommands>>,
     login: Option<TemplateBuilder<HookCommands>>,
@@ -1312,7 +1337,7 @@ struct Hooks {
     submit: Option<TemplateBuilder<HookCommands>>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 struct HooksRetrieve {
     testcases: Option<TemplateBuilder<HookCommands>>,
     languages: Option<TemplateBuilder<HookCommands>>,
@@ -1334,7 +1359,7 @@ impl Hooks {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum SubCommandKind {
     Switch,
     Login,
@@ -1346,7 +1371,7 @@ pub(crate) enum SubCommandKind {
     Submit,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Language {
     src: TemplateBuilder<AbsPathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1366,7 +1391,7 @@ struct Language {
     names: BTreeMap<ServiceKind, String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Target {
     service: ServiceKind,
     contest: String,
@@ -1375,24 +1400,31 @@ pub(crate) struct Target {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::{Inner, Target};
+    use crate::config::{Inner, SwitchOutcome, SwitchOutcomeAttrs, Target};
+    use crate::outcome::Outcome as _;
     use crate::path::AbsPath;
     use crate::service::ServiceKind;
-    use crate::terminal::Ansi;
+    use crate::terminal::{AnsiWithProps, HasTermProps as _, ModifyTermProps as _};
 
     use difference::assert_diff;
     use failure::Fallible;
+    use once_cell::sync::Lazy;
+    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
     use tempdir::TempDir;
+    use termcolor::{Ansi, ColorSpec, WriteColor as _};
+    use unicode_width::UnicodeWidthStr;
 
+    use std::convert::TryFrom as _;
     use std::fs::File;
+    use std::io::Write as _;
     use std::{env, str};
 
     #[test]
     fn test_init() -> Fallible<()> {
         let tempdir = dunce::canonicalize(&env::temp_dir())?;
         let tempdir = TempDir::new_in(&tempdir, "config_test_init")?;
-        let mut stderr = Ansi::new(vec![]);
+        let mut stderr = vec![];
 
         super::init(&mut stderr, AbsPath::try_new(tempdir.path()).unwrap())?;
 
@@ -1404,7 +1436,7 @@ mod tests {
         serde_json::from_reader::<_, Target>(File::open(&json_path)?)?;
 
         assert_diff!(
-            str::from_utf8(stderr.get_ref())?,
+            str::from_utf8(&stderr)?,
             &format!(
                 "Wrote {}\nWrote {}\n",
                 toml_path.display(),
@@ -1427,8 +1459,10 @@ mod tests {
 
         let tempdir = dunce::canonicalize(&env::temp_dir())?;
         let tempdir = TempDir::new_in(&tempdir, "config_test_switch")?;
-        let mut stdout = Ansi::new(vec![]);
-        let mut stderr = Ansi::new(vec![]);
+        let mut stdout = AnsiWithProps::new();
+        let mut stderr = AnsiWithProps::new();
+        stdout.modify_term_props(|p| p.str_width = UnicodeWidthStr::width_cjk);
+        stderr.modify_term_props(|p| p.str_width = UnicodeWidthStr::width_cjk);
 
         let toml = super::generate_toml();
         let old_target = serde_json::from_str::<Target>(OLD_JSON)?;
@@ -1457,17 +1491,70 @@ mod tests {
         assert_eq!(new_target.contest, "no");
         assert_eq!(new_target.language, "rust");
 
-        assert_eq!(str::from_utf8(stdout.get_ref())?, "");
-        assert_eq!(
-            str::from_utf8(stderr.get_ref())?,
-            format!(
-                "service:  \x1b[1m\"atcoder\"\x1b[0m -> \x1b[1m\"yukicoder\"\x1b[0m\n\
-                 contest:  \x1b[1m\"arc100\"\x1b[0m  -> \x1b[1m\"no\"\x1b[0m\n\
-                 language: \x1b[1m\"c++\"\x1b[0m     -> \x1b[1m\"rust\"\x1b[0m\n\
-                 Wrote {}\n",
-                json_path.display(),
-            ),
-        );
+        const AMBIGUOUS_WIDTH_CHAR: char = '★';
+        assert_eq!(stdout.char_width(AMBIGUOUS_WIDTH_CHAR), Some(1));
+        assert_eq!(stderr.char_width(AMBIGUOUS_WIDTH_CHAR), Some(1));
+        assert_eq!(stdout.str_width(&AMBIGUOUS_WIDTH_CHAR.to_string()), 1);
+        assert_eq!(stderr.str_width(&AMBIGUOUS_WIDTH_CHAR.to_string()), 1);
+
+        let expected_stderr = format!("Wrote {}\n", json_path.display());
+        assert_eq!(String::try_from(stdout)?, "");
+        assert_eq!(String::try_from(stderr)?, expected_stderr);
+        Ok(())
+    }
+
+    #[test]
+    fn test_switch_outcome_print_pretty() -> Fallible<()> {
+        let outcome = SwitchOutcome {
+            old: SwitchOutcomeAttrs {
+                service: ServiceKind::Atcoder,
+                contest: "arc100".to_owned(),
+                contest_lower_case: "arc100".to_owned(),
+                contest_upper_case: "ARC100".to_owned(),
+                contest_snake_case: "arc100".to_owned(),
+                contest_kebab_case: "arc100".to_owned(),
+                contest_mixed_case: "arc100".to_owned(),
+                contest_pascal_case: "Arc100".to_owned(),
+                language: "c++".to_owned(),
+            },
+            new: SwitchOutcomeAttrs {
+                service: ServiceKind::Yukicoder,
+                contest_lower_case: "no".to_owned(),
+                contest_upper_case: "NO".to_owned(),
+                contest_snake_case: "no".to_owned(),
+                contest_kebab_case: "no".to_owned(),
+                contest_mixed_case: "no".to_owned(),
+                contest_pascal_case: "No".to_owned(),
+                contest: "no".to_owned(),
+                language: "rust".to_owned(),
+            },
+        };
+
+        static EXPECTED: Lazy<String> = sync_lazy! {
+            let mut expected = Ansi::new(vec![]);
+
+            let mut print_line = |name: &str, from: &str, arrow: &str, to: &str| {
+                expected.write_all(name.as_ref()).unwrap();
+                expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
+                expected.write_all(from.as_ref()).unwrap();
+                expected.reset().unwrap();
+                expected.write_all(arrow.as_ref()).unwrap();
+                expected.set_color(ColorSpec::new().set_bold(true)).unwrap();
+                expected.write_all(to.as_ref()).unwrap();
+                expected.reset().unwrap();
+                expected.write_all(b"\n").unwrap();
+            };
+
+            print_line("service:  ", "\"atcoder\"", " -> ", "\"yukicoder\"");
+            print_line("contest:  ", "\"arc100\"", "  -> ", "\"no\"");
+            print_line("language: ", "\"c++\"", "     -> ", "\"rust\"");
+
+            String::from_utf8(expected.into_inner()).unwrap()
+        };
+
+        let mut stdout = AnsiWithProps::new();
+        outcome.print_pretty(&mut stdout)?;
+        assert_eq!(String::try_from(stdout)?, *EXPECTED);
         Ok(())
     }
 

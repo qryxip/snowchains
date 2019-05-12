@@ -15,6 +15,7 @@ pub mod testsuite;
 mod command;
 mod fs;
 mod judging;
+mod outcome;
 mod template;
 mod time;
 mod util;

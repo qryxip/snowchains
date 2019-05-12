@@ -10,19 +10,19 @@ use crate::service::{
     RetrieveSubmissionsOutcomeSubmissionDetail, RetrieveSubmissionsOutcomeSubmissionProblem,
     RetrieveSubmissionsOutcomeSubmissionVerdict, RetrieveSubmissionsProps,
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service,
-    SessionProps, SubmitOutcome, SubmitProps,
+    SessionProps, SubmitOutcome, SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
 };
-use crate::terminal::{HasTerm, Term, WriteAnsi as _};
+use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{self, BatchSuite, Destinations, InteractiveSuite, TestSuite};
 use crate::util;
 use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet};
+use crate::util::indexmap::IndexSetAsRefStrExt as _;
 use crate::util::num::PositiveFinite;
 use crate::util::scraper::ElementRefExt as _;
-use crate::util::std_unstable::RemoveItem_ as _;
 use crate::util::str::CaseConversion;
 
 use chrono::{DateTime, FixedOffset, Local, Utc};
-use failure::ResultExt as _;
+use if_chain::if_chain;
 use indexmap::{indexset, IndexMap, IndexSet};
 use itertools::Itertools as _;
 use maplit::hashmap;
@@ -32,6 +32,7 @@ use reqwest::{header, StatusCode};
 use scraper::{ElementRef, Html, Selector};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
+use termcolor::WriteColor;
 use tokio::runtime::Runtime;
 use url::Url;
 
@@ -39,7 +40,6 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
 use std::convert::TryInto as _;
-use std::io::Write as _;
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
@@ -47,9 +47,13 @@ use std::time::Duration;
 use std::{f64, vec};
 
 /// Logins to "atcoder.jp".
-pub(crate) fn login(mut props: SessionProps, term: impl Term) -> ServiceResult<LoginOutcome> {
+pub(super) fn login(
+    mut props: SessionProps,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
+) -> ServiceResult<LoginOutcome> {
     let dropbox_path = props.dropbox_path.take();
-    let mut atcoder = Atcoder::try_new(props, term)?;
+    let mut atcoder = Atcoder::try_new(props, stdin, stderr)?;
     atcoder.login_if_not(true)?;
     if let Some(dropbox_path) = dropbox_path {
         atcoder.auth_dropbox(&dropbox_path, true)?;
@@ -58,19 +62,21 @@ pub(crate) fn login(mut props: SessionProps, term: impl Term) -> ServiceResult<L
 }
 
 /// Participates in a `contest_name`.
-pub(crate) fn participate(
-    contest: &str,
-    props: SessionProps,
-    term: impl Term,
+pub(super) fn participate(
+    props: (SessionProps, &str),
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<ParticipateOutcome> {
-    Atcoder::try_new(props, term)?.register_explicitly(&AtcoderContest::new(contest))
+    let (sess_props, contest) = props;
+    Atcoder::try_new(sess_props, stdin, stderr)?.register_explicitly(&AtcoderContest::new(contest))
 }
 
 /// Accesses to pages of the problems and extracts pairs of sample input/output
 /// from them.
-pub(crate) fn retrieve_testcases(
+pub(super) fn retrieve_testcases(
     props: (SessionProps, RetrieveTestCasesProps<String>),
-    term: impl Term,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<RetrieveTestCasesOutcome> {
     let (mut sess_props, retrieve_props) = props;
     let dropbox_path = sess_props.dropbox_path.take();
@@ -79,85 +85,89 @@ pub(crate) fn retrieve_testcases(
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Atcoder::try_new(sess_props, term)?.retrieve_testcases(&retrieve_props, dropbox_path)
+    Atcoder::try_new(sess_props, stdin, stderr)?.retrieve_testcases(&retrieve_props, dropbox_path)
 }
 
-pub(crate) fn retrieve_langs(
+pub(super) fn retrieve_langs(
     props: (SessionProps, RetrieveLangsProps<String>),
-    term: impl Term,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<RetrieveLangsOutcome> {
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Atcoder::try_new(sess_props, term)?.retrieve_langs(retrieve_props)
+    Atcoder::try_new(sess_props, stdin, stderr)?.retrieve_langs(retrieve_props)
 }
 
 /// Downloads submitted source codes.
-pub(crate) fn retrieve_submissions(
+pub(super) fn retrieve_submissions(
     props: (SessionProps, RetrieveSubmissionsProps<String>),
-    term: impl Term,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<RetrieveSubmissionsOutcome> {
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Atcoder::try_new(sess_props, term)?.retrieve_submissions(&retrieve_props)
+    Atcoder::try_new(sess_props, stdin, stderr)?.retrieve_submissions(&retrieve_props)
 }
 
 /// Submits a source code.
-pub(crate) fn submit(
+pub(super) fn submit(
     props: (SessionProps, SubmitProps<String>),
-    term: impl Term,
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<SubmitOutcome> {
     let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Atcoder::try_new(sess_props, term)?.submit(&submit_props)
+    Atcoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
 
-pub(self) struct Atcoder<T: Term> {
+#[derive(Debug)]
+struct Atcoder<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
-    term: T,
+    stdin: I,
+    stderr: E,
     session: HttpSession,
     runtime: Runtime,
 }
 
-impl<T: Term> HasTerm for Atcoder<T> {
-    type Term = T;
+impl<I: Input, E: WriteColor + HasTermProps> Service for Atcoder<I, E> {
+    type Stdin = I;
+    type Stderr = E;
 
-    fn term(&mut self) -> &mut T {
-        &mut self.term
+    fn requirements(&mut self) -> (&mut I, &mut E, &mut HttpSession, &mut Runtime) {
+        (
+            &mut self.stdin,
+            &mut self.stderr,
+            &mut self.session,
+            &mut self.runtime,
+        )
     }
 }
 
-impl<T: Term> Service for Atcoder<T> {
-    type Stderr = T::Stderr;
+impl<I: Input, E: WriteColor + HasTermProps> DownloadProgress for Atcoder<I, E> {
+    type Write = E;
 
-    fn requirements(&mut self) -> (&mut T::Stderr, &mut HttpSession, &mut Runtime) {
-        (self.term.stderr(), &mut self.session, &mut self.runtime)
+    fn requirements(&mut self) -> (&mut E, &HttpSession, &mut Runtime) {
+        (&mut self.stderr, &self.session, &mut self.runtime)
     }
 }
 
-impl<T: Term> DownloadProgress for Atcoder<T> {
-    type Write = T::Stderr;
-
-    fn requirements(&mut self) -> (&mut T::Stderr, &HttpSession, &mut Runtime) {
-        (self.term.stderr(), &self.session, &mut self.runtime)
-    }
-}
-
-impl<T: Term> Atcoder<T> {
-    fn try_new(props: SessionProps, mut term: T) -> ServiceResult<Self> {
+impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
+    fn try_new(props: SessionProps, stdin: I, mut stderr: E) -> ServiceResult<Self> {
         let mut runtime = Runtime::new()?;
-        let session = props.start_session(term.stderr(), &mut runtime)?;
+        let session = props.start_session(&mut stderr, &mut runtime)?;
         Ok(Self {
             login_retries: props.login_retries,
-            term,
+            stdin,
+            stderr,
             session,
             runtime,
         })
@@ -168,8 +178,8 @@ impl<T: Term> Atcoder<T> {
             let status = self.get("/settings").acceptable(&[200, 302]).status()?;
             if status == StatusCode::OK {
                 if explicit {
-                    writeln!(self.stderr(), "Already logged in.")?;
-                    self.stderr().flush()?;
+                    writeln!(self.stderr, "Already logged in.")?;
+                    self.stderr.flush()?;
                 }
                 return Ok(());
             }
@@ -184,15 +194,15 @@ impl<T: Term> Atcoder<T> {
             );
             self.post("/login").send_form(&payload)?;
             if self.get("/settings").acceptable(&[200, 302]).status()? == 200 {
-                writeln!(self.stderr(), "Successfully logged in.")?;
-                break self.stderr().flush().map_err(Into::into);
+                writeln!(self.stderr, "Successfully logged in.")?;
+                break self.stderr.flush().map_err(Into::into);
             }
             if retries == Some(0) {
                 return Err(ServiceErrorKind::LoginRetriesExceeded.into());
             }
             retries = retries.map(|n| n - 1);
-            writeln!(self.stderr(), "Failed to login. Try again.")?;
-            self.stderr().flush()?;
+            writeln!(self.stderr, "Failed to login. Try again.")?;
+            self.stderr.flush()?;
             self.session.clear_cookies()?;
         }
     }
@@ -227,13 +237,13 @@ impl<T: Term> Atcoder<T> {
                 .status();
             if status == 200 {
                 if explicit {
-                    self.stderr().write_str("Already authorized.\n")?;
-                    self.stderr().flush()?;
+                    self.stderr.write_str("Already authorized.\n")?;
+                    self.stderr.flush()?;
                 }
                 return Ok(auth.access_token);
             }
-            self.stderr().write_str("Invalid `accesss_token`.\n")?;
-            self.stderr().flush()?;
+            self.stderr.write_str("Invalid `accesss_token`.\n")?;
+            self.stderr.flush()?;
         }
         self.open_in_browser(&format!(
             "https://dropbox.com/oauth2/authorize?response_type=code&client_id={}",
@@ -248,8 +258,8 @@ impl<T: Term> Atcoder<T> {
             .form(&hashmap!("code" => code.as_str(), "grant_type" => "authorization_code"))
             .recv_json::<AuthToken>()?;
         crate::fs::write_json_pretty(auth_path, &auth)?;
-        writeln!(self.stderr(), "Wrote {}", auth_path.display())?;
-        self.stderr().flush()?;
+        writeln!(self.stderr, "Wrote {}", auth_path.display())?;
+        self.stderr.flush()?;
         Ok(auth.access_token)
     }
 
@@ -336,10 +346,9 @@ impl<T: Term> Atcoder<T> {
                 outcome.push_problem(slug, url, suite, path);
             }
         }
-        let mut not_found = match problems.as_ref() {
-            None => vec![],
-            Some(problems) => problems.iter().collect(),
-        };
+        let mut not_found = problems
+            .map(|ps| ps.iter().collect::<IndexSet<_>>())
+            .unwrap_or_default();
         if !*only_scraped {
             if let Some(dropbox_path) = dropbox_path {
                 let suites = outcome
@@ -357,14 +366,16 @@ impl<T: Term> Atcoder<T> {
             ..
         } in &outcome.problems
         {
-            test_suite.save(slug, test_suite_path, self.stderr())?;
-            not_found.remove_item_(&slug);
+            test_suite.save(test_suite_path)?;
+            not_found.remove(&slug);
         }
-        self.stderr().flush()?;
+        self.stderr.flush()?;
         if !not_found.is_empty() {
-            self.stderr()
-                .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
-            self.stderr().flush()?;
+            self.stderr.set_color(color!(fg(Yellow), intense))?;
+            write!(self.stderr, "Not found: {}", not_found.format_as_str_list())?;
+            self.stderr.reset()?;
+            writeln!(self.stderr)?;
+            self.stderr.flush()?;
         }
         if *open_in_browser {
             self.open_in_browser(&contest.url_submissions_me(1))?;
@@ -396,7 +407,7 @@ impl<T: Term> Atcoder<T> {
         }
 
         fn confirm_folders_exist<'a>(
-            this: &mut Atcoder<impl Term>,
+            this: &mut Atcoder<impl Input, impl WriteColor + HasTermProps>,
             token: &str,
             contest_slug: &str,
             mut problems: impl Iterator<Item = &'a str>,
@@ -435,7 +446,7 @@ impl<T: Term> Atcoder<T> {
         }
 
         fn list_folder(
-            this: &mut Atcoder<impl Term>,
+            this: &mut Atcoder<impl Input, impl WriteColor + HasTermProps>,
             token: &str,
             path: &str,
         ) -> ServiceResult<ListFolder> {
@@ -448,7 +459,7 @@ impl<T: Term> Atcoder<T> {
         }
 
         fn retrieve_files(
-            this: &mut Atcoder<impl Term>,
+            this: &mut Atcoder<impl Input, impl WriteColor + HasTermProps>,
             token: &str,
             prefix: &str,
             entries: &[ListFolderEntry],
@@ -524,10 +535,11 @@ impl<T: Term> Atcoder<T> {
                     Ok((case_name, (in_path, out_path)))
                 })
                 .collect::<FileResult<BTreeMap<_, _>>>()?;
-            self.stderr()
-                .with_reset(|o| write!(o.bold()?, "{}", problem))?;
+            self.stderr.set_color(color!(bold))?;
+            self.stderr.write_str(problem)?;
+            self.stderr.reset()?;
             writeln!(
-                self.stderr(),
+                self.stderr,
                 ": Saved {} to {}",
                 plural!(2 * contents_len, "file", "files"),
                 dir.display(),
@@ -539,7 +551,7 @@ impl<T: Term> Atcoder<T> {
                 }
             }
         }
-        self.stderr().flush().map_err(Into::into)
+        self.stderr.flush().map_err(Into::into)
     }
 
     fn retrieve_langs(
@@ -560,7 +572,6 @@ impl<T: Term> Atcoder<T> {
             }
         };
         let langs = self.get(&url).recv_html()?.extract_langs()?;
-        self.print_lang_list(&langs)?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
@@ -683,15 +694,9 @@ impl<T: Term> Atcoder<T> {
         }
 
         if let Some(ignored) = NonEmptyIndexSet::try_new(ignored) {
-            self.stderr().with_reset(|o| {
-                writeln!(
-                    o.fg(11)?,
-                    "Ignored: [{}]",
-                    ignored
-                        .iter()
-                        .format_with(", ", |l, f| f(&format_args!("{:?}", l)))
-                )
-            })?;
+            self.stderr.set_color(color!(fg(Yellow), intense))?;
+            writeln!(self.stderr, "Ignored: {}", ignored.format_as_str_list())?;
+            self.stderr.reset()?;
         }
 
         let mut num_saved = 0;
@@ -706,7 +711,7 @@ impl<T: Term> Atcoder<T> {
             if let (Some(path), Some(code)) = (path, code) {
                 crate::fs::write(path, code.as_ref())?;
                 writeln!(
-                    self.stderr(),
+                    self.stderr,
                     "{} - {:?}: Saved to {}",
                     submission.problem.slug,
                     submission.language,
@@ -718,20 +723,21 @@ impl<T: Term> Atcoder<T> {
         }
 
         if !not_found.is_empty() {
-            self.stderr()
-                .with_reset(|o| writeln!(o.fg(11)?, "Not found: {:?}", not_found))?;
+            self.stderr.set_color(color!(fg(Yellow), intense))?;
+            writeln!(self.stderr, "Not found: {}", not_found.format_as_str_list())?;
+            self.stderr.reset()?;
         }
 
         writeln!(
-            self.stderr(),
+            self.stderr,
             "Saved {}.",
             plural!(num_saved, "file", "files"),
         )?;
-        self.stderr().flush()?;
+        self.stderr.flush()?;
         Ok(outcome)
     }
 
-    fn submit(&mut self, props: &SubmitProps<AtcoderContest>) -> ServiceResult<SubmitOutcome> {
+    fn submit(&mut self, props: SubmitProps<AtcoderContest>) -> ServiceResult<SubmitOutcome> {
         let SubmitProps {
             contest,
             problem,
@@ -742,7 +748,7 @@ impl<T: Term> Atcoder<T> {
         } = props;
         let tasks_page = self.fetch_tasks_page(&contest)?;
         let checks_if_accepted =
-            !skip_checking_if_accepted && *contest != AtcoderContest::Practice && {
+            !skip_checking_if_accepted && contest != AtcoderContest::Practice && {
                 let duration = tasks_page.extract_contest_duration()?;
                 let status = duration.check_current_status(contest.to_string());
                 status.raise_if_not_begun()?;
@@ -750,7 +756,7 @@ impl<T: Term> Atcoder<T> {
             };
         let url = tasks_page
             .extract_task_slugs_and_urls()?
-            .into_element(problem)
+            .into_element(&problem)
             .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
         let task_screen = {
             lazy_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$")
@@ -783,70 +789,65 @@ impl<T: Term> Atcoder<T> {
             }
         }
 
-        let source_code = crate::fs::read_to_string(src_path)?;
+        let code = crate::fs::read_to_string(&src_path)?;
         let html = self.get(&url).recv_html()?;
         let lang_id = html
             .extract_langs()?
-            .get(lang_name)
+            .get(&lang_name)
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
-        writeln!(
-            self.stderr(),
-            "Submitting as {:?} (ID: {:?})",
-            lang_name,
-            lang_id,
-        )?;
         let csrf_token = html.extract_csrf_token()?;
         let url = contest.url_submit();
         let payload = hashmap!(
             "data.TaskScreenName" => task_screen.as_str(),
             "data.LanguageId" => &lang_id,
-            "sourceCode" => &source_code,
+            "sourceCode" => &code,
             "csrf_token" => &csrf_token,
         );
 
-        let error = |status: StatusCode, location: Option<String>| -> _ {
-            ServiceError::from(ServiceErrorKind::SubmissionRejected {
-                lang_name: lang_name.clone(),
-                lang_id: lang_id.clone(),
-                size: source_code.len(),
-                status,
-                location,
-            })
-        };
-
+        let (rejected, status, header_location);
         match self.post(&url).send_form(&payload) {
             Ok(res) => {
-                let location = res
-                    .headers()
-                    .get(header::LOCATION)
-                    .ok_or_else(|| error(res.status(), None))?;
-                let location = location
-                    .to_str()
-                    .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
-                if !(location.starts_with("/contests/") && location.ends_with("/submissions/me")) {
-                    return Err(error(res.status(), Some(location.to_owned())));
-                }
+                status = res.status();
+                header_location = res.header_location()?.map(ToOwned::to_owned);
+                rejected = header_location.as_ref().map_or(true, |l| {
+                    !(l.starts_with("/contests/") && l.ends_with("/submissions/me"))
+                });
             }
-            Err(err) => {
-                if let ServiceError::Context(ctx) = &err {
-                    if let ServiceErrorKind::UnexpectedStatusCode(_, status, _) = ctx.get_context()
-                    {
-                        return Err(error(*status, None));
-                    }
+            Err(err) => if_chain! {
+                if let ServiceError::Context(ctx) = &err;
+                if let ServiceErrorKind::UnexpectedStatusCode(_, st, _) = ctx.get_context();
+                then {
+                    rejected = true;
+                    status = *st;
+                    header_location = None;
+                } else {
+                    return Err(err);
                 }
-                return Err(err);
-            }
+            },
         }
 
-        if *open_in_browser {
+        if !rejected && open_in_browser {
             self.open_in_browser(&contest.url_submissions_me(1))?;
         }
-        Ok(SubmitOutcome {})
+
+        Ok(SubmitOutcome {
+            rejected,
+            response: SubmitOutcomeResponse {
+                status,
+                header_location,
+            },
+            language: SubmitOutcomeLanguage {
+                name: lang_name,
+                id: lang_id,
+            },
+            file: src_path,
+            code,
+        })
     }
 }
 
-#[derive(Clone, PartialEq, Eq, derive_more::Display)]
+#[derive(Clone, PartialEq, Eq, Debug, derive_more::Display)]
 enum AtcoderContest {
     #[display(fmt = "practice contest")]
     Practice,
@@ -982,6 +983,7 @@ impl ContestStatus {
     }
 }
 
+#[derive(Debug)]
 struct ContestDuration(DateTime<Utc>, DateTime<Utc>);
 
 impl ContestDuration {
@@ -997,6 +999,7 @@ impl ContestDuration {
     }
 }
 
+#[derive(Debug)]
 struct Submission {
     url: Url,
     task_url: Url,
@@ -1587,11 +1590,11 @@ mod tests {
         ) in expected.iter().zip_eq(&slugs_and_urls).zip_eq(&suites)
         {
             let expected_url = format!("/contests/{}/tasks/{}", contest, expected_screen);
-            assert_eq!(*expected_slug, actual_slug);
-            assert_eq!(expected_url, *actual_url);
+            assert_eq!(actual_slug, *expected_slug);
+            assert_eq!(*actual_url, expected_url);
             let actual_md5 = actual_suite.md5()?;
             actual_suite.assert_serialize_correctly()?;
-            assert_eq!(*expected_md5, format!("{:x}", actual_md5));
+            assert_eq!(format!("{:x}", actual_md5), *expected_md5);
         }
         Ok(())
     }
@@ -1602,8 +1605,8 @@ mod tests {
             .get_html("/contests/utpc2011/submissions/2067")?
             .extract_submitted_code()?;
         assert_eq!(
-            "1d805f5f226cd9d6dd90081a47505b7b",
             format!("{:x}", md5::compute(&code)),
+            "1d805f5f226cd9d6dd90081a47505b7b",
         );
         Ok(())
     }

@@ -7,7 +7,6 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
 use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
-use crate::util::combine::OnelinePosition;
 use crate::util::str::CaseConversion;
 
 use failure::{Backtrace, Fail, ResultExt as _};
@@ -25,8 +24,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{env, fmt, iter};
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct TemplateBuilder<T: Target>(T::Inner);
 
 impl<T: Target> Default for TemplateBuilder<T>
@@ -71,13 +70,17 @@ impl<T: Target> TemplateBuilder<T> {
 
 #[cfg(test)]
 impl TemplateBuilder<JudgingCommand> {
-    pub(crate) fn dummy() -> Self {
-        TemplateBuilder(CommandTemplateInner::Args(vec![Tokens(vec![
-            Token::Plain("executable".to_owned()),
-        ])]))
+    /// `bash` is in the `$PATH` by default on almost every platform including Windows.
+    pub(crate) fn bash() -> Self {
+        TemplateBuilder(CommandTemplateInner::Args(vec![
+            Tokens(vec![Token::Plain("bash".to_owned())]),
+            Tokens(vec![Token::Plain("-c".to_owned())]),
+            Tokens(vec![]),
+        ]))
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Template<T: Target> {
     inner: T::Inner,
     requirements: T::Requirements,
@@ -355,7 +358,9 @@ impl Template<JudgingCommand> {
                 }
             }
         }
-        Ok(JudgingCommand::new(args, wd, *crlf_to_lf, envs))
+
+        JudgingCommand::try_new(args, wd, *crlf_to_lf, envs)
+            .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
     }
 }
 
@@ -459,15 +464,15 @@ impl Target for JudgingCommand {
     type Requirements = JudgingCommandRequirements;
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum CommandTemplateInner {
     Args(Vec<Tokens>),
     Shell(SingleKeyValue<String, String>),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct AbsPathBufRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,
@@ -475,14 +480,14 @@ pub(crate) struct AbsPathBufRequirements {
     pub(crate) mode: Option<config::Mode>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct HookCommandsRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
     pub(crate) result: Arc<serde_json::Result<String>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct TranspilationCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,
@@ -494,7 +499,7 @@ pub(crate) struct TranspilationCommandRequirements {
     pub(crate) transpiled: Option<TemplateBuilder<AbsPathBuf>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct CompilationCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,
@@ -507,7 +512,7 @@ pub(crate) struct CompilationCommandRequirements {
     pub(crate) bin: Option<TemplateBuilder<AbsPathBuf>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct JudgingCommandRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) service: ServiceKind,
@@ -547,20 +552,20 @@ impl FromStr for Tokens {
         use combine::char::{char, spaces, string};
         use combine::parser::choice::or;
         use combine::parser::function::parser;
-        use combine::stream::state::State;
+        use combine::stream::state::{IndexPositioner, State};
         use combine::{choice, easy, eof, many, many1, satisfy, Parser};
 
         fn escape<'a>(
             from: &'static str,
             to: &'static str,
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = Token>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Token>
         {
             string(from).map(move |_| Token::Plain(to.to_owned()))
         }
 
         fn parse_expr<'a>(
-            input: &mut easy::Stream<State<&'a str, OnelinePosition>>,
-        ) -> combine::ParseResult<Expr, easy::Stream<State<&'a str, OnelinePosition>>> {
+            input: &mut easy::Stream<State<&'a str, IndexPositioner>>,
+        ) -> combine::ParseResult<Expr, easy::Stream<State<&'a str, IndexPositioner>>> {
             enum Right {
                 Comma(String),
                 Arg(Expr),
@@ -590,7 +595,7 @@ impl FromStr for Tokens {
         }
 
         fn identifier<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = String>
+        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = String>
         {
             many1(satisfy(|c| match c {
                 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
@@ -615,7 +620,7 @@ impl FromStr for Tokens {
             dollar_or_expr,
         )))
         .skip(eof())
-        .easy_parse(State::with_positioner(input, OnelinePosition::new()))
+        .easy_parse(State::with_positioner(input, IndexPositioner::new()))
         .map(|(tokens, _)| Tokens(tokens))
         .map_err(|e| ParseTemplateError::new(input, e))
     }

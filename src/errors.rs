@@ -14,7 +14,6 @@ use url::Url;
 use zip::result::ZipError;
 
 use std::ffi::OsString;
-use std::num::NonZeroUsize;
 use std::process::ExitStatus;
 use std::time::SystemTimeError;
 use std::{fmt, io};
@@ -93,6 +92,8 @@ pub enum ServiceError {
 
 #[derive(Debug, derive_more::Display)]
 pub enum ServiceErrorKind {
+    #[display(fmt = "`service` is `other`")]
+    ServiceIsOther,
     #[display(
         fmt = "Received non UTF-8 content (encoding = {:?})",
         r#"_0.as_ref().map(String::as_str).unwrap_or("<none>")"#
@@ -232,13 +233,6 @@ pub enum JudgeErrorKind {
         noun: &'static str,
         status: ExitStatus,
     },
-    #[display(
-        fmt = "{}/{} Test{} failed",
-        _0,
-        _1,
-        r#"if _0.get() > 1 { "s" } else { "" }"#
-    )]
-    TestFailed(NonZeroUsize, NonZeroUsize),
 }
 
 pub(crate) type TestSuiteResult<T> = std::result::Result<T, TestSuiteError>;

@@ -4,25 +4,31 @@ mod text;
 
 use crate::command::JudgingCommand;
 use crate::config::{self, Config};
-use crate::errors::{JudgeError, JudgeErrorKind, JudgeResult};
-use crate::terminal::{TermOut, WriteAnsi};
-use crate::testsuite::{TestCase, TestCases};
+use crate::errors::{JudgeError, JudgeResult};
+use crate::judging::batch::BatchVerdict;
+use crate::judging::interactive::InteractiveVerdict;
+use crate::outcome::Outcome;
+use crate::terminal::HasTermProps;
+use crate::testsuite::{BatchCase, InteractiveCase, TestCase, TestCases};
 use crate::util::collections::NonEmptyVec;
+use crate::util::io::AsyncBufferedWriter;
 
 use futures::{task, try_ready, Async, Future, Poll};
+use serde::{Serialize, Serializer};
 use serde_derive::Serialize;
+use termcolor::{ColorSpec, WriteColor};
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
 use std::convert::Infallible;
 use std::fmt::{self, Write as _};
-use std::io::{self, Cursor, Write as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::{mem, vec};
+use std::{io, mem, str, vec};
 
-pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
-    stderr: E,
+pub(crate) fn only_transpile(
+    stdout: impl HasTermProps,
+    stderr: impl WriteColor + HasTermProps,
     config: &Config,
     mode: config::Mode,
     problem: &str,
@@ -32,7 +38,7 @@ pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
         None => Ok(false),
         Some(transpilation) => {
             let transpilation = transpilation.expand(problem)?;
-            transpilation.run::<O, _>(stderr, force)?;
+            transpilation.run(stdout, stderr, force)?;
             Ok(true)
         }
     }
@@ -43,46 +49,49 @@ pub(crate) fn only_transpile<O: TermOut, E: TermOut>(
 /// # Errors
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
-pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResult<JudgeOutcome> {
-    struct Progress<W, S, C, F: Future> {
+pub(crate) fn judge(
+    params: JudgeParams<impl HasTermProps, impl WriteColor + HasTermProps>,
+) -> JudgeResult<JudgeOutcome> {
+    struct Progress<W: AsyncWrite, S, C, F: Future> {
         jobs: NonZeroUsize,
         color: bool,
-        wtr: W,
+        bufwtr: AsyncBufferedWriter<W>,
         ctrlc: S,
-        content: Cursor<Vec<u8>>,
-        needs_flush: bool,
-        processes: Vec<(Title, Process<C, F>)>, // non-empty until `Finished`
+        processes: Vec<(String, Process<C, F>)>, // non-empty until `Finished`
     }
 
-    impl<W, S, C, F: Future> Progress<W, S, C, F> {
+    impl<W: AsyncWrite, S, C, F: Future> Progress<W, S, C, F> {
         fn new(
             color: bool,
             wtr: W,
             ctrlc: S,
-            processes: NonEmptyVec<(Title, Process<C, F>)>,
+            processes: NonEmptyVec<(String, Process<C, F>)>,
             jobs: NonZeroUsize,
         ) -> Self {
             Self {
                 jobs,
                 color,
-                wtr,
-                ctrlc,
-                needs_flush: false,
-                content: Cursor::new({
-                    let mut inner = "".to_owned();
+                bufwtr: {
+                    let mut bufwtr = AsyncBufferedWriter::new(wtr);
                     if color {
                         for (i, (title, _)) in processes.iter().enumerate() {
-                            write!(inner, "\x1b[1m{}\x1b[0m Running...", title.with_padding)
-                                .unwrap();
+                            bufwtr.push_ansi_bold();
+                            bufwtr.push_str(title);
+                            bufwtr.push_ansi_reset();
+                            bufwtr.push_str(" Running...");
                             if i + 1 < processes.len().get() {
-                                inner.push('\n');
+                                bufwtr.push_char('\n');
                             }
                         }
                     } else {
-                        inner = format!("0/{} test finished (0 failure)\n", processes.len());
+                        bufwtr.write_fmt_to_buf(format_args!(
+                            "0/{} test finished (0 failure)\n",
+                            processes.len(),
+                        ));
                     }
-                    inner.into()
-                }),
+                    bufwtr
+                },
+                ctrlc,
                 processes: processes.into(),
             }
         }
@@ -95,12 +104,12 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
             F: Future<Error = io::Error>,
         > Future for Progress<W, S, C, F>
     where
-        F::Item: Outcome,
+        F::Item: Verdict,
     {
-        type Item = Vec<(Title, F::Item)>;
+        type Item = Vec<F::Item>;
         type Error = JudgeError;
 
-        fn poll(&mut self) -> Poll<Vec<(Title, F::Item)>, JudgeError> {
+        fn poll(&mut self) -> Poll<Vec<F::Item>, JudgeError> {
             self.ctrlc.poll()?;
 
             let mut needs_notify = true;
@@ -116,8 +125,8 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
                             jobs -= 1;
                         }
                         Process::Running(fut) => {
-                            if let Async::Ready(outcome) = fut.poll()? {
-                                next = Some(Process::Finished(outcome));
+                            if let Async::Ready(verdict) = fut.poll()? {
+                                next = Some(Process::Finished(verdict));
                                 newly_finished = true;
                             } else {
                                 jobs -= 1;
@@ -132,73 +141,61 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
                 }
             }
 
-            if self.needs_flush {
-                try_ready!(self.wtr.poll_flush());
-                self.needs_flush = false;
-                if self.processes.iter().all(|(_, p)| p.is_finished()) {
-                    let outcomes = mem::replace(&mut self.processes, vec![])
-                        .into_iter()
-                        .map(|(t, o)| (t, o.finished().unwrap()))
-                        .collect();
-                    return Ok(Async::Ready(outcomes));
-                }
-            }
-            if self.content.position() < self.content.get_ref().len() as u64 {
-                let n = try_ready!(self
-                    .wtr
-                    .poll_write(&self.content.get_ref()[self.content.position() as usize..]));
-                self.content
-                    .set_position(self.content.position() + n as u64);
-                if self.content.position() >= self.content.get_ref().len() as u64 {
-                    self.content.set_position(0);
-                    self.content.get_mut().clear();
-                    self.needs_flush = true;
-                }
+            try_ready!(self.bufwtr.poll_flush_buf());
+
+            if self.processes.iter().all(|(_, p)| p.is_finished()) && !newly_finished {
+                let verdicts = mem::replace(&mut self.processes, vec![])
+                    .into_iter()
+                    .map(|(_, v)| v.finished().unwrap())
+                    .collect();
+                return Ok(Async::Ready(verdicts));
             }
 
-            if newly_finished && self.content.get_ref().is_empty() {
-                let out = self.content.get_mut();
+            if newly_finished {
                 let num_cases = self.processes.len();
                 let (mut num_finished, mut num_failures) = (0, 0);
                 for (_, process) in &self.processes {
-                    if let Process::Finished(outcome) = process {
+                    if let Process::Finished(verdict) = process {
                         num_finished += 1;
-                        if outcome.failure() {
+                        if !verdict.is_success() {
                             num_failures += 1;
                         }
                     }
                 }
                 if self.color {
                     match num_cases - 1 {
-                        0 => out.extend_from_slice(b"\x1b[0G"),
-                        n => write!(out, "\x1b[{}F", n).unwrap(),
+                        0 => self.bufwtr.push_ansi_cursor_horizontal_absolute(0),
+                        n => self.bufwtr.push_ansi_cursor_previous_line(n),
                     }
                     for (i, (title, process)) in self.processes.iter().enumerate() {
-                        write!(out, "\x1b[2K\x1b[1m{}\x1b[0m ", title.with_padding).unwrap();
+                        self.bufwtr.push_ansi_erase_in_line_entire();
+                        self.bufwtr.push_ansi_bold();
+                        self.bufwtr.push_str(title);
+                        self.bufwtr.push_ansi_reset();
+                        self.bufwtr.push_char(' ');
                         match process {
-                            Process::NotRunning(..) => out.extend_from_slice(b"Waiting..."),
-                            Process::Running(_) => out.extend_from_slice(b"Running..."),
-                            Process::Finished(outcome) => {
-                                out.extend_from_slice(b"\x1b[38;5;");
-                                write!(out, "{}m{}\x1b[0m", outcome.color(), outcome).unwrap();
+                            Process::NotRunning(..) => self.bufwtr.push_str("Waiting..."),
+                            Process::Running(_) => self.bufwtr.push_str("Running..."),
+                            Process::Finished(verdict) => {
+                                self.bufwtr.push_ansi_color(&verdict.color_spec());
+                                self.bufwtr.write_fmt_to_buf(format_args!("{}", verdict));
+                                self.bufwtr.push_ansi_reset();
                             }
                         }
                         if i + 1 < num_cases {
-                            out.extend_from_slice(b"\x1b[1E");
+                            self.bufwtr.push_ansi_cursor_next_line(1);
                         } else if num_finished == num_cases {
-                            out.push(b'\n');
+                            self.bufwtr.push_char('\n');
                         }
                     }
                 } else {
-                    writeln!(
-                        out,
+                    self.bufwtr.write_fmt_to_buf(format_args!(
                         "{}/{} {} finished ({})",
                         num_finished,
                         num_cases,
                         if num_finished > 1 { "tests" } else { "test" },
                         plural!(num_failures, "failure", "failures"),
-                    )
-                    .unwrap();
+                    ));
                 }
             }
             if needs_notify {
@@ -220,7 +217,7 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
 
     impl<C, F: Future> Process<C, F>
     where
-        F::Item: Outcome,
+        F::Item: Verdict,
     {
         fn is_finished(&self) -> bool {
             match self {
@@ -237,47 +234,20 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
         }
     }
 
-    struct Title {
-        with_padding: String,
-        without_padding: String,
-    }
-
-    impl Title {
-        fn new(
-            index: NonZeroUsize,
-            index_max: NonZeroUsize,
-            name: &str,
-            name_max_width: usize,
-        ) -> Self {
-            let (mut with_padding, mut without_padding) = ("".to_owned(), "".to_owned());
-            for _ in index.to_string().len()..index_max.to_string().len() {
-                with_padding.push(' ');
-            }
-            for s in &mut [&mut with_padding, &mut without_padding] {
-                write!(s, "{}/{} ({})", index, index_max, name).unwrap();
-            }
-            (name.len()..name_max_width).for_each(|_| with_padding.push(' '));
-            Self {
-                with_padding,
-                without_padding,
-            }
-        }
-    }
-
     fn judge_all<
-        E: TermOut,
+        E: WriteColor + HasTermProps,
         C: TestCase + Send + 'static,
         F: Future<Error = io::Error> + Send + 'static,
     >(
-        mut stderr: E,
+        stderr: &E,
         jobs: NonZeroUsize,
         display_limit: Option<usize>,
         cases: NonEmptyVec<C>,
         solver: &Arc<JudgingCommand>,
         judge: fn(&C, &Arc<JudgingCommand>) -> JudgeResult<F>,
-    ) -> JudgeResult<JudgeOutcome>
+    ) -> JudgeResult<JudgeOutcomeRepr<C, F::Item>>
     where
-        F::Item: Outcome + Send + 'static,
+        F::Item: Verdict,
     {
         let num_cases = cases.len();
         let names = cases.ref_map(TestCase::name);
@@ -285,47 +255,41 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
 
         let mut runtime = Runtime::new()?;
         let progress = Progress::new(
-            stderr.supports_color(),
-            E::async_wtr(),
+            stderr.supports_color() && !stderr.is_synchronous(),
+            stderr.ansi_async_wtr(),
             crate::signal::ctrl_c(),
             {
-                names.zip_eq(cases).enumerate_map(|idx, (name, case)| {
-                    let title = Title::new(
-                        NonZeroUsize::new(idx + 1).unwrap(),
-                        num_cases,
-                        name.as_ref(),
-                        name_max_width,
-                    );
-                    (title, Process::NotRunning(judge, case, solver.clone()))
-                })
+                names
+                    .zip_eq(cases.clone())
+                    .enumerate_map(|idx, (name, case)| {
+                        let idx = idx + 1;
+                        let str_width = stderr.str_width_fn();
+                        let n = num_cases.to_string().len() - idx.to_string().len();
+                        let mut title = " ".repeat(n);
+                        write!(title, "{}/{} ({})", idx, num_cases, name).unwrap();
+                        (str_width(&*name)..name_max_width).for_each(|_| title.push(' '));
+                        (title, Process::NotRunning(judge, case, solver.clone()))
+                    })
             },
             jobs,
         );
-        let outcomes = runtime.block_on(progress)?;
+        let verdicts = runtime.block_on(progress)?;
         let _ = runtime.shutdown_now().wait();
 
-        let num_failures = outcomes.iter().filter(|(_, o)| o.failure()).count();
-        if let Some(num_failures) = NonZeroUsize::new(num_failures) {
-            for (title, outcome) in &outcomes {
-                stderr.with_reset(|w| write!(w.bold()?, "\n{}", title.without_padding))?;
-                stderr.write_str(" ")?;
-                stderr.with_reset(|w| writeln!(w.fg(outcome.color())?, "{}", outcome))?;
-                outcome.print_details(display_limit, &mut stderr)?;
-            }
-            stderr.flush()?;
-            Err(JudgeErrorKind::TestFailed(num_failures, num_cases).into())
-        } else {
-            writeln!(
-                stderr,
-                "All of the {} passed.",
-                plural!(num_cases.get(), "test", "tests")
-            )?;
-            stderr.flush()?;
-            Ok(JudgeOutcome {})
-        }
+        Ok(JudgeOutcomeRepr {
+            display_limit,
+            verdicts: cases
+                .zip_eq(verdicts)
+                .map(|(test_case, verdict)| JudgeOutcomeReprVerdict {
+                    is_success: verdict.is_success(),
+                    test_case,
+                    verdict,
+                }),
+        })
     }
 
     let JudgeParams {
+        stdout,
         mut stderr,
         config,
         mode,
@@ -340,81 +304,156 @@ pub(crate) fn judge<O: TermOut, E: TermOut>(params: JudgeParams<E>) -> JudgeResu
         .or_else(|| NonZeroUsize::new(num_cpus::get()))
         .unwrap_or_else(|| NonZeroUsize::new(1).unwrap());
     let display_limit = config.judge_display_limit();
-    let tester_transpilations = cases.interactive_tester_transpilations();
-    let tester_compilations = cases.interactive_tester_compilations();
-    let solver = config.solver(mode)?.expand(&problem)?;
-    let solver_transpilation = match config.solver_transpilation(mode)? {
-        Some(transpilation) => Some(transpilation.expand(&problem)?),
-        None => None,
-    };
-    let solver_compilation = match config.solver_compilation(mode)? {
-        Some(compilation) => Some(compilation.expand(&problem)?),
-        None => None,
-    };
 
-    for tester_transpilation in tester_transpilations {
-        tester_transpilation.run::<O, _>(&mut stderr, force_compile)?;
+    for tester_transpilation in cases.interactive_tester_transpilations() {
+        tester_transpilation.run(&stdout, &mut stderr, force_compile)?;
         writeln!(stderr)?;
     }
-    for tester_compilation in tester_compilations {
-        tester_compilation.run::<O, _>(&mut stderr, force_compile)?;
+    for tester_compilation in cases.interactive_tester_compilations() {
+        tester_compilation.run(&stdout, &mut stderr, force_compile)?;
         writeln!(stderr)?;
     }
-    if let Some(solver_transpilation) = solver_transpilation {
-        solver_transpilation.run::<O, _>(&mut stderr, force_compile)?;
+    if let Some(solver_transpilation) = config.solver_transpilation(mode)? {
+        solver_transpilation
+            .expand(&problem)?
+            .run(&stdout, &mut stderr, force_compile)?;
         writeln!(stderr)?;
     }
-    if let Some(solver_compilation) = solver_compilation {
-        solver_compilation.run::<O, _>(&mut stderr, force_compile)?;
+    if let Some(solver_compilation) = config.solver_compilation(mode)? {
+        solver_compilation
+            .expand(&problem)?
+            .run(&stdout, &mut stderr, force_compile)?;
         writeln!(stderr)?;
     }
+
+    let solver = config.solver(mode)?.expand(&problem)?;
 
     solver.write_info(&mut stderr, &paths_formatted)?;
     stderr.flush()?;
 
-    let solver = Arc::new(solver);
+    let (stderr, solver) = (&stderr, Arc::new(solver));
     match cases {
         TestCases::Batch(cases) => {
             let f = batch::judge;
-            judge_all(stderr, jobs, display_limit, cases, &solver, f)
+            judge_all(stderr, jobs, display_limit, cases, &solver, f).map(JudgeOutcome::Batch)
         }
         TestCases::Interactive(cases) => {
             let f = interactive::judge;
-            judge_all(stderr, jobs, display_limit, cases, &solver, f)
+            judge_all(stderr, jobs, display_limit, cases, &solver, f).map(JudgeOutcome::Interactive)
         }
     }
 }
 
-pub(crate) struct JudgeParams<'a, E: TermOut> {
-    pub stderr: E,
-    pub config: &'a Config,
-    pub mode: config::Mode,
-    pub problem: &'a str,
-    pub force_compile: bool,
-    pub jobs: Option<NonZeroUsize>,
+#[derive(Debug)]
+pub(crate) struct JudgeParams<'a, O: HasTermProps, E: WriteColor + HasTermProps> {
+    pub(crate) stdout: O,
+    pub(crate) stderr: E,
+    pub(crate) config: &'a Config,
+    pub(crate) mode: config::Mode,
+    pub(crate) problem: &'a str,
+    pub(crate) force_compile: bool,
+    pub(crate) jobs: Option<NonZeroUsize>,
 }
 
-#[derive(Serialize)]
-pub(crate) struct JudgeOutcome {}
-
-pub(self) trait Outcome: fmt::Display {
-    fn failure(&self) -> bool;
-    fn color(&self) -> u8;
-    fn print_details(&self, display_limit: Option<usize>, out: impl TermOut) -> io::Result<()>;
+#[derive(Debug)]
+pub(crate) enum JudgeOutcome {
+    Batch(JudgeOutcomeRepr<BatchCase, BatchVerdict>),
+    Interactive(JudgeOutcomeRepr<InteractiveCase, InteractiveVerdict>),
 }
 
-pub(self) fn writeln_size(mut out: impl WriteAnsi, size: usize) -> io::Result<()> {
-    let gib = size / 2usize.pow(30);
-    let mib = (size / 2usize.pow(20)) & 0x3ff;
-    let kib = (size / 2usize.pow(10)) & 0x3ff;
-    let b = size & 0x3ff;
-    out.with_reset(|out| {
-        out.fg(11)?.bold()?;
-        match (gib, mib, kib, b) {
-            (0, 0, 0, b) => writeln!(out, "{}B", b),
-            (0, 0, k, b) => writeln!(out, "{}.{}KiB", k, b / 0x67),
-            (0, m, k, _) => writeln!(out, "{}.{}MiB", m, k / 0x67),
-            (g, m, _, _) => writeln!(out, "{}.{}GiB", g, m / 0x67),
+impl Outcome for JudgeOutcome {
+    fn is_success(&self) -> bool {
+        match self {
+            JudgeOutcome::Batch(r) => r.verdicts.iter().all(|v| v.is_success),
+            JudgeOutcome::Interactive(r) => r.verdicts.iter().all(|v| v.is_success),
         }
-    })
+    }
+
+    fn print_pretty(&self, stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
+        fn print_verdicts(
+            repr: &JudgeOutcomeRepr<impl TestCase, impl Verdict>,
+            mut stdout: impl WriteColor + HasTermProps,
+        ) -> io::Result<()> {
+            let JudgeOutcomeRepr {
+                display_limit,
+                verdicts,
+            } = repr;
+
+            let num_failures = verdicts.iter().filter(|v| !v.is_success).count();
+
+            if num_failures > 0 {
+                for (i, verdict) in verdicts.iter().enumerate() {
+                    let (test_case, verdict) = (&verdict.test_case, &verdict.verdict);
+                    if i > 0 {
+                        writeln!(stdout)?;
+                    }
+                    stdout.set_color(color!(bold))?;
+                    let (i, len, name) = (i + 1, verdicts.len(), test_case.name());
+                    write!(stdout, "{}/{} ({}) ", i, len, name)?;
+                    stdout.set_color(&verdict.color_spec())?;
+                    writeln!(stdout, "{}", verdict)?;
+                    verdict.print_details(*display_limit, &mut stdout)?;
+                    stdout.reset()?;
+                }
+            }
+
+            if num_failures == 0 {
+                stdout.set_color(color!(fg(Green), intense))?;
+                write!(
+                    stdout,
+                    "\nAll of the {} passed.",
+                    plural!(verdicts.len().get(), "test", "tests")
+                )?;
+            } else {
+                stdout.set_color(color!(fg(Red), intense))?;
+                write!(
+                    stdout,
+                    "\n{}/{} test{} failed.",
+                    num_failures,
+                    verdicts.len(),
+                    if num_failures > 1 { "s" } else { "" },
+                )?;
+            }
+            stdout.reset()?;
+            writeln!(stdout)?;
+            stdout.flush()
+        }
+
+        match self {
+            JudgeOutcome::Batch(r) => print_verdicts(&r, stdout),
+            JudgeOutcome::Interactive(r) => print_verdicts(&r, stdout),
+        }
+    }
+}
+
+impl Serialize for JudgeOutcome {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        match self {
+            JudgeOutcome::Batch(r) => r.serialize(serializer),
+            JudgeOutcome::Interactive(r) => r.serialize(serializer),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct JudgeOutcomeRepr<C: TestCase, V: Verdict> {
+    display_limit: Option<usize>,
+    verdicts: NonEmptyVec<JudgeOutcomeReprVerdict<C, V>>,
+}
+
+#[derive(Debug, Serialize)]
+struct JudgeOutcomeReprVerdict<C: TestCase, V: Verdict> {
+    is_success: bool,
+    test_case: C,
+    verdict: V,
+}
+
+pub(crate) trait Verdict: fmt::Display + fmt::Debug + Serialize + Send + 'static {
+    fn is_success(&self) -> bool;
+    fn color_spec(&self) -> ColorSpec;
+    fn print_details(
+        &self,
+        display_limit: Option<usize>,
+        wtr: impl WriteColor + HasTermProps,
+    ) -> io::Result<()>;
 }

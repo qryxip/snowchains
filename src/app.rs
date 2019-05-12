@@ -1,20 +1,23 @@
 use crate::config::{self, Config, SubCommandKind};
 use crate::errors::ExpandTemplateResult;
 use crate::judging::{self, JudgeParams};
+use crate::outcome::Outcome;
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::{
-    atcoder, codeforces, yukicoder, RetrieveLangsProps, RetrieveSubmissionsProps,
-    RetrieveTestCasesProps, ServiceKind, SessionProps, SubmitProps,
+    self, RetrieveLangsProps, RetrieveSubmissionsProps, RetrieveTestCasesProps, ServiceKind,
+    SessionProps, SubmitProps,
 };
-use crate::terminal::{AnsiColorChoice, Term};
+use crate::terminal::{AnsiColorChoice, AttemptEnableColor, HasTermProps, Input, ModifyTermProps};
 use crate::util::collections::NonEmptyVec;
 
 use serde::Serialize;
 use serde_derive::Serialize;
 use structopt::clap::Arg;
 use structopt::StructOpt;
+use strum_macros::EnumString;
+use termcolor::WriteColor;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use std::io::Write as _;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
@@ -112,7 +115,9 @@ pub struct Switch {
     contest: Option<String>,
     #[structopt(raw(language = "3"))]
     language: Option<String>,
-    #[structopt(raw(color_choice = "4"))]
+    #[structopt(raw(output_pretty_or_json = "4"))]
+    output: OutputKind,
+    #[structopt(raw(color_choice = "5"))]
     color_choice: AnsiColorChoice,
 }
 
@@ -120,7 +125,9 @@ pub struct Switch {
 pub struct Login {
     #[structopt(raw(json = "1"))]
     pub json: bool,
-    #[structopt(raw(color_choice = "1"))]
+    #[structopt(raw(output_pretty_or_json = "1"))]
+    pub output: OutputKind,
+    #[structopt(raw(color_choice = "2"))]
     pub color_choice: AnsiColorChoice,
     #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Arg"#))]
     pub service: ServiceKind,
@@ -130,7 +137,9 @@ pub struct Login {
 pub struct Participate {
     #[structopt(raw(json = "1"))]
     json: bool,
-    #[structopt(raw(color_choice = "1"))]
+    #[structopt(raw(output_pretty_or_json = "1"))]
+    output: OutputKind,
+    #[structopt(raw(color_choice = "2"))]
     color_choice: AnsiColorChoice,
     #[structopt(raw(service = r#"&["atcoder"], Kind::Arg"#))]
     service: ServiceKind,
@@ -181,7 +190,9 @@ pub struct RetrieveTestcases {
     pub contest: Option<String>,
     #[structopt(raw(problems = "3"))]
     pub problems: Vec<String>,
-    #[structopt(raw(color_choice = "4"))]
+    #[structopt(raw(output_pretty_or_json = "4"))]
+    pub output: OutputKind,
+    #[structopt(raw(color_choice = "5"))]
     pub color_choice: AnsiColorChoice,
 }
 
@@ -193,7 +204,9 @@ pub struct RetrieveLanguages {
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
     pub contest: Option<String>,
-    #[structopt(raw(color_choice = "3"))]
+    #[structopt(raw(output_pretty_or_json = "3"))]
+    pub output: OutputKind,
+    #[structopt(raw(color_choice = "4"))]
     pub color_choice: AnsiColorChoice,
     #[structopt(raw(problem = ""))]
     pub problem: Option<String>,
@@ -217,7 +230,9 @@ pub struct RetrieveSubmissions {
     pub mode: config::Mode,
     #[structopt(raw(problems = "4"))]
     pub problems: Vec<String>,
-    #[structopt(raw(color_choice = "5"))]
+    #[structopt(raw(output_none_or_json = "5"))]
+    pub output: OutputKind,
+    #[structopt(raw(color_choice = "6"))]
     pub color_choice: AnsiColorChoice,
 }
 
@@ -246,7 +261,9 @@ pub struct Judge {
     pub mode: config::Mode,
     #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "5"))]
     pub jobs: Option<NonZeroUsize>,
-    #[structopt(raw(color_choice = "6"))]
+    #[structopt(raw(output_pretty_or_json = "6"))]
+    pub output: OutputKind,
+    #[structopt(raw(color_choice = "7"))]
     pub color_choice: AnsiColorChoice,
     #[structopt(raw(problem = ""))]
     pub problem: String,
@@ -300,7 +317,9 @@ pub struct Submit {
     pub mode: config::Mode,
     #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "5"))]
     pub jobs: Option<NonZeroUsize>,
-    #[structopt(raw(color_choice = "6"))]
+    #[structopt(raw(output_pretty_or_json = "6"))]
+    pub output: OutputKind,
+    #[structopt(raw(color_choice = "7"))]
     pub color_choice: AnsiColorChoice,
     #[structopt(raw(problem = ""))]
     pub problem: String,
@@ -310,6 +329,7 @@ static SERVICE_VALUES: &[&str] = &["atcoder", "codeforces", "yukicoder", "other"
 
 static EXCEPT_OTHER: &[&str] = &["atcoder", "codeforces", "yukicoder"];
 
+#[derive(Debug)]
 enum Kind {
     Option(usize),
     Arg,
@@ -323,6 +343,8 @@ trait ArgExt {
     fn problems(self, order: usize) -> Self;
     fn mode(self, order: usize, default: &'static str) -> Self;
     fn jobs(self, order: usize) -> Self;
+    fn output_none_or_json(self, order: usize) -> Self;
+    fn output_pretty_or_json(self, order: usize) -> Self;
     fn color_choice(self, order: usize) -> Self;
     fn problem(self) -> Self;
     fn nth(self) -> Self;
@@ -334,7 +356,8 @@ trait ArgExt {
 impl ArgExt for Arg<'static, 'static> {
     fn json(self, order: usize) -> Self {
         self.long("json")
-            .help("Prints the result as a JSON")
+            .help("Equivalents to `--output json`")
+            .conflicts_with("\"output\"")
             .display_order(order)
     }
 
@@ -383,6 +406,26 @@ impl ArgExt for Arg<'static, 'static> {
             .long("jobs")
             .help("Number of jobs")
             .value_name("NUMBER")
+            .display_order(order)
+    }
+
+    fn output_none_or_json(self, order: usize) -> Self {
+        self.long("output")
+            .help("Output")
+            .value_name("OUTPUT")
+            .required(false)
+            .default_value("none")
+            .possible_values(&["none", "json"])
+            .display_order(order)
+    }
+
+    fn output_pretty_or_json(self, order: usize) -> Self {
+        self.long("output")
+            .help("Output")
+            .value_name("OUTPUT")
+            .required(false)
+            .default_value("pretty")
+            .possible_values(&["pretty", "json"])
             .display_order(order)
     }
 
@@ -440,24 +483,38 @@ fn parse_non_zero_usize(s: &str) -> std::result::Result<NonZeroUsize, String> {
     NonZeroUsize::new(n).ok_or_else(|| "must be non-zero".to_owned())
 }
 
-pub struct App<T: Term> {
+#[derive(Debug)]
+pub struct App<
+    I: Input,
+    O: AttemptEnableColor + ModifyTermProps,
+    E: AttemptEnableColor + ModifyTermProps,
+> {
     pub working_dir: AbsPathBuf,
     pub login_retries: Option<u32>,
-    pub term: T,
+    pub stdin: I,
+    pub stdout: O,
+    pub stderr: E,
 }
 
-impl<T: Term> App<T> {
-    pub fn run(&mut self, opt: Opt) -> crate::Result<()> {
+impl<
+        I: Input,
+        O: AttemptEnableColor + ModifyTermProps,
+        E: AttemptEnableColor + ModifyTermProps,
+    > App<I, O, E>
+{
+    pub fn run(&mut self, opt: Opt) -> crate::Result<i32> {
         let wd = self.working_dir.clone();
+
         match &opt {
             Opt::Init(cli_args) => {
                 let Init {
                     color_choice,
                     directory,
                 } = cli_args;
+                self.attempt_enable_color(*color_choice);
                 let wd = wd.join_canonicalizing_lossy(&directory);
-                self.term.attempt_enable_ansi(*color_choice);
-                config::init(self.term.stderr(), &wd)?;
+                config::init(&mut self.stderr, &wd)?;
+                Ok(0)
             }
             Opt::Switch(cli_args) => {
                 let Switch {
@@ -465,73 +522,84 @@ impl<T: Term> App<T> {
                     service,
                     contest,
                     language,
+                    output,
                     color_choice,
                 } = cli_args;
                 let contest = contest.as_ref().map(AsRef::as_ref);
                 let language = language.as_ref().map(AsRef::as_ref);
-                self.term.attempt_enable_ansi(*color_choice);
-                let (_, stdout, stderr) = self.term.split_mut();
-                let (config, outcome) =
-                    config::switch(stdout, stderr, &wd, *service, contest, language)?;
+                self.attempt_enable_color(*color_choice);
+                let (config, outcome) = config::switch(
+                    &mut self.stdout,
+                    &mut self.stderr,
+                    &wd,
+                    *service,
+                    contest,
+                    language,
+                )?;
+                self.apply_console_conf(config.console());
                 finish(
-                    &outcome,
+                    outcome,
                     cli_args,
                     &config,
                     SubCommandKind::Switch,
-                    *json,
-                    &mut self.term,
-                )?;
+                    output.with(*json),
+                    &mut self.stdout,
+                    &mut self.stderr,
+                )
             }
             Opt::Login(cli_args) => {
                 let Login {
                     json,
+                    output,
                     color_choice,
                     service,
                 } = cli_args;
-                self.term.attempt_enable_ansi(*color_choice);
+                self.attempt_enable_color(*color_choice);
                 let config = Config::load(Some(*service), None, None, &wd)?;
-                self.term.apply_conf(config.console());
-                let props = self.sess_props(&config)?;
-                let term = &mut self.term;
-                let outcome = match service {
-                    ServiceKind::Atcoder => atcoder::login(props, term),
-                    ServiceKind::Codeforces => codeforces::login(props, term),
-                    ServiceKind::Yukicoder => yukicoder::login(props, term),
-                    ServiceKind::Other => unreachable!(),
-                }?;
+                self.apply_console_conf(config.console());
+                let outcome = service::login(
+                    *service,
+                    self.sess_props(&config)?,
+                    &mut self.stdin,
+                    &mut self.stderr,
+                )?;
                 finish(
-                    &outcome,
+                    outcome,
                     cli_args,
                     &config,
                     SubCommandKind::Login,
-                    *json,
-                    &mut self.term,
-                )?;
+                    output.with(*json),
+                    &mut self.stdout,
+                    &mut self.stderr,
+                )
             }
             Opt::Participate(cli_args) => {
                 let Participate {
                     json,
+                    output,
                     color_choice,
                     service,
                     contest,
                 } = cli_args;
-                self.term.attempt_enable_ansi(*color_choice);
+                self.attempt_enable_color(*color_choice);
                 let config = Config::load(Some(*service), Some(contest), None, &wd)?;
-                self.term.apply_conf(config.console());
-                let props = self.sess_props(&config)?;
-                let term = &mut self.term;
-                let outcome = match service {
-                    ServiceKind::Atcoder => atcoder::participate(contest, props, term),
-                    _ => unreachable!(),
-                }?;
+                self.apply_console_conf(config.console());
+                let outcome = service::participate(
+                    *service,
+                    self.sess_props(&config)?,
+                    contest,
+                    &mut self.stdin,
+                    &mut self.stderr,
+                )?;
                 finish(
-                    &outcome,
+                    outcome,
                     cli_args,
                     &config,
                     SubCommandKind::Participate,
-                    *json,
-                    &mut self.term,
-                )?;
+                    output.with(*json),
+                    &mut self.stdout,
+                    &mut self.stderr,
+                )
             }
             Opt::Download(cli_args) | Opt::Retrieve(Retrieve::Testcases(cli_args)) => {
                 let RetrieveTestcases {
@@ -541,68 +609,66 @@ impl<T: Term> App<T> {
                     service,
                     contest,
                     problems,
+                    output,
                     color_choice,
                 } = cli_args;
                 let contest = contest.as_ref().map(AsRef::as_ref);
-                self.term.attempt_enable_ansi(*color_choice);
+                self.attempt_enable_color(*color_choice);
                 let config = Config::load(*service, contest, None, &self.working_dir)?;
-                self.term.apply_conf(config.console());
-                let sess_props = self.sess_props(&config)?;
-                let retrieve_props = RetrieveTestCasesProps {
-                    contest: config.contest().to_owned(),
-                    problems: NonEmptyVec::try_new(problems.clone()),
-                    destinations: config.destinations(None),
-                    open_in_browser: *open,
-                    only_scraped: *only_scraped,
-                };
-                let props = (sess_props, retrieve_props);
-                let term = &mut self.term;
-                let outcome = match config.service() {
-                    ServiceKind::Atcoder => atcoder::retrieve_testcases(props, term),
-                    ServiceKind::Codeforces => codeforces::retrieve_testcases(props, term),
-                    ServiceKind::Yukicoder => yukicoder::retrieve_testcases(props, term),
-                    ServiceKind::Other => return Err(crate::ErrorKind::Unimplemented.into()),
-                }?;
+                self.apply_console_conf(config.console());
+                let outcome = service::retrieve_testcases(
+                    config.service(),
+                    self.sess_props(&config)?,
+                    RetrieveTestCasesProps {
+                        contest: config.contest().to_owned(),
+                        problems: NonEmptyVec::try_new(problems.clone()),
+                        destinations: config.destinations(None),
+                        open_in_browser: *open,
+                        only_scraped: *only_scraped,
+                    },
+                    &mut self.stdin,
+                    &mut self.stderr,
+                )?;
                 finish(
-                    &outcome,
+                    outcome,
                     cli_args,
                     &config,
                     SubCommandKind::RetrieveTestcases,
-                    *json,
-                    &mut self.term,
-                )?;
+                    output.with(*json),
+                    &mut self.stdout,
+                    &mut self.stderr,
+                )
             }
             Opt::Retrieve(Retrieve::Languages(cli_args)) => {
                 let RetrieveLanguages {
                     json,
                     service,
                     contest,
+                    output,
                     color_choice,
                     problem,
                 } = cli_args;
                 let contest = contest.as_ref().map(AsRef::as_ref);
                 let problem = problem.clone();
-                self.term.attempt_enable_ansi(*color_choice);
+                self.attempt_enable_color(*color_choice);
                 let config = Config::load(*service, contest, None, &wd)?;
                 let contest = config.contest().to_owned();
-                let sess_props = self.sess_props(&config)?;
-                let retrieve_props = RetrieveLangsProps { contest, problem };
-                let props = (sess_props, retrieve_props);
-                let term = &mut self.term;
-                let outcome = match config.service() {
-                    ServiceKind::Atcoder => atcoder::retrieve_langs(props, term)?,
-                    ServiceKind::Codeforces => codeforces::retrieve_langs(props, term)?,
-                    ServiceKind::Yukicoder => yukicoder::retrieve_langs(props, term)?,
-                    _ => return Err(crate::ErrorKind::Unimplemented.into()),
-                };
+                let outcome = service::retrieve_langs(
+                    config.service(),
+                    self.sess_props(&config)?,
+                    RetrieveLangsProps { contest, problem },
+                    &mut self.stdin,
+                    &mut self.stderr,
+                )?;
                 finish(
-                    &outcome,
+                    outcome,
                     cli_args,
                     &config,
                     SubCommandKind::RetrieveLanguages,
-                    *json,
-                    &mut self.term,
-                )?;
+                    output.with(*json),
+                    &mut self.stdout,
+                    &mut self.stderr,
+                )
             }
             Opt::Retrieve(Retrieve::Submissions(cli_args)) => {
                 let RetrieveSubmissions {
@@ -612,31 +678,30 @@ impl<T: Term> App<T> {
                     contest,
                     mode,
                     problems,
+                    output,
                     color_choice,
                 } = cli_args;
                 let contest = contest.as_ref().map(AsRef::as_ref);
                 let problems = problems.clone();
-                self.term.attempt_enable_ansi(*color_choice);
+                self.attempt_enable_color(*color_choice);
                 let config = Config::load(*service, contest, None, &wd)?;
-                self.term.apply_conf(config.console());
-                let sess_props = self.sess_props(&config)?;
-                let retrieve_props =
-                    RetrieveSubmissionsProps::new(&config, *mode, problems, *fetch_all)?;
-                let props = (sess_props, retrieve_props);
-                let term = &mut self.term;
-                let outcome = match config.service() {
-                    ServiceKind::Atcoder => atcoder::retrieve_submissions(props, term)?,
-                    ServiceKind::Codeforces => codeforces::retrieve_submissiosn(props, term)?,
-                    _ => return Err(crate::ErrorKind::Unimplemented.into()),
-                };
+                self.apply_console_conf(config.console());
+                let outcome = service::retrieve_submissions(
+                    config.service(),
+                    self.sess_props(&config)?,
+                    RetrieveSubmissionsProps::new(&config, *mode, problems, *fetch_all)?,
+                    &mut self.stdin,
+                    &mut self.stderr,
+                )?;
                 finish(
-                    &outcome,
+                    outcome,
                     cli_args,
                     &config,
                     SubCommandKind::RetrieveSubmissions,
-                    *json,
-                    &mut self.term,
-                )?;
+                    output.with(*json),
+                    &mut self.stdout,
+                    &mut self.stderr,
+                )
             }
             Opt::Judge(cli_args) => {
                 let Judge {
@@ -648,6 +713,7 @@ impl<T: Term> App<T> {
                     language,
                     mode,
                     jobs,
+                    output,
                     color_choice,
                     problem,
                 } = cli_args;
@@ -658,11 +724,12 @@ impl<T: Term> App<T> {
                 } else {
                     *mode
                 };
-                self.term.attempt_enable_ansi(*color_choice);
+                self.attempt_enable_color(*color_choice);
                 let config = Config::load(*service, contest, language, &wd)?;
-                self.term.apply_conf(config.console());
-                let outcome = judging::judge::<T::Stdout, _>(JudgeParams {
-                    stderr: self.term.stderr(),
+                self.apply_console_conf(config.console());
+                let outcome = judging::judge(JudgeParams {
+                    stdout: &self.stdout,
+                    stderr: &mut self.stderr,
                     config: &config,
                     mode,
                     problem: &problem,
@@ -670,13 +737,14 @@ impl<T: Term> App<T> {
                     jobs: *jobs,
                 })?;
                 finish(
-                    &outcome,
+                    outcome,
                     cli_args,
                     &config,
                     SubCommandKind::Judge,
-                    *json,
-                    &mut self.term,
-                )?;
+                    output.with(*json),
+                    &mut self.stdout,
+                    &mut self.stderr,
+                )
             }
             Opt::Submit(cli_args) => {
                 let Submit {
@@ -692,64 +760,63 @@ impl<T: Term> App<T> {
                     contest,
                     mode,
                     jobs,
+                    output,
                     color_choice,
                     problem,
                 } = cli_args;
                 let contest = contest.as_ref().map(AsRef::as_ref);
                 let language = language.as_ref().map(AsRef::as_ref);
                 let mode = if *debug { config::Mode::Debug } else { *mode };
-                self.term.attempt_enable_ansi(*color_choice);
+                self.attempt_enable_color(*color_choice);
                 let config = Config::load(*service, contest, language, &wd)?;
-                self.term.apply_conf(config.console());
+                self.apply_console_conf(config.console());
                 if *only_transpile {
-                    let mut stderr = self.term.stderr();
-                    if judging::only_transpile::<T::Stdout, _>(
-                        &mut stderr,
+                    if judging::only_transpile(
+                        &self.stdout,
+                        &mut self.stderr,
                         &config,
                         mode,
                         &problem,
                         *force_compile,
                     )? {
-                        writeln!(stderr)?;
+                        writeln!(self.stderr)?;
                     }
                 } else if !no_judge {
-                    judging::judge::<T::Stdout, _>(JudgeParams {
-                        stderr: self.term.stderr(),
+                    judging::judge(JudgeParams {
+                        stdout: &self.stdout,
+                        stderr: &mut self.stderr,
                         config: &config,
                         mode,
                         problem: &problem,
                         force_compile: *force_compile,
                         jobs: *jobs,
                     })?;
-                    writeln!(self.term.stderr())?;
+                    writeln!(self.stderr)?;
                 }
-                let sess_props = self.sess_props(&config)?;
-                let submit_props = SubmitProps::try_new(
-                    &config,
-                    mode,
-                    problem.clone(),
-                    *open,
-                    *no_check_duplication,
+                let outcome = service::submit(
+                    config.service(),
+                    self.sess_props(&config)?,
+                    SubmitProps::try_new(
+                        &config,
+                        mode,
+                        problem.clone(),
+                        *open,
+                        *no_check_duplication,
+                    )?,
+                    &mut self.stdin,
+                    &mut self.stderr,
                 )?;
-                let props = (sess_props, submit_props);
-                let term = &mut self.term;
-                let outcome = match config.service() {
-                    ServiceKind::Atcoder => atcoder::submit(props, term)?,
-                    ServiceKind::Codeforces => codeforces::submit(props, term)?,
-                    ServiceKind::Yukicoder => yukicoder::submit(props, term)?,
-                    _ => return Err(crate::ErrorKind::Unimplemented.into()),
-                };
                 finish(
-                    &outcome,
+                    outcome,
                     cli_args,
                     &config,
                     SubCommandKind::Submit,
-                    *json,
-                    &mut self.term,
-                )?;
+                    output.with(*json),
+                    &mut self.stdout,
+                    &mut self.stderr,
+                )
             }
         }
-        Ok(())
     }
 
     fn sess_props(&mut self, config: &Config) -> ExpandTemplateResult<SessionProps> {
@@ -770,19 +837,42 @@ impl<T: Term> App<T> {
             robots: config.session_robots(),
         })
     }
+
+    fn attempt_enable_color(&mut self, choice: AnsiColorChoice) {
+        self.stdout.attempt_enable_color(choice);
+        self.stderr.attempt_enable_color(choice);
+    }
+
+    fn apply_console_conf(&mut self, conf: &config::Console) {
+        fn apply_console_conf(mut wtr: impl ModifyTermProps, conf: &config::Console) {
+            wtr.modify_term_props(|props| {
+                if conf.cjk {
+                    props.char_width = UnicodeWidthChar::width_cjk;
+                    props.str_width = UnicodeWidthStr::width_cjk;
+                } else {
+                    props.char_width = UnicodeWidthChar::width;
+                    props.str_width = UnicodeWidthStr::width;
+                }
+            })
+        }
+
+        apply_console_conf(&mut self.stdout, conf);
+        apply_console_conf(&mut self.stderr, conf);
+    }
 }
 
-fn finish<O: Serialize, A: Serialize, T: Term>(
-    outcome: &O,
-    command_line_arguments: &A,
+fn finish(
+    outcome: impl Outcome,
+    command_line_arguments: impl Serialize,
     config: &Config,
     subcommand: SubCommandKind,
-    json: bool,
-    mut term: T,
-) -> crate::Result<()> {
+    output_kind: OutputKind,
+    mut stdout: impl WriteColor + HasTermProps,
+    mut stderr: impl WriteColor + HasTermProps,
+) -> crate::Result<i32> {
     #[derive(Serialize)]
     struct WithCliArgsAndConfig<'a, A: Serialize, T: Serialize> {
-        command_line_arguments: &'a A,
+        command_line_arguments: A,
         config: &'a config::Inner,
         target: &'a config::Target,
         base_directory: &'a AbsPath,
@@ -797,12 +887,42 @@ fn finish<O: Serialize, A: Serialize, T: Term>(
         base_directory: config.base_dir(),
         outcome,
     };
-    let hooks = config.hooks(subcommand, &outcome).expand()?;
-    hooks.run::<T::Stdout, _>(term.stderr())?;
-    if json {
-        let json = serde_json::to_string_pretty(&outcome)?;
-        writeln!(term.stdout(), "{}", json)?;
-        term.stdout().flush()?;
+
+    match output_kind {
+        OutputKind::None => {}
+        OutputKind::Pretty => {
+            writeln!(stderr)?;
+            stderr.flush()?;
+            outcome.outcome.print_pretty(&mut stdout)?;
+        }
+        OutputKind::Json => {
+            let json = serde_json::to_string_pretty(&outcome)?;
+            writeln!(stdout, "{}", json)?;
+            stdout.flush()?;
+        }
     }
-    Ok(())
+
+    let hooks = config.hooks(subcommand, &outcome).expand()?;
+    hooks.run(&mut stdout, stderr)?;
+
+    Ok(if outcome.outcome.is_success() { 0 } else { 1 })
+}
+
+#[derive(Debug, Clone, Copy, EnumString, Serialize)]
+#[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum OutputKind {
+    None,
+    Pretty,
+    Json,
+}
+
+impl OutputKind {
+    fn with(self, json: bool) -> Self {
+        match (self, json) {
+            (OutputKind::None, false) => OutputKind::None,
+            (OutputKind::Pretty, false) => OutputKind::Pretty,
+            _ => OutputKind::Json,
+        }
+    }
 }
