@@ -11,6 +11,8 @@ use snowchains::terminal::{
 
 use failure::Fallible;
 use if_chain::if_chain;
+use once_cell::sync::Lazy;
+use once_cell::sync_lazy;
 use pretty_assertions::assert_eq;
 use tempdir::TempDir;
 
@@ -19,6 +21,49 @@ use std::{env, io};
 
 #[test]
 fn it_works_for_atcoder_practice_a() -> Fallible<()> {
+    static CONFIG: Lazy<String> = sync_lazy!(format!(
+        r#"
+target = ".snowchains/target.json"
+
+[testfiles]
+path = ".snowchains/tests/${{service}}/${{snake_case(contest)}}/${{snake_case(problem)}}.${{extension}}"
+
+[session]
+timeout = "0s"
+silent = false
+robots = false
+cookies = "/dev/null"
+api_tokens = "/dev/null"
+dropbox = false
+
+[session.retrieve]
+extension = "yml"
+text_file_dir = "/dev/null"
+
+[judge]
+testfile_extensions = ["yml"]
+
+[env.'service = "atcoder"']
+RUST_VERSION = "stable"
+RUST_OPT_LEVEL = "0"
+
+[languages.rust]
+src = "${{service}}/${{snake_case(contest)}}/rs/src/bin/${{kebab_case(problem)}}.rs"
+bin = "${{service}}/${{snake_case(contest)}}/rs/target/manually/${{kebab_case(problem)}}{}"
+compile = ["rustc", "+${{env:RUST_VERSION}}", "-C", "opt-level=${{env:RUST_OPT_LEVEL}}", "-o", "${{bin}}", "${{src}}"]
+run = ["${{bin}}"]
+working_directory = "${{service}}/${{contest}}/rs"
+"#,
+        if cfg!(windows) { ".exe" } else { "" },
+    ));
+
+    static TARGET: &str = r#"{
+  "service": "atcoder",
+  "contest": "practice",
+  "language": "rust"
+}
+"#;
+
     static SUITE: &str = r#"---
 type: batch
 match: exact
@@ -38,6 +83,7 @@ cases:
     out: |
       456 myonmyon
 "#;
+
     static SUITE_WITH_TIMELIMIT: &str = r#"---
 type: batch
 timelimit: 100ms
@@ -46,6 +92,7 @@ cases:
   - in: ""
     out: ""
 "#;
+
     static CODE: &str = r#"use std::io::{self, Read};
 
 fn main() {
@@ -59,8 +106,11 @@ fn main() {
     println!("{} {}", a + b + c, s);
 }
 "#;
+
     static INVLID_CODE: &str = "print('Hello!')";
+
     static WRONG_CODE: &str = "fn main() {}";
+
     static FREEZING_CODE: &str = r#"use std::thread;
 use std::time::Duration;
 
@@ -88,14 +138,11 @@ fn main() {
         .join("practice");
     let suite_path = suite_dir.join("a.yml");
 
-    std::fs::write(
-        tempdir.path().join("snowchains.toml"),
-        &include_bytes!("./common/snowchains.toml")[..],
-    )?;
+    std::fs::write(tempdir.path().join("snowchains.toml"), &*CONFIG)?;
     std::fs::create_dir_all(tempdir.path().join(".snowchains"))?;
     std::fs::write(
         tempdir.path().join(".snowchains").join("target.json"),
-        &include_bytes!("./common/target.json")[..],
+        TARGET,
     )?;
     std::fs::create_dir_all(&src_dir)?;
     std::fs::create_dir_all(&suite_dir)?;

@@ -20,19 +20,66 @@ pub(crate) fn test_in_tempdir(
     stdin: &str,
     f: impl FnOnce(App<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> + UnwindSafe,
 ) -> Fallible<()> {
+    static CONFIG: &str = r#"
+target = ".snowchains/target.json"
+
+[testfiles]
+path = ".snowchains/tests/${service}/${snake_case(contest)}/${snake_case(problem)}.${extension}"
+
+[session]
+timeout = "60s"
+silent = false
+robots = false
+cookies = "local/${service}"
+api_tokens = "local/api_tokens/${service}.json"
+dropbox = { auth = "local/dropbox.json" }
+
+[session.retrieve]
+extension = "yml"
+text_file_dir = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}"
+
+[judge]
+testfile_extensions = ["yml"]
+
+[languages.python3]
+src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
+run = ["false"]
+
+[languages.python3.names]
+atcoder = "Python3 (3.4.3)"
+yukicoder = "Python3 (3.7.1 + numpy 1.14.5 + scipy 1.1.0)"
+
+[languages.python3-with-invalid-lang-names]
+src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
+run = ["false"]
+
+[languages.python3-with-invalid-lang-names.names]
+atcoder = "invalid"
+codeforces = "invalid"
+yukicoder = "invalid"
+
+[languages.text]
+src = "${service}/${snake_case(contest)}/txt/${kebab_case(problem)}.txt"
+run = ["false"]
+
+[languages.text.names]
+yukicoder = "Text (cat 8.22)"
+"#;
+
+    static TARGET: &str = r#"{
+  "service": "other",
+  "contest": "",
+  "language": "text"
+}
+"#;
+
     let tempdir = dunce::canonicalize(&env::temp_dir())?;
     let tempdir = TempDir::new_in(&tempdir, tempdir_prefix)?;
     let tempdir_path = tempdir.path().to_owned();
     let result = panic::catch_unwind(move || -> Fallible<()> {
-        std::fs::write(
-            tempdir_path.join("snowchains.toml"),
-            &include_bytes!("./snowchains.toml")[..],
-        )?;
+        std::fs::write(tempdir_path.join("snowchains.toml"), CONFIG)?;
         std::fs::create_dir(tempdir_path.join(".snowchains"))?;
-        std::fs::write(
-            tempdir_path.join(".snowchains").join("target.json"),
-            &include_bytes!("./target.json")[..],
-        )?;
+        std::fs::write(tempdir_path.join(".snowchains").join("target.json"), TARGET)?;
         std::fs::create_dir(tempdir_path.join("local"))?;
         serde_json::to_writer(
             File::create(tempdir_path.join("local").join("dropbox.json"))?,
