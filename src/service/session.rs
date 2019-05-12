@@ -1,19 +1,19 @@
 use crate::errors::{FileResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
-use crate::service::USER_AGENT;
+use crate::service::session::owned_robots::OwnedRobots;
 use crate::terminal::WriteExt as _;
 
 use cookie::CookieJar;
 use derive_new::new;
 use failure::{Fail as _, Fallible, ResultExt as _};
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
+use if_chain::if_chain;
 use maplit::hashmap;
 use mime::Mime;
 use reqwest::header::{self, HeaderValue};
 use reqwest::r#async::Decoder;
 use reqwest::{Method, StatusCode};
-use robots_txt::{Robots, SimpleMatcher};
 use scraper::Html;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -42,7 +42,7 @@ pub(super) struct HttpSessionInitParams<'a, W: WriteColor> {
 #[derive(Debug)]
 pub(super) struct HttpSession {
     client: reqwest::r#async::Client,
-    robots_txts: HashMap<String, String>,
+    robots: HashMap<String, OwnedRobots>,
     base: Option<UrlBase>,
     jar: Option<AutosavedCookieJar>,
     api_token: LazyLockedFile,
@@ -64,7 +64,7 @@ impl HttpSession {
         let host = base.as_ref().map(|base| base.host.clone());
         let mut this = Self {
             client,
-            robots_txts: hashmap!(),
+            robots: hashmap!(),
             base,
             jar: cookies_path.map(AutosavedCookieJar::try_new).transpose()?,
             api_token: match api_token_path {
@@ -96,8 +96,8 @@ impl HttpSession {
                 }
                 match res.status() {
                     StatusCode::OK => {
-                        this.robots_txts
-                            .insert(host.to_string(), res.text(runtime)?);
+                        let txt = res.text(runtime)?;
+                        this.robots.insert(host.to_string(), OwnedRobots::new(txt));
                     }
                     StatusCode::NOT_FOUND => (),
                     _ => unreachable!(),
@@ -218,16 +218,16 @@ impl HttpSession {
     }
 
     fn assert_not_forbidden_by_robots_txt(&self, url: &Url) -> ServiceResult<()> {
-        if let Some(host) = url.host_str() {
-            if let Some(robots_txt) = self.robots_txts.get(host) {
-                let robots = Robots::from_str(robots_txt);
-                let matcher = SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules);
-                if !matcher.check_path(url.path()) {
-                    return Err(ServiceErrorKind::ForbiddenByRobotsTxt.into());
-                }
+        if_chain! {
+            if let Some(host) = url.host_str();
+            if let Some(robots) = self.robots.get(host);
+            if !robots.check_path_for_ua(url.path());
+            then {
+                Err(ServiceErrorKind::ForbiddenByRobotsTxt.into())
+            } else {
+                Ok(())
             }
         }
-        Ok(())
     }
 }
 
@@ -637,6 +637,39 @@ impl AutosavedCookieJar {
             .map(ToString::to_string)
             .collect::<Vec<_>>();
         self.file.write_bincode(&value)
+    }
+}
+
+mod owned_robots {
+    use crate::service::USER_AGENT;
+
+    use robots_txt::{Robots, SimpleMatcher};
+    use std::mem;
+
+    /// **NOTE:** this is a self-referential struct.
+    #[derive(Debug)]
+    pub(super) struct OwnedRobots {
+        string: String,                  // `String` is a `StableDeref`
+        robots: Robots<'static>,         // This `'static` is fake
+        matcher: SimpleMatcher<'static>, // This `'static` is also fake
+    }
+
+    impl OwnedRobots {
+        pub(super) fn new(string: String) -> Self {
+            unsafe {
+                let robots = Robots::from_str(&string);
+                let matcher = SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules);
+                Self {
+                    matcher: mem::transmute(matcher),
+                    robots: mem::transmute(robots),
+                    string,
+                }
+            }
+        }
+
+        pub(super) fn check_path_for_ua(&self, path: &str) -> bool {
+            self.matcher.check_path(path)
+        }
     }
 }
 
