@@ -3,13 +3,13 @@ use crate::errors::{
 };
 use crate::path::AbsPath;
 use crate::service::download::DownloadProgress;
-use crate::service::session::HttpSession;
+use crate::service::session::{Session, State};
 use crate::service::{
     Contest, LoginOutcome, ParticipateOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
     RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeSubmission,
     RetrieveSubmissionsOutcomeSubmissionDetail, RetrieveSubmissionsOutcomeSubmissionProblem,
     RetrieveSubmissionsOutcomeSubmissionVerdict, RetrieveSubmissionsProps,
-    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service,
+    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps,
     SessionProps, SubmitOutcome, SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
 };
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
@@ -33,7 +33,6 @@ use scraper::{ElementRef, Html, Selector};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
 use termcolor::WriteColor;
-use tokio::runtime::Runtime;
 use url::Url;
 
 use std::borrow::Cow;
@@ -132,54 +131,40 @@ pub(super) fn submit(
 #[derive(Debug)]
 struct Atcoder<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
-    stdin: I,
-    stderr: E,
-    session: HttpSession,
-    runtime: Runtime,
+    state: State<I, E>,
 }
 
-impl<I: Input, E: WriteColor + HasTermProps> Service for Atcoder<I, E> {
+impl<I: Input, E: WriteColor + HasTermProps> Session for Atcoder<I, E> {
     type Stdin = I;
     type Stderr = E;
 
-    fn requirements(&mut self) -> (&mut I, &mut E, &mut HttpSession, &mut Runtime) {
-        (
-            &mut self.stdin,
-            &mut self.stderr,
-            &mut self.session,
-            &mut self.runtime,
-        )
+    fn state_ref(&self) -> &State<I, E> {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut State<I, E> {
+        &mut self.state
     }
 }
 
-impl<I: Input, E: WriteColor + HasTermProps> DownloadProgress for Atcoder<I, E> {
-    type Write = E;
-
-    fn requirements(&mut self) -> (&mut E, &HttpSession, &mut Runtime) {
-        (&mut self.stderr, &self.session, &mut self.runtime)
-    }
-}
+impl<I: Input, E: WriteColor + HasTermProps> DownloadProgress for Atcoder<I, E> {}
 
 impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
-    fn try_new(props: SessionProps, stdin: I, mut stderr: E) -> ServiceResult<Self> {
-        let mut runtime = Runtime::new()?;
-        let session = props.start_session(&mut stderr, &mut runtime)?;
+    fn try_new(props: SessionProps, stdin: I, stderr: E) -> ServiceResult<Self> {
+        let state = props.start_state(stdin, stderr)?;
         Ok(Self {
             login_retries: props.login_retries,
-            stdin,
-            stderr,
-            session,
-            runtime,
+            state,
         })
     }
 
     fn login_if_not(&mut self, explicit: bool) -> ServiceResult<()> {
-        if self.session.has_cookie() {
+        if self.has_cookie() {
             let status = self.get("/settings").acceptable(&[200, 302]).status()?;
             if status == StatusCode::OK {
                 if explicit {
-                    writeln!(self.stderr, "Already logged in.")?;
-                    self.stderr.flush()?;
+                    writeln!(self.stderr(), "Already logged in.")?;
+                    self.stderr().flush()?;
                 }
                 return Ok(());
             }
@@ -194,16 +179,16 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             );
             self.post("/login").send_form(&payload)?;
             if self.get("/settings").acceptable(&[200, 302]).status()? == 200 {
-                writeln!(self.stderr, "Successfully logged in.")?;
-                break self.stderr.flush().map_err(Into::into);
+                writeln!(self.stderr(), "Successfully logged in.")?;
+                break self.stderr().flush().map_err(Into::into);
             }
             if retries == Some(0) {
                 return Err(ServiceErrorKind::LoginRetriesExceeded.into());
             }
             retries = retries.map(|n| n - 1);
-            writeln!(self.stderr, "Failed to login. Try again.")?;
-            self.stderr.flush()?;
-            self.session.clear_cookies()?;
+            writeln!(self.stderr(), "Failed to login. Try again.")?;
+            self.stderr().flush()?;
+            self.clear_cookies()?;
         }
     }
 
@@ -237,13 +222,13 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 .status();
             if status == 200 {
                 if explicit {
-                    self.stderr.write_str("Already authorized.\n")?;
-                    self.stderr.flush()?;
+                    self.stderr().write_str("Already authorized.\n")?;
+                    self.stderr().flush()?;
                 }
                 return Ok(auth.access_token);
             }
-            self.stderr.write_str("Invalid `accesss_token`.\n")?;
-            self.stderr.flush()?;
+            self.stderr().write_str("Invalid `accesss_token`.\n")?;
+            self.stderr().flush()?;
         }
         self.open_in_browser(&format!(
             "https://dropbox.com/oauth2/authorize?response_type=code&client_id={}",
@@ -258,8 +243,8 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             .form(&hashmap!("code" => code.as_str(), "grant_type" => "authorization_code"))
             .recv_json::<AuthToken>()?;
         crate::fs::write_json_pretty(auth_path, &auth)?;
-        writeln!(self.stderr, "Wrote {}", auth_path.display())?;
-        self.stderr.flush()?;
+        writeln!(self.stderr(), "Wrote {}", auth_path.display())?;
+        self.stderr().flush()?;
         Ok(auth.access_token)
     }
 
@@ -276,7 +261,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             .acceptable(&[200, 302, 404])
             .send()?;
         if res.status() == 200 {
-            res.html(&mut self.runtime)
+            res.html(self.runtime())
         } else {
             self.register_if_active_or_explicit(contest, false)?;
             self.get(&contest.url_tasks()).recv_html()
@@ -295,7 +280,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         if res.status() == StatusCode::FOUND {
             return Err(ServiceErrorKind::ContestNotFound(contest.to_string()).into());
         }
-        let page = res.html(&mut self.runtime)?;
+        let page = res.html(self.runtime())?;
         let duration = page.extract_contest_duration()?;
         let status = duration.check_current_status(contest.to_string());
         if !explicit {
@@ -342,7 +327,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             let _ = display_name;
             if problems.map_or(true, |ps| ps.iter().any(|p| *p == slug)) {
                 let path = destinations.expand(&slug)?;
-                let url = self.session.resolve_url(&url)?;
+                let url = self.resolve_url(&url)?;
                 outcome.push_problem(slug, url, suite, path);
             }
         }
@@ -369,13 +354,14 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             test_suite.save(test_suite_path)?;
             not_found.remove(&slug);
         }
-        self.stderr.flush()?;
+        let stderr = self.stderr();
+        stderr.flush()?;
         if !not_found.is_empty() {
-            self.stderr.set_color(color!(fg(Yellow), intense))?;
-            write!(self.stderr, "Not found: {}", not_found.format_as_str_list())?;
-            self.stderr.reset()?;
-            writeln!(self.stderr)?;
-            self.stderr.flush()?;
+            stderr.set_color(color!(fg(Yellow), intense))?;
+            write!(stderr, "Not found: {}", not_found.format_as_str_list())?;
+            stderr.reset()?;
+            writeln!(stderr)?;
+            stderr.flush()?;
         }
         if *open_in_browser {
             self.open_in_browser(&contest.url_submissions_me(1))?;
@@ -467,7 +453,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             static ENDPOINT: &str = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
             let filenames = entries.iter().map(|e| &e.name).collect::<Vec<_>>();
             let urls = vec![ENDPOINT; filenames.len()];
-            let client = this.session.client();
+            let client = this.client();
             let alt_reqs = filenames
                 .iter()
                 .map(|filename| {
@@ -535,11 +521,11 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                     Ok((case_name, (in_path, out_path)))
                 })
                 .collect::<FileResult<BTreeMap<_, _>>>()?;
-            self.stderr.set_color(color!(bold))?;
-            self.stderr.write_str(problem)?;
-            self.stderr.reset()?;
+            self.stderr().set_color(color!(bold))?;
+            self.stderr().write_str(problem)?;
+            self.stderr().reset()?;
             writeln!(
-                self.stderr,
+                self.stderr(),
                 ": Saved {} to {}",
                 plural!(2 * contents_len, "file", "files"),
                 dir.display(),
@@ -551,7 +537,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 }
             }
         }
-        self.stderr.flush().map_err(Into::into)
+        self.stderr().flush().map_err(Into::into)
     }
 
     fn retrieve_langs(
@@ -568,7 +554,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                     .extract_task_slugs_and_urls()?
                     .into_element(&problem)
                     .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
-                self.session.resolve_url(&url)?
+                self.resolve_url(&url)?
             }
         };
         let langs = self.get(&url).recv_html()?.extract_langs()?;
@@ -592,7 +578,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 .acceptable(&[200, 302])
                 .send()?;
             if res.status() == 200 {
-                res.html(&mut self.runtime)?
+                res.html(self.runtime())?
             } else {
                 self.register_if_active_or_explicit(contest, false)?;
                 self.get(&contest.url_submissions_me(1))
@@ -694,9 +680,9 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         }
 
         if let Some(ignored) = NonEmptyIndexSet::try_new(ignored) {
-            self.stderr.set_color(color!(fg(Yellow), intense))?;
-            writeln!(self.stderr, "Ignored: {}", ignored.format_as_str_list())?;
-            self.stderr.reset()?;
+            self.stderr().set_color(color!(fg(Yellow), intense))?;
+            writeln!(self.stderr(), "Ignored: {}", ignored.format_as_str_list())?;
+            self.stderr().reset()?;
         }
 
         let mut num_saved = 0;
@@ -711,7 +697,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             if let (Some(path), Some(code)) = (path, code) {
                 crate::fs::write(path, code.as_ref())?;
                 writeln!(
-                    self.stderr,
+                    self.stderr(),
                     "{} - {:?}: Saved to {}",
                     submission.problem.slug,
                     submission.language,
@@ -722,18 +708,15 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             not_found.remove(&submission.problem.slug);
         }
 
+        let stderr = self.stderr();
         if !not_found.is_empty() {
-            self.stderr.set_color(color!(fg(Yellow), intense))?;
-            writeln!(self.stderr, "Not found: {}", not_found.format_as_str_list())?;
-            self.stderr.reset()?;
+            stderr.set_color(color!(fg(Yellow), intense))?;
+            writeln!(stderr, "Not found: {}", not_found.format_as_str_list())?;
+            stderr.reset()?;
         }
+        writeln!(stderr, "Saved {}.", plural!(num_saved, "file", "files"))?;
+        stderr.flush()?;
 
-        writeln!(
-            self.stderr,
-            "Saved {}.",
-            plural!(num_saved, "file", "files"),
-        )?;
-        self.stderr.flush()?;
         Ok(outcome)
     }
 

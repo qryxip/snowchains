@@ -1,13 +1,13 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
 use crate::service::download::DownloadProgress;
-use crate::service::session::HttpSession;
+use crate::service::session::{Session, State};
 use crate::service::{
     Contest, ExtractZip, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
-    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps, Service,
+    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps,
     SessionProps, SubmitOutcome, SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
     ZipEntries, ZipEntriesSorting,
 };
-use crate::terminal::{HasTermProps, Input};
+use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
 use crate::util::str::CaseConversion;
@@ -23,7 +23,6 @@ use reqwest::StatusCode;
 use scraper::Html;
 use serde_derive::Deserialize;
 use termcolor::WriteColor;
-use tokio::runtime::Runtime;
 use url::Url;
 
 use std::borrow::Cow;
@@ -82,54 +81,40 @@ pub(super) fn submit(
 #[derive(Debug)]
 struct Yukicoder<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
-    stdin: I,
-    stderr: E,
-    session: HttpSession,
-    runtime: Runtime,
     username: Username,
+    state: State<I, E>,
 }
 
-impl<I: Input, E: WriteColor + HasTermProps> Service for Yukicoder<I, E> {
+impl<I: Input, E: WriteColor + HasTermProps> Session for Yukicoder<I, E> {
     type Stdin = I;
     type Stderr = E;
 
-    fn requirements(&mut self) -> (&mut I, &mut E, &mut HttpSession, &mut Runtime) {
-        (
-            &mut self.stdin,
-            &mut self.stderr,
-            &mut self.session,
-            &mut self.runtime,
-        )
+    fn state_ref(&self) -> &State<I, E> {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut State<I, E> {
+        &mut self.state
     }
 }
 
-impl<I: Input, E: WriteColor + HasTermProps> DownloadProgress for Yukicoder<I, E> {
-    type Write = E;
-
-    fn requirements(&mut self) -> (&mut E, &HttpSession, &mut Runtime) {
-        (&mut self.stderr, &self.session, &mut self.runtime)
-    }
-}
+impl<I: Input, E: WriteColor + HasTermProps> DownloadProgress for Yukicoder<I, E> {}
 
 impl<I: Input, E: WriteColor + HasTermProps> ExtractZip for Yukicoder<I, E> {
     type Write = E;
 
     fn out(&mut self) -> &mut E {
-        &mut self.stderr
+        self.stderr()
     }
 }
 
 impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
-    fn try_new(props: SessionProps, stdin: I, mut stderr: E) -> ServiceResult<Self> {
-        let mut runtime = Runtime::new()?;
-        let session = props.start_session(&mut stderr, &mut runtime)?;
+    fn try_new(props: SessionProps, stdin: I, stderr: E) -> ServiceResult<Self> {
+        let state = props.start_state(stdin, stderr)?;
         Ok(Self {
             login_retries: props.login_retries,
-            stdin,
-            stderr,
-            session,
-            runtime,
             username: Username::None,
+            state,
         })
     }
 
@@ -139,15 +124,17 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
             let (mut first, mut retries) = (true, self.login_retries);
             loop {
                 if first {
-                    if !assure && !self.ask_yes_or_no("Login? ", true)? {
+                    if !assure && !self.ask_yn("Login? ", true)? {
                         break;
                     }
-                    writeln!(
-                        self.stderr,
-                        "\nInput \"REVEL_SESSION\".\n\n\
-                         Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies \
-                         WHERE baseDomain=\"yukicoder.me\" AND name=\"REVEL_SESSION\"'\n\
-                         Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie\n"
+                    self.stderr().write_str(
+                        r#"
+Input "REVEL_SESSION".
+
+Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
+Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
+
+"#,
                     )?;
                     first = false;
                 }
@@ -159,20 +146,20 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
                     return Err(ServiceErrorKind::LoginRetriesExceeded.into());
                 }
                 retries = retries.map(|n| n - 1);
-                writeln!(self.stderr, "Wrong \"REVEL_SESSION\".")?;
-                self.stderr.flush()?;
+                writeln!(self.stderr(), "Wrong \"REVEL_SESSION\".")?;
+                self.stderr().flush()?;
             }
         }
         let username = self.username.clone();
-        writeln!(self.stderr, "Username: {}", username)?;
-        self.stderr.flush()?;
+        writeln!(self.stderr(), "Username: {}", username)?;
+        self.stderr().flush()?;
         Ok(LoginOutcome {})
     }
 
     fn confirm_revel_session(&mut self, revel_session: String) -> ServiceResult<bool> {
-        self.session.clear_cookies()?;
+        self.clear_cookies()?;
         let cookie = Cookie::new("REVEL_SESSION", revel_session);
-        self.session.insert_cookie(cookie)?;
+        self.insert_cookie(cookie)?;
         self.fetch_username()?;
         Ok(self.username.name().is_some())
     }
@@ -210,7 +197,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
                     let url = format!("/problems/no/{}", problem);
                     let res = self.get(&url).acceptable(&[200, 404]).send()?;
                     let status = res.status();
-                    let html = res.html(&mut self.runtime)?;
+                    let html = res.html(self.runtime())?;
                     let public = html
                         .select(selector!("#content"))
                         .flat_map(|r| r.text())
@@ -222,11 +209,11 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
                         not_public.push(problem);
                     } else {
                         let (suite, path) = scrape(&html, problem)?;
-                        let url = self.session.resolve_url(&url)?;
+                        let url = self.resolve_url(&url)?;
                         outcome.push_problem(problem.to_owned(), url, suite, path);
                     }
                 }
-                let stderr = &mut self.stderr;
+                let stderr = self.stderr();
                 if !not_found.is_empty() {
                     stderr.set_color(color!(fg(Yellow), intense))?;
                     write!(stderr, "Not found: {:?}", not_found)?;;
@@ -251,7 +238,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
                     if problems.is_none() || problems.as_ref().unwrap().contains(&slug) {
                         let html = self.get(&href).recv_html()?;
                         let (suite, path) = scrape(&html, &slug)?;
-                        let url = self.session.resolve_url(&href)?;
+                        let url = self.resolve_url(&href)?;
                         outcome.push_problem(slug, url, suite, path);
                     }
                 }
@@ -421,7 +408,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
             let solved_nos = self
                 .get(&url)
                 .send()?
-                .json::<Vec<Problem>>(&mut self.runtime)?
+                .json::<Vec<Problem>>(self.runtime())?
                 .into_iter()
                 .map(|problem| problem.no.to_string())
                 .collect::<Vec<_>>();

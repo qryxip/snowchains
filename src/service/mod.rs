@@ -10,9 +10,7 @@ use crate::config::{self, Config};
 use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceErrorKind, ServiceResult};
 use crate::outcome::Outcome;
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::session::{
-    HttpSession, HttpSessionInitParams, IntoRelativeOrAbsoluteUrl, UrlBase,
-};
+use crate::service::session::{State, StateStartArgs, UrlBase};
 use crate::template::Template;
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFilePath, TestSuite};
@@ -204,77 +202,6 @@ impl<'de> Deserialize<'de> for ServiceKind {
 }
 
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/qryxip/snowchains>";
-
-pub(self) trait Service {
-    type Stdin: Input;
-    type Stderr: WriteColor;
-
-    fn requirements(
-        &mut self,
-    ) -> (
-        &mut Self::Stdin,
-        &mut Self::Stderr,
-        &mut HttpSession,
-        &mut Runtime,
-    );
-
-    fn get(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> session::Request<&mut Self::Stderr> {
-        let (_, stderr, sess, runtime) = self.requirements();
-        sess.get(url, stderr, runtime)
-    }
-
-    fn post(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> session::Request<&mut Self::Stderr> {
-        let (_, stderr, sess, runtime) = self.requirements();
-        sess.post(url, stderr, runtime)
-    }
-
-    fn open_in_browser(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<()> {
-        let (_, stderr, sess, _) = self.requirements();
-        sess.open_in_browser(url, stderr)
-    }
-
-    fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        let (stdin, stderr, _, _) = self.requirements();
-        stderr.write_str(prompt)?;
-        stderr.flush()?;
-        stdin.read_reply()
-    }
-
-    fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        let (stdin, stderr, _, _) = self.requirements();
-        stderr.write_str(prompt)?;
-        stderr.flush()?;
-        stdin.read_password()
-    }
-
-    fn ask_yes_or_no(&mut self, mes: &str, default: bool) -> io::Result<bool> {
-        let (stdin, stderr, _, _) = self.requirements();
-        ask_yes_or_no(mes, default, stdin, stderr)
-    }
-}
-
-fn ask_yes_or_no(
-    mes: &str,
-    default: bool,
-    mut stdin: impl Input,
-    mut stderr: impl WriteColor,
-) -> io::Result<bool> {
-    let prompt = format!("{}{} ", mes, if default { "(Y/n)" } else { "(y/N)" });
-    loop {
-        stderr.write_str(&prompt)?;
-        stderr.flush()?;
-        match &stdin.read_password()? {
-            s if s.is_empty() => break Ok(default),
-            s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => break Ok(true),
-            s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => break Ok(false),
-            _ => {
-                stderr.set_color(color!(fg(Yellow), intense))?;
-                stderr.write_str(r#"Answer "y", "yes", "n", "no", or ""."#)?;
-                stderr.reset()?;
-            }
-        }
-    }
-}
 
 pub(self) trait ExtractZip {
     type Write: WriteColor;
@@ -755,29 +682,31 @@ pub(crate) struct SessionProps {
     pub(crate) dropbox_path: Option<AbsPathBuf>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) login_retries: Option<u32>,
-    pub(crate) silent: bool,
+    pub(crate) http_silent: bool,
     pub(crate) robots: bool,
 }
 
 impl SessionProps {
-    pub(self) fn start_session(
+    pub(self) fn start_state<I: Input, E: WriteColor + HasTermProps>(
         &self,
-        out: impl WriteColor,
-        runtime: &mut Runtime,
-    ) -> ServiceResult<HttpSession> {
+        stdin: I,
+        stderr: E,
+    ) -> ServiceResult<State<I, E>> {
+        let runtime = Runtime::new()?;
         let client = reqwest_async_client(self.timeout)?;
-        let base = self
+        let url_base = self
             .domain
             .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
-        HttpSession::try_new(HttpSessionInitParams {
-            out,
+        State::start(StateStartArgs {
+            stdin,
+            stderr,
             runtime,
             robots: self.robots,
             client,
-            base,
+            url_base,
             cookies_path: Some(self.cookies_path.as_path()),
             api_token_path: Some(self.api_token_path.as_path()),
-            silent: self.silent,
+            http_silent: self.http_silent,
         })
     }
 }
@@ -973,55 +902,5 @@ pub(crate) trait Contest: fmt::Display + FromStr {
 impl Contest for String {
     fn slug(&self) -> Cow<str> {
         self.as_str().into()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::service::ask_yes_or_no;
-    use crate::terminal::TtyOrPiped;
-
-    use failure::Fallible;
-    use once_cell::sync::Lazy;
-    use once_cell::sync_lazy;
-    use pretty_assertions::assert_eq;
-    use termcolor::{Ansi, Color, ColorSpec, WriteColor as _};
-
-    use std::io::{self, Write as _};
-    use std::str;
-
-    #[test]
-    fn test_ask_yes_or_no() -> Fallible<()> {
-        let mut rdr = "y\nn\n\ny\nn\nヌ\n\n".as_bytes();
-        let mut stdin = TtyOrPiped::Piped(&mut rdr);
-        let mut stderr = Ansi::new(vec![]);
-
-        let mut ask = |mes: &str, default: bool| -> io::Result<_> {
-            ask_yes_or_no(mes, default, &mut stdin, &mut stderr)
-        };
-
-        assert_eq!(ask("Yes?: ", true)?, true);
-        assert_eq!(ask("Yes?: ", true)?, false);
-        assert_eq!(ask("Yes?: ", true)?, true);
-        assert_eq!(ask("No?: ", false)?, true);
-        assert_eq!(ask("No?: ", false)?, false);
-        assert_eq!(ask("No?: ", false)?, false);
-        assert_eq!(ask("Yes?: ", true)?, true);
-
-        assert_eq!(rdr, &b""[..]);
-
-        static EXPECTED: Lazy<String> = sync_lazy! {
-            let mut expected = Ansi::new(vec![]);
-            expected
-                .write_all(b"Yes?: (Y/n) Yes?: (Y/n) Yes?: (Y/n) No?: (y/N) No?: (y/N) No?: (y/N) ")
-                .unwrap();
-            expected.set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(11)))).unwrap();
-            expected.write_all(br#"Answer "y", "yes", "n", "no", or ""."#).unwrap();
-            expected.reset().unwrap();
-            expected.write_all(b"No?: (y/N) Yes?: (Y/n) ").unwrap();
-            String::from_utf8(expected.into_inner()).unwrap()
-        };
-        assert_eq!(str::from_utf8(stderr.get_ref())?, &*EXPECTED);
-        Ok(())
     }
 }

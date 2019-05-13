@@ -2,7 +2,7 @@ use crate::errors::{FileResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
 use crate::service::session::owned_robots::OwnedRobots;
-use crate::terminal::WriteExt as _;
+use crate::terminal::{HasTermProps, Input, WriteExt as _};
 
 use cookie::CookieJar;
 use derive_new::new;
@@ -24,59 +24,180 @@ use url::{Host, Url};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{self, Write as _};
+use std::io::{self, Write as _};
+use std::mem;
 use std::ops::Deref;
-use std::{io, mem};
 
-#[derive(Debug)]
-pub(super) struct HttpSessionInitParams<'a, W: WriteColor> {
-    pub(super) out: W,
-    pub(super) runtime: &'a mut Runtime,
-    pub(super) robots: bool,
-    pub(super) client: reqwest::r#async::Client,
-    pub(super) base: Option<UrlBase>,
-    pub(super) cookies_path: Option<&'a AbsPath>,
-    pub(super) api_token_path: Option<&'a AbsPath>,
-    pub(super) silent: bool,
+pub(super) trait Session {
+    type Stdin: Input;
+    type Stderr: WriteColor + HasTermProps;
+
+    fn state_ref(&self) -> &State<Self::Stdin, Self::Stderr>;
+
+    fn state_mut(&mut self) -> &mut State<Self::Stdin, Self::Stderr>;
+
+    fn stderr(&mut self) -> &mut Self::Stderr {
+        &mut self.state_mut().stderr
+    }
+
+    fn runtime(&mut self) -> &mut Runtime {
+        &mut self.state_mut().runtime
+    }
+
+    fn client(&self) -> reqwest::r#async::Client {
+        self.state_ref().client.clone()
+    }
+
+    fn api_token(&mut self) -> &mut LazyLockedFile {
+        &mut self.state_mut().api_token
+    }
+
+    /// If `url` starts with '/' and the base host is present, returns
+    /// http(s)://<host><url>.
+    fn resolve_url(&self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<Url> {
+        url.with(self.state_ref().url_base.as_ref())
+    }
+
+    fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
+        let State { stdin, stderr, .. } = self.state_mut();
+        stderr.write_str(prompt)?;
+        stderr.flush()?;
+        stdin.read_reply()
+    }
+
+    fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
+        let State { stdin, stderr, .. } = self.state_mut();
+        stderr.write_str(prompt)?;
+        stderr.flush()?;
+        stdin.read_password()
+    }
+
+    fn ask_yn(&mut self, prompt: &str, default: bool) -> io::Result<bool> {
+        let State { stdin, stderr, .. } = self.state_mut();
+        let prompt = format!("{}{} ", prompt, if default { "(Y/n)" } else { "(y/N)" });
+        loop {
+            stderr.write_str(&prompt)?;
+            stderr.flush()?;
+            match &stdin.read_reply()? {
+                s if s.is_empty() => break Ok(default),
+                s if s.eq_ignore_ascii_case("y") || s.eq_ignore_ascii_case("yes") => {
+                    break Ok(true)
+                }
+                s if s.eq_ignore_ascii_case("n") || s.eq_ignore_ascii_case("no") => {
+                    break Ok(false)
+                }
+                _ => {
+                    stderr.set_color(color!(fg(Yellow), intense))?;
+                    stderr.write_str(r#"Answer "y", "yes", "n", "no", or ""."#)?;
+                    stderr.reset()?;
+                }
+            }
+        }
+    }
+
+    /// Opens `url`, which is relative or absolute, with default browser
+    /// printing a message.
+    fn open_in_browser(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<()> {
+        let url = self.resolve_url(url)?;
+        writeln!(self.stderr(), "Opening {} in default browser...", url)?;
+        self.stderr().flush()?;
+        let status = webbrowser::open(url.as_str())?.status;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ServiceErrorKind::Webbrowser(status).into())
+        }
+    }
+
+    /// Whether it has any cookie value.
+    fn has_cookie(&self) -> bool {
+        self.state_ref()
+            .cookie_jar
+            .as_ref()
+            .map_or(false, |j| j.inner.iter().next().is_some())
+    }
+
+    fn cookies_to_header_value(&self) -> ServiceResult<Option<HeaderValue>> {
+        self.state_ref()
+            .cookie_jar
+            .as_ref()
+            .map(AutosavedCookieJar::to_header_value)
+            .transpose()
+    }
+
+    fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> ServiceResult<()> {
+        if let Some(jar) = &mut self.state_mut().cookie_jar {
+            jar.insert_cookie(cookie)?;
+        }
+        Ok(())
+    }
+
+    /// Removes all cookies.
+    fn clear_cookies(&mut self) -> ServiceResult<()> {
+        if let Some(jar) = &mut self.state_mut().cookie_jar {
+            jar.inner = CookieJar::new();
+            jar.save()?;
+        }
+        Ok(())
+    }
+
+    fn get(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> self::Request<&mut Self::Stderr> {
+        self.state_mut()
+            .request(url, Method::GET, vec![StatusCode::OK])
+    }
+
+    fn post(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> self::Request<&mut Self::Stderr> {
+        self.state_mut()
+            .request(url, Method::POST, vec![StatusCode::FOUND])
+    }
 }
 
 #[derive(Debug)]
-pub(super) struct HttpSession {
+pub(super) struct State<I: Input, E: WriteColor + HasTermProps> {
+    stdin: I,
+    stderr: E,
+    runtime: Runtime,
     client: reqwest::r#async::Client,
     robots: HashMap<String, OwnedRobots>,
-    base: Option<UrlBase>,
-    jar: Option<AutosavedCookieJar>,
+    cookie_jar: Option<AutosavedCookieJar>,
     api_token: LazyLockedFile,
-    silent: bool,
+    url_base: Option<UrlBase>,
+    http_silent: bool,
 }
 
-impl HttpSession {
-    pub(super) fn try_new(params: HttpSessionInitParams<impl WriteColor>) -> ServiceResult<Self> {
-        let HttpSessionInitParams {
-            mut out,
-            mut runtime,
+impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
+    pub(super) fn start(args: StateStartArgs<I, E>) -> ServiceResult<Self> {
+        let StateStartArgs {
+            stdin,
+            stderr,
+            runtime,
             robots,
             client,
-            base,
+            url_base,
             cookies_path,
             api_token_path,
-            silent,
-        } = params;
-        let host = base.as_ref().map(|base| base.host.clone());
+            http_silent,
+        } = args;
+
+        let host = url_base.as_ref().map(|base| base.host.clone());
         let mut this = Self {
+            stdin,
+            stderr,
+            runtime,
             client,
             robots: hashmap!(),
-            base,
-            jar: cookies_path.map(AutosavedCookieJar::try_new).transpose()?,
+            cookie_jar: cookies_path.map(AutosavedCookieJar::try_new).transpose()?,
             api_token: match api_token_path {
                 None => LazyLockedFile::Null,
                 Some(path) => LazyLockedFile::Uninited(path.to_owned()),
             },
-            silent,
+            url_base,
+            http_silent,
         };
         if robots {
             if let Some(host) = host {
                 let mut res = this
-                    .get("/robots.txt", &mut out, &mut runtime)
+                    .get("/robots.txt")
                     .acceptable(&[200, 301, 302, 404])
                     .send()?;
                 while [301, 302, 404].contains(&res.status().as_u16()) {
@@ -87,7 +208,7 @@ impl HttpSession {
                             .to_str()
                             .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
                         res = this
-                            .get(location, &mut out, &mut runtime)
+                            .get(location)
                             .acceptable(&[200, 301, 302, 404])
                             .send()?;
                     } else {
@@ -96,7 +217,7 @@ impl HttpSession {
                 }
                 match res.status() {
                     StatusCode::OK => {
-                        let txt = res.text(runtime)?;
+                        let txt = res.text(&mut this.runtime)?;
                         this.robots.insert(host.to_string(), OwnedRobots::new(txt));
                     }
                     StatusCode::NOT_FOUND => (),
@@ -107,101 +228,22 @@ impl HttpSession {
         Ok(this)
     }
 
-    pub(super) fn api_token(&mut self) -> &mut LazyLockedFile {
-        &mut self.api_token
-    }
-
-    pub(super) fn client(&self) -> reqwest::r#async::Client {
-        self.client.clone()
-    }
-
-    /// Whether it has any cookie value.
-    pub(super) fn has_cookie(&self) -> bool {
-        match self.jar.as_ref() {
-            Some(jar) => jar.inner.iter().next().is_some(),
-            None => false,
-        }
-    }
-
-    pub(super) fn cookies_to_header_value(&self) -> ServiceResult<Option<HeaderValue>> {
-        match self.jar.as_ref().map(AutosavedCookieJar::to_header_value) {
-            None => Ok(None),
-            Some(Ok(v)) => Ok(Some(v)),
-            Some(Err(e)) => Err(e),
-        }
-    }
-
-    pub(super) fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> ServiceResult<()> {
-        match self.jar.as_mut() {
-            None => Ok(()),
-            Some(jar) => jar.insert_cookie(cookie),
-        }
-    }
-
-    /// Removes all cookies.
-    pub(super) fn clear_cookies(&mut self) -> ServiceResult<()> {
-        if let Some(jar) = self.jar.as_mut() {
-            jar.inner = CookieJar::new();
-            jar.save()?;
-        }
-        Ok(())
-    }
-
-    /// If `url` starts with '/' and the base host is present, returns
-    /// http(s)://<host><url>.
-    pub(super) fn resolve_url(&self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<Url> {
-        url.with(self.base.as_ref())
-    }
-
-    /// Opens `url`, which is relative or absolute, with default browser
-    /// printing a message.
-    pub(super) fn open_in_browser(
-        &mut self,
-        url: impl IntoRelativeOrAbsoluteUrl,
-        mut out: impl WriteColor,
-    ) -> ServiceResult<()> {
-        let url = self.resolve_url(url)?;
-        writeln!(out, "Opening {} in default browser...", url)?;
-        out.flush()?;
-        let status = webbrowser::open(url.as_str())?.status;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(ServiceErrorKind::Webbrowser(status).into())
-        }
-    }
-
-    pub(super) fn get<'a, 'b, O: WriteColor>(
-        &'a mut self,
-        url: impl IntoRelativeOrAbsoluteUrl,
-        out: O,
-        runtime: &'b mut Runtime,
-    ) -> self::Request<'a, 'b, O> {
-        self.request(url, Method::GET, vec![StatusCode::OK], out, runtime)
-    }
-
-    pub(super) fn post<'a, 'b, O: WriteColor>(
-        &'a mut self,
-        url: impl IntoRelativeOrAbsoluteUrl,
-        out: O,
-        runtime: &'b mut Runtime,
-    ) -> self::Request<'a, 'b, O> {
-        self.request(url, Method::POST, vec![StatusCode::FOUND], out, runtime)
-    }
-
-    fn request<'a, 'b, O: WriteColor>(
+    fn request<'a>(
         &'a mut self,
         url: impl IntoRelativeOrAbsoluteUrl,
         method: Method,
         acceptable: Vec<StatusCode>,
-        out: O,
-        runtime: &'b mut Runtime,
-    ) -> self::Request<'a, 'b, O> {
+    ) -> self::Request<'a, &'a mut E> {
         self::Request {
             inner: self.try_request(url, method),
-            out: if self.silent { None } else { Some(out) },
-            session: self,
-            runtime,
+            stderr: if self.http_silent {
+                None
+            } else {
+                Some(&mut self.stderr)
+            },
+            runtime: &mut self.runtime,
+            client: &self.client,
+            cookie_jar: self.cookie_jar.as_mut(),
             acceptable,
             no_cookie: false,
         }
@@ -214,7 +256,7 @@ impl HttpSession {
     ) -> ServiceResult<reqwest::r#async::RequestBuilder> {
         let url = self.resolve_url(url)?;
         self.assert_not_forbidden_by_robots_txt(&url)?;
-        Ok(self.client().request(method, url.as_str()))
+        Ok(self.client.request(method, url.as_str()))
     }
 
     fn assert_not_forbidden_by_robots_txt(&self, url: &Url) -> ServiceResult<()> {
@@ -231,17 +273,44 @@ impl HttpSession {
     }
 }
 
+impl<I: Input, E: WriteColor + HasTermProps> Session for State<I, E> {
+    type Stdin = I;
+    type Stderr = E;
+
+    fn state_ref(&self) -> &Self {
+        self
+    }
+
+    fn state_mut(&mut self) -> &mut Self {
+        self
+    }
+}
+
 #[derive(Debug)]
-pub(super) struct Request<'a, 'b, O: WriteColor> {
+pub(super) struct StateStartArgs<'a, I: Input, E: WriteColor + HasTermProps> {
+    pub(super) stdin: I,
+    pub(super) stderr: E,
+    pub(super) runtime: Runtime,
+    pub(super) robots: bool,
+    pub(super) client: reqwest::r#async::Client,
+    pub(super) url_base: Option<UrlBase>,
+    pub(super) cookies_path: Option<&'a AbsPath>,
+    pub(super) api_token_path: Option<&'a AbsPath>,
+    pub(super) http_silent: bool,
+}
+
+#[derive(Debug)]
+pub(super) struct Request<'a, E: WriteColor> {
     inner: ServiceResult<reqwest::r#async::RequestBuilder>,
-    out: Option<O>,
-    session: &'a mut HttpSession,
-    runtime: &'b mut Runtime,
+    stderr: Option<E>,
+    runtime: &'a mut Runtime,
+    client: &'a reqwest::r#async::Client,
+    cookie_jar: Option<&'a mut AutosavedCookieJar>,
     acceptable: Vec<StatusCode>,
     no_cookie: bool,
 }
 
-impl<'a, 'b, O: WriteColor> Request<'a, 'b, O> {
+impl<'a, E: WriteColor> Request<'a, E> {
     pub(super) fn basic_auth(
         self,
         username: impl fmt::Display,
@@ -291,18 +360,18 @@ impl<'a, 'b, O: WriteColor> Request<'a, 'b, O> {
         self.send_internal().map(|(r, _)| r)
     }
 
-    fn send_internal(mut self) -> ServiceResult<(self::Response, &'b mut Runtime)> {
+    fn send_internal(mut self) -> ServiceResult<(self::Response, &'a mut Runtime)> {
         let mut req = self.inner?;
         if !self.no_cookie {
-            if let Some(jar) = self.session.jar.as_ref() {
+            if let Some(jar) = self.cookie_jar.as_ref() {
                 req = req.header(header::COOKIE, jar.to_header_value()?);
             }
         }
         let req = req.build()?;
-        let client = &self.session.client;
+        let client = self.client;
         let runtime = self.runtime;
-        if let Some(out) = self.out.as_mut() {
-            req.echo_method(out)?;
+        if let Some(stderr) = &mut self.stderr {
+            req.echo_method(stderr)?;
         }
         let fut = client
             .execute(req)
@@ -313,23 +382,23 @@ impl<'a, 'b, O: WriteColor> Request<'a, 'b, O> {
         let res = match runtime.block_on(fut) {
             Ok(res) => Ok(res),
             Err(err) => {
-                if let Some(out) = self.out.as_mut() {
-                    writeln!(out)?;
-                    out.flush()?;
+                if let Some(stderr) = &mut self.stderr {
+                    writeln!(stderr)?;
+                    stderr.flush()?;
                 }
                 Err(err)
             }
         }?;
-        if let Some(out) = self.out.as_mut() {
-            res.echo_status(&self.acceptable, out)?;
+        if let Some(stderr) = &mut self.stderr {
+            res.echo_status(&self.acceptable, stderr)?;
         }
         if !self.no_cookie {
-            if let Some(jar) = self.session.jar.as_mut() {
+            if let Some(jar) = &mut self.cookie_jar {
                 jar.update(&res)?;
             }
         }
         let inner = res.filter_by_status(self.acceptable)?;
-        Ok((self::Response { inner }, runtime))
+        Ok((self::Response(inner), runtime))
     }
 
     pub(super) fn send_form(
@@ -363,9 +432,7 @@ impl<'a, 'b, O: WriteColor> Request<'a, 'b, O> {
 }
 
 #[derive(Debug)]
-pub(super) struct Response {
-    inner: reqwest::r#async::Response,
-}
+pub(super) struct Response(reqwest::r#async::Response);
 
 impl Response {
     pub(super) fn header_location(&self) -> ServiceResult<Option<&str>> {
@@ -402,7 +469,7 @@ impl Response {
         }
 
         let content_type = self
-            .inner
+            .0
             .headers()
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
@@ -417,14 +484,14 @@ impl Response {
             }
         }
         let cap = self
-            .inner
+            .0
             .headers()
             .get(header::CONTENT_LENGTH)
             .and_then(|s| s.to_str().ok())
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(0);
         let buf = Vec::with_capacity(cap);
-        let decoder = mem::replace(self.inner.body_mut(), Decoder::empty());
+        let decoder = mem::replace(self.0.body_mut(), Decoder::empty());
         let fut = BufDecoder { decoder, buf }.select(crate::signal::ctrl_c());
         let content = runtime.block_on(fut).map(|(x, _)| x).map_err(|(e, _)| e)?;
         String::from_utf8(content).map_err(|e| {
@@ -443,7 +510,7 @@ impl Response {
         runtime: &mut Runtime,
     ) -> ServiceResult<T> {
         let fut = self
-            .inner
+            .0
             .json()
             .map_err(ServiceError::from)
             .select(crate::signal::ctrl_c::<T, _>());
@@ -455,7 +522,7 @@ impl Deref for Response {
     type Target = reqwest::r#async::Response;
 
     fn deref(&self) -> &reqwest::r#async::Response {
-        &self.inner
+        &self.0
     }
 }
 
@@ -676,24 +743,28 @@ mod owned_robots {
 #[cfg(test)]
 mod tests {
     use crate::errors::{FileError, FileErrorKind, ServiceError, ServiceErrorKind, ServiceResult};
+    use crate::fs::LazyLockedFile;
     use crate::path::{AbsPath, AbsPathBuf};
     use crate::service;
-    use crate::service::session::{HttpSession, HttpSessionInitParams, UrlBase};
+    use crate::service::session::{Session, State, StateStartArgs, UrlBase};
+    use crate::terminal::{AnsiWithProps, Dumb, TtyOrPiped};
 
     use failure::Fallible;
     use futures::Future as _;
     use if_chain::if_chain;
+    use maplit::hashmap;
     use once_cell::sync::Lazy;
     use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
     use reqwest::StatusCode;
     use tempdir::TempDir;
-    use termcolor::{Ansi, Color, ColorSpec, NoColor, WriteColor};
+    use termcolor::{Ansi, Color, ColorSpec, WriteColor};
     use tokio::runtime::Runtime;
     use url::Host;
     use warp::Filter;
 
-    use std::io::{self, Write as _};
+    use std::convert::TryFrom as _;
+    use std::io::{self, Empty, Write as _};
     use std::net::Ipv4Addr;
     use std::{env, panic, str};
 
@@ -724,32 +795,28 @@ mod tests {
         let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
 
         let result = panic::catch_unwind::<_, Fallible<()>>(|| {
+            let mut stderr = AnsiWithProps::new();
+
+            let url_base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
             let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
-            let client = service::reqwest_async_client(None)?;
-            let base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
-            let mut wtr = Ansi::new(vec![]);
-            let mut runtime = Runtime::new()?;
-            let mut sess = HttpSession::try_new(HttpSessionInitParams {
-                out: &mut wtr,
-                runtime: &mut runtime,
+            let mut sess = State::start(StateStartArgs {
+                stdin: TtyOrPiped::Piped(io::empty()),
+                stderr: &mut stderr,
+                runtime: Runtime::new()?,
                 robots: true,
-                client,
-                base: Some(base),
+                client: service::reqwest_async_client(None)?,
+                url_base: Some(url_base),
                 cookies_path: Some(&cookies),
                 api_token_path: None,
-                silent: false,
+                http_silent: false,
             })?;
 
-            sess.get("/", &mut wtr, &mut runtime).send()?;
-            sess.get("/confirm-cookie", &mut wtr, &mut runtime).send()?;
-            sess.get("/nonexisting", &mut wtr, &mut runtime)
-                .acceptable(&[404])
-                .send()?;
-            sess.get("/nonexisting", &mut wtr, &mut runtime)
-                .acceptable(&[])
-                .send()?;
+            sess.get("/").send()?;
+            sess.get("/confirm-cookie").send()?;
+            sess.get("/nonexisting").acceptable(&[404]).send()?;
+            sess.get("/nonexisting").acceptable(&[]).send()?;
             if_chain! {
-                let err = sess.get("/sensitive", &mut wtr, &mut runtime).send().unwrap_err();
+                let err = sess.get("/sensitive").send().unwrap_err();
                 if let ServiceError::Context(ctx) = &err;
                 if let ServiceErrorKind::ForbiddenByRobotsTxt = ctx.get_context();
                 then {} else { return Err(err.into()) }
@@ -788,7 +855,7 @@ mod tests {
                 String::from_utf8(expected.into_inner()).unwrap()
             };
 
-            assert_eq!(str::from_utf8(wtr.get_ref())?, &*EXPECTED);
+            assert_eq!(String::try_from(stderr)?, *EXPECTED);
             Ok(())
         });
 
@@ -799,39 +866,82 @@ mod tests {
 
     #[test]
     fn it_keeps_a_file_locked_while_alive() -> Fallible<()> {
-        fn construct_session(
-            out: impl WriteColor,
-            runtime: &mut Runtime,
+        fn construct_state(
             client: &reqwest::r#async::Client,
             path: &AbsPath,
-        ) -> ServiceResult<HttpSession> {
-            HttpSession::try_new(HttpSessionInitParams {
-                out,
+        ) -> ServiceResult<State<TtyOrPiped<Empty>, Dumb>> {
+            let runtime = Runtime::new()?;
+            State::start(StateStartArgs {
+                stdin: TtyOrPiped::Piped(io::empty()),
+                stderr: Dumb::new(),
                 runtime,
                 robots: true,
                 client: client.clone(),
-                base: None,
+                url_base: None,
                 cookies_path: Some(path),
                 api_token_path: None,
-                silent: true,
+                http_silent: true,
             })
         }
 
         let tempdir = dunce::canonicalize(&env::temp_dir())?;
         let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
         let path = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
-        let path = path.as_path();
-        let mut sink = NoColor::new(io::sink());
-        let mut rt = Runtime::new()?;
         let client = service::reqwest_async_client(None)?;
-        construct_session(&mut sink, &mut rt, &client, path)?;
-        construct_session(&mut sink, &mut rt, &client, path)?;
-        let _session = construct_session(&mut sink, &mut rt, &client, path)?;
+        construct_state(&client, path.as_path())?;
+        construct_state(&client, path.as_path())?;
+        let _state = construct_state(&client, path.as_path())?;
         if_chain! {
-            let err = construct_session(&mut sink, &mut rt, &client, path).unwrap_err();
+            let err = construct_state(&client, path.as_path()).unwrap_err();
             if let ServiceError::File(FileError::Context(kind)) = &err;
             if let FileErrorKind::Lock(_) = kind.get_context();
-            then { Ok(()) } else { Err(err.into()) }
+            then {
+                Ok(())
+            } else {
+                Err(err.into())
+            }
         }
+    }
+
+    #[test]
+    fn test_ask_yn() -> Fallible<()> {
+        let mut rdr = "y\nn\n\ny\nn\nヌ\n\n".as_bytes();
+        let mut stderr = AnsiWithProps::new();
+
+        let mut state = State {
+            stdin: TtyOrPiped::Piped(&mut rdr),
+            stderr: &mut stderr,
+            runtime: Runtime::new()?,
+            client: reqwest::r#async::Client::builder().build()?,
+            robots: hashmap!(),
+            cookie_jar: None,
+            api_token: LazyLockedFile::Null,
+            url_base: None,
+            http_silent: true,
+        };
+
+        assert_eq!(state.ask_yn("Yes?: ", true)?, true);
+        assert_eq!(state.ask_yn("Yes?: ", true)?, false);
+        assert_eq!(state.ask_yn("Yes?: ", true)?, true);
+        assert_eq!(state.ask_yn("No?: ", false)?, true);
+        assert_eq!(state.ask_yn("No?: ", false)?, false);
+        assert_eq!(state.ask_yn("No?: ", false)?, false);
+        assert_eq!(state.ask_yn("Yes?: ", true)?, true);
+
+        assert_eq!(rdr, &b""[..]);
+
+        static EXPECTED: Lazy<String> = sync_lazy! {
+            let mut expected = Ansi::new(vec![]);
+            expected
+                .write_all(b"Yes?: (Y/n) Yes?: (Y/n) Yes?: (Y/n) No?: (y/N) No?: (y/N) No?: (y/N) ")
+                .unwrap();
+            expected.set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(11)))).unwrap();
+            expected.write_all(br#"Answer "y", "yes", "n", "no", or ""."#).unwrap();
+            expected.reset().unwrap();
+            expected.write_all(b"No?: (y/N) Yes?: (Y/n) ").unwrap();
+            String::from_utf8(expected.into_inner()).unwrap()
+        };
+        assert_eq!(String::try_from(stderr)?, *EXPECTED);
+        Ok(())
     }
 }
