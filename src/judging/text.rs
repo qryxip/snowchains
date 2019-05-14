@@ -5,7 +5,6 @@ use crate::testsuite::FloatErrors;
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::{EitherOrBoth, Itertools as _};
 use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
 use serde::{Serialize, Serializer};
 use serde_derive::Serialize;
 use smallvec::SmallVec;
@@ -161,7 +160,7 @@ impl TextDiff {
         }
 
         static FLOAT_ERRORS: Lazy<AtomicCell<FloatErrorsNormalized>> =
-            sync_lazy!(AtomicCell::new(FloatErrorsNormalized::default()));
+            Lazy::new(|| AtomicCell::new(FloatErrorsNormalized::default()));
 
         if let Some(float_errors) = float_errors {
             FLOAT_ERRORS.store(FloatErrorsNormalized {
@@ -660,7 +659,6 @@ mod tests {
 
     use failure::Fallible;
     use once_cell::sync::Lazy;
-    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
     use stable_deref_trait::StableDeref;
     use termcolor::{Ansi, Color, ColorSpec, WriteColor};
@@ -687,17 +685,17 @@ mod tests {
         static EXPECTED2: &str = "42.0\n";
 
         static INPUT3: &str = "foo\nbar";
-        static EXPECTED3: Lazy<String> = sync_lazy! {
+        static EXPECTED3: Lazy<String> = Lazy::new(|| {
             let mut wtr = Ansi::new(vec![]);
             wtr.write_all(b"foo\nbar").unwrap();
             wtr.set_color(&fg_yellow_intense_bold()).unwrap();
             wtr.write_all(b"<noeol>\n").unwrap();
             wtr.reset().unwrap();
             String::from_utf8(wtr.into_inner()).unwrap()
-        };
+        });
 
         static INPUT4: &str = "foo ";
-        static EXPECTED4: Lazy<String> = sync_lazy! {
+        static EXPECTED4: Lazy<String> = Lazy::new(|| {
             let mut wtr = Ansi::new(vec![]);
             wtr.write_all(b"foo").unwrap();
             wtr.set_color(&bg_yellow_intense_bold()).unwrap();
@@ -707,10 +705,10 @@ mod tests {
             wtr.write_all(b"<noeol>\n").unwrap();
             wtr.reset().unwrap();
             String::from_utf8(wtr.into_inner()).unwrap()
-        };
+        });
 
         static INPUT5: &str = "[ \x1b ]\n";
-        static EXPECTED5: Lazy<String> = sync_lazy! {
+        static EXPECTED5: Lazy<String> = Lazy::new(|| {
             let mut wtr = Ansi::new(vec![]);
             wtr.write_all(b"[ ").unwrap();
             wtr.set_color(&fg_yellow_intense_bold()).unwrap();
@@ -718,7 +716,7 @@ mod tests {
             wtr.reset().unwrap();
             wtr.write_all(b" ]\n").unwrap();
             String::from_utf8(wtr.into_inner()).unwrap()
-        };
+        });
 
         test(INPUT1, EXPECTED1)?;
         test(INPUT2, &EXPECTED2)?;
@@ -740,7 +738,7 @@ mod tests {
 
         static LEFT: &str = "foo\n";
         static RIGHT: &str = "foo";
-        static EXPECTED: Lazy<String> = sync_lazy! {
+        static EXPECTED: Lazy<String> = Lazy::new(|| {
             let mut wtr = Ansi::new(vec![]);
             wtr.write_all("│".as_ref()).unwrap();
             wtr.set_color(&fg_magenta_bold()).unwrap();
@@ -762,7 +760,7 @@ mod tests {
             wtr.reset().unwrap();
             wtr.write_all("│\n".as_ref()).unwrap();
             String::from_utf8(wtr.into_inner()).unwrap()
-        };
+        });
 
         test(LEFT, RIGHT, &EXPECTED)
     }

@@ -12,7 +12,6 @@ use difference::assert_diff;
 use failure::Fallible;
 use if_chain::if_chain;
 use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
 use pretty_assertions::assert_eq;
 use regex::Regex;
 
@@ -139,7 +138,7 @@ fn it_retrieves_languages() -> Fallible<()> {
         "it_retrieves_languages",
         &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
         |mut app| -> _ {
-            static MASK_USERNAME: Lazy<Regex> = sync_lazy!(Regex::new("Username: .*").unwrap());
+            static MASK_USERNAME: Lazy<Regex> = Lazy::new(|| Regex::new("Username: .*").unwrap());
 
             let code = app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
                 json: false,

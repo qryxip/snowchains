@@ -17,7 +17,6 @@ use failure::Fail as _;
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
 use regex::Regex;
 use reqwest::StatusCode;
 use scraper::Html;
@@ -277,7 +276,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                 .into_iter()
                 .zip_eq(&solved_batch_nos)
                 .map(|(zip, &no)| {
-                    static ZIP_ENTRIES: Lazy<ZipEntries> = sync_lazy!(ZipEntries {
+                    static ZIP_ENTRIES: Lazy<ZipEntries> = Lazy::new(|| ZipEntries {
                         in_entry: Regex::new(r"\Atest_in/([a-z0-9_]+)\.txt\z").unwrap(),
                         in_match_group: 1,
                         in_crlf_to_lf: true,

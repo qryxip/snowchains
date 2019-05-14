@@ -754,7 +754,6 @@ mod tests {
     use if_chain::if_chain;
     use maplit::hashmap;
     use once_cell::sync::Lazy;
-    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
     use reqwest::StatusCode;
     use tempdir::TempDir;
@@ -822,7 +821,7 @@ mod tests {
                 then {} else { return Err(err.into()) }
             }
 
-            static EXPECTED: Lazy<String> = sync_lazy! {
+            static EXPECTED: Lazy<String> = Lazy::new(|| {
                 let mut expected = Ansi::new(vec![]);
 
                 let mut print_line = |path: &str, status_color: u8, status: &str| {
@@ -853,7 +852,7 @@ mod tests {
                 print_line("/nonexisting", 9, "404 Not Found");
 
                 String::from_utf8(expected.into_inner()).unwrap()
-            };
+            });
 
             assert_eq!(String::try_from(stderr)?, *EXPECTED);
             Ok(())
@@ -926,21 +925,29 @@ mod tests {
         assert_eq!(state.ask_yn("No?: ", false)?, true);
         assert_eq!(state.ask_yn("No?: ", false)?, false);
         assert_eq!(state.ask_yn("No?: ", false)?, false);
-        assert_eq!(state.ask_yn("Yes?: ", true)?, true);
+
+        let err = state.ask_yn("Yes?: ", true).unwrap_err();
+        if err.kind() != io::ErrorKind::UnexpectedEof {
+            return Err(err.into());
+        }
 
         assert_eq!(rdr, &b""[..]);
 
-        static EXPECTED: Lazy<String> = sync_lazy! {
+        static EXPECTED: Lazy<String> = Lazy::new(|| {
             let mut expected = Ansi::new(vec![]);
             expected
                 .write_all(b"Yes?: (Y/n) Yes?: (Y/n) Yes?: (Y/n) No?: (y/N) No?: (y/N) No?: (y/N) ")
                 .unwrap();
-            expected.set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(11)))).unwrap();
-            expected.write_all(br#"Answer "y", "yes", "n", "no", or ""."#).unwrap();
+            expected
+                .set_color(ColorSpec::new().set_fg(Some(Color::Ansi256(11))))
+                .unwrap();
+            expected
+                .write_all(br#"Answer "y", "yes", "n", "no", or ""."#)
+                .unwrap();
             expected.reset().unwrap();
             expected.write_all(b"No?: (y/N) Yes?: (Y/n) ").unwrap();
             String::from_utf8(expected.into_inner()).unwrap()
-        };
+        });
         assert_eq!(String::try_from(stderr)?, *EXPECTED);
         Ok(())
     }

@@ -16,7 +16,6 @@ use if_chain::if_chain;
 use indexmap::IndexMap;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
@@ -721,8 +720,7 @@ impl Config {
         kind: SubCommandKind,
         outcome: &impl Serialize,
     ) -> Template<HookCommands> {
-        static DEFAULT: Lazy<TemplateBuilder<HookCommands>> =
-            sync_lazy!(TemplateBuilder::default());
+        static DEFAULT: Lazy<TemplateBuilder<HookCommands>> = Lazy::new(TemplateBuilder::default);
         self.inner
             .hooks
             .get(kind)
@@ -1409,7 +1407,6 @@ mod tests {
     use difference::assert_diff;
     use failure::Fallible;
     use once_cell::sync::Lazy;
-    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
     use tempdir::TempDir;
     use termcolor::{Ansi, ColorSpec, WriteColor as _};
@@ -1530,7 +1527,7 @@ mod tests {
             },
         };
 
-        static EXPECTED: Lazy<String> = sync_lazy! {
+        static EXPECTED: Lazy<String> = Lazy::new(|| {
             let mut expected = Ansi::new(vec![]);
 
             let mut print_line = |name: &str, from: &str, arrow: &str, to: &str| {
@@ -1550,7 +1547,7 @@ mod tests {
             print_line("language: ", "\"c++\"", "     -> ", "\"rust\"");
 
             String::from_utf8(expected.into_inner()).unwrap()
-        };
+        });
 
         let mut stdout = AnsiWithProps::new();
         outcome.print_pretty(&mut stdout)?;
