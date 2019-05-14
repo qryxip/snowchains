@@ -644,19 +644,21 @@ impl AutosavedCookieJar {
     fn try_new(path: &AbsPath) -> ServiceResult<Self> {
         let mut file = LockedFile::try_new(path)?;
         let mut inner = CookieJar::new();
-        if !file.is_empty()? {
-            let cookies = file.bincode::<Vec<String>>()?;
-            if !cookies.is_empty() {
+        if_chain! {
+            if !file.is_empty()?;
+            let cookies = file.json::<Vec<String>>()?;
+            if !cookies.is_empty();
+            then {
                 for cookie in cookies {
                     let cookie = cookie::Cookie::parse(cookie.clone()).with_context(|_| {
                         ServiceErrorKind::ParseCookieFromPath(path.to_owned(), cookie)
                     })?;
                     inner.add(cookie);
                 }
-                return Ok(Self { file, inner });
+            } else {
+                file.write_json(&Vec::<String>::new())?;
             }
         }
-        file.write_bincode(&Vec::<String>::new())?;
         Ok(Self { file, inner })
     }
 
@@ -703,7 +705,7 @@ impl AutosavedCookieJar {
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>();
-        self.file.write_bincode(&value)
+        self.file.write_json(&value)
     }
 }
 

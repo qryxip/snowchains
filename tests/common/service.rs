@@ -30,7 +30,7 @@ path = ".snowchains/tests/${service}/${snake_case(contest)}/${snake_case(problem
 timeout = "60s"
 silent = false
 robots = false
-cookies = "local/${service}"
+cookies = "local/cookies/${service}.json"
 api_tokens = "local/api_tokens/${service}.json"
 dropbox = { auth = "local/dropbox.json" }
 

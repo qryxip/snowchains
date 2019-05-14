@@ -234,7 +234,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
                 Path::new("~").join(".local").join("share").join("snowchains")
             }
         };
-        let session_cookies = data_local_dir.join("${service}");
+        let session_cookies = data_local_dir.join("cookies").join("${service}.json");
         let session_cookies = quote_path_normalizing_separator(&session_cookies);
         let session_api_tokens = data_local_dir.join("api_tokens").join("${service}.json");
         let session_api_tokens = quote_path_normalizing_separator(&session_api_tokens);
