@@ -347,8 +347,6 @@ pub enum ExpandTemplateErrorKind {
     EnvVarNotPresent(String),
     #[display(fmt = "${{env:{}}} = {:?} is not valid UTF-8", _0, _1)]
     NonUtf8EnvVar(String, OsString),
-    #[display(fmt = "Failed to serialize the data into a JSON")]
-    SerializeJson,
 }
 
 pub(crate) type FileResult<T> = std::result::Result<T, FileError>;

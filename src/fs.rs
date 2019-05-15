@@ -146,16 +146,6 @@ impl LockedFile {
         self.inner.metadata().map(|m| m.len() == 0)
     }
 
-    pub(crate) fn bincode<T: DeserializeOwned>(&mut self) -> FileResult<T> {
-        fn bincode<T: DeserializeOwned>(file: &mut File) -> Fallible<T> {
-            file.seek(SeekFrom::Start(0))?;
-            bincode::deserialize_from(file).map_err(|e| StdError::from(e).into())
-        }
-
-        bincode(&mut self.inner)
-            .map_err(|e| e.context(FileErrorKind::Read(self.path.clone())).into())
-    }
-
     pub(crate) fn json<T: DeserializeOwned>(&mut self) -> FileResult<T> {
         fn json<T: DeserializeOwned>(file: &mut File) -> Fallible<T> {
             file.seek(SeekFrom::Start(0))?;
@@ -163,17 +153,6 @@ impl LockedFile {
         }
 
         json(&mut self.inner).map_err(|e| e.context(FileErrorKind::Read(self.path.clone())).into())
-    }
-
-    pub(crate) fn write_bincode<T: Serialize>(&mut self, value: &T) -> FileResult<()> {
-        fn write_bincode<T: Serialize>(file: &mut File, value: &T) -> Fallible<()> {
-            file.seek(SeekFrom::Start(0))?;
-            file.set_len(0)?;
-            bincode::serialize_into(file, value).map_err(|e| StdError::from(e).into())
-        }
-
-        write_bincode(&mut self.inner, value)
-            .map_err(|e| e.context(FileErrorKind::Write(self.path.clone())).into())
     }
 
     pub(crate) fn write_json<T: Serialize>(&mut self, value: &T) -> FileResult<()> {

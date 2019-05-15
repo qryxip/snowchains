@@ -19,6 +19,7 @@
 * Move `service`, `contest` and `language` fields of `snowchains.toml` to another file.
 * Make it find a executable binary's path with [`which`](https://crates.io/crates/which) crate.
 * Now it retrieves and parses `tasks_print` pages to improve the performance.
+* Save cookies as JSON files.
 
 ### Removed
 

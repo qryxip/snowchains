@@ -10,13 +10,13 @@ use crate::template::{
 use crate::terminal::{HasTermProps, ModifyTermProps, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
+use crate::util::combine::ParseFieldError;
 
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use if_chain::if_chain;
 use indexmap::IndexMap;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
@@ -30,9 +30,10 @@ use std::fmt::{self, Write as _};
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::str::{self, FromStr as _};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{env, iter, str};
+use std::{env, iter};
 
 static CONFIG_FILE_NAME: &str = "snowchains.toml";
 
@@ -235,7 +236,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
                 Path::new("~").join(".local").join("share").join("snowchains")
             }
         };
-        let session_cookies = data_local_dir.join("${service}");
+        let session_cookies = data_local_dir.join("cookies").join("${service}.json");
         let session_cookies = quote_path_normalizing_separator(&session_cookies);
         let session_api_tokens = data_local_dir.join("api_tokens").join("${service}.json");
         let session_api_tokens = quote_path_normalizing_separator(&session_api_tokens);
@@ -719,18 +720,17 @@ impl Config {
     pub(crate) fn hooks(
         &self,
         kind: SubCommandKind,
-        outcome: &impl Serialize,
+        snowchains_result: String,
     ) -> Template<HookCommands> {
-        static DEFAULT: Lazy<TemplateBuilder<HookCommands>> =
-            sync_lazy!(TemplateBuilder::default());
+        static DEFAULT: Lazy<TemplateBuilder<HookCommands>> = Lazy::new(TemplateBuilder::default);
         self.inner
             .hooks
             .get(kind)
-            .unwrap_or(&DEFAULT)
+            .unwrap_or_else(|| &DEFAULT)
             .build(HookCommandsRequirements {
                 base_dir: self.base_dir.clone(),
                 shell: self.inner.shell.clone(),
-                result: Arc::new(serde_json::to_string(outcome)),
+                snowchains_result: Arc::new(snowchains_result),
             })
     }
 
@@ -1078,36 +1078,59 @@ fn de_size<'de, D: Deserializer<'de>>(
     }
 }
 
-fn parse_size(s: &str) -> std::result::Result<usize, &'static str> {
-    fn extract_unit(s: &str) -> (&str, f64) {
-        if s.ends_with("GiB") {
-            (&s[..s.len() - 3], f64::from(0x40_000_000))
-        } else if s.ends_with("GB") {
-            (&s[..s.len() - 2], f64::from(1_000_000_000))
-        } else if s.ends_with("MiB") {
-            (&s[..s.len() - 3], f64::from(0x100_000))
-        } else if s.ends_with("MB") {
-            (&s[..s.len() - 2], f64::from(1_000_000))
-        } else if s.ends_with("KiB") {
-            (&s[..s.len() - 3], f64::from(0x400))
-        } else if s.ends_with("KB") {
-            (&s[..s.len() - 2], 1000.0)
-        } else if s.ends_with('B') {
-            (&s[..s.len() - 1], 1.0)
-        } else {
-            (s, 1.0)
-        }
-    }
+fn parse_size(s: &str) -> std::result::Result<usize, ParseFieldError<&str>> {
+    use combine::char::{char, digit, string};
+    use combine::parser::choice::or;
+    use combine::parser::range::recognize;
+    use combine::stream::state::{IndexPositioner, State};
+    use combine::{choice, eof, optional, satisfy, skip_many, skip_many1, Parser as _};
 
-    let (s, k) = extract_unit(s.trim());
-    s.parse::<f64>()
-        .ok()
-        .and_then(|v| {
-            let r = k * v;
-            guard!(r.is_finite() && r.is_sign_positive());
-            Some(r as usize)
-        })
-        .ok_or_else(|| "invalid format")
+    static GRAMMER: &str = r#"Size  ::= Float Unit
+Unit  ::= ( 'B' | ( [KMG] ( 'B' | 'iB' ) ) )?
+Float ::= ( Digit+ ( '.' Digit* )? | '.' Digit+ ) Exp?
+Exp   ::= [eE] [+-]? Digit+
+Digit ::= [0-9]
+"#;
+
+    let exp = satisfy(|c| ['e', 'E'].contains(&c))
+        .and(optional(satisfy(|c| ['+', '-'].contains(&c))))
+        .and(skip_many1(digit()));
+
+    let float = recognize(
+        or(
+            skip_many1(digit())
+                .and(optional(char('.').and(skip_many(digit()))))
+                .map(|_| ()),
+            char('.').and(skip_many1(digit())).map(|_| ()),
+        )
+        .and(optional(exp)),
+    )
+    .and_then(f64::from_str);
+
+    let unit = optional(or(
+        char('B').map(|_| 1.0),
+        choice((char('K'), char('M'), char('G')))
+            .and(or(string("B"), string("iB")))
+            .map(|(c, s)| match (c, s) {
+                ('K', "B") => 1000.0,
+                ('K', "iB") => f64::from(0x400),
+                ('M', "B") => f64::from(1_000_000),
+                ('M', "iB") => f64::from(0x100_000),
+                ('G', "B") => f64::from(1_000_000_000),
+                ('G', "iB") => f64::from(0x40_000_000),
+                _ => unreachable!(),
+            }),
+    ))
+    .map(|o| o.unwrap_or(1.0));
+
+    let ((float, unit), _) = float
+        .and(unit)
+        .skip(eof())
+        .easy_parse(State::with_positioner(s, IndexPositioner::new()))
+        .map_err(|e| ParseFieldError::new(s, e, GRAMMER))?;
+    let size = float * unit;
+    debug_assert!(size.is_sign_positive() && size.is_finite());
+    Ok(size as usize)
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -1222,6 +1245,18 @@ impl<'de> Deserialize<'de> for Predicate {
         use combine::{choice, easy, eof, many, many1, none_of, optional, parser, satisfy};
         use combine::{ParseResult, Parser};
 
+        static GRAMMER: &str = r#"
+Predicate               ::= /* TODO */
+LiteralEqAtom           ::= Literal Spaces '=' Spaces Atom
+Atom                    ::= Identifier | Literal
+Literal                 ::= LiteralWithSingleQuotes | LiteralWithDoubleQuotes
+LiteralWithSingleQuotes ::= "'" [^'] "'"
+LiteralWithDoulbeQuotes ::= '"' [^"] '"'
+Identifier              ::= [a-zA-Z0-9_]+
+Spaces                  ::= ? White_Space character ?+
+"#;
+        'a'.is_whitespace();
+
         fn parse_predicate<'a>(
             input: &mut easy::Stream<State<&'a str, IndexPositioner>>,
         ) -> ParseResult<Predicate, easy::Stream<State<&'a str, IndexPositioner>>> {
@@ -1230,14 +1265,16 @@ impl<'de> Deserialize<'de> for Predicate {
                 FnArg(Vec<Predicate>),
             }
 
+            let literal_eq_atom = literal()
+                .skip(spaces())
+                .skip(char('='))
+                .skip(spaces())
+                .and(atom())
+                .map(|(l, r)| Predicate::Equal(l, r));
+
             spaces()
                 .with(or(
-                    literal()
-                        .skip(spaces())
-                        .skip(char('='))
-                        .skip(spaces())
-                        .and(atom())
-                        .map(|(l, r)| Predicate::Equal(l, r)),
+                    literal_eq_atom,
                     identifier()
                         .skip(spaces())
                         .and(optional(choice((
@@ -1322,6 +1359,7 @@ impl<'de> Deserialize<'de> for Predicate {
             .skip(eof())
             .easy_parse(State::with_positioner(&input, IndexPositioner::new()))
             .map(|(p, _)| p)
+            .map_err(|e| ParseFieldError::new(input.as_ref(), e, GRAMMER))
             .map_err(serde::de::Error::custom)
     }
 }
@@ -1405,11 +1443,11 @@ mod tests {
     use crate::path::AbsPath;
     use crate::service::ServiceKind;
     use crate::terminal::{AnsiWithProps, HasTermProps as _, ModifyTermProps as _};
+    use crate::util::combine::ParseFieldError;
 
     use difference::assert_diff;
     use failure::Fallible;
     use once_cell::sync::Lazy;
-    use once_cell::sync_lazy;
     use pretty_assertions::assert_eq;
     use tempdir::TempDir;
     use termcolor::{Ansi, ColorSpec, WriteColor as _};
@@ -1530,7 +1568,7 @@ mod tests {
             },
         };
 
-        static EXPECTED: Lazy<String> = sync_lazy! {
+        static EXPECTED: Lazy<String> = Lazy::new(|| {
             let mut expected = Ansi::new(vec![]);
 
             let mut print_line = |name: &str, from: &str, arrow: &str, to: &str| {
@@ -1550,7 +1588,7 @@ mod tests {
             print_line("language: ", "\"c++\"", "     -> ", "\"rust\"");
 
             String::from_utf8(expected.into_inner()).unwrap()
-        };
+        });
 
         let mut stdout = AnsiWithProps::new();
         outcome.print_pretty(&mut stdout)?;
@@ -1559,21 +1597,22 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_size() {
-        assert_eq!(super::parse_size("0"), Ok(0));
-        assert_eq!(super::parse_size("1B"), Ok(1));
-        assert_eq!(super::parse_size("1KB"), Ok(10usize.pow(3)));
-        assert_eq!(super::parse_size("1KiB"), Ok(2usize.pow(10)));
-        assert_eq!(super::parse_size("1MB"), Ok(10usize.pow(6)));
-        assert_eq!(super::parse_size("1MiB"), Ok(2usize.pow(20)));
-        assert_eq!(super::parse_size("1GB"), Ok(10usize.pow(9)));
-        assert_eq!(super::parse_size("1GiB"), Ok(2usize.pow(30)));
-        assert_eq!(super::parse_size("4.2KB"), Ok(4200));
-        assert_eq!(super::parse_size("4.2KiB"), Ok(4300));
-        assert_eq!(super::parse_size("1b"), Err("invalid format"));
-        assert_eq!(super::parse_size("B"), Err("invalid format"));
-        assert_eq!(super::parse_size("-0B"), Err("invalid format"));
-        assert_eq!(super::parse_size("infB"), Err("invalid format"));
-        assert_eq!(super::parse_size("NaNB"), Err("invalid format"));
+    fn test_parse_size() -> std::result::Result<(), ParseFieldError<&'static str>> {
+        assert_eq!(super::parse_size("0")?, 0);
+        assert_eq!(super::parse_size("1B")?, 1);
+        assert_eq!(super::parse_size("1KB")?, 10usize.pow(3));
+        assert_eq!(super::parse_size("1KiB")?, 2usize.pow(10));
+        assert_eq!(super::parse_size("1MB")?, 10usize.pow(6));
+        assert_eq!(super::parse_size("1MiB")?, 2usize.pow(20));
+        assert_eq!(super::parse_size("1GB")?, 10usize.pow(9));
+        assert_eq!(super::parse_size("1GiB")?, 2usize.pow(30));
+        assert_eq!(super::parse_size("4.2KB")?, 4200);
+        assert_eq!(super::parse_size("4.2KiB")?, 4300);
+        super::parse_size("1b").unwrap_err();
+        super::parse_size("B").unwrap_err();
+        super::parse_size("-0B").unwrap_err();
+        super::parse_size("infB").unwrap_err();
+        super::parse_size("NaNB").unwrap_err();
+        Ok(())
     }
 }

@@ -224,7 +224,7 @@ impl<W: Write + Default> WriterWithProps<Ansi<W>> {
     }
 }
 
-impl fmt::Debug for WriterWithProps<Ansi<Vec<u8>>> {
+impl<W: WriteColor> fmt::Debug for WriterWithProps<W> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_struct("Writer")
             .field("wtr", &format_args!("_")) // `Ansi` and `NoColor` are not `Debug`

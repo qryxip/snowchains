@@ -4,11 +4,11 @@ use crate::errors::{
     ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceErrorKind,
     ServiceResult,
 };
-use crate::service::session::HttpSession;
+use crate::service::session::{Session, State};
 use crate::service::{
     Contest, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps, RetrieveSubmissionsOutcome,
     RetrieveSubmissionsProps, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem,
-    RetrieveTestCasesProps, Service, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
+    RetrieveTestCasesProps, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
     SubmitOutcomeResponse, SubmitProps,
 };
 use crate::terminal::{HasTermProps, Input};
@@ -32,7 +32,6 @@ use serde::{Deserialize, Deserializer};
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha512};
 use termcolor::WriteColor;
-use tokio::runtime::Runtime;
 use url::Url;
 
 use std::borrow::Cow;
@@ -100,40 +99,32 @@ pub(super) fn submit(
 #[derive(Debug)]
 struct Codeforces<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
-    stdin: I,
-    stderr: E,
-    session: HttpSession,
-    runtime: Runtime,
     handle: Option<String>,
     api_key: Option<ApiKey>,
+    state: State<I, E>,
 }
 
-impl<I: Input, E: WriteColor + HasTermProps> Service for Codeforces<I, E> {
+impl<I: Input, E: WriteColor + HasTermProps> Session for Codeforces<I, E> {
     type Stdin = I;
     type Stderr = E;
 
-    fn requirements(&mut self) -> (&mut I, &mut E, &mut HttpSession, &mut Runtime) {
-        (
-            &mut self.stdin,
-            &mut self.stderr,
-            &mut self.session,
-            &mut self.runtime,
-        )
+    fn state_ref(&self) -> &State<I, E> {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut State<I, E> {
+        &mut self.state
     }
 }
 
 impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
-    fn try_new(props: SessionProps, stdin: I, mut stderr: E) -> ServiceResult<Self> {
-        let mut runtime = Runtime::new()?;
-        let session = props.start_session(&mut stderr, &mut runtime)?;
+    fn try_new(props: SessionProps, stdin: I, stderr: E) -> ServiceResult<Self> {
+        let state = props.start_state(stdin, stderr)?;
         Ok(Self {
             login_retries: props.login_retries,
-            stdin,
-            stderr,
-            session,
-            runtime,
             handle: None,
             api_key: None,
+            state,
         })
     }
 
@@ -144,13 +135,13 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         let mut sent = false;
 
         if res.status() == 302 && option == LoginOption::Explicit {
-            writeln!(self.stderr, "Already logged in.")?;
-            self.stderr.flush()?;
+            writeln!(self.stderr(), "Already logged in.")?;
+            self.stderr().flush()?;
         } else if res.status() == 200 {
             let mut retries = self.login_retries;
             loop {
                 let mut payload = res
-                    .html(&mut self.runtime)?
+                    .html(self.runtime())?
                     .extract_hidden_values(selector!("#enterForm"))?;
                 let handle_or_email = self.prompt_reply_stderr("Handle/Email: ")?;
                 let password = self.prompt_password_stderr("Password: ")?;
@@ -169,8 +160,8 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
                     return Err(ServiceErrorKind::LoginRetriesExceeded.into());
                 }
                 retries = retries.map(|n| n - 1);
-                writeln!(self.stderr, "Failed to login. Try again.")?;
-                self.stderr.flush()?;
+                writeln!(self.stderr(), "Failed to login. Try again.")?;
+                self.stderr().flush()?;
             }
         }
 
@@ -230,7 +221,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             }
             res = self.get(&top_path).send()?;
         }
-        for (slug, url) in res.html(&mut self.runtime)?.extract_problems()? {
+        for (slug, url) in res.html(self.runtime())?.extract_problems()? {
             if problems.map_or(true, |ps| ps.contains(&slug)) {
                 let suite = self.get(url.as_ref()).recv_html()?.extract_test_suite()?;
                 let path = destinations.expand(&slug)?;
@@ -252,14 +243,15 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             test_suite.save(test_suite_path)?;
             not_found.remove(&slug);
         }
-        self.stderr.flush()?;
+        let stderr = self.stderr();
+        stderr.flush()?;
 
         if !not_found.is_empty() {
-            self.stderr.set_color(color!(fg(Yellow), intense))?;
-            write!(self.stderr, "Not found: {}", not_found.format_as_str_list())?;
-            self.stderr.reset()?;
-            writeln!(self.stderr)?;
-            self.stderr.flush()?;
+            stderr.set_color(color!(fg(Yellow), intense))?;
+            write!(stderr, "Not found: {}", not_found.format_as_str_list())?;
+            stderr.reset()?;
+            writeln!(stderr)?;
+            stderr.flush()?;
         }
 
         if open_in_browser {
@@ -278,9 +270,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
     ) -> ServiceResult<RetrieveLangsOutcome> {
         let RetrieveLangsProps { contest, .. } = props;
         self.login(LoginOption::WithHandle)?;
-        let url = self
-            .session
-            .resolve_url(&format!("/contest/{}/submit", contest.id))?;
+        let url = self.resolve_url(&format!("/contest/{}/submit", contest.id))?;
         let langs = self.get(&url).recv_html()?.extract_langs()?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
@@ -460,8 +450,8 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         let mut asked_api_key = false;
         let mut api_key = if let Some(api_key) = &self.api_key {
             api_key.clone()
-        } else if self.session.api_token().exists() {
-            self.session.api_token().get_or_init()?.json::<ApiKey>()?
+        } else if self.api_token().exists() {
+            self.api_token().get_or_init()?.json::<ApiKey>()?
         } else {
             ask_api_key(self, &mut asked_api_key)?
         };
@@ -495,16 +485,13 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             let res = self.get(url.as_str()).acceptable(&[200, 400]).send()?;
             if res.status() == 200 {
                 if asked_api_key {
-                    self.session
-                        .api_token()
-                        .get_or_init()?
-                        .write_json(&api_key)?;
+                    self.api_token().get_or_init()?.write_json(&api_key)?;
                 }
                 self.api_key = Some(api_key);
-                let ApiOk(ret) = res.json(&mut self.runtime)?;
+                let ApiOk(ret) = res.json(self.runtime())?;
                 break Ok(ret);
             }
-            let ApiErr(comment) = res.json(&mut self.runtime)?;
+            let ApiErr(comment) = res.json(self.runtime())?;
             if !comment.starts_with("apiKey: ") {
                 break Err(failure::err_msg(comment)
                     .context(ServiceErrorKind::Api)

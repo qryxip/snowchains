@@ -7,9 +7,10 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
 use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
+use crate::util::combine::ParseFieldError;
 use crate::util::str::CaseConversion;
 
-use failure::{Backtrace, Fail, ResultExt as _};
+use failure::{Fail, ResultExt as _};
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
@@ -48,11 +49,11 @@ where
 
 impl<T: Target> FromStr for TemplateBuilder<T>
 where
-    T::Inner: FromStr<Err = ParseTemplateError>,
+    T::Inner: FromStr<Err = ParseFieldError<String>>,
 {
-    type Err = ParseTemplateError;
+    type Err = ParseFieldError<String>;
 
-    fn from_str(s: &str) -> ParseTemplateResult<Self> {
+    fn from_str(s: &str) -> std::result::Result<Self, ParseFieldError<String>> {
         T::Inner::from_str(s).map(TemplateBuilder)
     }
 }
@@ -142,21 +143,19 @@ impl Template<HookCommands> {
         let HookCommandsRequirements {
             base_dir,
             shell,
-            result,
+            snowchains_result,
         } = &self.requirements;
         let (mut vars, envs) = {
-            let json = match result.as_ref() {
-                Ok(json) => Ok(json.clone()),
-                Err(err) => Err(failure::err_msg(err.to_string())
-                    .context(ExpandTemplateErrorKind::SerializeJson)),
-            }?;
-            let vars = hashmap!("result" => OsString::from(&json));
+            let vars = hashmap!("result" => OsString::from(&**snowchains_result));
             let mut envs = self
                 .envs
                 .iter()
                 .map(|(k, v)| (k.clone(), OsString::from(v.clone())))
                 .collect::<HashMap<_, _>>();
-            envs.insert("SNOWCHAINS_RESULT".to_owned(), OsString::from(json));
+            envs.insert(
+                "SNOWCHAINS_RESULT".to_owned(),
+                OsString::from(&**snowchains_result),
+            );
             (vars, envs)
         };
         self.inner
@@ -484,7 +483,7 @@ pub(crate) struct AbsPathBufRequirements {
 pub(crate) struct HookCommandsRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
-    pub(crate) result: Arc<serde_json::Result<String>>,
+    pub(crate) snowchains_result: Arc<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -546,22 +545,29 @@ enum Expr {
 pub struct Tokens(Vec<Token>);
 
 impl FromStr for Tokens {
-    type Err = ParseTemplateError;
+    type Err = ParseFieldError<String>;
 
-    fn from_str(input: &str) -> ParseTemplateResult<Self> {
+    fn from_str(input: &str) -> std::result::Result<Self, ParseFieldError<String>> {
         use combine::char::{char, spaces, string};
         use combine::parser::choice::or;
         use combine::parser::function::parser;
         use combine::stream::state::{IndexPositioner, State};
         use combine::{choice, easy, eof, many, many1, satisfy, Parser};
 
-        fn escape<'a>(
-            from: &'static str,
-            to: &'static str,
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Token>
-        {
-            string(from).map(move |_| Token::Plain(to.to_owned()))
-        }
+        static GRAMMER: &str =
+            r#"Template      ::= ( Plain | LeftCurly | RightCurly | DollarOrExpr )*
+Plain         ::= [^${}]+
+LeftCurly     ::= '{{'
+RightCurly    ::= '}}'
+DollarOrExpr  ::= '$' ( Dollar | '{' Expr '}' )
+Dollar        ::= '$'
+Expr          ::= Spaces ( Var | NamespacedVar | App ) Spaces
+Var           ::= Identifier
+NamespacedVar ::= Identifier ':' Identifier
+App           ::= Identifier '(' Expr ')'
+Identifier    ::= ( [a-zA-Z0-9] | '_' )+
+Spaces        ::= ? White_Space character ?+
+"#;
 
         fn parse_expr<'a>(
             input: &mut easy::Stream<State<&'a str, IndexPositioner>>,
@@ -605,6 +611,10 @@ impl FromStr for Tokens {
 
         let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Plain);
 
+        let left_curly = string("{{").map(|_| Token::Plain('{'.to_string()));
+
+        let right_curly = string("}}").map(|_| Token::Plain('}'.to_string()));
+
         let dollar_or_expr = char('$').with(or(
             char('$').map(|_| Token::Plain("$".to_owned())),
             char('{')
@@ -613,16 +623,11 @@ impl FromStr for Tokens {
                 .map(Token::Expr),
         ));
 
-        many(choice((
-            plain,
-            escape("{{", "{"),
-            escape("}}", "}"),
-            dollar_or_expr,
-        )))
-        .skip(eof())
-        .easy_parse(State::with_positioner(input, IndexPositioner::new()))
-        .map(|(tokens, _)| Tokens(tokens))
-        .map_err(|e| ParseTemplateError::new(input, e))
+        many(choice((plain, left_curly, right_curly, dollar_or_expr)))
+            .skip(eof())
+            .easy_parse(State::with_positioner(input, IndexPositioner::new()))
+            .map(|(tokens, _)| Tokens(tokens))
+            .map_err(|e| ParseFieldError::new(input, e, GRAMMER).into_owned())
     }
 }
 
@@ -844,27 +849,6 @@ impl Tokens {
     }
 }
 
-type ParseTemplateResult<T> = std::result::Result<T, ParseTemplateError>;
-
-#[derive(Debug, derive_more::Display, Fail)]
-#[display(fmt = "Failed to parse {:?}\n{}", input, error)]
-pub struct ParseTemplateError {
-    input: String,
-    error: combine::easy::Errors<char, String, usize>,
-    #[fail(backtrace)]
-    backtrace: Backtrace,
-}
-
-impl ParseTemplateError {
-    fn new(input: &str, error: combine::easy::Errors<char, &str, usize>) -> Self {
-        Self {
-            input: input.to_owned(),
-            error: error.map_range(ToOwned::to_owned),
-            backtrace: Backtrace::new(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{AbsPathBufRequirements, TemplateBuilder};
@@ -957,7 +941,7 @@ mod tests {
 
     #[test]
     fn it_expands_path_templates() -> Fallible<()> {
-        fn process_input(input: &str) -> Fallible<AbsPathBuf> {
+        fn process_input(input: &'static str) -> Fallible<AbsPathBuf> {
             let template = input.parse::<TemplateBuilder<AbsPathBuf>>()?;
             template
                 .build(AbsPathBufRequirements {

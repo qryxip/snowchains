@@ -1,4 +1,5 @@
 pub(crate) mod collections;
+pub(crate) mod combine;
 pub(crate) mod indexmap;
 pub(crate) mod io;
 pub(crate) mod num;

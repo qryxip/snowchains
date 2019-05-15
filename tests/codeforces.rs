@@ -12,7 +12,6 @@ use difference::assert_diff;
 use failure::Fallible;
 use if_chain::if_chain;
 use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
 use pretty_assertions::assert_eq;
 use regex::Regex;
 
@@ -21,11 +20,11 @@ use std::convert::TryFrom as _;
 #[test]
 fn it_logins() -> Fallible<()> {
     fn login(mut app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> {
-        static MASK_API_KEY: Lazy<Regex> = sync_lazy!(Regex::new("apiKey=[0-9a-f]+").unwrap());
+        static MASK_API_KEY: Lazy<Regex> = Lazy::new(|| Regex::new("apiKey=[0-9a-f]+").unwrap());
         static MASK_HANDLES: Lazy<Regex> =
-            sync_lazy!(Regex::new(r"handles=[0-9a-zA-Z_\-]+").unwrap());
-        static MASK_TIME: Lazy<Regex> = sync_lazy!(Regex::new("time=[0-9]+").unwrap());
-        static MASK_API_SIG: Lazy<Regex> = sync_lazy!(Regex::new("apiSig=[0-9a-f]+").unwrap());
+            Lazy::new(|| Regex::new(r"handles=[0-9a-zA-Z_\-]+").unwrap());
+        static MASK_TIME: Lazy<Regex> = Lazy::new(|| Regex::new("time=[0-9]+").unwrap());
+        static MASK_API_SIG: Lazy<Regex> = Lazy::new(|| Regex::new("apiSig=[0-9a-f]+").unwrap());
 
         let code = app.run(Opt::Login(Login {
             json: true,

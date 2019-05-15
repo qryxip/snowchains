@@ -1,5 +1,5 @@
 use crate::errors::{ServiceError, ServiceErrorKind, ServiceResult};
-use crate::service::session::HttpSession;
+use crate::service::session::Session;
 use crate::terminal::HasTermProps;
 use crate::util::io::AsyncBufferedWriter;
 
@@ -8,17 +8,12 @@ use futures::{task, try_ready, Async, Future, Poll, Stream as _};
 use reqwest::{header, StatusCode};
 use termcolor::WriteColor;
 use tokio::io::AsyncWrite;
-use tokio::runtime::Runtime;
 
 use std::convert::Infallible;
 use std::time::{Duration, Instant};
 use std::{char, io, mem};
 
-pub(super) trait DownloadProgress {
-    type Write: WriteColor + HasTermProps;
-
-    fn requirements(&mut self) -> (&mut Self::Write, &HttpSession, &mut Runtime);
-
+pub(super) trait DownloadProgress: Session {
     /// # Panics
     ///
     /// Panics if the lengths are different.
@@ -45,20 +40,20 @@ pub(super) trait DownloadProgress {
             (name_len, names)
         }
 
-        let (out, session, runtime) = self.requirements();
-        let client = session.client();
-        let cookie = session.cookies_to_header_value()?;
+        let client = self.client();
+        let cookie = self.cookies_to_header_value()?;
+        let stderr = self.stderr();
         const ALT_COLUMNS: usize = 100;
         let names = {
-            let (url_len, urls) = align(urls, out.str_width_fn());
-            if out.columns().unwrap_or(ALT_COLUMNS) < url_len + 63 {
-                let (_, names) = align(alt_names, out.str_width_fn());
+            let (url_len, urls) = align(urls, stderr.str_width_fn());
+            if stderr.columns().unwrap_or(ALT_COLUMNS) < url_len + 63 {
+                let (_, names) = align(alt_names, stderr.str_width_fn());
                 names
             } else {
                 urls
             }
         };
-        let cjk = out.char_width('\u{2588}') == Some(2);
+        let cjk = stderr.char_width('\u{2588}') == Some(2);
         let progresses = match alt_reqs {
             None => names
                 .into_iter()
@@ -77,15 +72,16 @@ pub(super) trait DownloadProgress {
                 .map(|(s, r)| (s, Progress::Response(r.send())))
                 .collect(),
         };
-        if out.supports_color() && !out.is_synchronous() {
-            runtime.block_on(Downloading::new(
+        if stderr.supports_color() && !stderr.is_synchronous() {
+            let wtr = stderr.ansi_async_wtr();
+            self.runtime().block_on(Downloading::new(
                 crate::signal::ctrl_c(),
-                out.ansi_async_wtr(),
+                wtr,
                 progresses,
                 cjk,
             ))
         } else {
-            runtime.block_on(Downloading::new(
+            self.runtime().block_on(Downloading::new(
                 crate::signal::ctrl_c(),
                 io::sink(),
                 progresses,

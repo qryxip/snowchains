@@ -12,7 +12,6 @@ use snowchains::terminal::{
 use failure::Fallible;
 use if_chain::if_chain;
 use once_cell::sync::Lazy;
-use once_cell::sync_lazy;
 use pretty_assertions::assert_eq;
 use tempdir::TempDir;
 
@@ -21,8 +20,9 @@ use std::{env, io};
 
 #[test]
 fn it_works_for_atcoder_practice_a() -> Fallible<()> {
-    static CONFIG: Lazy<String> = sync_lazy!(format!(
-        r#"
+    static CONFIG: Lazy<String> = Lazy::new(|| {
+        format!(
+            r#"
 target = ".snowchains/target.json"
 
 [testfiles]
@@ -54,8 +54,9 @@ compile = ["rustc", "+${{env:RUST_VERSION}}", "-C", "opt-level=${{env:RUST_OPT_L
 run = ["${{bin}}"]
 working_directory = "${{service}}/${{contest}}/rs"
 "#,
-        if cfg!(windows) { ".exe" } else { "" },
-    ));
+            if cfg!(windows) { ".exe" } else { "" },
+        )
+    });
 
     static TARGET: &str = r#"{
   "service": "atcoder",
