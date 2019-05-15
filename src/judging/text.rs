@@ -61,8 +61,8 @@ impl Text {
                     wtr.write_str(s)?;
                     wtr.reset()?;
                 }
-                Word::U0020s(n) => wtr.write_spaces(n.get())?,
-                Word::TrailingU0020s(n) => {
+                Word::Sps(n) => wtr.write_spaces(n.get())?,
+                Word::TrailingSps(n) => {
                     wtr.set_color(color!(bg(Yellow), intense, bold))?;
                     wtr.write_spaces(n.get())?;
                     wtr.reset()?;
@@ -131,10 +131,10 @@ impl TextDiff {
                                     } = FLOAT_ERRORS.load();
                                     (v1 - v2).abs() <= d || ((v1 - v2) / v2).abs() <= r
                                 }
-                                (Word::U0020s(n1), Word::U0020s(n2))
-                                | (Word::U0020s(n1), Word::TrailingU0020s(n2))
-                                | (Word::TrailingU0020s(n1), Word::U0020s(n2))
-                                | (Word::TrailingU0020s(n1), Word::TrailingU0020s(n2)) => n1 == n2,
+                                (Word::Sps(n1), Word::Sps(n2))
+                                | (Word::Sps(n1), Word::TrailingSps(n2))
+                                | (Word::TrailingSps(n1), Word::Sps(n2))
+                                | (Word::TrailingSps(n1), Word::TrailingSps(n2)) => n1 == n2,
                                 (Word::Plain(s1), Word::Plain(s2))
                                 | (Word::UnicodeEscape(s1), Word::UnicodeEscape(s2)) => s1 == s2,
                                 (Word::Tab, Word::Tab)
@@ -271,8 +271,8 @@ impl TextDiff {
                         wtr.write_str(s)?;
                         wtr.reset()?;
                     }
-                    Word::U0020s(n) => wtr.write_spaces(n.get())?,
-                    Word::TrailingU0020s(n) => {
+                    Word::Sps(n) => wtr.write_spaces(n.get())?,
+                    Word::TrailingSps(n) => {
                         wtr.set_color(color!(bg(Yellow), intense, bold))?;
                         wtr.write_spaces(n.get())?;
                         wtr.reset()?;
@@ -318,11 +318,11 @@ impl TextDiff {
                         wtr.set_color(color!(fg(Red), intense, underline))?;
                         wtr.write_str(s)?;
                     }
-                    Word::U0020s(n) => {
+                    Word::Sps(n) => {
                         wtr.set_color(color!(fg(Red), intense, underline))?;
                         wtr.write_spaces(n.get())?
                     }
-                    Word::TrailingU0020s(n) => {
+                    Word::TrailingSps(n) => {
                         wtr.set_color(color!(fg(Red), bg(Yellow), intense, underline))?;
                         wtr.write_spaces(n.get())?
                     }
@@ -478,11 +478,11 @@ fn parse_words(s: &str, floats: bool) -> impl Iterator<Item = Word> {
         let tab = recognize(char('\t')).map(|_| Word::Tab);
         let cr = recognize(char('\r')).map(|_| Word::Cr);
         let lf = recognize(char('\n')).map(|_| Word::Lf);
-        let codepoints = recognize(skip_many1(satisfy(|c: char| {
+        let unicode_escape = recognize(skip_many1(satisfy(|c: char| {
             (c.is_whitespace() || c.is_control()) && ![' ', '\t', '\r', '\n'].contains(&c)
         })))
         .map(Word::UnicodeEscape);
-        choice((plain_or_float, tab, cr, lf, codepoints))
+        choice((plain_or_float, tab, cr, lf, unicode_escape))
     }
 
     let with_u0020s = recognize(skip_many1(char(' ')))
@@ -490,9 +490,9 @@ fn parse_words(s: &str, floats: bool) -> impl Iterator<Item = Word> {
         .map::<_, SmallVec<[Word; 2]>>(|(s, word): (&str, _)| {
             let n = NonZeroUsize::new(s.len()).unwrap();
             match word {
-                Some(Word::Lf) => [Word::TrailingU0020s(n), Word::Lf].into(),
-                Some(word) => [Word::U0020s(n), word].into(),
-                None => iter::once(Word::TrailingU0020s(n)).collect(),
+                Some(Word::Lf) => [Word::TrailingSps(n), Word::Lf].into(),
+                Some(word) => [Word::Sps(n), word].into(),
+                None => iter::once(Word::TrailingSps(n)).collect(),
             }
         });
 
@@ -502,7 +502,7 @@ fn parse_words(s: &str, floats: bool) -> impl Iterator<Item = Word> {
     ))
     .skip(eof())
     .easy_parse(State::with_positioner(s, IndexPositioner::new()))
-    .unwrap()
+    .unwrap_or_else(|e| unreachable!("{:?}", e))
     .0
     .into_iter()
     .flatten()
@@ -511,8 +511,8 @@ fn parse_words(s: &str, floats: bool) -> impl Iterator<Item = Word> {
 #[derive(Debug, Clone, Copy, Serialize)]
 enum Word<'a> {
     Plain(&'a str),
-    U0020s(NonZeroUsize),
-    TrailingU0020s(NonZeroUsize),
+    Sps(NonZeroUsize),
+    TrailingSps(NonZeroUsize),
     Tab,
     Cr,
     Lf,
@@ -531,7 +531,7 @@ impl Word<'_> {
     fn width(self, str_width: fn(&str) -> usize) -> Option<NonZeroUsize> {
         match self {
             Word::Plain(s) => NonZeroUsize::new(str_width(s)),
-            Word::U0020s(n) | Word::TrailingU0020s(n) => Some(n),
+            Word::Sps(n) | Word::TrailingSps(n) => Some(n),
             Word::Tab | Word::Cr => NonZeroUsize::new(2),
             Word::UnicodeEscape(s) => NonZeroUsize::new(8 * s.chars().count()),
             Word::Float { string, .. } => NonZeroUsize::new(str_width(string)),

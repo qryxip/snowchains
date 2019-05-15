@@ -7,9 +7,10 @@ use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
 use crate::testsuite::SuiteFileExtension;
 use crate::util::collections::SingleKeyValue;
+use crate::util::combine::ParseFieldError;
 use crate::util::str::CaseConversion;
 
-use failure::{Backtrace, Fail, ResultExt as _};
+use failure::{Fail, ResultExt as _};
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
@@ -48,11 +49,11 @@ where
 
 impl<T: Target> FromStr for TemplateBuilder<T>
 where
-    T::Inner: FromStr<Err = ParseTemplateError>,
+    T::Inner: FromStr<Err = ParseFieldError<String>>,
 {
-    type Err = ParseTemplateError;
+    type Err = ParseFieldError<String>;
 
-    fn from_str(s: &str) -> ParseTemplateResult<Self> {
+    fn from_str(s: &str) -> std::result::Result<Self, ParseFieldError<String>> {
         T::Inner::from_str(s).map(TemplateBuilder)
     }
 }
@@ -546,22 +547,29 @@ enum Expr {
 pub struct Tokens(Vec<Token>);
 
 impl FromStr for Tokens {
-    type Err = ParseTemplateError;
+    type Err = ParseFieldError<String>;
 
-    fn from_str(input: &str) -> ParseTemplateResult<Self> {
+    fn from_str(input: &str) -> std::result::Result<Self, ParseFieldError<String>> {
         use combine::char::{char, spaces, string};
         use combine::parser::choice::or;
         use combine::parser::function::parser;
         use combine::stream::state::{IndexPositioner, State};
         use combine::{choice, easy, eof, many, many1, satisfy, Parser};
 
-        fn escape<'a>(
-            from: &'static str,
-            to: &'static str,
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Token>
-        {
-            string(from).map(move |_| Token::Plain(to.to_owned()))
-        }
+        static GRAMMER: &str =
+            r#"Template      ::= ( Plain | LeftCurly | RightCurly | DollarOrExpr )*
+Plain         ::= [^${}]+
+LeftCurly     ::= '{{'
+RightCurly    ::= '}}'
+DollarOrExpr  ::= '$' ( Dollar | '{' Expr '}' )
+Dollar        ::= '$'
+Expr          ::= Spaces ( Var | NamespacedVar | App ) Spaces
+Var           ::= Identifier
+NamespacedVar ::= Identifier ':' Identifier
+App           ::= Identifier '(' Expr ')'
+Identifier    ::= ( [a-zA-Z0-9] | '_' )+
+Spaces        ::= ? White_Space character ?+
+"#;
 
         fn parse_expr<'a>(
             input: &mut easy::Stream<State<&'a str, IndexPositioner>>,
@@ -605,6 +613,10 @@ impl FromStr for Tokens {
 
         let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Plain);
 
+        let left_curly = string("{{").map(|_| Token::Plain('{'.to_string()));
+
+        let right_curly = string("}}").map(|_| Token::Plain('}'.to_string()));
+
         let dollar_or_expr = char('$').with(or(
             char('$').map(|_| Token::Plain("$".to_owned())),
             char('{')
@@ -613,16 +625,11 @@ impl FromStr for Tokens {
                 .map(Token::Expr),
         ));
 
-        many(choice((
-            plain,
-            escape("{{", "{"),
-            escape("}}", "}"),
-            dollar_or_expr,
-        )))
-        .skip(eof())
-        .easy_parse(State::with_positioner(input, IndexPositioner::new()))
-        .map(|(tokens, _)| Tokens(tokens))
-        .map_err(|e| ParseTemplateError::new(input, e))
+        many(choice((plain, left_curly, right_curly, dollar_or_expr)))
+            .skip(eof())
+            .easy_parse(State::with_positioner(input, IndexPositioner::new()))
+            .map(|(tokens, _)| Tokens(tokens))
+            .map_err(|e| ParseFieldError::new(input, e, GRAMMER).into_owned())
     }
 }
 
@@ -841,27 +848,6 @@ impl Tokens {
                     .into()
             })
         })
-    }
-}
-
-type ParseTemplateResult<T> = std::result::Result<T, ParseTemplateError>;
-
-#[derive(Debug, derive_more::Display, Fail)]
-#[display(fmt = "Failed to parse {:?}\n{}", input, error)]
-pub struct ParseTemplateError {
-    input: String,
-    error: combine::easy::Errors<char, String, usize>,
-    #[fail(backtrace)]
-    backtrace: Backtrace,
-}
-
-impl ParseTemplateError {
-    fn new(input: &str, error: combine::easy::Errors<char, &str, usize>) -> Self {
-        Self {
-            input: input.to_owned(),
-            error: error.map_range(ToOwned::to_owned),
-            backtrace: Backtrace::new(),
-        }
     }
 }
 
