@@ -1,3 +1,5 @@
+use failure::{Backtrace, Fail};
+
 use std::fmt;
 
 #[derive(Debug)]
@@ -5,6 +7,7 @@ pub struct ParseFieldError<I: fmt::Display + AsRef<str>> {
     input: I,
     cause: combine::easy::Errors<char, I, usize>,
     grammer: &'static str,
+    backtrace: Backtrace,
 }
 
 impl<I: fmt::Display + AsRef<str>> ParseFieldError<I> {
@@ -17,6 +20,7 @@ impl<I: fmt::Display + AsRef<str>> ParseFieldError<I> {
             input,
             cause,
             grammer,
+            backtrace: Backtrace::new(),
         }
     }
 }
@@ -27,6 +31,7 @@ impl<'a> ParseFieldError<&'a str> {
             input: self.input.to_owned(),
             cause: self.cause.map_range(ToOwned::to_owned),
             grammer: self.grammer,
+            backtrace: self.backtrace,
         }
     }
 }
@@ -48,6 +53,18 @@ impl<I: fmt::Display + AsRef<str>> fmt::Display for ParseFieldError<I> {
             }?;
         }
         write!(fmt, "grammer:\n```\n{}```\n ", self.grammer)
+    }
+}
+
+impl<I: fmt::Display + fmt::Debug + AsRef<str> + Send + Sync + 'static> Fail
+    for ParseFieldError<I>
+{
+    fn cause(&self) -> Option<&dyn Fail> {
+        Some(&self.cause)
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        Some(&self.backtrace)
     }
 }
 

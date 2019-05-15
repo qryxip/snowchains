@@ -720,17 +720,17 @@ impl Config {
     pub(crate) fn hooks(
         &self,
         kind: SubCommandKind,
-        outcome: &impl Serialize,
+        snowchains_result: String,
     ) -> Template<HookCommands> {
         static DEFAULT: Lazy<TemplateBuilder<HookCommands>> = Lazy::new(TemplateBuilder::default);
         self.inner
             .hooks
             .get(kind)
-            .unwrap_or(&DEFAULT)
+            .unwrap_or_else(|| &DEFAULT)
             .build(HookCommandsRequirements {
                 base_dir: self.base_dir.clone(),
                 shell: self.inner.shell.clone(),
-                result: Arc::new(serde_json::to_string(outcome)),
+                snowchains_result: Arc::new(snowchains_result),
             })
     }
 

@@ -880,32 +880,31 @@ fn finish(
         outcome: T,
     }
 
-    let outcome = WithCliArgsAndConfig {
+    let outcome_json = serde_json::to_string(&WithCliArgsAndConfig {
         command_line_arguments,
         config: config.inner(),
         target: config.target(),
         base_directory: config.base_dir(),
-        outcome,
-    };
+        outcome: &outcome,
+    })?;
 
     match output_kind {
         OutputKind::None => {}
         OutputKind::Pretty => {
             writeln!(stderr)?;
             stderr.flush()?;
-            outcome.outcome.print_pretty(&mut stdout)?;
+            outcome.print_pretty(&mut stdout)?;
         }
         OutputKind::Json => {
-            let json = serde_json::to_string_pretty(&outcome)?;
-            writeln!(stdout, "{}", json)?;
+            writeln!(stdout, "{}", outcome_json)?;
             stdout.flush()?;
         }
     }
 
-    let hooks = config.hooks(subcommand, &outcome).expand()?;
+    let hooks = config.hooks(subcommand, outcome_json).expand()?;
     hooks.run(&mut stdout, stderr)?;
 
-    Ok(if outcome.outcome.is_success() { 0 } else { 1 })
+    Ok(if outcome.is_success() { 0 } else { 1 })
 }
 
 #[derive(Debug, Clone, Copy, EnumString, Serialize)]

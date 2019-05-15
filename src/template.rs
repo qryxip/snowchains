@@ -143,21 +143,19 @@ impl Template<HookCommands> {
         let HookCommandsRequirements {
             base_dir,
             shell,
-            result,
+            snowchains_result,
         } = &self.requirements;
         let (mut vars, envs) = {
-            let json = match result.as_ref() {
-                Ok(json) => Ok(json.clone()),
-                Err(err) => Err(failure::err_msg(err.to_string())
-                    .context(ExpandTemplateErrorKind::SerializeJson)),
-            }?;
-            let vars = hashmap!("result" => OsString::from(&json));
+            let vars = hashmap!("result" => OsString::from(&**snowchains_result));
             let mut envs = self
                 .envs
                 .iter()
                 .map(|(k, v)| (k.clone(), OsString::from(v.clone())))
                 .collect::<HashMap<_, _>>();
-            envs.insert("SNOWCHAINS_RESULT".to_owned(), OsString::from(json));
+            envs.insert(
+                "SNOWCHAINS_RESULT".to_owned(),
+                OsString::from(&**snowchains_result),
+            );
             (vars, envs)
         };
         self.inner
@@ -485,7 +483,7 @@ pub(crate) struct AbsPathBufRequirements {
 pub(crate) struct HookCommandsRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
-    pub(crate) result: Arc<serde_json::Result<String>>,
+    pub(crate) snowchains_result: Arc<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -943,7 +941,7 @@ mod tests {
 
     #[test]
     fn it_expands_path_templates() -> Fallible<()> {
-        fn process_input(input: &str) -> Fallible<AbsPathBuf> {
+        fn process_input(input: &'static str) -> Fallible<AbsPathBuf> {
             let template = input.parse::<TemplateBuilder<AbsPathBuf>>()?;
             template
                 .build(AbsPathBufRequirements {
