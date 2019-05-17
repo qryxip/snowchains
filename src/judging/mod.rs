@@ -369,9 +369,14 @@ impl Outcome for JudgeOutcome {
         }
     }
 
-    fn print_pretty(&self, stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
+    fn print_pretty(
+        &self,
+        verbose: bool,
+        stdout: impl WriteColor + HasTermProps,
+    ) -> io::Result<()> {
         fn print_verdicts(
             repr: &JudgeOutcomeRepr<impl TestCase, impl Verdict>,
+            verbose: bool,
             mut stdout: impl WriteColor + HasTermProps,
         ) -> io::Result<()> {
             let JudgeOutcomeRepr {
@@ -381,7 +386,7 @@ impl Outcome for JudgeOutcome {
 
             let num_failures = verdicts.iter().filter(|v| !v.is_success).count();
 
-            if num_failures > 0 {
+            if verbose || num_failures > 0 {
                 for (i, verdict) in verdicts.iter().enumerate() {
                     let (test_case, verdict) = (&verdict.test_case, &verdict.verdict);
                     if i > 0 {
@@ -395,20 +400,21 @@ impl Outcome for JudgeOutcome {
                     verdict.print_details(*display_limit, &mut stdout)?;
                     stdout.reset()?;
                 }
+                writeln!(stdout)?;
             }
 
             if num_failures == 0 {
                 stdout.set_color(color!(fg(Green), intense))?;
                 write!(
                     stdout,
-                    "\nAll of the {} passed.",
-                    plural!(verdicts.len().get(), "test", "tests")
+                    "All of the {} passed.",
+                    plural!(verdicts.len().get(), "test", "tests"),
                 )?;
             } else {
                 stdout.set_color(color!(fg(Red), intense))?;
                 write!(
                     stdout,
-                    "\n{}/{} test{} failed.",
+                    "{}/{} test{} failed.",
                     num_failures,
                     verdicts.len(),
                     if num_failures > 1 { "s" } else { "" },
@@ -420,8 +426,8 @@ impl Outcome for JudgeOutcome {
         }
 
         match self {
-            JudgeOutcome::Batch(r) => print_verdicts(&r, stdout),
-            JudgeOutcome::Interactive(r) => print_verdicts(&r, stdout),
+            JudgeOutcome::Batch(r) => print_verdicts(&r, verbose, stdout),
+            JudgeOutcome::Interactive(r) => print_verdicts(&r, verbose, stdout),
         }
     }
 }

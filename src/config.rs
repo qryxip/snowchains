@@ -479,7 +479,7 @@ impl Outcome for SwitchOutcome {
         true
     }
 
-    fn print_pretty(&self, mut stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
+    fn print_pretty(&self, _: bool, mut stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
         let old_service = Some(format!("{:?}", <&str>::from(self.old.service)));
         let old_contest = Some(format!("{:?}", self.old.contest));
         let old_language = Some(format!("{:?}", self.old.language));
@@ -1591,7 +1591,7 @@ mod tests {
         });
 
         let mut stdout = AnsiWithProps::new();
-        outcome.print_pretty(&mut stdout)?;
+        outcome.print_pretty(false, &mut stdout)?;
         assert_eq!(String::try_from(stdout)?, *EXPECTED);
         Ok(())
     }

@@ -109,8 +109,8 @@ pub(crate) fn login(
     service: ServiceKind,
 ) -> snowchains::Result<()> {
     let code = app.run(Opt::Login(Login {
-        json: true,
-        output: OutputKind::None,
+        json: false,
+        output: OutputKind::Json,
         color_choice: AnsiColorChoice::Never,
         service,
     }))?;
@@ -126,12 +126,13 @@ pub(crate) fn retrieve_testcases(
 ) -> snowchains::Result<()> {
     let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
         open: false,
-        json: true,
+        verbose: false,
+        json: false,
         only_scraped: false,
         service: Some(service),
         contest: Some(contest.to_owned()),
         problems: problems.iter().map(|&s| s.to_owned()).collect(),
-        output: OutputKind::Pretty,
+        output: OutputKind::Json,
         color_choice: AnsiColorChoice::Never,
     })))?;
     assert_eq!(code, 0);

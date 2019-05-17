@@ -115,7 +115,7 @@ pub struct Switch {
     contest: Option<String>,
     #[structopt(raw(language = "3"))]
     language: Option<String>,
-    #[structopt(raw(output_pretty_or_json = "4"))]
+    #[structopt(raw(output = r#""pretty", &["pretty", "json"], 4"#))]
     output: OutputKind,
     #[structopt(raw(color_choice = "5"))]
     color_choice: AnsiColorChoice,
@@ -125,7 +125,7 @@ pub struct Switch {
 pub struct Login {
     #[structopt(raw(json = "1"))]
     pub json: bool,
-    #[structopt(raw(output_pretty_or_json = "1"))]
+    #[structopt(raw(output = r#""pretty", &["pretty", "json"], 1"#))]
     pub output: OutputKind,
     #[structopt(raw(color_choice = "2"))]
     pub color_choice: AnsiColorChoice,
@@ -137,7 +137,7 @@ pub struct Login {
 pub struct Participate {
     #[structopt(raw(json = "1"))]
     json: bool,
-    #[structopt(raw(output_pretty_or_json = "1"))]
+    #[structopt(raw(output = r#""pretty", &["pretty", "json"], 1"#))]
     output: OutputKind,
     #[structopt(raw(color_choice = "2"))]
     color_choice: AnsiColorChoice,
@@ -176,7 +176,9 @@ pub enum Retrieve {
 pub struct RetrieveTestcases {
     #[structopt(raw(open = "1"))]
     pub open: bool,
-    #[structopt(raw(json = "2"))]
+    #[structopt(raw(verbose = "2"))]
+    pub verbose: bool,
+    #[structopt(raw(json = "3"))]
     pub json: bool,
     #[structopt(
         long = "only-scraped",
@@ -190,7 +192,7 @@ pub struct RetrieveTestcases {
     pub contest: Option<String>,
     #[structopt(raw(problems = "3"))]
     pub problems: Vec<String>,
-    #[structopt(raw(output_pretty_or_json = "4"))]
+    #[structopt(raw(output = r#""pretty", &["pretty", "json"], 4"#))]
     pub output: OutputKind,
     #[structopt(raw(color_choice = "5"))]
     pub color_choice: AnsiColorChoice,
@@ -204,7 +206,7 @@ pub struct RetrieveLanguages {
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
     pub contest: Option<String>,
-    #[structopt(raw(output_pretty_or_json = "3"))]
+    #[structopt(raw(output = r#""pretty", &["pretty", "json"], 3"#))]
     pub output: OutputKind,
     #[structopt(raw(color_choice = "4"))]
     pub color_choice: AnsiColorChoice,
@@ -220,7 +222,9 @@ pub struct RetrieveSubmissions {
         raw(display_order = "1")
     )]
     pub fetch_all: bool,
-    #[structopt(raw(json = "2"))]
+    #[structopt(raw(verbose = "2"))]
+    pub verbose: bool,
+    #[structopt(raw(json = "3"))]
     pub json: bool,
     #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
@@ -230,7 +234,7 @@ pub struct RetrieveSubmissions {
     pub mode: config::Mode,
     #[structopt(raw(problems = "4"))]
     pub problems: Vec<String>,
-    #[structopt(raw(output_none_or_json = "5"))]
+    #[structopt(raw(output = r#""none", &["none", "pretty-verbose", "json"], 5"#))]
     pub output: OutputKind,
     #[structopt(raw(color_choice = "6"))]
     pub color_choice: AnsiColorChoice,
@@ -249,6 +253,8 @@ pub struct Judge {
         )
     )]
     pub release: bool,
+    #[structopt(raw(verbose = "2"))]
+    pub verbose: bool,
     #[structopt(raw(json = "3"))]
     pub json: bool,
     #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
@@ -261,7 +267,7 @@ pub struct Judge {
     pub mode: config::Mode,
     #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "5"))]
     pub jobs: Option<NonZeroUsize>,
-    #[structopt(raw(output_pretty_or_json = "6"))]
+    #[structopt(raw(output = r#""pretty", &["pretty", "pretty-verbose", "json"], 6"#))]
     pub output: OutputKind,
     #[structopt(raw(color_choice = "7"))]
     pub color_choice: AnsiColorChoice,
@@ -305,7 +311,9 @@ pub struct Submit {
         raw(display_order = "6")
     )]
     pub no_check_duplication: bool,
-    #[structopt(raw(json = "7"))]
+    #[structopt(raw(verbose = "7"))]
+    pub verbose: bool,
+    #[structopt(raw(json = "8"))]
     pub json: bool,
     #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
@@ -317,7 +325,7 @@ pub struct Submit {
     pub mode: config::Mode,
     #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "5"))]
     pub jobs: Option<NonZeroUsize>,
-    #[structopt(raw(output_pretty_or_json = "6"))]
+    #[structopt(raw(output = r#""pretty", &["pretty", "pretty-verbose", "json"], 6"#))]
     pub output: OutputKind,
     #[structopt(raw(color_choice = "7"))]
     pub color_choice: AnsiColorChoice,
@@ -336,6 +344,7 @@ enum Kind {
 }
 
 trait ArgExt {
+    fn verbose(self, order: usize) -> Self;
     fn json(self, order: usize) -> Self;
     fn force_compile(self, order: usize) -> Self;
     fn open(self, order: usize) -> Self;
@@ -343,8 +352,7 @@ trait ArgExt {
     fn problems(self, order: usize) -> Self;
     fn mode(self, order: usize, default: &'static str) -> Self;
     fn jobs(self, order: usize) -> Self;
-    fn output_none_or_json(self, order: usize) -> Self;
-    fn output_pretty_or_json(self, order: usize) -> Self;
+    fn output(self, default: &'static str, possible: &'static [&str], order: usize) -> Self;
     fn color_choice(self, order: usize) -> Self;
     fn problem(self) -> Self;
     fn nth(self) -> Self;
@@ -354,10 +362,17 @@ trait ArgExt {
 }
 
 impl ArgExt for Arg<'static, 'static> {
+    fn verbose(self, order: usize) -> Self {
+        self.long("verbose")
+            .help("Equivalents to `--output pretty-verbose`")
+            .conflicts_with_all(&["json", "output"])
+            .display_order(order)
+    }
+
     fn json(self, order: usize) -> Self {
         self.long("json")
             .help("Equivalents to `--output json`")
-            .conflicts_with("\"output\"")
+            .conflicts_with_all(&["verbose", "output"])
             .display_order(order)
     }
 
@@ -409,23 +424,13 @@ impl ArgExt for Arg<'static, 'static> {
             .display_order(order)
     }
 
-    fn output_none_or_json(self, order: usize) -> Self {
+    fn output(self, default: &'static str, possible: &'static [&str], order: usize) -> Self {
         self.long("output")
             .help("Output")
             .value_name("OUTPUT")
             .required(false)
-            .default_value("none")
-            .possible_values(&["none", "json"])
-            .display_order(order)
-    }
-
-    fn output_pretty_or_json(self, order: usize) -> Self {
-        self.long("output")
-            .help("Output")
-            .value_name("OUTPUT")
-            .required(false)
-            .default_value("pretty")
-            .possible_values(&["pretty", "json"])
+            .default_value(default)
+            .possible_values(possible)
             .display_order(order)
     }
 
@@ -542,7 +547,7 @@ impl<
                     cli_args,
                     &config,
                     SubCommandKind::Switch,
-                    output.with(*json),
+                    output.with(false, *json),
                     &mut self.stdout,
                     &mut self.stderr,
                 )
@@ -568,7 +573,7 @@ impl<
                     cli_args,
                     &config,
                     SubCommandKind::Login,
-                    output.with(*json),
+                    output.with(false, *json),
                     &mut self.stdout,
                     &mut self.stderr,
                 )
@@ -596,15 +601,16 @@ impl<
                     cli_args,
                     &config,
                     SubCommandKind::Participate,
-                    output.with(*json),
+                    output.with(false, *json),
                     &mut self.stdout,
                     &mut self.stderr,
                 )
             }
             Opt::Download(cli_args) | Opt::Retrieve(Retrieve::Testcases(cli_args)) => {
                 let RetrieveTestcases {
-                    json,
                     open,
+                    verbose,
+                    json,
                     only_scraped,
                     service,
                     contest,
@@ -634,7 +640,7 @@ impl<
                     cli_args,
                     &config,
                     SubCommandKind::RetrieveTestcases,
-                    output.with(*json),
+                    output.with(*verbose, *json),
                     &mut self.stdout,
                     &mut self.stderr,
                 )
@@ -665,7 +671,7 @@ impl<
                     cli_args,
                     &config,
                     SubCommandKind::RetrieveLanguages,
-                    output.with(*json),
+                    output.with(false, *json),
                     &mut self.stdout,
                     &mut self.stderr,
                 )
@@ -673,6 +679,7 @@ impl<
             Opt::Retrieve(Retrieve::Submissions(cli_args)) => {
                 let RetrieveSubmissions {
                     fetch_all,
+                    verbose,
                     json,
                     service,
                     contest,
@@ -698,13 +705,14 @@ impl<
                     cli_args,
                     &config,
                     SubCommandKind::RetrieveSubmissions,
-                    output.with(*json),
+                    output.with(*verbose, *json),
                     &mut self.stdout,
                     &mut self.stderr,
                 )
             }
             Opt::Judge(cli_args) => {
                 let Judge {
+                    verbose,
                     json,
                     force_compile,
                     release,
@@ -741,20 +749,21 @@ impl<
                     cli_args,
                     &config,
                     SubCommandKind::Judge,
-                    output.with(*json),
+                    output.with(*verbose, *json),
                     &mut self.stdout,
                     &mut self.stderr,
                 )
             }
             Opt::Submit(cli_args) => {
                 let Submit {
-                    json,
                     open,
                     force_compile,
                     only_transpile,
                     no_judge,
                     debug,
                     no_check_duplication,
+                    verbose,
+                    json,
                     language,
                     service,
                     contest,
@@ -782,7 +791,7 @@ impl<
                         writeln!(self.stderr)?;
                     }
                 } else if !no_judge {
-                    judging::judge(JudgeParams {
+                    let outcome = judging::judge(JudgeParams {
                         stdout: &self.stdout,
                         stderr: &mut self.stderr,
                         config: &config,
@@ -791,6 +800,17 @@ impl<
                         force_compile: *force_compile,
                         jobs: *jobs,
                     })?;
+                    if !outcome.is_success() {
+                        return finish(
+                            outcome,
+                            cli_args,
+                            &config,
+                            SubCommandKind::Submit,
+                            output.with(*verbose, *json),
+                            &mut self.stdout,
+                            &mut self.stderr,
+                        );
+                    }
                     writeln!(self.stderr)?;
                 }
                 let outcome = service::submit(
@@ -811,7 +831,7 @@ impl<
                     cli_args,
                     &config,
                     SubCommandKind::Submit,
-                    output.with(*json),
+                    output.with(*verbose, *json),
                     &mut self.stdout,
                     &mut self.stderr,
                 )
@@ -893,7 +913,12 @@ fn finish(
         OutputKind::Pretty => {
             writeln!(stderr)?;
             stderr.flush()?;
-            outcome.print_pretty(&mut stdout)?;
+            outcome.print_pretty(false, &mut stdout)?;
+        }
+        OutputKind::PrettyVerbose => {
+            writeln!(stderr)?;
+            stderr.flush()?;
+            outcome.print_pretty(true, &mut stdout)?;
         }
         OutputKind::Json => {
             writeln!(stdout, "{}", outcome_json)?;
@@ -907,21 +932,84 @@ fn finish(
     Ok(if outcome.is_success() { 0 } else { 1 })
 }
 
-#[derive(Debug, Clone, Copy, EnumString, Serialize)]
-#[strum(serialize_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, EnumString, Serialize)]
+#[strum(serialize_all = "kebab_case")]
+#[serde(rename_all = "kebab-case")]
 pub enum OutputKind {
     None,
     Pretty,
+    PrettyVerbose,
     Json,
 }
 
 impl OutputKind {
-    fn with(self, json: bool) -> Self {
-        match (self, json) {
-            (OutputKind::None, false) => OutputKind::None,
-            (OutputKind::Pretty, false) => OutputKind::Pretty,
-            _ => OutputKind::Json,
+    fn with(self, verbose: bool, json: bool) -> Self {
+        match (self, verbose, json) {
+            (_, true, false) => OutputKind::PrettyVerbose,
+            (_, false, true) => OutputKind::Json,
+            (k, _, _) => k,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::{ArgExt as _, OutputKind};
+
+    use derive_new::new;
+    use pretty_assertions::assert_eq;
+    use structopt::{clap, StructOpt};
+
+    #[test]
+    fn verbose_json_and_output_conflict_with_each_other() {
+        #[derive(Debug, StructOpt, new)]
+        struct Opt {
+            #[structopt(raw(verbose = "1"))]
+            verbose: bool,
+            #[structopt(raw(json = "2"))]
+            json: bool,
+            #[structopt(raw(
+                output = r#""none", &["none", "pretty", "pretty-verbose", "json"], 1"#
+            ))]
+            output: OutputKind,
+        }
+
+        macro_rules! test {
+            () => {};
+            ($args:expr => Ok($expected:ident)) => {{
+                let result = Opt::from_iter_safe($args)
+                    .map(|o| o.output.with(o.verbose, o.json))
+                    .map_err(|e| e.kind);
+                assert_eq!(result, Ok(OutputKind::$expected));
+            }};
+            ($args:expr => Ok($expected:ident), $($rest:tt)*) => {
+                test!($args => Ok($expected));
+                test!($($rest)*);
+            };
+            ($args:expr => Err($kind:ident)) => {{
+                let result = Opt::from_iter_safe($args)
+                    .map(|o| o.output.with(o.verbose, o.json))
+                    .map_err(|e| e.kind);
+                assert_eq!(result, Err(clap::ErrorKind::$kind));
+            }};
+            ($args:expr => Err($expected:ident), $($rest:tt)*) => {
+                test!($args => Err($expected));
+                test!($($rest)*);
+            };
+        }
+
+        test!(
+            &[""]                                            => Ok(None),
+            &["", "--verbose"]                               => Ok(PrettyVerbose),
+            &["", "--json"]                                  => Ok(Json),
+            &["", "--output", "none"]                        => Ok(None),
+            &["", "--output", "pretty"]                      => Ok(Pretty),
+            &["", "--output", "pretty-verbose"]              => Ok(PrettyVerbose),
+            &["", "--output", "json"]                        => Ok(Json),
+            &["", "--verbose", "--json"]                     => Err(ArgumentConflict),
+            &["", "--verbose", "--output", "none"]           => Err(ArgumentConflict),
+            &["", "--json", "--output", "none"]              => Err(ArgumentConflict),
+            &["", "--verbose", "--json", "--output", "none"] => Err(ArgumentConflict),
+        );
     }
 }

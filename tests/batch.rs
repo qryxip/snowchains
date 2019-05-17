@@ -189,6 +189,7 @@ impl<
         self.run(Opt::Judge(Judge {
             force_compile: false,
             release: false,
+            verbose: false,
             json: false,
             service: Some(ServiceKind::Atcoder),
             contest: Some("practice".to_owned()),

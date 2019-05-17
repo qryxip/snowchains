@@ -293,6 +293,14 @@ impl TestSuite {
         crate::fs::write(path, serialized.as_bytes()).map_err(Into::into)
     }
 
+    pub(crate) fn timelimit(&self) -> Option<Duration> {
+        match self {
+            TestSuite::Batch(s) => s.head.timelimit,
+            TestSuite::Interactive(s) => s.timelimit,
+            TestSuite::Unsubmittable => None,
+        }
+    }
+
     fn to_string_pretty(&self, ext: SuiteFileExtension) -> TestSuiteResult<String> {
         match self {
             TestSuite::Batch(this) => this.to_string_pretty(ext),

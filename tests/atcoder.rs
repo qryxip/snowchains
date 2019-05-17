@@ -27,8 +27,8 @@ use std::{io, str};
 fn it_logins() -> Fallible<()> {
     fn login(mut app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> {
         let code = app.run(Opt::Login(Login {
-            json: true,
-            output: OutputKind::None,
+            json: false,
+            output: OutputKind::Json,
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Atcoder,
         }))?;
@@ -62,6 +62,7 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 open: false,
+                verbose: false,
                 json: false,
                 only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
@@ -92,6 +93,7 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 open: false,
+                verbose: false,
                 json: false,
                 only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
@@ -124,6 +126,7 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 open: false,
+                verbose: false,
                 json: false,
                 only_scraped: false,
                 service: Some(ServiceKind::Atcoder),
@@ -196,12 +199,13 @@ fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
                 fetch_all: false,
-                json: true,
+                verbose: false,
+                json: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 mode: config::Mode::Debug,
                 problems: vec![],
-                output: OutputKind::Pretty,
+                output: OutputKind::Json,
                 color_choice: AnsiColorChoice::Never,
             })))?;
             assert_eq!(code, 0);
@@ -242,6 +246,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     no_judge: true,
                     debug: false,
                     no_check_duplication: false,
+                    verbose: false,
                     json: false,
                     service: Some(ServiceKind::Atcoder),
                     contest: Some("practice".to_owned()),
@@ -292,6 +297,7 @@ if __name__ == '__main__':
                 no_judge: true,
                 debug: false,
                 no_check_duplication: false,
+                verbose: false,
                 json: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
