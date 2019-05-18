@@ -8,19 +8,18 @@ use crate::service::{
     ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
-use crate::testsuite::{self, BatchSuite, InteractiveSuite, SuiteFilePath, TestSuite};
-use crate::util::collections::NonEmptyIndexMap;
+use crate::testsuite::{self, BatchSuite, InteractiveSuite, TestSuite};
+use crate::util::collections::{NonEmptyIndexMap, NonEmptyVec};
 use crate::util::str::CaseConversion;
 
 use cookie::Cookie;
-use failure::Fail as _;
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::StatusCode;
 use scraper::Html;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use termcolor::WriteColor;
 use url::Url;
 
@@ -76,6 +75,8 @@ pub(super) fn submit(
         .unwrap();
     Yukicoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
+
+static BASE_URL: Lazy<Url> = Lazy::new(|| "https://yukicoder.me".parse().unwrap());
 
 #[derive(Debug)]
 struct Yukicoder<I: Input, E: WriteColor + HasTermProps> {
@@ -180,10 +181,10 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             only_scraped,
         } = props;
         self.login(false)?;
-        let scrape = |html: &Html, problem: &str| -> ServiceResult<(TestSuite, SuiteFilePath)> {
-            let suite = html.extract_samples()?;
+        let scrape = |html: &Html, problem: &str| -> ServiceResult<_> {
+            let (display_name, suite) = html.extract_samples()?;
             let path = destinations.expand(problem)?;
-            Ok((suite, path))
+            Ok((display_name, suite, path))
         };
         let mut outcome = RetrieveTestCasesOutcome::new(contest);
         match (contest, problems.as_ref()) {
@@ -207,9 +208,10 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                     } else if !public {
                         not_public.push(problem);
                     } else {
-                        let (suite, path) = scrape(&html, problem)?;
+                        let (display_name, suite, path) = scrape(&html, problem)?;
                         let url = self.resolve_url(&url)?;
-                        outcome.push_problem(problem.to_owned(), url, suite, path);
+                        let (slug, screen_name) = (problem, Some(problem.as_ref()));
+                        outcome.push_problem(slug, &display_name, screen_name, url, suite, path);
                     }
                 }
                 let stderr = self.stderr();
@@ -233,12 +235,12 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                     .get(&format!("/contests/{}", contest))
                     .recv_html()?
                     .extract_problems()?;
-                for (slug, href) in target_problems {
+                for (slug, no, url) in target_problems {
                     if problems.is_none() || problems.as_ref().unwrap().contains(&slug) {
-                        let html = self.get(&href).recv_html()?;
-                        let (suite, path) = scrape(&html, &slug)?;
-                        let url = self.resolve_url(&href)?;
-                        outcome.push_problem(slug, url, suite, path);
+                        let html = self.get(&url).recv_html()?;
+                        let (display_name, suite, path) = scrape(&html, &slug)?;
+                        let no = Some(no.as_ref());
+                        outcome.push_problem(&slug, &display_name, no, url, suite, path);
                     }
                 }
             }
@@ -270,7 +272,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
         } else {
             let urls = solved_batch_nos
                 .iter()
-                .map(|no| format!("https://yukicoder.me/problems/no/{}/testcase.zip", no))
+                .flat_map(|no| BASE_URL.join(&format!("/problems/no/{}/testcase.zip", no)))
                 .collect::<Vec<_>>();
             self.download_progress(&urls, &solved_batch_nos, None)?
                 .into_iter()
@@ -422,21 +424,26 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
     }
 
     fn get_submit_url(&mut self, contest: &YukicoderContest, problem: &str) -> ServiceResult<Url> {
-        let mut url = match contest {
-            YukicoderContest::No => format!("https://yukicoder.me/problems/no/{}", problem),
+        let mut ret = match contest {
+            YukicoderContest::No => {
+                let mut url = BASE_URL.clone();
+                url.set_path(&format!("/problems/no/{}", problem));
+                url
+            }
             YukicoderContest::Contest(contest) => self
                 .get(&format!("/contests/{}", contest))
                 .recv_html()?
                 .extract_problems()?
                 .into_iter()
-                .filter(|(name, _)| name.eq_ignore_ascii_case(problem))
-                .map(|(_, href)| href)
+                .filter(|(slug, _, _)| slug.eq_ignore_ascii_case(problem))
+                .map(|(_, _, url)| url)
                 .next()
                 .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.to_owned()))?,
         };
-        url += "/submit";
-        url.parse::<Url>()
-            .map_err(|e| e.context(ServiceErrorKind::ParseUrl(url)).into())
+        if let Ok(mut path) = ret.path_segments_mut() {
+            path.extend(&[".", "submit"]);
+        }
+        Ok(ret)
     }
 }
 
@@ -506,8 +513,8 @@ impl fmt::Display for Username {
 
 trait Extract {
     fn extract_username(&self) -> Username;
-    fn extract_samples(&self) -> ScrapeResult<TestSuite>;
-    fn extract_problems(&self) -> ScrapeResult<Vec<(String, String)>>;
+    fn extract_samples(&self) -> ScrapeResult<(String, TestSuite)>;
+    fn extract_problems(&self) -> ScrapeResult<NonEmptyVec<(String, String, Url)>>;
     fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String>;
     fn extract_url_from_submit_page(&self) -> ScrapeResult<String>;
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
@@ -530,7 +537,7 @@ impl Extract for Html {
         extract().unwrap_or(Username::None)
     }
 
-    fn extract_samples(&self) -> ScrapeResult<TestSuite> {
+    fn extract_samples(&self) -> ScrapeResult<(String, TestSuite)> {
         #[derive(Clone, Copy, PartialEq)]
         enum ProblemKind {
             Regular,
@@ -539,6 +546,11 @@ impl Extract for Html {
         }
 
         let extract = || {
+            let display_name = self
+                .select(selector!("#content > h3"))
+                .flat_map(|r| r.text())
+                .nth(0)?
+                .to_owned();
             let text = self
                 .select(selector!("#content > div"))
                 .flat_map(|r| r.text())
@@ -559,7 +571,7 @@ impl Extract for Html {
                 "リアクティブ" => ProblemKind::Reactive,
                 _ => return None,
             };
-            match kind {
+            let suite = match kind {
                 ProblemKind::Regular | ProblemKind::Special => {
                     let mut samples = vec![];
                     for paragraph in self.select(selector!(
@@ -583,36 +595,33 @@ impl Extract for Html {
                     if kind == ProblemKind::Special {
                         suite = suite.matching(testsuite::Match::Any);
                     }
-                    Some(suite.into())
+                    suite.into()
                 }
-                ProblemKind::Reactive => Some(InteractiveSuite::new(timelimit).into()),
-            }
+                ProblemKind::Reactive => InteractiveSuite::new(timelimit).into(),
+            };
+            Some((display_name, suite))
         };
         extract().ok_or_else(ScrapeError::new)
     }
 
-    fn extract_problems(&self) -> ScrapeResult<Vec<(String, String)>> {
-        let extract = || {
-            let mut problems = vec![];
-            for tr in self.select(selector!("#content > div.left > table.table > tbody > tr")) {
-                let name = tr.select(selector!("td")).nth(0)?.text().next()?.to_owned();
+    fn extract_problems(&self) -> ScrapeResult<NonEmptyVec<(String, String, Url)>> {
+        self.select(selector!("#content > div.left > table.table > tbody > tr"))
+            .map(|tr| {
+                let slug = tr.select(selector!("td")).nth(0)?.text().next()?.to_owned();
+                let no = tr.select(selector!("td")).nth(1)?.text().next()?.to_owned();
                 let href = tr
                     .select(selector!("td"))
                     .nth(2)?
                     .select(selector!("a"))
                     .next()?
                     .value()
-                    .attr("href")?
-                    .to_owned();
-                problems.push((name, href));
-            }
-            if problems.is_empty() {
-                None
-            } else {
-                Some(problems)
-            }
-        };
-        extract().ok_or_else(ScrapeError::new)
+                    .attr("href")?;
+                let url = BASE_URL.join(href).ok()?;
+                Some((slug, no, url))
+            })
+            .collect::<Option<Vec<_>>>()
+            .and_then(NonEmptyVec::try_new)
+            .ok_or_else(ScrapeError::new)
     }
 
     fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String> {
@@ -654,65 +663,84 @@ mod tests {
     use pretty_assertions::assert_eq;
     use scraper::Html;
 
-    use std::borrow::Borrow;
     use std::time::Duration;
 
     #[test]
-    fn it_extracts_samples_from_problem1() -> Fallible<()> {
-        test_extracting_samples("/problems/no/1", "cf65ae411bc8d32b75beb771905c9dc0")
+    fn it_extracts_samples_from_no_1() -> Fallible<()> {
+        test_extracting_samples(
+            "https://yukicoder.me/problems/no/1",
+            "No.1  道のショートカット",
+            "cf65ae411bc8d32b75beb771905c9dc0",
+        )
     }
 
     #[test]
-    fn it_extracts_samples_from_problem188() -> Fallible<()> {
-        test_extracting_samples("/problems/no/188", "671c7191064f7703abcb5e06fad3f32e")
+    fn it_extracts_samples_from_no_188() -> Fallible<()> {
+        test_extracting_samples(
+            "https://yukicoder.me/problems/no/188",
+            "No.188  HAPPY DAY",
+            "671c7191064f7703abcb5e06fad3f32e",
+        )
     }
 
     #[test]
-    fn it_extracts_samples_from_problem192() -> Fallible<()> {
-        test_extracting_samples("/problems/no/192", "f8ce3328c431737dcb748770abd9a09b")
+    fn it_extracts_samples_from_no_192() -> Fallible<()> {
+        test_extracting_samples(
+            "https://yukicoder.me/problems/no/192",
+            "No.192  合成数",
+            "f8ce3328c431737dcb748770abd9a09b",
+        )
     }
 
     #[test]
-    fn it_extracts_samples_from_problem246() -> Fallible<()> {
-        test_extracting_samples("/problems/no/246", "9debfd89a82271d763b717313363acda")
+    fn it_extracts_samples_from_no_246() -> Fallible<()> {
+        test_extracting_samples(
+            "https://yukicoder.me/problems/no/246",
+            "No.246  質問と回答",
+            "9debfd89a82271d763b717313363acda",
+        )
     }
 
-    fn test_extracting_samples(rel_url: &str, expected_md5: &str) -> Fallible<()> {
-        let html = get_html(rel_url)?;
-        let suite = html.extract_samples()?;
-        let actual_md5 = suite.md5()?;
+    fn test_extracting_samples(
+        url: &str,
+        expected_display: &str,
+        expected_md5: &str,
+    ) -> Fallible<()> {
+        let html = get_html(url)?;
+        let (actual_display, suite) = html.extract_samples()?;
+        let actual_md5 = format!("{:?}", suite.md5()?);
+        let actual = (actual_display.as_ref(), actual_md5.as_ref());
+        let expected = (expected_display, expected_md5);
+
         suite.assert_serialize_correctly()?;
-        assert_eq!(format!("{:x}", actual_md5), expected_md5);
+        assert_eq!(actual, expected);
         Ok(())
     }
 
     #[test]
     fn it_extracts_problems_names_and_hrefs_from_yukicoder_open_2015_small() -> ServiceResult<()> {
-        static EXPECTED: &[(&str, &str)] = &[
-            ("A", "/problems/no/191"),
-            ("B", "/problems/no/192"),
-            ("C", "/problems/no/193"),
-            ("D", "/problems/no/194"),
-            ("E", "/problems/no/195"),
-            ("F", "/problems/no/196"),
+        static EXPECTED: &[(&str, &str, &str)] = &[
+            ("A", "191", "https://yukicoder.me/problems/no/191"),
+            ("B", "192", "https://yukicoder.me/problems/no/192"),
+            ("C", "193", "https://yukicoder.me/problems/no/193"),
+            ("D", "194", "https://yukicoder.me/problems/no/194"),
+            ("E", "195", "https://yukicoder.me/problems/no/195"),
+            ("F", "196", "https://yukicoder.me/problems/no/196"),
         ];
-        let html = get_html("/contests/100")?;
-        let problems = html.extract_problems()?;
-        assert_eq!(problems, own_pairs(EXPECTED));
+
+        let html = get_html("https://yukicoder.me/contests/100")?;
+        let actual = html.extract_problems()?;
+        let actual = actual
+            .iter()
+            .map(|(s, d, u)| (s.as_ref(), d.as_ref(), u.as_ref()))
+            .collect::<Vec<_>>();
+        assert_eq!(actual, EXPECTED);
         Ok(())
     }
 
-    fn own_pairs<O: Borrow<B>, B: ToOwned<Owned = O> + ?Sized>(pairs: &[(&B, &B)]) -> Vec<(O, O)> {
-        pairs
-            .iter()
-            .map(|(l, r)| ((*l).to_owned(), (*r).to_owned()))
-            .collect()
-    }
-
-    fn get_html(rel_url: &str) -> reqwest::Result<Html> {
+    fn get_html(url: &str) -> reqwest::Result<Html> {
         let client = service::reqwest_sync_client(Duration::from_secs(60))?;
-        let url = format!("https://yukicoder.me{}", rel_url);
-        let text = client.get(&url).send()?.text()?;
+        let text = client.get(url).send()?.text()?;
         Ok(Html::parse_document(&text))
     }
 }

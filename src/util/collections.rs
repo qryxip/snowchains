@@ -2,7 +2,6 @@ use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools as _;
 use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_derive::Serialize;
 
 use std::cmp::Ord;
 use std::collections::BTreeMap;

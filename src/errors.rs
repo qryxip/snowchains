@@ -147,21 +147,6 @@ pub enum ServiceErrorKind {
         _0
     )]
     NoSuchLang(String),
-    #[display(
-        fmt = "Submission rejected: name={:?}, id={:?}, size={}, status={}, location={}",
-        lang_name,
-        lang_id,
-        size,
-        "status.as_u16()",
-        r#"location.as_ref().map(|s| format!("{:?}", s)).unwrap_or_else(|| "<none>".to_owned())"#
-    )]
-    SubmissionRejected {
-        lang_name: String,
-        lang_id: String,
-        size: usize,
-        status: StatusCode,
-        location: Option<String>,
-    },
     #[display(fmt = "Failed to login")]
     LoginRetriesExceeded,
 }

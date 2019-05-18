@@ -15,7 +15,6 @@ use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_derive::{Deserialize, Serialize};
 
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
@@ -861,7 +860,7 @@ mod tests {
     use failure::Fallible;
     use maplit::hashmap;
     use pretty_assertions::assert_eq;
-    use serde_derive::{Deserialize, Serialize};
+    use serde::{Deserialize, Serialize};
 
     use std::ffi::{OsStr, OsString};
     use std::path::Path;

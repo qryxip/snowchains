@@ -1,7 +1,6 @@
 use num_traits::Float;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Deserializer};
-use serde_derive::Serialize;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use std::convert::TryFrom;
 use std::num::ParseFloatError;

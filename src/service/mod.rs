@@ -16,6 +16,7 @@ use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFilePath, TestSuite};
 use crate::util;
 use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet, NonEmptyVec};
+use crate::util::fmt::{OptionDebugExt as _, OptionDisplayExt as _};
 use crate::util::str::CaseConversion;
 
 use chrono::{DateTime, FixedOffset};
@@ -28,8 +29,7 @@ use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::{RedirectPolicy, StatusCode};
-use serde::{Deserialize, Deserializer};
-use serde_derive::Serialize;
+use serde::{Deserialize, Deserializer, Serialize};
 use strum_macros::IntoStaticStr;
 use termcolor::WriteColor;
 use tokio::runtime::Runtime;
@@ -348,7 +348,7 @@ impl Outcome for LoginOutcome {
         true
     }
 
-    fn print_pretty(&self, _: impl Sized) -> io::Result<()> {
+    fn print_pretty(&self, _: bool, _: impl Sized) -> io::Result<()> {
         #[cfg(debug)]
         unreachable!();
 
@@ -364,7 +364,7 @@ impl Outcome for ParticipateOutcome {
         true
     }
 
-    fn print_pretty(&self, _: impl Sized) -> io::Result<()> {
+    fn print_pretty(&self, _: bool, _: impl Sized) -> io::Result<()> {
         #[cfg(debug)]
         unreachable!();
 
@@ -400,6 +400,8 @@ pub(self) struct RetrieveTestCasesOutcomeProblem {
     slug_kebab_case: String,
     slug_mixed_case: String,
     slug_pascal_case: String,
+    display_name: String,
+    screen_name: Option<String>,
     #[serde(serialize_with = "util::serde::ser_as_ref_path")]
     pub(self) test_suite_path: SuiteFilePath,
     pub(self) test_suite: TestSuite,
@@ -423,7 +425,9 @@ impl RetrieveTestCasesOutcome {
 
     pub(self) fn push_problem(
         &mut self,
-        slug: String,
+        slug: &str,
+        display_name: &str,
+        screen_name: Option<&str>,
         url: Url,
         suite: TestSuite,
         path: SuiteFilePath,
@@ -436,7 +440,9 @@ impl RetrieveTestCasesOutcome {
             slug_kebab_case: slug.to_kebab_case(),
             slug_mixed_case: slug.to_mixed_case(),
             slug_pascal_case: slug.to_camel_case(),
-            slug,
+            slug: slug.to_owned(),
+            display_name: display_name.to_owned(),
+            screen_name: screen_name.map(ToOwned::to_owned),
             test_suite_path: path,
             test_suite: suite,
         })
@@ -448,61 +454,100 @@ impl Outcome for RetrieveTestCasesOutcome {
         true
     }
 
-    fn print_pretty(&self, mut stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
-        let columns = self
-            .problems
-            .iter()
-            .map(|problem| {
-                let path = problem.test_suite_path.display().to_string();
-                (&problem.slug, path, &problem.test_suite)
-            })
-            .collect::<Vec<_>>();
-        let str_width = stdout.str_width_fn();
-        let slug_max_width = columns
-            .iter()
-            .map(|(s, _, _)| str_width(s))
-            .max()
-            .unwrap_or(0);
-        let path_max_width = columns
-            .iter()
-            .map(|(_, p, _)| str_width(p))
-            .max()
-            .unwrap_or(0);
-        for (slug, path, suite) in columns {
-            stdout.set_color(color!(bold))?;
-            write!(stdout, "{}:", slug)?;
-            stdout.reset()?;
-            stdout.write_spaces(slug_max_width - str_width(slug) + 1)?;
-            write!(stdout, "Saved to {}", path)?;
-            stdout.write_spaces(path_max_width - str_width(&path) + 1)?;
-            match suite {
-                TestSuite::Batch(suite) => match suite.num_cases() {
-                    0 => {
-                        stdout.set_color(color!(fg(Yellow), intense))?;
-                        stdout.write_str("(no test case)")?;
-                    }
-                    1 => {
-                        stdout.set_color(color!(fg(Green), intense))?;
-                        stdout.write_str("(1 test case)")?;
-                    }
-                    n => {
-                        stdout.set_color(color!(fg(Green), intense))?;
-                        write!(stdout, "({} test cases)", n)?;
-                    }
-                },
-                TestSuite::Interactive(_) => {
-                    stdout.set_color(color!(fg(Green), intense))?;
-                    stdout.write_str("(interactive problem)")?;
-                }
-                TestSuite::Unsubmittable => {
-                    stdout.set_color(color!(fg(Green), intense))?;
-                    stdout.write_str("(unsubmittable problem)")?;
-                }
+    fn print_pretty(
+        &self,
+        verbose: bool,
+        mut stdout: impl WriteColor + HasTermProps,
+    ) -> io::Result<()> {
+        if verbose {
+            writeln!(stdout, "Contest slug: {:?}", self.contest.slug)?;
+            for problem in &self.problems {
+                writeln!(stdout)?;
+                stdout.set_color(color!(bold))?;
+                stdout.write_str(&problem.slug)?;
+                stdout.reset()?;
+                writeln!(
+                    stdout,
+                    " ({:?}):\n\
+                     URL:         {}\n\
+                     Screen name: {}\n\
+                     Kind:        {}\n\
+                     Timelimit:   {}\n\
+                     Test cases:  {}\n\
+                     Saved as:    {}",
+                    problem.display_name,
+                    problem.url,
+                    problem.screen_name.fmt_debug_or("<none>"),
+                    match &problem.test_suite {
+                        TestSuite::Batch(_) => "Batch",
+                        TestSuite::Interactive(_) => "Interactive",
+                        TestSuite::Unsubmittable => "Unsubmittable",
+                    },
+                    problem.test_suite.timelimit().fmt_debug_or("<none>"),
+                    match &problem.test_suite {
+                        TestSuite::Batch(s) => s.num_cases().to_string(),
+                        TestSuite::Interactive(_) | TestSuite::Unsubmittable => "-".to_owned(),
+                    },
+                    problem.test_suite_path.display(),
+                )?;
             }
-            stdout.reset()?;
-            writeln!(stdout)?;
+            Ok(())
+        } else {
+            let columns = self
+                .problems
+                .iter()
+                .map(|problem| {
+                    let path = problem.test_suite_path.display().to_string();
+                    (&problem.slug, path, &problem.test_suite)
+                })
+                .collect::<Vec<_>>();
+            let str_width = stdout.str_width_fn();
+            let slug_max_width = columns
+                .iter()
+                .map(|(s, _, _)| str_width(s))
+                .max()
+                .unwrap_or(0);
+            let path_max_width = columns
+                .iter()
+                .map(|(_, p, _)| str_width(p))
+                .max()
+                .unwrap_or(0);
+            for (slug, path, suite) in columns {
+                stdout.set_color(color!(bold))?;
+                write!(stdout, "{}:", slug)?;
+                stdout.reset()?;
+                stdout.write_spaces(slug_max_width - str_width(slug) + 1)?;
+                write!(stdout, "Saved to {}", path)?;
+                stdout.write_spaces(path_max_width - str_width(&path) + 1)?;
+                match suite {
+                    TestSuite::Batch(suite) => match suite.num_cases() {
+                        0 => {
+                            stdout.set_color(color!(fg(Yellow), intense))?;
+                            stdout.write_str("(no test case)")?;
+                        }
+                        1 => {
+                            stdout.set_color(color!(fg(Green), intense))?;
+                            stdout.write_str("(1 test case)")?;
+                        }
+                        n => {
+                            stdout.set_color(color!(fg(Green), intense))?;
+                            write!(stdout, "({} test cases)", n)?;
+                        }
+                    },
+                    TestSuite::Interactive(_) => {
+                        stdout.set_color(color!(fg(Green), intense))?;
+                        stdout.write_str("(interactive problem)")?;
+                    }
+                    TestSuite::Unsubmittable => {
+                        stdout.set_color(color!(fg(Green), intense))?;
+                        stdout.write_str("(unsubmittable problem)")?;
+                    }
+                }
+                stdout.reset()?;
+                writeln!(stdout)?;
+            }
+            stdout.flush()
         }
-        stdout.flush()
     }
 }
 
@@ -523,10 +568,46 @@ impl Outcome for RetrieveSubmissionsOutcome {
         true
     }
 
-    fn print_pretty(&self, _: impl Sized) -> io::Result<()> {
-        #[cfg(debug)]
-        unreachable!();
-
+    fn print_pretty(&self, verbose: bool, mut stdout: impl WriteColor) -> io::Result<()> {
+        if verbose {
+            for (i, (url, submission)) in self.submissions.iter().enumerate() {
+                if i > 0 {
+                    writeln!(stdout)?;
+                }
+                stdout.set_color(color!(bold))?;
+                stdout.write_str(url)?;
+                stdout.reset()?;
+                writeln!(
+                    stdout,
+                    "\n\
+                     Problem URL:          {}\n\
+                     Problem slug:         {:?}\n\
+                     Problem display name: {:?}\n\
+                     Problem screen name:  {}\n\
+                     Language:             {:?}\n\
+                     Date time:            {}\n\
+                     Verdict:              {:?}\n\
+                     Saved as:             {}\n\
+                     Code size:            {}",
+                    submission.problem.url,
+                    submission.problem.slug,
+                    submission.problem.display_name,
+                    submission.problem.screen_name.fmt_debug_or("<none>"),
+                    submission.language,
+                    submission.date_time,
+                    submission.verdict.string,
+                    submission
+                        .saved_as
+                        .as_ref()
+                        .map(|p| p.display())
+                        .fmt_display_or("<none>"),
+                    match &submission.detail {
+                        None => "<none>".to_owned(),
+                        Some(detail) => format!("{} B", detail.code.len()),
+                    },
+                )?;
+            }
+        }
         Ok(())
     }
 }
@@ -553,7 +634,7 @@ pub(self) struct RetrieveSubmissionsOutcomeSubmissionProblem {
     slug_mixed_case: String,
     slug_pascal_case: String,
     display_name: String,
-    screen_name: String,
+    screen_name: Option<String>,
 }
 
 impl RetrieveSubmissionsOutcomeSubmissionProblem {
@@ -568,7 +649,7 @@ impl RetrieveSubmissionsOutcomeSubmissionProblem {
             slug_mixed_case: slug.to_mixed_case(),
             slug_pascal_case: slug.to_camel_case(),
             display_name: display.to_owned(),
-            screen_name: screen.to_owned(),
+            screen_name: Some(screen.to_owned()),
         }
     }
 }
@@ -605,7 +686,7 @@ impl Outcome for RetrieveLangsOutcome {
         true
     }
 
-    fn print_pretty(&self, mut stdout: impl WriteColor) -> io::Result<()> {
+    fn print_pretty(&self, _: bool, mut stdout: impl WriteColor) -> io::Result<()> {
         let mut table = Table::new();
         table.add_row(row!["Name", "ID"]);
         for (name, id) in &self.available_languages {
@@ -643,7 +724,11 @@ impl Outcome for SubmitOutcome {
         !self.rejected
     }
 
-    fn print_pretty(&self, mut stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
+    fn print_pretty(
+        &self,
+        verbose: bool,
+        mut stdout: impl WriteColor + HasTermProps,
+    ) -> io::Result<()> {
         if self.rejected {
             stdout.set_color(color!(fg(Red), intense))?;
             stdout.write_str("Submission rejected.\n\n")?;
@@ -651,19 +736,21 @@ impl Outcome for SubmitOutcome {
             stdout.set_color(color!(fg(Green), intense))?;
             stdout.write_str("Successfully submitted.\n\n")?;
         }
+        if verbose || self.rejected {
+            write!(
+                stdout,
+                "Response Status:            {}\n\
+                 Response \"Location\" Header: {}",
+                self.response.status,
+                self.response.header_location.fmt_debug_or("<none>"),
+            )?;
+        }
         write!(
             stdout,
-            "Response Status:            {}\n\
-             Response \"Location\" Header: {}\n\
-             Language Name:              {:?}\n\
+            "Language Name:              {:?}\n\
              Language ID:                {:?}\n\
              File:                       {}\n\
-             Code Size:                  {}B",
-            self.response.status,
-            match &self.response.header_location {
-                None => "<none>".to_owned(),
-                Some(l) => format!("{:?}", l),
-            },
+             Code Size:                  {} B",
             self.language.name,
             self.language.id,
             self.file.display(),

@@ -28,8 +28,7 @@ use regex::Regex;
 use reqwest::header;
 use scraper::{ElementRef, Html, Node, Selector};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Deserializer};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest as _, Sha512};
 use termcolor::WriteColor;
 use url::Url;
@@ -95,6 +94,8 @@ pub(super) fn submit(
         .parse_contest()?;
     Codeforces::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
+
+static BASE_URL: Lazy<Url> = Lazy::new(|| "https://codeforces.com".parse().unwrap());
 
 #[derive(Debug)]
 struct Codeforces<I: Input, E: WriteColor + HasTermProps> {
@@ -221,11 +222,11 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             }
             res = self.get(&top_path).send()?;
         }
-        for (slug, url) in res.html(self.runtime())?.extract_problems()? {
+        for ((slug, display_name), url) in res.html(self.runtime())?.extract_problems()? {
             if problems.map_or(true, |ps| ps.contains(&slug)) {
                 let suite = self.get(url.as_ref()).recv_html()?.extract_test_suite()?;
                 let path = destinations.expand(&slug)?;
-                outcome.push_problem(slug.clone(), url, suite, path);
+                outcome.push_problem(&slug, &display_name, None, url, suite, path);
             }
         }
 
@@ -457,7 +458,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         };
 
         loop {
-            let mut url = base_url();
+            let mut url = BASE_URL.clone();
 
             url.set_path(&format!("/api/{}", method));
 
@@ -648,7 +649,7 @@ struct Standings {
 
 trait Extract {
     fn extract_hidden_values(&self, form: &Selector) -> ScrapeResult<HashMap<String, String>>;
-    fn extract_problems(&self) -> ScrapeResult<NonEmptyIndexMap<String, Url>>;
+    fn extract_problems(&self) -> ScrapeResult<NonEmptyIndexMap<(String, String), Url>>;
     fn extract_test_suite(&self) -> ScrapeResult<TestSuite>;
     fn extract_meta_x_csrf_token(&self) -> ScrapeResult<String>;
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
@@ -679,17 +680,26 @@ impl Extract for Html {
         }
     }
 
-    fn extract_problems(&self) -> ScrapeResult<NonEmptyIndexMap<String, Url>> {
-        let problems = self
-            .select(selector!("table.problems > tbody > tr > td.id > a"))
-            .map(|a| {
-                let slug = a.text().assert_one()?.trim().to_owned();
-                let mut href = base_url();
-                href.set_path(a.value().attr("href").ok_or_else(ScrapeError::new)?);
-                Ok((slug, href))
+    fn extract_problems(&self) -> ScrapeResult<NonEmptyIndexMap<(String, String), Url>> {
+        self.select(selector!("table.problems > tbody > tr"))
+            .skip(1)
+            .map(|tr| {
+                let a1 = tr.select(selector!("td.id > a")).next()?;
+                let slug = a1.text().next()?.trim().to_owned();
+                let href1 = a1.value().attr("href")?;
+
+                let a2 = tr.select(selector!("td > div > div > a")).next()?;
+                let display = a2.text().next()?.trim().to_owned();
+                let href2 = a2.value().attr("href")?;
+
+                guard!(href1 == href2);
+                let url = BASE_URL.join(href1).ok()?;
+
+                Some(((slug, display), url))
             })
-            .collect::<ScrapeResult<IndexMap<_, _>>>()?;
-        NonEmptyIndexMap::try_new(problems).ok_or_else(ScrapeError::new)
+            .collect::<Option<IndexMap<_, _>>>()
+            .and_then(NonEmptyIndexMap::try_new)
+            .ok_or_else(ScrapeError::new)
     }
 
     fn extract_test_suite(&self) -> ScrapeResult<TestSuite> {
@@ -812,10 +822,6 @@ impl<'a> FoldTextAndBr for ElementRef<'a> {
     }
 }
 
-fn base_url() -> Url {
-    "https://codeforces.com".parse().unwrap()
-}
-
 #[cfg(test)]
 mod tests {
     use crate::errors::ServiceResult;
@@ -823,7 +829,6 @@ mod tests {
     use crate::service::codeforces::Extract as _;
 
     use failure::Fallible;
-    use itertools::Itertools as _;
     use pretty_assertions::assert_eq;
     use scraper::Html;
     use url::Url;
@@ -833,7 +838,7 @@ mod tests {
     #[test]
     fn test_extract_login_form() -> ServiceResult<()> {
         let form = service::reqwest_sync_client(Duration::from_secs(60))?
-            .get_html("/enter")?
+            .get_html(&"https://codeforces.com/enter".parse().unwrap())?
             .extract_hidden_values(selector!("#enterForm"))?;
         assert_eq!(form["action"], "enter");
         assert_eq!(form["csrf_token"].len(), 32);
@@ -844,52 +849,79 @@ mod tests {
 
     #[test]
     fn test_retrieve_from_educational_codeforces_round_46() -> Fallible<()> {
-        static URLS: &[(&str, &str)] = &[
-            ("A", "https://codeforces.com/contest/1000/problem/A"),
-            ("B", "https://codeforces.com/contest/1000/problem/B"),
-            ("C", "https://codeforces.com/contest/1000/problem/C"),
-            ("D", "https://codeforces.com/contest/1000/problem/D"),
-            ("E", "https://codeforces.com/contest/1000/problem/E"),
-            ("F", "https://codeforces.com/contest/1000/problem/F"),
-            ("G", "https://codeforces.com/contest/1000/problem/G"),
-        ];
-
-        static SUITES: &[&str] = &[
-            "c277d91927de5f4ffde5c68888dd83b6",
-            "796003638cf846e9ae6d2b7ac8b799c8",
-            "272bd6f863f4cddf8310fad7f8e6e9dc",
-            "6e17c97f18577da0d35f31f71bff0181",
-            "bcf2810cc0e0abc70344b81fe54fbbd4",
-            "20328ccf95014b444764147ee2b64912",
-            "a8345ca8a05620ac0c359529ff32738c",
+        static EXPECTED: &[(&str, &str, &str, &str)] = &[
+            (
+                "A",
+                "Codehorses T-shirts",
+                "https://codeforces.com/contest/1000/problem/A",
+                "c277d91927de5f4ffde5c68888dd83b6",
+            ),
+            (
+                "B",
+                "Light It Up",
+                "https://codeforces.com/contest/1000/problem/B",
+                "796003638cf846e9ae6d2b7ac8b799c8",
+            ),
+            (
+                "C",
+                "Covered Points Count",
+                "https://codeforces.com/contest/1000/problem/C",
+                "272bd6f863f4cddf8310fad7f8e6e9dc",
+            ),
+            (
+                "D",
+                "Yet Another Problem On a Subsequence",
+                "https://codeforces.com/contest/1000/problem/D",
+                "6e17c97f18577da0d35f31f71bff0181",
+            ),
+            (
+                "E",
+                "We Need More Bosses",
+                "https://codeforces.com/contest/1000/problem/E",
+                "bcf2810cc0e0abc70344b81fe54fbbd4",
+            ),
+            (
+                "F",
+                "One Occurrence",
+                "https://codeforces.com/contest/1000/problem/F",
+                "20328ccf95014b444764147ee2b64912",
+            ),
+            (
+                "G",
+                "Two-Paths",
+                "https://codeforces.com/contest/1000/problem/G",
+                "a8345ca8a05620ac0c359529ff32738c",
+            ),
         ];
 
         let client = service::reqwest_sync_client(Duration::from_secs(60))?;
 
-        let problems = client.get_html("/contest/1000")?.extract_problems()?;
-        for ((problem_a, url_a), (problem_e, url_e)) in problems.iter().zip_eq(URLS) {
-            assert_eq!(problem_a, problem_e);
-            assert_eq!(url_a.as_ref(), *url_e);
-        }
-        for ((_, url), expected) in URLS.iter().zip_eq(SUITES) {
-            let actual = client.get_html(url)?.extract_test_suite()?.md5()?;
-            assert_eq!(format!("{:x}", actual), *expected);
-        }
+        let actual = client
+            .get_html(&"https://codeforces.com/contest/1000".parse().unwrap())?
+            .extract_problems()?
+            .into_iter()
+            .map(|((slug, display), url)| -> Fallible<_> {
+                let md5 = client.get_html(&url)?.extract_test_suite()?.md5()?;
+                let md5 = format!("{:?}", md5);
+                Ok((slug, display, url, md5))
+            })
+            .collect::<Fallible<Vec<_>>>()?;
+        let actual = actual
+            .iter()
+            .map(|(s, d, u, m)| (s.as_ref(), d.as_ref(), u.as_ref(), m.as_ref()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, EXPECTED);
         Ok(())
     }
 
     trait GetHtml {
-        fn get_html(&self, url_or_path: &str) -> reqwest::Result<Html>;
+        fn get_html(&self, url: &Url) -> reqwest::Result<Html>;
     }
 
     impl GetHtml for reqwest::Client {
-        fn get_html(&self, url_or_path: &str) -> reqwest::Result<Html> {
-            let url = url_or_path.parse::<Url>().unwrap_or_else(|_| {
-                let mut url = "https://codeforces.com".parse::<Url>().unwrap();
-                url.set_path(url_or_path);
-                url
-            });
-            let text = self.get(url).send()?.error_for_status()?.text()?;
+        fn get_html(&self, url: &Url) -> reqwest::Result<Html> {
+            let text = self.get(url.clone()).send()?.error_for_status()?.text()?;
             Ok(Html::parse_document(&text))
         }
     }

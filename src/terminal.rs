@@ -1,5 +1,5 @@
 use either::Either;
-use serde_derive::Serialize;
+use serde::Serialize;
 use strum_macros::EnumString;
 use termcolor::{Ansi, ColorSpec, NoColor, WriteColor};
 use tokio::io::AsyncWrite;

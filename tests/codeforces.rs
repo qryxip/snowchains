@@ -27,8 +27,8 @@ fn it_logins() -> Fallible<()> {
         static MASK_API_SIG: Lazy<Regex> = Lazy::new(|| Regex::new("apiSig=[0-9a-f]+").unwrap());
 
         let code = app.run(Opt::Login(Login {
-            json: true,
-            output: OutputKind::None,
+            json: false,
+            output: OutputKind::Json,
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Codeforces,
         }))?;
@@ -78,6 +78,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     no_judge: true,
                     debug: false,
                     no_check_duplication: false,
+                    verbose: false,
                     json: false,
                     service: Some(ServiceKind::Codeforces),
                     contest: Some("1000".to_owned()),

@@ -30,7 +30,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use scraper::{ElementRef, Html, Selector};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use termcolor::WriteColor;
 use url::Url;
@@ -127,6 +127,8 @@ pub(super) fn submit(
         .unwrap();
     Atcoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
+
+static BASE_URL: Lazy<Url> = Lazy::new(|| "https://atcoder.jp".parse().unwrap());
 
 #[derive(Debug)]
 struct Atcoder<I: Input, E: WriteColor + HasTermProps> {
@@ -324,11 +326,16 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         }
         let mut outcome = RetrieveTestCasesOutcome::new(contest);
         for ((slug, url), (display_name, suite)) in slugs_and_urls.into_iter().zip_eq(suites) {
-            let _ = display_name;
             if problems.map_or(true, |ps| ps.iter().any(|p| *p == slug)) {
                 let path = destinations.expand(&slug)?;
                 let url = self.resolve_url(&url)?;
-                outcome.push_problem(slug, url, suite, path);
+                let screen_name = url
+                    .path_segments()
+                    .and_then(Iterator::last)
+                    .unwrap_or_default()
+                    .to_owned();
+                let screen_name = Some(screen_name.as_ref());
+                outcome.push_problem(&slug, &display_name, screen_name, url, suite, path);
             }
         }
         let mut not_found = problems
@@ -881,37 +888,37 @@ impl AtcoderContest {
     }
 
     fn url_top(&self) -> Url {
-        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        let mut ret = BASE_URL.clone();
         ret.set_path(&format!("/contests/{}", self.slug()));
         ret
     }
 
     fn url_tasks(&self) -> Url {
-        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        let mut ret = BASE_URL.clone();
         ret.set_path(&format!("/contests/{}/tasks", self.slug()));
         ret
     }
 
     fn url_tasks_print(&self) -> Url {
-        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        let mut ret = BASE_URL.clone();
         ret.set_path(&format!("/contests/{}/tasks_print", self.slug()));
         ret
     }
 
     fn url_register(&self) -> Url {
-        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        let mut ret = BASE_URL.clone();
         ret.set_path(&format!("/contests/{}/register", self.slug()));
         ret
     }
 
     fn url_submit(&self) -> Url {
-        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        let mut ret = BASE_URL.clone();
         ret.set_path(&format!("/contests/{}/submit", self.slug()));
         ret
     }
 
     fn url_submissions_me(&self, page: u32) -> Url {
-        let mut ret = "https://atcoder.jp".parse::<Url>().unwrap();
+        let mut ret = BASE_URL.clone();
         ret.set_path(&format!("/contests/{}/submissions/me", self.slug()));
         ret.query_pairs_mut().append_pair("page", &page.to_string());
         ret
@@ -1347,7 +1354,7 @@ impl Extract for Html {
                     let task_slug = SLUG.captures(&task_display)?[1].to_owned();
                     let task_path = a.value().attr("href")?;
                     let task_screen = SCREEN.captures(task_path)?[1].to_owned();
-                    let mut task_url = "https://atcoder.jp".parse::<Url>().unwrap();
+                    let mut task_url = BASE_URL.clone();
                     task_url.set_path(task_path);
                     let datetime = tr.select(selector!("td > time")).next()?.text().next()?;
                     let datetime = DateTime::parse_from_str(datetime, DATETIME).ok()?;
@@ -1365,7 +1372,7 @@ impl Extract for Html {
                     .flat_map(|a| {
                         let text = a.text().next()?;
                         guard!(["詳細", "Detail"].contains(&text));
-                        let mut url = "https://atcoder.jp".parse::<Url>().unwrap();
+                        let mut url = BASE_URL.clone();
                         url.set_path(a.value().attr("href")?);
                         Some(url)
                     })
