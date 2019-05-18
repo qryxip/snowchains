@@ -16,7 +16,7 @@ use failure::Fallible;
 use if_chain::if_chain;
 use indexmap::IndexMap;
 use pretty_assertions::assert_eq;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 
 use std::convert::TryFrom as _;
 use std::fs::File;

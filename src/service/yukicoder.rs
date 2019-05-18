@@ -19,7 +19,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::StatusCode;
 use scraper::Html;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use termcolor::WriteColor;
 use url::Url;
 

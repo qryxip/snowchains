@@ -6,7 +6,6 @@ use crossbeam_utils::atomic::AtomicCell;
 use itertools::{EitherOrBoth, Itertools as _};
 use once_cell::sync::Lazy;
 use serde::{Serialize, Serializer};
-use serde_derive::Serialize;
 use smallvec::SmallVec;
 use termcolor::WriteColor;
 use termcolor::{Color, ColorSpec};

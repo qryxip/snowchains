@@ -7,7 +7,7 @@ use crate::util::collections::NonEmptyVec;
 
 use failure::Fail as _;
 use itertools::Itertools as _;
-use serde_derive::Serialize;
+use serde::Serialize;
 use termcolor::WriteColor;
 use tokio_process::CommandExt as _;
 

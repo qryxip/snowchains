@@ -30,7 +30,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::{header, StatusCode};
 use scraper::{ElementRef, Html, Selector};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use termcolor::WriteColor;
 use url::Url;

@@ -14,8 +14,7 @@ use derive_new::new;
 use failure::Fail as _;
 use itertools::{EitherOrBoth, Itertools as _};
 use maplit::{hashmap, hashset};
-use serde::Serialize;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use yaml_rust::{Yaml, YamlEmitter};
 
 #[cfg(test)]

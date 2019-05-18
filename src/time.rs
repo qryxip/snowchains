@@ -146,7 +146,7 @@ mod tests {
     use crate::time::MillisRoundedUp as _;
 
     use pretty_assertions::assert_eq;
-    use serde_derive::{Deserialize, Serialize};
+    use serde::{Deserialize, Serialize};
 
     use std::time::Duration;
     use std::u64;

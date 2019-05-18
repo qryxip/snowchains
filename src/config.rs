@@ -19,7 +19,6 @@ use maplit::hashmap;
 use once_cell::sync::Lazy;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_derive::{Deserialize, Serialize};
 use strum_macros::EnumString;
 use termcolor::WriteColor;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};

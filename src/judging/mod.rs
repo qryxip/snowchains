@@ -15,7 +15,6 @@ use crate::util::io::AsyncBufferedWriter;
 
 use futures::{task, try_ready, Async, Future, Poll};
 use serde::{Serialize, Serializer};
-use serde_derive::Serialize;
 use termcolor::{ColorSpec, WriteColor};
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;

@@ -11,7 +11,6 @@ use crate::terminal::{AnsiColorChoice, AttemptEnableColor, HasTermProps, Input, 
 use crate::util::collections::NonEmptyVec;
 
 use serde::Serialize;
-use serde_derive::Serialize;
 use structopt::clap::Arg;
 use structopt::StructOpt;
 use strum_macros::EnumString;
