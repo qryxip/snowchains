@@ -80,6 +80,9 @@ term_size = "0.3.1"
 winapi = "0.3.7"
 winapi-util = "0.1.2"
 
+[target.'cfg(unix)'.dependencies]
+signal-hook = { version = "0.1.9", features = ["tokio-support"] }
+
 [dev-dependencies]
 difference = "2.0.0"
 md5 = "0.6.1"

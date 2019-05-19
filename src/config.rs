@@ -268,7 +268,7 @@ dropbox = false
 
 [session.retrieve]
 extension = "yml"
-text_file_dir = "${{service}}/${{snake_case(contest)}}/tests/${{snake_case(problem)}}"
+text_file_dir = ".snowchains/tests/${{service}}/${{snake_case(contest)}}/${{snake_case(problem)}}"
 
 [judge]
 testfile_extensions = ["json", "toml", "yaml", "yml"]

@@ -1,5 +1,5 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
-use crate::service::download::DownloadProgress;
+use crate::service::download::{self, DownloadProgress};
 use crate::service::session::{Session, State};
 use crate::service::{
     Contest, ExtractZip, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
@@ -17,7 +17,7 @@ use indexmap::IndexMap;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use reqwest::StatusCode;
+use reqwest::{header, StatusCode};
 use scraper::Html;
 use serde::Deserialize;
 use termcolor::WriteColor;
@@ -270,11 +270,22 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
         let text_file_paths = if solved_batch_nos.is_empty() {
             vec![]
         } else {
-            let urls = solved_batch_nos
+            let client = self.client();
+            let cookie_header = self.cookies_to_header_value()?;
+            let reqs = solved_batch_nos
                 .iter()
-                .flat_map(|no| BASE_URL.join(&format!("/problems/no/{}/testcase.zip", no)))
+                .map(|&no| {
+                    let mut url = BASE_URL.clone();
+                    url.set_path(&format!("/problems/no/{}/testcase.zip", no));
+                    let mut req = client.get(url.clone());
+                    if let Some(cookie_header) = &cookie_header {
+                        req = req.header(header::COOKIE, cookie_header);
+                    }
+                    (download::Name::new(no, url.into_string()), req)
+                })
                 .collect::<Vec<_>>();
-            self.download_progress(&urls, &solved_batch_nos, None)?
+
+            self.download_progress(reqs)?
                 .into_iter()
                 .zip_eq(&solved_batch_nos)
                 .map(|(zip, &no)| {

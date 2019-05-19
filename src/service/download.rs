@@ -1,5 +1,6 @@
 use crate::errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::session::Session;
+use crate::signal::Sigwinch;
 use crate::terminal::HasTermProps;
 use crate::util::io::AsyncBufferedWriter;
 
@@ -13,80 +14,71 @@ use std::convert::Infallible;
 use std::time::{Duration, Instant};
 use std::{char, io, mem};
 
+#[derive(Debug)]
+pub(super) struct Name {
+    short: String,
+    long: String,
+}
+
+impl Name {
+    pub(super) fn new(short: impl Into<String>, long: impl Into<String>) -> Self {
+        let (short, long) = (short.into(), long.into());
+        Self { short, long }
+    }
+}
+
 pub(super) trait DownloadProgress: Session {
-    /// # Panics
-    ///
-    /// Panics if the lengths are different.
     fn download_progress(
         &mut self,
-        urls: &[impl AsRef<str>],
-        alt_names: &[impl AsRef<str>],
-        alt_reqs: Option<Vec<reqwest::r#async::RequestBuilder>>,
+        reqs: Vec<(Name, reqwest::r#async::RequestBuilder)>,
     ) -> ServiceResult<Vec<Vec<u8>>> {
-        fn align(names: &[impl AsRef<str>], str_width: fn(&str) -> usize) -> (usize, Vec<String>) {
-            let name_len = names
-                .iter()
-                .map(|s| str_width(s.as_ref()))
-                .max()
-                .unwrap_or(0);
-            let names = names
-                .iter()
-                .map(|name| {
-                    let mut name = name.as_ref().to_owned();
-                    (0..name_len - str_width(&name)).for_each(|_| name.push(' '));
-                    name
-                })
-                .collect();
-            (name_len, names)
-        }
-
-        let client = self.client();
-        let cookie = self.cookies_to_header_value()?;
         let stderr = self.stderr();
-        const ALT_COLUMNS: usize = 100;
-        let names = {
-            let (url_len, urls) = align(urls, stderr.str_width_fn());
-            if stderr.columns().unwrap_or(ALT_COLUMNS) < url_len + 63 {
-                let (_, names) = align(alt_names, stderr.str_width_fn());
-                names
-            } else {
-                urls
-            }
-        };
+        let columns = stderr.columns_fn();
+
+        let short_name_width = reqs
+            .iter()
+            .map(|(n, _)| stderr.str_width(&n.short))
+            .max()
+            .unwrap_or(0);
+        let long_name_width = reqs
+            .iter()
+            .map(|(n, _)| stderr.str_width(&n.long))
+            .max()
+            .unwrap_or(0);
+
+        let progresses = reqs
+            .into_iter()
+            .map(|(name, req)| {
+                let (mut short, mut long) = (name.short, name.long);
+                (0..short_name_width - stderr.str_width(&short)).for_each(|_| short.push(' '));
+                (0..long_name_width - stderr.str_width(&long)).for_each(|_| long.push(' '));
+                (Name::new(short, long), Progress::Response(req.send()))
+            })
+            .collect::<Vec<_>>();
+
         let cjk = stderr.char_width('\u{2588}') == Some(2);
-        let progresses = match alt_reqs {
-            None => names
-                .into_iter()
-                .zip(urls)
-                .map(|(name, url)| {
-                    let mut req = client.get(url.as_ref());
-                    if let Some(cookie) = &cookie {
-                        req = req.header(header::COOKIE, cookie.clone());
-                    }
-                    (name, Progress::Response(req.send()))
-                })
-                .collect(),
-            Some(reqs) => names
-                .into_iter()
-                .zip(reqs)
-                .map(|(s, r)| (s, Progress::Response(r.send())))
-                .collect(),
-        };
+
         if stderr.supports_color() && !stderr.is_synchronous() {
             let wtr = stderr.ansi_async_wtr();
-            self.runtime().block_on(Downloading::new(
+            self.runtime().block_on(Downloading::try_new(
                 crate::signal::ctrl_c(),
                 wtr,
                 progresses,
+                short_name_width,
+                long_name_width,
+                columns,
                 cjk,
-            ))
+            )?)
         } else {
-            self.runtime().block_on(Downloading::new(
+            self.runtime().block_on(Downloading::try_new(
                 crate::signal::ctrl_c(),
                 io::sink(),
                 progresses,
+                short_name_width,
+                long_name_width,
+                columns,
                 cjk,
-            ))
+            )?)
         }
     }
 }
@@ -98,11 +90,16 @@ struct Downloading<
     R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
 > {
     ctrlc: C,
+    sigwinch: Sigwinch,
     bufwtr: AsyncBufferedWriter<W>,
     rendered_final_state: bool,
-    progresses: Vec<(String, Progress<R>)>,
+    progresses: Vec<(Name, Progress<R>)>,
     last_refreshed: Option<Instant>,
     min_refresh_interval: Duration,
+    current_columns: Option<usize>,
+    columns: fn() -> Option<usize>,
+    short_name_width: usize,
+    long_name_width: usize,
     started: Instant,
     cjk: bool,
 }
@@ -128,17 +125,31 @@ impl<
         R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
     > Downloading<C, W, R>
 {
-    fn new(ctrlc: C, wtr: W, progresses: Vec<(String, Progress<R>)>, cjk: bool) -> Self {
-        Self {
+    fn try_new(
+        ctrlc: C,
+        wtr: W,
+        progresses: Vec<(Name, Progress<R>)>,
+        short_name_width: usize,
+        long_name_width: usize,
+        columns: fn() -> Option<usize>,
+        cjk: bool,
+    ) -> io::Result<Self> {
+        let sigwinch = Sigwinch::try_new()?;
+        Ok(Self {
             ctrlc,
+            sigwinch,
             bufwtr: AsyncBufferedWriter::new(wtr),
             rendered_final_state: false,
             progresses,
             last_refreshed: None,
             min_refresh_interval: Duration::from_millis(100),
+            current_columns: (columns)(),
+            columns,
+            short_name_width,
+            long_name_width,
             started: Instant::now(),
             cjk,
-        }
+        })
     }
 
     fn render(&mut self, elapsed: Duration) {
@@ -166,16 +177,39 @@ impl<
             }
         }
 
+        #[derive(Clone, Copy, PartialEq)]
+        enum Mode {
+            Short,
+            Middle,
+            Long,
+        }
+
+        const RIGHT_SIDE_WIDTH: usize = 63;
+
+        let mode = match self.current_columns {
+            Some(w) if self.short_name_width + RIGHT_SIDE_WIDTH > w => Mode::Short,
+            Some(w) if self.long_name_width + RIGHT_SIDE_WIDTH > w => Mode::Middle,
+            _ => Mode::Long,
+        };
+
         for (i, (name, progress)) in self.progresses.iter().enumerate() {
+            let name = match mode {
+                Mode::Long => &name.long,
+                Mode::Middle | Mode::Short => &name.short,
+            };
+
             if self.last_refreshed.is_some() {
                 self.bufwtr.push_ansi_erase_in_line_entire();
             }
+
             match progress {
                 Progress::Response(_) => {
                     self.bufwtr.push_ansi_bold();
                     self.bufwtr.push_str(name);
                     self.bufwtr.push_ansi_reset();
-                    self.bufwtr.push_str("  Waiting response...");
+                    if mode != Mode::Short {
+                        self.bufwtr.push_str("  Waiting response...");
+                    }
                 }
                 Progress::Body(progress) => match (progress.buf.len(), progress.content_len) {
                     (n, None) => {
@@ -183,11 +217,13 @@ impl<
                         self.bufwtr.push_str(name);
                         self.bufwtr.push_ansi_reset();
                         self.bufwtr.push_str("  ???% ");
-                        self.bufwtr.push_str(if self.cjk {
-                            "[                                        ] "
-                        } else {
-                            "[                    ] "
-                        });
+                        if mode != Mode::Short {
+                            self.bufwtr.push_str(if self.cjk {
+                                "[                                        ] "
+                            } else {
+                                "[                    ] "
+                            });
+                        }
                         write_size(&mut self.bufwtr, n);
                         self.bufwtr.push_char(' ');
                         self.bufwtr.write_fmt_to_buf(format_args!(
@@ -198,24 +234,27 @@ impl<
                     }
                     (n, Some(d)) => {
                         self.bufwtr.write_fmt_to_buf(format_args!(
-                            "\x1b[1m{}\x1b[0m  {:>3}% [",
+                            "\x1b[1m{}\x1b[0m  {:>3}% ",
                             name,
                             100 * n / d,
                         ));
-                        let p = (160 * n / d) as u32;
-                        for i in 0..20 {
-                            if p <= 8 * i && self.cjk {
-                                self.bufwtr.push_str("  ");
-                            } else if p <= 8 * i {
-                                self.bufwtr.push_char(' ');
-                            } else if p >= 8 * (i + 1) {
-                                self.bufwtr.push_char('\u{2588}');
-                            } else {
-                                let c = char::from_u32(0x2590 - ((p - 8 * i) % 8)).unwrap();
-                                self.bufwtr.push_char(c);
+                        if mode != Mode::Short {
+                            self.bufwtr.push_str("[");
+                            let p = (160 * n / d) as u32;
+                            for i in 0..20 {
+                                if p <= 8 * i && self.cjk {
+                                    self.bufwtr.push_str("  ");
+                                } else if p <= 8 * i {
+                                    self.bufwtr.push_char(' ');
+                                } else if p >= 8 * (i + 1) {
+                                    self.bufwtr.push_char('\u{2588}');
+                                } else {
+                                    let c = char::from_u32(0x2590 - ((p - 8 * i) % 8)).unwrap();
+                                    self.bufwtr.push_char(c);
+                                }
                             }
+                            self.bufwtr.push_str("] ");
                         }
-                        self.bufwtr.push_str("] ");
                         write_size(&mut self.bufwtr, n);
                         self.bufwtr.push_char(' ');
                         self.bufwtr.write_fmt_to_buf(format_args!(
@@ -229,12 +268,15 @@ impl<
                     self.bufwtr.push_ansi_bold();
                     self.bufwtr.push_str(name);
                     self.bufwtr.push_ansi_reset();
-                    self.bufwtr.push_str(
-                        "  100% [\
-                         \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\
-                         \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\
-                         \u{2588}\u{2588}\u{2588}\u{2588}] ",
-                    );
+                    if mode != Mode::Short {
+                        self.bufwtr.push_str(
+                            "  100% [\
+                             \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\
+                             \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\
+                             \u{2588}\u{2588}\u{2588}\u{2588}]",
+                        );
+                    }
+                    self.bufwtr.push_char(' ');
                     write_size(&mut self.bufwtr, buf.len());
                     self.bufwtr.push_char(' ');
                     self.bufwtr.write_fmt_to_buf(format_args!(
@@ -272,6 +314,9 @@ impl<
         }
 
         self.ctrlc.poll()?;
+        if self.sigwinch.poll()?.is_ready() {
+            self.current_columns = (self.columns)();
+        }
         try_ready!(self.bufwtr.poll_flush_buf());
 
         let (mut any_not_ready, mut any_newly_ready_some) = (false, false);

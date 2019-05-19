@@ -2,7 +2,7 @@ use crate::errors::{
     FileResult, ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult,
 };
 use crate::path::AbsPath;
-use crate::service::download::DownloadProgress;
+use crate::service::download::{self, DownloadProgress};
 use crate::service::session::{Session, State};
 use crate::service::{
     Contest, LoginOutcome, ParticipateOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
@@ -459,22 +459,23 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         ) -> ServiceResult<HashMap<String, Vec<u8>>> {
             static ENDPOINT: &str = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
             let filenames = entries.iter().map(|e| &e.name).collect::<Vec<_>>();
-            let urls = vec![ENDPOINT; filenames.len()];
             let client = this.client();
-            let alt_reqs = filenames
+            let reqs = filenames
                 .iter()
                 .map(|filename| {
-                    client
+                    let req = client
                         .post(ENDPOINT)
                         .header(header::AUTHORIZATION, format!("Bearer {}", token))
                         .header(
                             "Dropbox-API-Arg",
                             json!({ "url": URL, "path": format!("{}/{}", prefix, filename) })
                                 .to_string(),
-                        )
+                        );
+                    let long_name = format!("{} ({})", ENDPOINT, filename);
+                    (download::Name::new(filename.as_str(), long_name), req)
                 })
                 .collect();
-            let files = this.download_progress(&urls, &filenames, Some(alt_reqs))?;
+            let files = this.download_progress(reqs)?;
             Ok(files
                 .into_iter()
                 .zip_eq(filenames)

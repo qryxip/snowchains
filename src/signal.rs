@@ -1,4 +1,4 @@
-use futures::{Future, Stream as _};
+use futures::{Async, Future, Poll, Stream};
 use tokio::timer::Interval;
 
 use std::io;
@@ -33,6 +33,49 @@ fn check_ctrl_c<T, E: From<io::Error> + From<tokio::timer::Error>>(
                 "Interrupted",
             )))
         })
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+pub(crate) struct Sigwinch(signal_hook::iterator::Async);
+
+#[cfg(not(unix))]
+#[derive(Debug)]
+pub(crate) struct Sigwinch(());
+
+impl Sigwinch {
+    #[cfg(unix)]
+    pub(crate) fn try_new() -> io::Result<Self> {
+        use signal_hook::iterator::Signals;
+
+        let inner = Signals::new(&[signal_hook::SIGWINCH])?.into_async()?;
+        Ok(Self(inner))
+    }
+
+    #[cfg(not(unix))]
+    pub(crate) fn try_new() -> io::Result<Self> {
+        Ok(Self(()))
+    }
+}
+
+impl Stream for Sigwinch {
+    type Item = ();
+    type Error = io::Error;
+
+    #[cfg(unix)]
+    #[inline]
+    fn poll(&mut self) -> Poll<Option<()>, io::Error> {
+        use futures::try_ready;
+
+        try_ready!(self.0.poll());
+        Ok(Async::Ready(Some(())))
+    }
+
+    #[cfg(not(unix))]
+    #[inline]
+    fn poll(&mut self) -> Poll<Option<()>, io::Error> {
+        Ok(Async::NotReady)
+    }
 }
 
 #[cfg(test)]
