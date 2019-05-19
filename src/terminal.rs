@@ -131,8 +131,8 @@ pub trait HasTermProps {
         (self.term_props().process_redirection)()
     }
 
-    fn columns(&self) -> Option<usize> {
-        (self.term_props().columns)()
+    fn columns_fn(&self) -> fn() -> Option<usize> {
+        self.term_props().columns
     }
 
     fn char_width_fn(&self) -> fn(char) -> Option<usize> {
@@ -141,6 +141,10 @@ pub trait HasTermProps {
 
     fn str_width_fn(&self) -> fn(&str) -> usize {
         self.term_props().str_width
+    }
+
+    fn columns(&self) -> Option<usize> {
+        (self.term_props().columns)()
     }
 
     fn char_width(&self, c: char) -> Option<usize> {
