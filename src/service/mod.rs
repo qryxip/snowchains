@@ -839,7 +839,7 @@ pub(crate) struct RetrieveTestCasesProps<C: Contest> {
     pub(crate) problems: Option<NonEmptyVec<String>>,
     pub(crate) destinations: Destinations,
     pub(crate) open_in_browser: bool,
-    pub(crate) only_scraped: bool,
+    pub(crate) attempt_full: bool,
 }
 
 impl RetrieveTestCasesProps<String> {
@@ -858,7 +858,7 @@ impl RetrieveTestCasesProps<String> {
             problems: self.problems,
             destinations: self.destinations,
             open_in_browser: self.open_in_browser,
-            only_scraped: self.only_scraped,
+            attempt_full: self.attempt_full,
         })
     }
 }

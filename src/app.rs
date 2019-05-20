@@ -173,18 +173,18 @@ pub enum Retrieve {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct RetrieveTestcases {
-    #[structopt(raw(open = "1"))]
-    pub open: bool,
-    #[structopt(raw(verbose = "2"))]
-    pub verbose: bool,
-    #[structopt(raw(json = "3"))]
-    pub json: bool,
     #[structopt(
-        long = "only-scraped",
-        help = "Does not download official test cases",
-        raw(display_order = "2")
+        long = "full",
+        help = "Downloads full test cases",
+        raw(display_order = "1")
     )]
-    pub only_scraped: bool,
+    pub full: bool,
+    #[structopt(raw(open = "2"))]
+    pub open: bool,
+    #[structopt(raw(verbose = "3"))]
+    pub verbose: bool,
+    #[structopt(raw(json = "4"))]
+    pub json: bool,
     #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Option(1)"#))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -607,10 +607,10 @@ impl<
             }
             Opt::Download(cli_args) | Opt::Retrieve(Retrieve::Testcases(cli_args)) => {
                 let RetrieveTestcases {
+                    full,
                     open,
                     verbose,
                     json,
-                    only_scraped,
                     service,
                     contest,
                     problems,
@@ -629,7 +629,7 @@ impl<
                         problems: NonEmptyVec::try_new(problems.clone()),
                         destinations: config.destinations(None),
                         open_in_browser: *open,
-                        only_scraped: *only_scraped,
+                        attempt_full: *full,
                     },
                     &mut self.stdin,
                     &mut self.stderr,

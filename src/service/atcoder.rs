@@ -22,6 +22,7 @@ use crate::util::scraper::ElementRefExt as _;
 use crate::util::str::CaseConversion;
 
 use chrono::{DateTime, FixedOffset, Local, Utc};
+use failure::Fail as _;
 use if_chain::if_chain;
 use indexmap::{indexset, IndexMap, IndexSet};
 use itertools::Itertools as _;
@@ -311,7 +312,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             problems,
             destinations,
             open_in_browser,
-            only_scraped,
+            attempt_full,
         } = props;
         let problems = problems.as_ref();
         let slugs_and_urls = self
@@ -341,15 +342,17 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let mut not_found = problems
             .map(|ps| ps.iter().collect::<IndexSet<_>>())
             .unwrap_or_default();
-        if !*only_scraped {
-            if let Some(dropbox_path) = dropbox_path {
-                let suites = outcome
-                    .problems
-                    .iter_mut()
-                    .map(|p| (p.slug.as_str(), &mut p.test_suite))
-                    .collect::<BTreeMap<_, _>>();
-                self.retrieve_from_dropbox(dropbox_path, &contest.slug(), suites, destinations)?;
-            }
+        if *attempt_full {
+            let dropbox_path = dropbox_path.as_ref().ok_or_else(|| {
+                failure::err_msg("`session.dropbox` is `false` in the config file")
+                    .context(ServiceErrorKind::UnableToDownloadFull)
+            })?;
+            let suites = outcome
+                .problems
+                .iter_mut()
+                .map(|p| (p.slug.as_str(), &mut p.test_suite))
+                .collect::<BTreeMap<_, _>>();
+            self.retrieve_from_dropbox(dropbox_path, &contest.slug(), suites, destinations)?;
         }
         for RetrieveTestCasesOutcomeProblem {
             slug,
@@ -403,18 +406,16 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             this: &mut Atcoder<impl Input, impl WriteColor + HasTermProps>,
             token: &str,
             contest_slug: &str,
-            mut problems: impl Iterator<Item = &'a str>,
-        ) -> ServiceResult<bool> {
+            problems: impl Iterator<Item = &'a str>,
+        ) -> ServiceResult<()> {
             #[derive(Deserialize)]
             #[serde(untagged)]
             enum ListFolderResult {
                 Ok(ListFolder),
-                Err(ErrorWithSummary),
+                Err(serde_json::Value),
             }
 
-            #[derive(Deserialize)]
-            struct ErrorWithSummary {}
-
+            let path = format!("/{}", contest_slug);
             let result = this
                 .post("https://api.dropboxapi.com/2/files/list_folder")
                 .bearer_auth(token)
@@ -422,20 +423,32 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 .no_cookie()
                 .json(&json!({
                     "shared_link": { "url": URL },
-                    "path": format!("/{}", contest_slug)
+                    "path": &path,
                 }))
                 .recv_json::<ListFolderResult>()?;
-            Ok(match result {
+            match result {
                 ListFolderResult::Ok(ok) => {
                     let names = ok
                         .entries
                         .iter()
                         .map(|e| e.name.as_str())
                         .collect::<HashSet<_>>();
-                    problems.all(|p| names.contains(p))
+                    let not_found = problems.filter(|p| !names.contains(p)).collect::<Vec<_>>();
+                    if not_found.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(ServiceError::from(
+                            failure::err_msg(format!("Some problems not found: {:?}", not_found))
+                                .context(ServiceErrorKind::UnableToDownloadFull),
+                        ))
+                    }
                 }
-                ListFolderResult::Err(_) => false,
-            })
+                ListFolderResult::Err(err) => Err(ServiceError::from(
+                    failure::err_msg(serde_json::to_string_pretty(&err).unwrap())
+                        .context(failure::err_msg(format!("Failed to read {:?}", path)))
+                        .context(ServiceErrorKind::UnableToDownloadFull),
+                )),
+            }
         }
 
         fn list_folder(
@@ -492,9 +505,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         }
 
         let token = self.auth_dropbox(auth_path, false)?;
-        if !confirm_folders_exist(self, &token, &contest_slug, suites.keys().cloned())? {
-            return Ok(());
-        }
+        confirm_folders_exist(self, &token, &contest_slug, suites.keys().cloned())?;
         let contents = suites
             .iter()
             .filter_map(|(problem, suite)| match suite {

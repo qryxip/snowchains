@@ -125,10 +125,10 @@ pub(crate) fn retrieve_testcases(
     problems: &[&str],
 ) -> snowchains::Result<()> {
     let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+        full: true,
         open: false,
         verbose: false,
         json: false,
-        only_scraped: false,
         service: Some(service),
         contest: Some(contest.to_owned()),
         problems: problems.iter().map(|&s| s.to_owned()).collect(),

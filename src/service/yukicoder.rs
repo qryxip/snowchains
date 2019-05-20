@@ -1,4 +1,4 @@
-use crate::errors::{ScrapeError, ScrapeResult, ServiceErrorKind, ServiceResult};
+use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::download::{self, DownloadProgress};
 use crate::service::session::{Session, State};
 use crate::service::{
@@ -24,6 +24,7 @@ use termcolor::WriteColor;
 use url::Url;
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::str::FromStr;
 use std::time::Duration;
@@ -178,7 +179,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             problems,
             destinations,
             open_in_browser,
-            only_scraped,
+            attempt_full,
         } = props;
         self.login(false)?;
         let scrape = |html: &Html, problem: &str| -> ServiceResult<_> {
@@ -245,50 +246,45 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                 }
             }
         }
-        let nos = outcome
-            .problems
-            .iter()
-            .map(|p| p.slug.clone())
-            .collect::<Vec<_>>();
-        let solved_batch_nos = if *only_scraped {
-            vec![]
-        } else {
-            self.filter_solved(&nos)?
-                .into_iter()
-                .filter(|no| {
-                    outcome
-                        .problems
-                        .iter()
-                        .any(|problem| match &problem.test_suite {
-                            TestSuite::Batch(_) => problem.slug == *no,
-                            _ => false,
-                        })
-                })
-                .collect()
-        };
 
-        let text_file_paths = if solved_batch_nos.is_empty() {
-            vec![]
-        } else {
+        let text_file_paths = if *attempt_full {
+            let nos = outcome
+                .problems
+                .iter()
+                .flat_map(|problem| match &problem.test_suite {
+                    TestSuite::Batch(_) => Some(problem.slug.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            if let Err(not_solved) = self.confirm_solved(&nos)? {
+                return Err(ServiceError::from(
+                    failure::err_msg(format!(
+                        "Some problems are not yet solved: {:?}",
+                        &*not_solved,
+                    ))
+                    .context(ServiceErrorKind::UnableToDownloadFull),
+                ));
+            }
             let client = self.client();
             let cookie_header = self.cookies_to_header_value()?;
-            let reqs = solved_batch_nos
+            let reqs = nos
                 .iter()
-                .map(|&no| {
+                .map(|no| {
                     let mut url = BASE_URL.clone();
                     url.set_path(&format!("/problems/no/{}/testcase.zip", no));
                     let mut req = client.get(url.clone());
                     if let Some(cookie_header) = &cookie_header {
                         req = req.header(header::COOKIE, cookie_header);
                     }
-                    (download::Name::new(no, url.into_string()), req)
+                    (download::Name::new(no.clone(), url.into_string()), req)
                 })
                 .collect::<Vec<_>>();
 
             self.download_progress(reqs)?
                 .into_iter()
-                .zip_eq(&solved_batch_nos)
-                .map(|(zip, &no)| {
+                .zip_eq(nos)
+                .map(|(zip, no)| {
                     static ZIP_ENTRIES: Lazy<ZipEntries> = Lazy::new(|| ZipEntries {
                         in_entry: Regex::new(r"\Atest_in/([a-z0-9_]+)\.txt\z").unwrap(),
                         in_match_group: 1,
@@ -298,12 +294,19 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                         out_crlf_to_lf: true,
                         sortings: vec![ZipEntriesSorting::Dictionary, ZipEntriesSorting::Number],
                     });
-                    let paths =
-                        self.extract_zip(no, &zip, &destinations.text_file_dir(no)?, &ZIP_ENTRIES)?;
+                    let paths = self.extract_zip(
+                        &no,
+                        &zip,
+                        &destinations.text_file_dir(&no)?,
+                        &ZIP_ENTRIES,
+                    )?;
                     Ok((no, paths))
                 })
                 .collect::<ServiceResult<Vec<_>>>()?
+        } else {
+            vec![]
         };
+
         for RetrieveTestCasesOutcomeProblem {
             slug,
             test_suite,
@@ -364,7 +367,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                 .map(|caps| caps[2].to_owned())
         };
         if let Some(no) = no {
-            if !(self.filter_solved(&[no])?.is_empty() || skip_checking_if_accepted) {
+            if !(self.confirm_solved(&[no])?.is_err() || skip_checking_if_accepted) {
                 return Err(ServiceErrorKind::AlreadyAccepted.into());
             }
         }
@@ -405,32 +408,38 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
         })
     }
 
-    fn filter_solved<'b>(
+    fn confirm_solved<'a>(
         &mut self,
-        nos: &'b [impl 'b + AsRef<str>],
-    ) -> ServiceResult<Vec<&'b str>> {
+        nos: &'a [impl 'a + AsRef<str>],
+    ) -> ServiceResult<std::result::Result<(), NonEmptyVec<&'a str>>> {
         #[derive(Deserialize)]
         #[serde(rename_all = "PascalCase")]
         struct Problem {
             no: u64,
         }
 
-        if let Some(username) = self.username.name().map(ToOwned::to_owned) {
-            let url = format!("/api/v1/solved/name/{}", username);
-            let solved_nos = self
-                .get(&url)
+        if let Some(username) = self.username.name() {
+            let mut url = BASE_URL.clone();
+            url.set_path("/api/v1/solved/name");
+            url.path_segments_mut().unwrap().push(username);
+            let solved = self
+                .get(url)
                 .send()?
                 .json::<Vec<Problem>>(self.runtime())?
                 .into_iter()
-                .map(|problem| problem.no.to_string())
-                .collect::<Vec<_>>();
-            Ok(nos
+                .map(|Problem { no }| no.to_string())
+                .collect::<HashSet<_>>();
+            let not_solved = nos
                 .iter()
                 .map(AsRef::as_ref)
-                .filter(|no1| solved_nos.iter().any(|no2| no1 == no2))
-                .collect())
+                .filter(|&no| !solved.contains(no))
+                .collect::<Vec<_>>();
+            Ok(match NonEmptyVec::try_new(not_solved) {
+                None => Ok(()),
+                Some(not_solved) => Err(not_solved),
+            })
         } else {
-            Ok(vec![])
+            Ok(Ok(()))
         }
     }
 

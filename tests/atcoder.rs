@@ -61,10 +61,10 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+                full: false,
                 open: false,
                 verbose: false,
                 json: false,
-                only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 problems: vec![],
@@ -92,10 +92,10 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+                full: false,
                 open: false,
                 verbose: false,
                 json: false,
-                only_scraped: true,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("abc100".to_owned()),
                 problems: vec![],
@@ -125,10 +125,10 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+                full: true,
                 open: false,
                 verbose: false,
                 json: false,
-                only_scraped: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("abc099".to_owned()),
                 problems: vec!["a".to_owned()],
