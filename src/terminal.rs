@@ -96,6 +96,16 @@ pub enum AnsiColorChoice {
     Always,
 }
 
+impl AnsiColorChoice {
+    pub(crate) fn with(self, colorize: bool) -> Self {
+        if colorize {
+            AnsiColorChoice::Always
+        } else {
+            self
+        }
+    }
+}
+
 pub(crate) trait WriteExt: Write {
     fn write_str(&mut self, s: impl AsRef<str>) -> io::Result<()> {
         self.write_all(s.as_ref().as_ref())

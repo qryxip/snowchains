@@ -21,7 +21,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
 #[derive(Debug, StructOpt)]
-#[structopt(usage = "snowchains <i|init> [OPTIONS] [directory]\
+#[structopt(usage = "snowchains <i|init> [FLAGS] [OPTIONS] [directory]\
                      \n    snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]\
                      \n    snowchains <l|login> [FLAGS] [OPTIONS] <service>\
                      \n    snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>\
@@ -35,7 +35,7 @@ pub enum Opt {
     #[structopt(
         about = "Creates a config file (\"snowchains.toml\")",
         name = "init",
-        usage = "snowchains <i|init> [OPTIONS] [directory]",
+        usage = "snowchains <i|init> [FLAGS] [OPTIONS] [directory]",
         raw(visible_alias = "\"i\"", display_order = "1")
     )]
     Init(Init),
@@ -94,6 +94,8 @@ pub enum Opt {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Init {
+    #[structopt(raw(colorize = "1"))]
+    colorize: bool,
     #[structopt(raw(color_choice = "1"))]
     color_choice: AnsiColorChoice,
     #[structopt(
@@ -108,6 +110,8 @@ pub struct Init {
 pub struct Switch {
     #[structopt(raw(json = "1"))]
     json: bool,
+    #[structopt(raw(colorize = "2"))]
+    colorize: bool,
     #[structopt(raw(service = r#"SERVICE_VALUES, Kind::Option(1)"#))]
     service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -124,6 +128,8 @@ pub struct Switch {
 pub struct Login {
     #[structopt(raw(json = "1"))]
     pub json: bool,
+    #[structopt(raw(colorize = "2"))]
+    pub colorize: bool,
     #[structopt(raw(output = r#""pretty", &["pretty", "json"], 1"#))]
     pub output: OutputKind,
     #[structopt(raw(color_choice = "2"))]
@@ -136,6 +142,8 @@ pub struct Login {
 pub struct Participate {
     #[structopt(raw(json = "1"))]
     json: bool,
+    #[structopt(raw(colorize = "2"))]
+    colorize: bool,
     #[structopt(raw(output = r#""pretty", &["pretty", "json"], 1"#))]
     output: OutputKind,
     #[structopt(raw(color_choice = "2"))]
@@ -185,6 +193,8 @@ pub struct RetrieveTestcases {
     pub verbose: bool,
     #[structopt(raw(json = "4"))]
     pub json: bool,
+    #[structopt(raw(colorize = "5"))]
+    pub colorize: bool,
     #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Option(1)"#))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -201,6 +211,8 @@ pub struct RetrieveTestcases {
 pub struct RetrieveLanguages {
     #[structopt(raw(json = "1"))]
     pub json: bool,
+    #[structopt(raw(colorize = "2"))]
+    pub colorize: bool,
     #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -225,6 +237,8 @@ pub struct RetrieveSubmissions {
     pub verbose: bool,
     #[structopt(raw(json = "3"))]
     pub json: bool,
+    #[structopt(raw(colorize = "4"))]
+    pub colorize: bool,
     #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -256,6 +270,8 @@ pub struct Judge {
     pub verbose: bool,
     #[structopt(raw(json = "3"))]
     pub json: bool,
+    #[structopt(raw(colorize = "4"))]
+    pub colorize: bool,
     #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -314,6 +330,8 @@ pub struct Submit {
     pub verbose: bool,
     #[structopt(raw(json = "8"))]
     pub json: bool,
+    #[structopt(raw(colorize = "9"))]
+    pub colorize: bool,
     #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
@@ -345,6 +363,7 @@ enum Kind {
 trait ArgExt {
     fn verbose(self, order: usize) -> Self;
     fn json(self, order: usize) -> Self;
+    fn colorize(self, order: usize) -> Self;
     fn force_compile(self, order: usize) -> Self;
     fn open(self, order: usize) -> Self;
     fn language(self, order: usize) -> Self;
@@ -372,6 +391,14 @@ impl ArgExt for Arg<'static, 'static> {
         self.long("json")
             .help("Equivalents to `--output json`")
             .conflicts_with_all(&["verbose", "output"])
+            .display_order(order)
+    }
+
+    fn colorize(self, order: usize) -> Self {
+        self.short("C")
+            .long("colorize")
+            .help("Equivalents to `--color always`")
+            .conflicts_with("color")
             .display_order(order)
     }
 
@@ -434,9 +461,8 @@ impl ArgExt for Arg<'static, 'static> {
     }
 
     fn color_choice(self, order: usize) -> Self {
-        self.short("C")
-            .long("color")
-            .help("Use colors")
+        self.long("color")
+            .help("Coloring")
             .required(false)
             .possible_values(&["never", "auto", "always"])
             .value_name("WHEN")
@@ -512,10 +538,11 @@ impl<
         match &opt {
             Opt::Init(cli_args) => {
                 let Init {
+                    colorize,
                     color_choice,
                     directory,
                 } = cli_args;
-                self.attempt_enable_color(*color_choice);
+                self.attempt_enable_color(color_choice.with(*colorize));
                 let wd = wd.join_canonicalizing_lossy(&directory);
                 config::init(&mut self.stderr, &wd)?;
                 Ok(0)
@@ -523,6 +550,7 @@ impl<
             Opt::Switch(cli_args) => {
                 let Switch {
                     json,
+                    colorize,
                     service,
                     contest,
                     language,
@@ -531,7 +559,7 @@ impl<
                 } = cli_args;
                 let contest = contest.as_ref().map(AsRef::as_ref);
                 let language = language.as_ref().map(AsRef::as_ref);
-                self.attempt_enable_color(*color_choice);
+                self.attempt_enable_color(color_choice.with(*colorize));
                 let (config, outcome) = config::switch(
                     &mut self.stdout,
                     &mut self.stderr,
@@ -554,11 +582,12 @@ impl<
             Opt::Login(cli_args) => {
                 let Login {
                     json,
+                    colorize,
                     output,
                     color_choice,
                     service,
                 } = cli_args;
-                self.attempt_enable_color(*color_choice);
+                self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(Some(*service), None, None, &wd)?;
                 self.apply_console_conf(config.console());
                 let outcome = service::login(
@@ -580,12 +609,13 @@ impl<
             Opt::Participate(cli_args) => {
                 let Participate {
                     json,
+                    colorize,
                     output,
                     color_choice,
                     service,
                     contest,
                 } = cli_args;
-                self.attempt_enable_color(*color_choice);
+                self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(Some(*service), Some(contest), None, &wd)?;
                 self.apply_console_conf(config.console());
                 let outcome = service::participate(
@@ -611,6 +641,7 @@ impl<
                     open,
                     verbose,
                     json,
+                    colorize,
                     service,
                     contest,
                     problems,
@@ -618,7 +649,7 @@ impl<
                     color_choice,
                 } = cli_args;
                 let contest = contest.as_ref().map(AsRef::as_ref);
-                self.attempt_enable_color(*color_choice);
+                self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(*service, contest, None, &self.working_dir)?;
                 self.apply_console_conf(config.console());
                 let outcome = service::retrieve_testcases(
@@ -647,6 +678,7 @@ impl<
             Opt::Retrieve(Retrieve::Languages(cli_args)) => {
                 let RetrieveLanguages {
                     json,
+                    colorize,
                     service,
                     contest,
                     output,
@@ -655,7 +687,7 @@ impl<
                 } = cli_args;
                 let contest = contest.as_ref().map(AsRef::as_ref);
                 let problem = problem.clone();
-                self.attempt_enable_color(*color_choice);
+                self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(*service, contest, None, &wd)?;
                 let contest = config.contest().to_owned();
                 let outcome = service::retrieve_langs(
@@ -680,6 +712,7 @@ impl<
                     fetch_all,
                     verbose,
                     json,
+                    colorize,
                     service,
                     contest,
                     mode,
@@ -689,7 +722,7 @@ impl<
                 } = cli_args;
                 let contest = contest.as_ref().map(AsRef::as_ref);
                 let problems = problems.clone();
-                self.attempt_enable_color(*color_choice);
+                self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(*service, contest, None, &wd)?;
                 self.apply_console_conf(config.console());
                 let outcome = service::retrieve_submissions(
@@ -711,10 +744,11 @@ impl<
             }
             Opt::Judge(cli_args) => {
                 let Judge {
-                    verbose,
-                    json,
                     force_compile,
                     release,
+                    verbose,
+                    json,
+                    colorize,
                     service,
                     contest,
                     language,
@@ -731,7 +765,7 @@ impl<
                 } else {
                     *mode
                 };
-                self.attempt_enable_color(*color_choice);
+                self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(*service, contest, language, &wd)?;
                 self.apply_console_conf(config.console());
                 let outcome = judging::judge(JudgeParams {
@@ -763,6 +797,7 @@ impl<
                     no_check_duplication,
                     verbose,
                     json,
+                    colorize,
                     language,
                     service,
                     contest,
@@ -775,7 +810,7 @@ impl<
                 let contest = contest.as_ref().map(AsRef::as_ref);
                 let language = language.as_ref().map(AsRef::as_ref);
                 let mode = if *debug { config::Mode::Debug } else { *mode };
-                self.attempt_enable_color(*color_choice);
+                self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(*service, contest, language, &wd)?;
                 self.apply_console_conf(config.console());
                 if *only_transpile {

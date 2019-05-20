@@ -71,6 +71,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     no_check_duplication: false,
                     verbose: false,
                     json: false,
+                    colorize: false,
                     service: Some(ServiceKind::Yukicoder),
                     contest: Some("no".to_owned()),
                     language: Some("python3-with-invalid-lang-names".to_owned()),
@@ -115,6 +116,7 @@ fn it_submits_to_no_9000() -> Fallible<()> {
                 no_check_duplication: false,
                 verbose: false,
                 json: false,
+                colorize: false,
                 service: Some(ServiceKind::Yukicoder),
                 contest: Some("no".to_owned()),
                 language: Some("text".to_owned()),
@@ -144,6 +146,7 @@ fn it_retrieves_languages() -> Fallible<()> {
 
             let code = app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
                 json: false,
+                colorize: false,
                 service: Some(ServiceKind::Yukicoder),
                 contest: Some("no".to_owned()),
                 output: OutputKind::Pretty,

@@ -2,6 +2,7 @@
 
 ### Added
 
+* `-C|--colorize` option, which equivalent to `--color always`
 * `--mode` option to `judge`, `retrieve submissions`, and `submit`.
 * `--release` option to `judge`, which equivalent to `--mode release`.
 * `--debug` option to `submit`, which equivalent to `--mode debug`.

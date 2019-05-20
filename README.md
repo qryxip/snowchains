@@ -57,7 +57,7 @@ Ryo Yamashita <qryxip@gmail.com>
 Tools for online programming contests
 
 USAGE:
-    snowchains <i|init> [OPTIONS] [directory]
+    snowchains <i|init> [FLAGS] [OPTIONS] [directory]
     snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]
     snowchains <l|login> [FLAGS] [OPTIONS] <service>
     snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>
@@ -77,7 +77,7 @@ SUBCOMMANDS:
     switch         Modifies values in a config file [aliases: w, checkout, c]
     login          Logges in to a service [aliases: l]
     participate    Participates in a contest [aliases: p]
-    download       Equivalents to `retrieve testcases` [aliases: d]
+    download       An alias for `retrieve testcases` [aliases: d]
     retrieve       Retrieves data [aliases: r]
     judge          Tests a binary or script [aliases: j, test, t]
     submit         Submits a source file [aliases: s]
@@ -89,11 +89,11 @@ $ snowchains init ./
 $ snowchains switch --service atcoder --contest practice --language c++
 $ # snowchains login atcoder
 $ # snowchains participate atcoder practice
-$ snowchains retrieve testcases --open   # does not ask your username and password unless they are needed
-$ $EDITOR ./atcoder/practice/tests/a.yml # add more test cases
+$ snowchains retrieve testcases --open               # it does not ask your username and password unless they are needed
+$ $EDITOR ./.snowchains/tests/atcoder/practice/a.yml # add more test cases
 $ $EDITOR ./atcoder/practice/cpp/a.cpp
 $ # snowchains judge a
-$ snowchains submit a --open             # executes `judge` command before submitting
+$ snowchains submit a --open                         # it executes `judge` command before submitting
 ```
 
 ## Examples

@@ -110,6 +110,7 @@ pub(crate) fn login(
 ) -> snowchains::Result<()> {
     let code = app.run(Opt::Login(Login {
         json: false,
+        colorize: false,
         output: OutputKind::Json,
         color_choice: AnsiColorChoice::Never,
         service,
@@ -129,6 +130,7 @@ pub(crate) fn retrieve_testcases(
         open: false,
         verbose: false,
         json: false,
+        colorize: false,
         service: Some(service),
         contest: Some(contest.to_owned()),
         problems: problems.iter().map(|&s| s.to_owned()).collect(),
