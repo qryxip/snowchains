@@ -122,6 +122,8 @@ pub enum ServiceErrorKind {
     UnexpectedStatusCode(Url, StatusCode, Vec<StatusCode>),
     #[display(fmt = "API error")]
     Api,
+    #[display(fmt = "Unable to download full test cases")]
+    UnableToDownloadFull,
     #[display(
         fmt = "The default browser terminated abnormally {}",
         r#"match _0.code() {

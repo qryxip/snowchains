@@ -421,32 +421,20 @@ impl BatchSuite {
         self
     }
 
-    pub(crate) fn push_path(&mut self, name: String, in_path: AbsPathBuf, out_path: AbsPathBuf) {
+    pub(crate) fn push_paths(&mut self, name: &str, in_path: &AbsPath, out_path: &AbsPath) {
         self.cases.push(BatchSuiteSchemaCase {
-            name: Some(name),
+            name: Some(name.to_owned()),
             input: BatchSuiteText::Path {
-                path: in_path.into(),
+                path: in_path.to_owned().into(),
             },
             output: Some(BatchSuiteText::Path {
-                path: out_path.into(),
+                path: out_path.to_owned().into(),
             }),
         });
     }
 
-    pub(crate) fn paths(mut self, paths: Vec<(String, AbsPathBuf, AbsPathBuf)>) -> Self {
-        for (name, in_path, out_path) in paths {
-            self.push_path(name, in_path, out_path);
-        }
-        self
-    }
-
     pub(crate) fn clear_cases(&mut self) {
         self.cases.clear();
-    }
-
-    pub(crate) fn without_cases(mut self) -> Self {
-        self.cases.clear();
-        self
     }
 
     fn cases_named(self, path: &AbsPath) -> FileResult<Vec<BatchCase>> {

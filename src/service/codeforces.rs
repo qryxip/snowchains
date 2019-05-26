@@ -7,19 +7,18 @@ use crate::errors::{
 use crate::service::session::{Session, State};
 use crate::service::{
     Contest, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps, RetrieveSubmissionsOutcome,
-    RetrieveSubmissionsProps, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem,
-    RetrieveTestCasesProps, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
-    SubmitOutcomeResponse, SubmitProps,
+    RetrieveSubmissionsProps, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
+    RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesProps, SessionProps, SubmitOutcome,
+    SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
 };
 use crate::terminal::{HasTermProps, Input};
 use crate::testsuite::{self, BatchSuite, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
-use crate::util::indexmap::IndexSetAsRefStrExt as _;
 use crate::util::scraper::ElementRefExt as _;
 use crate::util::str::CaseConversion;
 
 use if_chain::if_chain;
-use indexmap::{IndexMap, IndexSet};
+use indexmap::{indexmap, IndexMap};
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
@@ -196,13 +195,15 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             problems,
             destinations,
             open_in_browser,
+            save_files,
             ..
         } = props;
 
         let problems = problems.as_ref();
         let top_path = format!("/contest/{}", contest.id);
 
-        let mut outcome = RetrieveTestCasesOutcome::new(&contest);
+        let mut outcome = RetrieveTestCasesOutcomeBuilder::new(&contest, save_files);
+        outcome.push_submissions_url(contest.submissions_url());
 
         let mut res = self.get(&top_path).acceptable(&[200, 302]).send()?;
         if res.status() == 302 {
@@ -226,43 +227,23 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             if problems.map_or(true, |ps| ps.contains(&slug)) {
                 let suite = self.get(url.as_ref()).recv_html()?.extract_test_suite()?;
                 let path = destinations.expand(&slug)?;
-                outcome.push_problem(&slug, &display_name, None, url, suite, path);
+                outcome.push_problem(RetrieveTestCasesOutcomeBuilderProblem {
+                    url,
+                    slug,
+                    display_name,
+                    screen_name: None,
+                    test_suite_contents: suite,
+                    test_suite_location: path,
+                    text_files: indexmap!(),
+                });
             }
         }
 
-        let mut not_found = problems
-            .map(|ps| ps.iter().collect::<IndexSet<_>>())
-            .unwrap_or_default();
-
-        for RetrieveTestCasesOutcomeProblem {
-            slug,
-            test_suite,
-            test_suite_path,
-            ..
-        } in &outcome.problems
-        {
-            test_suite.save(test_suite_path)?;
-            not_found.remove(&slug);
-        }
-        let stderr = self.stderr();
-        stderr.flush()?;
-
-        if !not_found.is_empty() {
-            stderr.set_color(color!(fg(Yellow), intense))?;
-            write!(stderr, "Not found: {}", not_found.format_as_str_list())?;
-            stderr.reset()?;
-            writeln!(stderr)?;
-            stderr.flush()?;
+        if let Some(problems) = problems {
+            self.warn_not_found(&problems, &outcome.problem_slugs())?;
         }
 
-        if open_in_browser {
-            self.open_in_browser(&format!("/contest/{}/my", contest.id))?;
-            for RetrieveTestCasesOutcomeProblem { url, .. } in &outcome.problems {
-                self.open_in_browser(url.as_str())?;
-            }
-        }
-
-        Ok(outcome)
+        outcome.finish(open_in_browser, self.stderr())
     }
 
     fn retrieve_langs(
@@ -372,7 +353,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         let header_location = res.header_location()?.map(ToOwned::to_owned);
 
         if !rejected && open_in_browser {
-            self.open_in_browser(&format!("/contest/{}/my", contest.id))?;
+            self.open_in_browser(contest.submissions_url())?;
         }
 
         Ok(SubmitOutcome {
@@ -507,6 +488,14 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
 #[display(fmt = "{}", id)]
 struct CodeforcesContest {
     id: u64,
+}
+
+impl CodeforcesContest {
+    fn submissions_url(self) -> Url {
+        let mut ret = BASE_URL.clone();
+        ret.set_path(&format!("/contest/{}/my", self.id));
+        ret
+    }
 }
 
 impl FromStr for CodeforcesContest {

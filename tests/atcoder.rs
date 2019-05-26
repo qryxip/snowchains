@@ -28,6 +28,7 @@ fn it_logins() -> Fallible<()> {
     fn login(mut app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> {
         let code = app.run(Opt::Login(Login {
             json: false,
+            colorize: false,
             output: OutputKind::Json,
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Atcoder,
@@ -61,10 +62,12 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+                full: false,
+                no_save: false,
                 open: false,
                 verbose: false,
                 json: false,
-                only_scraped: true,
+                colorize: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 problems: vec![],
@@ -92,10 +95,12 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+                full: false,
+                no_save: false,
                 open: false,
                 verbose: false,
                 json: false,
-                only_scraped: true,
+                colorize: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("abc100".to_owned()),
                 problems: vec![],
@@ -125,10 +130,12 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
         &credentials_as_input()?,
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+                full: true,
+                no_save: false,
                 open: false,
                 verbose: false,
                 json: false,
-                only_scraped: false,
+                colorize: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("abc099".to_owned()),
                 problems: vec!["a".to_owned()],
@@ -199,8 +206,10 @@ fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
                 fetch_all: false,
+                no_save: false,
                 verbose: false,
                 json: false,
+                colorize: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 mode: config::Mode::Debug,
@@ -221,6 +230,7 @@ Username: Password: POST https://atcoder.jp/login ... 302 Found
 GET https://atcoder.jp/settings ... 200 OK
 Successfully logged in.
 GET https://atcoder.jp/contests/practice ... 200 OK
+POST https://atcoder.jp/contests/practice/register ... 302 Found
 "#,
             ));
             Ok(())
@@ -248,6 +258,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     no_check_duplication: false,
                     verbose: false,
                     json: false,
+                    colorize: false,
                     service: Some(ServiceKind::Atcoder),
                     contest: Some("practice".to_owned()),
                     language: Some("python3-with-invalid-lang-names".to_owned()),
@@ -299,6 +310,7 @@ if __name__ == '__main__':
                 no_check_duplication: false,
                 verbose: false,
                 json: false,
+                colorize: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 language: Some("python3".to_owned()),
@@ -322,6 +334,7 @@ fn it_retrieves_languages_in_practice() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
                 json: false,
+                colorize: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("practice".to_owned()),
                 output: OutputKind::Pretty,
@@ -475,6 +488,7 @@ fn it_retrieves_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
         |mut app| -> _ {
             app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
                 json: false,
+                colorize: false,
                 service: Some(ServiceKind::Atcoder),
                 contest: Some("tenka1-2016-final-open".to_owned()),
                 output: OutputKind::Pretty,

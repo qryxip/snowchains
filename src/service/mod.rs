@@ -15,21 +15,23 @@ use crate::template::Template;
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFilePath, TestSuite};
 use crate::util;
-use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet, NonEmptyVec};
+use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet};
 use crate::util::fmt::{OptionDebugExt as _, OptionDisplayExt as _};
 use crate::util::str::CaseConversion;
 
 use chrono::{DateTime, FixedOffset};
+use derive_new::new;
 use failure::ResultExt as _;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use maplit::hashmap;
 use prettytable::{cell, row, Table};
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::{RedirectPolicy, StatusCode};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::ser::SerializeMap as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use strum_macros::IntoStaticStr;
 use termcolor::WriteColor;
 use tokio::runtime::Runtime;
@@ -214,7 +216,7 @@ pub(self) trait ExtractZip {
         zip: &[u8],
         dir: &AbsPath,
         entries: &'static ZipEntries,
-    ) -> FileResult<Vec<(String, AbsPathBuf, AbsPathBuf)>> {
+    ) -> FileResult<IndexMap<String, (AbsPathBuf, String, AbsPathBuf, String)>> {
         let out = self.out();
         let ZipEntries {
             in_entry,
@@ -301,25 +303,13 @@ pub(self) trait ExtractZip {
             }
         }
 
-        let ret = cases
+        Ok(cases
             .into_iter()
             .map(|(name, (in_path, in_content), (out_path, out_content))| {
                 let (in_path, out_path) = (dir.join(in_path), dir.join(out_path));
-                crate::fs::write(&in_path, in_content.as_ref())?;
-                crate::fs::write(&out_path, out_content.as_ref())?;
-                Ok((name, in_path, out_path))
+                (name, (in_path, in_content, out_path, out_content))
             })
-            .collect::<FileResult<Vec<_>>>()?;
-        out.set_color(color!(bold))?;
-        out.write_str(name)?;
-        out.reset()?;
-        writeln!(
-            out,
-            ": Saved {} to {}",
-            plural!(2 * ret.len(), "file", "files"),
-            dir.display(),
-        )?;
-        Ok(ret)
+            .collect())
     }
 }
 
@@ -375,7 +365,226 @@ impl Outcome for ParticipateOutcome {
 #[derive(Debug, Serialize)]
 pub(crate) struct RetrieveTestCasesOutcome {
     contest: RetrieveTestCasesOutcomeContest,
+    #[serde(serialize_with = "util::serde::ser_str_slice")]
+    submissions_urls: Vec<Url>,
     pub(self) problems: Vec<RetrieveTestCasesOutcomeProblem>,
+}
+
+impl Outcome for RetrieveTestCasesOutcome {
+    fn is_success(&self) -> bool {
+        true
+    }
+
+    fn print_pretty(
+        &self,
+        verbose: bool,
+        mut stdout: impl WriteColor + HasTermProps,
+    ) -> io::Result<()> {
+        fn common_ancestor<'a>(paths: &[&'a AbsPath]) -> Option<&'a AbsPath> {
+            paths.get(0).map(|path| {
+                let mut ret = path.parent().unwrap_or(paths[0]);
+                while !paths.iter().all(|p| p.starts_with(ret)) {
+                    match ret.parent() {
+                        None => break,
+                        Some(next) => ret = next,
+                    }
+                }
+                ret
+            })
+        }
+
+        if verbose {
+            writeln!(stdout, "Contest slug: {:?}", self.contest.slug)?;
+
+            for problem in &self.problems {
+                writeln!(stdout)?;
+                stdout.set_color(color!(bold))?;
+                stdout.write_str(&problem.slug)?;
+                stdout.reset()?;
+                writeln!(
+                    stdout,
+                    " ({:?}):\n\
+                     URL:         {}\n\
+                     Screen name: {}\n\
+                     Kind:        {}\n\
+                     Timelimit:   {}\n\
+                     Test cases:  {}\n\
+                     Location:    {}\n\
+                     Saved:       {:?}",
+                    problem.display_name,
+                    problem.url,
+                    problem.screen_name.fmt_debug_or("<none>"),
+                    match &problem.test_suite.contents {
+                        TestSuite::Batch(_) => "Batch",
+                        TestSuite::Interactive(_) => "Interactive",
+                        TestSuite::Unsubmittable => "Unsubmittable",
+                    },
+                    problem
+                        .test_suite
+                        .contents
+                        .timelimit()
+                        .fmt_debug_or("<none>"),
+                    match &problem.test_suite.contents {
+                        TestSuite::Batch(s) => s.num_cases().to_string(),
+                        TestSuite::Interactive(_) | TestSuite::Unsubmittable => "N/A".to_owned(),
+                    },
+                    problem.test_suite.location.display(),
+                    problem.test_suite.saved,
+                )?;
+            }
+
+            for problem in &self.problems {
+                if !problem.text_files.is_empty() {
+                    writeln!(stdout)?;
+                    stdout.write_str("Text files of ")?;
+                    stdout.set_color(color!(bold))?;
+                    stdout.write_str(&problem.slug)?;
+                    stdout.reset()?;
+                    stdout.write_str(":\n")?;
+                    for (name, text_files) in &problem.text_files {
+                        writeln!(
+                            stdout,
+                            "  - Name:  {}\
+                             \n    In:    {}\
+                             \n    Out:   {}",
+                            name,
+                            text_files.r#in.location.display(),
+                            text_files.out.location.display(),
+                        )?;
+                    }
+                }
+            }
+        } else {
+            let lines = self
+                .problems
+                .iter()
+                .map(|problem| {
+                    let slug = &problem.slug;
+                    let location = problem.test_suite.location.display().to_string();
+                    let saved = problem.test_suite.saved;
+                    let test_suite = &problem.test_suite.contents;
+                    let text_files = &problem.text_files;
+                    let text_dir = {
+                        let paths = text_files
+                            .iter()
+                            .flat_map(|(_, t)| vec![&*t.r#in.location, &*t.out.location])
+                            .collect::<Vec<_>>();
+                        common_ancestor(&paths).map(|d| d.display().to_string())
+                    };
+                    (slug, location, saved, test_suite, text_files, text_dir)
+                })
+                .collect::<Vec<_>>();
+
+            let str_width = stdout.str_width_fn();
+            let slug_max_width = lines
+                .iter()
+                .map(|(s, _, _, _, _, _)| str_width(s))
+                .max()
+                .unwrap_or(0);
+            let location_max_width = lines
+                .iter()
+                .map(|(_, s, _, _, _, _)| str_width(s))
+                .max()
+                .unwrap_or(0);
+            let text_dir_max_width = lines
+                .iter()
+                .flat_map(|(_, _, _, _, _, s)| s.as_ref().map(|s| str_width(s)))
+                .max()
+                .unwrap_or(0);
+
+            for (slug, location, saved, suite, _, _) in &lines {
+                stdout.set_color(color!(bold))?;
+                stdout.write_str(slug)?;
+                stdout.reset()?;
+                stdout.write_str(": ")?;
+                stdout.write_spaces(slug_max_width - str_width(slug))?;
+
+                if *saved {
+                    stdout.write_str("Saved as ")?;
+                    stdout.set_color(color!(bold))?;
+                    stdout.write_str(&location)?;
+                } else {
+                    stdout.set_color(color!(fg(Yellow), intense))?;
+                    stdout.write_str("NOT saved as ")?;
+                    stdout.set_color(color!(fg(Yellow), intense, bold))?;
+                    stdout.write_str(&location)?;
+                }
+                stdout.write_spaces(location_max_width - str_width(&location))?;
+
+                match &suite {
+                    TestSuite::Batch(suite) => match suite.num_cases() {
+                        0 => {
+                            stdout.set_color(color!(fg(Yellow), intense))?;
+                            stdout.write_str(" (no test case)")?;
+                        }
+                        1 => {
+                            stdout.set_color(color!(fg(Green), intense))?;
+                            stdout.write_str(" (1 test case)")?;
+                        }
+                        n => {
+                            stdout.set_color(color!(fg(Green), intense))?;
+                            write!(stdout, " ({} test cases)", n)?;
+                        }
+                    },
+                    TestSuite::Interactive(_) => {
+                        stdout.set_color(color!(fg(Green), intense))?;
+                        stdout.write_str(" (interactive problem)")?;
+                    }
+                    TestSuite::Unsubmittable => {
+                        stdout.set_color(color!(fg(Green), intense))?;
+                        stdout.write_str(" (unsubmittable problem)")?;
+                    }
+                }
+
+                stdout.reset()?;
+                writeln!(stdout)?;
+            }
+
+            for (slug, _, saved, _, text_files, text_dir) in lines {
+                if let Some(text_dir) = text_dir {
+                    let num_files = 2 * text_files.len();
+                    let size_sum = text_files
+                        .iter()
+                        .map(|(_, t)| t.r#in.contents.len() + t.out.contents.len())
+                        .sum::<usize>();
+
+                    stdout.set_color(color!(bold))?;
+                    stdout.write_str(slug)?;
+                    stdout.reset()?;
+                    stdout.write_str(": ")?;
+                    stdout.write_spaces(slug_max_width - str_width(slug))?;
+
+                    if saved {
+                        stdout.write_str("Saved ")?;
+                        stdout.set_color(color!(bold))?;
+                        write!(stdout, "{}", num_files)?;
+                        stdout.reset()?;
+                        stdout.write_str(" files to ")?;
+                        stdout.set_color(color!(bold))?;
+                        stdout.write_str(&text_dir)?;
+                        stdout.reset()?;
+                        stdout.write_spaces(text_dir_max_width - str_width(&text_dir))?;
+                        writeln!(stdout, " ({} B)", size_sum)?;
+                    } else {
+                        stdout.set_color(color!(fg(Yellow), intense))?;
+                        stdout.write_str("NOT Saved ")?;
+                        stdout.set_color(color!(fg(Yellow), intense, bold))?;
+                        write!(stdout, "{}", num_files)?;
+                        stdout.set_color(color!(fg(Yellow), intense))?;
+                        stdout.write_str(" files to ")?;
+                        stdout.set_color(color!(fg(Yellow), intense, bold))?;
+                        stdout.write_str(&text_dir)?;
+                        stdout.reset()?;
+                        stdout.write_spaces(text_dir_max_width - str_width(&text_dir))?;
+                        writeln!(stdout, " ({} B)", size_sum)?;
+                        stdout.reset()?;
+                        writeln!(stdout)?;
+                    }
+                }
+            }
+        }
+        stdout.flush()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -392,8 +601,8 @@ struct RetrieveTestCasesOutcomeContest {
 #[derive(Debug, Serialize)]
 pub(self) struct RetrieveTestCasesOutcomeProblem {
     #[serde(serialize_with = "util::serde::ser_as_ref_str")]
-    pub(self) url: Url,
-    pub(self) slug: String,
+    url: Url,
+    slug: String,
     slug_lower_case: String,
     slug_upper_case: String,
     slug_snake_case: String,
@@ -402,13 +611,51 @@ pub(self) struct RetrieveTestCasesOutcomeProblem {
     slug_pascal_case: String,
     display_name: String,
     screen_name: Option<String>,
-    #[serde(serialize_with = "util::serde::ser_as_ref_path")]
-    pub(self) test_suite_path: SuiteFilePath,
-    pub(self) test_suite: TestSuite,
+    test_suite: RetrieveTestCasesOutcomeProblemTestSuite,
+    text_files: IndexMap<String, RetrieveTestCasesOutcomeProblemTextFiles>,
 }
 
-impl RetrieveTestCasesOutcome {
-    pub(self) fn new(contest: &impl Contest) -> Self {
+#[derive(Debug, Serialize, new)]
+struct RetrieveTestCasesOutcomeProblemTestSuite {
+    contents: TestSuite,
+    #[serde(serialize_with = "util::serde::ser_as_ref_path")]
+    location: SuiteFilePath,
+    saved: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct RetrieveTestCasesOutcomeProblemTextFiles {
+    r#in: RetrieveTestCasesOutcomeProblemTextFile,
+    out: RetrieveTestCasesOutcomeProblemTextFile,
+}
+
+#[derive(Debug)]
+struct RetrieveTestCasesOutcomeProblemTextFile {
+    contents: String,
+    location: AbsPathBuf,
+    saved: bool,
+}
+
+impl Serialize for RetrieveTestCasesOutcomeProblemTextFile {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut serializer = serializer.serialize_map(Some(3))?;
+        serializer.serialize_entry("size", &self.contents.len())?;
+        serializer.serialize_entry("location", &self.location)?;
+        serializer.serialize_entry("saved", &self.saved)?;
+        serializer.end()
+    }
+}
+
+#[derive(Debug)]
+pub(self) struct RetrieveTestCasesOutcomeBuilder {
+    contest: RetrieveTestCasesOutcomeContest,
+    submissions_urls: Vec<Url>,
+    problems: Vec<RetrieveTestCasesOutcomeBuilderProblem>,
+    save_files: bool,
+}
+
+impl RetrieveTestCasesOutcomeBuilder {
+    pub(self) fn new(contest: &impl Contest, save_files: bool) -> Self {
         Self {
             contest: RetrieveTestCasesOutcomeContest {
                 slug: contest.slug().into(),
@@ -419,148 +666,151 @@ impl RetrieveTestCasesOutcome {
                 slug_mixed_case: contest.slug().to_mixed_case(),
                 slug_pascal_case: contest.slug().to_camel_case(),
             },
+            submissions_urls: vec![],
             problems: vec![],
+            save_files,
         }
     }
 
-    pub(self) fn push_problem(
-        &mut self,
-        slug: &str,
-        display_name: &str,
-        screen_name: Option<&str>,
-        url: Url,
-        suite: TestSuite,
-        path: SuiteFilePath,
-    ) {
-        self.problems.push(RetrieveTestCasesOutcomeProblem {
-            url,
-            slug_lower_case: slug.to_lowercase(),
-            slug_upper_case: slug.to_uppercase(),
-            slug_snake_case: slug.to_snake_case(),
-            slug_kebab_case: slug.to_kebab_case(),
-            slug_mixed_case: slug.to_mixed_case(),
-            slug_pascal_case: slug.to_camel_case(),
-            slug: slug.to_owned(),
-            display_name: display_name.to_owned(),
-            screen_name: screen_name.map(ToOwned::to_owned),
-            test_suite_path: path,
-            test_suite: suite,
+    pub(self) fn push_submissions_url(&mut self, url: Url) {
+        self.submissions_urls.push(url);
+    }
+
+    pub(self) fn problems(&self) -> &[RetrieveTestCasesOutcomeBuilderProblem] {
+        &self.problems
+    }
+
+    pub(self) fn problems_mut(&mut self) -> &mut [RetrieveTestCasesOutcomeBuilderProblem] {
+        &mut self.problems
+    }
+
+    pub(self) fn push_problem(&mut self, problem: RetrieveTestCasesOutcomeBuilderProblem) {
+        self.problems.push(problem);
+    }
+
+    pub(self) fn problem_slugs(&self) -> IndexSet<String> {
+        self.problems.iter().map(|p| p.slug.clone()).collect()
+    }
+
+    pub(self) fn finish(
+        self,
+        open_browser: bool,
+        mut stderr: impl WriteColor,
+    ) -> ServiceResult<RetrieveTestCasesOutcome> {
+        for problem in &self.problems {
+            let RetrieveTestCasesOutcomeBuilderProblem {
+                test_suite_contents,
+                test_suite_location,
+                text_files,
+                ..
+            } = problem;
+            if self.save_files {
+                test_suite_contents.save(&test_suite_location)?;
+            }
+            for text_files in text_files.values() {
+                let RetrieveTestCasesOutcomeBuilderProblemTextFiles {
+                    in_contents,
+                    in_location,
+                    out_contents,
+                    out_location,
+                } = text_files;
+                if self.save_files {
+                    crate::fs::write(in_location, in_contents.as_ref())?;
+                }
+                if self.save_files {
+                    crate::fs::write(out_location, out_contents.as_ref())?;
+                }
+            }
+        }
+
+        if open_browser {
+            for submissions_url in &self.submissions_urls {
+                writeln!(stderr, "Opening {} in default browser...", submissions_url)?;
+            }
+            for problem in &self.problems {
+                writeln!(stderr, "Opening {} in default browser...", problem.url)?;
+                let status = webbrowser::open(problem.url.as_ref())?.status;
+                if !status.success() {
+                    return Err(ServiceErrorKind::Webbrowser(status).into());
+                }
+            }
+            stderr.flush()?;
+        }
+
+        let saved = self.save_files;
+
+        let problems = self
+            .problems
+            .into_iter()
+            .map(|problem| RetrieveTestCasesOutcomeProblem {
+                url: problem.url,
+                slug_lower_case: problem.slug.to_lowercase(),
+                slug_upper_case: problem.slug.to_uppercase(),
+                slug_snake_case: problem.slug.to_snake_case(),
+                slug_kebab_case: problem.slug.to_kebab_case(),
+                slug_mixed_case: problem.slug.to_mixed_case(),
+                slug_pascal_case: problem.slug.to_camel_case(),
+                slug: problem.slug,
+                display_name: problem.display_name,
+                screen_name: problem.screen_name,
+                test_suite: RetrieveTestCasesOutcomeProblemTestSuite {
+                    contents: problem.test_suite_contents,
+                    location: problem.test_suite_location,
+                    saved,
+                },
+                text_files: problem
+                    .text_files
+                    .into_iter()
+                    .map(|(name, text_files)| {
+                        let text_files = RetrieveTestCasesOutcomeProblemTextFiles {
+                            r#in: RetrieveTestCasesOutcomeProblemTextFile {
+                                contents: text_files.in_contents,
+                                location: text_files.in_location,
+                                saved,
+                            },
+                            out: RetrieveTestCasesOutcomeProblemTextFile {
+                                contents: text_files.out_contents,
+                                location: text_files.out_location,
+                                saved,
+                            },
+                        };
+                        (name, text_files)
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        Ok(RetrieveTestCasesOutcome {
+            contest: self.contest,
+            submissions_urls: self.submissions_urls,
+            problems,
         })
     }
 }
 
-impl Outcome for RetrieveTestCasesOutcome {
-    fn is_success(&self) -> bool {
-        true
-    }
-
-    fn print_pretty(
-        &self,
-        verbose: bool,
-        mut stdout: impl WriteColor + HasTermProps,
-    ) -> io::Result<()> {
-        if verbose {
-            writeln!(stdout, "Contest slug: {:?}", self.contest.slug)?;
-            for problem in &self.problems {
-                writeln!(stdout)?;
-                stdout.set_color(color!(bold))?;
-                stdout.write_str(&problem.slug)?;
-                stdout.reset()?;
-                writeln!(
-                    stdout,
-                    " ({:?}):\n\
-                     URL:         {}\n\
-                     Screen name: {}\n\
-                     Kind:        {}\n\
-                     Timelimit:   {}\n\
-                     Test cases:  {}\n\
-                     Saved as:    {}",
-                    problem.display_name,
-                    problem.url,
-                    problem.screen_name.fmt_debug_or("<none>"),
-                    match &problem.test_suite {
-                        TestSuite::Batch(_) => "Batch",
-                        TestSuite::Interactive(_) => "Interactive",
-                        TestSuite::Unsubmittable => "Unsubmittable",
-                    },
-                    problem.test_suite.timelimit().fmt_debug_or("<none>"),
-                    match &problem.test_suite {
-                        TestSuite::Batch(s) => s.num_cases().to_string(),
-                        TestSuite::Interactive(_) | TestSuite::Unsubmittable => "-".to_owned(),
-                    },
-                    problem.test_suite_path.display(),
-                )?;
-            }
-            Ok(())
-        } else {
-            let columns = self
-                .problems
-                .iter()
-                .map(|problem| {
-                    let path = problem.test_suite_path.display().to_string();
-                    (&problem.slug, path, &problem.test_suite)
-                })
-                .collect::<Vec<_>>();
-            let str_width = stdout.str_width_fn();
-            let slug_max_width = columns
-                .iter()
-                .map(|(s, _, _)| str_width(s))
-                .max()
-                .unwrap_or(0);
-            let path_max_width = columns
-                .iter()
-                .map(|(_, p, _)| str_width(p))
-                .max()
-                .unwrap_or(0);
-            for (slug, path, suite) in columns {
-                stdout.set_color(color!(bold))?;
-                write!(stdout, "{}:", slug)?;
-                stdout.reset()?;
-                stdout.write_spaces(slug_max_width - str_width(slug) + 1)?;
-                write!(stdout, "Saved to {}", path)?;
-                stdout.write_spaces(path_max_width - str_width(&path) + 1)?;
-                match suite {
-                    TestSuite::Batch(suite) => match suite.num_cases() {
-                        0 => {
-                            stdout.set_color(color!(fg(Yellow), intense))?;
-                            stdout.write_str("(no test case)")?;
-                        }
-                        1 => {
-                            stdout.set_color(color!(fg(Green), intense))?;
-                            stdout.write_str("(1 test case)")?;
-                        }
-                        n => {
-                            stdout.set_color(color!(fg(Green), intense))?;
-                            write!(stdout, "({} test cases)", n)?;
-                        }
-                    },
-                    TestSuite::Interactive(_) => {
-                        stdout.set_color(color!(fg(Green), intense))?;
-                        stdout.write_str("(interactive problem)")?;
-                    }
-                    TestSuite::Unsubmittable => {
-                        stdout.set_color(color!(fg(Green), intense))?;
-                        stdout.write_str("(unsubmittable problem)")?;
-                    }
-                }
-                stdout.reset()?;
-                writeln!(stdout)?;
-            }
-            stdout.flush()
-        }
-    }
+#[derive(Debug)]
+pub(self) struct RetrieveTestCasesOutcomeBuilderProblem {
+    pub(self) url: Url,
+    pub(self) slug: String,
+    pub(self) display_name: String,
+    pub(self) screen_name: Option<String>,
+    pub(self) test_suite_contents: TestSuite,
+    pub(self) test_suite_location: SuiteFilePath,
+    pub(self) text_files: IndexMap<String, RetrieveTestCasesOutcomeBuilderProblemTextFiles>,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug)]
+pub(self) struct RetrieveTestCasesOutcomeBuilderProblemTextFiles {
+    pub(self) in_contents: String,
+    pub(self) in_location: AbsPathBuf,
+    pub(self) out_contents: String,
+    pub(self) out_location: AbsPathBuf,
+}
+
+#[derive(Debug, Serialize)]
 pub(crate) struct RetrieveSubmissionsOutcome {
     #[serde(serialize_with = "util::serde::ser_indexmap_with_as_ref_str_keys")]
     submissions: IndexMap<Url, RetrieveSubmissionsOutcomeSubmission>,
-}
-
-impl RetrieveSubmissionsOutcome {
-    pub(self) fn new() -> Self {
-        Self::default()
-    }
 }
 
 impl Outcome for RetrieveSubmissionsOutcome {
@@ -607,26 +857,54 @@ impl Outcome for RetrieveSubmissionsOutcome {
                     },
                 )?;
             }
+        } else {
+            let mut num_saved = 0;
+
+            for (i, submission) in self.submissions.values().enumerate() {
+                if i > 0 {
+                    writeln!(stdout)?;
+                }
+
+                stdout.set_color(color!(bold))?;
+                stdout.write_str(&submission.problem.slug)?;
+                if let Some(saved_as) = &submission.saved_as {
+                    stdout.reset()?;
+                    writeln!(
+                        stdout,
+                        " ({:?}): Saved to {}",
+                        submission.language,
+                        saved_as.display(),
+                    )?;
+                    num_saved += 1;
+                } else {
+                    stdout.set_color(color!(fg(Yellow), intense))?;
+                    write!(stdout, " ({:?}): Not saved", submission.language)?;
+                    stdout.reset()?;
+                    writeln!(stdout)?;
+                }
+            }
+
+            writeln!(stdout, "Saved {}.", plural!(num_saved, "file", "files"))?;
         }
-        Ok(())
+        stdout.flush()
     }
 }
 
 #[derive(Debug, Serialize)]
-pub(self) struct RetrieveSubmissionsOutcomeSubmission {
-    pub(self) problem: RetrieveSubmissionsOutcomeSubmissionProblem,
-    pub(self) language: String,
-    pub(self) date_time: DateTime<FixedOffset>,
-    pub(self) verdict: RetrieveSubmissionsOutcomeSubmissionVerdict,
-    pub(self) saved_as: Option<AbsPathBuf>,
-    pub(self) detail: Option<RetrieveSubmissionsOutcomeSubmissionDetail>,
+struct RetrieveSubmissionsOutcomeSubmission {
+    problem: RetrieveSubmissionsOutcomeSubmissionProblem,
+    language: String,
+    date_time: DateTime<FixedOffset>,
+    verdict: RetrieveSubmissionsOutcomeSubmissionVerdict,
+    saved_as: Option<AbsPathBuf>,
+    detail: Option<RetrieveSubmissionsOutcomeSubmissionDetail>,
 }
 
 #[derive(Debug, Serialize)]
 pub(self) struct RetrieveSubmissionsOutcomeSubmissionProblem {
     #[serde(serialize_with = "util::serde::ser_as_ref_str")]
     url: Url,
-    pub(self) slug: String,
+    slug: String,
     slug_lower_case: String,
     slug_upper_case: String,
     slug_snake_case: String,
@@ -637,32 +915,88 @@ pub(self) struct RetrieveSubmissionsOutcomeSubmissionProblem {
     screen_name: Option<String>,
 }
 
-impl RetrieveSubmissionsOutcomeSubmissionProblem {
-    pub(self) fn new(url: &Url, slug: &str, display: &str, screen: &str) -> Self {
-        Self {
-            url: url.clone(),
-            slug: slug.to_owned(),
-            slug_lower_case: slug.to_lowercase(),
-            slug_upper_case: slug.to_uppercase(),
-            slug_snake_case: slug.to_snake_case(),
-            slug_kebab_case: slug.to_kebab_case(),
-            slug_mixed_case: slug.to_mixed_case(),
-            slug_pascal_case: slug.to_camel_case(),
-            display_name: display.to_owned(),
-            screen_name: Some(screen.to_owned()),
+#[derive(Debug, Serialize)]
+struct RetrieveSubmissionsOutcomeSubmissionVerdict {
+    is_ok: bool,
+    string: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RetrieveSubmissionsOutcomeSubmissionDetail {
+    code: String,
+}
+
+#[derive(Debug, Default)]
+struct RetrieveSubmissionsOutcomeBuilder {
+    submissions: IndexMap<Url, RetrieveSubmissionsOutcomeBuilderSubmission>,
+}
+
+impl RetrieveSubmissionsOutcomeBuilder {
+    pub(self) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(self) fn problem_slugs(&self) -> IndexSet<String> {
+        self.submissions
+            .values()
+            .map(|s| s.problem_slug.clone())
+            .collect()
+    }
+
+    pub(self) fn finish(self) -> ServiceResult<RetrieveSubmissionsOutcome> {
+        for (_, submission) in &self.submissions {
+            if let (Some(location), Some(code)) = (&submission.location, &submission.code) {
+                crate::fs::write(location, code.as_ref())?;
+            }
         }
+
+        let submissions = self
+            .submissions
+            .into_iter()
+            .map(|(url, submission)| {
+                let submission = RetrieveSubmissionsOutcomeSubmission {
+                    problem: RetrieveSubmissionsOutcomeSubmissionProblem {
+                        url: submission.problem_url,
+                        slug_lower_case: submission.problem_slug.to_lowercase(),
+                        slug_upper_case: submission.problem_slug.to_uppercase(),
+                        slug_snake_case: submission.problem_slug.to_snake_case(),
+                        slug_kebab_case: submission.problem_slug.to_kebab_case(),
+                        slug_mixed_case: submission.problem_slug.to_mixed_case(),
+                        slug_pascal_case: submission.problem_slug.to_camel_case(),
+                        slug: submission.problem_slug,
+                        display_name: submission.problem_display_name,
+                        screen_name: submission.problem_screen_name,
+                    },
+                    language: submission.language,
+                    date_time: submission.date_time,
+                    verdict: RetrieveSubmissionsOutcomeSubmissionVerdict {
+                        is_ok: submission.verdict_is_ok,
+                        string: submission.verdict_string,
+                    },
+                    saved_as: submission.location,
+                    detail: submission
+                        .code
+                        .map(|code| RetrieveSubmissionsOutcomeSubmissionDetail { code }),
+                };
+                (url, submission)
+            })
+            .collect();
+        Ok(RetrieveSubmissionsOutcome { submissions })
     }
 }
 
-#[derive(Debug, Serialize)]
-pub(self) struct RetrieveSubmissionsOutcomeSubmissionVerdict {
-    pub(self) is_ok: bool,
-    pub(self) string: String,
-}
-
-#[derive(Debug, Serialize)]
-pub(self) struct RetrieveSubmissionsOutcomeSubmissionDetail {
-    pub(self) code: String,
+#[derive(Debug)]
+pub(self) struct RetrieveSubmissionsOutcomeBuilderSubmission {
+    pub(self) problem_url: Url,
+    pub(self) problem_slug: String,
+    pub(self) problem_display_name: String,
+    pub(self) problem_screen_name: Option<String>,
+    pub(self) language: String,
+    pub(self) date_time: DateTime<FixedOffset>,
+    pub(self) verdict_is_ok: bool,
+    pub(self) verdict_string: String,
+    pub(self) location: Option<AbsPathBuf>,
+    pub(self) code: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -836,10 +1170,11 @@ pub(self) fn reqwest_sync_client(
 #[derive(Debug)]
 pub(crate) struct RetrieveTestCasesProps<C: Contest> {
     pub(crate) contest: C,
-    pub(crate) problems: Option<NonEmptyVec<String>>,
+    pub(crate) problems: Option<NonEmptyIndexSet<String>>,
     pub(crate) destinations: Destinations,
     pub(crate) open_in_browser: bool,
-    pub(crate) only_scraped: bool,
+    pub(crate) attempt_full: bool,
+    pub(crate) save_files: bool,
 }
 
 impl RetrieveTestCasesProps<String> {
@@ -858,7 +1193,8 @@ impl RetrieveTestCasesProps<String> {
             problems: self.problems,
             destinations: self.destinations,
             open_in_browser: self.open_in_browser,
-            only_scraped: self.only_scraped,
+            attempt_full: self.attempt_full,
+            save_files: self.save_files,
         })
     }
 }
@@ -869,6 +1205,7 @@ pub(crate) struct RetrieveSubmissionsProps<'a, C: Contest> {
     pub(self) problems: Option<NonEmptyIndexSet<String>>,
     pub(self) src_paths: HashMap<&'a str, Template<AbsPathBuf>>,
     pub(self) fetch_all: bool,
+    pub(self) save_files: bool,
 }
 
 impl<'a> RetrieveSubmissionsProps<'a, String> {
@@ -877,6 +1214,7 @@ impl<'a> RetrieveSubmissionsProps<'a, String> {
         mode: config::Mode,
         problems: Vec<String>,
         fetch_all: bool,
+        save_files: bool,
     ) -> ConfigResult<Self> {
         let src_paths = config.src_paths(mode)?;
         Ok(RetrieveSubmissionsProps {
@@ -884,6 +1222,7 @@ impl<'a> RetrieveSubmissionsProps<'a, String> {
             problems: NonEmptyIndexSet::try_new(problems.into_iter().collect()),
             src_paths,
             fetch_all,
+            save_files,
         })
     }
 
@@ -902,6 +1241,7 @@ impl<'a> RetrieveSubmissionsProps<'a, String> {
             problems: self.problems,
             src_paths: self.src_paths,
             fetch_all: self.fetch_all,
+            save_files: self.save_files,
         })
     }
 }
@@ -990,4 +1330,8 @@ impl Contest for String {
     fn slug(&self) -> Cow<str> {
         self.as_str().into()
     }
+}
+
+pub(self) trait DetermineSubmissionsUrls: Contest {
+    fn submissions_urls(&self, problems: &[&str]) -> Vec<Url>;
 }

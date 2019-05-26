@@ -2,18 +2,21 @@
 
 ### Added
 
+* `-C|--colorize` option, which equivalent to `--color always`
 * `--mode` option to `judge`, `retrieve submissions`, and `submit`.
 * `--release` option to `judge`, which equivalent to `--mode release`.
 * `--debug` option to `submit`, which equivalent to `--mode debug`.
-* Add `.command_line_arguments`, `.config`, `.base_directory`, and `.target` to `$SNOWCHAINS_RESULT` s.
-* Add `--output` option and `--json` flag to all of the subcommands.
-* Add `--fetch-all` flag to `retrieve submissions` command.
+* `.command_line_arguments`, `.config`, `.base_directory`, and `.target` to `$SNOWCHAINS_RESULT` s.
+* `--output` option and `--json` flag to all of the subcommands.
+* `--no-save` option to `retrieve testcases` and `retrieve submissions`.
+* `--fetch-all` flag to `retrieve submissions` command.
 
 ### Changed
 
 * Rename `download` command to `retrive testcases` (`download` remains as an alias)
 * Rename `restore` command to `retrive submissions`
 * Rename `list-langs` command to `retrive languages`
+* Replace `--only-scraped` with `--full`
 * Make `env` field more configurable.
 * Now it prints most of the information to stderr, not stdout.
 * Move `service`, `contest` and `language` fields of `snowchains.toml` to another file.

@@ -181,6 +181,10 @@ impl<T: Hash + Eq> NonEmptyIndexSet<T> {
     pub(crate) fn ref_map<B: Hash + Eq, F: FnMut(&T) -> B>(&self, f: F) -> NonEmptyIndexSet<B> {
         Self(self.0.iter().map(f).collect())
     }
+
+    pub(crate) fn map<B: Hash + Eq, F: FnMut(T) -> B>(self, f: F) -> NonEmptyIndexSet<B> {
+        Self(self.0.into_iter().map(f).collect())
+    }
 }
 
 impl<T: Hash + Eq> Deref for NonEmptyIndexSet<T> {
@@ -188,6 +192,15 @@ impl<T: Hash + Eq> Deref for NonEmptyIndexSet<T> {
 
     fn deref(&self) -> &IndexSet<T> {
         &self.0
+    }
+}
+
+impl<'a, T: Hash + Eq> IntoIterator for &'a NonEmptyIndexSet<T> {
+    type Item = &'a T;
+    type IntoIter = indexmap::set::Iter<'a, T>;
+
+    fn into_iter(self) -> indexmap::set::Iter<'a, T> {
+        self.0.iter()
     }
 }
 

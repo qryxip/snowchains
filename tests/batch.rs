@@ -191,6 +191,7 @@ impl<
             release: false,
             verbose: false,
             json: false,
+            colorize: false,
             service: Some(ServiceKind::Atcoder),
             contest: Some("practice".to_owned()),
             language: Some("rust".to_owned()),

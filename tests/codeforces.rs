@@ -28,6 +28,7 @@ fn it_logins() -> Fallible<()> {
 
         let code = app.run(Opt::Login(Login {
             json: false,
+            colorize: false,
             output: OutputKind::Json,
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Codeforces,
@@ -80,6 +81,7 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
                     no_check_duplication: false,
                     verbose: false,
                     json: false,
+                    colorize: false,
                     service: Some(ServiceKind::Codeforces),
                     contest: Some("1000".to_owned()),
                     language: Some("python3-with-invalid-lang-names".to_owned()),
@@ -112,6 +114,7 @@ fn it_retrieves_languages() -> Fallible<()> {
         |mut app| -> Fallible<()> {
             let code = app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
                 json: false,
+                colorize: false,
                 service: Some(ServiceKind::Codeforces),
                 contest: Some("1000".to_owned()),
                 output: OutputKind::Pretty,

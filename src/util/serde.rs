@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
-use serde::ser::SerializeMap as _;
+use serde::ser::{SerializeMap as _, SerializeSeq as _};
 use serde::{Deserializer, Serialize, Serializer};
 
 use std::hash::Hash;
@@ -51,6 +51,17 @@ pub(crate) fn ser_as_ref_path<S: Serializer, P: AsRef<Path>>(
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error> {
     path.as_ref().serialize(serializer)
+}
+
+pub(crate) fn ser_str_slice<S: Serializer>(
+    slice: &[impl AsRef<str>],
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    let mut serializer = serializer.serialize_seq(Some(slice.len()))?;
+    for s in slice {
+        serializer.serialize_element(s.as_ref())?;
+    }
+    serializer.end()
 }
 
 pub(crate) fn ser_indexmap_with_as_ref_str_keys<
