@@ -63,6 +63,7 @@ fn it_scrapes_samples_from_practice() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 full: false,
+                no_save: false,
                 open: false,
                 verbose: false,
                 json: false,
@@ -95,6 +96,7 @@ fn it_scrapes_samples_from_abc100() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 full: false,
+                no_save: false,
                 open: false,
                 verbose: false,
                 json: false,
@@ -129,6 +131,7 @@ fn it_scrapes_samples_and_download_files_from_abc099_a() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
                 full: true,
+                no_save: false,
                 open: false,
                 verbose: false,
                 json: false,
@@ -203,6 +206,7 @@ fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
                 fetch_all: false,
+                no_save: false,
                 verbose: false,
                 json: false,
                 colorize: false,
@@ -226,6 +230,7 @@ Username: Password: POST https://atcoder.jp/login ... 302 Found
 GET https://atcoder.jp/settings ... 200 OK
 Successfully logged in.
 GET https://atcoder.jp/contests/practice ... 200 OK
+POST https://atcoder.jp/contests/practice/register ... 302 Found
 "#,
             ));
             Ok(())

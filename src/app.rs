@@ -8,7 +8,7 @@ use crate::service::{
     SessionProps, SubmitProps,
 };
 use crate::terminal::{AnsiColorChoice, AttemptEnableColor, HasTermProps, Input, ModifyTermProps};
-use crate::util::collections::NonEmptyVec;
+use crate::util::collections::NonEmptyIndexSet;
 
 use serde::Serialize;
 use structopt::clap::Arg;
@@ -187,13 +187,15 @@ pub struct RetrieveTestcases {
         raw(display_order = "1")
     )]
     pub full: bool,
-    #[structopt(raw(open = "2"))]
+    #[structopt(raw(no_save = "2"))]
+    pub no_save: bool,
+    #[structopt(raw(open = "3"))]
     pub open: bool,
-    #[structopt(raw(verbose = "3"))]
+    #[structopt(raw(verbose = "4"))]
     pub verbose: bool,
-    #[structopt(raw(json = "4"))]
+    #[structopt(raw(json = "5"))]
     pub json: bool,
-    #[structopt(raw(colorize = "5"))]
+    #[structopt(raw(colorize = "6"))]
     pub colorize: bool,
     #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Option(1)"#))]
     pub service: Option<ServiceKind>,
@@ -233,11 +235,13 @@ pub struct RetrieveSubmissions {
         raw(display_order = "1")
     )]
     pub fetch_all: bool,
-    #[structopt(raw(verbose = "2"))]
+    #[structopt(raw(no_save = "2"))]
+    pub no_save: bool,
+    #[structopt(raw(verbose = "3"))]
     pub verbose: bool,
-    #[structopt(raw(json = "3"))]
+    #[structopt(raw(json = "4"))]
     pub json: bool,
-    #[structopt(raw(colorize = "4"))]
+    #[structopt(raw(colorize = "5"))]
     pub colorize: bool,
     #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
@@ -365,6 +369,7 @@ trait ArgExt {
     fn json(self, order: usize) -> Self;
     fn colorize(self, order: usize) -> Self;
     fn force_compile(self, order: usize) -> Self;
+    fn no_save(self, order: usize) -> Self;
     fn open(self, order: usize) -> Self;
     fn language(self, order: usize) -> Self;
     fn problems(self, order: usize) -> Self;
@@ -405,6 +410,12 @@ impl ArgExt for Arg<'static, 'static> {
     fn force_compile(self, order: usize) -> Self {
         self.long("force-compile")
             .help("Force to transpile and to compile")
+            .display_order(order)
+    }
+
+    fn no_save(self, order: usize) -> Self {
+        self.long("no-save")
+            .help("Does not save files")
             .display_order(order)
     }
 
@@ -638,6 +649,7 @@ impl<
             Opt::Download(cli_args) | Opt::Retrieve(Retrieve::Testcases(cli_args)) => {
                 let RetrieveTestcases {
                     full,
+                    no_save,
                     open,
                     verbose,
                     json,
@@ -657,10 +669,11 @@ impl<
                     self.sess_props(&config)?,
                     RetrieveTestCasesProps {
                         contest: config.contest().to_owned(),
-                        problems: NonEmptyVec::try_new(problems.clone()),
+                        problems: NonEmptyIndexSet::try_new(problems.iter().cloned().collect()),
                         destinations: config.destinations(None),
                         open_in_browser: *open,
                         attempt_full: *full,
+                        save_files: !no_save,
                     },
                     &mut self.stdin,
                     &mut self.stderr,
@@ -710,6 +723,7 @@ impl<
             Opt::Retrieve(Retrieve::Submissions(cli_args)) => {
                 let RetrieveSubmissions {
                     fetch_all,
+                    no_save,
                     verbose,
                     json,
                     colorize,
@@ -728,7 +742,7 @@ impl<
                 let outcome = service::retrieve_submissions(
                     config.service(),
                     self.sess_props(&config)?,
-                    RetrieveSubmissionsProps::new(&config, *mode, problems, *fetch_all)?,
+                    RetrieveSubmissionsProps::new(&config, *mode, problems, *fetch_all, !no_save)?,
                     &mut self.stdin,
                     &mut self.stderr,
                 )?;

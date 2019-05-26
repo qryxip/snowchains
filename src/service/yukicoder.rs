@@ -3,9 +3,10 @@ use crate::service::download::{self, DownloadProgress};
 use crate::service::session::{Session, State};
 use crate::service::{
     Contest, ExtractZip, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
-    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps,
-    SessionProps, SubmitOutcome, SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
-    ZipEntries, ZipEntriesSorting,
+    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
+    RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesOutcomeBuilderProblemTextFiles,
+    RetrieveTestCasesProps, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
+    SubmitOutcomeResponse, SubmitProps, ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, TestSuite};
@@ -13,8 +14,7 @@ use crate::util::collections::{NonEmptyIndexMap, NonEmptyVec};
 use crate::util::str::CaseConversion;
 
 use cookie::Cookie;
-use indexmap::IndexMap;
-use itertools::Itertools as _;
+use indexmap::{indexmap, IndexMap};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::{header, StatusCode};
@@ -26,9 +26,9 @@ use url::Url;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::convert::Infallible;
+use std::fmt;
 use std::str::FromStr;
 use std::time::Duration;
-use std::{fmt, mem};
 
 pub(super) fn login(
     props: SessionProps,
@@ -180,6 +180,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             destinations,
             open_in_browser,
             attempt_full,
+            save_files,
         } = props;
         self.login(false)?;
         let scrape = |html: &Html, problem: &str| -> ServiceResult<_> {
@@ -187,12 +188,17 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             let path = destinations.expand(problem)?;
             Ok((display_name, suite, path))
         };
-        let mut outcome = RetrieveTestCasesOutcome::new(contest);
+        let mut outcome = RetrieveTestCasesOutcomeBuilder::new(contest, *save_files);
         match (contest, problems.as_ref()) {
             (YukicoderContest::No, None) => {
                 return Err(ServiceErrorKind::PleaseSpecifyProblems.into());
             }
             (YukicoderContest::No, Some(problems)) => {
+                for problem in problems {
+                    let mut url = BASE_URL.clone();
+                    url.set_path(&format!("/problems/no/{}/submissions", problem));
+                    outcome.push_submissions_url(url);
+                }
                 let (mut not_found, mut not_public) = (vec![], vec![]);
                 for problem in problems {
                     let url = format!("/problems/no/{}", problem);
@@ -211,8 +217,15 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                     } else {
                         let (display_name, suite, path) = scrape(&html, problem)?;
                         let url = self.resolve_url(&url)?;
-                        let (slug, screen_name) = (problem, Some(problem.as_ref()));
-                        outcome.push_problem(slug, &display_name, screen_name, url, suite, path);
+                        outcome.push_problem(RetrieveTestCasesOutcomeBuilderProblem {
+                            url,
+                            slug: problem.clone(),
+                            display_name,
+                            screen_name: Some(problem.clone()),
+                            test_suite_contents: suite,
+                            test_suite_location: path,
+                            text_files: indexmap![],
+                        });
                     }
                 }
                 let stderr = self.stderr();
@@ -232,6 +245,10 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                 }
             }
             (YukicoderContest::Contest(contest), problems) => {
+                let mut url = BASE_URL.clone();
+                url.set_path(&format!("/problems/contests/{}/submissions", contest));
+                outcome.push_submissions_url(url);
+
                 let target_problems = self
                     .get(&format!("/contests/{}", contest))
                     .recv_html()?
@@ -240,18 +257,25 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                     if problems.is_none() || problems.as_ref().unwrap().contains(&slug) {
                         let html = self.get(&url).recv_html()?;
                         let (display_name, suite, path) = scrape(&html, &slug)?;
-                        let no = Some(no.as_ref());
-                        outcome.push_problem(&slug, &display_name, no, url, suite, path);
+                        outcome.push_problem(RetrieveTestCasesOutcomeBuilderProblem {
+                            url,
+                            slug,
+                            display_name,
+                            screen_name: Some(no),
+                            test_suite_contents: suite,
+                            test_suite_location: path,
+                            text_files: indexmap![],
+                        });
                     }
                 }
             }
         }
 
-        let text_file_paths = if *attempt_full {
+        if *attempt_full {
             let nos = outcome
-                .problems
+                .problems()
                 .iter()
-                .flat_map(|problem| match &problem.test_suite {
+                .flat_map(|problem| match &problem.test_suite_contents {
                     TestSuite::Batch(_) => Some(problem.slug.clone()),
                     _ => None,
                 })
@@ -266,6 +290,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                     .context(ServiceErrorKind::UnableToDownloadFull),
                 ));
             }
+
             let client = self.client();
             let cookie_header = self.cookies_to_header_value()?;
             let reqs = nos
@@ -281,58 +306,48 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                 })
                 .collect::<Vec<_>>();
 
-            self.download_progress(reqs)?
-                .into_iter()
-                .zip_eq(nos)
-                .map(|(zip, no)| {
-                    static ZIP_ENTRIES: Lazy<ZipEntries> = Lazy::new(|| ZipEntries {
-                        in_entry: Regex::new(r"\Atest_in/([a-z0-9_]+)\.txt\z").unwrap(),
-                        in_match_group: 1,
-                        in_crlf_to_lf: true,
-                        out_entry: Regex::new(r"\Atest_out/([a-z0-9_]+)\.txt\z").unwrap(),
-                        out_match_group: 1,
-                        out_crlf_to_lf: true,
-                        sortings: vec![ZipEntriesSorting::Dictionary, ZipEntriesSorting::Number],
-                    });
-                    let paths = self.extract_zip(
-                        &no,
-                        &zip,
-                        &destinations.text_file_dir(&no)?,
-                        &ZIP_ENTRIES,
-                    )?;
-                    Ok((no, paths))
-                })
-                .collect::<ServiceResult<Vec<_>>>()?
-        } else {
-            vec![]
-        };
+            for (no, zip) in nos.into_iter().zip(self.download_progress(reqs)?) {
+                let problem = outcome
+                    .problems_mut()
+                    .iter_mut()
+                    .find(|p| p.slug == no)
+                    .unwrap(); // `no` comes from `outcome`
 
-        for RetrieveTestCasesOutcomeProblem {
-            slug,
-            test_suite,
-            test_suite_path,
-            ..
-        } in &mut outcome.problems
-        {
-            for (no, text_file_paths) in &text_file_paths {
-                if slug == no {
-                    *test_suite = match mem::replace(test_suite, TestSuite::Unsubmittable) {
-                        TestSuite::Batch(suite) => {
-                            suite.without_cases().paths(text_file_paths.clone()).into()
-                        }
-                        suite => suite,
-                    };
-                    break;
+                if let TestSuite::Batch(suite) = &mut problem.test_suite_contents {
+                    suite.clear_cases();
+                }
+
+                static ZIP_ENTRIES: Lazy<ZipEntries> = Lazy::new(|| ZipEntries {
+                    in_entry: Regex::new(r"\Atest_in/([a-z0-9_]+)\.txt\z").unwrap(),
+                    in_match_group: 1,
+                    in_crlf_to_lf: true,
+                    out_entry: Regex::new(r"\Atest_out/([a-z0-9_]+)\.txt\z").unwrap(),
+                    out_match_group: 1,
+                    out_crlf_to_lf: true,
+                    sortings: vec![ZipEntriesSorting::Dictionary, ZipEntriesSorting::Number],
+                });
+
+                for (name, (in_location, in_contents, out_location, out_contents)) in
+                    self.extract_zip(&no, &zip, &destinations.text_file_dir(&no)?, &ZIP_ENTRIES)?
+                {
+                    if let TestSuite::Batch(suite) = &mut problem.test_suite_contents {
+                        suite.push_paths(&name, &in_location, &out_location);
+                    }
+
+                    problem.text_files.insert(
+                        name,
+                        RetrieveTestCasesOutcomeBuilderProblemTextFiles {
+                            in_contents,
+                            in_location,
+                            out_contents,
+                            out_location,
+                        },
+                    );
                 }
             }
-            test_suite.save(test_suite_path)?;
         }
-        if *open_in_browser {
-            for RetrieveTestCasesOutcomeProblem { url, .. } in &outcome.problems {
-                self.open_in_browser(url.as_str())?;
-            }
-        }
-        Ok(outcome)
+
+        outcome.finish(*open_in_browser, self.stderr())
     }
 
     fn retrieve_langs(
@@ -482,12 +497,6 @@ impl fmt::Display for YukicoderContest {
     }
 }
 
-impl Contest for YukicoderContest {
-    fn slug(&self) -> Cow<str> {
-        self.to_string().into()
-    }
-}
-
 impl FromStr for YukicoderContest {
     type Err = Infallible;
 
@@ -497,6 +506,12 @@ impl FromStr for YukicoderContest {
         } else {
             YukicoderContest::Contest(s.to_owned())
         })
+    }
+}
+
+impl Contest for YukicoderContest {
+    fn slug(&self) -> Cow<str> {
+        self.to_string().into()
     }
 }
 

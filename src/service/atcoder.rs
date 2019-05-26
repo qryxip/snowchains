@@ -1,16 +1,15 @@
-use crate::errors::{
-    FileResult, ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult,
-};
+use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::path::AbsPath;
 use crate::service::download::{self, DownloadProgress};
 use crate::service::session::{Session, State};
 use crate::service::{
     Contest, LoginOutcome, ParticipateOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
-    RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeSubmission,
-    RetrieveSubmissionsOutcomeSubmissionDetail, RetrieveSubmissionsOutcomeSubmissionProblem,
-    RetrieveSubmissionsOutcomeSubmissionVerdict, RetrieveSubmissionsProps,
-    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem, RetrieveTestCasesProps,
-    SessionProps, SubmitOutcome, SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
+    RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
+    RetrieveSubmissionsOutcomeBuilderSubmission, RetrieveSubmissionsProps,
+    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
+    RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesOutcomeBuilderProblemTextFiles,
+    RetrieveTestCasesProps, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
+    SubmitOutcomeResponse, SubmitProps,
 };
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{self, BatchSuite, Destinations, InteractiveSuite, TestSuite};
@@ -22,9 +21,9 @@ use crate::util::scraper::ElementRefExt as _;
 use crate::util::str::CaseConversion;
 
 use chrono::{DateTime, FixedOffset, Local, Utc};
-use failure::Fail as _;
+use failure::{Fail as _, ResultExt as _};
 use if_chain::if_chain;
-use indexmap::{indexset, IndexMap, IndexSet};
+use indexmap::{indexmap, indexset, IndexMap, IndexSet};
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
@@ -37,7 +36,7 @@ use termcolor::WriteColor;
 use url::Url;
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::convert::Infallible;
 use std::convert::TryInto as _;
 use std::ops::Deref;
@@ -313,8 +312,10 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             destinations,
             open_in_browser,
             attempt_full,
+            save_files,
         } = props;
         let problems = problems.as_ref();
+
         let slugs_and_urls = self
             .fetch_tasks_page(contest)?
             .extract_task_slugs_and_urls()?;
@@ -322,10 +323,14 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             .get(&contest.url_tasks_print())
             .recv_html()?
             .extract_as_suites(&contest.slug())?;
+
         if slugs_and_urls.len() != suites.len() {
             return Err(ScrapeError::new().into());
         }
-        let mut outcome = RetrieveTestCasesOutcome::new(contest);
+
+        let mut outcome = RetrieveTestCasesOutcomeBuilder::new(contest, *save_files);
+        outcome.push_submissions_url(contest.url_submissions_me(1));
+
         for ((slug, url), (display_name, suite)) in slugs_and_urls.into_iter().zip_eq(suites) {
             if problems.map_or(true, |ps| ps.iter().any(|p| *p == slug)) {
                 let path = destinations.expand(&slug)?;
@@ -335,59 +340,45 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                     .and_then(Iterator::last)
                     .unwrap_or_default()
                     .to_owned();
-                let screen_name = Some(screen_name.as_ref());
-                outcome.push_problem(&slug, &display_name, screen_name, url, suite, path);
+
+                outcome.push_problem(RetrieveTestCasesOutcomeBuilderProblem {
+                    url,
+                    slug,
+                    display_name,
+                    screen_name: Some(screen_name),
+                    test_suite_contents: suite,
+                    test_suite_location: path,
+                    text_files: indexmap!(),
+                });
             }
         }
-        let mut not_found = problems
-            .map(|ps| ps.iter().collect::<IndexSet<_>>())
-            .unwrap_or_default();
+
         if *attempt_full {
             let dropbox_path = dropbox_path.as_ref().ok_or_else(|| {
                 failure::err_msg("`session.dropbox` is `false` in the config file")
                     .context(ServiceErrorKind::UnableToDownloadFull)
             })?;
-            let suites = outcome
-                .problems
-                .iter_mut()
-                .map(|p| (p.slug.as_str(), &mut p.test_suite))
-                .collect::<BTreeMap<_, _>>();
-            self.retrieve_from_dropbox(dropbox_path, &contest.slug(), suites, destinations)?;
+            self.retrieve_from_dropbox(
+                dropbox_path,
+                &contest.slug(),
+                destinations,
+                outcome.problems_mut(),
+            )?;
         }
-        for RetrieveTestCasesOutcomeProblem {
-            slug,
-            test_suite,
-            test_suite_path,
-            ..
-        } in &outcome.problems
-        {
-            test_suite.save(test_suite_path)?;
-            not_found.remove(&slug);
+
+        if let Some(problems) = problems {
+            self.warn_not_found(problems, &outcome.problem_slugs())?;
         }
-        let stderr = self.stderr();
-        stderr.flush()?;
-        if !not_found.is_empty() {
-            stderr.set_color(color!(fg(Yellow), intense))?;
-            write!(stderr, "Not found: {}", not_found.format_as_str_list())?;
-            stderr.reset()?;
-            writeln!(stderr)?;
-            stderr.flush()?;
-        }
-        if *open_in_browser {
-            self.open_in_browser(&contest.url_submissions_me(1))?;
-            for RetrieveTestCasesOutcomeProblem { url, .. } in &outcome.problems {
-                self.open_in_browser(url.as_str())?;
-            }
-        }
-        Ok(outcome)
+
+        outcome.finish(*open_in_browser, self.stderr())
     }
 
     fn retrieve_from_dropbox(
         &mut self,
         auth_path: &AbsPath,
         contest_slug: &str,
-        mut suites: BTreeMap<&str, &mut TestSuite>,
         destinations: &Destinations,
+        problems: &mut [RetrieveTestCasesOutcomeBuilderProblem],
     ) -> ServiceResult<()> {
         static URL: &str =
             "https://www.dropbox.com/sh/arnpe0ef5wds8cv/AAAk_SECQ2Nc6SVGii3rHX6Fa?dl=0";
@@ -469,7 +460,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             token: &str,
             prefix: &str,
             entries: &[ListFolderEntry],
-        ) -> ServiceResult<HashMap<String, Vec<u8>>> {
+        ) -> ServiceResult<IndexMap<String, String>> {
             static ENDPOINT: &str = "https://content.dropboxapi.com/2/sharing/get_shared_link_file";
             let filenames = entries.iter().map(|e| &e.name).collect::<Vec<_>>();
             let client = this.client();
@@ -489,74 +480,70 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 })
                 .collect();
             let files = this.download_progress(reqs)?;
-            Ok(files
+            files
                 .into_iter()
                 .zip_eq(filenames)
-                .map(|(content, filename)| {
+                .map(|(contents, filename)| {
                     let stem = Path::new(&filename)
                         .file_stem()
                         .unwrap_or_default()
                         .to_str()
                         .unwrap()
                         .to_owned();
-                    (stem, content)
+                    let contents = String::from_utf8(contents)
+                        .with_context(|_| ServiceErrorKind::UnableToDownloadFull)?;
+                    Ok((stem, contents))
                 })
-                .collect())
+                .collect()
         }
 
         let token = self.auth_dropbox(auth_path, false)?;
-        confirm_folders_exist(self, &token, &contest_slug, suites.keys().cloned())?;
-        let contents = suites
-            .iter()
-            .filter_map(|(problem, suite)| match suite {
-                TestSuite::Unsubmittable => None,
-                _ => Some(problem),
-            })
-            .map(|problem| {
-                let in_dir = format!("/{}/{}/in", contest_slug, problem);
+
+        confirm_folders_exist(
+            self,
+            &token,
+            &contest_slug,
+            problems.iter().map(|p| p.slug.as_ref()),
+        )?;
+
+        for problem in problems {
+            if let TestSuite::Batch(suite) = &mut problem.test_suite_contents {
+                suite.clear_cases();
+            }
+
+            let (in_contents, mut out_contents) = {
+                let in_dir = format!("/{}/{}/in", contest_slug, problem.slug);
                 let entries = list_folder(self, &token, &in_dir)?.entries;
                 let in_contents = retrieve_files(self, &token, &in_dir, &entries)?;
-                let out_dir = format!("/{}/{}/out", contest_slug, problem);
+                let out_dir = format!("/{}/{}/out", contest_slug, problem.slug);
                 let entries = list_folder(self, &token, &out_dir)?.entries;
-                let mut out_contents = retrieve_files(self, &token, &out_dir, &entries)?;
-                let contents = in_contents
-                    .into_iter()
-                    .filter_map(|(name, i)| out_contents.remove(&name).map(|o| (name, (i, o))))
-                    .collect::<BTreeMap<_, _>>();
-                Ok((problem.to_owned(), contents))
-            })
-            .collect::<ServiceResult<BTreeMap<_, _>>>()?;
-        for (problem, contents) in contents {
-            let dir = destinations.text_file_dir(problem)?;
-            let (in_dir, out_dir) = (dir.join("in"), dir.join("out"));
-            let contents_len = contents.len();
-            let paths = contents
-                .into_iter()
-                .map(|(case_name, (input, output))| {
-                    let in_path = in_dir.join(&case_name).with_extension("txt");
-                    let out_path = out_dir.join(&case_name).with_extension("txt");
-                    crate::fs::write(&in_path, &input)?;
-                    crate::fs::write(&out_path, &output)?;
-                    Ok((case_name, (in_path, out_path)))
-                })
-                .collect::<FileResult<BTreeMap<_, _>>>()?;
-            self.stderr().set_color(color!(bold))?;
-            self.stderr().write_str(problem)?;
-            self.stderr().reset()?;
-            writeln!(
-                self.stderr(),
-                ": Saved {} to {}",
-                plural!(2 * contents_len, "file", "files"),
-                dir.display(),
-            )?;
-            if let Some(TestSuite::Batch(suite)) = suites.get_mut(problem) {
-                suite.clear_cases();
-                for (case_name, (in_path, out_path)) in paths {
-                    suite.push_path(case_name, in_path, out_path);
+                let out_contents = retrieve_files(self, &token, &out_dir, &entries)?;
+                (in_contents, out_contents)
+            };
+
+            for (name, in_contents) in in_contents {
+                if let Some(out_contents) = out_contents.remove(&name) {
+                    let dir = destinations.text_file_dir(&problem.slug)?;
+                    let in_location = dir.join("in").join(&name).with_extension("txt");
+                    let out_location = dir.join("out").join(&name).with_extension("txt");
+
+                    if let TestSuite::Batch(suite) = &mut problem.test_suite_contents {
+                        suite.push_paths(&name, &in_location, &out_location);
+                    }
+
+                    problem.text_files.insert(
+                        name,
+                        RetrieveTestCasesOutcomeBuilderProblemTextFiles {
+                            in_contents,
+                            in_location,
+                            out_contents,
+                            out_location,
+                        },
+                    );
                 }
             }
         }
-        self.stderr().flush().map_err(Into::into)
+        Ok(())
     }
 
     fn retrieve_langs(
@@ -589,6 +576,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             problems,
             src_paths,
             fetch_all,
+            save_files,
         } = props;
 
         let first_page = {
@@ -615,7 +603,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             submissions
         };
 
-        let mut outcome = RetrieveSubmissionsOutcome::new();
+        let mut outcome = RetrieveSubmissionsOutcomeBuilder::new();
 
         #[derive(Default)]
         struct Found {
@@ -674,27 +662,30 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                         (None, None)
                     }
                 };
-                let path_to_save = path_to_save
-                    .map(|p| p.expand(Some(&submission.task_slug)))
-                    .transpose()?;
-                let url = submission.url;
-                let submission = RetrieveSubmissionsOutcomeSubmission {
-                    problem: RetrieveSubmissionsOutcomeSubmissionProblem::new(
-                        &submission.task_url,
-                        &submission.task_slug,
-                        &submission.task_display,
-                        &submission.task_screen,
-                    ),
-                    language: submission.lang,
-                    date_time: submission.datetime,
-                    verdict: RetrieveSubmissionsOutcomeSubmissionVerdict {
-                        is_ok: submission.verdict_is_ac,
-                        string: submission.verdict,
-                    },
-                    detail: code.map(|code| RetrieveSubmissionsOutcomeSubmissionDetail { code }),
-                    saved_as: path_to_save,
+
+                let path_to_save = if *save_files {
+                    path_to_save
+                        .map(|p| p.expand(Some(&submission.task_slug)))
+                        .transpose()?
+                } else {
+                    None
                 };
-                outcome.submissions.insert(url, submission);
+
+                outcome.submissions.insert(
+                    submission.url,
+                    RetrieveSubmissionsOutcomeBuilderSubmission {
+                        problem_url: submission.task_url,
+                        problem_slug: submission.task_slug,
+                        problem_display_name: submission.task_display,
+                        problem_screen_name: Some(submission.task_screen),
+                        language: submission.lang,
+                        date_time: submission.datetime,
+                        verdict_is_ok: submission.verdict_is_ac,
+                        verdict_string: submission.verdict,
+                        location: path_to_save,
+                        code,
+                    },
+                );
             }
         }
 
@@ -704,39 +695,11 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             self.stderr().reset()?;
         }
 
-        let mut num_saved = 0;
-        let mut not_found = problems
-            .as_ref()
-            .map(|ps| ps.iter().collect::<IndexSet<_>>())
-            .unwrap_or_default();
-
-        for (_, submission) in &outcome.submissions {
-            let path = &submission.saved_as;
-            let code = submission.detail.as_ref().map(|d| &d.code);
-            if let (Some(path), Some(code)) = (path, code) {
-                crate::fs::write(path, code.as_ref())?;
-                writeln!(
-                    self.stderr(),
-                    "{} - {:?}: Saved to {}",
-                    submission.problem.slug,
-                    submission.language,
-                    path.display(),
-                )?;
-                num_saved += 1;
-            }
-            not_found.remove(&submission.problem.slug);
+        if let Some(problems) = problems {
+            self.warn_not_found(problems, &outcome.problem_slugs())?;
         }
 
-        let stderr = self.stderr();
-        if !not_found.is_empty() {
-            stderr.set_color(color!(fg(Yellow), intense))?;
-            writeln!(stderr, "Not found: {}", not_found.format_as_str_list())?;
-            stderr.reset()?;
-        }
-        writeln!(stderr, "Saved {}.", plural!(num_saved, "file", "files"))?;
-        stderr.flush()?;
-
-        Ok(outcome)
+        outcome.finish()
     }
 
     fn submit(&mut self, props: SubmitProps<AtcoderContest>) -> ServiceResult<SubmitOutcome> {
@@ -937,6 +900,14 @@ impl AtcoderContest {
     }
 }
 
+impl FromStr for AtcoderContest {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Infallible> {
+        Ok(Self::new(s))
+    }
+}
+
 impl Contest for AtcoderContest {
     fn slug(&self) -> Cow<str> {
         match self {
@@ -950,14 +921,6 @@ impl Contest for AtcoderContest {
             AtcoderContest::ChokudaiS(n) => format!("chokudai_s{:>03}", n).into(),
             AtcoderContest::Other(s) => s.into(),
         }
-    }
-}
-
-impl FromStr for AtcoderContest {
-    type Err = Infallible;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Infallible> {
-        Ok(Self::new(s))
     }
 }
 

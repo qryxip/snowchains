@@ -3,12 +3,15 @@ use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
 use crate::service::session::owned_robots::OwnedRobots;
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
+use crate::util::collections::NonEmptyIndexSet;
+use crate::util::indexmap::IndexSetAsRefStrExt as _;
 
 use cookie::CookieJar;
 use derive_new::new;
 use failure::{Fail as _, Fallible, ResultExt as _};
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
 use if_chain::if_chain;
+use indexmap::IndexSet;
 use maplit::hashmap;
 use mime::Mime;
 use reqwest::header::{self, HeaderValue};
@@ -149,6 +152,24 @@ pub(super) trait Session {
     fn post(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> self::Request<&mut Self::Stderr> {
         self.state_mut()
             .request(url, Method::POST, vec![StatusCode::FOUND])
+    }
+
+    fn warn_not_found(
+        &mut self,
+        problems: &NonEmptyIndexSet<String>,
+        found: &IndexSet<String>,
+    ) -> io::Result<()> {
+        let not_found = problems.intersection(found).collect::<IndexSet<_>>();
+
+        if !not_found.is_empty() {
+            let stderr = &mut self.state_mut().stderr;
+            stderr.set_color(color!(fg(Yellow), intense))?;
+            write!(stderr, "Not found: {}", not_found.format_as_str_list())?;
+            stderr.reset()?;
+            writeln!(stderr)?;
+            stderr.flush()?;
+        }
+        Ok(())
     }
 }
 

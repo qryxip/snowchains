@@ -127,6 +127,7 @@ pub(crate) fn retrieve_testcases(
 ) -> snowchains::Result<()> {
     let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
         full: true,
+        no_save: false,
         open: false,
         verbose: false,
         json: false,

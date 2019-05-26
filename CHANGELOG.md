@@ -6,9 +6,10 @@
 * `--mode` option to `judge`, `retrieve submissions`, and `submit`.
 * `--release` option to `judge`, which equivalent to `--mode release`.
 * `--debug` option to `submit`, which equivalent to `--mode debug`.
-* Add `.command_line_arguments`, `.config`, `.base_directory`, and `.target` to `$SNOWCHAINS_RESULT` s.
-* Add `--output` option and `--json` flag to all of the subcommands.
-* Add `--fetch-all` flag to `retrieve submissions` command.
+* `.command_line_arguments`, `.config`, `.base_directory`, and `.target` to `$SNOWCHAINS_RESULT` s.
+* `--output` option and `--json` flag to all of the subcommands.
+* `--no-save` option to `retrieve testcases` and `retrieve submissions`.
+* `--fetch-all` flag to `retrieve submissions` command.
 
 ### Changed
 

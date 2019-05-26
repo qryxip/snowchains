@@ -7,6 +7,7 @@ use std::path::{Component, Path, PathBuf};
 use std::{env, fmt, io};
 
 #[repr(transparent)]
+#[derive(PartialEq)]
 pub struct AbsPath {
     inner: Path,
 }
