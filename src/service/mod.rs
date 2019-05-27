@@ -25,6 +25,7 @@ use failure::ResultExt as _;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use indexmap::{IndexMap, IndexSet};
 use maplit::hashmap;
+use prettytable::format::{FormatBuilder, LinePosition, LineSeparator};
 use prettytable::{cell, row, Table};
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use regex::Regex;
@@ -1020,12 +1021,47 @@ impl Outcome for RetrieveLangsOutcome {
         true
     }
 
-    fn print_pretty(&self, _: bool, mut stdout: impl WriteColor) -> io::Result<()> {
+    fn print_pretty(&self, _: bool, mut stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
         let mut table = Table::new();
-        table.add_row(row!["Name", "ID"]);
+
+        // `prettytable` assumes that East Asian Ambiguous Characters are halfwidth.
+        let (column_separator, borders, top_sep, title_sep, intern_sep, bottom_sep);
+        if [
+            '─', '│', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼',
+        ]
+        .iter()
+        .all(|&c| stdout.char_width(c) == Some(1))
+        {
+            column_separator = '│';
+            borders = '│';
+            top_sep = LineSeparator::new('─', '┬', '┌', '┐');
+            title_sep = LineSeparator::new('─', '┼', '├', '┤');
+            intern_sep = LineSeparator::new('─', '┼', '├', '┤');
+            bottom_sep = LineSeparator::new('─', '┴', '└', '┘');
+        } else {
+            column_separator = '|';
+            borders = '|';
+            top_sep = LineSeparator::new('-', '+', '+', '+');
+            title_sep = LineSeparator::new('-', '+', '+', '+');
+            intern_sep = LineSeparator::new('-', '+', '+', '+');
+            bottom_sep = LineSeparator::new('-', '+', '+', '+');
+        }
+
+        *table.get_format() = FormatBuilder::new()
+            .padding(1, 1)
+            .column_separator(column_separator)
+            .borders(borders)
+            .separator(LinePosition::Top, top_sep)
+            .separator(LinePosition::Title, title_sep)
+            .separator(LinePosition::Intern, intern_sep)
+            .separator(LinePosition::Bottom, bottom_sep)
+            .build();
+
+        table.set_titles(row!["Name", "ID"]);
         for (name, id) in &self.available_languages {
             table.add_row(row![name, id]);
         }
+
         write!(stdout, "{}", table)?;
         stdout.flush()
     }

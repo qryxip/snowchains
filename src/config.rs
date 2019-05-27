@@ -1244,8 +1244,7 @@ impl<'de> Deserialize<'de> for Predicate {
         use combine::{choice, easy, eof, many, many1, none_of, optional, parser, satisfy};
         use combine::{ParseResult, Parser};
 
-        static GRAMMER: &str = r#"
-Predicate               ::= /* TODO */
+        static GRAMMER: &str = r#"Predicate               ::= /* TODO */
 LiteralEqAtom           ::= Literal Spaces '=' Spaces Atom
 Atom                    ::= Identifier | Literal
 Literal                 ::= LiteralWithSingleQuotes | LiteralWithDoubleQuotes
