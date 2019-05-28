@@ -500,14 +500,8 @@ impl Response {
                 return Err(ServiceErrorKind::NonUtf8Content(Some(encoding)).into());
             }
         }
-        let cap = self
-            .0
-            .headers()
-            .get(header::CONTENT_LENGTH)
-            .and_then(|s| s.to_str().ok())
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(0);
-        let buf = Vec::with_capacity(cap);
+        let buf =
+            Vec::with_capacity(self.0.content_length().map(|n| n + 1).unwrap_or(1024) as usize);
         let decoder = mem::replace(self.0.body_mut(), Decoder::empty());
         let content = runtime.block_on(BufDecoder { decoder, buf })?;
         String::from_utf8(content).map_err(|e| {

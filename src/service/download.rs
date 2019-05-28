@@ -4,9 +4,8 @@ use crate::signal::Sigwinch;
 use crate::terminal::HasTermProps;
 use crate::util::io::AsyncBufferedWriter;
 
-use failure::ResultExt as _;
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
-use reqwest::{header, StatusCode};
+use reqwest::StatusCode;
 use termcolor::WriteColor;
 use tokio::io::AsyncWrite;
 
@@ -330,22 +329,10 @@ impl<
                             .into());
                         }
                         any_newly_ready_some = true;
-                        let (buf, content_len) = match res.headers().get(header::CONTENT_LENGTH) {
-                            None => (vec![], None),
-                            Some(s) => {
-                                let l = s
-                                    .to_str()
-                                    .map_err(failure::Error::from)
-                                    .and_then(|s| s.parse::<usize>().map_err(Into::into))
-                                    .with_context(|_| {
-                                        ServiceErrorKind::ReadHeader(header::CONTENT_LENGTH)
-                                    })?;
-                                (Vec::with_capacity(l), Some(l))
-                            }
-                        };
+                        let content_len = res.content_length().map(|n| n as usize);
                         Some(Progress::Body(Box::new(ProgressPending {
                             decoder: res.into_body(),
-                            buf,
+                            buf: Vec::with_capacity(content_len.map(|n| n + 1).unwrap_or(1024)),
                             content_len,
                         })))
                     }

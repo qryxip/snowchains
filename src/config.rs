@@ -927,14 +927,6 @@ impl Config {
             .get(&self.target.language)
             .ok_or_else(|| ConfigErrorKind::NoSuchLanguage(self.target.language.clone()).into())
     }
-
-    pub(crate) fn modify_term_props(
-        &self,
-        stdout: impl ModifyTermProps,
-        stderr: impl ModifyTermProps,
-    ) {
-        self.inner.console.modify_term_props(stdout, stderr)
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
