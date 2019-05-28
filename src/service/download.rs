@@ -10,7 +10,6 @@ use reqwest::{header, StatusCode};
 use termcolor::WriteColor;
 use tokio::io::AsyncWrite;
 
-use std::convert::Infallible;
 use std::time::{Duration, Instant};
 use std::{char, io, mem};
 
@@ -61,7 +60,6 @@ pub(super) trait DownloadProgress: Session {
         if stderr.supports_color() && !stderr.is_synchronous() {
             let wtr = stderr.ansi_async_wtr();
             self.runtime().block_on(Downloading::try_new(
-                crate::signal::ctrl_c(),
                 wtr,
                 progresses,
                 short_name_width,
@@ -71,7 +69,6 @@ pub(super) trait DownloadProgress: Session {
             )?)
         } else {
             self.runtime().block_on(Downloading::try_new(
-                crate::signal::ctrl_c(),
                 io::sink(),
                 progresses,
                 short_name_width,
@@ -85,11 +82,9 @@ pub(super) trait DownloadProgress: Session {
 
 #[derive(Debug)]
 struct Downloading<
-    C: Future<Item = Infallible, Error = ServiceError> + Send + 'static,
     W: AsyncWrite,
     R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
 > {
-    ctrlc: C,
     sigwinch: Sigwinch,
     bufwtr: AsyncBufferedWriter<W>,
     rendered_final_state: bool,
@@ -120,13 +115,11 @@ struct ProgressPending {
 }
 
 impl<
-        C: Future<Item = Infallible, Error = ServiceError> + Send + 'static,
         W: AsyncWrite,
         R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
-    > Downloading<C, W, R>
+    > Downloading<W, R>
 {
     fn try_new(
-        ctrlc: C,
         wtr: W,
         progresses: Vec<(Name, Progress<R>)>,
         short_name_width: usize,
@@ -136,7 +129,6 @@ impl<
     ) -> io::Result<Self> {
         let sigwinch = Sigwinch::try_new()?;
         Ok(Self {
-            ctrlc,
             sigwinch,
             bufwtr: AsyncBufferedWriter::new(wtr),
             rendered_final_state: false,
@@ -298,10 +290,9 @@ impl<
 }
 
 impl<
-        C: Future<Item = Infallible, Error = ServiceError> + Send + 'static,
         W: AsyncWrite,
         R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
-    > Future for Downloading<C, W, R>
+    > Future for Downloading<W, R>
 {
     type Item = Vec<Vec<u8>>;
     type Error = ServiceError;
@@ -313,10 +304,12 @@ impl<
             AnyPending { notify: bool },
         }
 
-        self.ctrlc.poll()?;
+        crate::signal::check_ctrl_c()?;
+
         if self.sigwinch.poll()?.is_ready() {
             self.current_columns = (self.columns)();
         }
+
         try_ready!(self.bufwtr.poll_flush_buf());
 
         let (mut any_not_ready, mut any_newly_ready_some) = (false, false);

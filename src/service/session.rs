@@ -394,13 +394,7 @@ impl<'a, E: WriteColor> Request<'a, E> {
         if let Some(stderr) = &mut self.stderr {
             req.echo_method(stderr)?;
         }
-        let fut = client
-            .execute(req)
-            .map_err(ServiceError::from)
-            .select(crate::signal::ctrl_c())
-            .map(|(r, _)| r)
-            .map_err(|(e, _)| e);
-        let res = match runtime.block_on(fut) {
+        let res = match runtime.block_on(WithCtrlC(client.execute(req))) {
             Ok(res) => Ok(res),
             Err(err) => {
                 if let Some(stderr) = &mut self.stderr {
@@ -479,6 +473,8 @@ impl Response {
             type Error = ServiceError;
 
             fn poll(&mut self) -> Poll<Vec<u8>, ServiceError> {
+                crate::signal::check_ctrl_c()?;
+
                 if let Some(chunk) = try_ready!(self.decoder.poll()) {
                     self.buf.extend(chunk);
                     task::current().notify();
@@ -513,8 +509,7 @@ impl Response {
             .unwrap_or(0);
         let buf = Vec::with_capacity(cap);
         let decoder = mem::replace(self.0.body_mut(), Decoder::empty());
-        let fut = BufDecoder { decoder, buf }.select(crate::signal::ctrl_c());
-        let content = runtime.block_on(fut).map(|(x, _)| x).map_err(|(e, _)| e)?;
+        let content = runtime.block_on(BufDecoder { decoder, buf })?;
         String::from_utf8(content).map_err(|e| {
             let encoding = encoding.map(|e| e.as_str().to_owned());
             e.context(ServiceErrorKind::NonUtf8Content(encoding)).into()
@@ -530,12 +525,7 @@ impl Response {
         mut self,
         runtime: &mut Runtime,
     ) -> ServiceResult<T> {
-        let fut = self
-            .0
-            .json()
-            .map_err(ServiceError::from)
-            .select(crate::signal::ctrl_c::<T, _>());
-        runtime.block_on(fut).map(|(x, _)| x).map_err(|(e, _)| e)
+        runtime.block_on(WithCtrlC(self.0.json()))
     }
 }
 
@@ -598,6 +588,18 @@ impl ResponseExt for reqwest::r#async::Response {
             )
             .into())
         }
+    }
+}
+
+struct WithCtrlC<F: Future<Error = reqwest::Error>>(F);
+
+impl<F: Future<Error = reqwest::Error>> Future for WithCtrlC<F> {
+    type Item = F::Item;
+    type Error = ServiceError;
+
+    fn poll(&mut self) -> Poll<F::Item, ServiceError> {
+        crate::signal::check_ctrl_c()?;
+        self.0.poll().map_err(Into::into)
     }
 }
 
