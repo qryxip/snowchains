@@ -15,7 +15,6 @@ use structopt::clap::Arg;
 use structopt::StructOpt;
 use strum_macros::EnumString;
 use termcolor::WriteColor;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -702,6 +701,7 @@ impl<
                 let problem = problem.clone();
                 self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(*service, contest, None, &wd)?;
+                self.apply_console_conf(config.console());
                 let contest = config.contest().to_owned();
                 let outcome = service::retrieve_langs(
                     config.service(),
@@ -912,20 +912,7 @@ impl<
     }
 
     fn apply_console_conf(&mut self, conf: &config::Console) {
-        fn apply_console_conf(mut wtr: impl ModifyTermProps, conf: &config::Console) {
-            wtr.modify_term_props(|props| {
-                if conf.cjk {
-                    props.char_width = UnicodeWidthChar::width_cjk;
-                    props.str_width = UnicodeWidthStr::width_cjk;
-                } else {
-                    props.char_width = UnicodeWidthChar::width;
-                    props.str_width = UnicodeWidthStr::width;
-                }
-            })
-        }
-
-        apply_console_conf(&mut self.stdout, conf);
-        apply_console_conf(&mut self.stderr, conf);
+        conf.modify_term_props(&mut self.stdout, &mut self.stderr);
     }
 }
 

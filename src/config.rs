@@ -556,25 +556,7 @@ pub(crate) fn switch(
     writeln!(stderr, "Wrote {}", path.display())?;
     stderr.flush()?;
 
-    let char_width: fn(char) -> Option<usize> = if inner.console.cjk {
-        UnicodeWidthChar::width_cjk
-    } else {
-        UnicodeWidthChar::width
-    };
-    let str_width: fn(&str) -> usize = if inner.console.cjk {
-        UnicodeWidthStr::width_cjk
-    } else {
-        UnicodeWidthStr::width
-    };
-
-    stdout.modify_term_props(|props| {
-        props.char_width = char_width;
-        props.str_width = str_width
-    });
-    stderr.modify_term_props(|props| {
-        props.char_width = char_width;
-        props.str_width = str_width
-    });
+    inner.console.modify_term_props(&mut stdout, &mut stderr);
 
     let outcome = SwitchOutcome {
         old: SwitchOutcomeAttrs {
@@ -945,6 +927,14 @@ impl Config {
             .get(&self.target.language)
             .ok_or_else(|| ConfigErrorKind::NoSuchLanguage(self.target.language.clone()).into())
     }
+
+    pub(crate) fn modify_term_props(
+        &self,
+        stdout: impl ModifyTermProps,
+        stderr: impl ModifyTermProps,
+    ) {
+        self.inner.console.modify_term_props(stdout, stderr)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -968,8 +958,36 @@ pub(crate) struct Inner {
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Console {
     #[serde(default)]
-    pub(crate) cjk: bool,
-    pub(crate) alt_width: Option<usize>,
+    cjk: bool,
+    alt_width: Option<usize>,
+}
+
+impl Console {
+    pub(crate) fn modify_term_props(
+        &self,
+        mut stdout: impl ModifyTermProps,
+        mut stderr: impl ModifyTermProps,
+    ) {
+        let char_width: fn(char) -> Option<usize> = if self.cjk {
+            UnicodeWidthChar::width_cjk
+        } else {
+            UnicodeWidthChar::width
+        };
+        let str_width: fn(&str) -> usize = if self.cjk {
+            UnicodeWidthStr::width_cjk
+        } else {
+            UnicodeWidthStr::width
+        };
+
+        stdout.modify_term_props(|props| {
+            props.char_width = char_width;
+            props.str_width = str_width
+        });
+        stderr.modify_term_props(|props| {
+            props.char_width = char_width;
+            props.str_width = str_width
+        });
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
