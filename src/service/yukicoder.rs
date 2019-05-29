@@ -160,7 +160,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
     fn confirm_revel_session(&mut self, revel_session: String) -> ServiceResult<bool> {
         self.clear_cookies()?;
         let cookie = Cookie::new("REVEL_SESSION", revel_session);
-        self.insert_cookie(cookie)?;
+        self.insert_cookie(&cookie, &*BASE_URL)?;
         self.fetch_username()?;
         Ok(self.username.name().is_some())
     }
@@ -292,15 +292,14 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             }
 
             let client = self.client();
-            let cookie_header = self.cookies_to_header_value()?;
             let reqs = nos
                 .iter()
                 .map(|no| {
                     let mut url = BASE_URL.clone();
                     url.set_path(&format!("/problems/no/{}/testcase.zip", no));
                     let mut req = client.get(url.clone());
-                    if let Some(cookie_header) = &cookie_header {
-                        req = req.header(header::COOKIE, cookie_header);
+                    if let Some(value) = self.cookies_to_header_value(&url) {
+                        req = req.header(header::COOKIE, value);
                     }
                     (download::Name::new(no.clone(), url.into_string()), req)
                 })

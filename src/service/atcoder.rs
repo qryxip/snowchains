@@ -179,7 +179,9 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 "username" => self.prompt_reply_stderr("Username: ")?,
                 "password" => self.prompt_password_stderr("Password: ")?,
             );
+
             self.post("/login").send_form(&payload)?;
+
             if self.get("/settings").acceptable(&[200, 302]).status()? == 200 {
                 writeln!(self.stderr(), "Successfully logged in.")?;
                 break self.stderr().flush().map_err(Into::into);

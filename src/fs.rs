@@ -138,10 +138,6 @@ impl LockedFile {
         })
     }
 
-    pub(crate) fn path(&self) -> &AbsPath {
-        &self.path
-    }
-
     pub(crate) fn is_empty(&self) -> io::Result<bool> {
         self.inner.metadata().map(|m| m.len() == 0)
     }

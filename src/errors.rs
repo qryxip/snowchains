@@ -8,7 +8,7 @@ use chrono::{DateTime, Local};
 use derive_new::new;
 use failure::{Backtrace, Fail};
 use itertools::Itertools as _;
-use reqwest::header::{HeaderName, HeaderValue};
+use reqwest::header::HeaderName;
 use reqwest::StatusCode;
 use url::Url;
 use zip::result::ZipError;
@@ -101,10 +101,8 @@ pub enum ServiceErrorKind {
     NonUtf8Content(Option<String>),
     #[display(fmt = "Failed to parse a URL: {:?}", _0)]
     ParseUrl(String),
-    #[display(fmt = "Failed to parse a cookie in {}: {:?}", "_0.display()", _1)]
-    ParseCookieFromPath(AbsPathBuf, String),
-    #[display(fmt = "Failed to parse a cookie from {}: {:?}", _0, _1)]
-    ParseCookieFromUrl(Url, HeaderValue),
+    #[display(fmt = "Invalid cookie")]
+    InvalidCookie,
     #[display(fmt = "The response does not contain {:?} header", _0)]
     HeaderMissing(HeaderName),
     #[display(fmt = "Failed to read {:?} header", _0)]

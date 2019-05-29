@@ -1,4 +1,6 @@
-use crate::errors::{FileResult, ServiceError, ServiceErrorKind, ServiceResult};
+use crate::errors::{
+    FileError, FileErrorKind, FileResult, ServiceError, ServiceErrorKind, ServiceResult,
+};
 use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
 use crate::service::session::owned_robots::OwnedRobots;
@@ -6,12 +8,13 @@ use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::util::collections::NonEmptyIndexSet;
 use crate::util::indexmap::IndexSetAsRefStrExt as _;
 
-use cookie::CookieJar;
+use cookie_store::CookieStore;
 use derive_new::new;
-use failure::{Fail as _, Fallible, ResultExt as _};
+use failure::{Fail as _, ResultExt as _};
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
 use if_chain::if_chain;
 use indexmap::IndexSet;
+use itertools::Itertools as _;
 use maplit::hashmap;
 use mime::Mime;
 use reqwest::header::{self, HeaderValue};
@@ -27,7 +30,7 @@ use url::{Host, Url};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{self, Write as _};
-use std::io::{self, Write as _};
+use std::io::{self, BufReader, Write as _};
 use std::mem;
 use std::ops::Deref;
 
@@ -112,34 +115,32 @@ pub(super) trait Session {
         }
     }
 
-    /// Whether it has any cookie value.
+    /// Whether it has any **unexpired** cookie.
     fn has_cookie(&self) -> bool {
         self.state_ref()
-            .cookie_jar
+            .cookie_store
             .as_ref()
-            .map_or(false, |j| j.inner.iter().next().is_some())
+            .map_or(false, |s| s.store.iter_unexpired().next().is_some())
     }
 
-    fn cookies_to_header_value(&self) -> ServiceResult<Option<HeaderValue>> {
+    fn cookies_to_header_value(&self, url: &Url) -> Option<HeaderValue> {
         self.state_ref()
-            .cookie_jar
+            .cookie_store
             .as_ref()
-            .map(AutosavedCookieJar::to_header_value)
-            .transpose()
+            .and_then(|s| s.to_header_value(url))
     }
 
-    fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> ServiceResult<()> {
-        if let Some(jar) = &mut self.state_mut().cookie_jar {
-            jar.insert_cookie(cookie)?;
+    fn insert_cookie(&mut self, cookie: &cookie::Cookie, url: &Url) -> ServiceResult<()> {
+        if let Some(store) = &mut self.state_mut().cookie_store {
+            store.insert_cookie(cookie, url)?;
         }
         Ok(())
     }
 
     /// Removes all cookies.
     fn clear_cookies(&mut self) -> ServiceResult<()> {
-        if let Some(jar) = &mut self.state_mut().cookie_jar {
-            jar.inner = CookieJar::new();
-            jar.save()?;
+        if let Some(store) = &mut self.state_mut().cookie_store {
+            store.clear()?;
         }
         Ok(())
     }
@@ -180,7 +181,7 @@ pub(super) struct State<I: Input, E: WriteColor + HasTermProps> {
     runtime: Runtime,
     client: reqwest::r#async::Client,
     robots: HashMap<String, OwnedRobots>,
-    cookie_jar: Option<AutosavedCookieJar>,
+    cookie_store: Option<AutosavedCookieStore>,
     api_token: LazyLockedFile,
     url_base: Option<UrlBase>,
     http_silent: bool,
@@ -207,7 +208,9 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
             runtime,
             client,
             robots: hashmap!(),
-            cookie_jar: cookies_path.map(AutosavedCookieJar::try_new).transpose()?,
+            cookie_store: cookies_path
+                .map(AutosavedCookieStore::try_new)
+                .transpose()?,
             api_token: match api_token_path {
                 None => LazyLockedFile::Null,
                 Some(path) => LazyLockedFile::Uninited(path.to_owned()),
@@ -222,12 +225,7 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
                     .acceptable(&[200, 301, 302, 404])
                     .send()?;
                 while [301, 302, 404].contains(&res.status().as_u16()) {
-                    if let Some(location) =
-                        res.headers().get(header::LOCATION).map(ToOwned::to_owned)
-                    {
-                        let location = location
-                            .to_str()
-                            .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
+                    if let Some(location) = res.header_location()? {
                         res = this
                             .get(location)
                             .acceptable(&[200, 301, 302, 404])
@@ -236,13 +234,9 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
                         return Ok(this);
                     }
                 }
-                match res.status() {
-                    StatusCode::OK => {
-                        let txt = res.text(&mut this.runtime)?;
-                        this.robots.insert(host.to_string(), OwnedRobots::new(txt));
-                    }
-                    StatusCode::NOT_FOUND => (),
-                    _ => unreachable!(),
+                if res.status() == 200 {
+                    let txt = res.text(&mut this.runtime)?;
+                    this.robots.insert(host.to_string(), OwnedRobots::new(txt));
                 }
             }
         }
@@ -256,7 +250,11 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
         acceptable: Vec<StatusCode>,
     ) -> self::Request<'a, &'a mut E> {
         self::Request {
-            inner: self.try_request(url, method),
+            req_and_url: self.resolve_url(url).and_then(|url| {
+                let url = self.resolve_url(url)?;
+                self.assert_not_forbidden_by_robots_txt(&url)?;
+                Ok((self.client.request(method, url.as_str()), url))
+            }),
             stderr: if self.http_silent {
                 None
             } else {
@@ -264,20 +262,10 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
             },
             runtime: &mut self.runtime,
             client: &self.client,
-            cookie_jar: self.cookie_jar.as_mut(),
+            cookie_store: self.cookie_store.as_mut(),
             acceptable,
             no_cookie: false,
         }
-    }
-
-    fn try_request(
-        &mut self,
-        url: impl IntoRelativeOrAbsoluteUrl,
-        method: Method,
-    ) -> ServiceResult<reqwest::r#async::RequestBuilder> {
-        let url = self.resolve_url(url)?;
-        self.assert_not_forbidden_by_robots_txt(&url)?;
-        Ok(self.client.request(method, url.as_str()))
     }
 
     fn assert_not_forbidden_by_robots_txt(&self, url: &Url) -> ServiceResult<()> {
@@ -322,11 +310,11 @@ pub(super) struct StateStartArgs<'a, I: Input, E: WriteColor + HasTermProps> {
 
 #[derive(Debug)]
 pub(super) struct Request<'a, E: WriteColor> {
-    inner: ServiceResult<reqwest::r#async::RequestBuilder>,
+    req_and_url: ServiceResult<(reqwest::r#async::RequestBuilder, Url)>,
     stderr: Option<E>,
     runtime: &'a mut Runtime,
     client: &'a reqwest::r#async::Client,
-    cookie_jar: Option<&'a mut AutosavedCookieJar>,
+    cookie_store: Option<&'a mut AutosavedCookieStore>,
     acceptable: Vec<StatusCode>,
     no_cookie: bool,
 }
@@ -338,26 +326,32 @@ impl<'a, E: WriteColor> Request<'a, E> {
         password: Option<impl fmt::Display>,
     ) -> Self {
         Self {
-            inner: self.inner.map(|inner| inner.basic_auth(username, password)),
+            req_and_url: self
+                .req_and_url
+                .map(|(r, u)| (r.basic_auth(username, password), u)),
             ..self
         }
     }
 
     pub(super) fn bearer_auth(self, token: impl fmt::Display) -> Self {
         Self {
-            inner: self.inner.map(|inner| inner.bearer_auth(token)),
+            req_and_url: self.req_and_url.map(|(r, u)| (r.bearer_auth(token), u)),
             ..self
         }
     }
 
-    pub(super) fn form(mut self, form: &(impl Serialize + ?Sized)) -> Self {
-        self.inner = self.inner.map(|inner| inner.form(form));
-        self
+    pub(super) fn form(self, form: &(impl Serialize + ?Sized)) -> Self {
+        Self {
+            req_and_url: self.req_and_url.map(|(r, u)| (r.form(form), u)),
+            ..self
+        }
     }
 
-    pub(super) fn json(mut self, json: &(impl Serialize + ?Sized)) -> Self {
-        self.inner = self.inner.map(|inner| inner.json(json));
-        self
+    pub(super) fn json(self, json: &(impl Serialize + ?Sized)) -> Self {
+        Self {
+            req_and_url: self.req_and_url.map(|(r, u)| (r.json(json), u)),
+            ..self
+        }
     }
 
     /// Panics:
@@ -382,10 +376,12 @@ impl<'a, E: WriteColor> Request<'a, E> {
     }
 
     fn send_internal(mut self) -> ServiceResult<(self::Response, &'a mut Runtime)> {
-        let mut req = self.inner?;
+        let (mut req, url) = self.req_and_url?;
         if !self.no_cookie {
-            if let Some(jar) = self.cookie_jar.as_ref() {
-                req = req.header(header::COOKIE, jar.to_header_value()?);
+            if let Some(store) = &self.cookie_store {
+                if let Some(value) = store.to_header_value(&url) {
+                    req = req.header(header::COOKIE, value);
+                }
             }
         }
         let req = req.build()?;
@@ -408,8 +404,8 @@ impl<'a, E: WriteColor> Request<'a, E> {
             res.echo_status(&self.acceptable, stderr)?;
         }
         if !self.no_cookie {
-            if let Some(jar) = &mut self.cookie_jar {
-                jar.update(&res)?;
+            if let Some(store) = &mut self.cookie_store {
+                store.update(&res)?;
             }
         }
         let inner = res.filter_by_status(self.acceptable)?;
@@ -427,7 +423,7 @@ impl<'a, E: WriteColor> Request<'a, E> {
         mut self,
         form: reqwest::r#async::multipart::Form,
     ) -> ServiceResult<self::Response> {
-        self.inner = self.inner.map(|inner| inner.multipart(form));
+        self.req_and_url = self.req_and_url.map(|(r, u)| (r.multipart(form), u));
         self.send()
     }
 
@@ -485,29 +481,26 @@ impl Response {
             }
         }
 
-        let content_type = self
+        let encoding = self
             .0
             .headers()
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse::<Mime>().ok());
-        let encoding = content_type
-            .as_ref()
-            .and_then(|mime| mime.get_param("charset"));
+            .and_then(|v| v.parse::<Mime>().ok())
+            .and_then(|m| m.get_param("charset").map(|m| m.as_str().to_owned()));
+
         if let Some(encoding) = &encoding {
-            if *encoding != "utf-8" {
-                let encoding = encoding.as_str().to_owned();
-                return Err(ServiceErrorKind::NonUtf8Content(Some(encoding)).into());
+            if encoding != "utf-8" {
+                return Err(ServiceErrorKind::NonUtf8Content(Some(encoding.clone())).into());
             }
         }
+
         let buf =
             Vec::with_capacity(self.0.content_length().map(|n| n + 1).unwrap_or(1024) as usize);
         let decoder = mem::replace(self.0.body_mut(), Decoder::empty());
         let content = runtime.block_on(BufDecoder { decoder, buf })?;
-        String::from_utf8(content).map_err(|e| {
-            let encoding = encoding.map(|e| e.as_str().to_owned());
-            e.context(ServiceErrorKind::NonUtf8Content(encoding)).into()
-        })
+        String::from_utf8(content)
+            .map_err(|e| e.context(ServiceErrorKind::NonUtf8Content(encoding)).into())
     }
 
     pub(super) fn html(self, runtime: &mut Runtime) -> ServiceResult<Html> {
@@ -652,77 +645,86 @@ impl<'a> IntoRelativeOrAbsoluteUrl for &'a String {
 }
 
 #[derive(Debug)]
-struct AutosavedCookieJar {
+struct AutosavedCookieStore {
     file: LockedFile,
-    inner: CookieJar,
+    store: CookieStore,
 }
 
-impl AutosavedCookieJar {
-    fn try_new(path: &AbsPath) -> ServiceResult<Self> {
+impl AutosavedCookieStore {
+    fn try_new(path: &AbsPath) -> FileResult<Self> {
         let mut file = LockedFile::try_new(path)?;
-        let mut inner = CookieJar::new();
-        if_chain! {
-            if !file.is_empty()?;
-            let cookies = file.json::<Vec<String>>()?;
-            if !cookies.is_empty();
-            then {
-                for cookie in cookies {
-                    let cookie = cookie::Cookie::parse(cookie.clone()).with_context(|_| {
-                        ServiceErrorKind::ParseCookieFromPath(path.to_owned(), cookie)
-                    })?;
-                    inner.add(cookie);
-                }
-            } else {
-                file.write_json(&Vec::<String>::new())?;
-            }
-        }
-        Ok(Self { file, inner })
+
+        let store = if file.is_empty()? {
+            CookieStore::default()
+        } else {
+            let array = file.json::<Vec<serde_json::Value>>()?;
+            let json_lines = array.iter().join("\n");
+            CookieStore::load_json(BufReader::new(json_lines.as_bytes()))
+                .with_context(|_| FileErrorKind::Read(path.to_owned()))
+                .map_err(FileError::from)?
+        };
+
+        Ok(Self { file, store })
     }
 
-    fn to_header_value(&self) -> ServiceResult<HeaderValue> {
-        let s = self.inner.iter().fold("".to_owned(), |mut s, cookie| {
-            if !s.is_empty() {
-                s.push_str(";");
-            }
-            write!(s, "{}={}", cookie.name(), cookie.value()).unwrap();
-            s
-        });
-        HeaderValue::from_str(&s)
-            .with_context(|_| ServiceErrorKind::ParseCookieFromPath(self.file.path().to_owned(), s))
-            .map_err(Into::into)
+    fn to_header_value(&self, url: &Url) -> Option<HeaderValue> {
+        use percent_encoding::USERINFO_ENCODE_SET;
+
+        // https://github.com/seanmonstar/reqwest/pull/522
+        let header =
+            self.store
+                .get_request_cookies(url)
+                .fold("".to_owned(), |mut header, cookie| {
+                    let name = cookie.name().as_ref();
+                    let name = percent_encoding::percent_encode(name, USERINFO_ENCODE_SET);
+                    let value = cookie.value().as_ref();
+                    let value = percent_encoding::percent_encode(value, USERINFO_ENCODE_SET);
+                    if !header.is_empty() {
+                        header.push_str("; ");
+                    }
+                    write!(header, "{}={}", name, value).unwrap();
+                    header
+                });
+
+        guard!(!header.is_empty());
+        let result = header.parse();
+        debug_assert!(result.is_ok());
+        result.ok()
     }
 
-    fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> ServiceResult<()> {
-        self.inner.add(cookie);
+    fn insert_cookie(&mut self, cookie: &cookie::Cookie, url: &Url) -> ServiceResult<()> {
+        self.store
+            .insert_raw(cookie, url)
+            .with_context(|_| ServiceErrorKind::InvalidCookie)?;
         self.save().map_err(Into::into)
     }
 
     fn update(&mut self, response: &reqwest::r#async::Response) -> ServiceResult<()> {
-        fn parse_setcookie(setcookie: &HeaderValue) -> Fallible<cookie::Cookie<'static>> {
-            let setcookie = setcookie.to_str()?;
-            let cookie = cookie::Cookie::parse(setcookie)?;
-            Ok(cookie.into_owned())
-        }
-
+        let mut inserted = false;
         for setcookie in response.headers().get_all(header::SET_COOKIE) {
-            let cookie = parse_setcookie(setcookie).with_context(|_| {
-                ServiceErrorKind::ParseCookieFromUrl(
-                    response.url().to_owned(),
-                    setcookie.to_owned(),
-                )
-            })?;
-            self.inner.add(cookie);
+            // Ignores invalid cookies as `reqwest` does.
+            if let Ok(cookie) = setcookie.to_str() {
+                inserted |= self.store.parse(cookie, response.url()).is_ok();
+            }
         }
+        if inserted {
+            self.save()?;
+        }
+        Ok(())
+    }
+
+    fn clear(&mut self) -> ServiceResult<()> {
+        self.store.clear();
         self.save().map_err(Into::into)
     }
 
     fn save(&mut self) -> FileResult<()> {
-        let value = self
-            .inner
-            .iter()
-            .map(ToString::to_string)
+        let array = self
+            .store
+            .iter_unexpired()
+            .filter(|c| c.is_persistent())
             .collect::<Vec<_>>();
-        self.file.write_json(&value)
+        self.file.write_json(&array).map_err(Into::into)
     }
 }
 
@@ -932,7 +934,7 @@ mod tests {
             runtime: Runtime::new()?,
             client: reqwest::r#async::Client::builder().build()?,
             robots: hashmap!(),
-            cookie_jar: None,
+            cookie_store: None,
             api_token: LazyLockedFile::Null,
             url_base: None,
             http_silent: true,

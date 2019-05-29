@@ -1171,9 +1171,11 @@ impl SessionProps {
 pub(self) fn reqwest_async_client(
     timeout: impl Into<Option<Duration>>,
 ) -> reqwest::Result<reqwest::r#async::Client> {
+    // Uses `CookieStore` directly since `reqwest` does not have a API to access the cookie store.
     let mut builder = reqwest::r#async::Client::builder()
         .redirect(RedirectPolicy::none())
         .referer(false)
+        .cookie_store(false)
         .default_headers({
             let mut headers = HeaderMap::new();
             headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());
