@@ -1,5 +1,6 @@
 use crate::errors::{
-    FileError, FileErrorKind, FileResult, ServiceError, ServiceErrorKind, ServiceResult,
+    FileError, FileErrorKind, FileResult, PseudoReqwestError, PseudoReqwestResult, ServiceError,
+    ServiceErrorKind, ServiceResult,
 };
 use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
@@ -12,12 +13,13 @@ use cookie_store::CookieStore;
 use derive_new::new;
 use failure::{Fail as _, ResultExt as _};
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
+use http::HttpTryFrom;
 use if_chain::if_chain;
 use indexmap::IndexSet;
 use itertools::Itertools as _;
 use maplit::hashmap;
 use mime::Mime;
-use reqwest::header::{self, HeaderValue};
+use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::r#async::Decoder;
 use reqwest::{Method, StatusCode};
 use scraper::Html;
@@ -250,10 +252,9 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
         acceptable: Vec<StatusCode>,
     ) -> self::Request<'a, &'a mut E> {
         self::Request {
-            req_and_url: self.resolve_url(url).and_then(|url| {
-                let url = self.resolve_url(url)?;
+            req: self.resolve_url(url).and_then(|url| {
                 self.assert_not_forbidden_by_robots_txt(&url)?;
-                Ok((self.client.request(method, url.as_str()), url))
+                Ok(self::RequestBuilder::new(self.client(), method, url))
             }),
             stderr: if self.http_silent {
                 None
@@ -261,7 +262,6 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
                 Some(&mut self.stderr)
             },
             runtime: &mut self.runtime,
-            client: &self.client,
             cookie_store: self.cookie_store.as_mut(),
             acceptable,
             no_cookie: false,
@@ -310,10 +310,9 @@ pub(super) struct StateStartArgs<'a, I: Input, E: WriteColor + HasTermProps> {
 
 #[derive(Debug)]
 pub(super) struct Request<'a, E: WriteColor> {
-    req_and_url: ServiceResult<(reqwest::r#async::RequestBuilder, Url)>,
+    req: ServiceResult<self::RequestBuilder>,
     stderr: Option<E>,
     runtime: &'a mut Runtime,
-    client: &'a reqwest::r#async::Client,
     cookie_store: Option<&'a mut AutosavedCookieStore>,
     acceptable: Vec<StatusCode>,
     no_cookie: bool,
@@ -326,30 +325,32 @@ impl<'a, E: WriteColor> Request<'a, E> {
         password: Option<impl fmt::Display>,
     ) -> Self {
         Self {
-            req_and_url: self
-                .req_and_url
-                .map(|(r, u)| (r.basic_auth(username, password), u)),
+            req: self
+                .req
+                .and_then(|r| r.basic_auth(username, password).map_err(Into::into)),
             ..self
         }
     }
 
     pub(super) fn bearer_auth(self, token: impl fmt::Display) -> Self {
         Self {
-            req_and_url: self.req_and_url.map(|(r, u)| (r.bearer_auth(token), u)),
+            req: self
+                .req
+                .and_then(|r| r.bearer_auth(token).map_err(Into::into)),
             ..self
         }
     }
 
     pub(super) fn form(self, form: &(impl Serialize + ?Sized)) -> Self {
         Self {
-            req_and_url: self.req_and_url.map(|(r, u)| (r.form(form), u)),
+            req: self.req.and_then(|r| r.form(form).map_err(Into::into)),
             ..self
         }
     }
 
     pub(super) fn json(self, json: &(impl Serialize + ?Sized)) -> Self {
         Self {
-            req_and_url: self.req_and_url.map(|(r, u)| (r.json(json), u)),
+            req: self.req.and_then(|r| r.json(json).map_err(Into::into)),
             ..self
         }
     }
@@ -376,40 +377,68 @@ impl<'a, E: WriteColor> Request<'a, E> {
     }
 
     fn send_internal(mut self) -> ServiceResult<(self::Response, &'a mut Runtime)> {
-        let (mut req, url) = self.req_and_url?;
-        if !self.no_cookie {
-            if let Some(store) = &self.cookie_store {
-                if let Some(value) = store.to_header_value(&url) {
-                    req = req.header(header::COOKIE, value);
-                }
+        if_chain! {
+            if !self.no_cookie;
+            if let Ok(req) = &mut self.req;
+            if let Some(store) = &self.cookie_store;
+            if let Some(value) = store.to_header_value(&req.url);
+            then {
+                req.headers.insert(header::COOKIE, value);
             }
         }
-        let req = req.build()?;
-        let client = self.client;
+
         let runtime = self.runtime;
+        let req = self.req?;
+        let (client, req) = (&req.client, req.build()?);
+
         if let Some(stderr) = &mut self.stderr {
-            req.echo_method(stderr)?;
+            stderr.set_color(color!(bold))?;
+            stderr.write_str(req.method())?;
+            stderr.write_str(" ")?;
+            stderr.set_color(color!(fg(Cyan), intense))?;
+            stderr.write_str(req.url())?;
+            stderr.reset()?;
+            stderr.write_str(" ... ")?;
+            stderr.flush()?;
         }
-        let res = match runtime.block_on(WithCtrlC(client.execute(req))) {
-            Ok(res) => Ok(res),
-            Err(err) => {
-                if let Some(stderr) = &mut self.stderr {
-                    writeln!(stderr)?;
-                    stderr.flush()?;
-                }
-                Err(err)
+
+        let res = runtime.block_on(WithCtrlC(client.execute(req)));
+        if res.is_err() {
+            if let Some(stderr) = &mut self.stderr {
+                writeln!(stderr)?;
+                stderr.flush()?;
             }
-        }?;
-        if let Some(stderr) = &mut self.stderr {
-            res.echo_status(&self.acceptable, stderr)?;
         }
+        let res = res?;
+
+        if let Some(stderr) = &mut self.stderr {
+            if self.acceptable.contains(&res.status()) {
+                stderr.set_color(color!(fg(Green), intense, bold))?;
+            } else {
+                stderr.set_color(color!(fg(Red), intense, bold))?;
+            };
+            write!(stderr, "{}", res.status())?;
+            stderr.reset()?;
+            writeln!(stderr)?;
+            stderr.flush()?;
+        }
+
         if !self.no_cookie {
             if let Some(store) = &mut self.cookie_store {
                 store.update(&res)?;
             }
         }
-        let inner = res.filter_by_status(self.acceptable)?;
-        Ok((self::Response(inner), runtime))
+
+        if self.acceptable.is_empty() || self.acceptable.contains(&res.status()) {
+            Ok((self::Response(res), runtime))
+        } else {
+            Err(ServiceErrorKind::UnexpectedStatusCode(
+                res.url().to_owned(),
+                res.status(),
+                self.acceptable.clone(),
+            )
+            .into())
+        }
     }
 
     pub(super) fn send_form(
@@ -419,11 +448,8 @@ impl<'a, E: WriteColor> Request<'a, E> {
         self.form(form).send()
     }
 
-    pub(super) fn send_multipart(
-        mut self,
-        form: reqwest::r#async::multipart::Form,
-    ) -> ServiceResult<self::Response> {
-        self.req_and_url = self.req_and_url.map(|(r, u)| (r.multipart(form), u));
+    pub(super) fn send_multipart(mut self, form: FormBuilder) -> ServiceResult<self::Response> {
+        self.req = self.req.map(|r| r.multipart(form));
         self.send()
     }
 
@@ -439,6 +465,128 @@ impl<'a, E: WriteColor> Request<'a, E> {
 
     pub(super) fn status(self) -> ServiceResult<StatusCode> {
         self.send_internal().map(|(r, _)| r.status())
+    }
+}
+
+/// A builder that can construct a `reqwest::async::Request` any number of times.
+#[derive(Debug)]
+struct RequestBuilder {
+    client: reqwest::r#async::Client,
+    method: Method,
+    url: Url,
+    headers: HeaderMap,
+    body: self::Body,
+}
+
+impl RequestBuilder {
+    fn new(client: reqwest::r#async::Client, method: Method, url: Url) -> Self {
+        Self {
+            client,
+            method,
+            url,
+            headers: HeaderMap::new(),
+            body: self::Body::None,
+        }
+    }
+
+    fn header<V>(mut self, key: HeaderName, value: V) -> PseudoReqwestResult<Self>
+    where
+        HeaderValue: HttpTryFrom<V>,
+    {
+        let value = <HeaderValue as HttpTryFrom<_>>::try_from(value)
+            .map_err(|e| PseudoReqwestError::new(self.url.clone(), Into::<http::Error>::into(e)))?;
+        self.headers.insert(key, value);
+        Ok(self)
+    }
+
+    fn basic_auth<U: fmt::Display, P: fmt::Display>(
+        self,
+        username: U,
+        password: Option<P>,
+    ) -> PseudoReqwestResult<Self> {
+        let auth = match password {
+            None => format!("{}:", username),
+            Some(p) => format!("{}:{}", username, p),
+        };
+        let auth = base64::encode(&auth);
+        self.header(header::AUTHORIZATION, format!("Basic {}", auth))
+    }
+
+    fn bearer_auth<T: fmt::Display>(self, token: T) -> PseudoReqwestResult<Self> {
+        self.header(header::AUTHORIZATION, format!("Bearer {}", token))
+    }
+
+    fn multipart(mut self, multipart: FormBuilder) -> Self {
+        self.body = self::Body::Multipart(multipart);
+        self
+    }
+
+    fn form<T: Serialize + ?Sized>(mut self, form: &T) -> PseudoReqwestResult<Self> {
+        self.headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/x-www-form-urlencoded"),
+        );
+        let form = serde_urlencoded::to_string(form)
+            .map_err(|e| PseudoReqwestError::new(self.url.clone(), e))?;
+        self.body = self::Body::Serialized(form);
+        Ok(self)
+    }
+
+    fn json<T: Serialize + ?Sized>(mut self, json: &T) -> PseudoReqwestResult<Self> {
+        self.headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        let json = serde_json::to_string(json)
+            .map_err(|e| PseudoReqwestError::new(self.url.clone(), e))?;
+        self.body = self::Body::Serialized(json);
+        Ok(self)
+    }
+
+    fn build(&self) -> reqwest::Result<reqwest::r#async::Request> {
+        let mut ret = self
+            .client
+            .request(self.method.clone(), self.url.clone())
+            .headers(self.headers.clone());
+        match &self.body {
+            self::Body::None => {}
+            self::Body::Serialized(s) => ret = ret.body(s.clone()),
+            self::Body::Multipart(f) => ret = ret.multipart(f.build()),
+        };
+        ret.build()
+    }
+}
+
+#[derive(Debug)]
+enum Body {
+    None,
+    Serialized(String),
+    Multipart(FormBuilder),
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct FormBuilder(Vec<(Cow<'static, str>, Cow<'static, str>)>);
+
+impl FormBuilder {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn text<T: Into<Cow<'static, str>>, U: Into<Cow<'static, str>>>(
+        mut self,
+        name: T,
+        value: U,
+    ) -> Self {
+        self.0.push((name.into(), value.into()));
+        self
+    }
+
+    fn build(&self) -> reqwest::r#async::multipart::Form {
+        let mut ret = reqwest::r#async::multipart::Form::new();
+        for (key, value) in &self.0 {
+            ret = ret.text(key.clone(), value.clone());
+        }
+        ret
     }
 }
 
@@ -521,60 +669,6 @@ impl Deref for Response {
 
     fn deref(&self) -> &reqwest::r#async::Response {
         &self.0
-    }
-}
-
-trait RequestExt {
-    fn echo_method(&self, out: impl WriteColor) -> io::Result<()>;
-}
-
-impl RequestExt for reqwest::r#async::Request {
-    fn echo_method(&self, mut out: impl WriteColor) -> io::Result<()> {
-        out.set_color(color!(bold))?;
-        out.write_str(self.method())?;
-        out.write_str(" ")?;
-        out.set_color(color!(fg(Cyan), intense))?;
-        out.write_str(self.url())?;
-        out.reset()?;
-        out.write_str(" ... ")?;
-        out.flush()
-    }
-}
-
-trait ResponseExt: Sized {
-    fn echo_status(&self, expected_statuses: &[StatusCode], out: impl WriteColor)
-        -> io::Result<()>;
-    fn filter_by_status(self, expected: Vec<StatusCode>) -> ServiceResult<Self>;
-}
-
-impl ResponseExt for reqwest::r#async::Response {
-    fn echo_status(
-        &self,
-        expected_statuses: &[StatusCode],
-        mut out: impl WriteColor,
-    ) -> io::Result<()> {
-        if expected_statuses.contains(&self.status()) {
-            out.set_color(color!(fg(Green), intense, bold))?;
-        } else {
-            out.set_color(color!(fg(Red), intense, bold))?;
-        };
-        write!(out, "{}", self.status())?;
-        out.reset()?;
-        writeln!(out)?;
-        out.flush()
-    }
-
-    fn filter_by_status(self, expected: Vec<StatusCode>) -> ServiceResult<Self> {
-        if expected.is_empty() || expected.contains(&self.status()) {
-            Ok(self)
-        } else {
-            Err(ServiceErrorKind::UnexpectedStatusCode(
-                self.url().to_owned(),
-                self.status(),
-                expected,
-            )
-            .into())
-        }
     }
 }
 

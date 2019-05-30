@@ -17,6 +17,7 @@ codecov = { repository = "qryxip/snowchains" }
 
 [dependencies]
 atty = "0.2.11"
+base64 = "0.10.1"
 chrono = { version = "0.4.6", features = ["serde"] }
 combine = "3.8.1"
 cookie = "0.12.0"
@@ -35,6 +36,7 @@ fs2 = "0.4.3"
 futures = "0.1.27"
 heck = "0.3.1"
 hex = "0.3.2"
+http = "0.1.17"
 if_chain = "1.0.0"
 indexmap = { version = "1.0.2", features = ["serde-1"] }
 itertools = "0.8.0"
@@ -59,7 +61,7 @@ serde_yaml = "0.8.9"
 sha2 = "0.8.0"
 smallvec = "0.6.9"
 snowchains_proc_macros = { path = "./proc_macros", version = "0.1.0" }
-structopt = { git = "https://github.com/TeXitoi/structopt", rev = "cd28127012be63f2622fd0e6180621f07d903ccf", features = ["wrap_help"] }
+structopt = "0.2.16"
 strum = "0.15.0"
 strum_macros = "0.15.0"
 take_mut = "0.2.2"

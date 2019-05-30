@@ -1,6 +1,6 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::download::{self, DownloadProgress};
-use crate::service::session::{Session, State};
+use crate::service::session::{FormBuilder, Session, State};
 use crate::service::{
     Contest, ExtractZip, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
@@ -392,7 +392,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
         let token = html.extract_csrf_token_from_submit_page()?;
-        let form = reqwest::r#async::multipart::Form::new()
+        let form = FormBuilder::new()
             .text("csrf_token", token)
             .text("lang", lang_id.clone())
             .text("source", code.clone());
