@@ -50,7 +50,7 @@ prettytable-rs = { version = "0.8.0", default_features = false }
 rand = "0.6.5"
 rayon = "1.0.3"
 regex = "1.1.6"
-reqwest = { version = "0.9.17", default_features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.9.17", default_features = false, features = ["rustls-tls", "trust-dns"] }
 robots_txt = "0.6.0"
 rpassword = "3.0.2"
 scraper = "0.10.0"
