@@ -13,7 +13,7 @@ use cookie_store::CookieStore;
 use derive_new::new;
 use failure::{Fail as _, ResultExt as _};
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
-use http::HttpTryFrom;
+use http::{HttpTryFrom, Uri};
 use if_chain::if_chain;
 use indexmap::IndexSet;
 use itertools::Itertools as _;
@@ -222,20 +222,11 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
         };
         if robots {
             if let Some(host) = host {
-                let mut res = this
+                let res = this
                     .get("/robots.txt")
-                    .acceptable(&[200, 301, 302, 404])
+                    .acceptable(&[200, 404])
+                    .redirect_unlimited()
                     .send()?;
-                while [301, 302, 404].contains(&res.status().as_u16()) {
-                    if let Some(location) = res.header_location()? {
-                        res = this
-                            .get(location)
-                            .acceptable(&[200, 301, 302, 404])
-                            .send()?;
-                    } else {
-                        return Ok(this);
-                    }
-                }
                 if res.status() == 200 {
                     let txt = res.text(&mut this.runtime)?;
                     this.robots.insert(host.to_string(), OwnedRobots::new(txt));
@@ -264,6 +255,7 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
             runtime: &mut self.runtime,
             cookie_store: self.cookie_store.as_mut(),
             acceptable,
+            redirect_unlimited: false,
             no_cookie: false,
         }
     }
@@ -315,6 +307,7 @@ pub(super) struct Request<'a, E: WriteColor> {
     runtime: &'a mut Runtime,
     cookie_store: Option<&'a mut AutosavedCookieStore>,
     acceptable: Vec<StatusCode>,
+    redirect_unlimited: bool,
     no_cookie: bool,
 }
 
@@ -355,7 +348,7 @@ impl<'a, E: WriteColor> Request<'a, E> {
         }
     }
 
-    /// Panics:
+    /// # Panics:
     ///
     /// Panics if `statuses` contains `n` such that `n < 100 || 600 <= n`.
     pub(super) fn acceptable(self, statuses: &'static [u16]) -> Self {
@@ -365,6 +358,19 @@ impl<'a, E: WriteColor> Request<'a, E> {
             .collect::<std::result::Result<_, _>>()
             .unwrap();
         Self { acceptable, ..self }
+    }
+
+    /// # Panics:
+    ///
+    /// Panics if `self.acceptable` contains any 3xx status code.
+    fn redirect_unlimited(self) -> Self {
+        if self.acceptable.iter().any(|s| s.is_redirection()) {
+            panic!("`acceptable` contains 3xx status code(s)");
+        }
+        Self {
+            redirect_unlimited: true,
+            ..self
+        }
     }
 
     pub(super) fn no_cookie(mut self) -> Self {
@@ -388,56 +394,72 @@ impl<'a, E: WriteColor> Request<'a, E> {
         }
 
         let runtime = self.runtime;
-        let req = self.req?;
-        let (client, req) = (&req.client, req.build()?);
+        let mut req = self.req?;
 
-        if let Some(stderr) = &mut self.stderr {
-            stderr.set_color(color!(bold))?;
-            stderr.write_str(req.method())?;
-            stderr.write_str(" ")?;
-            stderr.set_color(color!(fg(Cyan), intense))?;
-            stderr.write_str(req.url())?;
-            stderr.reset()?;
-            stderr.write_str(" ... ")?;
-            stderr.flush()?;
-        }
-
-        let res = runtime.block_on(WithCtrlC(client.execute(req)));
-        if res.is_err() {
+        loop {
             if let Some(stderr) = &mut self.stderr {
+                stderr.set_color(color!(bold))?;
+                stderr.write_str(&req.method)?;
+                stderr.write_str(" ")?;
+                stderr.set_color(color!(fg(Cyan), intense))?;
+                stderr.write_str(&req.url)?;
+                stderr.reset()?;
+                stderr.write_str(" ... ")?;
+                stderr.flush()?;
+            }
+
+            let res = runtime.block_on(WithCtrlC(req.send()));
+            if res.is_err() {
+                if let Some(stderr) = &mut self.stderr {
+                    writeln!(stderr)?;
+                    stderr.flush()?;
+                }
+            }
+            let res = res?;
+
+            let redirect = self.redirect_unlimited && res.status().is_redirection();
+            let acceptable = redirect || self.acceptable.contains(&res.status());
+
+            if let Some(stderr) = &mut self.stderr {
+                if acceptable {
+                    stderr.set_color(color!(fg(Green), intense, bold))?;
+                } else {
+                    stderr.set_color(color!(fg(Red), intense, bold))?;
+                };
+                write!(stderr, "{}", res.status())?;
+                stderr.reset()?;
                 writeln!(stderr)?;
                 stderr.flush()?;
             }
-        }
-        let res = res?;
 
-        if let Some(stderr) = &mut self.stderr {
-            if self.acceptable.contains(&res.status()) {
-                stderr.set_color(color!(fg(Green), intense, bold))?;
-            } else {
-                stderr.set_color(color!(fg(Red), intense, bold))?;
-            };
-            write!(stderr, "{}", res.status())?;
-            stderr.reset()?;
-            writeln!(stderr)?;
-            stderr.flush()?;
-        }
-
-        if !self.no_cookie {
-            if let Some(store) = &mut self.cookie_store {
-                store.update(&res)?;
+            if !self.no_cookie {
+                if let Some(store) = &mut self.cookie_store {
+                    store.update(&res)?;
+                }
             }
-        }
 
-        if self.acceptable.is_empty() || self.acceptable.contains(&res.status()) {
-            Ok((self::Response(res), runtime))
-        } else {
-            Err(ServiceErrorKind::UnexpectedStatusCode(
-                res.url().to_owned(),
-                res.status(),
-                self.acceptable.clone(),
-            )
-            .into())
+            if redirect {
+                let loc = res.headers().get(header::LOCATION).and_then(|loc| {
+                    let loc = req.url.join(loc.to_str().ok()?).ok()?;
+                    guard!(loc.as_str().parse::<Uri>().is_ok());
+                    Some(loc)
+                });
+                if let Some(loc) = loc {
+                    req.url = loc;
+                    continue;
+                }
+            }
+
+            break if acceptable {
+                Ok((self::Response(res), runtime))
+            } else {
+                Err(ServiceErrorKind::UnexpectedStatusCode(
+                    res.url().to_owned(),
+                    res.status(),
+                    self.acceptable.clone(),
+                )
+                .into())
+            };
         }
     }
 
@@ -543,17 +565,17 @@ impl RequestBuilder {
         Ok(self)
     }
 
-    fn build(&self) -> reqwest::Result<reqwest::r#async::Request> {
-        let mut ret = self
+    fn send(&self) -> impl Future<Item = reqwest::r#async::Response, Error = reqwest::Error> {
+        let mut req = self
             .client
             .request(self.method.clone(), self.url.clone())
             .headers(self.headers.clone());
         match &self.body {
             self::Body::None => {}
-            self::Body::Serialized(s) => ret = ret.body(s.clone()),
-            self::Body::Multipart(f) => ret = ret.multipart(f.build()),
+            self::Body::Serialized(s) => req = req.body(s.clone()),
+            self::Body::Multipart(f) => req = req.multipart(f.build()),
         };
-        ret.build()
+        req.send()
     }
 }
 
@@ -866,6 +888,7 @@ mod tests {
 
     use failure::Fallible;
     use futures::Future as _;
+    use http::Uri;
     use if_chain::if_chain;
     use maplit::hashmap;
     use once_cell::sync::Lazy;
@@ -900,7 +923,10 @@ mod tests {
         let robots_txt = warp::path("robots.txt")
             .and(filter_ua)
             .map(|| "User-agent: *\nDisallow: /sensitive");
-        let server = warp::serve(index.or(confirm_cookie).or(robots_txt));
+        let redirect = warp::path("redirect")
+            .and(filter_ua)
+            .map(|| warp::redirect(Uri::from_static("/")));
+        let server = warp::serve(index.or(confirm_cookie).or(robots_txt).or(redirect));
 
         let mut runtime = Runtime::new()?;
         runtime.spawn(server.bind(([127, 0, 0, 1], LOCALHOST_PORT)));
@@ -912,7 +938,7 @@ mod tests {
             let mut stderr = AnsiWithProps::new();
 
             let url_base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
-            let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
+            let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies.json")).unwrap();
             let mut sess = State::start(StateStartArgs {
                 stdin: TtyOrPiped::Piped(io::empty()),
                 stderr: &mut stderr,
@@ -927,13 +953,31 @@ mod tests {
 
             sess.get("/").send()?;
             sess.get("/confirm-cookie").send()?;
+            sess.get("/redirect").redirect_unlimited().send()?;
             sess.get("/nonexisting").acceptable(&[404]).send()?;
-            sess.get("/nonexisting").acceptable(&[]).send()?;
+            if_chain! {
+                let err = sess.get("/nonexisting").send().unwrap_err();
+                if let ServiceError::Context(ctx) = &err;
+                if let ServiceErrorKind::UnexpectedStatusCode(
+                    url,
+                    StatusCode::NOT_FOUND,
+                    expected,
+                ) = ctx.get_context();
+                if url.as_str() == format!("http://127.0.0.1:{}/nonexisting", LOCALHOST_PORT);
+                if expected == &[StatusCode::OK];
+                then {
+                } else {
+                    return Err(err.into())
+                }
+            }
             if_chain! {
                 let err = sess.get("/sensitive").send().unwrap_err();
                 if let ServiceError::Context(ctx) = &err;
                 if let ServiceErrorKind::ForbiddenByRobotsTxt = ctx.get_context();
-                then {} else { return Err(err.into()) }
+                then {
+                } else {
+                    return Err(err.into())
+                }
             }
 
             static EXPECTED: Lazy<String> = Lazy::new(|| {
@@ -963,6 +1007,8 @@ mod tests {
                 print_line("/robots.txt", 10, "200 OK");
                 print_line("/", 10, "200 OK");
                 print_line("/confirm-cookie", 10, "200 OK");
+                print_line("/redirect", 10, "301 Moved Permanently");
+                print_line("/", 10, "200 OK");
                 print_line("/nonexisting", 10, "404 Not Found");
                 print_line("/nonexisting", 9, "404 Not Found");
 
