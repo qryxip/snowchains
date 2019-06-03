@@ -6,40 +6,29 @@ category = "Cleanup"
 command = "cargo"
 args = ["clean"]
 dependencies = ["clean-subcrates"]
+workspace = false
 
 [tasks.clean-subcrates]
 category = "Cleanup"
 cwd = "./proc_macros"
 command = "cargo"
 args = ["clean"]
+workspace = false
 
 [tasks.check-format]
 category = "Test"
 command = "cargo"
 args = ["fmt", "--all", "--", "--check"]
-dependencies = ["check-format-subcrates"]
 toolchain = "stable"
-
-[tasks.check-format-subcrates]
-category = "Test"
-command = "rustfmt"
-args = ["--check", "./proc_macros/src/lib.rs"]
-toolchain = "stable"
+workspace = false
 
 [tasks.clippy]
 category = "Test"
 command = "cargo"
-args = ["clippy", "--all-targets", "--", "-D", "warnings"]
-dependencies = ["clippy-subcrates"]
+args = ["clippy", "--all", "--all-targets", "--", "-D", "warnings"]
 toolchain = "stable"
-
-[tasks.clippy-subcrates]
-category = "Test"
-cwd = "./proc_macros"
-command = "cargo"
-args = ["clippy", "--", "-D", "warnings"]
 dependencies = ["touch"]
-toolchain = "stable"
+workspace = false
 
 [tasks.test]
 category = "Test"
@@ -56,58 +45,53 @@ fi
 ]
 script_runner = "bash"
 script_extension = "bash"
+workspace = false
 
 [tasks.format]
 category = "Development"
 command = "cargo"
 args = ["fmt", "--all"]
-dependencies = ["format-subcrates"]
 toolchain = "stable"
-
-[tasks.format-subcrates]
-category = "Development"
-command = "rustfmt"
-args = ["./proc_macros/src/lib.rs"]
-toolchain = "stable"
+workspace = false
 
 [tasks.upgrade-dependencies]
 category = "Development"
 dependencies = ["upgrade", "update"]
+workspace = false
 
 [tasks.upgrade]
 category = "Development"
 command = "cargo"
-args = ["upgrade"]
-dependencies = ["upgrade-subcrates"]
-
-[tasks.upgrade-subcrates]
-category = "Development"
-cwd = "./proc_macros"
-command = "cargo"
-args = ["upgrade"]
+args = ["upgrade", "--all"]
+workspace = false
 
 [tasks.update]
 category = "Development"
 command = "cargo"
 args = ["update"]
 dependencies = ["update-subcrates"]
+workspace = false
 
 [tasks.update-subcrates]
 category = "Development"
 cwd = "./proc_macros"
 command = "cargo"
 args = ["update"]
+workspace = false
 
 [tasks.touch]
 category = "Development"
 script = ["find ./src ./tests ./proc_macros/src -type f | xargs touch"]
 script_runner = "bash"
 script_extension = "bash"
+workspace = false
 
 [tasks.default]
 category = "Disabled"
 disabled = true
+workspace = false
 
 [tasks.empty]
 category = "Disabled"
 disabled = true
+workspace = false

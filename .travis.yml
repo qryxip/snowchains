@@ -61,14 +61,12 @@ install:
     fi
 
 script:
-  - rustfmt --check ./proc_macros/src/lib.rs
   - cargo fmt --all -- --check
+  # `clippy` sometimes causes ICE.
   # https://github.com/rust-lang/rust/issues/59909
-  - bash -c 'cd ./proc_macros && cargo check'
-  - cargo check
+  - cargo check --all --all-targets
   - find ./src ./tests ./proc_macros/src -type f | xargs touch
-  - bash -c 'cd ./proc_macros && cargo clippy -- -D warnings'
-  - cargo clippy -- -D warnings
+  - cargo clippy --all --all-targets -- -D warnings
   - |
     if [ -f ~/.cargo/bin/cargo-kcov ]; then
       cargo kcov --all &&

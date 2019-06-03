@@ -15,6 +15,8 @@ categories = ["command-line-utilities"]
 travis-ci = { repository = "qryxip/snowchains" }
 codecov = { repository = "qryxip/snowchains" }
 
+[workspace]
+
 [dependencies]
 atty = "0.2.11"
 base64 = "0.10.1"
@@ -61,7 +63,7 @@ serde_yaml = "0.8.9"
 sha2 = "0.8.0"
 smallvec = "0.6.9"
 snowchains_proc_macros = { path = "./proc_macros", version = "0.1.0" }
-structopt = "0.2.16"
+structopt = "0.2.17"
 strum = "0.15.0"
 strum_macros = "0.15.0"
 take_mut = "0.2.2"

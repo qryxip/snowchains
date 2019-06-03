@@ -10,6 +10,8 @@ use crate::util::collections::SingleKeyValue;
 use crate::util::combine::ParseFieldError;
 use crate::util::str::CaseConversion;
 
+use snowchains_proc_macros::ArgEnum;
+
 use failure::{Fail, ResultExt as _};
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use maplit::hashmap;
@@ -804,10 +806,30 @@ impl Tokens {
         }
 
         fn parse_fun(name: &str) -> ExpandTemplateResult<CaseConversion> {
-            name.parse().map_err(|e| {
-                failure::err_msg(e)
-                    .context(ExpandTemplateErrorKind::UndefinedFun(name.to_owned()))
-                    .into()
+            #[allow(clippy::enum_variant_names)]
+            #[derive(ArgEnum)]
+            #[arg_enum(case = "sensitive", rename_all = "snake_case")]
+            enum Fun {
+                LowerCase,
+                UpperCase,
+                SnakeCase,
+                KebabCase,
+                MixedCase,
+                PascalCase,
+            }
+
+            let fun = name
+                .parse::<Fun>()
+                .map_err(failure::err_msg)
+                .with_context(|_| ExpandTemplateErrorKind::UndefinedFun(name.to_owned()))?;
+
+            Ok(match fun {
+                Fun::LowerCase => CaseConversion::Lower,
+                Fun::UpperCase => CaseConversion::Upper,
+                Fun::SnakeCase => CaseConversion::Snake,
+                Fun::KebabCase => CaseConversion::Kebab,
+                Fun::MixedCase => CaseConversion::Mixed,
+                Fun::PascalCase => CaseConversion::Pascal,
             })
         }
 

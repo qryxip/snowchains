@@ -19,6 +19,8 @@ use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet};
 use crate::util::fmt::{OptionDebugExt as _, OptionDisplayExt as _};
 use crate::util::str::CaseConversion;
 
+use snowchains_proc_macros::ArgEnum;
+
 use chrono::{DateTime, FixedOffset};
 use derive_new::new;
 use failure::ResultExt as _;
@@ -144,18 +146,8 @@ pub(crate) fn submit(
     }
 }
 
-#[derive(
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Debug,
-    strum_macros::Display,
-    IntoStaticStr,
-    Serialize,
-)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ArgEnum, IntoStaticStr, Serialize)]
+#[arg_enum(rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "snake_case")]
 pub enum ServiceKind {
@@ -166,6 +158,10 @@ pub enum ServiceKind {
 }
 
 impl ServiceKind {
+    pub(crate) fn variants_except_other() -> [&'static str; 3] {
+        ["atcoder", "codeforces", "yukicoder"]
+    }
+
     pub(crate) fn domain(self) -> Option<&'static str> {
         match self {
             ServiceKind::Atcoder => Some("atcoder.jp"),
@@ -179,20 +175,6 @@ impl ServiceKind {
 impl Default for ServiceKind {
     fn default() -> Self {
         ServiceKind::Other
-    }
-}
-
-impl FromStr for ServiceKind {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> std::result::Result<Self, &'static str> {
-        match s {
-            "atcoder" => Ok(ServiceKind::Atcoder),
-            "codeforces" => Ok(ServiceKind::Codeforces),
-            "yukicoder" => Ok(ServiceKind::Yukicoder),
-            "other" => Ok(ServiceKind::Other),
-            _ => Err(r#"expected "atcoder", "codeforces", "yukicoder", or "other""#),
-        }
     }
 }
 

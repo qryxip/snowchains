@@ -12,6 +12,8 @@ use crate::testsuite::{Destinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
 use crate::util::combine::ParseFieldError;
 
+use snowchains_proc_macros::ArgEnum;
+
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use if_chain::if_chain;
 use indexmap::IndexMap;
@@ -19,7 +21,6 @@ use maplit::hashmap;
 use once_cell::sync::Lazy;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use strum_macros::EnumString;
 use termcolor::WriteColor;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -590,9 +591,9 @@ pub(crate) fn switch(
     Ok((new_config, outcome))
 }
 
-#[derive(Clone, Copy, strum_macros::Display, Debug, EnumString, Serialize)]
-#[strum(serialize_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, ArgEnum, Serialize)]
+#[arg_enum(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub enum Mode {
     Debug,
     Release,
