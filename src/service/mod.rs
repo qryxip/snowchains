@@ -19,7 +19,7 @@ use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet};
 use crate::util::fmt::{OptionDebugExt as _, OptionDisplayExt as _};
 use crate::util::str::CaseConversion;
 
-use snowchains_proc_macros::ArgEnum;
+use snowchains_proc_macros::{ArgEnum, DeserializeAsString};
 
 use chrono::{DateTime, FixedOffset};
 use derive_new::new;
@@ -34,7 +34,7 @@ use regex::Regex;
 use reqwest::header::{self, HeaderMap};
 use reqwest::{RedirectPolicy, StatusCode};
 use serde::ser::SerializeMap as _;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Serialize, Serializer};
 use strum_macros::IntoStaticStr;
 use termcolor::WriteColor;
 use tokio::runtime::Runtime;
@@ -146,7 +146,19 @@ pub(crate) fn submit(
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ArgEnum, IntoStaticStr, Serialize)]
+#[derive(
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Debug,
+    ArgEnum,
+    IntoStaticStr,
+    Serialize,
+    DeserializeAsString,
+)]
 #[arg_enum(rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "snake_case")]
@@ -175,14 +187,6 @@ impl ServiceKind {
 impl Default for ServiceKind {
     fn default() -> Self {
         ServiceKind::Other
-    }
-}
-
-impl<'de> Deserialize<'de> for ServiceKind {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        String::deserialize(deserializer)?
-            .parse::<Self>()
-            .map_err(serde::de::Error::custom)
     }
 }
 

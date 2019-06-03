@@ -9,7 +9,7 @@ use quote::quote;
 use syn::spanned::Spanned;
 use syn::{
     parse_macro_input, AngleBracketedGenericArguments, Attribute, Field, Fields, FieldsUnnamed,
-    GenericArgument, ItemEnum, ItemStruct, Lit, Meta, MetaList, MetaNameValue, NestedMeta,
+    GenericArgument, Item, ItemEnum, ItemStruct, Lit, Meta, MetaList, MetaNameValue, NestedMeta,
     PathArguments, PathSegment, Type, TypePath,
 };
 
@@ -475,6 +475,62 @@ pub fn derive_arg_enum(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 match self {
                     #(#display_arms)*
                 }
+            }
+        }
+    )
+    .into()
+}
+
+#[proc_macro_derive(SerializeAsString)]
+pub fn derive_serialize_as_string(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as Item);
+
+    let (ident, generics) = match input {
+        Item::Struct(input) => (input.ident, input.generics),
+        Item::Enum(input) => (input.ident, input.generics),
+        _ => return input.compile_error("expected struct or enum"),
+    };
+
+    if !generics.params.is_empty() {
+        return generics.compile_error("generics must be empty");
+    }
+
+    quote!(
+        impl ::serde::Serialize for #ident {
+            fn serialize<S: ::serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> ::std::result::Result<S::Ok, S::Error> {
+                let s = <Self as ::std::string::ToString>::to_string(self);
+                ::serde::Serializer::collect_str(serializer, &s)
+            }
+        }
+    )
+    .into()
+}
+
+#[proc_macro_derive(DeserializeAsString)]
+pub fn derive_deserialize_as_string(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as Item);
+
+    let (ident, generics) = match input {
+        Item::Struct(input) => (input.ident, input.generics),
+        Item::Enum(input) => (input.ident, input.generics),
+        _ => return input.compile_error("expected struct or enum"),
+    };
+
+    if !generics.params.is_empty() {
+        return generics.compile_error("generics must be empty");
+    }
+
+    quote!(
+        impl<'de> ::serde::Deserialize<'de> for #ident {
+            fn deserialize<D: ::serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> ::std::result::Result<Self, D::Error> {
+                let s = <::std::string::String as ::serde::Deserialize>::deserialize(deserializer)?;
+                let r = <Self as ::std::str::FromStr>::from_str(&s);
+                ::std::result::Result::map_err(r, ::serde::de::Error::custom)
             }
         }
     )

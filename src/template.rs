@@ -10,13 +10,13 @@ use crate::util::collections::SingleKeyValue;
 use crate::util::combine::ParseFieldError;
 use crate::util::str::CaseConversion;
 
-use snowchains_proc_macros::ArgEnum;
+use snowchains_proc_macros::{ArgEnum, DeserializeAsString, SerializeAsString};
 
 use failure::{Fail, ResultExt as _};
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
@@ -542,7 +542,7 @@ enum Expr {
 }
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Default)]
+#[derive(Clone, Default, SerializeAsString, DeserializeAsString)]
 pub struct Tokens(Vec<Token>);
 
 impl FromStr for Tokens {
@@ -703,19 +703,6 @@ impl fmt::Debug for Tokens {
             write!(f, ")")?;
         }
         Ok(())
-    }
-}
-
-impl Serialize for Tokens {
-    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-        serializer.collect_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for Tokens {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        let s = String::deserialize(deserializer)?;
-        Self::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
 
