@@ -5,6 +5,7 @@ use crate::errors::{
 use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
 use crate::service::session::owned_robots::OwnedRobots;
+use crate::service::USER_AGENT;
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::util::collections::NonEmptyIndexSet;
 use crate::util::indexmap::IndexSetAsRefStrExt as _;
@@ -22,6 +23,7 @@ use mime::Mime;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::r#async::Decoder;
 use reqwest::{Method, StatusCode};
+use robots_txt::{Robots, SimpleMatcher};
 use scraper::Html;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -229,7 +231,12 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
                     .send()?;
                 if res.status() == 200 {
                     let txt = res.text(&mut this.runtime)?;
-                    this.robots.insert(host.to_string(), OwnedRobots::new(txt));
+                    let robots = OwnedRobots::new(
+                        txt,
+                        |s| Robots::from_str(s),
+                        |robots| SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules),
+                    );
+                    this.robots.insert(host.to_string(), robots);
                 }
             }
         }
@@ -264,7 +271,7 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
         if_chain! {
             if let Some(host) = url.host_str();
             if let Some(robots) = self.robots.get(host);
-            if !robots.check_path_for_ua(url.path());
+            if !robots.rent_matcher(|m| m.check_path(url.path()));
             then {
                 Err(ServiceErrorKind::ForbiddenByRobotsTxt.into())
             } else {
@@ -845,24 +852,27 @@ impl AutosavedCookieStore {
 }
 
 mod owned_robots {
-    use crate::service::USER_AGENT;
-
     use robots_txt::{Robots, SimpleMatcher};
     use std::mem;
 
     /// **NOTE:** this is a self-referential struct.
     #[derive(Debug)]
     pub(super) struct OwnedRobots {
+        // https://github.com/rust-lang/rfcs/blob/master/text/1857-stabilize-drop-order.md
+        matcher: SimpleMatcher<'static>, // This `'static` is fake
+        robots: Robots<'static>,         // This `'static` is also fake
         string: String,                  // `String` is a `StableDeref`
-        robots: Robots<'static>,         // This `'static` is fake
-        matcher: SimpleMatcher<'static>, // This `'static` is also fake
     }
 
     impl OwnedRobots {
-        pub(super) fn new(string: String) -> Self {
+        pub(super) fn new(
+            string: String,
+            robots: for<'a> fn(&'a str) -> Robots<'a>,
+            matcher: for<'a, 'b> fn(&'a Robots<'b>) -> SimpleMatcher<'a>,
+        ) -> Self {
             unsafe {
-                let robots = Robots::from_str(&string);
-                let matcher = SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules);
+                let robots = robots(&string);
+                let matcher = matcher(&robots);
                 Self {
                     matcher: mem::transmute(matcher),
                     robots: mem::transmute(robots),
@@ -871,8 +881,11 @@ mod owned_robots {
             }
         }
 
-        pub(super) fn check_path_for_ua(&self, path: &str) -> bool {
-            self.matcher.check_path(path)
+        pub(super) fn rent_matcher<R>(
+            &self,
+            f: impl for<'a, 'b> FnOnce(&'a SimpleMatcher<'b>) -> R,
+        ) -> R {
+            f(&self.matcher)
         }
     }
 }

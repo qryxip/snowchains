@@ -578,15 +578,18 @@ mod inner {
     /// **NOTE:** this is a self-referential struct.
     #[derive(Debug)]
     pub(super) struct TextInner {
-        string: Arc<String>,
+        // https://github.com/rust-lang/rfcs/blob/master/text/1857-stabilize-drop-order.md
         words: Box<[Word<'static>]>, // This `'static` is fake
+        string: Arc<String>,
     }
 
     impl TextInner {
         pub(super) fn new(string: Arc<String>, words: impl FnOnce(&str) -> Box<[Word]>) -> Self {
-            Self {
-                words: unsafe { mem::transmute(words(&string)) },
-                string,
+            unsafe {
+                Self {
+                    words: mem::transmute(words(&string)),
+                    string,
+                }
             }
         }
 
@@ -602,8 +605,9 @@ mod inner {
     /// **NOTE:** this is a self-referential struct.
     #[derive(Debug)]
     pub(super) struct TextDiffInner {
-        strings: (Arc<String>, Arc<String>),
+        // https://github.com/rust-lang/rfcs/blob/master/text/1857-stabilize-drop-order.md
         diff_lines: Box<[DiffLine<'static>]>, // This `'static` is fake
+        strings: (Arc<String>, Arc<String>),
     }
 
     impl TextDiffInner {
@@ -612,9 +616,11 @@ mod inner {
             actual: Arc<String>,
             diff_lines: impl for<'a> FnOnce(&'a str, &'a str) -> Box<[DiffLine<'a>]>,
         ) -> Self {
-            Self {
-                diff_lines: unsafe { mem::transmute(diff_lines(&expected, &actual)) },
-                strings: (expected, actual),
+            unsafe {
+                Self {
+                    diff_lines: mem::transmute(diff_lines(&expected, &actual)),
+                    strings: (expected, actual),
+                }
             }
         }
 
