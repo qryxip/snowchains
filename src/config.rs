@@ -16,7 +16,7 @@ use snowchains_proc_macros::{ArgEnum, DeserializeAsString, SerializeAsString};
 
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use if_chain::if_chain;
-use indexmap::IndexMap;
+use indexmap::{indexmap, IndexMap};
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use serde::ser::SerializeMap;
@@ -907,7 +907,7 @@ impl Config {
     }
 
     fn env_vars(&self, mode: Mode) -> ConfigResult<HashMap<String, String>> {
-        let prop_values = hashmap!(
+        let prop_values = indexmap!(
             "service" => self.target.service.to_string(),
             "contest" => self.target.contest.clone(),
             "language" => self.target.language.clone(),
@@ -1093,7 +1093,7 @@ fn parse_size(s: &str) -> std::result::Result<usize, ParseFieldError<&str>> {
     use combine::parser::choice::or;
     use combine::parser::range::recognize;
     use combine::stream::state::{IndexPositioner, State};
-    use combine::{choice, eof, optional, satisfy, skip_many, skip_many1, Parser as _};
+    use combine::{choice, eof, optional, skip_many, skip_many1, Parser as _};
 
     static GRAMMER: &str = r#"Size  ::= Float Unit
 Unit  ::= ( 'B' | ( [KMG] ( 'B' | 'iB' ) ) )?
@@ -1102,8 +1102,8 @@ Exp   ::= [eE] [+-]? Digit+
 Digit ::= [0-9]
 "#;
 
-    let exp = satisfy(|c| ['e', 'E'].contains(&c))
-        .and(optional(satisfy(|c| ['+', '-'].contains(&c))))
+    let exp = or(char('e'), char('E'))
+        .and(optional(or(char('+'), char('-'))))
         .and(skip_many1(digit()));
 
     let float = recognize(
@@ -1160,7 +1160,7 @@ enum Predicate {
 }
 
 impl Predicate {
-    fn eval(&self, symbols: &HashMap<&'static str, String>) -> ConfigResult<bool> {
+    fn eval(&self, symbols: &IndexMap<&'static str, String>) -> ConfigResult<bool> {
         #[derive(PartialEq)]
         enum Atom<'a> {
             T,
@@ -1198,7 +1198,7 @@ impl Predicate {
 
         fn eval_as_atom<'a>(
             predicate: &'a Predicate,
-            symbols: &'a HashMap<&'static str, String>,
+            symbols: &'a IndexMap<&'static str, String>,
         ) -> ConfigResult<Atom<'a>> {
             match predicate {
                 Predicate::T => Ok(Atom::T),
@@ -1207,7 +1207,7 @@ impl Predicate {
                 Predicate::Var(x) => symbols
                     .get(x.as_str())
                     .map(|s| Atom::Symbol(s))
-                    .ok_or_else(|| ConfigErrorKind::UndefinedVariable(x.to_owned()).into()),
+                    .ok_or_else(|| undefined_variable_error(predicate, x, symbols.keys())),
                 Predicate::List(l) => l
                     .iter()
                     .map(|p| eval_as_atom(p, symbols))
@@ -1224,23 +1224,62 @@ impl Predicate {
                         .map(|x| eval_as_atom(x, symbols))
                         .collect::<ConfigResult<Vec<_>>>()
                         .map(|atoms| Atom::from(atoms.into_iter().any(Into::into))),
-                    "not" => match xs.as_slice() {
+                    "not" => match &xs[..] {
                         [x] => eval_as_atom(x, symbols).map(Not::not),
-                        xs => Err(ConfigErrorKind::WrongNumParams("not", 1, xs.len()).into()),
+                        xs => Err(wrong_num_params_error(predicate, "not", 1, xs.len())),
                     },
-                    "equal" => match xs.as_slice() {
+                    "equal" => match &xs[..] {
                         [x1, x2] => {
                             let (x1, x2) = (eval_as_atom(x1, symbols)?, eval_as_atom(x2, symbols)?);
                             Ok(Atom::from(x1 == x2))
                         }
-                        xs => Err(ConfigErrorKind::WrongNumParams("equal", 2, xs.len()).into()),
+                        xs => Err(wrong_num_params_error(predicate, "equal", 2, xs.len())),
                     },
-                    f => Err(ConfigError::from(ConfigErrorKind::UndefinedFunction(
-                        f.to_owned(),
-                        &["and", "or", "not", "equal"],
-                    ))),
+                    f => Err(undefined_function_error(predicate, f)),
                 },
             }
+        }
+
+        fn undefined_variable_error<'a>(
+            predicate: &Predicate,
+            x: &str,
+            expected: impl Iterator<Item = &'a &'static str>,
+        ) -> ConfigError {
+            let msg = format!(
+                "Undefined variable: {:?} (expected: {:?})",
+                x,
+                expected.collect::<Vec<_>>(),
+            );
+            error(predicate, msg)
+        }
+
+        fn undefined_function_error(predicate: &Predicate, f: &str) -> ConfigError {
+            let msg = format!(
+                r#"Undefined function: {:?} (expected "and", "or", "not", or "equal")"#,
+                f,
+            );
+            error(predicate, msg)
+        }
+
+        fn wrong_num_params_error(
+            predicate: &Predicate,
+            name: &'static str,
+            expected: usize,
+            actual: usize,
+        ) -> ConfigError {
+            let msg = format!(
+                "{:?} takes {} but {} supplied",
+                name,
+                plural!(expected, "parameter", "parameters"),
+                plural!(actual, "parameter was", "parameters were"),
+            );
+            error(predicate, msg)
+        }
+
+        fn error(predicate: &Predicate, msg: String) -> ConfigError {
+            failure::err_msg(msg)
+                .context(ConfigErrorKind::Eval(predicate.to_string()))
+                .into()
         }
 
         eval_as_atom(self, symbols).map(Into::into)
@@ -1291,7 +1330,7 @@ impl FromStr for Predicate {
         static GRAMMER: &str = r#"Predicate    ::= Space* Expr Space*
 Expr         ::= ConstOrVar | LitStr | SymbolOrList | Apply
 ConstOrVar   ::= "t" | "nil" | Ident
-LitStr       ::= '"' ( [^"] | '\"' )* '"'
+LitStr       ::= '"' ( [^"\] | '\"' )* '"'
 SymbolOrList ::= Symbol | List
 Symbol       ::= "'" Space* Ident
 List         ::= "'" Space* "(" Space* Expr ( Space+ Expr )* Space* ")"
@@ -1311,7 +1350,7 @@ Space        ::= ? White_Space character ?
 
             let litstr = char('"')
                 .with(many(or(
-                    satisfy(|c: char| c != '"'),
+                    satisfy(|c| !['"', '\\'].contains(&c)).expected(r#"[^"\]"#),
                     string("\\\"").map(|_| '"'),
                 )))
                 .skip(char('"'))
@@ -1351,10 +1390,14 @@ Space        ::= ? White_Space character ?
                     'a'..='z' | 'A'..='Z' | '-' | '=' | '_' => true,
                     _ => false,
                 })
-                .and(skip_many(satisfy(|c| match c {
-                    'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '=' | '_' => true,
-                    _ => false,
-                }))),
+                .expected("[a-zA-Z] | [-=_]")
+                .and(skip_many(
+                    satisfy(|c| match c {
+                        'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '=' | '_' => true,
+                        _ => false,
+                    })
+                    .expected("[a-zA-Z0-9] | [-=_]"),
+                )),
             )
             .map(ToOwned::to_owned)
         }

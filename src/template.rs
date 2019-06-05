@@ -604,13 +604,17 @@ Spaces        ::= ? White_Space character ?+
         fn identifier<'a>(
         ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = String>
         {
-            many1(satisfy(|c| match c {
-                'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
-                _ => false,
-            }))
+            many1(
+                satisfy(|c| match c {
+                    'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
+                    _ => false,
+                })
+                .expected("[a-zA-Z0-9] | '_'"),
+            )
         }
 
-        let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Plain);
+        let plain =
+            many1(satisfy(|c| !['$', '{', '}'].contains(&c)).expected("[^${}]")).map(Token::Plain);
 
         let left_curly = string("{{").map(|_| Token::Plain('{'.to_string()));
 

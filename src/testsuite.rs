@@ -1108,7 +1108,7 @@ type: unsubmittable
         if_chain! {
             let err = loader.load_merging("e").unwrap_err();
             if let TestSuiteError::Config(config_err) = &err;
-            if let ConfigErrorKind::TesterNotSpecified = config_err.kind();
+            if let ConfigErrorKind::TesterNotSpecified = config_err.get_context();
             then {} else { return Err(err.into()) }
         }
 

@@ -306,29 +306,8 @@ pub enum TestSuiteErrorKind {
 
 pub(crate) type ConfigResult<T> = std::result::Result<T, ConfigError>;
 
-#[derive(Debug, derive_more::Display, Fail)]
-#[display(fmt = "{}", kind)]
-pub struct ConfigError {
-    kind: ConfigErrorKind,
-    #[fail(backtrace)]
-    backtrace: Backtrace,
-}
-
-#[cfg(test)]
-impl ConfigError {
-    pub(crate) fn kind(&self) -> &ConfigErrorKind {
-        &self.kind
-    }
-}
-
-impl From<ConfigErrorKind> for ConfigError {
-    fn from(kind: ConfigErrorKind) -> Self {
-        Self {
-            kind,
-            backtrace: Backtrace::new(),
-        }
-    }
-}
+#[derive(Debug, FailPair)]
+pub struct ConfigError(failure::Context<ConfigErrorKind>);
 
 #[derive(Debug, derive_more::Display)]
 pub enum ConfigErrorKind {
@@ -343,17 +322,8 @@ pub enum ConfigErrorKind {
         _1
     )]
     LangNameRequired(String, ServiceKind),
-    #[display(fmt = "Undefined variable: {:?}", _0)]
-    UndefinedVariable(String),
-    #[display(fmt = "Undefined function: {:?} (expected {:?})", _0, _1)]
-    UndefinedFunction(String, &'static [&'static str]),
-    #[display(
-        fmt = "{:?} takes {} but {} supplied",
-        _0,
-        r#"plural!(*_1, "parameter", "parameters")"#,
-        r#"plural!(*_2, "parameter was", "parameters were")"#
-    )]
-    WrongNumParams(&'static str, usize, usize),
+    #[display(fmt = "Failed to eval {}", _0)]
+    Eval(String),
 }
 
 pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateError>;
