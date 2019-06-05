@@ -343,12 +343,17 @@ pub enum ConfigErrorKind {
         _1
     )]
     LangNameRequired(String, ServiceKind),
-    #[display(fmt = "Undefined symbol: {:?}", _0)]
-    UndefinedSymbol(String),
-    #[display(fmt = "Undefined function: {:?}", _0)]
-    UndefinedFunction(String),
-    #[display(fmt = "\"not\" takes 1 parameter but {} parameters was supplied", _0)]
-    WrongNumParamsForNot(usize),
+    #[display(fmt = "Undefined variable: {:?}", _0)]
+    UndefinedVariable(String),
+    #[display(fmt = "Undefined function: {:?} (expected {:?})", _0, _1)]
+    UndefinedFunction(String, &'static [&'static str]),
+    #[display(
+        fmt = "{:?} takes {} but {} supplied",
+        _0,
+        r#"plural!(*_1, "parameter", "parameters")"#,
+        r#"plural!(*_2, "parameter was", "parameters were")"#
+    )]
+    WrongNumParams(&'static str, usize, usize),
 }
 
 pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateError>;

@@ -160,8 +160,9 @@ pub(crate) fn submit(
     DeserializeAsString,
 )]
 #[arg_enum(rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
+#[deserialize_as_string(map_err_into_serde_style)]
 pub enum ServiceKind {
     Atcoder,
     Codeforces,

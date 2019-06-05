@@ -43,7 +43,7 @@ text_file_dir = "/dev/null"
 [judge]
 testfile_extensions = ["yml"]
 
-[env.'service = "atcoder"']
+[env."(equal service 'atcoder)"]
 RUST_VERSION = "stable"
 RUST_OPT_LEVEL = "0"
 

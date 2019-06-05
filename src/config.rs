@@ -1,5 +1,5 @@
 use crate::command::{CompilationCommand, HookCommands, JudgingCommand, TranspilationCommand};
-use crate::errors::{ConfigErrorKind, ConfigResult, FileResult};
+use crate::errors::{ConfigError, ConfigErrorKind, ConfigResult, FileResult};
 use crate::outcome::Outcome;
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
@@ -12,7 +12,7 @@ use crate::testsuite::{Destinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
 use crate::util::combine::ParseFieldError;
 
-use snowchains_proc_macros::ArgEnum;
+use snowchains_proc_macros::{ArgEnum, DeserializeAsString, SerializeAsString};
 
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use if_chain::if_chain;
@@ -26,14 +26,14 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
-use std::fmt::{self, Write as _};
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
+use std::ops::Not;
 use std::path::{Path, PathBuf};
-use std::str::{self, FromStr as _};
+use std::str::{self, FromStr};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{env, iter};
+use std::{env, fmt};
 
 static CONFIG_FILE_NAME: &str = "snowchains.toml";
 
@@ -276,33 +276,33 @@ testfile_extensions = ["json", "toml", "yaml", "yml"]
 # jobs = {judge_jobs}
 display_limit = "1KiB"
 
-[env.true]
+[env."t"]
 CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 RUST_VERSION = "stable"
 RUST_OPT_LEVEL = "0"
 
-[env.'mode = "release"']
+[env."(equal mode 'release)"]
 CXXFLAGS = "-std=gnu++17 -O2 -Wall -Wextra"
 RUST_OPT_LEVEL = "2"
 
-[env.'and(service = "atcoder", mode = "debug")']
+[env."(equal '(service mode) '('atcoder 'debug))"]
 CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 
-[env.'and(service = "atcoder", mode = "release")']
+[env."(equal '(service mode) '('atcoder 'release))"]
 CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -O2 -Wall -Wextra"
 RUST_VERSION = "1.15.1"
 
-[env.'and(service = "codeforces", mode = "debug")']
+[env."(equal '(service mode) '('codeforces 'debug))"]
 CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 
-[env.'and(service = "codeforces", mode = "release")']
+[env."(equal '(service mode) '('codeforces 'release))"]
 CXXFLAGS = "-std=gnu++17 -O2 -Wall -Wextra"
 RUST_VERSION = "1.31.1"
 
-[env.'and(service = "yukicoder", mode = "debug")']
+[env."(equal '(service mode) '('yukicoder 'debug))"]
 CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 
-[env.'and(service = "yukicoder", mode = "release")']
+[env."(equal '(service mode) '('yukicoder 'release))"]
 CXXFLAGS = "-std=gnu++1z -lm -O2 -Wall -Wextra"
 RUST_VERSION = "1.30.1"
 
@@ -1149,227 +1149,223 @@ struct Env {
     values: IndexMap<Predicate, BTreeMap<String, String>>,
 }
 
-#[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Hash, SerializeAsString, DeserializeAsString)]
 enum Predicate {
-    True,
-    False,
-    Equal(Atom, Atom),
+    T,
+    LitStr(String),
+    Symbol(String),
+    Var(String),
+    List(Vec<Self>),
     Apply(String, Vec<Self>),
 }
 
-#[derive(Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
-enum Atom {
-    Symbol(String),
-    Literal(String),
-}
-
 impl Predicate {
-    fn eval(&self, values: &HashMap<&'static str, String>) -> ConfigResult<bool> {
-        fn eval_atom(atom: &Atom, values: &HashMap<&'static str, String>) -> ConfigResult<String> {
-            match atom {
-                Atom::Symbol(s) => values
-                    .get(s.as_str())
-                    .cloned()
-                    .ok_or_else(|| ConfigErrorKind::UndefinedSymbol(s.to_owned()).into()),
-                Atom::Literal(s) => Ok(s.clone()),
+    fn eval(&self, symbols: &HashMap<&'static str, String>) -> ConfigResult<bool> {
+        #[derive(PartialEq)]
+        enum Atom<'a> {
+            T,
+            Str(&'a str),
+            Symbol(&'a str),
+            List(Vec<Self>),
+        }
+
+        impl<'a> From<bool> for Atom<'a> {
+            fn from(p: bool) -> Self {
+                if p {
+                    Atom::T
+                } else {
+                    Atom::List(vec![])
+                }
             }
         }
 
-        match self {
-            Predicate::True => Ok(true),
-            Predicate::False => Ok(false),
-            Predicate::Equal(l, r) => {
-                let l = eval_atom(l, values)?;
-                let r = eval_atom(r, values)?;
-                Ok(l == r)
+        impl<'a> From<Atom<'a>> for bool {
+            fn from(atom: Atom<'a>) -> bool {
+                match atom {
+                    Atom::T | Atom::Str(_) | Atom::Symbol(_) => true,
+                    Atom::List(l) => !l.is_empty(),
+                }
             }
-            Predicate::Apply(f, xs) => match f.as_ref() {
-                "not" => match xs.as_slice() {
-                    [x] => x.eval(values).map(|p| !p),
-                    xs => Err(ConfigErrorKind::WrongNumParamsForNot(xs.len()).into()),
+        }
+
+        impl Not for Atom<'_> {
+            type Output = Self;
+
+            fn not(self) -> Self {
+                Self::from(!bool::from(self))
+            }
+        }
+
+        fn eval_as_atom<'a>(
+            predicate: &'a Predicate,
+            symbols: &'a HashMap<&'static str, String>,
+        ) -> ConfigResult<Atom<'a>> {
+            match predicate {
+                Predicate::T => Ok(Atom::T),
+                Predicate::LitStr(s) => Ok(Atom::Str(s)),
+                Predicate::Symbol(s) => Ok(Atom::Symbol(s)),
+                Predicate::Var(x) => symbols
+                    .get(x.as_str())
+                    .map(|s| Atom::Symbol(s))
+                    .ok_or_else(|| ConfigErrorKind::UndefinedVariable(x.to_owned()).into()),
+                Predicate::List(l) => l
+                    .iter()
+                    .map(|p| eval_as_atom(p, symbols))
+                    .collect::<ConfigResult<Vec<_>>>()
+                    .map(Atom::List),
+                Predicate::Apply(f, xs) => match f.as_ref() {
+                    "and" => xs
+                        .iter()
+                        .map(|x| eval_as_atom(x, symbols))
+                        .collect::<ConfigResult<Vec<_>>>()
+                        .map(|atoms| Atom::from(atoms.into_iter().all(Into::into))),
+                    "or" => xs
+                        .iter()
+                        .map(|x| eval_as_atom(x, symbols))
+                        .collect::<ConfigResult<Vec<_>>>()
+                        .map(|atoms| Atom::from(atoms.into_iter().any(Into::into))),
+                    "not" => match xs.as_slice() {
+                        [x] => eval_as_atom(x, symbols).map(Not::not),
+                        xs => Err(ConfigErrorKind::WrongNumParams("not", 1, xs.len()).into()),
+                    },
+                    "equal" => match xs.as_slice() {
+                        [x1, x2] => {
+                            let (x1, x2) = (eval_as_atom(x1, symbols)?, eval_as_atom(x2, symbols)?);
+                            Ok(Atom::from(x1 == x2))
+                        }
+                        xs => Err(ConfigErrorKind::WrongNumParams("equal", 2, xs.len()).into()),
+                    },
+                    f => Err(ConfigError::from(ConfigErrorKind::UndefinedFunction(
+                        f.to_owned(),
+                        &["and", "or", "not", "equal"],
+                    ))),
                 },
-                "and" => {
-                    for x in xs {
-                        if !x.eval(values)? {
-                            return Ok(false);
-                        }
-                    }
-                    Ok(true)
-                }
-                "or" => {
-                    for x in xs {
-                        if x.eval(values)? {
-                            return Ok(true);
-                        }
-                    }
-                    Ok(false)
-                }
-                f => Err(ConfigErrorKind::UndefinedFunction(f.to_owned()).into()),
-            },
+            }
+        }
+
+        eval_as_atom(self, symbols).map(Into::into)
+    }
+}
+
+impl fmt::Display for Predicate {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Predicate::T => fmt::Display::fmt("t", fmt),
+            Predicate::Var(s) => fmt::Display::fmt(s, fmt),
+            Predicate::Symbol(s) => write!(fmt, "'{}", s),
+            Predicate::LitStr(s) => {
+                fmt::Display::fmt("\"", fmt)?;
+                s.chars().try_for_each(|c| match c {
+                    '"' => fmt::Display::fmt("\"", fmt),
+                    c => write!(fmt, "{}", c),
+                })?;
+                fmt::Display::fmt("\"", fmt)
+            }
+            Predicate::List(l) if l.is_empty() => fmt::Display::fmt("nil", fmt),
+            Predicate::List(l) if l.len() == 1 => write!(fmt, "'({})", l[0]),
+            Predicate::List(l) => {
+                write!(fmt, "'({}", l[0])?;
+                l[1..].iter().try_for_each(|x| write!(fmt, " {}", x))?;
+                fmt::Display::fmt(")", fmt)
+            }
+            Predicate::Apply(f, xs) => {
+                write!(fmt, "({}", f)?;
+                xs.iter().try_for_each(|x| write!(fmt, " {}", x))?;
+                fmt::Display::fmt(")", fmt)
+            }
         }
     }
 }
 
-impl Serialize for Predicate {
-    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-        fn fmt_predicate(pred: &Predicate, fmt: &mut String) {
-            match pred {
-                Predicate::True => fmt.write_str("true").unwrap(),
-                Predicate::False => fmt.write_str("false").unwrap(),
-                Predicate::Equal(l, r) => {
-                    fmt_atom(l, fmt);
-                    fmt.write_str(" = ").unwrap();
-                    fmt_atom(r, fmt);
-                }
-                Predicate::Apply(f, xs) => {
-                    write!(fmt, "{}(", f).unwrap();
-                    for (i, x) in xs.iter().enumerate() {
-                        if i > 0 {
-                            fmt.write_str(", ").unwrap();
-                        }
-                        fmt_predicate(x, fmt);
-                    }
-                    fmt.write_str(")").unwrap();
-                }
-            }
-        }
+impl FromStr for Predicate {
+    type Err = ParseFieldError<String>;
 
-        fn fmt_atom(atom: &Atom, fmt: &mut String) {
-            match atom {
-                Atom::Symbol(s) => fmt.write_str(s).unwrap(),
-                Atom::Literal(s) => write!(fmt, "\"{}\"", s).unwrap(),
-            }
-        }
-
-        let mut s = "".to_owned();
-        fmt_predicate(self, &mut s);
-        serializer.serialize_str(&s)
-    }
-}
-
-impl<'de> Deserialize<'de> for Predicate {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        use combine::char::{char, spaces};
+    fn from_str(input: &str) -> std::result::Result<Self, ParseFieldError<String>> {
+        use combine::char::{char, space, spaces, string};
         use combine::parser::choice::or;
+        use combine::parser::range::recognize;
         use combine::stream::state::{IndexPositioner, State};
-        use combine::{choice, easy, eof, many, many1, none_of, optional, parser, satisfy};
+        use combine::{choice, easy, eof, many, parser, satisfy, skip_many, skip_many1};
         use combine::{ParseResult, Parser};
 
-        static GRAMMER: &str = r#"Predicate               ::= /* TODO */
-LiteralEqAtom           ::= Literal Spaces '=' Spaces Atom
-Atom                    ::= Identifier | Literal
-Literal                 ::= LiteralWithSingleQuotes | LiteralWithDoubleQuotes
-LiteralWithSingleQuotes ::= "'" [^'] "'"
-LiteralWithDoulbeQuotes ::= '"' [^"] '"'
-Identifier              ::= [a-zA-Z0-9_]+
-Spaces                  ::= ? White_Space character ?+
+        static GRAMMER: &str = r#"Predicate    ::= Space* Expr Space*
+Expr         ::= ConstOrVar | LitStr | SymbolOrList | Apply
+ConstOrVar   ::= "t" | "nil" | Ident
+LitStr       ::= '"' ( [^"] | '\"' )* '"'
+SymbolOrList ::= Symbol | List
+Symbol       ::= "'" Space* Ident
+List         ::= "'" Space* "(" Space* Expr ( Space+ Expr )* Space* ")"
+Apply        ::= "(" Space* Ident ( Space+ Expr )* Space* ")"
+Ident        ::= ( [a-zA-Z] | [-=_] ) ( [a-zA-Z0-9] | [-=_] )*
+Space        ::= ? White_Space character ?
 "#;
-        'a'.is_whitespace();
 
-        fn parse_predicate<'a>(
+        fn parse_expr<'a>(
             input: &mut easy::Stream<State<&'a str, IndexPositioner>>,
         ) -> ParseResult<Predicate, easy::Stream<State<&'a str, IndexPositioner>>> {
-            enum EqRhsOrFnArg {
-                EqRhs(Atom),
-                FnArg(Vec<Predicate>),
-            }
+            let const_or_var = ident().map(|s| match s.as_ref() {
+                "t" => Predicate::T,
+                "nil" => Predicate::List(vec![]),
+                _ => Predicate::Var(s),
+            });
 
-            let literal_eq_atom = literal()
+            let litstr = char('"')
+                .with(many(or(
+                    satisfy(|c: char| c != '"'),
+                    string("\\\"").map(|_| '"'),
+                )))
+                .skip(char('"'))
+                .map(Predicate::LitStr);
+
+            let symbol_or_list = char('\'').skip(spaces()).with(or(
+                ident().map(Predicate::Symbol),
+                char('(')
+                    .skip(spaces())
+                    .with(parser(parse_expr))
+                    .and(many(skip_many1(space()).with(parser(parse_expr))))
+                    .skip(spaces())
+                    .skip(char(')'))
+                    .map(|(x, xs): (_, Vec<_>)| {
+                        let mut l = vec![x];
+                        l.extend(xs);
+                        Predicate::List(l)
+                    }),
+            ));
+
+            let apply = char('(')
                 .skip(spaces())
-                .skip(char('='))
+                .with(ident())
+                .and(many(skip_many1(space()).with(parser(parse_expr))))
                 .skip(spaces())
-                .and(atom())
-                .map(|(l, r)| Predicate::Equal(l, r));
+                .skip(char(')'))
+                .map(|(f, xs)| Predicate::Apply(f, xs));
 
-            spaces()
-                .with(or(
-                    literal_eq_atom,
-                    identifier()
-                        .skip(spaces())
-                        .and(optional(choice((
-                            char('=')
-                                .skip(spaces())
-                                .with(atom())
-                                .map(EqRhsOrFnArg::EqRhs),
-                            char('(')
-                                .skip(spaces())
-                                .with(optional(
-                                    parser(parse_predicate).and(many::<Vec<_>, _>(
-                                        spaces()
-                                            .skip(char(','))
-                                            .skip(spaces())
-                                            .with(parser(parse_predicate)),
-                                    )),
-                                ))
-                                .skip(spaces())
-                                .skip(char(')'))
-                                .map(|args| {
-                                    let args = args
-                                        .map(|(arg0, rest)| {
-                                            let mut args = vec![arg0];
-                                            args.extend(rest);
-                                            args
-                                        })
-                                        .unwrap_or_default();
-                                    EqRhsOrFnArg::FnArg(args)
-                                }),
-                        ))))
-                        .and_then(|(l, r)| match r {
-                            None => match l.as_ref() {
-                                "true" => Ok(Predicate::True),
-                                "false" => Ok(Predicate::False),
-                                _ => Err(easy::Error::Message(easy::Info::Borrowed(
-                                    "Only `true` and `false` are allowed",
-                                ))),
-                            },
-                            Some(EqRhsOrFnArg::EqRhs(r)) => {
-                                Ok(Predicate::Equal(Atom::Symbol(l), r))
-                            }
-                            Some(EqRhsOrFnArg::FnArg(r)) => Ok(Predicate::Apply(l, r)),
-                        }),
-                ))
-                .skip(spaces())
-                .parse_stream(input)
+            choice((const_or_var, litstr, symbol_or_list, apply)).parse_stream(input)
         }
 
-        fn atom<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Atom>
-        {
-            or(identifier().map(Atom::Symbol), literal())
-        }
-
-        fn literal<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Atom>
-        {
-            or(literal_with('\''), literal_with('"'))
-        }
-
-        fn literal_with<'a>(
-            quote: char,
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Atom>
-        {
-            char(quote)
-                .with(many1(none_of(iter::once(quote))))
-                .skip(char(quote))
-                .map(Atom::Literal)
-        }
-
-        fn identifier<'a>(
+        fn ident<'a>(
         ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = String>
         {
-            many1(satisfy(|c| match c {
-                'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
-                _ => false,
-            }))
+            recognize(
+                satisfy(|c| match c {
+                    'a'..='z' | 'A'..='Z' | '-' | '=' | '_' => true,
+                    _ => false,
+                })
+                .and(skip_many(satisfy(|c| match c {
+                    'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '=' | '_' => true,
+                    _ => false,
+                }))),
+            )
+            .map(ToOwned::to_owned)
         }
 
-        let input = String::deserialize(deserializer)?;
-        parser(parse_predicate)
+        spaces()
+            .with(parser(parse_expr))
+            .skip(spaces())
             .skip(eof())
-            .easy_parse(State::with_positioner(&input, IndexPositioner::new()))
+            .easy_parse(State::with_positioner(input, IndexPositioner::new()))
             .map(|(p, _)| p)
-            .map_err(|e| ParseFieldError::new(input.as_ref(), e, GRAMMER))
-            .map_err(serde::de::Error::custom)
+            .map_err(|e| ParseFieldError::new(input, e, GRAMMER).into_owned())
     }
 }
 

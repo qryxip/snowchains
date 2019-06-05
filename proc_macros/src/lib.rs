@@ -5,12 +5,13 @@ extern crate proc_macro;
 use heck::{KebabCase as _, SnakeCase as _};
 use if_chain::if_chain;
 use itertools::Itertools as _;
+use proc_macro2::Span;
 use quote::quote;
 use syn::spanned::Spanned;
 use syn::{
-    parse_macro_input, AngleBracketedGenericArguments, Attribute, Field, Fields, FieldsUnnamed,
-    GenericArgument, Item, ItemEnum, ItemStruct, Lit, Meta, MetaList, MetaNameValue, NestedMeta,
-    PathArguments, PathSegment, Type, TypePath,
+    parse_macro_input, AngleBracketedGenericArguments, Attribute, Data, DeriveInput, Field, Fields,
+    FieldsUnnamed, GenericArgument, ItemEnum, ItemStruct, Lit, Meta, MetaList, MetaNameValue,
+    NestedMeta, PathArguments, PathSegment, Type, TypePath,
 };
 
 use std::str::FromStr;
@@ -288,47 +289,19 @@ pub fn derive_arg_enum(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     }
 
-    #[derive(Clone, Copy, PartialEq)]
-    enum CaseConversion {
-        Lower,
-        Snake,
-        Kebab,
-    }
-
-    impl FromStr for CaseConversion {
-        type Err = &'static str;
-
-        fn from_str(s: &str) -> std::result::Result<Self, &'static str> {
-            match s {
-                "lowercase" => Ok(CaseConversion::Lower),
-                "snake_case" => Ok(CaseConversion::Snake),
-                "kebab-case" => Ok(CaseConversion::Kebab),
-                _ => Err(r#"valid values: ["lowercase", snake_case", "kebab-case"]"#),
-            }
-        }
-    }
-
-    fn contains_target_attr(meta: &Meta) -> bool {
-        match meta {
-            Meta::Word(ident) | Meta::NameValue(MetaNameValue { ident, .. }) => ident == "arg_enum",
-            Meta::List(list) => list.nested.iter().any(|m| match m {
-                NestedMeta::Meta(m) => contains_target_attr(m),
-                NestedMeta::Literal(Lit::Str(s)) => s.value() == "arg_enum",
-                NestedMeta::Literal(_) => false,
-            }),
-        }
-    }
-
     let input = parse_macro_input!(input as ItemEnum);
 
-    if input
+    if let Some(span) = input
         .variants
         .iter()
         .flat_map(|v| &v.attrs)
         .flat_map(Attribute::parse_meta)
-        .any(|m| contains_target_attr(&m))
+        .flat_map(|m| find_attr(&m, "arg_enum"))
+        .next()
     {
-        return input.compile_error("`arg_enum` is not allowed for variants");
+        return syn::Error::new(span, "not allowed here")
+            .to_compile_error()
+            .into();
     }
 
     let enum_attrs = try_syn!(input
@@ -483,17 +456,13 @@ pub fn derive_arg_enum(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
 #[proc_macro_derive(SerializeAsString)]
 pub fn derive_serialize_as_string(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let input = parse_macro_input!(input as Item);
+    let input = parse_macro_input!(input as DeriveInput);
 
-    let (ident, generics) = match input {
-        Item::Struct(input) => (input.ident, input.generics),
-        Item::Enum(input) => (input.ident, input.generics),
-        _ => return input.compile_error("expected struct or enum"),
-    };
-
-    if !generics.params.is_empty() {
-        return generics.compile_error("generics must be empty");
+    if !input.generics.params.is_empty() {
+        return input.generics.compile_error("generics must be empty");
     }
+
+    let ident = input.ident;
 
     quote!(
         impl ::serde::Serialize for #ident {
@@ -509,19 +478,109 @@ pub fn derive_serialize_as_string(input: proc_macro::TokenStream) -> proc_macro:
     .into()
 }
 
-#[proc_macro_derive(DeserializeAsString)]
+#[proc_macro_derive(DeserializeAsString, attributes(deserialize_as_string))]
 pub fn derive_deserialize_as_string(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let input = parse_macro_input!(input as Item);
+    let DeriveInput {
+        attrs,
+        ident,
+        generics,
+        data,
+        ..
+    } = parse_macro_input!(input as DeriveInput);
 
-    let (ident, generics) = match input {
-        Item::Struct(input) => (input.ident, input.generics),
-        Item::Enum(input) => (input.ident, input.generics),
-        _ => return input.compile_error("expected struct or enum"),
+    let field_variant_attrs = match &data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(fields) => fields.named.iter().flat_map(|f| &f.attrs).collect(),
+            Fields::Unnamed(fields) => fields.unnamed.iter().flat_map(|f| &f.attrs).collect(),
+            Fields::Unit => vec![],
+        },
+        Data::Enum(data) => data.variants.iter().flat_map(|v| &v.attrs).collect(),
+        _ => return ident.compile_error("expected struct or enum"),
     };
 
     if !generics.params.is_empty() {
         return generics.compile_error("generics must be empty");
     }
+
+    if let Some(span) = field_variant_attrs
+        .into_iter()
+        .flat_map(Attribute::parse_meta)
+        .flat_map(|m| find_attr(&m, "deserialize_as_string"))
+        .next()
+    {
+        return syn::Error::new(span, "not allowed here")
+            .to_compile_error()
+            .into();
+    }
+
+    let map_err_into_serde_style = try_syn!(attrs
+        .iter()
+        .flat_map(Attribute::parse_meta)
+        .flat_map(|meta| match &meta {
+            Meta::List(MetaList { ident, nested, .. }) if ident == "deserialize_as_string" => {
+                Some(match nested.len() {
+                    0 => Ok(false),
+                    1 => match nested.iter().next().unwrap() {
+                        NestedMeta::Meta(Meta::Word(ident))
+                            if ident == "map_err_into_serde_style" =>
+                        {
+                            Ok(true)
+                        }
+                        nested => Err(nested.error("expected `map_err_into_serde_style`")),
+                    },
+                    _ => Err(nested.error("expected 0 or 1 element")),
+                })
+            }
+            Meta::Word(ident) | Meta::NameValue(MetaNameValue { ident, .. })
+                if ident == "deserialize_as_string" =>
+            {
+                Some(Err(meta.error("expected list")))
+            }
+            _ => None,
+        })
+        .collect::<syn::Result<Vec<_>>>());
+
+    let map_err_into_serde_style = if map_err_into_serde_style.len() > 1 {
+        return ident.compile_error("multiple `deserialize_as_string`s");
+    } else {
+        convert::identity(map_err_into_serde_style).pop()
+    };
+
+    let map_err_into_serde_style = if map_err_into_serde_style.unwrap_or(false) {
+        static ERR_MSG: &str = "must be unit enum when `map_err_into_serde_style` specified";
+
+        let variants = try_syn!(match &data {
+            Data::Struct(data) => Err(data.struct_token.error(ERR_MSG)),
+            Data::Union(data) => Err(data.union_token.error(ERR_MSG)),
+            Data::Enum(data) => data
+                .variants
+                .iter()
+                .map(|variant| match &variant.fields {
+                    Fields::Unit => {
+                        let variant_ident = &variant.ident;
+                        Ok(quote!(#ident::#variant_ident))
+                    }
+                    fields => Err(fields.error(ERR_MSG)),
+                })
+                .collect::<syn::Result<Vec<_>>>(),
+        });
+
+        let mut fmt = "unknown variant `{}`, expected ".to_owned();
+        match variants.len() {
+            1 => fmt += "{}",
+            2 => fmt += "{} or {}",
+            n => {
+                fmt += "one of ";
+                fmt += &(0..n).map(|_| "`{}`").join(", ");
+            }
+        }
+
+        Some(quote! {
+            let r = ::std::result::Result::map_err(r, |_| ::std::format!(#fmt, s, #(#variants, )*));
+        })
+    } else {
+        None
+    };
 
     quote!(
         impl<'de> ::serde::Deserialize<'de> for #ident {
@@ -530,11 +589,33 @@ pub fn derive_deserialize_as_string(input: proc_macro::TokenStream) -> proc_macr
             ) -> ::std::result::Result<Self, D::Error> {
                 let s = <::std::string::String as ::serde::Deserialize>::deserialize(deserializer)?;
                 let r = <Self as ::std::str::FromStr>::from_str(&s);
+                #map_err_into_serde_style
                 ::std::result::Result::map_err(r, ::serde::de::Error::custom)
             }
         }
     )
     .into()
+}
+
+fn find_attr(meta: &Meta, attr: &'static str) -> Option<Span> {
+    match meta {
+        Meta::Word(ident) | Meta::NameValue(MetaNameValue { ident, .. }) => {
+            if ident == attr {
+                Some(ident.span())
+            } else {
+                None
+            }
+        }
+        Meta::List(list) => list
+            .nested
+            .iter()
+            .flat_map(|m| match m {
+                NestedMeta::Meta(m) => find_attr(m, attr),
+                NestedMeta::Literal(Lit::Str(s)) if s.value() == attr => Some(s.span()),
+                NestedMeta::Literal(_) => None,
+            })
+            .next(),
+    }
 }
 
 trait SpannedExt {
@@ -548,5 +629,25 @@ trait SpannedExt {
 impl<T: Spanned> SpannedExt for T {
     fn error(&self, mes: impl fmt::Display) -> syn::Error {
         syn::Error::new(self.span(), mes)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum CaseConversion {
+    Lower,
+    Snake,
+    Kebab,
+}
+
+impl FromStr for CaseConversion {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> std::result::Result<Self, &'static str> {
+        match s {
+            "lowercase" => Ok(CaseConversion::Lower),
+            "snake_case" => Ok(CaseConversion::Snake),
+            "kebab-case" => Ok(CaseConversion::Kebab),
+            _ => Err(r#"valid values: ["lowercase", snake_case", "kebab-case"]"#),
+        }
     }
 }
