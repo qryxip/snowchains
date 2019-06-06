@@ -893,6 +893,7 @@ impl<
             dropbox_path,
             timeout: config.session_timeout(),
             login_retries: self.login_retries,
+            retries_on_get: config.session_retries_on_get(),
             http_silent: config.session_silent(),
             robots: config.session_robots(),
         })

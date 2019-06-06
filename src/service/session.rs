@@ -12,7 +12,7 @@ use crate::util::indexmap::IndexSetAsRefStrExt as _;
 
 use cookie_store::CookieStore;
 use derive_new::new;
-use failure::{Fail as _, ResultExt as _};
+use failure::{Fail, ResultExt as _};
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
 use http::{HttpTryFrom, Uri};
 use if_chain::if_chain;
@@ -33,12 +33,14 @@ use url::{Host, Url};
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::fmt::{self, Write as _};
 use std::io::{self, BufReader, Write as _};
-use std::mem;
+use std::marker::PhantomData;
 use std::ops::Deref;
+use std::{cmp, mem};
 
-pub(super) trait Session {
+pub(super) trait Session: Sized {
     type Stdin: Input;
     type Stderr: WriteColor + HasTermProps;
 
@@ -149,14 +151,87 @@ pub(super) trait Session {
         Ok(())
     }
 
-    fn get(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> self::Request<&mut Self::Stderr> {
-        self.state_mut()
-            .request(url, Method::GET, vec![StatusCode::OK])
+    fn get(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> self::Request<&mut Self, Get> {
+        self.request::<Get, _>(url, vec![StatusCode::OK])
     }
 
-    fn post(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> self::Request<&mut Self::Stderr> {
-        self.state_mut()
-            .request(url, Method::POST, vec![StatusCode::FOUND])
+    fn post(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> self::Request<&mut Self, Post> {
+        self.request::<Post, _>(url, vec![StatusCode::FOUND])
+    }
+
+    fn request<M: StaticMethod, U: IntoRelativeOrAbsoluteUrl>(
+        &mut self,
+        url: U,
+        acceptable: Vec<StatusCode>,
+    ) -> self::Request<&mut Self, M> {
+        self::Request {
+            inner: self.resolve_url(url).and_then(|url| {
+                self.state_mut().assert_not_forbidden_by_robots_txt(&url)?;
+                Ok(RequestInner {
+                    inner: RequestBuilderBuilder::new::<M>(self.client(), url),
+                    eprint: !self.state_ref().http_silent,
+                    acceptable,
+                    redirect_unlimited: false,
+                    retries_on_get: self.state_ref().retries_on_get,
+                })
+            }),
+            session: self,
+            phantom: PhantomData,
+        }
+    }
+
+    fn retry_recv_text(&mut self, res: self::Response<Get>) -> ServiceResult<String> {
+        self.retry_recv(res, |res, rt| res.text(rt))
+    }
+
+    fn retry_recv_html(&mut self, res: self::Response<Get>) -> ServiceResult<Html> {
+        self.retry_recv(res, |res, rt| res.html(rt))
+    }
+
+    fn retry_recv_json<T: DeserializeOwned + Send + Sync + 'static>(
+        &mut self,
+        res: self::Response<Get>,
+    ) -> ServiceResult<T> {
+        self.retry_recv(res, |res, rt| res.json(rt))
+    }
+
+    fn retry_recv<
+        R,
+        F: for<'a, 'b> FnMut(&'a mut self::Response<Get>, &'b mut Runtime) -> ServiceResult<R>,
+    >(
+        &mut self,
+        mut res: self::Response<Get>,
+        mut f: F,
+    ) -> ServiceResult<R> {
+        f(&mut res, self.runtime()).or_else(|err| {
+            res.req.retries_on_get = cmp::max(res.req.retries_on_get, 1) - 1;
+            while res.req.retries_on_get > 0 {
+                res = self::Request::<_, Get> {
+                    inner: Ok(res.req),
+                    session: &mut *self,
+                    phantom: PhantomData,
+                }
+                .retry_send()?;
+                match f(&mut res, self.runtime()) {
+                    Ok(ret) => return Ok(ret),
+                    Err(_) => {
+                        res.req.retries_on_get = cmp::max(res.req.retries_on_get, 1) - 1;
+                    }
+                }
+            }
+            Err(err)
+        })
+    }
+
+    fn recv_html(&mut self, mut res: self::Response<Post>) -> ServiceResult<Html> {
+        res.html(self.runtime())
+    }
+
+    fn recv_json<T: DeserializeOwned + Send + Sync + 'static>(
+        &mut self,
+        mut res: self::Response<Post>,
+    ) -> ServiceResult<T> {
+        res.json(self.runtime())
     }
 
     fn warn_not_found(
@@ -188,6 +263,7 @@ pub(super) struct State<I: Input, E: WriteColor + HasTermProps> {
     cookie_store: Option<AutosavedCookieStore>,
     api_token: LazyLockedFile,
     url_base: Option<UrlBase>,
+    retries_on_get: u32,
     http_silent: bool,
 }
 
@@ -202,6 +278,7 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
             url_base,
             cookies_path,
             api_token_path,
+            retries_on_get,
             http_silent,
         } = args;
 
@@ -220,6 +297,7 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
                 Some(path) => LazyLockedFile::Uninited(path.to_owned()),
             },
             url_base,
+            retries_on_get,
             http_silent,
         };
         if robots {
@@ -228,11 +306,10 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
                     .get("/robots.txt")
                     .acceptable(&[200, 404])
                     .redirect_unlimited()
-                    .send()?;
+                    .retry_send()?;
                 if res.status() == 200 {
-                    let txt = res.text(&mut this.runtime)?;
                     let robots = OwnedRobots::new(
-                        txt,
+                        this.retry_recv_text(res)?,
                         |s| Robots::from_str(s),
                         |robots| SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules),
                     );
@@ -241,30 +318,6 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
             }
         }
         Ok(this)
-    }
-
-    fn request<'a>(
-        &'a mut self,
-        url: impl IntoRelativeOrAbsoluteUrl,
-        method: Method,
-        acceptable: Vec<StatusCode>,
-    ) -> self::Request<'a, &'a mut E> {
-        self::Request {
-            req: self.resolve_url(url).and_then(|url| {
-                self.assert_not_forbidden_by_robots_txt(&url)?;
-                Ok(self::RequestBuilder::new(self.client(), method, url))
-            }),
-            stderr: if self.http_silent {
-                None
-            } else {
-                Some(&mut self.stderr)
-            },
-            runtime: &mut self.runtime,
-            cookie_store: self.cookie_store.as_mut(),
-            acceptable,
-            redirect_unlimited: false,
-            no_cookie: false,
-        }
     }
 
     fn assert_not_forbidden_by_robots_txt(&self, url: &Url) -> ServiceResult<()> {
@@ -278,6 +331,19 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
                 Ok(())
             }
         }
+    }
+}
+
+impl<'a, S: Session> Session for &'a mut S {
+    type Stdin = S::Stdin;
+    type Stderr = S::Stderr;
+
+    fn state_ref(&self) -> &State<S::Stdin, S::Stderr> {
+        (**self).state_ref()
+    }
+
+    fn state_mut(&mut self) -> &mut State<S::Stdin, S::Stderr> {
+        (**self).state_mut()
     }
 }
 
@@ -304,131 +370,127 @@ pub(super) struct StateStartArgs<'a, I: Input, E: WriteColor + HasTermProps> {
     pub(super) url_base: Option<UrlBase>,
     pub(super) cookies_path: Option<&'a AbsPath>,
     pub(super) api_token_path: Option<&'a AbsPath>,
+    pub(super) retries_on_get: u32,
     pub(super) http_silent: bool,
 }
 
 #[derive(Debug)]
-pub(super) struct Request<'a, E: WriteColor> {
-    req: ServiceResult<self::RequestBuilder>,
-    stderr: Option<E>,
-    runtime: &'a mut Runtime,
-    cookie_store: Option<&'a mut AutosavedCookieStore>,
-    acceptable: Vec<StatusCode>,
-    redirect_unlimited: bool,
-    no_cookie: bool,
+pub(super) struct Request<S: Session, M: StaticMethod> {
+    inner: ServiceResult<RequestInner>,
+    session: S,
+    phantom: PhantomData<fn() -> M>,
 }
 
-impl<'a, E: WriteColor> Request<'a, E> {
+impl<S: Session, M: StaticMethod> Request<S, M> {
     pub(super) fn basic_auth(
-        self,
+        mut self,
         username: impl fmt::Display,
         password: Option<impl fmt::Display>,
     ) -> Self {
-        Self {
-            req: self
-                .req
-                .and_then(|r| r.basic_auth(username, password).map_err(Into::into)),
-            ..self
-        }
-    }
-
-    pub(super) fn bearer_auth(self, token: impl fmt::Display) -> Self {
-        Self {
-            req: self
-                .req
-                .and_then(|r| r.bearer_auth(token).map_err(Into::into)),
-            ..self
-        }
-    }
-
-    pub(super) fn form(self, form: &(impl Serialize + ?Sized)) -> Self {
-        Self {
-            req: self.req.and_then(|r| r.form(form).map_err(Into::into)),
-            ..self
-        }
-    }
-
-    pub(super) fn json(self, json: &(impl Serialize + ?Sized)) -> Self {
-        Self {
-            req: self.req.and_then(|r| r.json(json).map_err(Into::into)),
-            ..self
-        }
-    }
-
-    /// # Panics:
-    ///
-    /// Panics if `statuses` contains `n` such that `n < 100 || 600 <= n`.
-    pub(super) fn acceptable(self, statuses: &'static [u16]) -> Self {
-        let acceptable = statuses
-            .iter()
-            .map(|&n| StatusCode::from_u16(n))
-            .collect::<std::result::Result<_, _>>()
-            .unwrap();
-        Self { acceptable, ..self }
-    }
-
-    /// # Panics:
-    ///
-    /// Panics if `self.acceptable` contains any 3xx status code.
-    fn redirect_unlimited(self) -> Self {
-        if self.acceptable.iter().any(|s| s.is_redirection()) {
-            panic!("`acceptable` contains 3xx status code(s)");
-        }
-        Self {
-            redirect_unlimited: true,
-            ..self
-        }
-    }
-
-    pub(super) fn no_cookie(mut self) -> Self {
-        self.no_cookie = true;
+        self.inner = self.inner.and_then(|mut inner| {
+            inner.inner = inner.inner.basic_auth(username, password)?;
+            Ok(inner)
+        });
         self
     }
 
-    pub(super) fn send(self) -> ServiceResult<self::Response> {
-        self.send_internal().map(|(r, _)| r)
+    pub(super) fn bearer_auth(mut self, token: impl fmt::Display) -> Self {
+        self.inner = self.inner.and_then(|mut inner| {
+            inner.inner = inner.inner.bearer_auth(token)?;
+            Ok(inner)
+        });
+        self
     }
 
-    fn send_internal(mut self) -> ServiceResult<(self::Response, &'a mut Runtime)> {
+    /// # Panics:
+    ///
+    /// Panics if:
+    /// - `statuses` contains `n` such that `n < 100 || 600 <= n`
+    /// - `this.inner.redirect_unlimited` is `true` where `Ok(this) = self`
+    pub(super) fn acceptable(mut self, statuses: &'static [u16]) -> Self {
+        if let Ok(inner) = &mut self.inner {
+            if inner.redirect_unlimited {
+                panic!("`redirect_unlimited` is `true`");
+            }
+            inner.acceptable = statuses
+                .iter()
+                .map(|&n| StatusCode::from_u16(n))
+                .collect::<std::result::Result<_, _>>()
+                .unwrap();
+        }
+        self
+    }
+
+    /// # Panics:
+    ///
+    /// Panics if `this.inner.acceptable` contains any 3xx status code where `Ok(this) = self`.
+    pub(super) fn redirect_unlimited(mut self) -> Self {
+        if let Ok(inner) = &mut self.inner {
+            if inner.acceptable.iter().any(|s| s.is_redirection()) {
+                panic!("`acceptable` contains 3xx status code(s)");
+            }
+            inner.redirect_unlimited = true;
+        }
+        self
+    }
+
+    fn send_internal(mut self, allow_retry: bool) -> ServiceResult<(S, self::Response<M>)> {
         if_chain! {
-            if !self.no_cookie;
-            if let Ok(req) = &mut self.req;
-            if let Some(store) = &self.cookie_store;
-            if let Some(value) = store.to_header_value(&req.url);
+            if let Ok(inner) = &mut self.inner;
+            if let Some(store) = &self.session.state_ref().cookie_store;
+            if let Some(value) = store.to_header_value(&inner.inner.url);
             then {
-                req.headers.insert(header::COOKIE, value);
+                inner.inner.headers.insert(header::COOKIE, value);
             }
         }
 
-        let runtime = self.runtime;
-        let mut req = self.req?;
+        let RequestInner {
+            mut inner,
+            eprint,
+            acceptable,
+            redirect_unlimited,
+            retries_on_get,
+        } = self.inner?;
+
+        let mut retries_on_get = if allow_retry { retries_on_get } else { 0 };
+
+        let st = self.session.state_mut();
+        let (rt, stderr, mut cookie_store) =
+            (&mut st.runtime, &mut st.stderr, st.cookie_store.as_mut());
 
         loop {
-            if let Some(stderr) = &mut self.stderr {
+            if eprint {
                 stderr.set_color(color!(bold))?;
-                stderr.write_str(&req.method)?;
+                stderr.write_str(&inner.method)?;
                 stderr.write_str(" ")?;
                 stderr.set_color(color!(fg(Cyan), intense))?;
-                stderr.write_str(&req.url)?;
+                stderr.write_str(&inner.url)?;
                 stderr.reset()?;
                 stderr.write_str(" ... ")?;
                 stderr.flush()?;
             }
 
-            let res = runtime.block_on(WithCtrlC(req.send()));
-            if res.is_err() {
-                if let Some(stderr) = &mut self.stderr {
+            let res = rt.block_on(WithCtrlC(inner.send()));
+            if let Err(err) = &res {
+                if eprint {
+                    stderr.set_color(color!(fg(Red), intense, bold))?;
+                    stderr.write_str(err.prompt())?;
+                    stderr.reset()?;
                     writeln!(stderr)?;
                     stderr.flush()?;
+                }
+                if inner.method == Method::GET && retries_on_get > 0 && err.is_http_or_timeout() {
+                    retries_on_get -= 1;
+                    continue;
                 }
             }
             let res = res?;
 
-            let redirect = self.redirect_unlimited && res.status().is_redirection();
-            let acceptable = redirect || self.acceptable.contains(&res.status());
+            let is_redirect = redirect_unlimited && res.status().is_redirection();
+            let is_acceptable = is_redirect || acceptable.contains(&res.status());
 
-            if let Some(stderr) = &mut self.stderr {
-                if acceptable {
+            if eprint {
+                if is_acceptable {
                     stderr.set_color(color!(fg(Green), intense, bold))?;
                 } else {
                     stderr.set_color(color!(fg(Red), intense, bold))?;
@@ -439,67 +501,136 @@ impl<'a, E: WriteColor> Request<'a, E> {
                 stderr.flush()?;
             }
 
-            if !self.no_cookie {
-                if let Some(store) = &mut self.cookie_store {
-                    store.update(&res)?;
-                }
+            if let Some(cookie_store) = &mut cookie_store {
+                cookie_store.update(&res)?;
             }
 
-            if redirect {
+            if is_redirect {
                 let loc = res.headers().get(header::LOCATION).and_then(|loc| {
-                    let loc = req.url.join(loc.to_str().ok()?).ok()?;
+                    let loc = inner.url.join(loc.to_str().ok()?).ok()?;
                     guard!(loc.as_str().parse::<Uri>().is_ok());
                     Some(loc)
                 });
                 if let Some(loc) = loc {
-                    req.url = loc;
+                    inner = inner.redirect(loc);
                     continue;
                 }
             }
 
-            break if acceptable {
-                Ok((self::Response(res), runtime))
+            if is_acceptable {
+                let req = RequestInner {
+                    inner,
+                    eprint,
+                    acceptable,
+                    redirect_unlimited,
+                    retries_on_get,
+                };
+                break Ok((self.session, self::Response::new(res, req)));
+            }
+
+            let retry_after = res
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok());
+
+            if inner.method == Method::GET
+                && retries_on_get > 0
+                && res.status().is_server_error()
+                && retry_after.is_none()
+            {
+                retries_on_get -= 1;
+                continue;
+            }
+
+            let err = ServiceErrorKind::UnexpectedStatusCode(
+                res.url().to_owned(),
+                res.status(),
+                acceptable,
+            );
+
+            break Err(if let Some(retry_after) = retry_after {
+                let msg = format!("The response contains `Retry-After: {}`", retry_after);
+                failure::err_msg(msg).context(err).into()
             } else {
-                Err(ServiceErrorKind::UnexpectedStatusCode(
-                    res.url().to_owned(),
-                    res.status(),
-                    self.acceptable.clone(),
-                )
-                .into())
-            };
+                err.into()
+            });
         }
-    }
-
-    pub(super) fn send_form(
-        self,
-        form: &(impl Serialize + ?Sized),
-    ) -> ServiceResult<self::Response> {
-        self.form(form).send()
-    }
-
-    pub(super) fn send_multipart(mut self, form: FormBuilder) -> ServiceResult<self::Response> {
-        self.req = self.req.map(|r| r.multipart(form));
-        self.send()
-    }
-
-    pub(super) fn recv_html(self) -> ServiceResult<Html> {
-        let (res, runtime) = self.send_internal()?;
-        res.html(runtime)
-    }
-
-    pub(super) fn recv_json<T: DeserializeOwned + Send + Sync + 'static>(self) -> ServiceResult<T> {
-        let (res, runtime) = self.send_internal()?;
-        res.json(runtime)
-    }
-
-    pub(super) fn status(self) -> ServiceResult<StatusCode> {
-        self.send_internal().map(|(r, _)| r.status())
     }
 }
 
-/// A builder that can construct a `reqwest::async::Request` any number of times.
+impl<S: Session> Request<S, Get> {
+    pub(super) fn retry_send(self) -> ServiceResult<self::Response<Get>> {
+        self.send_internal(true).map(|(_, res)| res)
+    }
+
+    pub(super) fn retry_status(self) -> ServiceResult<StatusCode> {
+        self.send_internal(true).map(|(_, res)| res.status())
+    }
+
+    pub(super) fn retry_recv_html(self) -> ServiceResult<Html> {
+        let (mut sess, res) = self.send_internal(true)?;
+        sess.retry_recv_html(res)
+    }
+
+    pub(super) fn retry_recv_json<T: DeserializeOwned + Send + Sync + 'static>(
+        self,
+    ) -> ServiceResult<T> {
+        let (mut sess, res) = self.send_internal(true)?;
+        sess.retry_recv_json(res)
+    }
+}
+
+impl<S: Session> Request<S, Post> {
+    pub(super) fn form(mut self, form: &(impl Serialize + ?Sized)) -> Self {
+        self.inner = self.inner.and_then(|mut inner| {
+            inner.inner = inner.inner.form(form)?;
+            Ok(inner)
+        });
+        self
+    }
+
+    pub(super) fn json(mut self, json: &(impl Serialize + ?Sized)) -> Self {
+        self.inner = self.inner.and_then(|mut inner| {
+            inner.inner = inner.inner.json(json)?;
+            Ok(inner)
+        });
+        self
+    }
+
+    pub(super) fn multipart(mut self, form: self::FormBuilder) -> Self {
+        self.inner = self.inner.map(|mut inner| {
+            inner.inner = inner.inner.multipart(form);
+            inner
+        });
+        self
+    }
+
+    pub(super) fn send(self) -> ServiceResult<self::Response<Post>> {
+        self.send_internal(false).map(|(_, res)| res)
+    }
+
+    pub(super) fn status(self) -> ServiceResult<StatusCode> {
+        self.send_internal(false).map(|(_, res)| res.status())
+    }
+
+    pub(super) fn recv_json<T: DeserializeOwned + Send + Sync + 'static>(self) -> ServiceResult<T> {
+        let (mut sess, res) = self.send_internal(false)?;
+        sess.recv_json(res)
+    }
+}
+
 #[derive(Debug)]
-struct RequestBuilder {
+struct RequestInner {
+    inner: RequestBuilderBuilder,
+    eprint: bool,
+    acceptable: Vec<StatusCode>,
+    redirect_unlimited: bool,
+    retries_on_get: u32,
+}
+
+/// A builder that can construct a `reqwest::async::RequestBuilder` any number of times.
+#[derive(Debug)]
+struct RequestBuilderBuilder {
     client: reqwest::r#async::Client,
     method: Method,
     url: Url,
@@ -507,11 +638,11 @@ struct RequestBuilder {
     body: self::Body,
 }
 
-impl RequestBuilder {
-    fn new(client: reqwest::r#async::Client, method: Method, url: Url) -> Self {
+impl RequestBuilderBuilder {
+    fn new<M: StaticMethod>(client: reqwest::r#async::Client, url: Url) -> Self {
         Self {
             client,
-            method,
+            method: M::value(),
             url,
             headers: HeaderMap::new(),
             body: self::Body::None,
@@ -523,7 +654,7 @@ impl RequestBuilder {
         HeaderValue: HttpTryFrom<V>,
     {
         let value = <HeaderValue as HttpTryFrom<_>>::try_from(value)
-            .map_err(|e| PseudoReqwestError::new(self.url.clone(), Into::<http::Error>::into(e)))?;
+            .map_err(|e| PseudoReqwestError::new(self.url.clone(), e.into()))?;
         self.headers.insert(key, value);
         Ok(self)
     }
@@ -543,11 +674,6 @@ impl RequestBuilder {
 
     fn bearer_auth<T: fmt::Display>(self, token: T) -> PseudoReqwestResult<Self> {
         self.header(header::AUTHORIZATION, format!("Bearer {}", token))
-    }
-
-    fn multipart(mut self, multipart: FormBuilder) -> Self {
-        self.body = self::Body::Multipart(multipart);
-        self
     }
 
     fn form<T: Serialize + ?Sized>(mut self, form: &T) -> PseudoReqwestResult<Self> {
@@ -570,6 +696,28 @@ impl RequestBuilder {
             .map_err(|e| PseudoReqwestError::new(self.url.clone(), e))?;
         self.body = self::Body::Serialized(json);
         Ok(self)
+    }
+
+    fn multipart(mut self, multipart: FormBuilder) -> Self {
+        self.body = self::Body::Multipart(multipart);
+        self
+    }
+
+    fn redirect(mut self, url: Url) -> Self {
+        if (self.url.host(), self.url.port_or_known_default())
+            != (url.host(), url.port_or_known_default())
+        {
+            // Removes sensitive headers as `reqwest` does.
+            self.headers.remove(header::AUTHORIZATION);
+            self.headers.remove(header::COOKIE);
+            self.headers.remove("cookie2");
+            self.headers.remove(header::PROXY_AUTHORIZATION);
+            self.headers.remove(header::WWW_AUTHENTICATE);
+        }
+        self.method = Method::GET;
+        self.url = url;
+        self.body = self::Body::None;
+        self
     }
 
     fn send(&self) -> impl Future<Item = reqwest::r#async::Response, Error = reqwest::Error> {
@@ -620,22 +768,34 @@ impl FormBuilder {
 }
 
 #[derive(Debug)]
-pub(super) struct Response(reqwest::r#async::Response);
+pub(super) struct Response<M: StaticMethod> {
+    inner: reqwest::r#async::Response,
+    req: RequestInner,
+    phantom: PhantomData<fn() -> M>,
+}
 
-impl Response {
-    pub(super) fn header_location(&self) -> ServiceResult<Option<&str>> {
+impl<M: StaticMethod> Response<M> {
+    fn new(inner: reqwest::r#async::Response, req: RequestInner) -> Self {
+        Self {
+            inner,
+            req,
+            phantom: PhantomData,
+        }
+    }
+
+    pub(super) fn location_uri(&self) -> ServiceResult<Option<Uri>> {
+        fn ctx(err: impl Fail) -> ServiceError {
+            err.context(ServiceErrorKind::ReadHeader(header::LOCATION))
+                .into()
+        }
+
         self.headers()
             .get(header::LOCATION)
-            .map(|location| {
-                location.to_str().map_err(|e| {
-                    e.context(ServiceErrorKind::ReadHeader(header::LOCATION))
-                        .into()
-                })
-            })
+            .map(|loc| loc.to_str().map_err(ctx)?.parse().map_err(ctx))
             .transpose()
     }
 
-    fn text(mut self, runtime: &mut Runtime) -> ServiceResult<String> {
+    fn text(&mut self, runtime: &mut Runtime) -> ServiceResult<String> {
         struct BufDecoder {
             decoder: Decoder,
             buf: Vec<u8>,
@@ -659,7 +819,6 @@ impl Response {
         }
 
         let encoding = self
-            .0
             .headers()
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
@@ -672,32 +831,72 @@ impl Response {
             }
         }
 
-        let buf =
-            Vec::with_capacity(self.0.content_length().map(|n| n + 1).unwrap_or(1024) as usize);
-        let decoder = mem::replace(self.0.body_mut(), Decoder::empty());
+        let buf = Vec::with_capacity(self.content_length().map(|n| n + 1).unwrap_or(1024) as usize);
+        let decoder = mem::replace(self.inner.body_mut(), Decoder::empty());
         let content = runtime.block_on(BufDecoder { decoder, buf })?;
         String::from_utf8(content)
             .map_err(|e| e.context(ServiceErrorKind::NonUtf8Content(encoding)).into())
     }
 
-    pub(super) fn html(self, runtime: &mut Runtime) -> ServiceResult<Html> {
+    fn html(&mut self, runtime: &mut Runtime) -> ServiceResult<Html> {
         let text = self.text(runtime)?;
         Ok(Html::parse_document(&text))
     }
 
-    pub(super) fn json<T: DeserializeOwned + Send + Sync + 'static>(
-        mut self,
+    fn json<T: DeserializeOwned + Send + Sync + 'static>(
+        &mut self,
         runtime: &mut Runtime,
     ) -> ServiceResult<T> {
-        runtime.block_on(WithCtrlC(self.0.json()))
+        runtime
+            .block_on(WithCtrlC(self.inner.json()))
+            .map_err(Into::into)
     }
 }
 
-impl Deref for Response {
+impl TryFrom<Response<Post>> for Response<Get> {
+    type Error = ();
+
+    fn try_from(res: Response<Post>) -> std::result::Result<Self, ()> {
+        if res.req.inner.method == Method::GET {
+            Ok(Self {
+                inner: res.inner,
+                req: res.req,
+                phantom: PhantomData,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl<M: StaticMethod> Deref for Response<M> {
     type Target = reqwest::r#async::Response;
 
     fn deref(&self) -> &reqwest::r#async::Response {
-        &self.0
+        &self.inner
+    }
+}
+
+// `'static` is necessary?
+pub(crate) trait StaticMethod: 'static {
+    fn value() -> Method;
+}
+
+#[derive(Debug)]
+pub(crate) enum Get {}
+
+impl StaticMethod for Get {
+    fn value() -> Method {
+        Method::GET
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum Post {}
+
+impl StaticMethod for Post {
+    fn value() -> Method {
+        Method::POST
     }
 }
 
@@ -705,11 +904,44 @@ struct WithCtrlC<F: Future<Error = reqwest::Error>>(F);
 
 impl<F: Future<Error = reqwest::Error>> Future for WithCtrlC<F> {
     type Item = F::Item;
-    type Error = ServiceError;
+    type Error = ReqwestOrCtrlCError;
 
-    fn poll(&mut self) -> Poll<F::Item, ServiceError> {
-        crate::signal::check_ctrl_c()?;
-        self.0.poll().map_err(Into::into)
+    fn poll(&mut self) -> Poll<F::Item, ReqwestOrCtrlCError> {
+        crate::signal::check_ctrl_c().map_err(ReqwestOrCtrlCError::CtrlC)?;
+        self.0.poll().map_err(ReqwestOrCtrlCError::Reqwest)
+    }
+}
+
+#[derive(Debug)]
+enum ReqwestOrCtrlCError {
+    Reqwest(reqwest::Error),
+    CtrlC(io::Error),
+}
+
+impl ReqwestOrCtrlCError {
+    fn is_http_or_timeout(&self) -> bool {
+        match self {
+            ReqwestOrCtrlCError::Reqwest(e) => e.is_http() || e.is_timeout(),
+            ReqwestOrCtrlCError::CtrlC(_) => false,
+        }
+    }
+
+    fn prompt(&self) -> &'static str {
+        match self {
+            ReqwestOrCtrlCError::Reqwest(e) if e.is_http() => "<failed> (http)",
+            ReqwestOrCtrlCError::Reqwest(e) if e.is_timeout() => "<failed> (timeout)",
+            ReqwestOrCtrlCError::Reqwest(_) => "<failed>",
+            ReqwestOrCtrlCError::CtrlC(_) => "<ctrl-c>",
+        }
+    }
+}
+
+impl From<ReqwestOrCtrlCError> for ServiceError {
+    fn from(from: ReqwestOrCtrlCError) -> Self {
+        match from {
+            ReqwestOrCtrlCError::Reqwest(e) => e.into(),
+            ReqwestOrCtrlCError::CtrlC(e) => e.into(),
+        }
     }
 }
 
@@ -881,9 +1113,9 @@ mod owned_robots {
             }
         }
 
-        pub(super) fn rent_matcher<R>(
+        pub(super) fn rent_matcher<R, F: for<'a, 'b> FnOnce(&'a SimpleMatcher<'b>) -> R>(
             &self,
-            f: impl for<'a, 'b> FnOnce(&'a SimpleMatcher<'b>) -> R,
+            f: F,
         ) -> R {
             f(&self.matcher)
         }
@@ -961,15 +1193,16 @@ mod tests {
                 url_base: Some(url_base),
                 cookies_path: Some(&cookies),
                 api_token_path: None,
+                retries_on_get: 1,
                 http_silent: false,
             })?;
 
-            sess.get("/").send()?;
-            sess.get("/confirm-cookie").send()?;
-            sess.get("/redirect").redirect_unlimited().send()?;
-            sess.get("/nonexisting").acceptable(&[404]).send()?;
+            sess.get("/").retry_send()?;
+            sess.get("/confirm-cookie").retry_send()?;
+            sess.get("/redirect").redirect_unlimited().retry_send()?;
+            sess.get("/nonexisting").acceptable(&[404]).retry_send()?;
             if_chain! {
-                let err = sess.get("/nonexisting").send().unwrap_err();
+                let err = sess.get("/nonexisting").retry_send().unwrap_err();
                 if let ServiceError::Context(ctx) = &err;
                 if let ServiceErrorKind::UnexpectedStatusCode(
                     url,
@@ -984,7 +1217,7 @@ mod tests {
                 }
             }
             if_chain! {
-                let err = sess.get("/sensitive").send().unwrap_err();
+                let err = sess.get("/sensitive").retry_send().unwrap_err();
                 if let ServiceError::Context(ctx) = &err;
                 if let ServiceErrorKind::ForbiddenByRobotsTxt = ctx.get_context();
                 then {
@@ -1053,6 +1286,7 @@ mod tests {
                 url_base: None,
                 cookies_path: Some(path),
                 api_token_path: None,
+                retries_on_get: 0,
                 http_silent: true,
             })
         }
@@ -1090,6 +1324,7 @@ mod tests {
             cookie_store: None,
             api_token: LazyLockedFile::Null,
             url_base: None,
+            retries_on_get: 0,
             http_silent: true,
         };
 

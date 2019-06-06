@@ -162,7 +162,10 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
 
     fn login_if_not(&mut self, explicit: bool) -> ServiceResult<()> {
         if self.has_cookie() {
-            let status = self.get("/settings").acceptable(&[200, 302]).status()?;
+            let status = self
+                .get("/settings")
+                .acceptable(&[200, 302])
+                .retry_status()?;
             if status == StatusCode::OK {
                 if explicit {
                     writeln!(self.stderr(), "Already logged in.")?;
@@ -175,14 +178,19 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let mut retries = self.login_retries;
         loop {
             let payload = hashmap!(
-                "csrf_token" => self.get("/login").recv_html()?.extract_csrf_token()?,
+                "csrf_token" => self.get("/login").retry_recv_html()?.extract_csrf_token()?,
                 "username" => self.prompt_reply_stderr("Username: ")?,
                 "password" => self.prompt_password_stderr("Password: ")?,
             );
 
-            self.post("/login").send_form(&payload)?;
+            self.post("/login").form(&payload).send()?;
 
-            if self.get("/settings").acceptable(&[200, 302]).status()? == 200 {
+            if self
+                .get("/settings")
+                .acceptable(&[200, 302])
+                .retry_status()?
+                == 200
+            {
                 writeln!(self.stderr(), "Successfully logged in.")?;
                 break self.stderr().flush().map_err(Into::into);
             }
@@ -220,10 +228,8 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             let status = self
                 .post("https://api.dropboxapi.com/2/users/get_current_account")
                 .acceptable(&[200, 401])
-                .no_cookie()
                 .bearer_auth(&auth.access_token)
-                .send()?
-                .status();
+                .status()?;
             if status == 200 {
                 if explicit {
                     self.stderr().write_str("Already authorized.\n")?;
@@ -242,7 +248,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let auth = self
             .post("https://api.dropboxapi.com/oauth2/token")
             .acceptable(&[200])
-            .no_cookie()
             .basic_auth(CLIENT_ID, Some(CLIENT_SECRET))
             .form(&hashmap!("code" => code.as_str(), "grant_type" => "authorization_code"))
             .recv_json::<AuthToken>()?;
@@ -263,12 +268,13 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let res = self
             .get(&contest.url_tasks())
             .acceptable(&[200, 302, 404])
-            .send()?;
+            .retry_send()?;
+
         if res.status() == 200 {
-            res.html(self.runtime())
+            self.retry_recv_html(res)
         } else {
             self.register_if_active_or_explicit(contest, false)?;
-            self.get(&contest.url_tasks()).recv_html()
+            self.get(&contest.url_tasks()).retry_recv_html()
         }
     }
 
@@ -280,12 +286,15 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let res = self
             .get(&contest.url_top())
             .acceptable(&[200, 302])
-            .send()?;
-        if res.status() == StatusCode::FOUND {
-            return Err(ServiceErrorKind::ContestNotFound(contest.to_string()).into());
-        }
-        let page = res.html(self.runtime())?;
-        let duration = page.extract_contest_duration()?;
+            .retry_send()?;
+
+        let html = if res.status() == 302 {
+            Err(ServiceErrorKind::ContestNotFound(contest.to_string()).into())
+        } else {
+            self.retry_recv_html(res)
+        }?;
+
+        let duration = html.extract_contest_duration()?;
         let status = duration.check_current_status(contest.to_string());
         if !explicit {
             status.raise_if_not_begun()?;
@@ -294,11 +303,11 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             self.login_if_not(false)?;
             let csrf_token = self
                 .get(&contest.url_top())
-                .recv_html()?
+                .retry_recv_html()?
                 .extract_csrf_token()?;
             let url = contest.url_register();
             let payload = hashmap!("csrf_token" => csrf_token);
-            self.post(&url).send_form(&payload)?;
+            self.post(&url).form(&payload).send()?;
         }
         Ok(ParticipateOutcome {})
     }
@@ -323,7 +332,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             .extract_task_slugs_and_urls()?;
         let suites = self
             .get(&contest.url_tasks_print())
-            .recv_html()?
+            .retry_recv_html()?
             .extract_as_suites(&contest.slug())?;
 
         if slugs_and_urls.len() != suites.len() {
@@ -413,7 +422,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 .post("https://api.dropboxapi.com/2/files/list_folder")
                 .bearer_auth(token)
                 .acceptable(&[200, 409])
-                .no_cookie()
                 .json(&json!({
                     "shared_link": { "url": URL },
                     "path": &path,
@@ -452,7 +460,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             this.post("https://api.dropboxapi.com/2/files/list_folder")
                 .bearer_auth(token)
                 .acceptable(&[200])
-                .no_cookie()
                 .json(&json!({ "shared_link": { "url": URL }, "path": path }))
                 .recv_json()
         }
@@ -565,7 +572,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 self.resolve_url(&url)?
             }
         };
-        let langs = self.get(&url).recv_html()?.extract_langs()?;
+        let langs = self.get(&url).retry_recv_html()?.extract_langs()?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
@@ -581,25 +588,22 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             save_files,
         } = props;
 
-        let first_page = {
-            let res = self
-                .get(&contest.url_submissions_me(1))
-                .acceptable(&[200, 302])
-                .send()?;
-            if res.status() == 200 {
-                res.html(self.runtime())?
-            } else {
-                self.register_if_active_or_explicit(contest, false)?;
-                self.get(&contest.url_submissions_me(1))
-                    .acceptable(&[200, 302])
-                    .recv_html()?
-            }
+        let res = self
+            .get(&contest.url_submissions_me(1))
+            .acceptable(&[200, 302])
+            .retry_send()?;
+
+        let first_page = if res.status() == 200 {
+            self.retry_recv_html(res)?
+        } else {
+            self.register_if_active_or_explicit(contest, false)?;
+            self.get(&contest.url_submissions_me(1)).retry_recv_html()?
         };
 
         let submissions = {
             let (mut submissions, num_pages) = first_page.extract_submissions()?;
             for i in 2..=num_pages {
-                let page = self.get(&contest.url_submissions_me(i)).recv_html()?;
+                let page = self.get(&contest.url_submissions_me(i)).retry_recv_html()?;
                 submissions.extend(page.extract_submissions()?.0);
             }
             submissions
@@ -631,7 +635,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         for submission in submissions {
             let mut retrieve_code = || -> ServiceResult<_> {
                 self.get(&submission.url)
-                    .recv_html()?
+                    .retry_recv_html()?
                     .extract_submitted_code()
                     .map_err(Into::into)
             };
@@ -734,7 +738,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         if checks_if_accepted {
             let (submissions, num_pages) = self
                 .get(&contest.url_submissions_me(1))
-                .recv_html()?
+                .retry_recv_html()?
                 .extract_submissions()?;
             if submissions
                 .iter()
@@ -745,7 +749,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             for i in 2..=num_pages {
                 if self
                     .get(&contest.url_submissions_me(i))
-                    .recv_html()?
+                    .retry_recv_html()?
                     .extract_submissions()?
                     .0
                     .iter()
@@ -757,7 +761,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         }
 
         let code = crate::fs::read_to_string(&src_path)?;
-        let html = self.get(&url).recv_html()?;
+        let html = self.get(&url).retry_recv_html()?;
         let lang_id = html
             .extract_langs()?
             .get(&lang_name)
@@ -772,13 +776,14 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             "csrf_token" => &csrf_token,
         );
 
-        let (rejected, status, header_location);
-        match self.post(&url).send_form(&payload) {
+        let (rejected, status, location);
+        match self.post(&url).form(&payload).send() {
             Ok(res) => {
                 status = res.status();
-                header_location = res.header_location()?.map(ToOwned::to_owned);
-                rejected = header_location.as_ref().map_or(true, |l| {
-                    !(l.starts_with("/contests/") && l.ends_with("/submissions/me"))
+                location = res.location_uri()?;
+                rejected = location.as_ref().map_or(true, |loc| {
+                    let path = loc.path();
+                    !(path.starts_with("/contests/") && path.ends_with("/submissions/me"))
                 });
             }
             Err(err) => if_chain! {
@@ -787,7 +792,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 then {
                     rejected = true;
                     status = *st;
-                    header_location = None;
+                    location = None;
                 } else {
                     return Err(err);
                 }
@@ -800,10 +805,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
 
         Ok(SubmitOutcome {
             rejected,
-            response: SubmitOutcomeResponse {
-                status,
-                header_location,
-            },
+            response: SubmitOutcomeResponse { status, location },
             language: SubmitOutcomeLanguage {
                 name: lang_name,
                 id: lang_id,

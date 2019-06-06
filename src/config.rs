@@ -267,6 +267,10 @@ api_tokens = {session_api_tokens}
 dropbox = false
 # dropbox = {{ auth: {session_dropbox} }}
 
+[session.retry]
+retries = 2
+method = ["get"]
+
 [session.retrieve]
 extension = "yml"
 text_file_dir = ".snowchains/tests/${{service}}/${{snake_case(contest)}}/${{snake_case(problem)}}"
@@ -689,6 +693,14 @@ impl Config {
         }
     }
 
+    pub(crate) fn session_retries_on_get(&self) -> u32 {
+        if self.inner.session.retry.method.contains(&RetryMethod::Get) {
+            self.inner.session.retry.retries
+        } else {
+            0
+        }
+    }
+
     /// Gets `judge.jobs`.
     pub(crate) fn judge_jobs(&self) -> Option<NonZeroUsize> {
         self.inner.judge.jobs
@@ -1004,6 +1016,8 @@ struct Session {
     cookies: TemplateBuilder<AbsPathBuf>,
     #[serde(default)]
     dropbox: Dropbox,
+    #[serde(default)]
+    retry: Retry,
     retrieve: Retrieve,
 }
 
@@ -1055,6 +1069,18 @@ impl<'de> Deserialize<'de> for Dropbox {
             }
         }
     }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct Retry {
+    retries: u32,
+    method: BTreeSet<RetryMethod>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RetryMethod {
+    Get,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

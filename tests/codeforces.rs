@@ -49,6 +49,7 @@ fn it_logins() -> Fallible<()> {
             &r#"
 GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
+GET https://codeforces.com/ ... 200 OK
 GET https://codeforces.com/enter ... 302 Found
 API Key: API Secret: GET https://codeforces.com/api/user.info?apiKey=██████████&handles=██████████&time=██████████&apiSig=██████████ ... 200 OK
 "#[1..],
@@ -194,6 +195,7 @@ fn it_retrieves_languages() -> Fallible<()> {
                 &r#"
 GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
+GET https://codeforces.com/ ... 200 OK
 GET https://codeforces.com/enter ... 302 Found
 GET https://codeforces.com/contest/1000/submit ... 200 OK
 

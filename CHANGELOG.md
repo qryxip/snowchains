@@ -10,6 +10,7 @@
 * `--output` option and `--json` flag to all of the subcommands.
 * `--no-save` option to `retrieve testcases` and `retrieve submissions`.
 * `--fetch-all` flag to `retrieve submissions` command.
+* `session.retry` fields.
 
 ### Changed
 

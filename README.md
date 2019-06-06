@@ -127,6 +127,10 @@ api_tokens = "~/.local/share/snowchains/api_tokens/${service}.json"
 dropbox = false
 # dropbox = { auth: "~/.local/share/snowchains/dropbox.json" }
 
+[session.retry]
+retries = 2
+method = ["get"]
+
 [session.retrieve]
 extension = "yml"
 text_file_dir = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}"

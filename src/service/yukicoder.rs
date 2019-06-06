@@ -166,7 +166,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
     }
 
     fn fetch_username(&mut self) -> ServiceResult<()> {
-        self.username = self.get("/").recv_html()?.extract_username();
+        self.username = self.get("/").retry_recv_html()?.extract_username();
         Ok(())
     }
 
@@ -201,10 +201,11 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                 }
                 let (mut not_found, mut not_public) = (vec![], vec![]);
                 for problem in problems {
-                    let url = format!("/problems/no/{}", problem);
-                    let res = self.get(&url).acceptable(&[200, 404]).send()?;
+                    let mut url = BASE_URL.clone();
+                    url.set_path(&format!("/problems/no/{}", problem));
+                    let res = self.get(url.clone()).acceptable(&[200, 404]).retry_send()?;
                     let status = res.status();
-                    let html = res.html(self.runtime())?;
+                    let html = self.retry_recv_html(res)?;
                     let public = html
                         .select(selector!("#content"))
                         .flat_map(|r| r.text())
@@ -216,7 +217,6 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                         not_public.push(problem);
                     } else {
                         let (display_name, suite, path) = scrape(&html, problem)?;
-                        let url = self.resolve_url(&url)?;
                         outcome.push_problem(RetrieveTestCasesOutcomeBuilderProblem {
                             url,
                             slug: problem.clone(),
@@ -251,11 +251,11 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
 
                 let target_problems = self
                     .get(&format!("/contests/{}", contest))
-                    .recv_html()?
+                    .retry_recv_html()?
                     .extract_problems()?;
                 for (slug, no, url) in target_problems {
                     if problems.is_none() || problems.as_ref().unwrap().contains(&slug) {
-                        let html = self.get(&url).recv_html()?;
+                        let html = self.get(&url).retry_recv_html()?;
                         let (display_name, suite, path) = scrape(&html, &slug)?;
                         outcome.push_problem(RetrieveTestCasesOutcomeBuilderProblem {
                             url,
@@ -357,7 +357,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
         let problem = problem.ok_or(ServiceErrorKind::PleaseSpecifyProblem)?;
         self.login(true)?;
         let url = self.get_submit_url(&contest, &problem)?;
-        let langs = self.get(url.as_str()).recv_html()?.extract_langs()?;
+        let langs = self.get(url.as_str()).retry_recv_html()?.extract_langs()?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
@@ -385,7 +385,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                 return Err(ServiceErrorKind::AlreadyAccepted.into());
             }
         }
-        let html = self.get(url.as_ref()).recv_html()?;
+        let html = self.get(url.as_ref()).retry_recv_html()?;
         let lang_id = html
             .extract_langs()?
             .get(&lang_name)
@@ -397,21 +397,21 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             .text("lang", lang_id.clone())
             .text("source", code.clone());
         let url = html.extract_url_from_submit_page()?;
-        let res = self.post(&url).send_multipart(form)?;
-        let header_location = res.header_location()?.map(ToOwned::to_owned);
-        let rejected = header_location
+        let res = self.post(&url).multipart(form).send()?;
+        let location = res.location_uri()?;
+        let rejected = location
             .as_ref()
-            .map_or(true, |l| !l.contains("/submissions/"));
-        if let Some(header_location) = &header_location {
+            .map_or(true, |l| !l.path().contains("/submissions/"));
+        if let Some(location) = &location {
             if !rejected && open_in_browser {
-                self.open_in_browser(header_location)?;
+                self.open_in_browser(&location.to_string())?;
             }
         }
         Ok(SubmitOutcome {
             rejected,
             response: SubmitOutcomeResponse {
                 status: res.status(),
-                header_location,
+                location,
             },
             language: SubmitOutcomeLanguage {
                 name: lang_name,
@@ -438,8 +438,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             url.path_segments_mut().unwrap().push(username);
             let solved = self
                 .get(url)
-                .send()?
-                .json::<Vec<Problem>>(self.runtime())?
+                .retry_recv_json::<Vec<Problem>>()?
                 .into_iter()
                 .map(|Problem { no }| no.to_string())
                 .collect::<HashSet<_>>();
@@ -466,7 +465,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             }
             YukicoderContest::Contest(contest) => self
                 .get(&format!("/contests/{}", contest))
-                .recv_html()?
+                .retry_recv_html()?
                 .extract_problems()?
                 .into_iter()
                 .filter(|(slug, _, _)| slug.eq_ignore_ascii_case(problem))

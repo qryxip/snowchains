@@ -4,6 +4,7 @@ use serde::de::DeserializeOwned;
 use serde::ser::{SerializeMap as _, SerializeSeq as _};
 use serde::{Deserializer, Serialize, Serializer};
 
+use std::fmt;
 use std::hash::Hash;
 use std::path::Path;
 use std::process::ExitStatus;
@@ -37,6 +38,16 @@ pub(crate) fn ser_option_arc<T: Serialize, S: Serializer>(
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error> {
     arc.as_ref().map(|x| &**x).serialize(serializer)
+}
+
+pub(crate) fn ser_option_display<T: fmt::Display, S: Serializer>(
+    display: &Option<T>,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    display
+        .as_ref()
+        .map(ToString::to_string)
+        .serialize(serializer)
 }
 
 pub(crate) fn ser_as_ref_str<S: Serializer>(

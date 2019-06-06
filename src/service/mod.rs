@@ -25,14 +25,15 @@ use chrono::{DateTime, FixedOffset};
 use derive_new::new;
 use failure::ResultExt as _;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
+use http::header::{self, HeaderMap};
+use http::{StatusCode, Uri};
 use indexmap::{IndexMap, IndexSet};
 use maplit::hashmap;
 use prettytable::format::{FormatBuilder, LinePosition, LineSeparator};
 use prettytable::{cell, row, Table};
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use regex::Regex;
-use reqwest::header::{self, HeaderMap};
-use reqwest::{RedirectPolicy, StatusCode};
+use reqwest::RedirectPolicy;
 use serde::ser::SerializeMap as _;
 use serde::{Serialize, Serializer};
 use strum_macros::IntoStaticStr;
@@ -1067,7 +1068,8 @@ pub(crate) struct SubmitOutcome {
 pub(self) struct SubmitOutcomeResponse {
     #[serde(serialize_with = "util::serde::ser_http_status")]
     status: StatusCode,
-    header_location: Option<String>,
+    #[serde(serialize_with = "util::serde::ser_option_display")]
+    location: Option<Uri>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1099,7 +1101,7 @@ impl Outcome for SubmitOutcome {
                 "Response Status:            {}\n\
                  Response \"Location\" Header: {}",
                 self.response.status,
-                self.response.header_location.fmt_debug_or("<none>"),
+                self.response.location.fmt_debug_or("<none>"),
             )?;
         }
         write!(
@@ -1126,6 +1128,7 @@ pub(crate) struct SessionProps {
     pub(crate) dropbox_path: Option<AbsPathBuf>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) login_retries: Option<u32>,
+    pub(crate) retries_on_get: u32,
     pub(crate) http_silent: bool,
     pub(crate) robots: bool,
 }
@@ -1150,6 +1153,7 @@ impl SessionProps {
             url_base,
             cookies_path: Some(self.cookies_path.as_path()),
             api_token_path: Some(self.api_token_path.as_path()),
+            retries_on_get: self.retries_on_get,
             http_silent: self.http_silent,
         })
     }
