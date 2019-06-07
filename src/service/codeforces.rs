@@ -820,21 +820,22 @@ impl<'a> FoldTextAndBr for ElementRef<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::ServiceResult;
     use crate::service;
     use crate::service::codeforces::Extract as _;
 
     use failure::Fallible;
     use pretty_assertions::assert_eq;
+    use retry::OperationResult;
     use scraper::Html;
     use url::Url;
 
+    use std::iter;
     use std::time::Duration;
 
     #[test]
-    fn test_extract_login_form() -> ServiceResult<()> {
+    fn test_extract_login_form() -> Fallible<()> {
         let form = service::reqwest_sync_client(Duration::from_secs(60))?
-            .get_html(&"https://codeforces.com/enter".parse().unwrap())?
+            .retry_retrieve_html(&"https://codeforces.com/enter".parse().unwrap())?
             .extract_hidden_values(selector!("#enterForm"))?;
         assert_eq!(form["action"], "enter");
         assert_eq!(form["csrf_token"].len(), 32);
@@ -893,11 +894,14 @@ mod tests {
         let client = service::reqwest_sync_client(Duration::from_secs(60))?;
 
         let actual = client
-            .get_html(&"https://codeforces.com/contest/1000".parse().unwrap())?
+            .retry_retrieve_html(&"https://codeforces.com/contest/1000".parse().unwrap())?
             .extract_problems()?
             .into_iter()
             .map(|((slug, display), url)| -> Fallible<_> {
-                let md5 = client.get_html(&url)?.extract_test_suite()?.md5()?;
+                let md5 = client
+                    .retry_retrieve_html(&url)?
+                    .extract_test_suite()?
+                    .md5()?;
                 let md5 = format!("{:?}", md5);
                 Ok((slug, display, url, md5))
             })
@@ -911,14 +915,37 @@ mod tests {
         Ok(())
     }
 
-    trait GetHtml {
-        fn get_html(&self, url: &Url) -> reqwest::Result<Html>;
+    trait RetryRetrieveHtml {
+        fn retry_retrieve_html(
+            &self,
+            url: &Url,
+        ) -> std::result::Result<Html, retry::Error<reqwest::Error>>;
     }
 
-    impl GetHtml for reqwest::Client {
-        fn get_html(&self, url: &Url) -> reqwest::Result<Html> {
-            let text = self.get(url.clone()).send()?.error_for_status()?.text()?;
-            Ok(Html::parse_document(&text))
+    impl RetryRetrieveHtml for reqwest::Client {
+        fn retry_retrieve_html(
+            &self,
+            url: &Url,
+        ) -> std::result::Result<Html, retry::Error<reqwest::Error>> {
+            const RETRIES: usize = 2;
+            const INTERVAL: Duration = Duration::from_secs(1);
+
+            retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
+                let text = self
+                    .get(url.clone())
+                    .send()
+                    .and_then(|r| r.error_for_status()?.text());
+                match text {
+                    Ok(text) => OperationResult::Ok(Html::parse_document(&text)),
+                    Err(err) => {
+                        if err.is_http() || err.is_timeout() {
+                            OperationResult::Retry(err)
+                        } else {
+                            OperationResult::Err(err)
+                        }
+                    }
+                }
+            })
         }
     }
 }

@@ -93,6 +93,7 @@ signal-hook = { version = "0.1.9", features = ["tokio-support"] }
 difference = "2.0.0"
 md5 = "0.6.1"
 pretty_assertions = "0.6.1"
+retry = "0.5.0"
 stable_deref_trait = "1.1.1"
 tempdir = "0.3.7"
 warp = "0.1.15"

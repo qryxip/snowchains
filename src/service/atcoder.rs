@@ -1406,7 +1406,6 @@ impl Extract for Html {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::ServiceResult;
     use crate::service;
     use crate::service::atcoder::Extract as _;
     use crate::testsuite::TestSuite;
@@ -1414,15 +1413,17 @@ mod tests {
     use failure::Fallible;
     use itertools::Itertools as _;
     use pretty_assertions::assert_eq;
+    use retry::OperationResult;
     use scraper::Html;
     use url::Url;
 
+    use std::iter;
     use std::time::Duration;
 
     #[test]
-    fn it_extracts_a_timelimit_from_apg4b_b() -> ServiceResult<()> {
+    fn it_extracts_a_timelimit_from_apg4b_b() -> Fallible<()> {
         let suites = service::reqwest_sync_client(Duration::from_secs(60))?
-            .get_html("/contests/apg4b/tasks/APG4b_b")?
+            .retry_retrieve_html("/contests/apg4b/tasks/APG4b_b")?
             .extract_as_suites("apg4b")?;
         match suites.get("B - 1.01.出力とコメント") {
             Some(TestSuite::Unsubmittable) => Ok(()),
@@ -1546,10 +1547,10 @@ mod tests {
     ) -> Fallible<()> {
         let client = service::reqwest_sync_client(Duration::from_secs(60))?;
         let slugs_and_uris = client
-            .get_html(&format!("/contests/{}/tasks", contest))?
+            .retry_retrieve_html(&format!("/contests/{}/tasks", contest))?
             .extract_task_slugs_and_uris()?;
         let suites = client
-            .get_html(&format!("/contests/{}/tasks_print", contest))?
+            .retry_retrieve_html(&format!("/contests/{}/tasks_print", contest))?
             .extract_as_suites(contest)?;
         for (
             ((expected_slug, expected_screen, expected_md5), (actual_slug, actual_uri)),
@@ -1567,9 +1568,9 @@ mod tests {
     }
 
     #[test]
-    fn it_extracts_a_submitted_source_code() -> ServiceResult<()> {
+    fn it_extracts_a_submitted_source_code() -> Fallible<()> {
         let code = service::reqwest_sync_client(Duration::from_secs(60))?
-            .get_html("/contests/utpc2011/submissions/2067")?
+            .retry_retrieve_html("/contests/utpc2011/submissions/2067")?
             .extract_submitted_code()?;
         assert_eq!(
             format!("{:x}", md5::compute(&code)),
@@ -1578,16 +1579,39 @@ mod tests {
         Ok(())
     }
 
-    trait GetHtml {
-        fn get_html(&self, path: &str) -> reqwest::Result<Html>;
+    trait RetryRetrieveHtml {
+        fn retry_retrieve_html(
+            &self,
+            path: &str,
+        ) -> std::result::Result<Html, retry::Error<reqwest::Error>>;
     }
 
-    impl GetHtml for reqwest::Client {
-        fn get_html(&self, path: &str) -> reqwest::Result<Html> {
+    impl RetryRetrieveHtml for reqwest::Client {
+        fn retry_retrieve_html(
+            &self,
+            path: &str,
+        ) -> std::result::Result<Html, retry::Error<reqwest::Error>> {
+            const RETRIES: usize = 2;
+            const INTERVAL: Duration = Duration::from_secs(1);
+
             let mut url = "https://atcoder.jp".parse::<Url>().unwrap();
             url.set_path(path);
-            let text = self.get(url).send()?.error_for_status()?.text()?;
-            Ok(Html::parse_document(&text))
+            retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
+                let text = self
+                    .get(url.clone())
+                    .send()
+                    .and_then(|r| r.error_for_status()?.text());
+                match text {
+                    Ok(text) => OperationResult::Ok(Html::parse_document(&text)),
+                    Err(err) => {
+                        if err.is_http() || err.is_timeout() {
+                            OperationResult::Retry(err)
+                        } else {
+                            OperationResult::Err(err)
+                        }
+                    }
+                }
+            })
         }
     }
 }

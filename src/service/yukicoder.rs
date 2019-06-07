@@ -688,14 +688,15 @@ impl Extract for Html {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::ServiceResult;
     use crate::service;
     use crate::service::yukicoder::Extract;
 
     use failure::Fallible;
     use pretty_assertions::assert_eq;
+    use retry::OperationResult;
     use scraper::Html;
 
+    use std::iter;
     use std::time::Duration;
 
     #[test]
@@ -739,7 +740,7 @@ mod tests {
         expected_display: &str,
         expected_md5: &str,
     ) -> Fallible<()> {
-        let html = get_html(url)?;
+        let html = retry_retrieve_html(url)?;
         let (actual_display, suite) = html.extract_samples()?;
         let actual_md5 = format!("{:?}", suite.md5()?);
         let actual = (actual_display.as_ref(), actual_md5.as_ref());
@@ -751,7 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn it_extracts_problems_names_and_hrefs_from_yukicoder_open_2015_small() -> ServiceResult<()> {
+    fn it_extracts_problems_names_and_hrefs_from_yukicoder_open_2015_small() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
             ("A", "191", "https://yukicoder.me/problems/no/191"),
             ("B", "192", "https://yukicoder.me/problems/no/192"),
@@ -761,7 +762,7 @@ mod tests {
             ("F", "196", "https://yukicoder.me/problems/no/196"),
         ];
 
-        let html = get_html("https://yukicoder.me/contests/100")?;
+        let html = retry_retrieve_html("https://yukicoder.me/contests/100")?;
         let actual = html.extract_problems()?;
         let actual = actual
             .iter()
@@ -771,9 +772,27 @@ mod tests {
         Ok(())
     }
 
-    fn get_html(url: &str) -> reqwest::Result<Html> {
+    fn retry_retrieve_html(url: &str) -> Fallible<Html> {
+        const RETRIES: usize = 2;
+        const INTERVAL: Duration = Duration::from_secs(1);
+
         let client = service::reqwest_sync_client(Duration::from_secs(60))?;
-        let text = client.get(url).send()?.text()?;
-        Ok(Html::parse_document(&text))
+        retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
+            let text = client
+                .get(url)
+                .send()
+                .and_then(|r| r.error_for_status()?.text());
+            match text {
+                Ok(text) => OperationResult::Ok(Html::parse_document(&text)),
+                Err(err) => {
+                    if err.is_http() || err.is_timeout() {
+                        OperationResult::Retry(err)
+                    } else {
+                        OperationResult::Err(err)
+                    }
+                }
+            }
+        })
+        .map_err(Into::into)
     }
 }
