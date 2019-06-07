@@ -5,10 +5,11 @@ use crate::template::Tokens;
 use snowchains_proc_macros::{DoubleFrom, FailPair, PartialFailPair};
 
 use chrono::{DateTime, Local};
+use derive_more::From;
 use derive_new::new;
 use failure::{Backtrace, Fail};
 use itertools::Itertools as _;
-use reqwest::header::{HeaderName, HeaderValue};
+use reqwest::header::HeaderName;
 use reqwest::StatusCode;
 use url::Url;
 use zip::result::ZipError;
@@ -71,6 +72,7 @@ pub(crate) type ServiceResult<T> = std::result::Result<T, ServiceError>;
 #[derive(DoubleFrom, Debug, PartialFailPair)]
 pub enum ServiceError {
     Context(failure::Context<ServiceErrorKind>),
+    PseudoReqwest(PseudoReqwestError),
     ParseContestName(ParseContestNameError),
     Scrape(ScrapeError),
     TestSuite(TestSuiteError),
@@ -101,10 +103,8 @@ pub enum ServiceErrorKind {
     NonUtf8Content(Option<String>),
     #[display(fmt = "Failed to parse a URL: {:?}", _0)]
     ParseUrl(String),
-    #[display(fmt = "Failed to parse a cookie in {}: {:?}", "_0.display()", _1)]
-    ParseCookieFromPath(AbsPathBuf, String),
-    #[display(fmt = "Failed to parse a cookie from {}: {:?}", _0, _1)]
-    ParseCookieFromUrl(Url, HeaderValue),
+    #[display(fmt = "Invalid cookie")]
+    InvalidCookie,
     #[display(fmt = "The response does not contain {:?} header", _0)]
     HeaderMissing(HeaderName),
     #[display(fmt = "Failed to read {:?} header", _0)]
@@ -151,6 +151,57 @@ pub enum ServiceErrorKind {
     NoSuchLang(String),
     #[display(fmt = "Failed to login")]
     LoginRetriesExceeded,
+}
+
+pub(crate) type PseudoReqwestResult<T> = std::result::Result<T, PseudoReqwestError>;
+
+#[derive(Debug)]
+pub struct PseudoReqwestError {
+    url: Url,
+    kind: PseudoReqwestErrorKind,
+    backtrace: Backtrace,
+}
+
+impl PseudoReqwestError {
+    pub(crate) fn new(url: Url, kind: impl Into<PseudoReqwestErrorKind>) -> Self {
+        Self {
+            url,
+            kind: kind.into(),
+            backtrace: Backtrace::new(),
+        }
+    }
+}
+
+impl fmt::Display for PseudoReqwestError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "{}: ", self.url)?;
+        match &self.kind {
+            PseudoReqwestErrorKind::Http(e) => fmt::Display::fmt(e, fmt),
+            PseudoReqwestErrorKind::UrlEncoded(e) => fmt::Display::fmt(e, fmt),
+            PseudoReqwestErrorKind::Json(e) => fmt::Display::fmt(e, fmt),
+        }
+    }
+}
+
+impl Fail for PseudoReqwestError {
+    fn cause(&self) -> Option<&dyn Fail> {
+        match &self.kind {
+            PseudoReqwestErrorKind::Http(e) => Some(e),
+            PseudoReqwestErrorKind::UrlEncoded(e) => Some(e),
+            PseudoReqwestErrorKind::Json(e) => Some(e),
+        }
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        Some(&self.backtrace)
+    }
+}
+
+#[derive(Debug, From)]
+pub(crate) enum PseudoReqwestErrorKind {
+    Http(http::Error),
+    UrlEncoded(serde_urlencoded::ser::Error),
+    Json(serde_json::Error),
 }
 
 pub(crate) type ParseContestNameResult<T> = std::result::Result<T, ParseContestNameError>;
@@ -255,29 +306,8 @@ pub enum TestSuiteErrorKind {
 
 pub(crate) type ConfigResult<T> = std::result::Result<T, ConfigError>;
 
-#[derive(Debug, derive_more::Display, Fail)]
-#[display(fmt = "{}", kind)]
-pub struct ConfigError {
-    kind: ConfigErrorKind,
-    #[fail(backtrace)]
-    backtrace: Backtrace,
-}
-
-#[cfg(test)]
-impl ConfigError {
-    pub(crate) fn kind(&self) -> &ConfigErrorKind {
-        &self.kind
-    }
-}
-
-impl From<ConfigErrorKind> for ConfigError {
-    fn from(kind: ConfigErrorKind) -> Self {
-        Self {
-            kind,
-            backtrace: Backtrace::new(),
-        }
-    }
-}
+#[derive(Debug, FailPair)]
+pub struct ConfigError(failure::Context<ConfigErrorKind>);
 
 #[derive(Debug, derive_more::Display)]
 pub enum ConfigErrorKind {
@@ -292,12 +322,8 @@ pub enum ConfigErrorKind {
         _1
     )]
     LangNameRequired(String, ServiceKind),
-    #[display(fmt = "Undefined symbol: {:?}", _0)]
-    UndefinedSymbol(String),
-    #[display(fmt = "Undefined function: {:?}", _0)]
-    UndefinedFunction(String),
-    #[display(fmt = "\"not\" takes 1 parameter but {} parameters was supplied", _0)]
-    WrongNumParamsForNot(usize),
+    #[display(fmt = "Failed to eval {}", _0)]
+    Eval(String),
 }
 
 pub(crate) type ExpandTemplateResult<T> = std::result::Result<T, ExpandTemplateError>;

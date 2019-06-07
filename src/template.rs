@@ -10,11 +10,13 @@ use crate::util::collections::SingleKeyValue;
 use crate::util::combine::ParseFieldError;
 use crate::util::str::CaseConversion;
 
+use snowchains_proc_macros::{ArgEnum, DeserializeAsString, SerializeAsString};
+
 use failure::{Fail, ResultExt as _};
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
@@ -540,7 +542,7 @@ enum Expr {
 }
 
 #[cfg_attr(test, derive(PartialEq))]
-#[derive(Clone, Default)]
+#[derive(Clone, Default, SerializeAsString, DeserializeAsString)]
 pub struct Tokens(Vec<Token>);
 
 impl FromStr for Tokens {
@@ -602,13 +604,17 @@ Spaces        ::= ? White_Space character ?+
         fn identifier<'a>(
         ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = String>
         {
-            many1(satisfy(|c| match c {
-                'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
-                _ => false,
-            }))
+            many1(
+                satisfy(|c| match c {
+                    'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
+                    _ => false,
+                })
+                .expected("[a-zA-Z0-9] | '_'"),
+            )
         }
 
-        let plain = many1(satisfy(|c| !['$', '{', '}'].contains(&c))).map(Token::Plain);
+        let plain =
+            many1(satisfy(|c| !['$', '{', '}'].contains(&c)).expected("[^${}]")).map(Token::Plain);
 
         let left_curly = string("{{").map(|_| Token::Plain('{'.to_string()));
 
@@ -704,19 +710,6 @@ impl fmt::Debug for Tokens {
     }
 }
 
-impl Serialize for Tokens {
-    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-        serializer.collect_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for Tokens {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        let s = String::deserialize(deserializer)?;
-        Self::from_str(&s).map_err(serde::de::Error::custom)
-    }
-}
-
 impl Tokens {
     fn expand_as_os_string(
         &self,
@@ -804,10 +797,30 @@ impl Tokens {
         }
 
         fn parse_fun(name: &str) -> ExpandTemplateResult<CaseConversion> {
-            name.parse().map_err(|e| {
-                failure::err_msg(e)
-                    .context(ExpandTemplateErrorKind::UndefinedFun(name.to_owned()))
-                    .into()
+            #[allow(clippy::enum_variant_names)]
+            #[derive(ArgEnum)]
+            #[arg_enum(case = "sensitive", rename_all = "snake_case")]
+            enum Fun {
+                LowerCase,
+                UpperCase,
+                SnakeCase,
+                KebabCase,
+                MixedCase,
+                PascalCase,
+            }
+
+            let fun = name
+                .parse::<Fun>()
+                .map_err(failure::err_msg)
+                .with_context(|_| ExpandTemplateErrorKind::UndefinedFun(name.to_owned()))?;
+
+            Ok(match fun {
+                Fun::LowerCase => CaseConversion::Lower,
+                Fun::UpperCase => CaseConversion::Upper,
+                Fun::SnakeCase => CaseConversion::Snake,
+                Fun::KebabCase => CaseConversion::Kebab,
+                Fun::MixedCase => CaseConversion::Mixed,
+                Fun::PascalCase => CaseConversion::Pascal,
             })
         }
 

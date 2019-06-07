@@ -19,7 +19,6 @@ use termcolor::{ColorSpec, WriteColor};
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
-use std::convert::Infallible;
 use std::fmt::{self, Write as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -51,19 +50,17 @@ pub(crate) fn only_transpile(
 pub(crate) fn judge(
     params: JudgeParams<impl HasTermProps, impl WriteColor + HasTermProps>,
 ) -> JudgeResult<JudgeOutcome> {
-    struct Progress<W: AsyncWrite, S, C, F: Future> {
+    struct Progress<W: AsyncWrite, C, F: Future> {
         jobs: NonZeroUsize,
         color: bool,
         bufwtr: AsyncBufferedWriter<W>,
-        ctrlc: S,
         processes: Vec<(String, Process<C, F>)>, // non-empty until `Finished`
     }
 
-    impl<W: AsyncWrite, S, C, F: Future> Progress<W, S, C, F> {
+    impl<W: AsyncWrite, C, F: Future> Progress<W, C, F> {
         fn new(
             color: bool,
             wtr: W,
-            ctrlc: S,
             processes: NonEmptyVec<(String, Process<C, F>)>,
             jobs: NonZeroUsize,
         ) -> Self {
@@ -90,18 +87,12 @@ pub(crate) fn judge(
                     }
                     bufwtr
                 },
-                ctrlc,
                 processes: processes.into(),
             }
         }
     }
 
-    impl<
-            W: AsyncWrite,
-            S: Future<Item = Infallible, Error = JudgeError>,
-            C,
-            F: Future<Error = io::Error>,
-        > Future for Progress<W, S, C, F>
+    impl<W: AsyncWrite, C, F: Future<Error = io::Error>> Future for Progress<W, C, F>
     where
         F::Item: Verdict,
     {
@@ -109,7 +100,7 @@ pub(crate) fn judge(
         type Error = JudgeError;
 
         fn poll(&mut self) -> Poll<Vec<F::Item>, JudgeError> {
-            self.ctrlc.poll()?;
+            crate::signal::check_ctrl_c()?;
 
             let mut needs_notify = true;
             let mut newly_finished = false;
@@ -256,7 +247,6 @@ pub(crate) fn judge(
         let progress = Progress::new(
             stderr.supports_color() && !stderr.is_synchronous(),
             stderr.ansi_async_wtr(),
-            crate::signal::ctrl_c(),
             {
                 names
                     .zip_eq(cases.clone())

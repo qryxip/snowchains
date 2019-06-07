@@ -1,7 +1,7 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::path::AbsPath;
 use crate::service::download::{self, DownloadProgress};
-use crate::service::session::{Session, State};
+use crate::service::session::{ParseWithBaseUrl as _, Session, State};
 use crate::service::{
     Contest, LoginOutcome, ParticipateOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
     RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
@@ -22,13 +22,13 @@ use crate::util::str::CaseConversion;
 
 use chrono::{DateTime, FixedOffset, Local, Utc};
 use failure::{Fail as _, ResultExt as _};
+use http::{header, StatusCode, Uri};
 use if_chain::if_chain;
 use indexmap::{indexmap, indexset, IndexMap, IndexSet};
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use reqwest::{header, StatusCode};
 use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -44,6 +44,8 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 use std::{f64, vec};
+
+pub(super) static BASE_URL: Lazy<Url> = Lazy::new(|| "https://atcoder.jp".parse().unwrap());
 
 /// Logins to "atcoder.jp".
 pub(super) fn login(
@@ -128,8 +130,6 @@ pub(super) fn submit(
     Atcoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
 
-static BASE_URL: Lazy<Url> = Lazy::new(|| "https://atcoder.jp".parse().unwrap());
-
 #[derive(Debug)]
 struct Atcoder<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
@@ -162,7 +162,10 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
 
     fn login_if_not(&mut self, explicit: bool) -> ServiceResult<()> {
         if self.has_cookie() {
-            let status = self.get("/settings").acceptable(&[200, 302]).status()?;
+            let status = self
+                .get("/settings")
+                .acceptable(&[200, 302])
+                .retry_status()?;
             if status == StatusCode::OK {
                 if explicit {
                     writeln!(self.stderr(), "Already logged in.")?;
@@ -175,12 +178,19 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let mut retries = self.login_retries;
         loop {
             let payload = hashmap!(
-                "csrf_token" => self.get("/login").recv_html()?.extract_csrf_token()?,
+                "csrf_token" => self.get("/login").retry_recv_html()?.extract_csrf_token()?,
                 "username" => self.prompt_reply_stderr("Username: ")?,
                 "password" => self.prompt_password_stderr("Password: ")?,
             );
-            self.post("/login").send_form(&payload)?;
-            if self.get("/settings").acceptable(&[200, 302]).status()? == 200 {
+
+            self.post("/login").form(&payload).send()?;
+
+            if self
+                .get("/settings")
+                .acceptable(&[200, 302])
+                .retry_status()?
+                == 200
+            {
                 writeln!(self.stderr(), "Successfully logged in.")?;
                 break self.stderr().flush().map_err(Into::into);
             }
@@ -218,10 +228,8 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             let status = self
                 .post("https://api.dropboxapi.com/2/users/get_current_account")
                 .acceptable(&[200, 401])
-                .no_cookie()
                 .bearer_auth(&auth.access_token)
-                .send()?
-                .status();
+                .status()?;
             if status == 200 {
                 if explicit {
                     self.stderr().write_str("Already authorized.\n")?;
@@ -240,7 +248,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let auth = self
             .post("https://api.dropboxapi.com/oauth2/token")
             .acceptable(&[200])
-            .no_cookie()
             .basic_auth(CLIENT_ID, Some(CLIENT_SECRET))
             .form(&hashmap!("code" => code.as_str(), "grant_type" => "authorization_code"))
             .recv_json::<AuthToken>()?;
@@ -261,12 +268,13 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let res = self
             .get(&contest.url_tasks())
             .acceptable(&[200, 302, 404])
-            .send()?;
+            .retry_send()?;
+
         if res.status() == 200 {
-            res.html(self.runtime())
+            self.retry_recv_html(res)
         } else {
             self.register_if_active_or_explicit(contest, false)?;
-            self.get(&contest.url_tasks()).recv_html()
+            self.get(&contest.url_tasks()).retry_recv_html()
         }
     }
 
@@ -278,12 +286,15 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let res = self
             .get(&contest.url_top())
             .acceptable(&[200, 302])
-            .send()?;
-        if res.status() == StatusCode::FOUND {
-            return Err(ServiceErrorKind::ContestNotFound(contest.to_string()).into());
-        }
-        let page = res.html(self.runtime())?;
-        let duration = page.extract_contest_duration()?;
+            .retry_send()?;
+
+        let html = if res.status() == 302 {
+            Err(ServiceErrorKind::ContestNotFound(contest.to_string()).into())
+        } else {
+            self.retry_recv_html(res)
+        }?;
+
+        let duration = html.extract_contest_duration()?;
         let status = duration.check_current_status(contest.to_string());
         if !explicit {
             status.raise_if_not_begun()?;
@@ -292,11 +303,11 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             self.login_if_not(false)?;
             let csrf_token = self
                 .get(&contest.url_top())
-                .recv_html()?
+                .retry_recv_html()?
                 .extract_csrf_token()?;
             let url = contest.url_register();
             let payload = hashmap!("csrf_token" => csrf_token);
-            self.post(&url).send_form(&payload)?;
+            self.post(&url).form(&payload).send()?;
         }
         Ok(ParticipateOutcome {})
     }
@@ -316,25 +327,25 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         } = props;
         let problems = problems.as_ref();
 
-        let slugs_and_urls = self
+        let slugs_and_uris = self
             .fetch_tasks_page(contest)?
-            .extract_task_slugs_and_urls()?;
+            .extract_task_slugs_and_uris()?;
         let suites = self
             .get(&contest.url_tasks_print())
-            .recv_html()?
+            .retry_recv_html()?
             .extract_as_suites(&contest.slug())?;
 
-        if slugs_and_urls.len() != suites.len() {
+        if slugs_and_uris.len() != suites.len() {
             return Err(ScrapeError::new().into());
         }
 
         let mut outcome = RetrieveTestCasesOutcomeBuilder::new(contest, *save_files);
         outcome.push_submissions_url(contest.url_submissions_me(1));
 
-        for ((slug, url), (display_name, suite)) in slugs_and_urls.into_iter().zip_eq(suites) {
+        for ((slug, uri), (display_name, suite)) in slugs_and_uris.into_iter().zip_eq(suites) {
             if problems.map_or(true, |ps| ps.iter().any(|p| *p == slug)) {
                 let path = destinations.expand(&slug)?;
-                let url = self.resolve_url(&url)?;
+                let url = uri.parse_with_base_url(Some(&BASE_URL))?;
                 let screen_name = url
                     .path_segments()
                     .and_then(Iterator::last)
@@ -411,7 +422,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 .post("https://api.dropboxapi.com/2/files/list_folder")
                 .bearer_auth(token)
                 .acceptable(&[200, 409])
-                .no_cookie()
                 .json(&json!({
                     "shared_link": { "url": URL },
                     "path": &path,
@@ -450,7 +460,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             this.post("https://api.dropboxapi.com/2/files/list_folder")
                 .bearer_auth(token)
                 .acceptable(&[200])
-                .no_cookie()
                 .json(&json!({ "shared_link": { "url": URL }, "path": path }))
                 .recv_json()
         }
@@ -554,16 +563,14 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         self.login_if_not(false)?;
         let url = match problem {
             None => contest.url_submit(),
-            Some(problem) => {
-                let url = self
-                    .fetch_tasks_page(&contest)?
-                    .extract_task_slugs_and_urls()?
-                    .into_element(&problem)
-                    .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
-                self.resolve_url(&url)?
-            }
+            Some(problem) => self
+                .fetch_tasks_page(&contest)?
+                .extract_task_slugs_and_uris()?
+                .into_element(&problem)
+                .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?
+                .parse_with_base_url(Some(&BASE_URL))?,
         };
-        let langs = self.get(&url).recv_html()?.extract_langs()?;
+        let langs = self.get(&url).retry_recv_html()?.extract_langs()?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
@@ -579,25 +586,22 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             save_files,
         } = props;
 
-        let first_page = {
-            let res = self
-                .get(&contest.url_submissions_me(1))
-                .acceptable(&[200, 302])
-                .send()?;
-            if res.status() == 200 {
-                res.html(self.runtime())?
-            } else {
-                self.register_if_active_or_explicit(contest, false)?;
-                self.get(&contest.url_submissions_me(1))
-                    .acceptable(&[200, 302])
-                    .recv_html()?
-            }
+        let res = self
+            .get(&contest.url_submissions_me(1))
+            .acceptable(&[200, 302])
+            .retry_send()?;
+
+        let first_page = if res.status() == 200 {
+            self.retry_recv_html(res)?
+        } else {
+            self.register_if_active_or_explicit(contest, false)?;
+            self.get(&contest.url_submissions_me(1)).retry_recv_html()?
         };
 
         let submissions = {
             let (mut submissions, num_pages) = first_page.extract_submissions()?;
             for i in 2..=num_pages {
-                let page = self.get(&contest.url_submissions_me(i)).recv_html()?;
+                let page = self.get(&contest.url_submissions_me(i)).retry_recv_html()?;
                 submissions.extend(page.extract_submissions()?.0);
             }
             submissions
@@ -629,7 +633,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         for submission in submissions {
             let mut retrieve_code = || -> ServiceResult<_> {
                 self.get(&submission.url)
-                    .recv_html()?
+                    .retry_recv_html()?
                     .extract_submitted_code()
                     .map_err(Into::into)
             };
@@ -719,20 +723,20 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 status.raise_if_not_begun()?;
                 status.is_active()
             };
-        let url = tasks_page
-            .extract_task_slugs_and_urls()?
+        let uri = tasks_page
+            .extract_task_slugs_and_uris()?
             .into_element(&problem)
             .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
         let task_screen = {
             lazy_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$")
-                .captures(&url)
+                .captures(&uri.to_string())
                 .map(|cs| cs[1].to_owned())
                 .ok_or_else(ScrapeError::new)?
         };
         if checks_if_accepted {
             let (submissions, num_pages) = self
                 .get(&contest.url_submissions_me(1))
-                .recv_html()?
+                .retry_recv_html()?
                 .extract_submissions()?;
             if submissions
                 .iter()
@@ -743,7 +747,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             for i in 2..=num_pages {
                 if self
                     .get(&contest.url_submissions_me(i))
-                    .recv_html()?
+                    .retry_recv_html()?
                     .extract_submissions()?
                     .0
                     .iter()
@@ -755,7 +759,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         }
 
         let code = crate::fs::read_to_string(&src_path)?;
-        let html = self.get(&url).recv_html()?;
+        let html = self.get(uri).retry_recv_html()?;
         let lang_id = html
             .extract_langs()?
             .get(&lang_name)
@@ -770,13 +774,14 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             "csrf_token" => &csrf_token,
         );
 
-        let (rejected, status, header_location);
-        match self.post(&url).send_form(&payload) {
+        let (rejected, status, location);
+        match self.post(&url).form(&payload).send() {
             Ok(res) => {
                 status = res.status();
-                header_location = res.header_location()?.map(ToOwned::to_owned);
-                rejected = header_location.as_ref().map_or(true, |l| {
-                    !(l.starts_with("/contests/") && l.ends_with("/submissions/me"))
+                location = res.location_uri()?;
+                rejected = location.as_ref().map_or(true, |loc| {
+                    let path = loc.path();
+                    !(path.starts_with("/contests/") && path.ends_with("/submissions/me"))
                 });
             }
             Err(err) => if_chain! {
@@ -785,7 +790,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 then {
                     rejected = true;
                     status = *st;
-                    header_location = None;
+                    location = None;
                 } else {
                     return Err(err);
                 }
@@ -798,10 +803,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
 
         Ok(SubmitOutcome {
             rejected,
-            response: SubmitOutcomeResponse {
-                status,
-                header_location,
-            },
+            response: SubmitOutcomeResponse { status, location },
             language: SubmitOutcomeLanguage {
                 name: lang_name,
                 id: lang_id,
@@ -979,7 +981,7 @@ struct Submission {
 
 trait Extract {
     fn extract_csrf_token(&self) -> ScrapeResult<String>;
-    fn extract_task_slugs_and_urls(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
+    fn extract_task_slugs_and_uris(&self) -> ScrapeResult<NonEmptyIndexMap<String, Uri>>;
     fn extract_as_suites(
         &self,
         contest_slug: &str,
@@ -1006,15 +1008,15 @@ impl Extract for Html {
         extract_csrf_token().ok_or_else(ScrapeError::new)
     }
 
-    fn extract_task_slugs_and_urls(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
+    fn extract_task_slugs_and_uris(&self) -> ScrapeResult<NonEmptyIndexMap<String, Uri>> {
         self.select(selector!(
             "#main-container > div.row > div.col-sm-12 > div.panel > table.table > tbody > tr",
         ))
         .map(|tr| {
             let a = tr.select(selector!("td.text-center > a")).next()?;
             let slug = a.text().next()?.to_owned();
-            let url = a.value().attr("href")?.to_owned();
-            Some((slug, url))
+            let uri = a.value().attr("href")?.parse().ok()?;
+            Some((slug, uri))
         })
         .collect::<Option<IndexMap<_, _>>>()
         .and_then(NonEmptyIndexMap::try_new)
@@ -1404,7 +1406,6 @@ impl Extract for Html {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::ServiceResult;
     use crate::service;
     use crate::service::atcoder::Extract as _;
     use crate::testsuite::TestSuite;
@@ -1412,15 +1413,17 @@ mod tests {
     use failure::Fallible;
     use itertools::Itertools as _;
     use pretty_assertions::assert_eq;
+    use retry::OperationResult;
     use scraper::Html;
     use url::Url;
 
+    use std::iter;
     use std::time::Duration;
 
     #[test]
-    fn it_extracts_a_timelimit_from_apg4b_b() -> ServiceResult<()> {
+    fn it_extracts_a_timelimit_from_apg4b_b() -> Fallible<()> {
         let suites = service::reqwest_sync_client(Duration::from_secs(60))?
-            .get_html("/contests/apg4b/tasks/APG4b_b")?
+            .retry_retrieve_html("/contests/apg4b/tasks/APG4b_b")?
             .extract_as_suites("apg4b")?;
         match suites.get("B - 1.01.出力とコメント") {
             Some(TestSuite::Unsubmittable) => Ok(()),
@@ -1543,20 +1546,20 @@ mod tests {
         expected: &'static [(&'static str, &'static str, &'static str)],
     ) -> Fallible<()> {
         let client = service::reqwest_sync_client(Duration::from_secs(60))?;
-        let slugs_and_urls = client
-            .get_html(&format!("/contests/{}/tasks", contest))?
-            .extract_task_slugs_and_urls()?;
+        let slugs_and_uris = client
+            .retry_retrieve_html(&format!("/contests/{}/tasks", contest))?
+            .extract_task_slugs_and_uris()?;
         let suites = client
-            .get_html(&format!("/contests/{}/tasks_print", contest))?
+            .retry_retrieve_html(&format!("/contests/{}/tasks_print", contest))?
             .extract_as_suites(contest)?;
         for (
-            ((expected_slug, expected_screen, expected_md5), (actual_slug, actual_url)),
+            ((expected_slug, expected_screen, expected_md5), (actual_slug, actual_uri)),
             (_, actual_suite),
-        ) in expected.iter().zip_eq(&slugs_and_urls).zip_eq(&suites)
+        ) in expected.iter().zip_eq(&slugs_and_uris).zip_eq(&suites)
         {
-            let expected_url = format!("/contests/{}/tasks/{}", contest, expected_screen);
+            let expected_uri = format!("/contests/{}/tasks/{}", contest, expected_screen);
             assert_eq!(actual_slug, *expected_slug);
-            assert_eq!(*actual_url, expected_url);
+            assert_eq!(actual_uri, &*expected_uri);
             let actual_md5 = actual_suite.md5()?;
             actual_suite.assert_serialize_correctly()?;
             assert_eq!(format!("{:x}", actual_md5), *expected_md5);
@@ -1565,9 +1568,9 @@ mod tests {
     }
 
     #[test]
-    fn it_extracts_a_submitted_source_code() -> ServiceResult<()> {
+    fn it_extracts_a_submitted_source_code() -> Fallible<()> {
         let code = service::reqwest_sync_client(Duration::from_secs(60))?
-            .get_html("/contests/utpc2011/submissions/2067")?
+            .retry_retrieve_html("/contests/utpc2011/submissions/2067")?
             .extract_submitted_code()?;
         assert_eq!(
             format!("{:x}", md5::compute(&code)),
@@ -1576,16 +1579,39 @@ mod tests {
         Ok(())
     }
 
-    trait GetHtml {
-        fn get_html(&self, path: &str) -> reqwest::Result<Html>;
+    trait RetryRetrieveHtml {
+        fn retry_retrieve_html(
+            &self,
+            path: &str,
+        ) -> std::result::Result<Html, retry::Error<reqwest::Error>>;
     }
 
-    impl GetHtml for reqwest::Client {
-        fn get_html(&self, path: &str) -> reqwest::Result<Html> {
+    impl RetryRetrieveHtml for reqwest::Client {
+        fn retry_retrieve_html(
+            &self,
+            path: &str,
+        ) -> std::result::Result<Html, retry::Error<reqwest::Error>> {
+            const RETRIES: usize = 2;
+            const INTERVAL: Duration = Duration::from_secs(1);
+
             let mut url = "https://atcoder.jp".parse::<Url>().unwrap();
             url.set_path(path);
-            let text = self.get(url).send()?.error_for_status()?.text()?;
-            Ok(Html::parse_document(&text))
+            retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
+                let text = self
+                    .get(url.clone())
+                    .send()
+                    .and_then(|r| r.error_for_status()?.text());
+                match text {
+                    Ok(text) => OperationResult::Ok(Html::parse_document(&text)),
+                    Err(err) => {
+                        if err.is_http() || err.is_timeout() {
+                            OperationResult::Retry(err)
+                        } else {
+                            OperationResult::Err(err)
+                        }
+                    }
+                }
+            })
         }
     }
 }

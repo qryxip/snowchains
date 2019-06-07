@@ -9,6 +9,8 @@ use crate::util::collections::NonEmptyVec;
 use crate::util::num::PositiveFinite;
 use crate::{time, util};
 
+use snowchains_proc_macros::ArgEnum;
+
 use derive_more::From;
 use derive_new::new;
 use failure::Fail as _;
@@ -25,47 +27,18 @@ use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::{self, Write as _};
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{f64, str, vec};
 
-#[derive(
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Debug,
-    strum_macros::Display,
-    Serialize,
-    Deserialize,
-)]
-#[strum(serialize_all = "snake_case")]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, ArgEnum, Serialize, Deserialize)]
+#[arg_enum(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum SuiteFileExtension {
     Json,
     Toml,
     Yaml,
     Yml,
-}
-
-impl FromStr for SuiteFileExtension {
-    type Err = String;
-
-    fn from_str(s: &str) -> std::result::Result<Self, String> {
-        match s {
-            "json" => Ok(SuiteFileExtension::Json),
-            "toml" => Ok(SuiteFileExtension::Toml),
-            "yaml" => Ok(SuiteFileExtension::Yaml),
-            "yml" => Ok(SuiteFileExtension::Yml),
-            _ => Err(format!(
-                r#"Unsupported extension: {:?}, expected "json", "toml", "yaml", or "yml""#,
-                s
-            )),
-        }
-    }
 }
 
 #[derive(Debug, new)]
@@ -1135,7 +1108,7 @@ type: unsubmittable
         if_chain! {
             let err = loader.load_merging("e").unwrap_err();
             if let TestSuiteError::Config(config_err) = &err;
-            if let ConfigErrorKind::TesterNotSpecified = config_err.kind();
+            if let ConfigErrorKind::TesterNotSpecified = config_err.get_context();
             then {} else { return Err(err.into()) }
         }
 

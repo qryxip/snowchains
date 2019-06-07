@@ -10,12 +10,12 @@ use crate::service::{
 use crate::terminal::{AnsiColorChoice, AttemptEnableColor, HasTermProps, Input, ModifyTermProps};
 use crate::util::collections::NonEmptyIndexSet;
 
+use snowchains_proc_macros::ArgEnum;
+
 use serde::Serialize;
 use structopt::clap::Arg;
 use structopt::StructOpt;
-use strum_macros::EnumString;
 use termcolor::WriteColor;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -112,7 +112,7 @@ pub struct Switch {
     json: bool,
     #[structopt(raw(colorize = "2"))]
     colorize: bool,
-    #[structopt(raw(service = r#"SERVICE_VALUES, Kind::Option(1)"#))]
+    #[structopt(raw(service = r#"&ServiceKind::variants(), Kind::Option(1)"#))]
     service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
     contest: Option<String>,
@@ -134,7 +134,7 @@ pub struct Login {
     pub output: OutputKind,
     #[structopt(raw(color_choice = "2"))]
     pub color_choice: AnsiColorChoice,
-    #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Arg"#))]
+    #[structopt(raw(service = r#"&ServiceKind::variants_except_other(), Kind::Arg"#))]
     pub service: ServiceKind,
 }
 
@@ -197,7 +197,7 @@ pub struct RetrieveTestcases {
     pub json: bool,
     #[structopt(raw(colorize = "6"))]
     pub colorize: bool,
-    #[structopt(raw(service = r#"EXCEPT_OTHER, Kind::Option(1)"#))]
+    #[structopt(raw(service = r#"&ServiceKind::variants_except_other(), Kind::Option(1)"#))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
     pub contest: Option<String>,
@@ -215,7 +215,7 @@ pub struct RetrieveLanguages {
     pub json: bool,
     #[structopt(raw(colorize = "2"))]
     pub colorize: bool,
-    #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
+    #[structopt(raw(service = "&ServiceKind::variants_except_other(), Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
     pub contest: Option<String>,
@@ -276,7 +276,7 @@ pub struct Judge {
     pub json: bool,
     #[structopt(raw(colorize = "4"))]
     pub colorize: bool,
-    #[structopt(raw(service = "SERVICE_VALUES, Kind::Option(1)"))]
+    #[structopt(raw(service = "&ServiceKind::variants(), Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
     pub contest: Option<String>,
@@ -336,7 +336,7 @@ pub struct Submit {
     pub json: bool,
     #[structopt(raw(colorize = "9"))]
     pub colorize: bool,
-    #[structopt(raw(service = "EXCEPT_OTHER, Kind::Option(1)"))]
+    #[structopt(raw(service = "&ServiceKind::variants_except_other(), Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
     pub contest: Option<String>,
@@ -353,10 +353,6 @@ pub struct Submit {
     #[structopt(raw(problem = ""))]
     pub problem: String,
 }
-
-static SERVICE_VALUES: &[&str] = &["atcoder", "codeforces", "yukicoder", "other"];
-
-static EXCEPT_OTHER: &[&str] = &["atcoder", "codeforces", "yukicoder"];
 
 #[derive(Debug)]
 enum Kind {
@@ -379,8 +375,7 @@ trait ArgExt {
     fn color_choice(self, order: usize) -> Self;
     fn problem(self) -> Self;
     fn nth(self) -> Self;
-    fn extension(self, values: &'static [&'static str]) -> Self;
-    fn service(self, values: &'static [&'static str], kind: Kind) -> Self;
+    fn service(self, values: &[&'static str], kind: Kind) -> Self;
     fn contest(self, kind: Kind) -> Self;
 }
 
@@ -447,7 +442,7 @@ impl ArgExt for Arg<'static, 'static> {
             .long("mode")
             .help("Mode")
             .required(false)
-            .possible_values(&["debug", "release"])
+            .possible_values(&config::Mode::variants())
             .value_name("MODE")
             .default_value(default)
             .display_order(order)
@@ -475,7 +470,7 @@ impl ArgExt for Arg<'static, 'static> {
         self.long("color")
             .help("Coloring")
             .required(false)
-            .possible_values(&["never", "auto", "always"])
+            .possible_values(&AnsiColorChoice::variants())
             .value_name("WHEN")
             .default_value("auto")
             .display_order(order)
@@ -489,11 +484,7 @@ impl ArgExt for Arg<'static, 'static> {
         self.help("0-based index")
     }
 
-    fn extension(self, values: &'static [&'static str]) -> Self {
-        self.help("Extension").possible_values(values)
-    }
-
-    fn service(mut self, values: &'static [&'static str], kind: Kind) -> Self {
+    fn service(mut self, values: &[&'static str], kind: Kind) -> Self {
         self = self.help("Service name").possible_values(values);
         if let Kind::Option(order) = kind {
             self = self
@@ -702,6 +693,7 @@ impl<
                 let problem = problem.clone();
                 self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(*service, contest, None, &wd)?;
+                self.apply_console_conf(config.console());
                 let contest = config.contest().to_owned();
                 let outcome = service::retrieve_langs(
                     config.service(),
@@ -895,12 +887,13 @@ impl<
             .map(|p| p.expand(None))
             .transpose()?;
         Ok(SessionProps {
-            domain: config.service().domain(),
+            base_url: config.service().base_url(),
             cookies_path,
             api_token_path,
             dropbox_path,
             timeout: config.session_timeout(),
             login_retries: self.login_retries,
+            retries_on_get: config.session_retries_on_get(),
             http_silent: config.session_silent(),
             robots: config.session_robots(),
         })
@@ -912,20 +905,7 @@ impl<
     }
 
     fn apply_console_conf(&mut self, conf: &config::Console) {
-        fn apply_console_conf(mut wtr: impl ModifyTermProps, conf: &config::Console) {
-            wtr.modify_term_props(|props| {
-                if conf.cjk {
-                    props.char_width = UnicodeWidthChar::width_cjk;
-                    props.str_width = UnicodeWidthStr::width_cjk;
-                } else {
-                    props.char_width = UnicodeWidthChar::width;
-                    props.str_width = UnicodeWidthStr::width;
-                }
-            })
-        }
-
-        apply_console_conf(&mut self.stdout, conf);
-        apply_console_conf(&mut self.stderr, conf);
+        conf.modify_term_props(&mut self.stdout, &mut self.stderr);
     }
 }
 
@@ -980,8 +960,8 @@ fn finish(
     Ok(if outcome.is_success() { 0 } else { 1 })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, EnumString, Serialize)]
-#[strum(serialize_all = "kebab_case")]
+#[derive(Debug, Clone, Copy, PartialEq, ArgEnum, Serialize)]
+#[arg_enum(rename_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub enum OutputKind {
     None,

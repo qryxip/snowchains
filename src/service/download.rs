@@ -4,13 +4,11 @@ use crate::signal::Sigwinch;
 use crate::terminal::HasTermProps;
 use crate::util::io::AsyncBufferedWriter;
 
-use failure::ResultExt as _;
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
-use reqwest::{header, StatusCode};
+use reqwest::StatusCode;
 use termcolor::WriteColor;
 use tokio::io::AsyncWrite;
 
-use std::convert::Infallible;
 use std::time::{Duration, Instant};
 use std::{char, io, mem};
 
@@ -61,7 +59,6 @@ pub(super) trait DownloadProgress: Session {
         if stderr.supports_color() && !stderr.is_synchronous() {
             let wtr = stderr.ansi_async_wtr();
             self.runtime().block_on(Downloading::try_new(
-                crate::signal::ctrl_c(),
                 wtr,
                 progresses,
                 short_name_width,
@@ -71,7 +68,6 @@ pub(super) trait DownloadProgress: Session {
             )?)
         } else {
             self.runtime().block_on(Downloading::try_new(
-                crate::signal::ctrl_c(),
                 io::sink(),
                 progresses,
                 short_name_width,
@@ -85,11 +81,9 @@ pub(super) trait DownloadProgress: Session {
 
 #[derive(Debug)]
 struct Downloading<
-    C: Future<Item = Infallible, Error = ServiceError> + Send + 'static,
     W: AsyncWrite,
     R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
 > {
-    ctrlc: C,
     sigwinch: Sigwinch,
     bufwtr: AsyncBufferedWriter<W>,
     rendered_final_state: bool,
@@ -120,13 +114,11 @@ struct ProgressPending {
 }
 
 impl<
-        C: Future<Item = Infallible, Error = ServiceError> + Send + 'static,
         W: AsyncWrite,
         R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
-    > Downloading<C, W, R>
+    > Downloading<W, R>
 {
     fn try_new(
-        ctrlc: C,
         wtr: W,
         progresses: Vec<(Name, Progress<R>)>,
         short_name_width: usize,
@@ -136,7 +128,6 @@ impl<
     ) -> io::Result<Self> {
         let sigwinch = Sigwinch::try_new()?;
         Ok(Self {
-            ctrlc,
             sigwinch,
             bufwtr: AsyncBufferedWriter::new(wtr),
             rendered_final_state: false,
@@ -298,10 +289,9 @@ impl<
 }
 
 impl<
-        C: Future<Item = Infallible, Error = ServiceError> + Send + 'static,
         W: AsyncWrite,
         R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
-    > Future for Downloading<C, W, R>
+    > Future for Downloading<W, R>
 {
     type Item = Vec<Vec<u8>>;
     type Error = ServiceError;
@@ -313,10 +303,12 @@ impl<
             AnyPending { notify: bool },
         }
 
-        self.ctrlc.poll()?;
+        crate::signal::check_ctrl_c()?;
+
         if self.sigwinch.poll()?.is_ready() {
             self.current_columns = (self.columns)();
         }
+
         try_ready!(self.bufwtr.poll_flush_buf());
 
         let (mut any_not_ready, mut any_newly_ready_some) = (false, false);
@@ -337,22 +329,10 @@ impl<
                             .into());
                         }
                         any_newly_ready_some = true;
-                        let (buf, content_len) = match res.headers().get(header::CONTENT_LENGTH) {
-                            None => (vec![], None),
-                            Some(s) => {
-                                let l = s
-                                    .to_str()
-                                    .map_err(failure::Error::from)
-                                    .and_then(|s| s.parse::<usize>().map_err(Into::into))
-                                    .with_context(|_| {
-                                        ServiceErrorKind::ReadHeader(header::CONTENT_LENGTH)
-                                    })?;
-                                (Vec::with_capacity(l), Some(l))
-                            }
-                        };
+                        let content_len = res.content_length().map(|n| n as usize);
                         Some(Progress::Body(Box::new(ProgressPending {
                             decoder: res.into_body(),
-                            buf,
+                            buf: Vec::with_capacity(content_len.map(|n| n + 1).unwrap_or(1024)),
                             content_len,
                         })))
                     }

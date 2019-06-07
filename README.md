@@ -122,10 +122,14 @@ path = ".snowchains/tests/${service}/${snake_case(contest)}/${snake_case(problem
 timeout = "60s"
 silent = false
 robots = true
-cookies = "~/.local/share/snowchains/cookies/${service}.json"
+cookies = "~/.local/share/snowchains/cookies.json"
 api_tokens = "~/.local/share/snowchains/api_tokens/${service}.json"
 dropbox = false
 # dropbox = { auth: "~/.local/share/snowchains/dropbox.json" }
+
+[session.retry]
+retries = 2
+method = ["get"]
 
 [session.retrieve]
 extension = "yml"
@@ -136,33 +140,33 @@ testfile_extensions = ["json", "toml", "yaml", "yml"]
 # jobs = 4
 display_limit = "1KiB"
 
-[env.true]
+[env."t"]
 CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 RUST_VERSION = "stable"
 RUST_OPT_LEVEL = "0"
 
-[env.'mode = "release"']
+[env."(equal mode 'release)"]
 CXXFLAGS = "-std=gnu++17 -O2 -Wall -Wextra"
 RUST_OPT_LEVEL = "2"
 
-[env.'and(service = "atcoder", mode = "debug")']
+[env."(equal '(service mode) '('atcoder 'debug))"]
 CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 
-[env.'and(service = "atcoder", mode = "release")']
+[env."(equal '(service mode) '('atcoder 'release))"]
 CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -O2 -Wall -Wextra"
 RUST_VERSION = "1.15.1"
 
-[env.'and(service = "codeforces", mode = "debug")']
+[env."(equal '(service mode) '('codeforces 'debug))"]
 CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 
-[env.'and(service = "codeforces", mode = "release")']
+[env."(equal '(service mode) '('codeforces 'release))"]
 CXXFLAGS = "-std=gnu++17 -O2 -Wall -Wextra"
 RUST_VERSION = "1.31.1"
 
-[env.'and(service = "yukicoder", mode = "debug")']
+[env."(equal '(service mode) '('yukicoder 'debug))"]
 CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
 
-[env.'and(service = "yukicoder", mode = "release")']
+[env."(equal '(service mode) '('yukicoder 'release))"]
 CXXFLAGS = "-std=gnu++1z -lm -O2 -Wall -Wextra"
 RUST_VERSION = "1.30.1"
 

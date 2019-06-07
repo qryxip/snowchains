@@ -10,7 +10,7 @@ use crate::config::{self, Config};
 use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceErrorKind, ServiceResult};
 use crate::outcome::Outcome;
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::session::{State, StateStartArgs, UrlBase};
+use crate::service::session::{State, StateStartArgs};
 use crate::template::Template;
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFilePath, TestSuite};
@@ -19,23 +19,27 @@ use crate::util::collections::{NonEmptyIndexMap, NonEmptyIndexSet};
 use crate::util::fmt::{OptionDebugExt as _, OptionDisplayExt as _};
 use crate::util::str::CaseConversion;
 
+use snowchains_proc_macros::{ArgEnum, DeserializeAsString};
+
 use chrono::{DateTime, FixedOffset};
 use derive_new::new;
 use failure::ResultExt as _;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
+use http::header::{self, HeaderMap};
+use http::{StatusCode, Uri};
 use indexmap::{IndexMap, IndexSet};
 use maplit::hashmap;
+use prettytable::format::{FormatBuilder, LinePosition, LineSeparator};
 use prettytable::{cell, row, Table};
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use regex::Regex;
-use reqwest::header::{self, HeaderMap};
-use reqwest::{RedirectPolicy, StatusCode};
+use reqwest::RedirectPolicy;
 use serde::ser::SerializeMap as _;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Serialize, Serializer};
 use strum_macros::IntoStaticStr;
 use termcolor::WriteColor;
 use tokio::runtime::Runtime;
-use url::{Host, Url};
+use url::Url;
 use zip::result::ZipResult;
 use zip::ZipArchive;
 
@@ -151,12 +155,15 @@ pub(crate) fn submit(
     PartialOrd,
     Ord,
     Debug,
-    strum_macros::Display,
+    ArgEnum,
     IntoStaticStr,
     Serialize,
+    DeserializeAsString,
 )]
-#[serde(rename_all = "lowercase")]
+#[arg_enum(rename_all = "lowercase")]
 #[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
+#[deserialize_as_string(map_err_into_serde_style)]
 pub enum ServiceKind {
     Atcoder,
     Codeforces,
@@ -165,11 +172,15 @@ pub enum ServiceKind {
 }
 
 impl ServiceKind {
-    pub(crate) fn domain(self) -> Option<&'static str> {
+    pub(crate) fn variants_except_other() -> [&'static str; 3] {
+        ["atcoder", "codeforces", "yukicoder"]
+    }
+
+    pub(crate) fn base_url(self) -> Option<&'static Url> {
         match self {
-            ServiceKind::Atcoder => Some("atcoder.jp"),
-            ServiceKind::Codeforces => Some("codeforces.com"),
-            ServiceKind::Yukicoder => Some("yukicoder.me"),
+            ServiceKind::Atcoder => Some(&atcoder::BASE_URL),
+            ServiceKind::Codeforces => Some(&codeforces::BASE_URL),
+            ServiceKind::Yukicoder => Some(&yukicoder::BASE_URL),
             ServiceKind::Other => None,
         }
     }
@@ -178,28 +189,6 @@ impl ServiceKind {
 impl Default for ServiceKind {
     fn default() -> Self {
         ServiceKind::Other
-    }
-}
-
-impl FromStr for ServiceKind {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> std::result::Result<Self, &'static str> {
-        match s {
-            "atcoder" => Ok(ServiceKind::Atcoder),
-            "codeforces" => Ok(ServiceKind::Codeforces),
-            "yukicoder" => Ok(ServiceKind::Yukicoder),
-            "other" => Ok(ServiceKind::Other),
-            _ => Err(r#"expected "atcoder", "codeforces", "yukicoder", or "other""#),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for ServiceKind {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        String::deserialize(deserializer)?
-            .parse::<Self>()
-            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -1020,12 +1009,47 @@ impl Outcome for RetrieveLangsOutcome {
         true
     }
 
-    fn print_pretty(&self, _: bool, mut stdout: impl WriteColor) -> io::Result<()> {
+    fn print_pretty(&self, _: bool, mut stdout: impl WriteColor + HasTermProps) -> io::Result<()> {
         let mut table = Table::new();
-        table.add_row(row!["Name", "ID"]);
+
+        // `prettytable` assumes that East Asian Ambiguous Characters are halfwidth.
+        let (column_separator, borders, top_sep, title_sep, intern_sep, bottom_sep);
+        if [
+            '─', '│', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼',
+        ]
+        .iter()
+        .all(|&c| stdout.char_width(c) == Some(1))
+        {
+            column_separator = '│';
+            borders = '│';
+            top_sep = LineSeparator::new('─', '┬', '┌', '┐');
+            title_sep = LineSeparator::new('─', '┼', '├', '┤');
+            intern_sep = LineSeparator::new('─', '┼', '├', '┤');
+            bottom_sep = LineSeparator::new('─', '┴', '└', '┘');
+        } else {
+            column_separator = '|';
+            borders = '|';
+            top_sep = LineSeparator::new('-', '+', '+', '+');
+            title_sep = LineSeparator::new('-', '+', '+', '+');
+            intern_sep = LineSeparator::new('-', '+', '+', '+');
+            bottom_sep = LineSeparator::new('-', '+', '+', '+');
+        }
+
+        *table.get_format() = FormatBuilder::new()
+            .padding(1, 1)
+            .column_separator(column_separator)
+            .borders(borders)
+            .separator(LinePosition::Top, top_sep)
+            .separator(LinePosition::Title, title_sep)
+            .separator(LinePosition::Intern, intern_sep)
+            .separator(LinePosition::Bottom, bottom_sep)
+            .build();
+
+        table.set_titles(row!["Name", "ID"]);
         for (name, id) in &self.available_languages {
             table.add_row(row![name, id]);
         }
+
         write!(stdout, "{}", table)?;
         stdout.flush()
     }
@@ -1044,7 +1068,8 @@ pub(crate) struct SubmitOutcome {
 pub(self) struct SubmitOutcomeResponse {
     #[serde(serialize_with = "util::serde::ser_http_status")]
     status: StatusCode,
-    header_location: Option<String>,
+    #[serde(serialize_with = "util::serde::ser_option_display")]
+    location: Option<Uri>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1076,7 +1101,7 @@ impl Outcome for SubmitOutcome {
                 "Response Status:            {}\n\
                  Response \"Location\" Header: {}",
                 self.response.status,
-                self.response.header_location.fmt_debug_or("<none>"),
+                self.response.location.fmt_debug_or("<none>"),
             )?;
         }
         write!(
@@ -1097,12 +1122,13 @@ impl Outcome for SubmitOutcome {
 }
 
 pub(crate) struct SessionProps {
-    pub(crate) domain: Option<&'static str>,
+    pub(crate) base_url: Option<&'static Url>,
     pub(crate) cookies_path: AbsPathBuf,
     pub(crate) api_token_path: AbsPathBuf,
     pub(crate) dropbox_path: Option<AbsPathBuf>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) login_retries: Option<u32>,
+    pub(crate) retries_on_get: u32,
     pub(crate) http_silent: bool,
     pub(crate) robots: bool,
 }
@@ -1115,18 +1141,16 @@ impl SessionProps {
     ) -> ServiceResult<State<I, E>> {
         let runtime = Runtime::new()?;
         let client = reqwest_async_client(self.timeout)?;
-        let url_base = self
-            .domain
-            .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
         State::start(StateStartArgs {
             stdin,
             stderr,
             runtime,
             robots: self.robots,
             client,
-            url_base,
+            base_url: self.base_url,
             cookies_path: Some(self.cookies_path.as_path()),
             api_token_path: Some(self.api_token_path.as_path()),
+            retries_on_get: self.retries_on_get,
             http_silent: self.http_silent,
         })
     }
@@ -1136,8 +1160,9 @@ pub(self) fn reqwest_async_client(
     timeout: impl Into<Option<Duration>>,
 ) -> reqwest::Result<reqwest::r#async::Client> {
     let mut builder = reqwest::r#async::Client::builder()
-        .redirect(RedirectPolicy::none())
         .referer(false)
+        .redirect(RedirectPolicy::none()) // Redirects manually
+        .cookie_store(false) // Uses `CookieStore` directly
         .default_headers({
             let mut headers = HeaderMap::new();
             headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());
@@ -1154,8 +1179,9 @@ pub(self) fn reqwest_sync_client(
     timeout: impl Into<Option<Duration>>,
 ) -> reqwest::Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
-        .redirect(RedirectPolicy::none())
         .referer(false)
+        .redirect(RedirectPolicy::none())
+        .cookie_store(false)
         .default_headers({
             let mut headers = HeaderMap::new();
             headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());

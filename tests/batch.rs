@@ -12,11 +12,12 @@ use snowchains::terminal::{
 use failure::Fallible;
 use if_chain::if_chain;
 use once_cell::sync::Lazy;
-use pretty_assertions::assert_eq;
+use retry::OperationResult;
 use tempdir::TempDir;
 
 use std::path::Path;
-use std::{env, io};
+use std::time::Duration;
+use std::{env, io, iter};
 
 #[test]
 fn it_works_for_atcoder_practice_a() -> Fallible<()> {
@@ -43,7 +44,7 @@ text_file_dir = "/dev/null"
 [judge]
 testfile_extensions = ["yml"]
 
-[env.'service = "atcoder"']
+[env."(equal service 'atcoder)"]
 RUST_VERSION = "stable"
 RUST_OPT_LEVEL = "0"
 
@@ -108,7 +109,7 @@ fn main() {
 }
 "#;
 
-    static INVLID_CODE: &str = "print('Hello!')";
+    static INVALID_CODE: &str = "print('Hello!')";
 
     static WRONG_CODE: &str = "fn main() {}";
 
@@ -157,21 +158,67 @@ fn main() {
         stderr: Dumb::new(),
     };
 
-    assert_eq!(app.test(&src_path, CODE)?, 0);
+    const RETRIES: usize = 2;
+    const INTERVAL: Duration = Duration::from_secs(1);
 
-    if_chain! {
-        let err = app.test(&src_path, INVLID_CODE).unwrap_err();
-        if let snowchains::Error::Judge(JudgeError::Context(ctx)) = &err;
-        if let JudgeErrorKind::Build { .. } = ctx.get_context();
-        then {} else { return Err(err.into()) }
-    }
+    retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
+        match app.test(&src_path, CODE) {
+            Ok(0) => OperationResult::Ok(()),
+            Ok(n) => OperationResult::Retry(failure::err_msg(n.to_string())),
+            Err(err) => OperationResult::Retry(failure::Error::from(err)),
+        }
+    })
+    .map_err(|err| match err {
+        retry::Error::Operation { error, .. } => error,
+        retry::Error::Internal(s) => failure::err_msg(s),
+    })?;
 
-    assert_eq!(app.test(&src_path, WRONG_CODE)?, 1);
+    retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
+        match app.test(&src_path, INVALID_CODE) {
+            Ok(n) => OperationResult::Retry(failure::err_msg(n.to_string())),
+            Err(err) => {
+                if_chain! {
+                    if let snowchains::Error::Judge(JudgeError::Context(ctx)) = &err;
+                    if let JudgeErrorKind::Build { .. } = ctx.get_context();
+                    then {
+                        OperationResult::Ok(())
+                    } else {
+                        OperationResult::Retry(err.into())
+                    }
+                }
+            }
+        }
+    })
+    .map_err(|err| match err {
+        retry::Error::Operation { error, .. } => error,
+        retry::Error::Internal(s) => failure::err_msg(s),
+    })?;
+
+    retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
+        match app.test(&src_path, WRONG_CODE) {
+            Ok(1) => OperationResult::Ok(()),
+            Ok(n) => OperationResult::Retry(failure::err_msg(n.to_string())),
+            Err(err) => OperationResult::Retry(err.into()),
+        }
+    })
+    .map_err(|err| match err {
+        retry::Error::Operation { error, .. } => error,
+        retry::Error::Internal(s) => failure::err_msg(s),
+    })?;
 
     std::fs::write(&suite_path, SUITE_WITH_TIMELIMIT)?;
 
-    assert_eq!(app.test(&src_path, FREEZING_CODE)?, 1);
-    Ok(())
+    retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
+        match app.test(&src_path, FREEZING_CODE) {
+            Ok(1) => OperationResult::Ok(()),
+            Ok(n) => OperationResult::Retry(failure::err_msg(n.to_string())),
+            Err(err) => OperationResult::Retry(err.into()),
+        }
+    })
+    .map_err(|err| match err {
+        retry::Error::Operation { error, .. } => error,
+        retry::Error::Internal(s) => failure::err_msg(s),
+    })
 }
 
 trait AppExt {

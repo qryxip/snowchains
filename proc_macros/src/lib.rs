@@ -1,17 +1,30 @@
-#![recursion_limit = "256"]
+#![recursion_limit = "128"]
 
 extern crate proc_macro;
 
+use heck::{KebabCase as _, SnakeCase as _};
 use if_chain::if_chain;
-use quote::{quote, ToTokens};
-use syn::parse::{Parse, ParseStream};
+use itertools::Itertools as _;
+use proc_macro2::Span;
+use quote::quote;
+use syn::spanned::Spanned;
 use syn::{
-    parse_macro_input, AngleBracketedGenericArguments, Attribute, Field, Fields, FieldsUnnamed,
-    GenericArgument, Ident, ItemEnum, ItemStruct, Lit, LitStr, Meta, MetaList, MetaNameValue, Path,
-    PathArguments, PathSegment, Token, Type, TypePath,
+    parse_macro_input, AngleBracketedGenericArguments, Attribute, Data, DeriveInput, Field, Fields,
+    FieldsUnnamed, GenericArgument, ItemEnum, ItemStruct, Lit, Meta, MetaList, MetaNameValue,
+    NestedMeta, PathArguments, PathSegment, Type, TypePath,
 };
 
-use std::mem;
+use std::str::FromStr;
+use std::{convert, fmt};
+
+macro_rules! try_syn {
+    ($expr:expr) => {
+        match $expr {
+            Ok(expr) => expr,
+            Err::<_, syn::Error>(err) => return err.to_compile_error().into(),
+        }
+    };
+}
 
 #[proc_macro_derive(DoubleFrom, attributes(double_from))]
 pub fn derive_double_from(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -19,45 +32,50 @@ pub fn derive_double_from(input: proc_macro::TokenStream) -> proc_macro::TokenSt
     let name = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let variants = input.variants;
-    let derivations = variants.iter().filter_map(|variant| {
-        let mut from_ty = None;
-        for meta in variant.attrs.iter().flat_map(Attribute::parse_meta) {
-            match &meta {
-                Meta::NameValue(MetaNameValue { ident, lit, .. }) if ident == "double_from" => {
-                    match lit {
-                        Lit::Str(s) => {
-                            let ty = s.parse::<Type>().unwrap_or_else(|e| panic!("{}", e));
-                            from_ty = Some(ty);
+
+    let derivations = try_syn!(variants
+        .iter()
+        .filter_map(|variant| {
+            let mut from_ty = None;
+            for meta in variant.attrs.iter().flat_map(Attribute::parse_meta) {
+                match &meta {
+                    Meta::NameValue(MetaNameValue { ident, lit, .. }) if ident == "double_from" => {
+                        match lit {
+                            Lit::Str(s) => match s.parse::<Type>() {
+                                Err(err) => return Some(Err(err)),
+                                Ok(ty) => from_ty = Some(ty),
+                            },
+                            lit => return Some(Err(lit.error("expected str literal"))),
                         }
-                        _ => panic!("expected str literal"),
                     }
+                    Meta::Word(ident) | Meta::List(MetaList { ident, .. })
+                        if ident == "double_from" =>
+                    {
+                        return Some(Err(ident.error("invalid attr")));
+                    }
+                    _ => {}
                 }
-                Meta::Word(ident) | Meta::List(MetaList { ident, .. })
-                    if ident == "double_from" =>
-                {
-                    panic!("invalid attr")
-                }
-                _ => {}
             }
-        }
-        let variant_ident = &variant.ident;
-        let from_ty = from_ty?;
-        match &variant.fields {
-            Fields::Unnamed(FieldsUnnamed { unnamed, .. }) if unnamed.len() == 1 => Some(quote!(
-                #[automatically_derived]
-                impl #impl_generics From<#from_ty> for #name #ty_generics
-                    #where_clause
-                {
-                    fn from(from: #from_ty) -> Self {
-                        #name::#variant_ident(from.into())
+            let from_ty = from_ty?;
+            let variant_ident = &variant.ident;
+            Some(match &variant.fields {
+                Fields::Unnamed(FieldsUnnamed { unnamed, .. }) if unnamed.len() == 1 => Ok(quote!(
+                    #[automatically_derived]
+                    impl #impl_generics From<#from_ty> for #name #ty_generics
+                        #where_clause
+                    {
+                        fn from(from: #from_ty) -> Self {
+                            #name::#variant_ident(from.into())
+                        }
                     }
+                )),
+                fields @ Fields::Unnamed(_) | fields @ Fields::Named(_) | fields @ Fields::Unit => {
+                    Err(fields.error("expected unit field"))
                 }
-            )),
-            Fields::Unnamed(_) => panic!("tuples not supported"),
-            Fields::Named(_) => panic!("named fields not supported"),
-            Fields::Unit => panic!("unit fields not supported"),
-        }
-    });
+            })
+        })
+        .collect::<syn::Result<Vec<_>>>());
+
     quote!(#(#derivations)*).into()
 }
 
@@ -65,145 +83,161 @@ pub fn derive_double_from(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 pub fn derive_fail_pair(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as ItemStruct);
     let error = input.ident;
-    if_chain! {
-        if input.generics.params.is_empty();
-        if let Some(error_kind) = extract_error_kind(&input.fields);
-        then {
-            quote!(
-                #[automatically_derived]
-                impl From<#error_kind> for #error {
-                    fn from(from: #error_kind) -> Self {
-                        #error(::failure::Context::new(from))
-                    }
-                }
 
-                #[automatically_derived]
-                impl From<::failure::Context<#error_kind>> for #error {
-                    fn from(from: ::failure::Context<#error_kind>) -> Self {
-                        #error(from)
-                    }
-                }
-
-                #[automatically_derived]
-                impl ::std::ops::Deref for #error {
-                    type Target = ::failure::Context<#error_kind>;
-
-                    fn deref(&self) -> &Self::Target {
-                        &self.0
-                    }
-                }
-
-                #[automatically_derived]
-                impl ::std::fmt::Display for #error {
-                    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                        ::std::fmt::Display::fmt(&self.0, f)
-                    }
-                }
-
-                #[automatically_derived]
-                impl ::failure::Fail for #error {
-                    fn cause(&self) -> Option<&dyn (::failure::Fail)> {
-                        ::failure::Fail::cause(&self.0)
-                    }
-
-                    fn backtrace(&self) -> Option<&::failure::Backtrace> {
-                        ::failure::Fail::backtrace(&self.0)
-                    }
-                }
-            ).into()
-        } else {
-            panic!("invalid")
-        }
+    if !input.generics.params.is_empty() {
+        return input.generics.compile_error("generics must be empty");
     }
+
+    let error_kind = try_syn!(extract_error_kind(&input.fields));
+
+    quote!(
+        #[automatically_derived]
+        impl From<#error_kind> for #error {
+            fn from(from: #error_kind) -> Self {
+                #error(::failure::Context::new(from))
+            }
+        }
+
+        #[automatically_derived]
+        impl From<::failure::Context<#error_kind>> for #error {
+            fn from(from: ::failure::Context<#error_kind>) -> Self {
+                #error(from)
+            }
+        }
+
+        #[automatically_derived]
+        impl ::std::ops::Deref for #error {
+            type Target = ::failure::Context<#error_kind>;
+
+            fn deref(&self) -> &::failure::Context<#error_kind> {
+                &self.0
+            }
+        }
+
+        #[automatically_derived]
+        impl ::std::fmt::Display for #error {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+                ::std::fmt::Display::fmt(&self.0, f)
+            }
+        }
+
+        #[automatically_derived]
+        impl ::failure::Fail for #error {
+            fn cause(&self) -> Option<&dyn (::failure::Fail)> {
+                ::failure::Fail::cause(&self.0)
+            }
+
+            fn backtrace(&self) -> Option<&::failure::Backtrace> {
+                ::failure::Fail::backtrace(&self.0)
+            }
+        }
+    )
+    .into()
 }
 
 #[proc_macro_derive(PartialFailPair)]
 pub fn derive_partial_fail_pair(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as ItemEnum);
     let error = input.ident;
-    if_chain! {
-        if input.generics.params.is_empty();
-        let variants = &input.variants;
-        if let Some(variant) = variants.iter().find(|v| v.ident == "Context");
-        if variant.discriminant.is_none();
-        if let Some(error_kind) = extract_error_kind(&variant.fields);
-        let pairs = variants
-            .iter()
-            .filter(|v| v.discriminant.is_none())
-            .filter_map(|v| match &v.fields {
-                Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => Some((&v.ident, unnamed)),
-                _ => None,
-            }).filter(|(_, unnamed)| unnamed.len() == 1)
-            .filter_map(
-                |(ident, unnamed)| match &unnamed.iter().next().unwrap().ty {
-                    Type::Path(ty) => Some((ident, ty)),
-                    _ => None,
-                },
-            ).filter(|(_, ty)| ty.qself.is_none())
-            .map(|(ident, ty)| (ident, &ty.path))
-            .collect::<Vec<(&Ident, &Path)>>();
-        if pairs.len() == variants.len();
-        let from_derivations = pairs
-            .iter()
-            .map(|(ident, path)| quote!(
-                #[automatically_derived]
-                impl From<#path> for #error {
-                    fn from(from: #path) -> Self {
-                        #error::#ident(from)
-                    }
-                }
-            ));
-        let display_arms = pairs
-            .iter()
-            .map(|(ident, _)| quote!(#error::#ident(x) => ::std::fmt::Display::fmt(x, f),));
-        let cause_arms = pairs
-            .iter()
-            .map(|(ident, _)| quote!(#error::#ident(x) => ::failure::Fail::cause(x),));
-        let backtrace_arms = pairs
-            .iter()
-            .map(|(ident, _)| quote!(#error::#ident(x) => ::failure::Fail::backtrace(x),));
-        then {
-            quote!(
-                #[automatically_derived]
-                impl From<#error_kind> for #error {
-                    fn from(from: #error_kind) -> Self {
-                        #error::Context(::failure::Context::new(from))
-                    }
-                }
 
-                #(#from_derivations)*
-
-                #[automatically_derived]
-                impl ::std::fmt::Display for #error {
-                    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                        match self {
-                            #(#display_arms)*
-                        }
-                    }
-                }
-
-                #[automatically_derived]
-                impl ::failure::Fail for #error {
-                    fn cause(&self) -> Option<&dyn (::failure::Fail)> {
-                        match self {
-                            #(#cause_arms)*
-                        }
-                    }
-
-                    fn backtrace(&self) -> Option<&::failure::Backtrace> {
-                        match self {
-                            #(#backtrace_arms)*
-                        }
-                    }
-                }
-            ).into()
-        } else {
-            panic!("invalid")
-        }
+    if !input.generics.params.is_empty() {
+        return input.generics.compile_error("generics must be empty");
     }
+
+    let variants = input.variants;
+
+    let variant = try_syn!(variants
+        .iter()
+        .find(|v| v.ident == "Context")
+        .ok_or_else(|| variants.error("no `Context` field")));
+
+    if variant.discriminant.is_some() {
+        return variant.compile_error("must not have discriminant");
+    }
+
+    let error_kind = try_syn!(extract_error_kind(&variant.fields));
+
+    let pairs = try_syn!(variants
+        .iter()
+        .map(|variant| {
+            if let Some((_, expr)) = &variant.discriminant {
+                return Err(expr.error("no"));
+            }
+            let unnamed = match &variant.fields {
+                Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => unnamed,
+                _ => return Err(variant.fields.error("expected 1 unnamed field")),
+            };
+            if unnamed.len() != 1 {
+                return Err(unnamed.error("expected 1 unnamed field"));
+            }
+            match &unnamed.iter().next().unwrap().ty {
+                Type::Path(ty) => Ok((&variant.ident, &ty.path)),
+                ty => Err(ty.error("expected path")),
+            }
+        })
+        .collect::<syn::Result<Vec<_>>>());
+
+    let from_derivations = pairs.iter().map(|(ident, path)| {
+        quote!(
+            #[automatically_derived]
+            impl From<#path> for #error {
+                fn from(from: #path) -> Self {
+                    #error::#ident(from)
+                }
+            }
+        )
+    });
+
+    let display_arms = pairs
+        .iter()
+        .map(|(ident, _)| quote!(#error::#ident(x) => ::std::fmt::Display::fmt(x, f),));
+
+    let cause_arms = pairs
+        .iter()
+        .map(|(ident, _)| quote!(#error::#ident(x) => ::failure::Fail::cause(x),));
+
+    let backtrace_arms = pairs
+        .iter()
+        .map(|(ident, _)| quote!(#error::#ident(x) => ::failure::Fail::backtrace(x),));
+
+    quote!(
+        #[automatically_derived]
+        impl From<#error_kind> for #error {
+            fn from(from: #error_kind) -> Self {
+                #error::Context(::failure::Context::new(from))
+            }
+        }
+
+        #(#from_derivations)*
+
+        #[automatically_derived]
+        impl ::std::fmt::Display for #error {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+                match self {
+                    #(#display_arms)*
+                }
+            }
+        }
+
+        #[automatically_derived]
+        impl ::failure::Fail for #error {
+            fn cause(&self) -> Option<&dyn (::failure::Fail)> {
+                match self {
+                    #(#cause_arms)*
+                }
+            }
+
+            fn backtrace(&self) -> Option<&::failure::Backtrace> {
+                match self {
+                    #(#backtrace_arms)*
+                }
+            }
+        }
+    )
+    .into()
 }
 
-fn extract_error_kind(fields: &Fields) -> Option<&Type> {
+fn extract_error_kind(fields: &Fields) -> syn::Result<&Type> {
     if_chain! {
         if let Fields::Unnamed(FieldsUnnamed { unnamed, .. }) = fields;
         if unnamed.len() == 1;
@@ -216,257 +250,404 @@ fn extract_error_kind(fields: &Fields) -> Option<&Type> {
         if args.len() == 1;
         if let GenericArgument::Type(error_kind) = args.iter().next().unwrap();
         then {
-            Some(error_kind)
+            Ok(error_kind)
         } else {
-            None
+            Err(fields.error("expected `..::Context<$ty>`"))
         }
     }
 }
 
-#[proc_macro]
-pub fn def_gen_predicate(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    struct LitStrWithComma(LitStr);
+#[proc_macro_derive(ArgEnum, attributes(arg_enum))]
+pub fn derive_arg_enum(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    #[derive(Clone, Copy, Default)]
+    struct EnumAttrs {
+        case: Option<CaseSensitivity>,
+        rename_all: Option<CaseConversion>,
+    }
 
-    impl Parse for LitStrWithComma {
-        fn parse(input: ParseStream) -> syn::Result<Self> {
-            let litstr = input.parse()?;
-            input.parse::<Option<Token![,]>>()?;
-            Ok(LitStrWithComma(litstr))
+    #[derive(Clone, Copy, PartialEq)]
+    enum CaseSensitivity {
+        Insensitive,
+        Sensitive,
+    }
+
+    impl Default for CaseSensitivity {
+        fn default() -> Self {
+            CaseSensitivity::Insensitive
         }
     }
 
-    let input = parse_macro_input!(input as LitStrWithComma);
-    let pred = parse_selector(&input.0.value()).unwrap_or_else(|e| panic!("{}", e));
+    impl FromStr for CaseSensitivity {
+        type Err = &'static str;
+
+        fn from_str(s: &str) -> std::result::Result<Self, &'static str> {
+            match s {
+                s if s.eq_ignore_ascii_case("insensitive") => Ok(CaseSensitivity::Insensitive),
+                s if s.eq_ignore_ascii_case("sensitive") => Ok(CaseSensitivity::Sensitive),
+                _ => Err(r#"valid values: ["insensitive", "sensitive"]"#),
+            }
+        }
+    }
+
+    let input = parse_macro_input!(input as ItemEnum);
+
+    if let Some(span) = input
+        .variants
+        .iter()
+        .flat_map(|v| &v.attrs)
+        .flat_map(Attribute::parse_meta)
+        .flat_map(|m| find_attr(&m, "arg_enum"))
+        .next()
+    {
+        return syn::Error::new(span, "not allowed here")
+            .to_compile_error()
+            .into();
+    }
+
+    let enum_attrs = try_syn!(input
+        .attrs
+        .iter()
+        .flat_map(Attribute::parse_meta)
+        .flat_map(|meta| match &meta {
+            Meta::Word(ident) | Meta::NameValue(MetaNameValue { ident, .. })
+                if ident == "arg_enum" =>
+            {
+                Some(Err(meta.error("expected `#[arg_enum(_)]`")))
+            }
+            Meta::List(MetaList { ident, nested, .. }) if ident == "arg_enum" => {
+                let mut enum_attrs = EnumAttrs::default();
+                for nested in nested {
+                    match nested {
+                        NestedMeta::Meta(Meta::NameValue(MetaNameValue { ident, lit, .. }))
+                            if ident == "case" =>
+                        {
+                            if enum_attrs.case.is_some() {
+                                return Some(Err(ident.error("multiple `case`s")));
+                            }
+                            let s = match lit {
+                                Lit::Str(s) => s,
+                                lit => return Some(Err(lit.error("expected string"))),
+                            };
+                            match s.value().parse() {
+                                Err(e) => return Some(Err(s.error(e))),
+                                Ok(case) => enum_attrs.case = Some(case),
+                            }
+                        }
+                        NestedMeta::Meta(Meta::NameValue(MetaNameValue { ident, lit, .. }))
+                            if ident == "rename_all" =>
+                        {
+                            if enum_attrs.rename_all.is_some() {
+                                return Some(Err(ident.error("multiple `rename_all`s")));
+                            }
+                            let s = match lit {
+                                Lit::Str(s) => s,
+                                lit => return Some(Err(lit.error("expected string"))),
+                            };
+                            match s.value().parse() {
+                                Err(e) => return Some(Err(s.error(e))),
+                                Ok(rename_all) => enum_attrs.rename_all = Some(rename_all),
+                            }
+                        }
+                        nested => {
+                            return Some(Err(
+                                nested.error(r#"expected `case = ".."` or `rename_all = ".."`"#)
+                            ))
+                        }
+                    }
+                }
+                Some(Ok(enum_attrs))
+            }
+            _ => None,
+        })
+        .collect::<syn::Result<Vec<_>>>());
+
+    let enum_attrs = if enum_attrs.len() > 1 {
+        return input.compile_error("multiple `arg_enum`s");
+    } else {
+        convert::identity(enum_attrs).pop().unwrap_or_default()
+    };
+
+    let variant_idents = try_syn!(input
+        .variants
+        .iter()
+        .map(|variant| {
+            if variant.fields == Fields::Unit {
+                Ok(&variant.ident)
+            } else {
+                Err(variant.fields.error("all fields must be unit"))
+            }
+        })
+        .collect::<syn::Result<Vec<_>>>());
+
+    let variant_ident_strs = variant_idents
+        .iter()
+        .map(ToString::to_string)
+        .map(|s| match enum_attrs.rename_all {
+            None => s,
+            Some(CaseConversion::Lower) => s.to_lowercase(),
+            Some(CaseConversion::Snake) => s.to_snake_case(),
+            Some(CaseConversion::Kebab) => s.to_kebab_case(),
+        })
+        .collect::<Vec<_>>();
+
+    let ItemEnum { ident, vis, .. } = &input;
+
+    let variants_elements = &variant_ident_strs;
+    let variants_len = input.variants.len();
+
+    let from_str_ok_arms =
+        variant_idents
+            .iter()
+            .zip_eq(&variant_ident_strs)
+            .map(|(v_ident, v_ident_s)| {
+                let lhs = match enum_attrs.case.unwrap_or_default() {
+                    CaseSensitivity::Insensitive => {
+                        quote!(s if str::eq_ignore_ascii_case(s, #v_ident_s))
+                    }
+                    CaseSensitivity::Sensitive => quote!(#v_ident_s),
+                };
+                quote!(#lhs => ::std::result::Result::Ok(#ident::#v_ident),)
+            });
+
+    let from_str_error = format!(
+        "valid values: {:?} (case {})",
+        variant_ident_strs,
+        match enum_attrs.case.unwrap_or_default() {
+            CaseSensitivity::Insensitive => "insensitive",
+            CaseSensitivity::Sensitive => "sensitive",
+        }
+    );
+
+    let display_arms = variant_idents
+        .iter()
+        .zip_eq(&variant_ident_strs)
+        .map(|(i, s)| quote!(#ident::#i => ::std::fmt::Display::fmt(#s, fmt),));
+
     quote!(
-        #[inline]
-        fn gen() -> impl ::select::predicate::Predicate {
-            #pred
+        impl #ident {
+            #vis fn variants() -> [&'static str; #variants_len] {
+                [
+                    #(#variants_elements, )*
+                ]
+            }
+        }
+
+        impl ::std::str::FromStr for #ident {
+            type Err = &'static str;
+
+            fn from_str(s: &str) -> ::std::result::Result<Self, &'static str> {
+                match s {
+                    #(#from_str_ok_arms)*
+                    _ => ::std::result::Result::Err(#from_str_error),
+                }
+            }
+        }
+
+        impl ::std::fmt::Display for #ident {
+            fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+                match self {
+                    #(#display_arms)*
+                }
+            }
         }
     )
     .into()
 }
 
-fn parse_selector(input: &str) -> std::result::Result<impl ToTokens, String> {
-    use combine::char::{char, space, spaces, string};
-    use combine::stream::state::{Positioner, State};
-    use combine::stream::Resetable;
-    use combine::{attempt, choice, easy, eof, many1, satisfy, Parser};
+#[proc_macro_derive(SerializeAsString)]
+pub fn derive_serialize_as_string(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
 
-    #[derive(Debug)]
-    enum Token {
-        Name(String),
-        Id(String),
-        Class(String),
-        AttrEq(String, String),
-        Or,
-        Child,
-        Descendant,
+    if !input.generics.params.is_empty() {
+        return input.generics.compile_error("generics must be empty");
     }
 
-    #[derive(Default)]
-    struct OnelinePosition {
-        pos: usize,
-    }
+    let ident = input.ident;
 
-    impl Positioner<char> for OnelinePosition {
-        type Position = usize;
-
-        fn position(&self) -> usize {
-            self.pos
-        }
-
-        fn update(&mut self, _: &char) {
-            self.pos += 1;
-        }
-    }
-
-    impl Resetable for OnelinePosition {
-        type Checkpoint = usize;
-
-        fn checkpoint(&self) -> usize {
-            self.pos
-        }
-
-        fn reset(&mut self, checkpoint: usize) {
-            self.pos = checkpoint;
-        }
-    }
-
-    fn ident<'a>(
-    ) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>, Output = String> {
-        many1(satisfy(|c| {
-            'a' <= c && c <= 'z'
-                || 'A' <= c && c <= 'Z'
-                || '0' <= c && c <= '9'
-                || c == '-'
-                || c == '_'
-        }))
-    }
-
-    fn op<'a>(c: char) -> impl Parser<Input = easy::Stream<State<&'a str, OnelinePosition>>> {
-        spaces().with(char(c)).skip(spaces())
-    }
-
-    let name = ident().map(Token::Name);
-    let id = char('#').with(ident()).map(Token::Id);
-    let class = char('.').with(ident()).map(Token::Class);
-    let attr_eq = char('[')
-        .skip(spaces())
-        .with(ident())
-        .skip(spaces())
-        .skip(char('='))
-        .skip(spaces())
-        .skip(char('"'))
-        .and(many1(satisfy(|c: char| {
-            !(c.is_whitespace() || c == '"' || c == '\\')
-        })))
-        .skip(spaces())
-        .skip(string("\"]"))
-        .map(|(k, v)| Token::AttrEq(k, v));
-    let or = op(',').map(|_| Token::Or);
-    let child = op('>').map(|_| Token::Child);
-    let descendant = many1::<String, _>(space()).map(|_| Token::Descendant);
-
-    let tokens = many1::<Vec<_>, _>(choice((
-        name,
-        id,
-        class,
-        attr_eq,
-        attempt(or),
-        attempt(child),
-        descendant,
-    )))
-    .skip(eof())
-    .easy_parse(State::with_positioner(input, OnelinePosition::default()))
-    .map(|(ts, _)| ts)
-    .map_err(|e| format!("Failed to lex {:?}\n{}", input, e))?;
-
-    enum Ancestor<S: ToTokens> {
-        None,
-        Parent(S),
-        Ancestor(S),
-    }
-
-    let (mut and, mut or, mut ancestor) = (None, None, Ancestor::None);
-
-    for token in tokens {
-        match token {
-            Token::Name(name) => {
-                let name = LitStr::new(&name, proc_macro2::Span::call_site());
-                let new = quote!(::select::predicate::Name(#name));
-                if and.is_none() {
-                    and = Some(new);
-                } else {
-                    and = and.map(|p| quote!(::select::predicate::And(#p, #new)));
-                }
-            }
-            Token::Id(id) => {
-                let id = LitStr::new(&id, proc_macro2::Span::call_site());
-                let new = quote!(::select::predicate::Attr("id", #id));
-                if and.is_none() {
-                    and = Some(new);
-                } else {
-                    and = and.map(|p| quote!(::select::predicate::And(#p, #new)));
-                }
-            }
-            Token::Class(class) => {
-                let class = LitStr::new(&class, proc_macro2::Span::call_site());
-                let new = quote!(::select::predicate::Class(#class));
-                if and.is_none() {
-                    and = Some(new);
-                } else {
-                    and = and.map(|p| quote!(::select::predicate::And(#p, #new)));
-                }
-            }
-            Token::AttrEq(key, value) => {
-                let key = LitStr::new(&key, proc_macro2::Span::call_site());
-                let value = LitStr::new(&value, proc_macro2::Span::call_site());
-                let new = quote!(::select::predicate::Attr(#key, #value));
-                if and.is_none() {
-                    and = Some(new);
-                } else {
-                    and = and.map(|p| quote!(::select::predicate::And(#p, #new)));
-                }
-            }
-            Token::Or if and.is_none() => {
-                return Err("Unexpected ','".to_owned());
-            }
-            Token::Or if or.is_none() => {
-                or = Some(and.take().unwrap());
-            }
-            Token::Or => {
-                let and = and.take().unwrap();
-                or = or.map(|p| quote!(::select::predicate::Or(#p, #and)));
-            }
-            Token::Child if and.is_none() && or.is_none() => {
-                return Err("Unexpected '>'".to_owned());
-            }
-            Token::Child if and.is_some() && or.is_none() => {
-                let current = and.take().unwrap();
-                ancestor = Ancestor::Parent(match mem::replace(&mut ancestor, Ancestor::None) {
-                    Ancestor::None => current,
-                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
-                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
-                });
-            }
-            Token::Child if and.is_none() && or.is_some() => {
-                let current = or.take().unwrap();
-                ancestor = Ancestor::Parent(match mem::replace(&mut ancestor, Ancestor::None) {
-                    Ancestor::None => current,
-                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
-                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
-                });
-            }
-            Token::Child => {
-                let and = and.take().unwrap();
-                let or = or.take().unwrap();
-                let current = quote!(::select::predicate::Or(#and, #or));
-                ancestor = Ancestor::Parent(match mem::replace(&mut ancestor, Ancestor::None) {
-                    Ancestor::None => current,
-                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
-                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
-                });
-            }
-            Token::Descendant if and.is_none() && or.is_none() => {
-                return Err("Unexpected space".to_owned());
-            }
-            Token::Descendant if and.is_some() && or.is_none() => {
-                let current = and.take().unwrap();
-                ancestor = Ancestor::Ancestor(match mem::replace(&mut ancestor, Ancestor::None) {
-                    Ancestor::None => current,
-                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
-                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
-                });
-            }
-            Token::Descendant if and.is_none() && or.is_some() => {
-                let current = or.take().unwrap();
-                ancestor = Ancestor::Ancestor(match mem::replace(&mut ancestor, Ancestor::None) {
-                    Ancestor::None => current,
-                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
-                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
-                });
-            }
-            Token::Descendant => {
-                let and = and.take().unwrap();
-                let or = or.take().unwrap();
-                let current = quote!(::select::predicate::Or(#and, #or));
-                ancestor = Ancestor::Ancestor(match mem::replace(&mut ancestor, Ancestor::None) {
-                    Ancestor::None => current,
-                    Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #current)),
-                    Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #current)),
-                });
+    quote!(
+        impl ::serde::Serialize for #ident {
+            fn serialize<S: ::serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> ::std::result::Result<S::Ok, S::Error> {
+                let s = <Self as ::std::string::ToString>::to_string(self);
+                ::serde::Serializer::collect_str(serializer, &s)
             }
         }
-    }
+    )
+    .into()
+}
 
-    let edge = match (and, or) {
-        (None, None) => return Err("Unexpected end".to_owned()),
-        (Some(p), None) | (None, Some(p)) => p,
-        (Some(p1), Some(p2)) => quote!(::select::predicate::Or(#p1, #p2)),
+#[proc_macro_derive(DeserializeAsString, attributes(deserialize_as_string))]
+pub fn derive_deserialize_as_string(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let DeriveInput {
+        attrs,
+        ident,
+        generics,
+        data,
+        ..
+    } = parse_macro_input!(input as DeriveInput);
+
+    let field_variant_attrs = match &data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(fields) => fields.named.iter().flat_map(|f| &f.attrs).collect(),
+            Fields::Unnamed(fields) => fields.unnamed.iter().flat_map(|f| &f.attrs).collect(),
+            Fields::Unit => vec![],
+        },
+        Data::Enum(data) => data.variants.iter().flat_map(|v| &v.attrs).collect(),
+        _ => return ident.compile_error("expected struct or enum"),
     };
-    Ok(match ancestor {
-        Ancestor::None => edge,
-        Ancestor::Parent(p) => quote!(::select::predicate::Child(#p, #edge)),
-        Ancestor::Ancestor(p) => quote!(::select::predicate::Descendant(#p, #edge)),
-    })
+
+    if !generics.params.is_empty() {
+        return generics.compile_error("generics must be empty");
+    }
+
+    if let Some(span) = field_variant_attrs
+        .into_iter()
+        .flat_map(Attribute::parse_meta)
+        .flat_map(|m| find_attr(&m, "deserialize_as_string"))
+        .next()
+    {
+        return syn::Error::new(span, "not allowed here")
+            .to_compile_error()
+            .into();
+    }
+
+    let map_err_into_serde_style = try_syn!(attrs
+        .iter()
+        .flat_map(Attribute::parse_meta)
+        .flat_map(|meta| match &meta {
+            Meta::List(MetaList { ident, nested, .. }) if ident == "deserialize_as_string" => {
+                Some(match nested.len() {
+                    0 => Ok(false),
+                    1 => match nested.iter().next().unwrap() {
+                        NestedMeta::Meta(Meta::Word(ident))
+                            if ident == "map_err_into_serde_style" =>
+                        {
+                            Ok(true)
+                        }
+                        nested => Err(nested.error("expected `map_err_into_serde_style`")),
+                    },
+                    _ => Err(nested.error("expected 0 or 1 element")),
+                })
+            }
+            Meta::Word(ident) | Meta::NameValue(MetaNameValue { ident, .. })
+                if ident == "deserialize_as_string" =>
+            {
+                Some(Err(meta.error("expected list")))
+            }
+            _ => None,
+        })
+        .collect::<syn::Result<Vec<_>>>());
+
+    let map_err_into_serde_style = if map_err_into_serde_style.len() > 1 {
+        return ident.compile_error("multiple `deserialize_as_string`s");
+    } else {
+        convert::identity(map_err_into_serde_style).pop()
+    };
+
+    let map_err_into_serde_style = if map_err_into_serde_style.unwrap_or(false) {
+        static ERR_MSG: &str = "must be unit enum when `map_err_into_serde_style` specified";
+
+        let variants = try_syn!(match &data {
+            Data::Struct(data) => Err(data.struct_token.error(ERR_MSG)),
+            Data::Union(data) => Err(data.union_token.error(ERR_MSG)),
+            Data::Enum(data) => data
+                .variants
+                .iter()
+                .map(|variant| match &variant.fields {
+                    Fields::Unit => {
+                        let variant_ident = &variant.ident;
+                        Ok(quote!(#ident::#variant_ident))
+                    }
+                    fields => Err(fields.error(ERR_MSG)),
+                })
+                .collect::<syn::Result<Vec<_>>>(),
+        });
+
+        let mut fmt = "unknown variant `{}`, expected ".to_owned();
+        match variants.len() {
+            1 => fmt += "{}",
+            2 => fmt += "{} or {}",
+            n => {
+                fmt += "one of ";
+                fmt += &(0..n).map(|_| "`{}`").join(", ");
+            }
+        }
+
+        Some(quote! {
+            let r = ::std::result::Result::map_err(r, |_| ::std::format!(#fmt, s, #(#variants, )*));
+        })
+    } else {
+        None
+    };
+
+    quote!(
+        impl<'de> ::serde::Deserialize<'de> for #ident {
+            fn deserialize<D: ::serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> ::std::result::Result<Self, D::Error> {
+                let s = <::std::string::String as ::serde::Deserialize>::deserialize(deserializer)?;
+                let r = <Self as ::std::str::FromStr>::from_str(&s);
+                #map_err_into_serde_style
+                ::std::result::Result::map_err(r, ::serde::de::Error::custom)
+            }
+        }
+    )
+    .into()
+}
+
+fn find_attr(meta: &Meta, attr: &'static str) -> Option<Span> {
+    match meta {
+        Meta::Word(ident) | Meta::NameValue(MetaNameValue { ident, .. }) => {
+            if ident == attr {
+                Some(ident.span())
+            } else {
+                None
+            }
+        }
+        Meta::List(list) => list
+            .nested
+            .iter()
+            .flat_map(|m| match m {
+                NestedMeta::Meta(m) => find_attr(m, attr),
+                NestedMeta::Literal(Lit::Str(s)) if s.value() == attr => Some(s.span()),
+                NestedMeta::Literal(_) => None,
+            })
+            .next(),
+    }
+}
+
+trait SpannedExt {
+    fn error(&self, mes: impl fmt::Display) -> syn::Error;
+
+    fn compile_error(&self, mes: impl fmt::Display) -> proc_macro::TokenStream {
+        self.error(mes).to_compile_error().into()
+    }
+}
+
+impl<T: Spanned> SpannedExt for T {
+    fn error(&self, mes: impl fmt::Display) -> syn::Error {
+        syn::Error::new(self.span(), mes)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum CaseConversion {
+    Lower,
+    Snake,
+    Kebab,
+}
+
+impl FromStr for CaseConversion {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> std::result::Result<Self, &'static str> {
+        match s {
+            "lowercase" => Ok(CaseConversion::Lower),
+            "snake_case" => Ok(CaseConversion::Snake),
+            "kebab-case" => Ok(CaseConversion::Kebab),
+            _ => Err(r#"valid values: ["lowercase", snake_case", "kebab-case"]"#),
+        }
+    }
 }

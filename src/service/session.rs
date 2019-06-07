@@ -1,37 +1,45 @@
-use crate::errors::{FileResult, ServiceError, ServiceErrorKind, ServiceResult};
+use crate::errors::{
+    FileError, FileErrorKind, FileResult, PseudoReqwestError, PseudoReqwestResult, ServiceError,
+    ServiceErrorKind, ServiceResult,
+};
 use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
 use crate::service::session::owned_robots::OwnedRobots;
+use crate::service::USER_AGENT;
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::util::collections::NonEmptyIndexSet;
 use crate::util::indexmap::IndexSetAsRefStrExt as _;
 
-use cookie::CookieJar;
-use derive_new::new;
-use failure::{Fail as _, Fallible, ResultExt as _};
+use cookie_store::CookieStore;
+use failure::{Fail, ResultExt as _};
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
+use http::{HttpTryFrom, Uri};
 use if_chain::if_chain;
 use indexmap::IndexSet;
+use itertools::Itertools as _;
 use maplit::hashmap;
 use mime::Mime;
-use reqwest::header::{self, HeaderValue};
+use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::r#async::Decoder;
 use reqwest::{Method, StatusCode};
+use robots_txt::{Robots, SimpleMatcher};
 use scraper::Html;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use termcolor::WriteColor;
 use tokio::runtime::Runtime;
-use url::{Host, Url};
+use url::Url;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::fmt::{self, Write as _};
-use std::io::{self, Write as _};
-use std::mem;
+use std::io::{self, BufReader, Write as _};
+use std::marker::PhantomData;
 use std::ops::Deref;
+use std::{cmp, mem};
 
-pub(super) trait Session {
+pub(super) trait Session: Sized {
     type Stdin: Input;
     type Stderr: WriteColor + HasTermProps;
 
@@ -53,12 +61,6 @@ pub(super) trait Session {
 
     fn api_token(&mut self) -> &mut LazyLockedFile {
         &mut self.state_mut().api_token
-    }
-
-    /// If `url` starts with '/' and the base host is present, returns
-    /// http(s)://<host><url>.
-    fn resolve_url(&self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<Url> {
-        url.with(self.state_ref().url_base.as_ref())
     }
 
     fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
@@ -100,8 +102,8 @@ pub(super) trait Session {
 
     /// Opens `url`, which is relative or absolute, with default browser
     /// printing a message.
-    fn open_in_browser(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<()> {
-        let url = self.resolve_url(url)?;
+    fn open_in_browser(&mut self, url: impl ParseWithBaseUrl) -> ServiceResult<()> {
+        let url = url.parse_with_base_url(self.state_ref().base_url)?;
         writeln!(self.stderr(), "Opening {} in default browser...", url)?;
         self.stderr().flush()?;
         let status = webbrowser::open(url.as_str())?.status;
@@ -112,46 +114,119 @@ pub(super) trait Session {
         }
     }
 
-    /// Whether it has any cookie value.
+    /// Whether it has any **unexpired** cookie.
     fn has_cookie(&self) -> bool {
         self.state_ref()
-            .cookie_jar
+            .cookie_store
             .as_ref()
-            .map_or(false, |j| j.inner.iter().next().is_some())
+            .map_or(false, |s| s.store.iter_unexpired().next().is_some())
     }
 
-    fn cookies_to_header_value(&self) -> ServiceResult<Option<HeaderValue>> {
+    fn cookies_to_header_value(&self, url: &Url) -> Option<HeaderValue> {
         self.state_ref()
-            .cookie_jar
+            .cookie_store
             .as_ref()
-            .map(AutosavedCookieJar::to_header_value)
-            .transpose()
+            .and_then(|s| s.to_header_value(url))
     }
 
-    fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> ServiceResult<()> {
-        if let Some(jar) = &mut self.state_mut().cookie_jar {
-            jar.insert_cookie(cookie)?;
+    fn insert_cookie(&mut self, cookie: &cookie::Cookie, url: &Url) -> ServiceResult<()> {
+        if let Some(store) = &mut self.state_mut().cookie_store {
+            store.insert_cookie(cookie, url)?;
         }
         Ok(())
     }
 
     /// Removes all cookies.
     fn clear_cookies(&mut self) -> ServiceResult<()> {
-        if let Some(jar) = &mut self.state_mut().cookie_jar {
-            jar.inner = CookieJar::new();
-            jar.save()?;
+        if let Some(store) = &mut self.state_mut().cookie_store {
+            store.clear()?;
         }
         Ok(())
     }
 
-    fn get(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> self::Request<&mut Self::Stderr> {
-        self.state_mut()
-            .request(url, Method::GET, vec![StatusCode::OK])
+    fn get(&mut self, url: impl ParseWithBaseUrl) -> self::Request<&mut Self, Get> {
+        self.request::<Get, _>(url, vec![StatusCode::OK])
     }
 
-    fn post(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> self::Request<&mut Self::Stderr> {
-        self.state_mut()
-            .request(url, Method::POST, vec![StatusCode::FOUND])
+    fn post(&mut self, url: impl ParseWithBaseUrl) -> self::Request<&mut Self, Post> {
+        self.request::<Post, _>(url, vec![StatusCode::FOUND])
+    }
+
+    fn request<M: StaticMethod, U: ParseWithBaseUrl>(
+        &mut self,
+        url: U,
+        acceptable: Vec<StatusCode>,
+    ) -> self::Request<&mut Self, M> {
+        self::Request {
+            inner: url
+                .parse_with_base_url(self.state_ref().base_url)
+                .and_then(|url| {
+                    self.state_mut().assert_not_forbidden_by_robots_txt(&url)?;
+                    Ok(RequestInner {
+                        inner: RequestBuilderBuilder::new::<M>(self.client(), url),
+                        eprint: !self.state_ref().http_silent,
+                        acceptable,
+                        redirect_unlimited: false,
+                        retries_on_get: self.state_ref().retries_on_get,
+                    })
+                }),
+            session: self,
+            phantom: PhantomData,
+        }
+    }
+
+    fn retry_recv_text(&mut self, res: self::Response<Get>) -> ServiceResult<String> {
+        self.retry_recv(res, |res, rt| res.text(rt))
+    }
+
+    fn retry_recv_html(&mut self, res: self::Response<Get>) -> ServiceResult<Html> {
+        self.retry_recv(res, |res, rt| res.html(rt))
+    }
+
+    fn retry_recv_json<T: DeserializeOwned + Send + Sync + 'static>(
+        &mut self,
+        res: self::Response<Get>,
+    ) -> ServiceResult<T> {
+        self.retry_recv(res, |res, rt| res.json(rt))
+    }
+
+    fn retry_recv<
+        R,
+        F: for<'a, 'b> FnMut(&'a mut self::Response<Get>, &'b mut Runtime) -> ServiceResult<R>,
+    >(
+        &mut self,
+        mut res: self::Response<Get>,
+        mut f: F,
+    ) -> ServiceResult<R> {
+        f(&mut res, self.runtime()).or_else(|err| {
+            res.req.retries_on_get = cmp::max(res.req.retries_on_get, 1) - 1;
+            while res.req.retries_on_get > 0 {
+                res = self::Request::<_, Get> {
+                    inner: Ok(res.req),
+                    session: &mut *self,
+                    phantom: PhantomData,
+                }
+                .retry_send()?;
+                match f(&mut res, self.runtime()) {
+                    Ok(ret) => return Ok(ret),
+                    Err(_) => {
+                        res.req.retries_on_get = cmp::max(res.req.retries_on_get, 1) - 1;
+                    }
+                }
+            }
+            Err(err)
+        })
+    }
+
+    fn recv_html(&mut self, mut res: self::Response<Post>) -> ServiceResult<Html> {
+        res.html(self.runtime())
+    }
+
+    fn recv_json<T: DeserializeOwned + Send + Sync + 'static>(
+        &mut self,
+        mut res: self::Response<Post>,
+    ) -> ServiceResult<T> {
+        res.json(self.runtime())
     }
 
     fn warn_not_found(
@@ -180,9 +255,10 @@ pub(super) struct State<I: Input, E: WriteColor + HasTermProps> {
     runtime: Runtime,
     client: reqwest::r#async::Client,
     robots: HashMap<String, OwnedRobots>,
-    cookie_jar: Option<AutosavedCookieJar>,
+    cookie_store: Option<AutosavedCookieStore>,
     api_token: LazyLockedFile,
-    url_base: Option<UrlBase>,
+    base_url: Option<&'static Url>,
+    retries_on_get: u32,
     http_silent: bool,
 }
 
@@ -194,103 +270,74 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
             runtime,
             robots,
             client,
-            url_base,
+            base_url,
             cookies_path,
             api_token_path,
+            retries_on_get,
             http_silent,
         } = args;
 
-        let host = url_base.as_ref().map(|base| base.host.clone());
         let mut this = Self {
             stdin,
             stderr,
             runtime,
             client,
             robots: hashmap!(),
-            cookie_jar: cookies_path.map(AutosavedCookieJar::try_new).transpose()?,
+            cookie_store: cookies_path
+                .map(AutosavedCookieStore::try_new)
+                .transpose()?,
             api_token: match api_token_path {
                 None => LazyLockedFile::Null,
                 Some(path) => LazyLockedFile::Uninited(path.to_owned()),
             },
-            url_base,
+            base_url,
+            retries_on_get,
             http_silent,
         };
         if robots {
-            if let Some(host) = host {
-                let mut res = this
+            if let Some(host) = base_url.and_then(Url::host_str) {
+                let res = this
                     .get("/robots.txt")
-                    .acceptable(&[200, 301, 302, 404])
-                    .send()?;
-                while [301, 302, 404].contains(&res.status().as_u16()) {
-                    if let Some(location) =
-                        res.headers().get(header::LOCATION).map(ToOwned::to_owned)
-                    {
-                        let location = location
-                            .to_str()
-                            .with_context(|_| ServiceErrorKind::ReadHeader(header::LOCATION))?;
-                        res = this
-                            .get(location)
-                            .acceptable(&[200, 301, 302, 404])
-                            .send()?;
-                    } else {
-                        return Ok(this);
-                    }
-                }
-                match res.status() {
-                    StatusCode::OK => {
-                        let txt = res.text(&mut this.runtime)?;
-                        this.robots.insert(host.to_string(), OwnedRobots::new(txt));
-                    }
-                    StatusCode::NOT_FOUND => (),
-                    _ => unreachable!(),
+                    .acceptable(&[200, 404])
+                    .redirect_unlimited()
+                    .retry_send()?;
+                if res.status() == 200 {
+                    let robots = OwnedRobots::new(
+                        this.retry_recv_text(res)?,
+                        |s| Robots::from_str(s),
+                        |robots| SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules),
+                    );
+                    this.robots.insert(host.to_string(), robots);
                 }
             }
         }
         Ok(this)
     }
 
-    fn request<'a>(
-        &'a mut self,
-        url: impl IntoRelativeOrAbsoluteUrl,
-        method: Method,
-        acceptable: Vec<StatusCode>,
-    ) -> self::Request<'a, &'a mut E> {
-        self::Request {
-            inner: self.try_request(url, method),
-            stderr: if self.http_silent {
-                None
-            } else {
-                Some(&mut self.stderr)
-            },
-            runtime: &mut self.runtime,
-            client: &self.client,
-            cookie_jar: self.cookie_jar.as_mut(),
-            acceptable,
-            no_cookie: false,
-        }
-    }
-
-    fn try_request(
-        &mut self,
-        url: impl IntoRelativeOrAbsoluteUrl,
-        method: Method,
-    ) -> ServiceResult<reqwest::r#async::RequestBuilder> {
-        let url = self.resolve_url(url)?;
-        self.assert_not_forbidden_by_robots_txt(&url)?;
-        Ok(self.client.request(method, url.as_str()))
-    }
-
     fn assert_not_forbidden_by_robots_txt(&self, url: &Url) -> ServiceResult<()> {
         if_chain! {
             if let Some(host) = url.host_str();
             if let Some(robots) = self.robots.get(host);
-            if !robots.check_path_for_ua(url.path());
+            if !robots.rent_matcher(|m| m.check_path(url.path()));
             then {
                 Err(ServiceErrorKind::ForbiddenByRobotsTxt.into())
             } else {
                 Ok(())
             }
         }
+    }
+}
+
+impl<'a, S: Session> Session for &'a mut S {
+    type Stdin = S::Stdin;
+    type Stderr = S::Stderr;
+
+    fn state_ref(&self) -> &State<S::Stdin, S::Stderr> {
+        (**self).state_ref()
+    }
+
+    fn state_mut(&mut self) -> &mut State<S::Stdin, S::Stderr> {
+        (**self).state_mut()
     }
 }
 
@@ -314,161 +361,435 @@ pub(super) struct StateStartArgs<'a, I: Input, E: WriteColor + HasTermProps> {
     pub(super) runtime: Runtime,
     pub(super) robots: bool,
     pub(super) client: reqwest::r#async::Client,
-    pub(super) url_base: Option<UrlBase>,
+    pub(super) base_url: Option<&'static Url>,
     pub(super) cookies_path: Option<&'a AbsPath>,
     pub(super) api_token_path: Option<&'a AbsPath>,
+    pub(super) retries_on_get: u32,
     pub(super) http_silent: bool,
 }
 
 #[derive(Debug)]
-pub(super) struct Request<'a, E: WriteColor> {
-    inner: ServiceResult<reqwest::r#async::RequestBuilder>,
-    stderr: Option<E>,
-    runtime: &'a mut Runtime,
-    client: &'a reqwest::r#async::Client,
-    cookie_jar: Option<&'a mut AutosavedCookieJar>,
-    acceptable: Vec<StatusCode>,
-    no_cookie: bool,
+pub(super) struct Request<S: Session, M: StaticMethod> {
+    inner: ServiceResult<RequestInner>,
+    session: S,
+    phantom: PhantomData<fn() -> M>,
 }
 
-impl<'a, E: WriteColor> Request<'a, E> {
+impl<S: Session, M: StaticMethod> Request<S, M> {
     pub(super) fn basic_auth(
-        self,
+        mut self,
         username: impl fmt::Display,
         password: Option<impl fmt::Display>,
     ) -> Self {
-        Self {
-            inner: self.inner.map(|inner| inner.basic_auth(username, password)),
-            ..self
-        }
+        self.inner = self.inner.and_then(|mut inner| {
+            inner.inner = inner.inner.basic_auth(username, password)?;
+            Ok(inner)
+        });
+        self
     }
 
-    pub(super) fn bearer_auth(self, token: impl fmt::Display) -> Self {
-        Self {
-            inner: self.inner.map(|inner| inner.bearer_auth(token)),
-            ..self
-        }
+    pub(super) fn bearer_auth(mut self, token: impl fmt::Display) -> Self {
+        self.inner = self.inner.and_then(|mut inner| {
+            inner.inner = inner.inner.bearer_auth(token)?;
+            Ok(inner)
+        });
+        self
     }
 
+    /// # Panics:
+    ///
+    /// Panics if:
+    /// - `statuses` contains `n` such that `n < 100 || 600 <= n`
+    /// - `this.inner.redirect_unlimited` is `true` where `Ok(this) = self`
+    pub(super) fn acceptable(mut self, statuses: &'static [u16]) -> Self {
+        if let Ok(inner) = &mut self.inner {
+            if inner.redirect_unlimited {
+                panic!("`redirect_unlimited` is `true`");
+            }
+            inner.acceptable = statuses
+                .iter()
+                .map(|&n| StatusCode::from_u16(n))
+                .collect::<std::result::Result<_, _>>()
+                .unwrap();
+        }
+        self
+    }
+
+    /// # Panics:
+    ///
+    /// Panics if `this.inner.acceptable` contains any 3xx status code where `Ok(this) = self`.
+    pub(super) fn redirect_unlimited(mut self) -> Self {
+        if let Ok(inner) = &mut self.inner {
+            if inner.acceptable.iter().any(|s| s.is_redirection()) {
+                panic!("`acceptable` contains 3xx status code(s)");
+            }
+            inner.redirect_unlimited = true;
+        }
+        self
+    }
+
+    fn send_internal(mut self, allow_retry: bool) -> ServiceResult<(S, self::Response<M>)> {
+        if_chain! {
+            if let Ok(inner) = &mut self.inner;
+            if let Some(store) = &self.session.state_ref().cookie_store;
+            if let Some(value) = store.to_header_value(&inner.inner.url);
+            then {
+                inner.inner.headers.insert(header::COOKIE, value);
+            }
+        }
+
+        let RequestInner {
+            mut inner,
+            eprint,
+            acceptable,
+            redirect_unlimited,
+            retries_on_get,
+        } = self.inner?;
+
+        let mut retries_on_get = if allow_retry { retries_on_get } else { 0 };
+
+        let st = self.session.state_mut();
+        let (rt, stderr, mut cookie_store) =
+            (&mut st.runtime, &mut st.stderr, st.cookie_store.as_mut());
+
+        loop {
+            if eprint {
+                stderr.set_color(color!(bold))?;
+                stderr.write_str(&inner.method)?;
+                stderr.write_str(" ")?;
+                stderr.set_color(color!(fg(Cyan), intense))?;
+                stderr.write_str(&inner.url)?;
+                stderr.reset()?;
+                stderr.write_str(" ... ")?;
+                stderr.flush()?;
+            }
+
+            let res = rt.block_on(WithCtrlC(inner.send()));
+            if let Err(err) = &res {
+                if eprint {
+                    stderr.set_color(color!(fg(Red), intense, bold))?;
+                    stderr.write_str(err.prompt())?;
+                    stderr.reset()?;
+                    writeln!(stderr)?;
+                    stderr.flush()?;
+                }
+                if inner.method == Method::GET && retries_on_get > 0 && err.is_http_or_timeout() {
+                    retries_on_get -= 1;
+                    continue;
+                }
+            }
+            let res = res?;
+
+            let is_redirect = redirect_unlimited && res.status().is_redirection();
+            let is_acceptable = is_redirect || acceptable.contains(&res.status());
+
+            if eprint {
+                if is_acceptable {
+                    stderr.set_color(color!(fg(Green), intense, bold))?;
+                } else {
+                    stderr.set_color(color!(fg(Red), intense, bold))?;
+                };
+                write!(stderr, "{}", res.status())?;
+                stderr.reset()?;
+                writeln!(stderr)?;
+                stderr.flush()?;
+            }
+
+            if let Some(cookie_store) = &mut cookie_store {
+                cookie_store.update(&res)?;
+            }
+
+            if is_redirect {
+                let loc = res.headers().get(header::LOCATION).and_then(|loc| {
+                    let loc = inner.url.join(loc.to_str().ok()?).ok()?;
+                    guard!(loc.as_str().parse::<Uri>().is_ok());
+                    Some(loc)
+                });
+                if let Some(loc) = loc {
+                    inner = inner.redirect(loc);
+                    continue;
+                }
+            }
+
+            if is_acceptable {
+                let req = RequestInner {
+                    inner,
+                    eprint,
+                    acceptable,
+                    redirect_unlimited,
+                    retries_on_get,
+                };
+                break Ok((self.session, self::Response::new(res, req)));
+            }
+
+            let retry_after = res
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok());
+
+            if inner.method == Method::GET
+                && retries_on_get > 0
+                && res.status().is_server_error()
+                && retry_after.is_none()
+            {
+                retries_on_get -= 1;
+                continue;
+            }
+
+            let err = ServiceErrorKind::UnexpectedStatusCode(
+                res.url().to_owned(),
+                res.status(),
+                acceptable,
+            );
+
+            break Err(if let Some(retry_after) = retry_after {
+                let msg = format!("The response contains `Retry-After: {}`", retry_after);
+                failure::err_msg(msg).context(err).into()
+            } else {
+                err.into()
+            });
+        }
+    }
+}
+
+impl<S: Session> Request<S, Get> {
+    pub(super) fn retry_send(self) -> ServiceResult<self::Response<Get>> {
+        self.send_internal(true).map(|(_, res)| res)
+    }
+
+    pub(super) fn retry_status(self) -> ServiceResult<StatusCode> {
+        self.send_internal(true).map(|(_, res)| res.status())
+    }
+
+    pub(super) fn retry_recv_html(self) -> ServiceResult<Html> {
+        let (mut sess, res) = self.send_internal(true)?;
+        sess.retry_recv_html(res)
+    }
+
+    pub(super) fn retry_recv_json<T: DeserializeOwned + Send + Sync + 'static>(
+        self,
+    ) -> ServiceResult<T> {
+        let (mut sess, res) = self.send_internal(true)?;
+        sess.retry_recv_json(res)
+    }
+}
+
+impl<S: Session> Request<S, Post> {
     pub(super) fn form(mut self, form: &(impl Serialize + ?Sized)) -> Self {
-        self.inner = self.inner.map(|inner| inner.form(form));
+        self.inner = self.inner.and_then(|mut inner| {
+            inner.inner = inner.inner.form(form)?;
+            Ok(inner)
+        });
         self
     }
 
     pub(super) fn json(mut self, json: &(impl Serialize + ?Sized)) -> Self {
-        self.inner = self.inner.map(|inner| inner.json(json));
+        self.inner = self.inner.and_then(|mut inner| {
+            inner.inner = inner.inner.json(json)?;
+            Ok(inner)
+        });
         self
     }
 
-    /// Panics:
-    ///
-    /// Panics if `statuses` contains `n` such that `n < 100 || 600 <= n`.
-    pub(super) fn acceptable(self, statuses: &'static [u16]) -> Self {
-        let acceptable = statuses
-            .iter()
-            .map(|&n| StatusCode::from_u16(n))
-            .collect::<std::result::Result<_, _>>()
-            .unwrap();
-        Self { acceptable, ..self }
-    }
-
-    pub(super) fn no_cookie(mut self) -> Self {
-        self.no_cookie = true;
+    pub(super) fn multipart(mut self, form: self::FormBuilder) -> Self {
+        self.inner = self.inner.map(|mut inner| {
+            inner.inner = inner.inner.multipart(form);
+            inner
+        });
         self
     }
 
-    pub(super) fn send(self) -> ServiceResult<self::Response> {
-        self.send_internal().map(|(r, _)| r)
-    }
-
-    fn send_internal(mut self) -> ServiceResult<(self::Response, &'a mut Runtime)> {
-        let mut req = self.inner?;
-        if !self.no_cookie {
-            if let Some(jar) = self.cookie_jar.as_ref() {
-                req = req.header(header::COOKIE, jar.to_header_value()?);
-            }
-        }
-        let req = req.build()?;
-        let client = self.client;
-        let runtime = self.runtime;
-        if let Some(stderr) = &mut self.stderr {
-            req.echo_method(stderr)?;
-        }
-        let fut = client
-            .execute(req)
-            .map_err(ServiceError::from)
-            .select(crate::signal::ctrl_c())
-            .map(|(r, _)| r)
-            .map_err(|(e, _)| e);
-        let res = match runtime.block_on(fut) {
-            Ok(res) => Ok(res),
-            Err(err) => {
-                if let Some(stderr) = &mut self.stderr {
-                    writeln!(stderr)?;
-                    stderr.flush()?;
-                }
-                Err(err)
-            }
-        }?;
-        if let Some(stderr) = &mut self.stderr {
-            res.echo_status(&self.acceptable, stderr)?;
-        }
-        if !self.no_cookie {
-            if let Some(jar) = &mut self.cookie_jar {
-                jar.update(&res)?;
-            }
-        }
-        let inner = res.filter_by_status(self.acceptable)?;
-        Ok((self::Response(inner), runtime))
-    }
-
-    pub(super) fn send_form(
-        self,
-        form: &(impl Serialize + ?Sized),
-    ) -> ServiceResult<self::Response> {
-        self.form(form).send()
-    }
-
-    pub(super) fn send_multipart(
-        mut self,
-        form: reqwest::r#async::multipart::Form,
-    ) -> ServiceResult<self::Response> {
-        self.inner = self.inner.map(|inner| inner.multipart(form));
-        self.send()
-    }
-
-    pub(super) fn recv_html(self) -> ServiceResult<Html> {
-        let (res, runtime) = self.send_internal()?;
-        res.html(runtime)
-    }
-
-    pub(super) fn recv_json<T: DeserializeOwned + Send + Sync + 'static>(self) -> ServiceResult<T> {
-        let (res, runtime) = self.send_internal()?;
-        res.json(runtime)
+    pub(super) fn send(self) -> ServiceResult<self::Response<Post>> {
+        self.send_internal(false).map(|(_, res)| res)
     }
 
     pub(super) fn status(self) -> ServiceResult<StatusCode> {
-        self.send_internal().map(|(r, _)| r.status())
+        self.send_internal(false).map(|(_, res)| res.status())
+    }
+
+    pub(super) fn recv_json<T: DeserializeOwned + Send + Sync + 'static>(self) -> ServiceResult<T> {
+        let (mut sess, res) = self.send_internal(false)?;
+        sess.recv_json(res)
     }
 }
 
 #[derive(Debug)]
-pub(super) struct Response(reqwest::r#async::Response);
+struct RequestInner {
+    inner: RequestBuilderBuilder,
+    eprint: bool,
+    acceptable: Vec<StatusCode>,
+    redirect_unlimited: bool,
+    retries_on_get: u32,
+}
 
-impl Response {
-    pub(super) fn header_location(&self) -> ServiceResult<Option<&str>> {
+/// A builder that can construct a `reqwest::async::RequestBuilder` any number of times.
+#[derive(Debug)]
+struct RequestBuilderBuilder {
+    client: reqwest::r#async::Client,
+    method: Method,
+    url: Url,
+    headers: HeaderMap,
+    body: self::Body,
+}
+
+impl RequestBuilderBuilder {
+    fn new<M: StaticMethod>(client: reqwest::r#async::Client, url: Url) -> Self {
+        Self {
+            client,
+            method: M::value(),
+            url,
+            headers: HeaderMap::new(),
+            body: self::Body::None,
+        }
+    }
+
+    fn header<V>(mut self, key: HeaderName, value: V) -> PseudoReqwestResult<Self>
+    where
+        HeaderValue: HttpTryFrom<V>,
+    {
+        let value = <HeaderValue as HttpTryFrom<_>>::try_from(value)
+            .map_err(|e| PseudoReqwestError::new(self.url.clone(), e.into()))?;
+        self.headers.insert(key, value);
+        Ok(self)
+    }
+
+    fn basic_auth<U: fmt::Display, P: fmt::Display>(
+        self,
+        username: U,
+        password: Option<P>,
+    ) -> PseudoReqwestResult<Self> {
+        let auth = match password {
+            None => format!("{}:", username),
+            Some(p) => format!("{}:{}", username, p),
+        };
+        let auth = base64::encode(&auth);
+        self.header(header::AUTHORIZATION, format!("Basic {}", auth))
+    }
+
+    fn bearer_auth<T: fmt::Display>(self, token: T) -> PseudoReqwestResult<Self> {
+        self.header(header::AUTHORIZATION, format!("Bearer {}", token))
+    }
+
+    fn form<T: Serialize + ?Sized>(mut self, form: &T) -> PseudoReqwestResult<Self> {
+        self.headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/x-www-form-urlencoded"),
+        );
+        let form = serde_urlencoded::to_string(form)
+            .map_err(|e| PseudoReqwestError::new(self.url.clone(), e))?;
+        self.body = self::Body::Serialized(form);
+        Ok(self)
+    }
+
+    fn json<T: Serialize + ?Sized>(mut self, json: &T) -> PseudoReqwestResult<Self> {
+        self.headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        let json = serde_json::to_string(json)
+            .map_err(|e| PseudoReqwestError::new(self.url.clone(), e))?;
+        self.body = self::Body::Serialized(json);
+        Ok(self)
+    }
+
+    fn multipart(mut self, multipart: FormBuilder) -> Self {
+        self.body = self::Body::Multipart(multipart);
+        self
+    }
+
+    fn redirect(mut self, url: Url) -> Self {
+        if (self.url.host(), self.url.port_or_known_default())
+            != (url.host(), url.port_or_known_default())
+        {
+            // Removes sensitive headers as `reqwest` does.
+            self.headers.remove(header::AUTHORIZATION);
+            self.headers.remove(header::COOKIE);
+            self.headers.remove("cookie2");
+            self.headers.remove(header::PROXY_AUTHORIZATION);
+            self.headers.remove(header::WWW_AUTHENTICATE);
+        }
+        self.method = Method::GET;
+        self.url = url;
+        self.body = self::Body::None;
+        self
+    }
+
+    fn send(&self) -> impl Future<Item = reqwest::r#async::Response, Error = reqwest::Error> {
+        let mut req = self
+            .client
+            .request(self.method.clone(), self.url.clone())
+            .headers(self.headers.clone());
+        match &self.body {
+            self::Body::None => {}
+            self::Body::Serialized(s) => req = req.body(s.clone()),
+            self::Body::Multipart(f) => req = req.multipart(f.build()),
+        };
+        req.send()
+    }
+}
+
+#[derive(Debug)]
+enum Body {
+    None,
+    Serialized(String),
+    Multipart(FormBuilder),
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct FormBuilder(Vec<(Cow<'static, str>, Cow<'static, str>)>);
+
+impl FormBuilder {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn text<T: Into<Cow<'static, str>>, U: Into<Cow<'static, str>>>(
+        mut self,
+        name: T,
+        value: U,
+    ) -> Self {
+        self.0.push((name.into(), value.into()));
+        self
+    }
+
+    fn build(&self) -> reqwest::r#async::multipart::Form {
+        let mut ret = reqwest::r#async::multipart::Form::new();
+        for (key, value) in &self.0 {
+            ret = ret.text(key.clone(), value.clone());
+        }
+        ret
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct Response<M: StaticMethod> {
+    inner: reqwest::r#async::Response,
+    req: RequestInner,
+    phantom: PhantomData<fn() -> M>,
+}
+
+impl<M: StaticMethod> Response<M> {
+    fn new(inner: reqwest::r#async::Response, req: RequestInner) -> Self {
+        Self {
+            inner,
+            req,
+            phantom: PhantomData,
+        }
+    }
+
+    pub(super) fn location_uri(&self) -> ServiceResult<Option<Uri>> {
+        fn ctx(err: impl Fail) -> ServiceError {
+            err.context(ServiceErrorKind::ReadHeader(header::LOCATION))
+                .into()
+        }
+
         self.headers()
             .get(header::LOCATION)
-            .map(|location| {
-                location.to_str().map_err(|e| {
-                    e.context(ServiceErrorKind::ReadHeader(header::LOCATION))
-                        .into()
-                })
-            })
+            .map(|loc| loc.to_str().map_err(ctx)?.parse().map_err(ctx))
             .transpose()
     }
 
-    fn text(mut self, runtime: &mut Runtime) -> ServiceResult<String> {
+    fn text(&mut self, runtime: &mut Runtime) -> ServiceResult<String> {
         struct BufDecoder {
             decoder: Decoder,
             buf: Vec<u8>,
@@ -479,6 +800,8 @@ impl Response {
             type Error = ServiceError;
 
             fn poll(&mut self) -> Poll<Vec<u8>, ServiceError> {
+                crate::signal::check_ctrl_c()?;
+
                 if let Some(chunk) = try_ready!(self.decoder.poll()) {
                     self.buf.extend(chunk);
                     task::current().notify();
@@ -489,266 +812,288 @@ impl Response {
             }
         }
 
-        let content_type = self
-            .0
+        let encoding = self
             .headers()
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse::<Mime>().ok());
-        let encoding = content_type
-            .as_ref()
-            .and_then(|mime| mime.get_param("charset"));
+            .and_then(|v| v.parse::<Mime>().ok())
+            .and_then(|m| m.get_param("charset").map(|m| m.as_str().to_owned()));
+
         if let Some(encoding) = &encoding {
-            if *encoding != "utf-8" {
-                let encoding = encoding.as_str().to_owned();
-                return Err(ServiceErrorKind::NonUtf8Content(Some(encoding)).into());
+            if encoding != "utf-8" {
+                return Err(ServiceErrorKind::NonUtf8Content(Some(encoding.clone())).into());
             }
         }
-        let cap = self
-            .0
-            .headers()
-            .get(header::CONTENT_LENGTH)
-            .and_then(|s| s.to_str().ok())
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(0);
-        let buf = Vec::with_capacity(cap);
-        let decoder = mem::replace(self.0.body_mut(), Decoder::empty());
-        let fut = BufDecoder { decoder, buf }.select(crate::signal::ctrl_c());
-        let content = runtime.block_on(fut).map(|(x, _)| x).map_err(|(e, _)| e)?;
-        String::from_utf8(content).map_err(|e| {
-            let encoding = encoding.map(|e| e.as_str().to_owned());
-            e.context(ServiceErrorKind::NonUtf8Content(encoding)).into()
-        })
+
+        let buf = Vec::with_capacity(self.content_length().map(|n| n + 1).unwrap_or(1024) as usize);
+        let decoder = mem::replace(self.inner.body_mut(), Decoder::empty());
+        let content = runtime.block_on(BufDecoder { decoder, buf })?;
+        String::from_utf8(content)
+            .map_err(|e| e.context(ServiceErrorKind::NonUtf8Content(encoding)).into())
     }
 
-    pub(super) fn html(self, runtime: &mut Runtime) -> ServiceResult<Html> {
+    fn html(&mut self, runtime: &mut Runtime) -> ServiceResult<Html> {
         let text = self.text(runtime)?;
         Ok(Html::parse_document(&text))
     }
 
-    pub(super) fn json<T: DeserializeOwned + Send + Sync + 'static>(
-        mut self,
+    fn json<T: DeserializeOwned + Send + Sync + 'static>(
+        &mut self,
         runtime: &mut Runtime,
     ) -> ServiceResult<T> {
-        let fut = self
-            .0
-            .json()
-            .map_err(ServiceError::from)
-            .select(crate::signal::ctrl_c::<T, _>());
-        runtime.block_on(fut).map(|(x, _)| x).map_err(|(e, _)| e)
+        runtime
+            .block_on(WithCtrlC(self.inner.json()))
+            .map_err(Into::into)
     }
 }
 
-impl Deref for Response {
+impl TryFrom<Response<Post>> for Response<Get> {
+    type Error = ();
+
+    fn try_from(res: Response<Post>) -> std::result::Result<Self, ()> {
+        if res.req.inner.method == Method::GET {
+            Ok(Self {
+                inner: res.inner,
+                req: res.req,
+                phantom: PhantomData,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl<M: StaticMethod> Deref for Response<M> {
     type Target = reqwest::r#async::Response;
 
     fn deref(&self) -> &reqwest::r#async::Response {
-        &self.0
+        &self.inner
     }
 }
 
-trait RequestExt {
-    fn echo_method(&self, out: impl WriteColor) -> io::Result<()>;
+// `'static` is necessary?
+pub(crate) trait StaticMethod: 'static {
+    fn value() -> Method;
 }
 
-impl RequestExt for reqwest::r#async::Request {
-    fn echo_method(&self, mut out: impl WriteColor) -> io::Result<()> {
-        out.set_color(color!(bold))?;
-        out.write_str(self.method())?;
-        out.write_str(" ")?;
-        out.set_color(color!(fg(Cyan), intense))?;
-        out.write_str(self.url())?;
-        out.reset()?;
-        out.write_str(" ... ")?;
-        out.flush()
-    }
-}
+#[derive(Debug)]
+pub(crate) enum Get {}
 
-trait ResponseExt: Sized {
-    fn echo_status(&self, expected_statuses: &[StatusCode], out: impl WriteColor)
-        -> io::Result<()>;
-    fn filter_by_status(self, expected: Vec<StatusCode>) -> ServiceResult<Self>;
-}
-
-impl ResponseExt for reqwest::r#async::Response {
-    fn echo_status(
-        &self,
-        expected_statuses: &[StatusCode],
-        mut out: impl WriteColor,
-    ) -> io::Result<()> {
-        if expected_statuses.contains(&self.status()) {
-            out.set_color(color!(fg(Green), intense, bold))?;
-        } else {
-            out.set_color(color!(fg(Red), intense, bold))?;
-        };
-        write!(out, "{}", self.status())?;
-        out.reset()?;
-        writeln!(out)?;
-        out.flush()
-    }
-
-    fn filter_by_status(self, expected: Vec<StatusCode>) -> ServiceResult<Self> {
-        if expected.is_empty() || expected.contains(&self.status()) {
-            Ok(self)
-        } else {
-            Err(ServiceErrorKind::UnexpectedStatusCode(
-                self.url().to_owned(),
-                self.status(),
-                expected,
-            )
-            .into())
-        }
-    }
-}
-
-#[derive(Debug, new)]
-pub(super) struct UrlBase {
-    host: Host<&'static str>,
-    https: bool,
-    port: Option<u16>,
-}
-
-pub(super) trait IntoRelativeOrAbsoluteUrl {
-    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url>;
-}
-
-impl IntoRelativeOrAbsoluteUrl for Url {
-    fn with(self, _: Option<&UrlBase>) -> ServiceResult<Url> {
-        Ok(self)
-    }
-}
-
-impl<'a> IntoRelativeOrAbsoluteUrl for &'a Url {
-    fn with(self, _: Option<&UrlBase>) -> ServiceResult<Url> {
-        Ok(self.clone())
-    }
-}
-
-impl<'a> IntoRelativeOrAbsoluteUrl for &'a str {
-    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url> {
-        let mut url = Cow::from(self);
-        if let Some(base) = base {
-            if url.starts_with('/') {
-                url = format!(
-                    "http{}://{}{}{}",
-                    if base.https { "s" } else { "" },
-                    base.host,
-                    match base.port {
-                        Some(port) => format!(":{}", port),
-                        None => "".to_owned(),
-                    },
-                    url,
-                )
-                .into();
-            }
-        }
-        Url::parse(&url).map_err(|e| {
-            e.context(ServiceErrorKind::ParseUrl(url.into_owned()))
-                .into()
-        })
-    }
-}
-
-impl<'a> IntoRelativeOrAbsoluteUrl for &'a String {
-    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url> {
-        self.as_str().with(base)
+impl StaticMethod for Get {
+    fn value() -> Method {
+        Method::GET
     }
 }
 
 #[derive(Debug)]
-struct AutosavedCookieJar {
-    file: LockedFile,
-    inner: CookieJar,
+pub(crate) enum Post {}
+
+impl StaticMethod for Post {
+    fn value() -> Method {
+        Method::POST
+    }
 }
 
-impl AutosavedCookieJar {
-    fn try_new(path: &AbsPath) -> ServiceResult<Self> {
-        let mut file = LockedFile::try_new(path)?;
-        let mut inner = CookieJar::new();
-        if_chain! {
-            if !file.is_empty()?;
-            let cookies = file.json::<Vec<String>>()?;
-            if !cookies.is_empty();
-            then {
-                for cookie in cookies {
-                    let cookie = cookie::Cookie::parse(cookie.clone()).with_context(|_| {
-                        ServiceErrorKind::ParseCookieFromPath(path.to_owned(), cookie)
-                    })?;
-                    inner.add(cookie);
-                }
-            } else {
-                file.write_json(&Vec::<String>::new())?;
-            }
+struct WithCtrlC<F: Future<Error = reqwest::Error>>(F);
+
+impl<F: Future<Error = reqwest::Error>> Future for WithCtrlC<F> {
+    type Item = F::Item;
+    type Error = ReqwestOrCtrlCError;
+
+    fn poll(&mut self) -> Poll<F::Item, ReqwestOrCtrlCError> {
+        crate::signal::check_ctrl_c().map_err(ReqwestOrCtrlCError::CtrlC)?;
+        self.0.poll().map_err(ReqwestOrCtrlCError::Reqwest)
+    }
+}
+
+#[derive(Debug)]
+enum ReqwestOrCtrlCError {
+    Reqwest(reqwest::Error),
+    CtrlC(io::Error),
+}
+
+impl ReqwestOrCtrlCError {
+    fn is_http_or_timeout(&self) -> bool {
+        match self {
+            ReqwestOrCtrlCError::Reqwest(e) => e.is_http() || e.is_timeout(),
+            ReqwestOrCtrlCError::CtrlC(_) => false,
         }
-        Ok(Self { file, inner })
     }
 
-    fn to_header_value(&self) -> ServiceResult<HeaderValue> {
-        let s = self.inner.iter().fold("".to_owned(), |mut s, cookie| {
-            if !s.is_empty() {
-                s.push_str(";");
-            }
-            write!(s, "{}={}", cookie.name(), cookie.value()).unwrap();
-            s
-        });
-        HeaderValue::from_str(&s)
-            .with_context(|_| ServiceErrorKind::ParseCookieFromPath(self.file.path().to_owned(), s))
+    fn prompt(&self) -> &'static str {
+        match self {
+            ReqwestOrCtrlCError::Reqwest(e) if e.is_http() => "<failed> (http)",
+            ReqwestOrCtrlCError::Reqwest(e) if e.is_timeout() => "<failed> (timeout)",
+            ReqwestOrCtrlCError::Reqwest(_) => "<failed>",
+            ReqwestOrCtrlCError::CtrlC(_) => "<ctrl-c>",
+        }
+    }
+}
+
+impl From<ReqwestOrCtrlCError> for ServiceError {
+    fn from(from: ReqwestOrCtrlCError) -> Self {
+        match from {
+            ReqwestOrCtrlCError::Reqwest(e) => e.into(),
+            ReqwestOrCtrlCError::CtrlC(e) => e.into(),
+        }
+    }
+}
+
+pub(super) trait ParseWithBaseUrl {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url>;
+}
+
+impl ParseWithBaseUrl for Url {
+    fn parse_with_base_url(self, _: Option<&Url>) -> ServiceResult<Url> {
+        Ok(self)
+    }
+}
+
+impl<'a> ParseWithBaseUrl for &'a Url {
+    fn parse_with_base_url(self, _: Option<&Url>) -> ServiceResult<Url> {
+        Ok(self.clone())
+    }
+}
+
+impl ParseWithBaseUrl for Uri {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url> {
+        self.to_string().parse_with_base_url(base)
+    }
+}
+
+impl<'a> ParseWithBaseUrl for &'a Uri {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url> {
+        self.to_string().parse_with_base_url(base)
+    }
+}
+
+impl ParseWithBaseUrl for String {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url> {
+        (*self).parse_with_base_url(base)
+    }
+}
+
+impl<'a> ParseWithBaseUrl for &'a String {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url> {
+        (**self).parse_with_base_url(base)
+    }
+}
+
+impl<'a> ParseWithBaseUrl for &'a str {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url> {
+        self.parse()
+            .or_else(|_| Url::options().base_url(base).parse(self))
+            .with_context(|_| ServiceErrorKind::ParseUrl(self.to_owned()))
             .map_err(Into::into)
     }
+}
 
-    fn insert_cookie(&mut self, cookie: cookie::Cookie<'static>) -> ServiceResult<()> {
-        self.inner.add(cookie);
+#[derive(Debug)]
+struct AutosavedCookieStore {
+    file: LockedFile,
+    store: CookieStore,
+}
+
+impl AutosavedCookieStore {
+    fn try_new(path: &AbsPath) -> FileResult<Self> {
+        let mut file = LockedFile::try_new(path)?;
+
+        let store = if file.is_empty()? {
+            CookieStore::default()
+        } else {
+            let array = file.json::<Vec<serde_json::Value>>()?;
+            let json_lines = array.iter().join("\n");
+            CookieStore::load_json(BufReader::new(json_lines.as_bytes()))
+                .with_context(|_| FileErrorKind::Read(path.to_owned()))
+                .map_err(FileError::from)?
+        };
+
+        Ok(Self { file, store })
+    }
+
+    fn to_header_value(&self, url: &Url) -> Option<HeaderValue> {
+        use percent_encoding::USERINFO_ENCODE_SET;
+
+        // https://github.com/seanmonstar/reqwest/pull/522
+        let header =
+            self.store
+                .get_request_cookies(url)
+                .fold("".to_owned(), |mut header, cookie| {
+                    let name = cookie.name().as_ref();
+                    let name = percent_encoding::percent_encode(name, USERINFO_ENCODE_SET);
+                    let value = cookie.value().as_ref();
+                    let value = percent_encoding::percent_encode(value, USERINFO_ENCODE_SET);
+                    if !header.is_empty() {
+                        header.push_str("; ");
+                    }
+                    write!(header, "{}={}", name, value).unwrap();
+                    header
+                });
+
+        guard!(!header.is_empty());
+        let result = header.parse();
+        debug_assert!(result.is_ok());
+        result.ok()
+    }
+
+    fn insert_cookie(&mut self, cookie: &cookie::Cookie, url: &Url) -> ServiceResult<()> {
+        self.store
+            .insert_raw(cookie, url)
+            .with_context(|_| ServiceErrorKind::InvalidCookie)?;
         self.save().map_err(Into::into)
     }
 
     fn update(&mut self, response: &reqwest::r#async::Response) -> ServiceResult<()> {
-        fn parse_setcookie(setcookie: &HeaderValue) -> Fallible<cookie::Cookie<'static>> {
-            let setcookie = setcookie.to_str()?;
-            let cookie = cookie::Cookie::parse(setcookie)?;
-            Ok(cookie.into_owned())
-        }
-
+        let mut inserted = false;
         for setcookie in response.headers().get_all(header::SET_COOKIE) {
-            let cookie = parse_setcookie(setcookie).with_context(|_| {
-                ServiceErrorKind::ParseCookieFromUrl(
-                    response.url().to_owned(),
-                    setcookie.to_owned(),
-                )
-            })?;
-            self.inner.add(cookie);
+            // Ignores invalid cookies as `reqwest` does.
+            if let Ok(cookie) = setcookie.to_str() {
+                inserted |= self.store.parse(cookie, response.url()).is_ok();
+            }
         }
+        if inserted {
+            self.save()?;
+        }
+        Ok(())
+    }
+
+    fn clear(&mut self) -> ServiceResult<()> {
+        self.store.clear();
         self.save().map_err(Into::into)
     }
 
     fn save(&mut self) -> FileResult<()> {
-        let value = self
-            .inner
-            .iter()
-            .map(ToString::to_string)
+        let array = self
+            .store
+            .iter_unexpired()
+            .filter(|c| c.is_persistent())
             .collect::<Vec<_>>();
-        self.file.write_json(&value)
+        self.file.write_json(&array).map_err(Into::into)
     }
 }
 
 mod owned_robots {
-    use crate::service::USER_AGENT;
-
     use robots_txt::{Robots, SimpleMatcher};
     use std::mem;
 
     /// **NOTE:** this is a self-referential struct.
     #[derive(Debug)]
     pub(super) struct OwnedRobots {
+        // https://github.com/rust-lang/rfcs/blob/master/text/1857-stabilize-drop-order.md
+        matcher: SimpleMatcher<'static>, // This `'static` is fake
+        robots: Robots<'static>,         // This `'static` is also fake
         string: String,                  // `String` is a `StableDeref`
-        robots: Robots<'static>,         // This `'static` is fake
-        matcher: SimpleMatcher<'static>, // This `'static` is also fake
     }
 
     impl OwnedRobots {
-        pub(super) fn new(string: String) -> Self {
+        pub(super) fn new(
+            string: String,
+            robots: for<'a> fn(&'a str) -> Robots<'a>,
+            matcher: for<'a, 'b> fn(&'a Robots<'b>) -> SimpleMatcher<'a>,
+        ) -> Self {
             unsafe {
-                let robots = Robots::from_str(&string);
-                let matcher = SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules);
+                let robots = robots(&string);
+                let matcher = matcher(&robots);
                 Self {
                     matcher: mem::transmute(matcher),
                     robots: mem::transmute(robots),
@@ -757,8 +1102,11 @@ mod owned_robots {
             }
         }
 
-        pub(super) fn check_path_for_ua(&self, path: &str) -> bool {
-            self.matcher.check_path(path)
+        pub(super) fn rent_matcher<R, F: for<'a, 'b> FnOnce(&'a SimpleMatcher<'b>) -> R>(
+            &self,
+            f: F,
+        ) -> R {
+            f(&self.matcher)
         }
     }
 }
@@ -769,11 +1117,12 @@ mod tests {
     use crate::fs::LazyLockedFile;
     use crate::path::{AbsPath, AbsPathBuf};
     use crate::service;
-    use crate::service::session::{Session, State, StateStartArgs, UrlBase};
+    use crate::service::session::{Session, State, StateStartArgs};
     use crate::terminal::{AnsiWithProps, Dumb, TtyOrPiped};
 
     use failure::Fallible;
     use futures::Future as _;
+    use http::Uri;
     use if_chain::if_chain;
     use maplit::hashmap;
     use once_cell::sync::Lazy;
@@ -782,12 +1131,11 @@ mod tests {
     use tempdir::TempDir;
     use termcolor::{Ansi, Color, ColorSpec, WriteColor};
     use tokio::runtime::Runtime;
-    use url::Host;
+    use url::Url;
     use warp::Filter;
 
     use std::convert::TryFrom as _;
     use std::io::{self, Empty, Write as _};
-    use std::net::Ipv4Addr;
     use std::{env, panic, str};
 
     #[test]
@@ -808,7 +1156,10 @@ mod tests {
         let robots_txt = warp::path("robots.txt")
             .and(filter_ua)
             .map(|| "User-agent: *\nDisallow: /sensitive");
-        let server = warp::serve(index.or(confirm_cookie).or(robots_txt));
+        let redirect = warp::path("redirect")
+            .and(filter_ua)
+            .map(|| warp::redirect(Uri::from_static("/")));
+        let server = warp::serve(index.or(confirm_cookie).or(robots_txt).or(redirect));
 
         let mut runtime = Runtime::new()?;
         runtime.spawn(server.bind(([127, 0, 0, 1], LOCALHOST_PORT)));
@@ -817,31 +1168,55 @@ mod tests {
         let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
 
         let result = panic::catch_unwind::<_, Fallible<()>>(|| {
+            static BASE_URL: Lazy<Url> = Lazy::new(|| {
+                format!("http://127.0.0.1:{}", LOCALHOST_PORT)
+                    .parse()
+                    .unwrap()
+            });
+
             let mut stderr = AnsiWithProps::new();
 
-            let url_base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
-            let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
+            let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies.json")).unwrap();
             let mut sess = State::start(StateStartArgs {
                 stdin: TtyOrPiped::Piped(io::empty()),
                 stderr: &mut stderr,
                 runtime: Runtime::new()?,
                 robots: true,
                 client: service::reqwest_async_client(None)?,
-                url_base: Some(url_base),
+                base_url: Some(&BASE_URL),
                 cookies_path: Some(&cookies),
                 api_token_path: None,
+                retries_on_get: 1,
                 http_silent: false,
             })?;
 
-            sess.get("/").send()?;
-            sess.get("/confirm-cookie").send()?;
-            sess.get("/nonexisting").acceptable(&[404]).send()?;
-            sess.get("/nonexisting").acceptable(&[]).send()?;
+            sess.get("/").retry_send()?;
+            sess.get("/confirm-cookie").retry_send()?;
+            sess.get("/redirect").redirect_unlimited().retry_send()?;
+            sess.get("/nonexisting").acceptable(&[404]).retry_send()?;
             if_chain! {
-                let err = sess.get("/sensitive").send().unwrap_err();
+                let err = sess.get("/nonexisting").retry_send().unwrap_err();
+                if let ServiceError::Context(ctx) = &err;
+                if let ServiceErrorKind::UnexpectedStatusCode(
+                    url,
+                    StatusCode::NOT_FOUND,
+                    expected,
+                ) = ctx.get_context();
+                if url.as_str() == format!("http://127.0.0.1:{}/nonexisting", LOCALHOST_PORT);
+                if expected == &[StatusCode::OK];
+                then {
+                } else {
+                    return Err(err.into())
+                }
+            }
+            if_chain! {
+                let err = sess.get("/sensitive").retry_send().unwrap_err();
                 if let ServiceError::Context(ctx) = &err;
                 if let ServiceErrorKind::ForbiddenByRobotsTxt = ctx.get_context();
-                then {} else { return Err(err.into()) }
+                then {
+                } else {
+                    return Err(err.into())
+                }
             }
 
             static EXPECTED: Lazy<String> = Lazy::new(|| {
@@ -871,6 +1246,8 @@ mod tests {
                 print_line("/robots.txt", 10, "200 OK");
                 print_line("/", 10, "200 OK");
                 print_line("/confirm-cookie", 10, "200 OK");
+                print_line("/redirect", 10, "301 Moved Permanently");
+                print_line("/", 10, "200 OK");
                 print_line("/nonexisting", 10, "404 Not Found");
                 print_line("/nonexisting", 9, "404 Not Found");
 
@@ -899,9 +1276,10 @@ mod tests {
                 runtime,
                 robots: true,
                 client: client.clone(),
-                url_base: None,
+                base_url: None,
                 cookies_path: Some(path),
                 api_token_path: None,
+                retries_on_get: 0,
                 http_silent: true,
             })
         }
@@ -936,9 +1314,10 @@ mod tests {
             runtime: Runtime::new()?,
             client: reqwest::r#async::Client::builder().build()?,
             robots: hashmap!(),
-            cookie_jar: None,
+            cookie_store: None,
             api_token: LazyLockedFile::Null,
-            url_base: None,
+            base_url: None,
+            retries_on_get: 0,
             http_silent: true,
         };
 

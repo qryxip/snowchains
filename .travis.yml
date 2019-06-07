@@ -54,25 +54,23 @@ install:
   - rustfmt --version
   - |
     if [ "${RUSTUP_HOST}" = x86_64-unknown-linux-gnu -a "${TRAVIS_BRANCH}" = master -a "${TRAVIS_PULL_REQUEST}" = false ]; then
-      cargo install cargo-kcov &&
+      travis_retry cargo install cargo-kcov &&
       cargo kcov --print-install-kcov-sh | sh &&
       kcov --version &&
       cargo-kcov --version
     fi
 
 script:
-  - rustfmt --check ./proc_macros/src/lib.rs
   - cargo fmt --all -- --check
+  # `clippy` sometimes causes ICE.
   # https://github.com/rust-lang/rust/issues/59909
-  - bash -c 'cd ./proc_macros && cargo check'
-  - cargo check
+  - cargo check --all --all-targets
   - find ./src ./tests ./proc_macros/src -type f | xargs touch
-  - bash -c 'cd ./proc_macros && cargo clippy -- -D warnings'
-  - cargo clippy -- -D warnings
+  - cargo clippy --all --all-targets -- -D warnings
   - |
     if [ -f ~/.cargo/bin/cargo-kcov ]; then
-      cargo kcov --all &&
-      bash <(curl -s https://codecov.io/bash)
+      travis_retry cargo kcov --all &&
+      travis_retry bash <(curl -s https://codecov.io/bash)
     elif [ "${TRAVIS_SECURE_ENV_VARS}" = true ]; then
       cargo test --all
     else

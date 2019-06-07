@@ -1,6 +1,6 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::download::{self, DownloadProgress};
-use crate::service::session::{Session, State};
+use crate::service::session::{FormBuilder, Session, State};
 use crate::service::{
     Contest, ExtractZip, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
@@ -29,6 +29,8 @@ use std::convert::Infallible;
 use std::fmt;
 use std::str::FromStr;
 use std::time::Duration;
+
+pub(super) static BASE_URL: Lazy<Url> = Lazy::new(|| "https://yukicoder.me".parse().unwrap());
 
 pub(super) fn login(
     props: SessionProps,
@@ -76,8 +78,6 @@ pub(super) fn submit(
         .unwrap();
     Yukicoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
-
-static BASE_URL: Lazy<Url> = Lazy::new(|| "https://yukicoder.me".parse().unwrap());
 
 #[derive(Debug)]
 struct Yukicoder<I: Input, E: WriteColor + HasTermProps> {
@@ -160,13 +160,13 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
     fn confirm_revel_session(&mut self, revel_session: String) -> ServiceResult<bool> {
         self.clear_cookies()?;
         let cookie = Cookie::new("REVEL_SESSION", revel_session);
-        self.insert_cookie(cookie)?;
+        self.insert_cookie(&cookie, &*BASE_URL)?;
         self.fetch_username()?;
         Ok(self.username.name().is_some())
     }
 
     fn fetch_username(&mut self) -> ServiceResult<()> {
-        self.username = self.get("/").recv_html()?.extract_username();
+        self.username = self.get("/").retry_recv_html()?.extract_username();
         Ok(())
     }
 
@@ -201,10 +201,11 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                 }
                 let (mut not_found, mut not_public) = (vec![], vec![]);
                 for problem in problems {
-                    let url = format!("/problems/no/{}", problem);
-                    let res = self.get(&url).acceptable(&[200, 404]).send()?;
+                    let mut url = BASE_URL.clone();
+                    url.set_path(&format!("/problems/no/{}", problem));
+                    let res = self.get(url.clone()).acceptable(&[200, 404]).retry_send()?;
                     let status = res.status();
-                    let html = res.html(self.runtime())?;
+                    let html = self.retry_recv_html(res)?;
                     let public = html
                         .select(selector!("#content"))
                         .flat_map(|r| r.text())
@@ -216,7 +217,6 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                         not_public.push(problem);
                     } else {
                         let (display_name, suite, path) = scrape(&html, problem)?;
-                        let url = self.resolve_url(&url)?;
                         outcome.push_problem(RetrieveTestCasesOutcomeBuilderProblem {
                             url,
                             slug: problem.clone(),
@@ -251,11 +251,11 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
 
                 let target_problems = self
                     .get(&format!("/contests/{}", contest))
-                    .recv_html()?
+                    .retry_recv_html()?
                     .extract_problems()?;
                 for (slug, no, url) in target_problems {
                     if problems.is_none() || problems.as_ref().unwrap().contains(&slug) {
-                        let html = self.get(&url).recv_html()?;
+                        let html = self.get(&url).retry_recv_html()?;
                         let (display_name, suite, path) = scrape(&html, &slug)?;
                         outcome.push_problem(RetrieveTestCasesOutcomeBuilderProblem {
                             url,
@@ -292,15 +292,14 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             }
 
             let client = self.client();
-            let cookie_header = self.cookies_to_header_value()?;
             let reqs = nos
                 .iter()
                 .map(|no| {
                     let mut url = BASE_URL.clone();
                     url.set_path(&format!("/problems/no/{}/testcase.zip", no));
                     let mut req = client.get(url.clone());
-                    if let Some(cookie_header) = &cookie_header {
-                        req = req.header(header::COOKIE, cookie_header);
+                    if let Some(value) = self.cookies_to_header_value(&url) {
+                        req = req.header(header::COOKIE, value);
                     }
                     (download::Name::new(no.clone(), url.into_string()), req)
                 })
@@ -358,7 +357,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
         let problem = problem.ok_or(ServiceErrorKind::PleaseSpecifyProblem)?;
         self.login(true)?;
         let url = self.get_submit_url(&contest, &problem)?;
-        let langs = self.get(url.as_str()).recv_html()?.extract_langs()?;
+        let langs = self.get(url.as_str()).retry_recv_html()?.extract_langs()?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
@@ -386,33 +385,33 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                 return Err(ServiceErrorKind::AlreadyAccepted.into());
             }
         }
-        let html = self.get(url.as_ref()).recv_html()?;
+        let html = self.get(url.as_ref()).retry_recv_html()?;
         let lang_id = html
             .extract_langs()?
             .get(&lang_name)
             .ok_or_else(|| ServiceErrorKind::NoSuchLang(lang_name.clone()))?
             .clone();
         let token = html.extract_csrf_token_from_submit_page()?;
-        let form = reqwest::r#async::multipart::Form::new()
+        let form = FormBuilder::new()
             .text("csrf_token", token)
             .text("lang", lang_id.clone())
             .text("source", code.clone());
         let url = html.extract_url_from_submit_page()?;
-        let res = self.post(&url).send_multipart(form)?;
-        let header_location = res.header_location()?.map(ToOwned::to_owned);
-        let rejected = header_location
+        let res = self.post(&url).multipart(form).send()?;
+        let location = res.location_uri()?;
+        let rejected = location
             .as_ref()
-            .map_or(true, |l| !l.contains("/submissions/"));
-        if let Some(header_location) = &header_location {
+            .map_or(true, |l| !l.path().contains("/submissions/"));
+        if let Some(location) = &location {
             if !rejected && open_in_browser {
-                self.open_in_browser(header_location)?;
+                self.open_in_browser(&location.to_string())?;
             }
         }
         Ok(SubmitOutcome {
             rejected,
             response: SubmitOutcomeResponse {
                 status: res.status(),
-                header_location,
+                location,
             },
             language: SubmitOutcomeLanguage {
                 name: lang_name,
@@ -439,8 +438,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             url.path_segments_mut().unwrap().push(username);
             let solved = self
                 .get(url)
-                .send()?
-                .json::<Vec<Problem>>(self.runtime())?
+                .retry_recv_json::<Vec<Problem>>()?
                 .into_iter()
                 .map(|Problem { no }| no.to_string())
                 .collect::<HashSet<_>>();
@@ -467,7 +465,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
             }
             YukicoderContest::Contest(contest) => self
                 .get(&format!("/contests/{}", contest))
-                .recv_html()?
+                .retry_recv_html()?
                 .extract_problems()?
                 .into_iter()
                 .filter(|(slug, _, _)| slug.eq_ignore_ascii_case(problem))
@@ -690,14 +688,15 @@ impl Extract for Html {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::ServiceResult;
     use crate::service;
     use crate::service::yukicoder::Extract;
 
     use failure::Fallible;
     use pretty_assertions::assert_eq;
+    use retry::OperationResult;
     use scraper::Html;
 
+    use std::iter;
     use std::time::Duration;
 
     #[test]
@@ -741,7 +740,7 @@ mod tests {
         expected_display: &str,
         expected_md5: &str,
     ) -> Fallible<()> {
-        let html = get_html(url)?;
+        let html = retry_retrieve_html(url)?;
         let (actual_display, suite) = html.extract_samples()?;
         let actual_md5 = format!("{:?}", suite.md5()?);
         let actual = (actual_display.as_ref(), actual_md5.as_ref());
@@ -753,7 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn it_extracts_problems_names_and_hrefs_from_yukicoder_open_2015_small() -> ServiceResult<()> {
+    fn it_extracts_problems_names_and_hrefs_from_yukicoder_open_2015_small() -> Fallible<()> {
         static EXPECTED: &[(&str, &str, &str)] = &[
             ("A", "191", "https://yukicoder.me/problems/no/191"),
             ("B", "192", "https://yukicoder.me/problems/no/192"),
@@ -763,7 +762,7 @@ mod tests {
             ("F", "196", "https://yukicoder.me/problems/no/196"),
         ];
 
-        let html = get_html("https://yukicoder.me/contests/100")?;
+        let html = retry_retrieve_html("https://yukicoder.me/contests/100")?;
         let actual = html.extract_problems()?;
         let actual = actual
             .iter()
@@ -773,9 +772,27 @@ mod tests {
         Ok(())
     }
 
-    fn get_html(url: &str) -> reqwest::Result<Html> {
+    fn retry_retrieve_html(url: &str) -> Fallible<Html> {
+        const RETRIES: usize = 2;
+        const INTERVAL: Duration = Duration::from_secs(1);
+
         let client = service::reqwest_sync_client(Duration::from_secs(60))?;
-        let text = client.get(url).send()?.text()?;
-        Ok(Html::parse_document(&text))
+        retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
+            let text = client
+                .get(url)
+                .send()
+                .and_then(|r| r.error_for_status()?.text());
+            match text {
+                Ok(text) => OperationResult::Ok(Html::parse_document(&text)),
+                Err(err) => {
+                    if err.is_http() || err.is_timeout() {
+                        OperationResult::Retry(err)
+                    } else {
+                        OperationResult::Err(err)
+                    }
+                }
+            }
+        })
+        .map_err(Into::into)
     }
 }

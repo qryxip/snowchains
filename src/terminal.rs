@@ -1,6 +1,7 @@
+use snowchains_proc_macros::ArgEnum;
+
 use either::Either;
 use serde::Serialize;
-use strum_macros::EnumString;
 use termcolor::{Ansi, ColorSpec, NoColor, WriteColor};
 use tokio::io::AsyncWrite;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -87,9 +88,9 @@ impl<R: BufRead> Input for TtyOrPiped<R> {
     }
 }
 
-#[derive(Clone, Copy, Debug, strum_macros::Display, EnumString, Serialize)]
-#[strum(serialize_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, ArgEnum, Serialize)]
+#[arg_enum(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub enum AnsiColorChoice {
     Never,
     Auto,

@@ -4,7 +4,7 @@ use crate::errors::{
     ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceErrorKind,
     ServiceResult,
 };
-use crate::service::session::{Session, State};
+use crate::service::session::{ParseWithBaseUrl as _, Session, State};
 use crate::service::{
     Contest, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps, RetrieveSubmissionsOutcome,
     RetrieveSubmissionsProps, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
@@ -24,7 +24,6 @@ use maplit::hashmap;
 use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
-use reqwest::header;
 use scraper::{ElementRef, Html, Node, Selector};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -37,6 +36,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
+
+pub(super) static BASE_URL: Lazy<Url> = Lazy::new(|| "https://codeforces.com".parse().unwrap());
 
 pub(super) fn login(
     props: SessionProps,
@@ -94,8 +95,6 @@ pub(super) fn submit(
     Codeforces::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
 
-static BASE_URL: Lazy<Url> = Lazy::new(|| "https://codeforces.com".parse().unwrap());
-
 #[derive(Debug)]
 struct Codeforces<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
@@ -131,29 +130,25 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
     fn login(&mut self, option: LoginOption) -> ServiceResult<LoginOutcome> {
         static HANDLE: &Lazy<Regex> = lazy_regex!(r#"\A/profile/([a-zA-Z0-9_\-]+)\z"#);
 
-        let mut res = self.get("/enter").acceptable(&[200, 302]).send()?;
-        let mut sent = false;
+        let res = self.get("/enter").redirect_unlimited().retry_send()?;
 
-        if res.status() == 302 && option == LoginOption::Explicit {
-            writeln!(self.stderr(), "Already logged in.")?;
-            self.stderr().flush()?;
-        } else if res.status() == 200 {
+        if res.url().path() == "/enter" {
+            let mut html = self.retry_recv_html(res)?;
             let mut retries = self.login_retries;
             loop {
-                let mut payload = res
-                    .html(self.runtime())?
-                    .extract_hidden_values(selector!("#enterForm"))?;
+                let mut payload = html.extract_hidden_values(selector!("#enterForm"))?;
                 let handle_or_email = self.prompt_reply_stderr("Handle/Email: ")?;
                 let password = self.prompt_password_stderr("Password: ")?;
                 payload.insert("handleOrEmail".to_owned(), handle_or_email);
                 payload.insert("password".to_owned(), password);
                 payload.insert("remember".to_owned(), "on".to_owned());
-                res = self
+                let res = self
                     .post("/enter")
-                    .acceptable(&[200, 302])
-                    .send_form(&payload)?;
-                if res.status() == 302 {
-                    sent = true;
+                    .acceptable(&[200])
+                    .redirect_unlimited()
+                    .form(&payload)
+                    .send()?;
+                if res.url().path() != "/enter" {
                     break;
                 }
                 if retries == Some(0) {
@@ -162,21 +157,23 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
                 retries = retries.map(|n| n - 1);
                 writeln!(self.stderr(), "Failed to login. Try again.")?;
                 self.stderr().flush()?;
+                html = self.recv_html(res)?;
             }
+        } else {
+            writeln!(self.stderr(), "Already logged in.")?;
+            self.stderr().flush()?;
         }
 
-        if sent {
-            res = self.get("/enter").acceptable(&[302]).send()?;
-        }
+        let res = self.get("/enter").acceptable(&[302]).retry_send()?;
+
+        let location = res.location_uri()?;
         let handle = if_chain! {
-            if let Some(location) = res.headers().get(header::LOCATION);
-            if let Ok(location) = location.to_str();
-            if let Ok(location) = location.parse::<Url>();
+            if let Some(location) = &location;
             if let Some(caps) = HANDLE.captures(location.path());
             then {
                 caps[1].to_owned()
             } else {
-                unimplemented!("{:?}", res.headers().get(header::LOCATION))
+                unimplemented!("{:?}", location)
             }
         };
         if option == LoginOption::Explicit {
@@ -205,7 +202,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         let mut outcome = RetrieveTestCasesOutcomeBuilder::new(&contest, save_files);
         outcome.push_submissions_url(contest.submissions_url());
 
-        let mut res = self.get(&top_path).acceptable(&[200, 302]).send()?;
+        let mut res = self.get(&top_path).acceptable(&[200, 302]).retry_send()?;
         if res.status() == 302 {
             self.login(LoginOption::WithHandle)?;
             let contest_id = contest.id.to_string();
@@ -221,11 +218,14 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
                     standings.contest.phase
                 );
             }
-            res = self.get(&top_path).send()?;
+            res = self.get(&top_path).retry_send()?;
         }
-        for ((slug, display_name), url) in res.html(self.runtime())?.extract_problems()? {
+        for ((slug, display_name), url) in self.retry_recv_html(res)?.extract_problems()? {
             if problems.map_or(true, |ps| ps.contains(&slug)) {
-                let suite = self.get(url.as_ref()).recv_html()?.extract_test_suite()?;
+                let suite = self
+                    .get(url.as_ref())
+                    .retry_recv_html()?
+                    .extract_test_suite()?;
                 let path = destinations.expand(&slug)?;
                 outcome.push_problem(RetrieveTestCasesOutcomeBuilderProblem {
                     url,
@@ -252,8 +252,8 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
     ) -> ServiceResult<RetrieveLangsOutcome> {
         let RetrieveLangsProps { contest, .. } = props;
         self.login(LoginOption::WithHandle)?;
-        let url = self.resolve_url(&format!("/contest/{}/submit", contest.id))?;
-        let langs = self.get(&url).recv_html()?.extract_langs()?;
+        let url = format!("/contest/{}/submit", contest.id).parse_with_base_url(Some(&BASE_URL))?;
+        let langs = self.get(&url).retry_recv_html()?.extract_langs()?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
@@ -277,7 +277,10 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             &[("contestId", &contest_id), ("handle", &handle)],
         )?;
 
-        let csrf_token = self.get("/").recv_html()?.extract_meta_x_csrf_token()?;
+        let csrf_token = self
+            .get("/")
+            .retry_recv_html()?
+            .extract_meta_x_csrf_token()?;
         for submission in submissions {
             let submission_id = submission.id.to_string();
             let SubmitSource { source } = self
@@ -330,7 +333,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
 
         let submit_path = format!("/contest/{}/submit", contest.id);
 
-        let html = self.get(&submit_path).recv_html()?;
+        let html = self.get(&submit_path).retry_recv_html()?;
 
         let lang_id = html
             .extract_langs()?
@@ -348,9 +351,10 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         let res = self
             .post(&submit_path)
             .acceptable(&[200, 302])
-            .send_form(&values)?;
+            .form(&values)
+            .send()?;
         let rejected = res.status() == 200;
-        let header_location = res.header_location()?.map(ToOwned::to_owned);
+        let location = res.location_uri()?;
 
         if !rejected && open_in_browser {
             self.open_in_browser(contest.submissions_url())?;
@@ -360,7 +364,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             rejected,
             response: SubmitOutcomeResponse {
                 status: res.status(),
-                header_location,
+                location,
             },
             language: SubmitOutcomeLanguage {
                 name: lang_name,
@@ -464,21 +468,24 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             };
             url.query_pairs_mut().append_pair("apiSig", &sig);
 
-            let res = self.get(url.as_str()).acceptable(&[200, 400]).send()?;
+            let res = self.get(url).acceptable(&[200, 400]).retry_send()?;
+
             if res.status() == 200 {
                 if asked_api_key {
                     self.api_token().get_or_init()?.write_json(&api_key)?;
                 }
                 self.api_key = Some(api_key);
-                let ApiOk(ret) = res.json(self.runtime())?;
+                let ApiOk(ret) = self.retry_recv_json(res)?;
                 break Ok(ret);
             }
-            let ApiErr(comment) = res.json(self.runtime())?;
+
+            let ApiErr(comment) = self.retry_recv_json(res)?;
             if !comment.starts_with("apiKey: ") {
                 break Err(failure::err_msg(comment)
                     .context(ServiceErrorKind::Api)
                     .into());
             }
+
             api_key = ask_api_key(self, &mut asked_api_key)?;
         }
     }
@@ -813,21 +820,22 @@ impl<'a> FoldTextAndBr for ElementRef<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::ServiceResult;
     use crate::service;
     use crate::service::codeforces::Extract as _;
 
     use failure::Fallible;
     use pretty_assertions::assert_eq;
+    use retry::OperationResult;
     use scraper::Html;
     use url::Url;
 
+    use std::iter;
     use std::time::Duration;
 
     #[test]
-    fn test_extract_login_form() -> ServiceResult<()> {
+    fn test_extract_login_form() -> Fallible<()> {
         let form = service::reqwest_sync_client(Duration::from_secs(60))?
-            .get_html(&"https://codeforces.com/enter".parse().unwrap())?
+            .retry_retrieve_html(&"https://codeforces.com/enter".parse().unwrap())?
             .extract_hidden_values(selector!("#enterForm"))?;
         assert_eq!(form["action"], "enter");
         assert_eq!(form["csrf_token"].len(), 32);
@@ -886,11 +894,14 @@ mod tests {
         let client = service::reqwest_sync_client(Duration::from_secs(60))?;
 
         let actual = client
-            .get_html(&"https://codeforces.com/contest/1000".parse().unwrap())?
+            .retry_retrieve_html(&"https://codeforces.com/contest/1000".parse().unwrap())?
             .extract_problems()?
             .into_iter()
             .map(|((slug, display), url)| -> Fallible<_> {
-                let md5 = client.get_html(&url)?.extract_test_suite()?.md5()?;
+                let md5 = client
+                    .retry_retrieve_html(&url)?
+                    .extract_test_suite()?
+                    .md5()?;
                 let md5 = format!("{:?}", md5);
                 Ok((slug, display, url, md5))
             })
@@ -904,14 +915,37 @@ mod tests {
         Ok(())
     }
 
-    trait GetHtml {
-        fn get_html(&self, url: &Url) -> reqwest::Result<Html>;
+    trait RetryRetrieveHtml {
+        fn retry_retrieve_html(
+            &self,
+            url: &Url,
+        ) -> std::result::Result<Html, retry::Error<reqwest::Error>>;
     }
 
-    impl GetHtml for reqwest::Client {
-        fn get_html(&self, url: &Url) -> reqwest::Result<Html> {
-            let text = self.get(url.clone()).send()?.error_for_status()?.text()?;
-            Ok(Html::parse_document(&text))
+    impl RetryRetrieveHtml for reqwest::Client {
+        fn retry_retrieve_html(
+            &self,
+            url: &Url,
+        ) -> std::result::Result<Html, retry::Error<reqwest::Error>> {
+            const RETRIES: usize = 2;
+            const INTERVAL: Duration = Duration::from_secs(1);
+
+            retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
+                let text = self
+                    .get(url.clone())
+                    .send()
+                    .and_then(|r| r.error_for_status()?.text());
+                match text {
+                    Ok(text) => OperationResult::Ok(Html::parse_document(&text)),
+                    Err(err) => {
+                        if err.is_http() || err.is_timeout() {
+                            OperationResult::Retry(err)
+                        } else {
+                            OperationResult::Err(err)
+                        }
+                    }
+                }
+            })
         }
     }
 }
