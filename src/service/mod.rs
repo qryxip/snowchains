@@ -10,7 +10,7 @@ use crate::config::{self, Config};
 use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceErrorKind, ServiceResult};
 use crate::outcome::Outcome;
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::session::{State, StateStartArgs, UrlBase};
+use crate::service::session::{State, StateStartArgs};
 use crate::template::Template;
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFilePath, TestSuite};
@@ -39,7 +39,7 @@ use serde::{Serialize, Serializer};
 use strum_macros::IntoStaticStr;
 use termcolor::WriteColor;
 use tokio::runtime::Runtime;
-use url::{Host, Url};
+use url::Url;
 use zip::result::ZipResult;
 use zip::ZipArchive;
 
@@ -176,11 +176,11 @@ impl ServiceKind {
         ["atcoder", "codeforces", "yukicoder"]
     }
 
-    pub(crate) fn domain(self) -> Option<&'static str> {
+    pub(crate) fn base_url(self) -> Option<&'static Url> {
         match self {
-            ServiceKind::Atcoder => Some("atcoder.jp"),
-            ServiceKind::Codeforces => Some("codeforces.com"),
-            ServiceKind::Yukicoder => Some("yukicoder.me"),
+            ServiceKind::Atcoder => Some(&atcoder::BASE_URL),
+            ServiceKind::Codeforces => Some(&codeforces::BASE_URL),
+            ServiceKind::Yukicoder => Some(&yukicoder::BASE_URL),
             ServiceKind::Other => None,
         }
     }
@@ -1122,7 +1122,7 @@ impl Outcome for SubmitOutcome {
 }
 
 pub(crate) struct SessionProps {
-    pub(crate) domain: Option<&'static str>,
+    pub(crate) base_url: Option<&'static Url>,
     pub(crate) cookies_path: AbsPathBuf,
     pub(crate) api_token_path: AbsPathBuf,
     pub(crate) dropbox_path: Option<AbsPathBuf>,
@@ -1141,16 +1141,13 @@ impl SessionProps {
     ) -> ServiceResult<State<I, E>> {
         let runtime = Runtime::new()?;
         let client = reqwest_async_client(self.timeout)?;
-        let url_base = self
-            .domain
-            .map(|domain| UrlBase::new(Host::Domain(domain), true, None));
         State::start(StateStartArgs {
             stdin,
             stderr,
             runtime,
             robots: self.robots,
             client,
-            url_base,
+            base_url: self.base_url,
             cookies_path: Some(self.cookies_path.as_path()),
             api_token_path: Some(self.api_token_path.as_path()),
             retries_on_get: self.retries_on_get,

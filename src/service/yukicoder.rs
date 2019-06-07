@@ -30,6 +30,8 @@ use std::fmt;
 use std::str::FromStr;
 use std::time::Duration;
 
+pub(super) static BASE_URL: Lazy<Url> = Lazy::new(|| "https://yukicoder.me".parse().unwrap());
+
 pub(super) fn login(
     props: SessionProps,
     stdin: impl Input,
@@ -76,8 +78,6 @@ pub(super) fn submit(
         .unwrap();
     Yukicoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
-
-static BASE_URL: Lazy<Url> = Lazy::new(|| "https://yukicoder.me".parse().unwrap());
 
 #[derive(Debug)]
 struct Yukicoder<I: Input, E: WriteColor + HasTermProps> {

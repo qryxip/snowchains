@@ -4,7 +4,7 @@ use crate::errors::{
     ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceErrorKind,
     ServiceResult,
 };
-use crate::service::session::{Session, State};
+use crate::service::session::{ParseWithBaseUrl as _, Session, State};
 use crate::service::{
     Contest, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps, RetrieveSubmissionsOutcome,
     RetrieveSubmissionsProps, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
@@ -36,6 +36,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
+
+pub(super) static BASE_URL: Lazy<Url> = Lazy::new(|| "https://codeforces.com".parse().unwrap());
 
 pub(super) fn login(
     props: SessionProps,
@@ -92,8 +94,6 @@ pub(super) fn submit(
         .parse_contest()?;
     Codeforces::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
-
-static BASE_URL: Lazy<Url> = Lazy::new(|| "https://codeforces.com".parse().unwrap());
 
 #[derive(Debug)]
 struct Codeforces<I: Input, E: WriteColor + HasTermProps> {
@@ -252,7 +252,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
     ) -> ServiceResult<RetrieveLangsOutcome> {
         let RetrieveLangsProps { contest, .. } = props;
         self.login(LoginOption::WithHandle)?;
-        let url = self.resolve_url(&format!("/contest/{}/submit", contest.id))?;
+        let url = format!("/contest/{}/submit", contest.id).parse_with_base_url(Some(&BASE_URL))?;
         let langs = self.get(&url).retry_recv_html()?.extract_langs()?;
         Ok(RetrieveLangsOutcome::new(url, langs))
     }

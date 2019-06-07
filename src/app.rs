@@ -887,7 +887,7 @@ impl<
             .map(|p| p.expand(None))
             .transpose()?;
         Ok(SessionProps {
-            domain: config.service().domain(),
+            base_url: config.service().base_url(),
             cookies_path,
             api_token_path,
             dropbox_path,

@@ -1,7 +1,7 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::path::AbsPath;
 use crate::service::download::{self, DownloadProgress};
-use crate::service::session::{Session, State};
+use crate::service::session::{ParseWithBaseUrl as _, Session, State};
 use crate::service::{
     Contest, LoginOutcome, ParticipateOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
     RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
@@ -22,13 +22,13 @@ use crate::util::str::CaseConversion;
 
 use chrono::{DateTime, FixedOffset, Local, Utc};
 use failure::{Fail as _, ResultExt as _};
+use http::{header, StatusCode, Uri};
 use if_chain::if_chain;
 use indexmap::{indexmap, indexset, IndexMap, IndexSet};
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use reqwest::{header, StatusCode};
 use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -44,6 +44,8 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 use std::{f64, vec};
+
+pub(super) static BASE_URL: Lazy<Url> = Lazy::new(|| "https://atcoder.jp".parse().unwrap());
 
 /// Logins to "atcoder.jp".
 pub(super) fn login(
@@ -127,8 +129,6 @@ pub(super) fn submit(
         .unwrap();
     Atcoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
-
-static BASE_URL: Lazy<Url> = Lazy::new(|| "https://atcoder.jp".parse().unwrap());
 
 #[derive(Debug)]
 struct Atcoder<I: Input, E: WriteColor + HasTermProps> {
@@ -327,25 +327,25 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         } = props;
         let problems = problems.as_ref();
 
-        let slugs_and_urls = self
+        let slugs_and_uris = self
             .fetch_tasks_page(contest)?
-            .extract_task_slugs_and_urls()?;
+            .extract_task_slugs_and_uris()?;
         let suites = self
             .get(&contest.url_tasks_print())
             .retry_recv_html()?
             .extract_as_suites(&contest.slug())?;
 
-        if slugs_and_urls.len() != suites.len() {
+        if slugs_and_uris.len() != suites.len() {
             return Err(ScrapeError::new().into());
         }
 
         let mut outcome = RetrieveTestCasesOutcomeBuilder::new(contest, *save_files);
         outcome.push_submissions_url(contest.url_submissions_me(1));
 
-        for ((slug, url), (display_name, suite)) in slugs_and_urls.into_iter().zip_eq(suites) {
+        for ((slug, uri), (display_name, suite)) in slugs_and_uris.into_iter().zip_eq(suites) {
             if problems.map_or(true, |ps| ps.iter().any(|p| *p == slug)) {
                 let path = destinations.expand(&slug)?;
-                let url = self.resolve_url(&url)?;
+                let url = uri.parse_with_base_url(Some(&BASE_URL))?;
                 let screen_name = url
                     .path_segments()
                     .and_then(Iterator::last)
@@ -563,14 +563,12 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         self.login_if_not(false)?;
         let url = match problem {
             None => contest.url_submit(),
-            Some(problem) => {
-                let url = self
-                    .fetch_tasks_page(&contest)?
-                    .extract_task_slugs_and_urls()?
-                    .into_element(&problem)
-                    .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
-                self.resolve_url(&url)?
-            }
+            Some(problem) => self
+                .fetch_tasks_page(&contest)?
+                .extract_task_slugs_and_uris()?
+                .into_element(&problem)
+                .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?
+                .parse_with_base_url(Some(&BASE_URL))?,
         };
         let langs = self.get(&url).retry_recv_html()?.extract_langs()?;
         Ok(RetrieveLangsOutcome::new(url, langs))
@@ -725,13 +723,13 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 status.raise_if_not_begun()?;
                 status.is_active()
             };
-        let url = tasks_page
-            .extract_task_slugs_and_urls()?
+        let uri = tasks_page
+            .extract_task_slugs_and_uris()?
             .into_element(&problem)
             .ok_or_else(|| ServiceErrorKind::NoSuchProblem(problem.clone()))?;
         let task_screen = {
             lazy_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$")
-                .captures(&url)
+                .captures(&uri.to_string())
                 .map(|cs| cs[1].to_owned())
                 .ok_or_else(ScrapeError::new)?
         };
@@ -761,7 +759,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         }
 
         let code = crate::fs::read_to_string(&src_path)?;
-        let html = self.get(&url).retry_recv_html()?;
+        let html = self.get(uri).retry_recv_html()?;
         let lang_id = html
             .extract_langs()?
             .get(&lang_name)
@@ -983,7 +981,7 @@ struct Submission {
 
 trait Extract {
     fn extract_csrf_token(&self) -> ScrapeResult<String>;
-    fn extract_task_slugs_and_urls(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
+    fn extract_task_slugs_and_uris(&self) -> ScrapeResult<NonEmptyIndexMap<String, Uri>>;
     fn extract_as_suites(
         &self,
         contest_slug: &str,
@@ -1010,15 +1008,15 @@ impl Extract for Html {
         extract_csrf_token().ok_or_else(ScrapeError::new)
     }
 
-    fn extract_task_slugs_and_urls(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
+    fn extract_task_slugs_and_uris(&self) -> ScrapeResult<NonEmptyIndexMap<String, Uri>> {
         self.select(selector!(
             "#main-container > div.row > div.col-sm-12 > div.panel > table.table > tbody > tr",
         ))
         .map(|tr| {
             let a = tr.select(selector!("td.text-center > a")).next()?;
             let slug = a.text().next()?.to_owned();
-            let url = a.value().attr("href")?.to_owned();
-            Some((slug, url))
+            let uri = a.value().attr("href")?.parse().ok()?;
+            Some((slug, uri))
         })
         .collect::<Option<IndexMap<_, _>>>()
         .and_then(NonEmptyIndexMap::try_new)
@@ -1547,20 +1545,20 @@ mod tests {
         expected: &'static [(&'static str, &'static str, &'static str)],
     ) -> Fallible<()> {
         let client = service::reqwest_sync_client(Duration::from_secs(60))?;
-        let slugs_and_urls = client
+        let slugs_and_uris = client
             .get_html(&format!("/contests/{}/tasks", contest))?
-            .extract_task_slugs_and_urls()?;
+            .extract_task_slugs_and_uris()?;
         let suites = client
             .get_html(&format!("/contests/{}/tasks_print", contest))?
             .extract_as_suites(contest)?;
         for (
-            ((expected_slug, expected_screen, expected_md5), (actual_slug, actual_url)),
+            ((expected_slug, expected_screen, expected_md5), (actual_slug, actual_uri)),
             (_, actual_suite),
-        ) in expected.iter().zip_eq(&slugs_and_urls).zip_eq(&suites)
+        ) in expected.iter().zip_eq(&slugs_and_uris).zip_eq(&suites)
         {
-            let expected_url = format!("/contests/{}/tasks/{}", contest, expected_screen);
+            let expected_uri = format!("/contests/{}/tasks/{}", contest, expected_screen);
             assert_eq!(actual_slug, *expected_slug);
-            assert_eq!(*actual_url, expected_url);
+            assert_eq!(actual_uri, &*expected_uri);
             let actual_md5 = actual_suite.md5()?;
             actual_suite.assert_serialize_correctly()?;
             assert_eq!(format!("{:x}", actual_md5), *expected_md5);

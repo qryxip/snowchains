@@ -11,7 +11,6 @@ use crate::util::collections::NonEmptyIndexSet;
 use crate::util::indexmap::IndexSetAsRefStrExt as _;
 
 use cookie_store::CookieStore;
-use derive_new::new;
 use failure::{Fail, ResultExt as _};
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
 use http::{HttpTryFrom, Uri};
@@ -29,7 +28,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use termcolor::WriteColor;
 use tokio::runtime::Runtime;
-use url::{Host, Url};
+use url::Url;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -62,12 +61,6 @@ pub(super) trait Session: Sized {
 
     fn api_token(&mut self) -> &mut LazyLockedFile {
         &mut self.state_mut().api_token
-    }
-
-    /// If `url` starts with '/' and the base host is present, returns
-    /// http(s)://<host><url>.
-    fn resolve_url(&self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<Url> {
-        url.with(self.state_ref().url_base.as_ref())
     }
 
     fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
@@ -109,8 +102,8 @@ pub(super) trait Session: Sized {
 
     /// Opens `url`, which is relative or absolute, with default browser
     /// printing a message.
-    fn open_in_browser(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> ServiceResult<()> {
-        let url = self.resolve_url(url)?;
+    fn open_in_browser(&mut self, url: impl ParseWithBaseUrl) -> ServiceResult<()> {
+        let url = url.parse_with_base_url(self.state_ref().base_url)?;
         writeln!(self.stderr(), "Opening {} in default browser...", url)?;
         self.stderr().flush()?;
         let status = webbrowser::open(url.as_str())?.status;
@@ -151,30 +144,32 @@ pub(super) trait Session: Sized {
         Ok(())
     }
 
-    fn get(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> self::Request<&mut Self, Get> {
+    fn get(&mut self, url: impl ParseWithBaseUrl) -> self::Request<&mut Self, Get> {
         self.request::<Get, _>(url, vec![StatusCode::OK])
     }
 
-    fn post(&mut self, url: impl IntoRelativeOrAbsoluteUrl) -> self::Request<&mut Self, Post> {
+    fn post(&mut self, url: impl ParseWithBaseUrl) -> self::Request<&mut Self, Post> {
         self.request::<Post, _>(url, vec![StatusCode::FOUND])
     }
 
-    fn request<M: StaticMethod, U: IntoRelativeOrAbsoluteUrl>(
+    fn request<M: StaticMethod, U: ParseWithBaseUrl>(
         &mut self,
         url: U,
         acceptable: Vec<StatusCode>,
     ) -> self::Request<&mut Self, M> {
         self::Request {
-            inner: self.resolve_url(url).and_then(|url| {
-                self.state_mut().assert_not_forbidden_by_robots_txt(&url)?;
-                Ok(RequestInner {
-                    inner: RequestBuilderBuilder::new::<M>(self.client(), url),
-                    eprint: !self.state_ref().http_silent,
-                    acceptable,
-                    redirect_unlimited: false,
-                    retries_on_get: self.state_ref().retries_on_get,
-                })
-            }),
+            inner: url
+                .parse_with_base_url(self.state_ref().base_url)
+                .and_then(|url| {
+                    self.state_mut().assert_not_forbidden_by_robots_txt(&url)?;
+                    Ok(RequestInner {
+                        inner: RequestBuilderBuilder::new::<M>(self.client(), url),
+                        eprint: !self.state_ref().http_silent,
+                        acceptable,
+                        redirect_unlimited: false,
+                        retries_on_get: self.state_ref().retries_on_get,
+                    })
+                }),
             session: self,
             phantom: PhantomData,
         }
@@ -262,7 +257,7 @@ pub(super) struct State<I: Input, E: WriteColor + HasTermProps> {
     robots: HashMap<String, OwnedRobots>,
     cookie_store: Option<AutosavedCookieStore>,
     api_token: LazyLockedFile,
-    url_base: Option<UrlBase>,
+    base_url: Option<&'static Url>,
     retries_on_get: u32,
     http_silent: bool,
 }
@@ -275,14 +270,13 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
             runtime,
             robots,
             client,
-            url_base,
+            base_url,
             cookies_path,
             api_token_path,
             retries_on_get,
             http_silent,
         } = args;
 
-        let host = url_base.as_ref().map(|base| base.host.clone());
         let mut this = Self {
             stdin,
             stderr,
@@ -296,12 +290,12 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
                 None => LazyLockedFile::Null,
                 Some(path) => LazyLockedFile::Uninited(path.to_owned()),
             },
-            url_base,
+            base_url,
             retries_on_get,
             http_silent,
         };
         if robots {
-            if let Some(host) = host {
+            if let Some(host) = base_url.and_then(Url::host_str) {
                 let res = this
                     .get("/robots.txt")
                     .acceptable(&[200, 404])
@@ -367,7 +361,7 @@ pub(super) struct StateStartArgs<'a, I: Input, E: WriteColor + HasTermProps> {
     pub(super) runtime: Runtime,
     pub(super) robots: bool,
     pub(super) client: reqwest::r#async::Client,
-    pub(super) url_base: Option<UrlBase>,
+    pub(super) base_url: Option<&'static Url>,
     pub(super) cookies_path: Option<&'a AbsPath>,
     pub(super) api_token_path: Option<&'a AbsPath>,
     pub(super) retries_on_get: u32,
@@ -945,57 +939,52 @@ impl From<ReqwestOrCtrlCError> for ServiceError {
     }
 }
 
-#[derive(Debug, new)]
-pub(super) struct UrlBase {
-    host: Host<&'static str>,
-    https: bool,
-    port: Option<u16>,
+pub(super) trait ParseWithBaseUrl {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url>;
 }
 
-pub(super) trait IntoRelativeOrAbsoluteUrl {
-    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url>;
-}
-
-impl IntoRelativeOrAbsoluteUrl for Url {
-    fn with(self, _: Option<&UrlBase>) -> ServiceResult<Url> {
+impl ParseWithBaseUrl for Url {
+    fn parse_with_base_url(self, _: Option<&Url>) -> ServiceResult<Url> {
         Ok(self)
     }
 }
 
-impl<'a> IntoRelativeOrAbsoluteUrl for &'a Url {
-    fn with(self, _: Option<&UrlBase>) -> ServiceResult<Url> {
+impl<'a> ParseWithBaseUrl for &'a Url {
+    fn parse_with_base_url(self, _: Option<&Url>) -> ServiceResult<Url> {
         Ok(self.clone())
     }
 }
 
-impl<'a> IntoRelativeOrAbsoluteUrl for &'a str {
-    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url> {
-        let mut url = Cow::from(self);
-        if let Some(base) = base {
-            if url.starts_with('/') {
-                url = format!(
-                    "http{}://{}{}{}",
-                    if base.https { "s" } else { "" },
-                    base.host,
-                    match base.port {
-                        Some(port) => format!(":{}", port),
-                        None => "".to_owned(),
-                    },
-                    url,
-                )
-                .into();
-            }
-        }
-        Url::parse(&url).map_err(|e| {
-            e.context(ServiceErrorKind::ParseUrl(url.into_owned()))
-                .into()
-        })
+impl ParseWithBaseUrl for Uri {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url> {
+        self.to_string().parse_with_base_url(base)
     }
 }
 
-impl<'a> IntoRelativeOrAbsoluteUrl for &'a String {
-    fn with(self, base: Option<&UrlBase>) -> ServiceResult<Url> {
-        self.as_str().with(base)
+impl<'a> ParseWithBaseUrl for &'a Uri {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url> {
+        self.to_string().parse_with_base_url(base)
+    }
+}
+
+impl ParseWithBaseUrl for String {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url> {
+        (*self).parse_with_base_url(base)
+    }
+}
+
+impl<'a> ParseWithBaseUrl for &'a String {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url> {
+        (**self).parse_with_base_url(base)
+    }
+}
+
+impl<'a> ParseWithBaseUrl for &'a str {
+    fn parse_with_base_url(self, base: Option<&Url>) -> ServiceResult<Url> {
+        self.parse()
+            .or_else(|_| Url::options().base_url(base).parse(self))
+            .with_context(|_| ServiceErrorKind::ParseUrl(self.to_owned()))
+            .map_err(Into::into)
     }
 }
 
@@ -1128,7 +1117,7 @@ mod tests {
     use crate::fs::LazyLockedFile;
     use crate::path::{AbsPath, AbsPathBuf};
     use crate::service;
-    use crate::service::session::{Session, State, StateStartArgs, UrlBase};
+    use crate::service::session::{Session, State, StateStartArgs};
     use crate::terminal::{AnsiWithProps, Dumb, TtyOrPiped};
 
     use failure::Fallible;
@@ -1142,12 +1131,11 @@ mod tests {
     use tempdir::TempDir;
     use termcolor::{Ansi, Color, ColorSpec, WriteColor};
     use tokio::runtime::Runtime;
-    use url::Host;
+    use url::Url;
     use warp::Filter;
 
     use std::convert::TryFrom as _;
     use std::io::{self, Empty, Write as _};
-    use std::net::Ipv4Addr;
     use std::{env, panic, str};
 
     #[test]
@@ -1180,9 +1168,14 @@ mod tests {
         let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
 
         let result = panic::catch_unwind::<_, Fallible<()>>(|| {
+            static BASE_URL: Lazy<Url> = Lazy::new(|| {
+                format!("http://127.0.0.1:{}", LOCALHOST_PORT)
+                    .parse()
+                    .unwrap()
+            });
+
             let mut stderr = AnsiWithProps::new();
 
-            let url_base = UrlBase::new(Host::Ipv4(Ipv4Addr::new(127, 0, 0, 1)), false, Some(2000));
             let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies.json")).unwrap();
             let mut sess = State::start(StateStartArgs {
                 stdin: TtyOrPiped::Piped(io::empty()),
@@ -1190,7 +1183,7 @@ mod tests {
                 runtime: Runtime::new()?,
                 robots: true,
                 client: service::reqwest_async_client(None)?,
-                url_base: Some(url_base),
+                base_url: Some(&BASE_URL),
                 cookies_path: Some(&cookies),
                 api_token_path: None,
                 retries_on_get: 1,
@@ -1283,7 +1276,7 @@ mod tests {
                 runtime,
                 robots: true,
                 client: client.clone(),
-                url_base: None,
+                base_url: None,
                 cookies_path: Some(path),
                 api_token_path: None,
                 retries_on_get: 0,
@@ -1323,7 +1316,7 @@ mod tests {
             robots: hashmap!(),
             cookie_store: None,
             api_token: LazyLockedFile::Null,
-            url_base: None,
+            base_url: None,
             retries_on_get: 0,
             http_silent: true,
         };
