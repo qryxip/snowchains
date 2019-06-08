@@ -33,11 +33,10 @@ use url::Url;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::fmt::{self, Write as _};
 use std::io::{self, BufReader, Write as _};
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::{cmp, mem};
+use std::{cmp, fmt, mem};
 
 pub(super) trait Session: Sized {
     type Stdin: Input;
@@ -1012,23 +1011,11 @@ impl AutosavedCookieStore {
     }
 
     fn to_header_value(&self, url: &Url) -> Option<HeaderValue> {
-        use percent_encoding::USERINFO_ENCODE_SET;
-
-        // https://github.com/seanmonstar/reqwest/pull/522
-        let header =
-            self.store
-                .get_request_cookies(url)
-                .fold("".to_owned(), |mut header, cookie| {
-                    let name = cookie.name().as_ref();
-                    let name = percent_encoding::percent_encode(name, USERINFO_ENCODE_SET);
-                    let value = cookie.value().as_ref();
-                    let value = percent_encoding::percent_encode(value, USERINFO_ENCODE_SET);
-                    if !header.is_empty() {
-                        header.push_str("; ");
-                    }
-                    write!(header, "{}={}", name, value).unwrap();
-                    header
-                });
+        let header = self
+            .store
+            .get_request_cookies(url)
+            .map(|c| format!("{}={}", c.name(), c.value()))
+            .join("; ");
 
         guard!(!header.is_empty());
         let result = header.parse();
