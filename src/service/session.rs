@@ -233,7 +233,7 @@ pub(super) trait Session: Sized {
         problems: &NonEmptyIndexSet<String>,
         found: &IndexSet<String>,
     ) -> io::Result<()> {
-        let not_found = problems.intersection(found).collect::<IndexSet<_>>();
+        let not_found = problems.difference(found).collect::<IndexSet<_>>();
 
         if !not_found.is_empty() {
             let stderr = &mut self.state_mut().stderr;
@@ -392,6 +392,34 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
             inner.inner = inner.inner.bearer_auth(token)?;
             Ok(inner)
         });
+        self
+    }
+
+    pub(super) fn push_path_segment(mut self, segment: &str) -> Self {
+        if let Ok(inner) = &mut self.inner {
+            if let Ok(mut segments) = inner.inner.url.path_segments_mut() {
+                segments.push(segment);
+            }
+        }
+        self
+    }
+
+    pub(super) fn extend_path_segments<I: IntoIterator>(mut self, segments: I) -> Self
+    where
+        I::Item: AsRef<str>,
+    {
+        if let Ok(inner) = &mut self.inner {
+            if let Ok(mut segments_mut) = inner.inner.url.path_segments_mut() {
+                segments_mut.extend(segments);
+            }
+        }
+        self
+    }
+
+    pub(super) fn push_url_query(mut self, key: &str, value: &str) -> Self {
+        if let Ok(inner) = &mut self.inner {
+            inner.inner.url.query_pairs_mut().append_pair(key, value);
+        }
         self
     }
 

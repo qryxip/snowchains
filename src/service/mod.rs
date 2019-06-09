@@ -125,7 +125,7 @@ pub(crate) fn retrieve_submissions(
     match service {
         ServiceKind::Atcoder => atcoder::retrieve_submissions(props, stdin, stderr),
         ServiceKind::Codeforces => codeforces::retrieve_submissions(props, stdin, stderr),
-        ServiceKind::Yukicoder => unimplemented!(),
+        ServiceKind::Yukicoder => yukicoder::retrieve_submissions(props, stdin, stderr),
         ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
     }
 }
@@ -849,11 +849,7 @@ impl Outcome for RetrieveSubmissionsOutcome {
         } else {
             let mut num_saved = 0;
 
-            for (i, submission) in self.submissions.values().enumerate() {
-                if i > 0 {
-                    writeln!(stdout)?;
-                }
-
+            for (_, submission) in &self.submissions {
                 stdout.set_color(color!(bold))?;
                 stdout.write_str(&submission.problem.slug)?;
                 if let Some(saved_as) = &submission.saved_as {
@@ -917,7 +913,7 @@ struct RetrieveSubmissionsOutcomeSubmissionDetail {
 
 #[derive(Debug, Default)]
 struct RetrieveSubmissionsOutcomeBuilder {
-    submissions: IndexMap<Url, RetrieveSubmissionsOutcomeBuilderSubmission>,
+    pub(self) submissions: IndexMap<Url, RetrieveSubmissionsOutcomeBuilderSubmission>,
 }
 
 impl RetrieveSubmissionsOutcomeBuilder {
@@ -996,7 +992,7 @@ pub(crate) struct RetrieveLangsOutcome {
 }
 
 impl RetrieveLangsOutcome {
-    fn new(url: Url, available_languages: NonEmptyIndexMap<String, String>) -> Self {
+    pub(self) fn new(url: Url, available_languages: NonEmptyIndexMap<String, String>) -> Self {
         Self {
             url,
             available_languages,

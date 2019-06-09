@@ -1,8 +1,10 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::download::{self, DownloadProgress};
-use crate::service::session::{FormBuilder, Session, State};
+use crate::service::session::{FormBuilder, ParseWithBaseUrl as _, Session, State};
 use crate::service::{
     Contest, ExtractZip, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
+    RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
+    RetrieveSubmissionsOutcomeBuilderSubmission, RetrieveSubmissionsProps,
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
     RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesOutcomeBuilderProblemTextFiles,
     RetrieveTestCasesProps, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
@@ -13,18 +15,20 @@ use crate::testsuite::{self, BatchSuite, InteractiveSuite, TestSuite};
 use crate::util::collections::{NonEmptyIndexMap, NonEmptyVec};
 use crate::util::str::CaseConversion;
 
+use chrono::offset::TimeZone as _;
+use chrono::{DateTime, FixedOffset, NaiveDateTime};
 use cookie::Cookie;
-use indexmap::{indexmap, IndexMap};
+use http::{header, StatusCode};
+use indexmap::{indexmap, IndexMap, IndexSet};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use reqwest::{header, StatusCode};
 use scraper::Html;
 use serde::Deserialize;
 use termcolor::WriteColor;
 use url::Url;
 
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
 use std::str::FromStr;
@@ -64,6 +68,19 @@ pub(super) fn retrieve_langs(
         .parse_contest()
         .unwrap();
     Yukicoder::try_new(sess_props, stdin, stderr)?.retrieve_langs(retrieve_props)
+}
+
+pub(super) fn retrieve_submissions(
+    props: (SessionProps, RetrieveSubmissionsProps<String>),
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
+) -> ServiceResult<RetrieveSubmissionsOutcome> {
+    let (sess_props, retrieve_props) = props;
+    let retrieve_props = retrieve_props
+        .convert_problems(CaseConversion::Upper)
+        .parse_contest()
+        .unwrap();
+    Yukicoder::try_new(sess_props, stdin, stderr)?.retrieve_submissions(retrieve_props)
 }
 
 pub(super) fn submit(
@@ -361,6 +378,170 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
         Ok(RetrieveLangsOutcome::new(url, langs))
     }
 
+    fn retrieve_submissions(
+        &mut self,
+        props: RetrieveSubmissionsProps<YukicoderContest>,
+    ) -> ServiceResult<RetrieveSubmissionsOutcome> {
+        let RetrieveSubmissionsProps {
+            contest,
+            problems,
+            src_paths,
+            fetch_all,
+            save_files,
+        } = props;
+
+        let problem_details = self
+            .api_v1_problems()?
+            .into_iter()
+            .map(|p| (p.no.to_string(), p))
+            .collect::<HashMap<_, _>>();
+
+        let langs = self
+            .api_v1_languages()?
+            .into_iter()
+            .map(|lang| {
+                let joined = lang.join_name_and_ver();
+                (lang.name, joined)
+            })
+            .collect::<HashMap<_, _>>();
+
+        let names = match (&contest, &problems) {
+            (YukicoderContest::No, None) => {
+                return Err(ServiceErrorKind::PleaseSpecifyProblem.into());
+            }
+            (YukicoderContest::No, Some(nos)) => nos
+                .iter()
+                .map(|no| (no.clone(), no.clone()))
+                .collect::<Vec<_>>(),
+            (YukicoderContest::Contest(contest), problems) => {
+                let iter = self
+                    .get(format!("/contests/{}", contest))
+                    .retry_recv_html()?
+                    .extract_problems()?
+                    .into_iter()
+                    .map(|(slug, no, _)| (slug, no));
+                match problems {
+                    None => iter.collect(),
+                    Some(problems) => iter.filter(|(slug, _)| problems.contains(slug)).collect(),
+                }
+            }
+        };
+
+        #[derive(Default)]
+        struct Found(IndexMap<String, IndexSet<String>>);
+
+        impl Found {
+            fn contains(&self, slug: &str, lang: &str) -> bool {
+                self.0.get(slug).map_or(false, |ls| ls.contains(lang))
+            }
+
+            fn insert(&mut self, slug: String, lang: String) {
+                self.0.entry(slug).or_default().insert(lang);
+            }
+        }
+
+        let mut found = Found::default();
+
+        let mut outcome = RetrieveSubmissionsOutcomeBuilder::new();
+
+        for (slug, no) in names {
+            let problem = problem_details
+                .get(&no)
+                .ok_or_else(|| ServiceErrorKind::NoSuchProblem(no.clone()))?;
+
+            let (mut summaries, num_pages) = self
+                .get("/problems/no")
+                .extend_path_segments(&[&no, "submissions"])
+                .push_url_query("my_submission", "enabled")
+                .retry_recv_html()?
+                .extract_submission_summaries()?;
+
+            for i in 1..num_pages {
+                let (rest_summaries, _) = self
+                    .get("/problems/no")
+                    .extend_path_segments(&[&no, "submissions"])
+                    .push_url_query("my_submission", "enabled")
+                    .push_url_query("page", &(i + 1).to_string())
+                    .retry_recv_html()?
+                    .extract_submission_summaries()?;
+                summaries.extend(rest_summaries);
+            }
+
+            for summary in summaries {
+                let language = langs.get(&summary.lang).ok_or_else(ScrapeError::new)?;
+
+                let mut retrieve_code = || -> _ {
+                    let res = self
+                        .get(&summary.url)
+                        .push_path_segment("source")
+                        .acceptable(&[200, 403])
+                        .retry_send()?;
+                    if res.status() == 200 {
+                        self.retry_recv_text(res).map(Some)
+                    } else {
+                        Ok(None)
+                    }
+                };
+
+                let (code, location) = match src_paths.get(language.as_str()) {
+                    Some(location) if fetch_all => {
+                        let code = retrieve_code()?;
+                        let location = if found.contains(&slug, language) {
+                            Some(location)
+                        } else {
+                            found.insert(slug.clone(), language.clone());
+                            None
+                        };
+                        match (code, location) {
+                            (None, _) => (None, None),
+                            (Some(code), location) => (Some(code), location),
+                        }
+                    }
+                    None if fetch_all => (retrieve_code()?, None),
+                    Some(location) => {
+                        if found.contains(&slug, language) {
+                            (None, None)
+                        } else {
+                            found.insert(slug.clone(), language.clone());
+                            match retrieve_code()? {
+                                None => (None, None),
+                                Some(code) => (Some(code), Some(location)),
+                            }
+                        }
+                    }
+                    None => (None, None),
+                };
+                let location = if save_files {
+                    location.map(|l| l.expand(Some(&slug))).transpose()?
+                } else {
+                    None
+                };
+
+                outcome.submissions.insert(
+                    summary.url,
+                    RetrieveSubmissionsOutcomeBuilderSubmission {
+                        problem_url: summary.no_url,
+                        problem_slug: slug.clone(),
+                        problem_display_name: problem.title.clone(),
+                        problem_screen_name: Some(problem.problem_id.to_string()),
+                        language: language.clone(),
+                        date_time: summary.dt,
+                        verdict_is_ok: summary.verdict_is_ac,
+                        verdict_string: summary.verdict_string,
+                        location,
+                        code,
+                    },
+                );
+            }
+        }
+
+        if let Some(problems) = problems {
+            self.warn_not_found(&problems, &outcome.problem_slugs())?;
+        }
+
+        outcome.finish()
+    }
+
     fn submit(&mut self, props: SubmitProps<YukicoderContest>) -> ServiceResult<SubmitOutcome> {
         let SubmitProps {
             contest,
@@ -478,6 +659,16 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
         }
         Ok(ret)
     }
+
+    /// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml#/problems/get_problems>
+    fn api_v1_problems(&mut self) -> ServiceResult<Vec<RestProblem>> {
+        self.get("/api/v1/problems").retry_recv_json()
+    }
+
+    /// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml#/language/get_languages>
+    fn api_v1_languages(&mut self) -> ServiceResult<Vec<RestLanguage>> {
+        self.get("/api/v1/languages").retry_recv_json()
+    }
 }
 
 #[derive(Debug)]
@@ -544,10 +735,53 @@ impl fmt::Display for Username {
     }
 }
 
+#[derive(Debug)]
+struct SubmissionSummary {
+    url: Url,
+    no_url: Url,
+    no_display_name: String,
+    dt: DateTime<FixedOffset>,
+    lang: String,
+    verdict_is_ac: bool,
+    verdict_string: String,
+}
+
+/// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml>
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct RestProblem {
+    /// "問題No"
+    no: u64,
+    /// "問題Id"
+    problem_id: u64,
+    /// "問題名"
+    title: String,
+    // __rest: (),
+}
+
+/// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml>
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct RestLanguage {
+    /// "言語ID　（一意な文字列）"
+    id: String,
+    /// "言語名 "
+    name: String,
+    /// "コンパイラバージョン"
+    ver: String,
+}
+
+impl RestLanguage {
+    fn join_name_and_ver(&self) -> String {
+        format!("{} ({})", self.name, self.ver)
+    }
+}
+
 trait Extract {
     fn extract_username(&self) -> Username;
     fn extract_samples(&self) -> ScrapeResult<(String, TestSuite)>;
     fn extract_problems(&self) -> ScrapeResult<NonEmptyVec<(String, String, Url)>>;
+    fn extract_submission_summaries(&self) -> ScrapeResult<(Vec<SubmissionSummary>, usize)>;
     fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String>;
     fn extract_url_from_submit_page(&self) -> ScrapeResult<String>;
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
@@ -657,6 +891,89 @@ impl Extract for Html {
             .ok_or_else(ScrapeError::new)
     }
 
+    fn extract_submission_summaries(&self) -> ScrapeResult<(Vec<SubmissionSummary>, usize)> {
+        let table = self
+            .select(selector!("table.table"))
+            .next()
+            .ok_or_else(ScrapeError::new)?;
+
+        guard!(
+            table
+                .select(selector!("thead > tr > th"))
+                .flat_map(|r| r.text())
+                .collect::<Vec<_>>()
+                == [
+                    "#",
+                    "提出日時",
+                    "提出者",
+                    "問題",
+                    "言語",
+                    "結果",
+                    "実行時間",
+                    "コード長",
+                ]
+        );
+
+        let summaries = table
+            .select(selector!("tbody > tr"))
+            .map(|tr| {
+                let url = tr
+                    .select(selector!("td > a"))
+                    .nth(0)?
+                    .value()
+                    .attr("href")?
+                    .parse_with_base_url(Some(&BASE_URL))
+                    .ok()?;
+
+                let dt = tr.select(selector!("td.time")).next()?.text().next()?;
+                let dt = NaiveDateTime::parse_from_str(dt, "%F %T").ok()?;
+                let dt = FixedOffset::east(9 * 3600)
+                    .from_local_datetime(&dt)
+                    .single()?;
+
+                let a = tr.select(selector!("td > a")).last()?;
+                let no_url = a
+                    .value()
+                    .attr("href")?
+                    .parse_with_base_url(Some(&BASE_URL))
+                    .ok()?;
+                let no_display_name = a.text().next()?.to_owned();
+
+                let td = tr.select(selector!("td")).nth(5)?;
+                let lang = td.text().next()?.to_owned();
+
+                let verdict_string = tr
+                    .select(selector!("td > span"))
+                    .flat_map(|r| r.text())
+                    .last()? // may contain multiple verdicts
+                    .to_owned();
+
+                Some(SubmissionSummary {
+                    url,
+                    no_url,
+                    no_display_name,
+                    dt,
+                    lang,
+                    verdict_is_ac: verdict_string == "AC",
+                    verdict_string,
+                })
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(ScrapeError::new)?;
+
+        let num_pages = if summaries.is_empty() {
+            1
+        } else {
+            self.select(selector!("#content > div > nav > ul > li"))
+                .flat_map(|r| r.text())
+                .flat_map(|s| s.parse())
+                .max()
+                .ok_or_else(ScrapeError::new)?
+        };
+
+        Ok((summaries, num_pages))
+    }
+
     fn extract_csrf_token_from_submit_page(&self) -> ScrapeResult<String> {
         self.select(selector!("#submit_form > input[name=\"csrf_token\"]"))
             .find_map(|r| r.value().attr("value").map(ToOwned::to_owned))
@@ -689,7 +1006,8 @@ impl Extract for Html {
 #[cfg(test)]
 mod tests {
     use crate::service;
-    use crate::service::yukicoder::Extract;
+    use crate::service::session::ParseWithBaseUrl as _;
+    use crate::service::yukicoder::{Extract as _, BASE_URL};
 
     use failure::Fallible;
     use pretty_assertions::assert_eq;
@@ -740,7 +1058,8 @@ mod tests {
         expected_display: &str,
         expected_md5: &str,
     ) -> Fallible<()> {
-        let html = retry_retrieve_html(url)?;
+        let html =
+            service::reqwest_sync_client(Duration::from_secs(60))?.retry_retrieve_html(url)?;
         let (actual_display, suite) = html.extract_samples()?;
         let actual_md5 = format!("{:?}", suite.md5()?);
         let actual = (actual_display.as_ref(), actual_md5.as_ref());
@@ -762,7 +1081,8 @@ mod tests {
             ("F", "196", "https://yukicoder.me/problems/no/196"),
         ];
 
-        let html = retry_retrieve_html("https://yukicoder.me/contests/100")?;
+        let html = service::reqwest_sync_client(Duration::from_secs(60))?
+            .retry_retrieve_html("https://yukicoder.me/contests/100")?;
         let actual = html.extract_problems()?;
         let actual = actual
             .iter()
@@ -772,27 +1092,43 @@ mod tests {
         Ok(())
     }
 
-    fn retry_retrieve_html(url: &str) -> Fallible<Html> {
-        const RETRIES: usize = 2;
-        const INTERVAL: Duration = Duration::from_secs(1);
-
+    #[test]
+    fn it_extracts_submission_summaries() -> Fallible<()> {
         let client = service::reqwest_sync_client(Duration::from_secs(60))?;
-        retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
-            let text = client
-                .get(url)
-                .send()
-                .and_then(|r| r.error_for_status()?.text());
-            match text {
-                Ok(text) => OperationResult::Ok(Html::parse_document(&text)),
-                Err(err) => {
-                    if err.is_http() || err.is_timeout() {
-                        OperationResult::Retry(err)
-                    } else {
-                        OperationResult::Err(err)
+        let (_, num_pages) = client
+            .retry_retrieve_html("https://yukicoder.me/problems/no/1/submissions?date_asc=enabled")?
+            .extract_submission_summaries()?;
+        assert!(num_pages >= 21);
+        Ok(())
+    }
+
+    trait RetryRetrieveHtml {
+        fn retry_retrieve_html(&self, uri: &str) -> Fallible<Html>;
+    }
+
+    impl RetryRetrieveHtml for reqwest::Client {
+        fn retry_retrieve_html(&self, uri: &str) -> Fallible<Html> {
+            const RETRIES: usize = 2;
+            const INTERVAL: Duration = Duration::from_secs(1);
+
+            let url = uri.parse_with_base_url(Some(&BASE_URL))?;
+            retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
+                let text = self
+                    .get(url.clone())
+                    .send()
+                    .and_then(|r| r.error_for_status()?.text());
+                match text {
+                    Ok(text) => OperationResult::Ok(Html::parse_document(&text)),
+                    Err(err) => {
+                        if err.is_http() || err.is_timeout() {
+                            OperationResult::Retry(err)
+                        } else {
+                            OperationResult::Err(err)
+                        }
                     }
                 }
-            }
-        })
-        .map_err(Into::into)
+            })
+            .map_err(Into::into)
+        }
     }
 }

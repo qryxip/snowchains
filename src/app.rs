@@ -243,7 +243,7 @@ pub struct RetrieveSubmissions {
     pub json: bool,
     #[structopt(raw(colorize = "5"))]
     pub colorize: bool,
-    #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
+    #[structopt(raw(service = "&[\"atcoder\", \"yukicoder\"], Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
     pub contest: Option<String>,
@@ -251,7 +251,7 @@ pub struct RetrieveSubmissions {
     pub mode: config::Mode,
     #[structopt(raw(problems = "4"))]
     pub problems: Vec<String>,
-    #[structopt(raw(output = r#""none", &["none", "pretty-verbose", "json"], 5"#))]
+    #[structopt(raw(output = r#""pretty", &["pretty", "pretty-verbose", "json"], 5"#))]
     pub output: OutputKind,
     #[structopt(raw(color_choice = "6"))]
     pub color_choice: AnsiColorChoice,

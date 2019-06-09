@@ -208,7 +208,7 @@ fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
                 fetch_all: false,
-                no_save: false,
+                no_save: true,
                 verbose: false,
                 json: false,
                 colorize: false,
