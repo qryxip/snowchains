@@ -76,7 +76,7 @@ pub(crate) fn participate(
     match service {
         ServiceKind::Atcoder => atcoder::participate(props, stdin, stderr),
         ServiceKind::Codeforces => unimplemented!(),
-        ServiceKind::Yukicoder => unimplemented!(),
+        ServiceKind::Yukicoder => yukicoder::participate(stderr),
         ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
     }
 }
