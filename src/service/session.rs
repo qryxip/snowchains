@@ -62,6 +62,13 @@ pub(super) trait Session: Sized {
         &mut self.state_mut().api_token
     }
 
+    fn wait_enter(&mut self, prompt: &str) -> io::Result<()> {
+        let State { stdin, stderr, .. } = self.state_mut();
+        stderr.write_str(prompt)?;
+        stderr.flush()?;
+        stdin.ignore_line()
+    }
+
     fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
         let State { stdin, stderr, .. } = self.state_mut();
         stderr.write_str(prompt)?;
@@ -99,13 +106,13 @@ pub(super) trait Session: Sized {
         }
     }
 
-    /// Opens `url`, which is relative or absolute, with default browser
-    /// printing a message.
     fn open_in_browser(&mut self, url: impl ParseWithBaseUrl) -> ServiceResult<()> {
         let url = url.parse_with_base_url(self.state_ref().base_url)?;
-        writeln!(self.stderr(), "Opening {} in default browser...", url)?;
+        write!(self.stderr(), "Opening {} in default browser...", url)?;
         self.stderr().flush()?;
         let status = webbrowser::open(url.as_str())?.status;
+        writeln!(self.stderr())?;
+        self.stderr().flush()?;
         if status.success() {
             Ok(())
         } else {

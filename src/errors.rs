@@ -8,9 +8,9 @@ use chrono::{DateTime, Local};
 use derive_more::From;
 use derive_new::new;
 use failure::{Backtrace, Fail};
+use http::header::HeaderName;
+use http::{StatusCode, Uri};
 use itertools::Itertools as _;
-use reqwest::header::HeaderName;
-use reqwest::StatusCode;
 use url::Url;
 use zip::result::ZipError;
 
@@ -120,6 +120,8 @@ pub enum ServiceErrorKind {
         "_2.iter().format(\", \")"
     )]
     UnexpectedStatusCode(Url, StatusCode, Vec<StatusCode>),
+    #[display(fmt = "Unexpected redirection: {:?}", _0)]
+    UnexpectedRedirection(Option<Uri>),
     #[display(fmt = "API error")]
     Api,
     #[display(fmt = "Unable to download full test cases")]

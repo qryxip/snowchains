@@ -75,7 +75,7 @@ pub(crate) fn participate(
     let props = (sess_props, contest);
     match service {
         ServiceKind::Atcoder => atcoder::participate(props, stdin, stderr),
-        ServiceKind::Codeforces => unimplemented!(),
+        ServiceKind::Codeforces => codeforces::participate(props, stdin, stderr),
         ServiceKind::Yukicoder => yukicoder::participate(stderr),
         ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
     }

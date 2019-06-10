@@ -670,12 +670,12 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
     }
 
     /// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml#/problems/get_problems>
-    fn api_v1_problems(&mut self) -> ServiceResult<Vec<RestProblem>> {
+    fn api_v1_problems(&mut self) -> ServiceResult<Vec<api_v1::Problem>> {
         self.get("/api/v1/problems").retry_recv_json()
     }
 
     /// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml#/language/get_languages>
-    fn api_v1_languages(&mut self) -> ServiceResult<Vec<RestLanguage>> {
+    fn api_v1_languages(&mut self) -> ServiceResult<Vec<api_v1::Language>> {
         self.get("/api/v1/languages").retry_recv_json()
     }
 }
@@ -753,37 +753,6 @@ struct SubmissionSummary {
     lang: String,
     verdict_is_ac: bool,
     verdict_string: String,
-}
-
-/// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml>
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct RestProblem {
-    /// "問題No"
-    no: u64,
-    /// "問題Id"
-    problem_id: u64,
-    /// "問題名"
-    title: String,
-    // __rest: (),
-}
-
-/// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml>
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct RestLanguage {
-    /// "言語ID　（一意な文字列）"
-    id: String,
-    /// "言語名 "
-    name: String,
-    /// "コンパイラバージョン"
-    ver: String,
-}
-
-impl RestLanguage {
-    fn join_name_and_ver(&self) -> String {
-        format!("{} ({})", self.name, self.ver)
-    }
 }
 
 trait Extract {
@@ -1009,6 +978,42 @@ impl Extract for Html {
             .map(|p| p.ok_or_else(ScrapeError::new))
             .collect::<ScrapeResult<IndexMap<_, _>>>()?;
         NonEmptyIndexMap::try_new(names).ok_or_else(ScrapeError::new)
+    }
+}
+
+/// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml>
+mod api_v1 {
+    use serde::Deserialize;
+
+    /// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml>
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub(super) struct Problem {
+        /// "問題No"
+        pub(super) no: u64,
+        /// "問題Id"
+        pub(super) problem_id: u64,
+        /// "問題名"
+        pub(super) title: String,
+        // __rest: (),
+    }
+
+    /// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml>
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub(super) struct Language {
+        /// "言語ID　（一意な文字列）"
+        pub(super) id: String,
+        /// "言語名 "
+        pub(super) name: String,
+        /// "コンパイラバージョン"
+        pub(super) ver: String,
+    }
+
+    impl Language {
+        pub(super) fn join_name_and_ver(&self) -> String {
+            format!("{} ({})", self.name, self.ver)
+        }
     }
 }
 

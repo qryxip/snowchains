@@ -12,11 +12,16 @@ use std::string::FromUtf8Error;
 use std::{env, fmt, process, str};
 
 pub trait Input {
+    fn ignore_line(&mut self) -> io::Result<()>;
     fn read_reply(&mut self) -> io::Result<String>;
     fn read_password(&mut self) -> io::Result<String>;
 }
 
 impl<'a, I: Input + ?Sized> Input for &'a mut I {
+    fn ignore_line(&mut self) -> io::Result<()> {
+        (**self).ignore_line()
+    }
+
     fn read_reply(&mut self) -> io::Result<String> {
         (**self).read_reply()
     }
@@ -46,6 +51,15 @@ impl<'a> TtyOrPiped<StdinLock<'a>> {
 }
 
 impl<R: BufRead> Input for TtyOrPiped<R> {
+    fn ignore_line(&mut self) -> io::Result<()> {
+        let mut sink = "".to_owned();
+        let _ = match self {
+            TtyOrPiped::Tty => io::stdin().read_line(&mut sink),
+            TtyOrPiped::Piped(rdr) => rdr.read_line(&mut sink),
+        }?;
+        Ok(())
+    }
+
     fn read_reply(&mut self) -> io::Result<String> {
         let mut ret = "".to_owned();
         let _ = match self {
