@@ -243,7 +243,7 @@ pub struct RetrieveSubmissions {
     pub json: bool,
     #[structopt(raw(colorize = "5"))]
     pub colorize: bool,
-    #[structopt(raw(service = "&[\"atcoder\", \"yukicoder\"], Kind::Option(1)"))]
+    #[structopt(raw(service = "&ServiceKind::variants_except_other(), Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
     pub contest: Option<String>,

@@ -126,6 +126,8 @@ pub enum ServiceErrorKind {
     Api,
     #[display(fmt = "Unable to download full test cases")]
     UnableToDownloadFull,
+    #[display(fmt = "Unknown language: {:?}", _0)]
+    UnknownLanguage(String),
     #[display(
         fmt = "The default browser terminated abnormally {}",
         r#"match _0.code() {

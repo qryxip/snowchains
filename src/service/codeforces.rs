@@ -1,5 +1,3 @@
-#![allow(non_snake_case)]
-
 use crate::errors::{
     ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceErrorKind,
     ServiceResult,
@@ -7,10 +5,11 @@ use crate::errors::{
 use crate::service::session::{ParseWithBaseUrl as _, Session, State};
 use crate::service::{
     Contest, LoginOutcome, ParticipateOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
-    RetrieveSubmissionsOutcome, RetrieveSubmissionsProps, RetrieveTestCasesOutcome,
-    RetrieveTestCasesOutcomeBuilder, RetrieveTestCasesOutcomeBuilderProblem,
-    RetrieveTestCasesProps, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
-    SubmitOutcomeResponse, SubmitProps,
+    RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
+    RetrieveSubmissionsOutcomeBuilderSubmission, RetrieveSubmissionsProps,
+    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
+    RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesProps, SessionProps, SubmitOutcome,
+    SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
 };
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{self, BatchSuite, TestSuite};
@@ -18,8 +17,9 @@ use crate::util::collections::NonEmptyIndexMap;
 use crate::util::scraper::ElementRefExt as _;
 use crate::util::str::CaseConversion;
 
+use chrono::{FixedOffset, TimeZone as _};
 use if_chain::if_chain;
-use indexmap::{indexmap, IndexMap};
+use indexmap::{indexmap, IndexMap, IndexSet};
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
@@ -301,12 +301,13 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         &mut self,
         props: RetrieveSubmissionsProps<CodeforcesContest>,
     ) -> ServiceResult<RetrieveSubmissionsOutcome> {
-        #[derive(Deserialize)]
-        struct SubmitSource {
-            source: String,
-        }
-
-        let RetrieveSubmissionsProps { contest, .. } = props;
+        let RetrieveSubmissionsProps {
+            contest,
+            problems,
+            src_paths,
+            fetch_all,
+            save_files,
+        } = props;
 
         self.login(LoginOption::WithHandle)?;
         let handle = self.handle.clone().unwrap();
@@ -320,17 +321,119 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             .get("/")
             .retry_recv_html()?
             .extract_meta_x_csrf_token()?;
-        for submission in submissions {
-            let submission_id = submission.id.to_string();
-            let SubmitSource { source } = self
-                .post("/data/submitSource")
-                .acceptable(&[200])
-                .form(&hashmap!("submissionId" => &submission_id, "csrf_token" => &csrf_token))
-                .recv_json()?;
-            dbg!((submission.id, &submission.programmingLanguage, source.len()));
+
+        let lang_full_names = self
+            .get(format!("/contest/{}/submit", contest.id))
+            .retry_recv_html()?
+            .extract_langs()?
+            .into_iter()
+            .map(|(k, v)| (v, k))
+            .collect::<HashMap<_, _>>();
+
+        #[derive(Default)]
+        struct Found(IndexMap<String, IndexSet<String>>);
+
+        impl Found {
+            fn contains(&self, slug: &str, lang: &str) -> bool {
+                self.0.get(slug).map_or(false, |ls| ls.contains(lang))
+            }
+
+            fn insert(&mut self, slug: String, lang: String) {
+                self.0.entry(slug).or_default().insert(lang);
+            }
         }
 
-        unimplemented!()
+        let mut found = Found::default();
+
+        let mut outcome = RetrieveSubmissionsOutcomeBuilder::new();
+
+        for submission in submissions {
+            if problems
+                .as_ref()
+                .map_or(false, |ps| !ps.contains(&submission.problem.index))
+            {
+                continue;
+            }
+
+            let language = LANG_IDS
+                .get(submission.programming_language.as_str())
+                .and_then(|id| lang_full_names.get(*id))
+                .ok_or_else(|| {
+                    ServiceErrorKind::UnknownLanguage(submission.programming_language.clone())
+                })?
+                .to_owned();
+
+            let submission_id = submission.id.to_string();
+            let mut retrieve_code = || -> _ {
+                #[derive(Deserialize)]
+                struct SubmitSource {
+                    source: String,
+                }
+
+                self.post("/data/submitSource")
+                    .acceptable(&[200])
+                    .form(&hashmap!("submissionId" => &submission_id, "csrf_token" => &csrf_token))
+                    .recv_json()
+                    .map(|SubmitSource { source }| source)
+            };
+
+            let problem_slug = submission.problem.index;
+
+            let (code, location) = match src_paths.get(language.as_str()) {
+                None if fetch_all => (Some(retrieve_code()?), None),
+                Some(location) if fetch_all => {
+                    if found.contains(&problem_slug, &language) {
+                        (Some(retrieve_code()?), Some(location))
+                    } else {
+                        found.insert(problem_slug.clone(), language.clone());
+                        (Some(retrieve_code()?), None)
+                    }
+                }
+                None => (None, None),
+                Some(location) => {
+                    if found.contains(&problem_slug, &language) {
+                        (None, None)
+                    } else {
+                        found.insert(problem_slug.clone(), language.clone());
+                        (Some(retrieve_code()?), Some(location))
+                    }
+                }
+            };
+            let location = if save_files {
+                location
+                    .map(|l| l.expand(Some(&problem_slug)))
+                    .transpose()?
+            } else {
+                None
+            };
+
+            outcome.submissions.insert(
+                format!("/contest/{}/submission/{}", contest.id, submission.id)
+                    .parse_with_base_url(Some(&BASE_URL))?,
+                RetrieveSubmissionsOutcomeBuilderSubmission {
+                    problem_url: format!("/contest/{}/problem/{}", contest.id, problem_slug)
+                        .parse_with_base_url(Some(&BASE_URL))?,
+                    problem_slug,
+                    problem_display_name: submission.problem.name,
+                    problem_screen_name: None,
+                    language,
+                    date_time: FixedOffset::east(0).timestamp(submission.creation_time_seconds, 0),
+                    verdict_is_ok: submission.verdict == Some(api::SubmissionVerdict::Ok),
+                    verdict_string: submission
+                        .verdict
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                    location,
+                    code,
+                },
+            );
+        }
+
+        if let Some(problems) = problems {
+            self.warn_not_found(&problems, &outcome.problem_slugs())?;
+        }
+
+        outcome.finish()
     }
 
     fn submit(&mut self, props: SubmitProps<CodeforcesContest>) -> ServiceResult<SubmitOutcome> {
@@ -532,6 +635,39 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         }
     }
 }
+
+static LANG_IDS: Lazy<IndexMap<&'static str, &'static str>> = Lazy::new(|| {
+    indexmap!(
+        "GNU C11" => "43",
+        "Clang++17 Diagnostics" => "52",
+        "GNU C++11" => "42",
+        "GNU C++14" => "50",
+        "GNU C++17" => "54",
+        "MS C++ 2010" => "2",
+        "MS C++ 2017" => "59",
+        "Mono C#" => "9",
+        "D" => "28",
+        "Go" => "32",
+        "Haskell" => "12",
+        "Java 8" => "36",
+        "Kotlin" => "48",
+        "Ocaml" => "19",
+        "Delphi" => "3",
+        "FPC" => "4",
+        "PascalABC.NET" => "51",
+        "Perl" => "13",
+        "PHP" => "6",
+        "Python 2" => "7",
+        "Python 3" => "31",
+        "PyPy 2" => "40",
+        "PyPy 3" => "41",
+        "Ruby" => "8",
+        "Rust" => "49",
+        "Scala" => "20",
+        "JavaScript" => "34",
+        "Node.js" => "55",
+    )
+});
 
 #[derive(Clone, Copy, Debug, derive_more::Display)]
 #[display(fmt = "{}", id)]
@@ -793,21 +929,25 @@ mod api {
     #[derive(Debug, Deserialize)]
     pub(super) struct Problem {
         pub(super) index: String,
+        pub(super) name: String,
         // __rest: (),
     }
 
     /// <https://codeforces.com/api/help/objects#Submission>
     #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
     pub(super) struct Submission {
         pub(super) id: u64,
+        pub(super) creation_time_seconds: i64,
         pub(super) problem: Problem,
-        pub(super) programmingLanguage: String,
+        pub(super) programming_language: String,
         pub(super) verdict: Option<SubmissionVerdict>,
         // __rest: (),
     }
 
     /// <https://codeforces.com/api/help/objects#Submission>
-    #[derive(Debug, PartialEq, Deserialize)]
+    #[derive(Debug, PartialEq, strum_macros::Display, Deserialize)]
+    #[strum(serialize_all = "shouty_snake_case")]
     #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
     pub(super) enum SubmissionVerdict {
         Failed,
