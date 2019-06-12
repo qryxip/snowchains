@@ -4,6 +4,7 @@ use crate::judging::{JudgingCommand, Verdict};
 use crate::terminal::HasTermProps;
 use crate::testsuite::InteractiveCase;
 use crate::time::MillisRoundedUp as _;
+use crate::util;
 use crate::util::collections::NonEmptyVec;
 
 use derive_new::new;
@@ -12,6 +13,7 @@ use serde::Serialize;
 use termcolor::{Color, ColorSpec, WriteColor};
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{fmt, io, mem};
@@ -96,7 +98,7 @@ struct Waiting {
     proc: tokio_process::Child,
     start: Instant,
     deadline: Option<Instant>,
-    construct_output: fn(bool, Text, Duration) -> Output,
+    construct_output: fn(ExitStatus, Duration) -> Output,
 }
 
 impl Stream for Waiting {
@@ -114,11 +116,7 @@ impl Stream for Waiting {
                 ));
             } else {
                 let status = try_ready!(self.proc.poll());
-                output = Some((self.construct_output)(
-                    status.success(),
-                    Text::new(Arc::new(format!("{}\n", status))),
-                    now - self.start,
-                ));
+                output = Some((self.construct_output)(status, now - self.start));
             }
         }
         self.finished = true;
@@ -312,9 +310,11 @@ pub(crate) struct InteractiveVerdict {
 impl Verdict for InteractiveVerdict {
     fn is_success(&self) -> bool {
         self.outputs.iter().all(|output| match output {
-            Output::SolverStdout(..) | Output::SolverStderr(..) | Output::SolverTerminated(..) => {
-                true
-            }
+            Output::SolverStdout(..)
+            | Output::SolverStderr(..)
+            | Output::TesterStdout(..)
+            | Output::TesterStderr(..) => true,
+            Output::SolverTerminated(s, ..) | Output::TesterTerminated(s, ..) => s.success(),
             _ => false,
         })
     }
@@ -330,8 +330,16 @@ impl Verdict for InteractiveVerdict {
         ret
     }
 
-    fn print_details(&self, _: Option<usize>, _: impl WriteColor + HasTermProps) -> io::Result<()> {
-        unimplemented!("Run with `--json`")
+    fn print_details(
+        &self,
+        _: Option<usize>,
+        mut wtr: impl WriteColor + HasTermProps,
+    ) -> io::Result<()> {
+        // TODO
+        for output in &self.outputs {
+            writeln!(wtr, "{:#?}", output.partial_debug())?;
+        }
+        Ok(())
     }
 }
 
@@ -351,10 +359,16 @@ impl fmt::Display for InteractiveVerdict {
 enum Output {
     SolverStdout(Text, Duration),
     SolverStderr(Text, Duration),
-    SolverTerminated(bool, Text, Duration),
+    SolverTerminated(
+        #[serde(serialize_with = "util::serde::ser_exit_status")] ExitStatus,
+        Duration,
+    ),
     TesterStdout(Text, Duration),
     TesterStderr(Text, Duration),
-    TesterTerminated(bool, Text, Duration),
+    TesterTerminated(
+        #[serde(serialize_with = "util::serde::ser_exit_status")] ExitStatus,
+        Duration,
+    ),
     TimelimitExceeded(Duration),
 }
 
@@ -363,12 +377,39 @@ impl Output {
         match self {
             Output::SolverStdout(_, t)
             | Output::SolverStderr(_, t)
-            | Output::SolverTerminated(_, _, t)
+            | Output::SolverTerminated(_, t)
             | Output::TesterStdout(_, t)
             | Output::TesterStderr(_, t)
-            | Output::TesterTerminated(_, _, t)
+            | Output::TesterTerminated(_, t)
             | Output::TimelimitExceeded(t) => *t,
         }
         .millis_rounded_up()
+    }
+
+    fn partial_debug<'a>(&'a self) -> impl fmt::Debug + 'a {
+        struct Debug<'a>(&'a Output);
+
+        impl fmt::Debug for Debug<'_> {
+            fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                let mut partial_fmt = |name: &str, text: &Text, dur: Duration| -> _ {
+                    fmt.debug_tuple(name)
+                        .field(&text.partial_debug())
+                        .field(&dur)
+                        .finish()
+                };
+
+                match &self.0 {
+                    Output::SolverStdout(t, d) => partial_fmt("SolverStdout", t, *d),
+                    Output::SolverStderr(t, d) => partial_fmt("SolverStderr", t, *d),
+                    Output::TesterStdout(t, d) => partial_fmt("TesterStdout", t, *d),
+                    Output::TesterStderr(t, d) => partial_fmt("TesterStderr", t, *d),
+                    o @ Output::SolverTerminated(..)
+                    | o @ Output::TesterTerminated(..)
+                    | o @ Output::TimelimitExceeded(_) => fmt::Debug::fmt(o, fmt),
+                }
+            }
+        }
+
+        Debug(self)
     }
 }

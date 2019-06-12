@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{cmp, f64, io, iter, mem};
+use std::{cmp, f64, fmt, io, iter, mem};
 
 pub(super) fn actual_or_diff(
     expected: Arc<String>,
@@ -60,8 +60,8 @@ impl Text {
                     wtr.write_str(s)?;
                     wtr.reset()?;
                 }
-                Word::Sps(n) => wtr.write_spaces(n.get())?,
-                Word::TrailingSps(n) => {
+                Word::Spcs(n) => wtr.write_spaces(n.get())?,
+                Word::TrailingSpcs(n) => {
                     wtr.set_color(color!(bg(Yellow), intense, bold))?;
                     wtr.write_spaces(n.get())?;
                     wtr.reset()?;
@@ -92,6 +92,20 @@ impl Text {
             wtr.reset()?;
         }
         Ok(())
+    }
+
+    pub(super) fn partial_debug<'a>(&'a self) -> impl fmt::Debug + 'a {
+        struct Debug<'a>(&'a TextInner);
+
+        impl fmt::Debug for Debug<'_> {
+            fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                fmt.debug_tuple("Text")
+                    .field(&self.0.partial_debug())
+                    .finish()
+            }
+        }
+
+        Debug(&self.0)
     }
 }
 
@@ -130,10 +144,10 @@ impl TextDiff {
                                     } = FLOAT_ERRORS.load();
                                     (v1 - v2).abs() <= d || ((v1 - v2) / v2).abs() <= r
                                 }
-                                (Word::Sps(n1), Word::Sps(n2))
-                                | (Word::Sps(n1), Word::TrailingSps(n2))
-                                | (Word::TrailingSps(n1), Word::Sps(n2))
-                                | (Word::TrailingSps(n1), Word::TrailingSps(n2)) => n1 == n2,
+                                (Word::Spcs(n1), Word::Spcs(n2))
+                                | (Word::Spcs(n1), Word::TrailingSpcs(n2))
+                                | (Word::TrailingSpcs(n1), Word::Spcs(n2))
+                                | (Word::TrailingSpcs(n1), Word::TrailingSpcs(n2)) => n1 == n2,
                                 (Word::Plain(s1), Word::Plain(s2))
                                 | (Word::UnicodeEscape(s1), Word::UnicodeEscape(s2)) => s1 == s2,
                                 (Word::Tab, Word::Tab)
@@ -270,8 +284,8 @@ impl TextDiff {
                         wtr.write_str(s)?;
                         wtr.reset()?;
                     }
-                    Word::Sps(n) => wtr.write_spaces(n.get())?,
-                    Word::TrailingSps(n) => {
+                    Word::Spcs(n) => wtr.write_spaces(n.get())?,
+                    Word::TrailingSpcs(n) => {
                         wtr.set_color(color!(bg(Yellow), intense, bold))?;
                         wtr.write_spaces(n.get())?;
                         wtr.reset()?;
@@ -317,11 +331,11 @@ impl TextDiff {
                         wtr.set_color(color!(fg(Red), intense, underline))?;
                         wtr.write_str(s)?;
                     }
-                    Word::Sps(n) => {
+                    Word::Spcs(n) => {
                         wtr.set_color(color!(fg(Red), intense, underline))?;
                         wtr.write_spaces(n.get())?
                     }
-                    Word::TrailingSps(n) => {
+                    Word::TrailingSpcs(n) => {
                         wtr.set_color(color!(fg(Red), bg(Yellow), intense, underline))?;
                         wtr.write_spaces(n.get())?
                     }
@@ -489,9 +503,9 @@ fn parse_words(s: &str, floats: bool) -> impl Iterator<Item = Word> {
         .map::<_, SmallVec<[Word; 2]>>(|(s, word): (&str, _)| {
             let n = NonZeroUsize::new(s.len()).unwrap();
             match word {
-                Some(Word::Lf) => [Word::TrailingSps(n), Word::Lf].into(),
-                Some(word) => [Word::Sps(n), word].into(),
-                None => iter::once(Word::TrailingSps(n)).collect(),
+                Some(Word::Lf) => [Word::TrailingSpcs(n), Word::Lf].into(),
+                Some(word) => [Word::Spcs(n), word].into(),
+                None => iter::once(Word::TrailingSpcs(n)).collect(),
             }
         });
 
@@ -510,8 +524,8 @@ fn parse_words(s: &str, floats: bool) -> impl Iterator<Item = Word> {
 #[derive(Debug, Clone, Copy, Serialize)]
 enum Word<'a> {
     Plain(&'a str),
-    Sps(NonZeroUsize),
-    TrailingSps(NonZeroUsize),
+    Spcs(NonZeroUsize),
+    TrailingSpcs(NonZeroUsize),
     Tab,
     Cr,
     Lf,
@@ -530,7 +544,7 @@ impl Word<'_> {
     fn width(self, str_width: fn(&str) -> usize) -> Option<NonZeroUsize> {
         match self {
             Word::Plain(s) => NonZeroUsize::new(str_width(s)),
-            Word::Sps(n) | Word::TrailingSps(n) => Some(n),
+            Word::Spcs(n) | Word::TrailingSpcs(n) => Some(n),
             Word::Tab | Word::Cr => NonZeroUsize::new(2),
             Word::UnicodeEscape(s) => NonZeroUsize::new(8 * s.chars().count()),
             Word::Float { string, .. } => NonZeroUsize::new(str_width(string)),
@@ -572,8 +586,8 @@ impl<'a> DiffLine<'a> {
 mod inner {
     use crate::judging::text::{DiffLine, Word};
 
-    use std::mem;
     use std::sync::Arc;
+    use std::{fmt, mem};
 
     /// **NOTE:** this is a self-referential struct.
     #[derive(Debug)]
@@ -599,6 +613,21 @@ mod inner {
 
         pub(super) fn words<'a>(&'a self) -> &[Word<'a>] {
             &self.words
+        }
+
+        pub(super) fn partial_debug<'a>(&'a self) -> impl fmt::Debug + 'a {
+            struct Debug<'a>(&'a str);
+
+            impl fmt::Debug for Debug<'_> {
+                fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                    fmt.debug_struct("TextInner")
+                        .field("words", &format_args!("_"))
+                        .field("string", &self.0)
+                        .finish()
+                }
+            }
+
+            Debug(&self.string)
         }
     }
 

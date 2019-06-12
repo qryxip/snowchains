@@ -386,8 +386,8 @@ impl Outcome for JudgeOutcome {
                     write!(stdout, "{}/{} ({}) ", i, len, name)?;
                     stdout.set_color(&verdict.color_spec())?;
                     writeln!(stdout, "{}", verdict)?;
-                    verdict.print_details(*display_limit, &mut stdout)?;
                     stdout.reset()?;
+                    verdict.print_details(*display_limit, &mut stdout)?;
                 }
                 writeln!(stdout)?;
             }
