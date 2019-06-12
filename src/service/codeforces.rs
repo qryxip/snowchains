@@ -4,14 +4,14 @@ use crate::errors::{
 };
 use crate::service::session::{ParseWithBaseUrl as _, Session, State};
 use crate::service::{
-    Contest, LoginOutcome, ParticipateOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
-    RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
+    Contest, LoginOutcome, ParticipateOutcome, ParticipateOutcomeKind, RetrieveLangsOutcome,
+    RetrieveLangsProps, RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
     RetrieveSubmissionsOutcomeBuilderSubmission, RetrieveSubmissionsProps,
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
     RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesProps, SessionProps, SubmitOutcome,
     SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
 };
-use crate::terminal::{HasTermProps, Input, WriteExt as _};
+use crate::terminal::{HasTermProps, Input};
 use crate::testsuite::{self, BatchSuite, TestSuite};
 use crate::util::collections::NonEmptyIndexMap;
 use crate::util::scraper::ElementRefExt as _;
@@ -203,11 +203,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             .phase;
 
         if phase == api::ContestPhase::Finished {
-            self.stderr().set_color(color!(fg(Yellow), intense))?;
-            self.stderr().write_str("The contest is finished.")?;
-            self.stderr().reset()?;
-            writeln!(self.stderr())?;
-            self.stderr().flush()?;
+            Ok(ParticipateOutcomeKind::ContestIsFinished.into())
         } else {
             let status = self
                 .get(contest.registration_url())
@@ -215,16 +211,11 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
                 .retry_status()?;
             if status == 200 {
                 self.open_in_browser(contest.registration_url())?;
+                Ok(ParticipateOutcomeKind::Success.into())
             } else {
-                self.stderr().set_color(color!(fg(Yellow), intense))?;
-                self.stderr().write_str("You have already registered.")?;
-                self.stderr().reset()?;
-                writeln!(self.stderr())?;
-                self.stderr().flush()?;
+                Ok(ParticipateOutcomeKind::AlreadyParticipated.into())
             }
         }
-
-        Ok(ParticipateOutcome {})
     }
 
     fn retrieve_testcases(

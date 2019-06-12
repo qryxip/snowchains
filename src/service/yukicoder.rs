@@ -2,8 +2,8 @@ use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, S
 use crate::service::download::{self, DownloadProgress};
 use crate::service::session::{FormBuilder, ParseWithBaseUrl as _, Session, State};
 use crate::service::{
-    Contest, ExtractZip, LoginOutcome, ParticipateOutcome, RetrieveLangsOutcome,
-    RetrieveLangsProps, RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
+    Contest, ExtractZip, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
+    RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
     RetrieveSubmissionsOutcomeBuilderSubmission, RetrieveSubmissionsProps,
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
     RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesOutcomeBuilderProblemTextFiles,
@@ -42,15 +42,6 @@ pub(super) fn login(
     stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<LoginOutcome> {
     Yukicoder::try_new(props, stdin, stderr)?.login(true)
-}
-
-pub(super) fn participate(mut stderr: impl WriteColor) -> ServiceResult<ParticipateOutcome> {
-    stderr.set_color(color!(fg(Yellow), intense))?;
-    write!(stderr, "You don't need to register for yukicoder contests.")?;
-    stderr.reset()?;
-    writeln!(stderr)?;
-    stderr.flush()?;
-    Ok(ParticipateOutcome {})
 }
 
 pub(super) fn retrieve_testcases(

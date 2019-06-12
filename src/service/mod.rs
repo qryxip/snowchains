@@ -22,6 +22,7 @@ use crate::util::str::CaseConversion;
 use snowchains_proc_macros::{ArgEnum, DeserializeAsString};
 
 use chrono::{DateTime, FixedOffset};
+use derive_more::From;
 use derive_new::new;
 use failure::ResultExt as _;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
@@ -51,6 +52,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{cmp, fmt, mem};
 
+/// # Panics
+///
+/// Panics if `service` is `Other`.
 pub(crate) fn login(
     service: ServiceKind,
     props: SessionProps,
@@ -61,10 +65,13 @@ pub(crate) fn login(
         ServiceKind::Atcoder => atcoder::login(props, stdin, stderr),
         ServiceKind::Codeforces => codeforces::login(props, stdin, stderr),
         ServiceKind::Yukicoder => yukicoder::login(props, stdin, stderr),
-        ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
+        ServiceKind::Other => panic!("`service` must not be `Other`"),
     }
 }
 
+/// # Panics
+///
+/// Panics if `service` is not `Atcoder` or `Codeforces`.
 pub(crate) fn participate(
     service: ServiceKind,
     sess_props: SessionProps,
@@ -76,8 +83,7 @@ pub(crate) fn participate(
     match service {
         ServiceKind::Atcoder => atcoder::participate(props, stdin, stderr),
         ServiceKind::Codeforces => codeforces::participate(props, stdin, stderr),
-        ServiceKind::Yukicoder => yukicoder::participate(stderr),
-        ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
+        _ => panic!("`service` must be `Atcoder` or `Codeforces`"),
     }
 }
 
@@ -335,20 +341,42 @@ impl Outcome for LoginOutcome {
     }
 }
 
-#[derive(Debug, Serialize)]
-pub(crate) struct ParticipateOutcome {}
+#[derive(Debug, From, Serialize)]
+pub(crate) struct ParticipateOutcome {
+    kind: ParticipateOutcomeKind,
+}
 
 impl Outcome for ParticipateOutcome {
     fn is_success(&self) -> bool {
         true
     }
 
-    fn print_pretty(&self, _: bool, _: impl Sized) -> io::Result<()> {
-        #[cfg(debug)]
-        unreachable!();
-
-        Ok(())
+    fn print_pretty(&self, _: bool, mut wtr: impl WriteColor) -> io::Result<()> {
+        match self.kind {
+            ParticipateOutcomeKind::Success => {
+                wtr.set_color(color!(fg(Green), intense))?;
+                wtr.write_str("Successfully registered.")?;
+            }
+            ParticipateOutcomeKind::AlreadyParticipated => {
+                wtr.set_color(color!(fg(Yellow), intense))?;
+                wtr.write_str("You have already registered.")?;
+            }
+            ParticipateOutcomeKind::ContestIsFinished => {
+                wtr.set_color(color!(fg(Yellow), intense))?;
+                wtr.write_str("The contest is finished.")?;
+            }
+        }
+        wtr.reset()?;
+        writeln!(wtr)?;
+        wtr.flush()
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub(self) enum ParticipateOutcomeKind {
+    Success,
+    AlreadyParticipated,
+    ContestIsFinished,
 }
 
 #[derive(Debug, Serialize)]

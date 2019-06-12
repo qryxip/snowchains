@@ -232,7 +232,7 @@ Username: Password: POST https://atcoder.jp/login ... 302 Found
 GET https://atcoder.jp/settings ... 200 OK
 Successfully logged in.
 GET https://atcoder.jp/contests/practice ... 200 OK
-POST https://atcoder.jp/contests/practice/register ... 302 Found
+GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 200 OK
 "#,
             ));
             Ok(())

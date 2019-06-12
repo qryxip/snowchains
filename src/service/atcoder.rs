@@ -3,8 +3,8 @@ use crate::path::AbsPath;
 use crate::service::download::{self, DownloadProgress};
 use crate::service::session::{ParseWithBaseUrl as _, Session, State};
 use crate::service::{
-    Contest, LoginOutcome, ParticipateOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
-    RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
+    Contest, LoginOutcome, ParticipateOutcome, ParticipateOutcomeKind, RetrieveLangsOutcome,
+    RetrieveLangsProps, RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
     RetrieveSubmissionsOutcomeBuilderSubmission, RetrieveSubmissionsProps,
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
     RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesOutcomeBuilderProblemTextFiles,
@@ -296,20 +296,26 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
 
         let duration = html.extract_contest_duration()?;
         let status = duration.check_current_status(contest.to_string());
+
         if !explicit {
             status.raise_if_not_begun()?;
         }
-        if explicit || *contest == AtcoderContest::Practice || status.is_active() {
+
+        if status.is_finished() {
+            Ok(ParticipateOutcomeKind::ContestIsFinished.into())
+        } else {
             self.login_if_not(false)?;
-            let csrf_token = self
-                .get(&contest.url_top())
-                .retry_recv_html()?
-                .extract_csrf_token()?;
-            let url = contest.url_register();
-            let payload = hashmap!("csrf_token" => csrf_token);
-            self.post(&url).form(&payload).send()?;
+            let html = self.get(&contest.url_top()).retry_recv_html()?;
+            if html.contains_registration_button()? {
+                let csrf_token = html.extract_csrf_token()?;
+                let url = contest.url_register();
+                let payload = hashmap!("csrf_token" => csrf_token);
+                self.post(&url).form(&payload).send()?;
+                Ok(ParticipateOutcomeKind::Success.into())
+            } else {
+                Ok(ParticipateOutcomeKind::AlreadyParticipated.into())
+            }
         }
-        Ok(ParticipateOutcome {})
     }
 
     fn retrieve_testcases(
@@ -934,8 +940,15 @@ enum ContestStatus {
 }
 
 impl ContestStatus {
+    fn is_finished(&self) -> bool {
+        match self {
+            ContestStatus::Finished => true,
+            _ => false,
+        }
+    }
+
     fn is_active(&self) -> bool {
-        match *self {
+        match self {
             ContestStatus::Active => true,
             _ => false,
         }
@@ -981,6 +994,7 @@ struct Submission {
 
 trait Extract {
     fn extract_csrf_token(&self) -> ScrapeResult<String>;
+    fn contains_registration_button(&self) -> ScrapeResult<bool>;
     fn extract_task_slugs_and_uris(&self) -> ScrapeResult<NonEmptyIndexMap<String, Uri>>;
     fn extract_as_suites(
         &self,
@@ -1006,6 +1020,16 @@ impl Extract for Html {
             Some(token)
         };
         extract_csrf_token().ok_or_else(ScrapeError::new)
+    }
+
+    fn contains_registration_button(&self) -> ScrapeResult<bool> {
+        let insert_participant_box = self
+            .select(selector!("#main-container .insert-participant-box"))
+            .next()
+            .ok_or_else(ScrapeError::new)?;
+        Ok(insert_participant_box
+            .select(selector!("form"))
+            .any(|r| r.value().attr("method") == Some("POST")))
     }
 
     fn extract_task_slugs_and_uris(&self) -> ScrapeResult<NonEmptyIndexMap<String, Uri>> {

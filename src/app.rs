@@ -148,7 +148,7 @@ pub struct Participate {
     output: OutputKind,
     #[structopt(raw(color_choice = "2"))]
     color_choice: AnsiColorChoice,
-    #[structopt(raw(service = r#"&ServiceKind::variants_except_other(), Kind::Arg"#))]
+    #[structopt(raw(service = r#"&["atcoder", "codeforces"], Kind::Arg"#))]
     service: ServiceKind,
     #[structopt(raw(contest = "Kind::Arg"))]
     contest: String,
