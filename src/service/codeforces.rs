@@ -177,12 +177,12 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
 
         let location = res.location_uri()?;
         let handle = if_chain! {
-            if let Some(location) = &location;
-            if let Some(caps) = HANDLE.captures(location.path());
+            if let Some(loc) = &location;
+            if let Some(caps) = HANDLE.captures(loc.path());
             then {
                 caps[1].to_owned()
             } else {
-                unimplemented!("{:?}", location)
+                return Err(ServiceErrorKind::UnexpectedRedirection(location).into());
             }
         };
         if option == LoginOption::Explicit {
