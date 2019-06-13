@@ -1,6 +1,7 @@
 use crate::errors::{
     HookCommandErrorKind, HookCommandResult, JudgeErrorKind, JudgeResult, StdError,
 };
+use crate::fs::TempFile;
 use crate::path::AbsPathBuf;
 use crate::terminal::{HasTermProps, WriteExt as _};
 use crate::util::collections::NonEmptyVec;
@@ -27,15 +28,13 @@ impl HookCommands {
         stdout: impl HasTermProps,
         mut stderr: impl WriteColor + HasTermProps,
     ) -> HookCommandResult<()> {
-        if let HookCommands(Some(this)) = self {
+        if let HookCommands(Some(cmds)) = self {
             stderr.set_color(color!(bold))?;
             stderr.write_str("Running hooks...")?;
             stderr.reset()?;
             writeln!(stderr)?;
             stderr.flush()?;
-            for cmd in this {
-                HookCommand::run(cmd, &stdout, &stderr)?;
-            }
+            cmds.iter().try_for_each(|c| c.run(&stdout, &stderr))?;
             stderr.set_color(color!(bold))?;
             stderr.write_str("Done.")?;
             stderr.reset()?;
@@ -62,8 +61,9 @@ impl HookCommand {
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         envs: HashMap<String, OsString>,
+        temp_file: Option<TempFile>,
     ) -> std::result::Result<Self, (OsString, which::Error)> {
-        let inner = Inner::try_new(args, working_dir, envs)?;
+        let inner = Inner::try_new(args, working_dir, envs, temp_file)?;
         Ok(Self { inner })
     }
 
@@ -101,8 +101,18 @@ impl TranspilationCommand {
         src: AbsPathBuf,
         transpiled: Option<AbsPathBuf>,
         envs: HashMap<String, OsString>,
+        temp_file: Option<TempFile>,
     ) -> std::result::Result<Self, (OsString, which::Error)> {
-        BuildCommand::try_new(args, working_dir, src, transpiled, "transpiled", envs).map(Self)
+        BuildCommand::try_new(
+            args,
+            working_dir,
+            src,
+            transpiled,
+            "transpiled",
+            envs,
+            temp_file,
+        )
+        .map(Self)
     }
 
     /// Executes the command.
@@ -138,8 +148,9 @@ impl CompilationCommand {
         src: AbsPathBuf,
         bin: Option<AbsPathBuf>,
         envs: HashMap<String, OsString>,
+        temp_file: Option<TempFile>,
     ) -> std::result::Result<Self, (OsString, which::Error)> {
-        BuildCommand::try_new(args, working_dir, src, bin, "bin", envs).map(Self)
+        BuildCommand::try_new(args, working_dir, src, bin, "bin", envs, temp_file).map(Self)
     }
 
     /// Executes the command.
@@ -185,9 +196,10 @@ impl BuildCommand {
         target: Option<AbsPathBuf>,
         target_name: &'static str,
         envs: HashMap<String, OsString>,
+        temp_file: Option<TempFile>,
     ) -> std::result::Result<Self, (OsString, which::Error)> {
         let envs = envs.into_iter().collect();
-        let inner = Inner::try_new(args, working_dir, envs)?;
+        let inner = Inner::try_new(args, working_dir, envs, temp_file)?;
         Ok(Self {
             inner,
             src,
@@ -297,8 +309,10 @@ impl JudgingCommand {
         working_dir: AbsPathBuf,
         crlf_to_lf: bool,
         envs: HashMap<String, OsString>,
+        temp_file: Option<TempFile>,
     ) -> std::result::Result<Self, (OsString, which::Error)> {
-        Inner::try_new(args, working_dir, envs).map(|inner| JudgingCommand { inner, crlf_to_lf })
+        Inner::try_new(args, working_dir, envs, temp_file)
+            .map(|inner| JudgingCommand { inner, crlf_to_lf })
     }
 
     pub(crate) fn crlf_to_lf(&self) -> bool {
@@ -346,11 +360,12 @@ impl JudgingCommand {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Serialize)]
 struct Inner {
     args: NonEmptyVec<OsString>,
     working_dir: AbsPathBuf,
     envs: Vec<(String, OsString)>,
+    temp_file: Option<TempFile>,
 }
 
 impl Inner {
@@ -358,6 +373,7 @@ impl Inner {
         args: Vec<OsString>,
         working_dir: AbsPathBuf,
         envs: HashMap<String, OsString>,
+        temp_file: Option<TempFile>,
     ) -> std::result::Result<Self, (OsString, which::Error)> {
         let mut args = NonEmptyVec::try_new(args).unwrap_or_default();
         // https://github.com/rust-lang/rust/issues/37519
@@ -372,6 +388,7 @@ impl Inner {
             args,
             working_dir,
             envs: envs.into_iter().collect(),
+            temp_file,
         })
     }
 

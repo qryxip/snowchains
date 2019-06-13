@@ -136,7 +136,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
         toml_edit::Value::from(path)
     }
 
-    let (bash, powershell, cmd, jq, shell, transpile_java, transpile_scala) = {
+    let (bash, powershell, cmd, ruby, jq, shell, transpile_java, transpile_scala) = {
         trait WithExe: ToOwned {
             fn with_exe(&self, name: &str) -> Self::Owned;
         }
@@ -154,6 +154,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
         }
 
         let env_path = env::var_os("PATH").unwrap_or_default();
+
         let bash = env::split_paths(&env_path)
             .chain(if cfg!(windows) {
                 vec![
@@ -177,6 +178,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
                 "\"${command}\""
             }
         );
+
         let powershell = env::split_paths(&env_path)
             .flat_map(|p| vec![p.with_exe("pwsh"), p.with_exe("powershell")])
             .find(|p| cfg!(windows) && p.exists())
@@ -187,6 +189,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
                 )
             })
             .unwrap_or_default();
+
         let cmd = env::split_paths(&env_path)
             .map(|p| p.with_exe("cmd"))
             .find(|p| cfg!(windows) && p.exists())
@@ -197,6 +200,21 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
                 )
             })
             .unwrap_or_default();
+
+        let ruby = env::split_paths(&env_path)
+            .map(|p| p.with_exe("ruby"))
+            .find(|p| p.exists() && p.to_str().is_some())
+            .unwrap_or_else(|| {
+                PathBuf::from(if cfg!(windows) {
+                    r"C:\Ruby26-x64"
+                } else {
+                    "/usr/bin/ruby"
+                })
+            });
+        let ruby = format!(
+            "\nruby = {{ runner = {}, extension = \"rb\" }}",
+            quote_path_normalizing_separator(&ruby),
+        );
 
         let (jq, shell, transpile_java, transpile_scala);
         if cfg!(windows) && !bash_found {
@@ -219,6 +237,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
             bash,
             powershell,
             cmd,
+            ruby,
             jq,
             shell,
             transpile_java,
@@ -253,7 +272,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
 cjk = false{console_alt_width}
 
 [shell]
-{bash}{powershell}{cmd}
+{bash}{powershell}{cmd}{ruby}
 
 [testfiles]
 path = ".snowchains/tests/${{service}}/${{snake_case(contest)}}/${{snake_case(problem)}}.${{extension}}"
@@ -457,6 +476,7 @@ yukicoder = "Text (cat 8.22)"
         bash = bash,
         powershell = powershell,
         cmd = cmd,
+        ruby = ruby,
         jq = jq,
         shell = shell,
         exe = EXE,
@@ -948,7 +968,7 @@ pub(crate) struct Inner {
     #[serde(default)]
     console: Console,
     #[serde(default)]
-    shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
+    shell: IndexMap<String, Shell>,
     testfiles: Testfiles,
     session: Session,
     judge: Judge,
@@ -993,6 +1013,16 @@ impl Console {
             props.str_width = str_width
         });
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum Shell {
+    Args(Vec<TemplateBuilder<OsString>>),
+    File {
+        runner: TemplateBuilder<OsString>,
+        extension: TemplateBuilder<OsString>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -11,6 +11,7 @@
 * `--no-save` option to `retrieve testcases` and `retrieve submissions`.
 * `--fetch-all` flag to `retrieve submissions` command.
 * `session.retry` fields.
+* `shell._` now accept `{ runner = "..", extension = ".." }` to run temporary script files.
 
 ### Changed
 

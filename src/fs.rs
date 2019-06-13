@@ -3,12 +3,16 @@ use crate::path::{AbsPath, AbsPathBuf};
 
 use failure::{Fail as _, Fallible, ResultExt as _};
 use fs2::FileExt as _;
+use rand::distributions::Alphanumeric;
+use rand::Rng as _;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
+use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Seek as _, SeekFrom, Write as _};
-use std::mem;
+use std::path::{Path, PathBuf};
+use std::{env, mem};
 
 pub(crate) fn create_dir_all(dir: &AbsPath) -> FileResult<()> {
     std::fs::create_dir_all(dir)
@@ -79,6 +83,34 @@ pub(crate) fn find_path(filename: &'static str, start: &AbsPath) -> FileResult<A
             }
             .into());
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Serialize)]
+pub(crate) struct TempFile(PathBuf);
+
+impl TempFile {
+    pub(crate) fn create(ext: &OsStr, contents: &str) -> io::Result<Self> {
+        let dir = dunce::canonicalize(env::temp_dir())?;
+
+        let mut stem = "snowchains_".to_owned();
+        let mut rng = rand::thread_rng();
+        (0..8).for_each(|_| stem.push(rng.sample(Alphanumeric)));
+
+        let path = dir.join(stem).with_extension(ext);
+        std::fs::write(&path, contents)?;
+        Ok(Self(path))
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        // TODO: Remove the file manually.
+        let _ = std::fs::remove_file(&self.0);
     }
 }
 

@@ -3,6 +3,7 @@ use crate::command::{
 };
 use crate::config;
 use crate::errors::{ExpandTemplateErrorKind, ExpandTemplateResult, StdError};
+use crate::fs::TempFile;
 use crate::path::{AbsPath, AbsPathBuf};
 use crate::service::ServiceKind;
 use crate::testsuite::SuiteFileExtension;
@@ -14,6 +15,7 @@ use snowchains_proc_macros::{ArgEnum, DeserializeAsString, SerializeAsString};
 
 use failure::{Fail, ResultExt as _};
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
+use indexmap::IndexMap;
 use maplit::hashmap;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -162,7 +164,7 @@ impl Template<HookCommands> {
         self.inner
             .iter()
             .map(|inner| {
-                let mut args = vec![];
+                let (mut args, mut temp_file) = (vec![], None);
                 match inner {
                     CommandTemplateInner::Args(ss) => {
                         for s in ss {
@@ -170,17 +172,29 @@ impl Template<HookCommands> {
                         }
                     }
                     CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
-                        vars.entry("command")
-                            .or_insert_with(|| value.clone().into());
                         let shell = shell
                             .get(key)
                             .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
-                        for TemplateBuilder(s) in shell {
-                            args.push(s.expand_as_os_string(&vars, &envs)?);
+                        match shell {
+                            config::Shell::Args(sh_args) => {
+                                vars.entry("command")
+                                    .or_insert_with(|| value.clone().into());
+                                for TemplateBuilder(s) in sh_args {
+                                    args.push(s.expand_as_os_string(&vars, &envs)?);
+                                }
+                            }
+                            config::Shell::File { runner, extension } => {
+                                let ext = extension.0.expand_as_os_string(&vars, &envs)?;
+                                let temp = TempFile::create(&ext, value)
+                                    .with_context(|_| ExpandTemplateErrorKind::CreateTempFile)?;
+                                args.push(runner.0.expand_as_os_string(&vars, &envs)?);
+                                args.push(temp.path().into());
+                                temp_file = Some(temp);
+                            }
                         }
                     }
                 }
-                HookCommand::try_new(args, base_dir.clone(), envs.clone())
+                HookCommand::try_new(args, base_dir.clone(), envs.clone(), temp_file)
                     .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
             })
             .collect()
@@ -216,7 +230,7 @@ impl Template<TranspilationCommand> {
             envs.insert("SNOWCHAINS_TRANSPILED".into(), transpiled.clone().into());
         }
 
-        let mut args = vec![];
+        let (mut args, mut temp_file) = (vec![], None);
         match &self.inner {
             CommandTemplateInner::Args(ss) => {
                 for s in ss {
@@ -224,17 +238,29 @@ impl Template<TranspilationCommand> {
                 }
             }
             CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
-                vars.entry("command")
-                    .or_insert_with(|| value.clone().into());
                 let shell = shell
                     .get(key)
                     .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
-                for TemplateBuilder(s) in shell {
-                    args.push(s.expand_as_os_string(&vars, &envs)?);
+                match shell {
+                    config::Shell::Args(sh_args) => {
+                        vars.entry("command")
+                            .or_insert_with(|| value.clone().into());
+                        for TemplateBuilder(s) in sh_args {
+                            args.push(s.expand_as_os_string(&vars, &envs)?);
+                        }
+                    }
+                    config::Shell::File { runner, extension } => {
+                        let ext = extension.0.expand_as_os_string(&vars, &envs)?;
+                        let temp = TempFile::create(&ext, value)
+                            .with_context(|_| ExpandTemplateErrorKind::CreateTempFile)?;
+                        args.push(runner.0.expand_as_os_string(&vars, &envs)?);
+                        args.push(temp.path().into());
+                        temp_file = Some(temp);
+                    }
                 }
             }
         }
-        TranspilationCommand::try_new(args, wd, src, transpiled, envs)
+        TranspilationCommand::try_new(args, wd, src, transpiled, envs, temp_file)
             .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
     }
 }
@@ -278,7 +304,7 @@ impl Template<CompilationCommand> {
             envs.insert("SNOWCHAINS_BIN".into(), bin.clone().into());
         }
 
-        let mut args = vec![];
+        let (mut args, mut temp_file) = (vec![], None);
         match &self.inner {
             CommandTemplateInner::Args(ss) => {
                 for s in ss {
@@ -286,17 +312,29 @@ impl Template<CompilationCommand> {
                 }
             }
             CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
-                vars.entry("command")
-                    .or_insert_with(|| value.clone().into());
                 let shell = shell
                     .get(key)
                     .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
-                for TemplateBuilder(s) in shell {
-                    args.push(s.expand_as_os_string(&vars, &envs)?);
+                match shell {
+                    config::Shell::Args(sh_args) => {
+                        vars.entry("command")
+                            .or_insert_with(|| value.clone().into());
+                        for TemplateBuilder(s) in sh_args {
+                            args.push(s.expand_as_os_string(&vars, &envs)?);
+                        }
+                    }
+                    config::Shell::File { runner, extension } => {
+                        let ext = extension.0.expand_as_os_string(&vars, &envs)?;
+                        let temp = TempFile::create(&ext, value)
+                            .with_context(|_| ExpandTemplateErrorKind::CreateTempFile)?;
+                        args.push(runner.0.expand_as_os_string(&vars, &envs)?);
+                        args.push(temp.path().into());
+                        temp_file = Some(temp);
+                    }
                 }
             }
         }
-        CompilationCommand::try_new(args, wd, src, bin, envs)
+        CompilationCommand::try_new(args, wd, src, bin, envs, temp_file)
             .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
     }
 }
@@ -340,7 +378,7 @@ impl Template<JudgingCommand> {
             envs.insert("SNOWCHAINS_BIN".into(), bin.clone().into());
         }
 
-        let mut args = vec![];
+        let (mut args, mut temp_file) = (vec![], None);
         match &self.inner {
             CommandTemplateInner::Args(ss) => {
                 for s in ss {
@@ -348,18 +386,30 @@ impl Template<JudgingCommand> {
                 }
             }
             CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
-                vars.entry("command")
-                    .or_insert_with(|| value.clone().into());
                 let shell = shell
                     .get(key)
                     .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
-                for TemplateBuilder(s) in shell {
-                    args.push(s.expand_as_os_string(&vars, &envs)?);
+                match shell {
+                    config::Shell::Args(sh_args) => {
+                        vars.entry("command")
+                            .or_insert_with(|| value.clone().into());
+                        for TemplateBuilder(s) in sh_args {
+                            args.push(s.expand_as_os_string(&vars, &envs)?);
+                        }
+                    }
+                    config::Shell::File { runner, extension } => {
+                        let ext = extension.0.expand_as_os_string(&vars, &envs)?;
+                        let temp = TempFile::create(&ext, value)
+                            .with_context(|_| ExpandTemplateErrorKind::CreateTempFile)?;
+                        args.push(runner.0.expand_as_os_string(&vars, &envs)?);
+                        args.push(temp.path().into());
+                        temp_file = Some(temp);
+                    }
                 }
             }
         }
 
-        JudgingCommand::try_new(args, wd, *crlf_to_lf, envs)
+        JudgingCommand::try_new(args, wd, *crlf_to_lf, envs, temp_file)
             .map_err(|(s, e)| e.context(ExpandTemplateErrorKind::Which(s)).into())
     }
 }
@@ -483,7 +533,7 @@ pub(crate) struct AbsPathBufRequirements {
 #[derive(Debug, Clone)]
 pub(crate) struct HookCommandsRequirements {
     pub(crate) base_dir: AbsPathBuf,
-    pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
+    pub(crate) shell: IndexMap<String, config::Shell>,
     pub(crate) snowchains_result: Arc<String>,
 }
 
@@ -493,7 +543,7 @@ pub(crate) struct TranspilationCommandRequirements {
     pub(crate) service: ServiceKind,
     pub(crate) contest: String,
     pub(crate) mode: config::Mode,
-    pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
+    pub(crate) shell: IndexMap<String, config::Shell>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
     pub(crate) src: TemplateBuilder<AbsPathBuf>,
     pub(crate) transpiled: Option<TemplateBuilder<AbsPathBuf>>,
@@ -505,7 +555,7 @@ pub(crate) struct CompilationCommandRequirements {
     pub(crate) service: ServiceKind,
     pub(crate) contest: String,
     pub(crate) mode: config::Mode,
-    pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
+    pub(crate) shell: IndexMap<String, config::Shell>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
     pub(crate) src: TemplateBuilder<AbsPathBuf>,
     pub(crate) transpiled: Option<TemplateBuilder<AbsPathBuf>>,
@@ -518,7 +568,7 @@ pub(crate) struct JudgingCommandRequirements {
     pub(crate) service: ServiceKind,
     pub(crate) contest: String,
     pub(crate) mode: config::Mode,
-    pub(crate) shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
+    pub(crate) shell: IndexMap<String, config::Shell>,
     pub(crate) working_dir: TemplateBuilder<AbsPathBuf>,
     pub(crate) src: TemplateBuilder<AbsPathBuf>,
     pub(crate) transpiled: Option<TemplateBuilder<AbsPathBuf>>,

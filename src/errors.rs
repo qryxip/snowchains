@@ -350,6 +350,8 @@ pub enum ExpandTemplateErrorKind {
     },
     #[display(fmt = "Failed to find {:?}", _0)]
     Which(OsString),
+    #[display(fmt = "Failed to create a temporary file")]
+    CreateTempFile,
     #[display(fmt = "{:?} not found in the config", _0)]
     NoSuchShell(String),
     #[display(fmt = "Undefined namespace: {:?}", _0)]
