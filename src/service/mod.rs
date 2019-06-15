@@ -741,12 +741,11 @@ impl RetrieveTestCasesOutcomeBuilder {
         }
 
         if open_browser {
-            for submissions_url in &self.submissions_urls {
-                writeln!(stderr, "Opening {} in default browser...", submissions_url)?;
-            }
-            for problem in &self.problems {
-                writeln!(stderr, "Opening {} in default browser...", problem.url)?;
-                let status = webbrowser::open(problem.url.as_ref())?.status;
+            let mut urls = self.submissions_urls.iter().collect::<Vec<_>>();
+            urls.extend(self.problems.iter().map(|p| &p.url));
+            for url in urls {
+                writeln!(stderr, "Opening {} in default browser...", url)?;
+                let status = webbrowser::open(url.as_ref())?.status;
                 if !status.success() {
                     return Err(ServiceErrorKind::Webbrowser(status).into());
                 }
