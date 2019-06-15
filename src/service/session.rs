@@ -172,6 +172,7 @@ pub(super) trait Session: Sized {
                         inner: RequestBuilderBuilder::new::<M>(self.client(), url),
                         eprint: !self.state_ref().http_silent,
                         acceptable,
+                        warn: btreeset![],
                         redirect_unlimited: false,
                         retries_on_get: self.state_ref().retries_on_get,
                     })
@@ -434,17 +435,31 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
     ///
     /// Panics if:
     /// - `statuses` contains `n` such that `n < 100 || 600 <= n`
-    /// - `this.inner.redirect_unlimited` is `true` where `Ok(this) = self`
+    /// - `this.inner.warn` is not a subset of `statused` where `Ok(this) = self`
+    /// - `this.inner.redirect_unlimited` and `statuses` contains any 3xx status code where `Ok(this) = self`
     pub(super) fn acceptable(mut self, statuses: &'static [u16]) -> Self {
         if let Ok(inner) = &mut self.inner {
-            if inner.redirect_unlimited {
-                panic!("`redirect_unlimited` is `true`");
-            }
             inner.acceptable = statuses
                 .iter()
                 .map(|&n| StatusCode::from_u16(n))
                 .collect::<std::result::Result<_, _>>()
                 .unwrap();
+            inner.assert_constraints();
+        }
+        self
+    }
+
+    /// # Panics:
+    ///
+    /// Panics if `statuses` is not a subset of `acceptable`.
+    pub(super) fn warn(mut self, statuses: &'static [u16]) -> Self {
+        if let Ok(inner) = &mut self.inner {
+            inner.warn = statuses
+                .iter()
+                .map(|&n| StatusCode::from_u16(n))
+                .collect::<std::result::Result<_, _>>()
+                .unwrap();
+            inner.assert_constraints();
         }
         self
     }
@@ -454,10 +469,8 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
     /// Panics if `this.inner.acceptable` contains any 3xx status code where `Ok(this) = self`.
     pub(super) fn redirect_unlimited(mut self) -> Self {
         if let Ok(inner) = &mut self.inner {
-            if inner.acceptable.iter().any(|s| s.is_redirection()) {
-                panic!("`acceptable` contains 3xx status code(s)");
-            }
             inner.redirect_unlimited = true;
+            inner.assert_constraints();
         }
         self
     }
@@ -476,6 +489,7 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
             mut inner,
             eprint,
             acceptable,
+            warn,
             redirect_unlimited,
             retries_on_get,
         } = self.inner?;
@@ -518,7 +532,9 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
             let is_acceptable = is_redirect || acceptable.contains(&res.status());
 
             if eprint {
-                if is_acceptable {
+                if warn.contains(&res.status()) {
+                    stderr.set_color(color!(fg(Yellow), intense, bold))?;
+                } else if is_acceptable {
                     stderr.set_color(color!(fg(Green), intense, bold))?;
                 } else {
                     stderr.set_color(color!(fg(Red), intense, bold))?;
@@ -550,6 +566,7 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
                     inner,
                     eprint,
                     acceptable,
+                    warn,
                     redirect_unlimited,
                     retries_on_get,
                 };
@@ -652,8 +669,25 @@ struct RequestInner {
     inner: RequestBuilderBuilder,
     eprint: bool,
     acceptable: BTreeSet<StatusCode>,
+    warn: BTreeSet<StatusCode>,
     redirect_unlimited: bool,
     retries_on_get: u32,
+}
+
+impl RequestInner {
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - `warn` is not a subset of `acceptable`
+    /// - `redirect_unlimited` and `acceptable` contains any 3xx status code
+    fn assert_constraints(&self) {
+        if !self.warn.is_subset(&self.acceptable) {
+            panic!("`warn` is not a subset of `acceptable`");
+        }
+        if self.redirect_unlimited && self.acceptable.iter().any(|s| s.is_redirection()) {
+            panic!("`redirect_unlimited` and `acceptable` contains 3xx status codes");
+        }
+    }
 }
 
 /// A builder that can construct a `reqwest::async::RequestBuilder` any number of times.
@@ -1146,7 +1180,7 @@ mod tests {
     use futures::Future as _;
     use http::Uri;
     use if_chain::if_chain;
-    use maplit::hashmap;
+    use maplit::{btreeset, hashmap};
     use once_cell::sync::Lazy;
     use pretty_assertions::assert_eq;
     use reqwest::StatusCode;
@@ -1225,7 +1259,7 @@ mod tests {
                     expected,
                 ) = ctx.get_context();
                 if url.as_str() == format!("http://127.0.0.1:{}/nonexisting", LOCALHOST_PORT);
-                if expected == &[StatusCode::OK];
+                if *expected == btreeset![StatusCode::OK];
                 then {
                 } else {
                     return Err(err.into())

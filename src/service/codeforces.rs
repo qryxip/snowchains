@@ -208,6 +208,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             let status = self
                 .get(contest.registration_url())
                 .acceptable(&[200, 302])
+                .warn(&[302])
                 .retry_status()?;
             if status == 200 {
                 self.open_in_browser(contest.registration_url())?;
@@ -485,6 +486,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         let res = self
             .post(&submit_path)
             .acceptable(&[200, 302])
+            .warn(&[200])
             .form(&values)
             .send()?;
         let rejected = res.status() == 200;
@@ -604,7 +606,11 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             };
             url.query_pairs_mut().append_pair("apiSig", &sig);
 
-            let res = self.get(url).acceptable(&[200, 400]).retry_send()?;
+            let res = self
+                .get(url)
+                .acceptable(&[200, 400])
+                .warn(&[400])
+                .retry_send()?;
 
             if res.status() == 200 {
                 if asked_api_key {

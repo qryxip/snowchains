@@ -165,6 +165,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             let status = self
                 .get("/settings")
                 .acceptable(&[200, 302])
+                .warn(&[200])
                 .retry_status()?;
             if status == StatusCode::OK {
                 if explicit {
@@ -188,6 +189,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             if self
                 .get("/settings")
                 .acceptable(&[200, 302])
+                .warn(&[302])
                 .retry_status()?
                 == 200
             {
@@ -211,6 +213,8 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         #[derive(Serialize, Deserialize)]
         struct AuthToken {
             access_token: String,
+
+            // not used for now:
             #[serde(skip_serializing_if = "Option::is_none")]
             token_type: Option<TokenType>,
             #[serde(skip_serializing_if = "Option::is_none")]
@@ -228,6 +232,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             let status = self
                 .post("https://api.dropboxapi.com/2/users/get_current_account")
                 .acceptable(&[200, 401])
+                .warn(&[401])
                 .bearer_auth(&auth.access_token)
                 .status()?;
             if status == 200 {
@@ -268,6 +273,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let res = self
             .get(&contest.url_tasks())
             .acceptable(&[200, 302, 404])
+            .warn(&[302, 404])
             .retry_send()?;
 
         if res.status() == 200 {
@@ -286,6 +292,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let res = self
             .get(&contest.url_top())
             .acceptable(&[200, 302])
+            .warn(&[302])
             .retry_send()?;
 
         let html = if res.status() == 302 {
@@ -428,6 +435,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
                 .post("https://api.dropboxapi.com/2/files/list_folder")
                 .bearer_auth(token)
                 .acceptable(&[200, 409])
+                .warn(&[409])
                 .json(&json!({
                     "shared_link": { "url": URL },
                     "path": &path,
@@ -595,6 +603,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let res = self
             .get(&contest.url_submissions_me(1))
             .acceptable(&[200, 302])
+            .warn(&[302])
             .retry_send()?;
 
         let first_page = if res.status() == 200 {

@@ -220,7 +220,11 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                 for problem in problems {
                     let mut url = BASE_URL.clone();
                     url.set_path(&format!("/problems/no/{}", problem));
-                    let res = self.get(url.clone()).acceptable(&[200, 404]).retry_send()?;
+                    let res = self
+                        .get(url.clone())
+                        .acceptable(&[200, 404])
+                        .warn(&[404])
+                        .retry_send()?;
                     let status = res.status();
                     let html = self.retry_recv_html(res)?;
                     let public = html
@@ -475,6 +479,7 @@ Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
                         .get(&summary.url)
                         .push_path_segment("source")
                         .acceptable(&[200, 403])
+                        .warn(&[403])
                         .retry_send()?;
                     if res.status() == 200 {
                         self.retry_recv_text(res).map(Some)
