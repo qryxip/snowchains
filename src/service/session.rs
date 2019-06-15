@@ -17,7 +17,7 @@ use http::{HttpTryFrom, Uri};
 use if_chain::if_chain;
 use indexmap::IndexSet;
 use itertools::Itertools as _;
-use maplit::hashmap;
+use maplit::{btreeset, hashmap};
 use mime::Mime;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::r#async::Decoder;
@@ -31,7 +31,7 @@ use tokio::runtime::Runtime;
 use url::Url;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::convert::TryFrom;
 use std::io::{self, BufReader, Write as _};
 use std::marker::PhantomData;
@@ -151,17 +151,17 @@ pub(super) trait Session: Sized {
     }
 
     fn get(&mut self, url: impl ParseWithBaseUrl) -> self::Request<&mut Self, Get> {
-        self.request::<Get, _>(url, vec![StatusCode::OK])
+        self.request::<Get, _>(url, btreeset![StatusCode::OK])
     }
 
     fn post(&mut self, url: impl ParseWithBaseUrl) -> self::Request<&mut Self, Post> {
-        self.request::<Post, _>(url, vec![StatusCode::FOUND])
+        self.request::<Post, _>(url, btreeset![StatusCode::FOUND])
     }
 
     fn request<M: StaticMethod, U: ParseWithBaseUrl>(
         &mut self,
         url: U,
-        acceptable: Vec<StatusCode>,
+        acceptable: BTreeSet<StatusCode>,
     ) -> self::Request<&mut Self, M> {
         self::Request {
             inner: url
@@ -651,7 +651,7 @@ impl<S: Session> Request<S, Post> {
 struct RequestInner {
     inner: RequestBuilderBuilder,
     eprint: bool,
-    acceptable: Vec<StatusCode>,
+    acceptable: BTreeSet<StatusCode>,
     redirect_unlimited: bool,
     retries_on_get: u32,
 }

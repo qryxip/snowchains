@@ -14,6 +14,7 @@ use itertools::Itertools as _;
 use url::Url;
 use zip::result::ZipError;
 
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::process::ExitStatus;
 use std::time::SystemTimeError;
@@ -119,7 +120,7 @@ pub enum ServiceErrorKind {
         _1,
         "_2.iter().format(\", \")"
     )]
-    UnexpectedStatusCode(Url, StatusCode, Vec<StatusCode>),
+    UnexpectedStatusCode(Url, StatusCode, BTreeSet<StatusCode>),
     #[display(fmt = "Unexpected redirection: {:?}", _0)]
     UnexpectedRedirection(Option<Uri>),
     #[display(fmt = "API error")]
