@@ -17,4 +17,4 @@ if_chain = "1.0.0"
 itertools = "0.8.0"
 proc-macro2 = "0.4.30"
 quote = "0.6.12"
-syn = { version = "0.15.34", features = ["full", "extra-traits"] }
+syn = { version = "0.15.36", features = ["full", "extra-traits"] }

@@ -2,7 +2,7 @@ use crate::errors::{
     ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceErrorKind,
     ServiceResult,
 };
-use crate::service::session::{ParseWithBaseUrl as _, Session, State};
+use crate::service::session::{ParseWithBaseUrl as _, Session, State, UsernameAndPassword};
 use crate::service::{
     Contest, LoginOutcome, ParticipateOutcome, ParticipateOutcomeKind, RetrieveLangsOutcome,
     RetrieveLangsProps, RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
@@ -106,7 +106,6 @@ pub(super) fn submit(
 
 #[derive(Debug)]
 struct Codeforces<I: Input, E: WriteColor + HasTermProps> {
-    login_retries: Option<u32>,
     handle: Option<String>,
     api_key: Option<ApiKey>,
     state: State<I, E>,
@@ -129,7 +128,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
     fn try_new(props: SessionProps, stdin: I, stderr: E) -> ServiceResult<Self> {
         let state = props.start_state(stdin, stderr)?;
         Ok(Self {
-            login_retries: props.login_retries,
             handle: None,
             api_key: None,
             state,
@@ -143,31 +141,29 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
 
         if res.url().path() == "/enter" {
             let mut html = self.retry_recv_html(res)?;
-            let mut retries = self.login_retries;
-            loop {
-                let mut payload = html.extract_hidden_values(selector!("#enterForm"))?;
-                let handle_or_email = self.prompt_reply_stderr("Handle/Email: ")?;
-                let password = self.prompt_password_stderr("Password: ")?;
-                payload.insert("handleOrEmail".to_owned(), handle_or_email);
-                payload.insert("password".to_owned(), password);
-                payload.insert("remember".to_owned(), "on".to_owned());
-                let res = self
-                    .post("/enter")
-                    .acceptable(&[200])
-                    .redirect_unlimited()
-                    .form(&payload)
-                    .send()?;
-                if res.url().path() != "/enter" {
-                    break;
-                }
-                if retries == Some(0) {
-                    return Err(ServiceErrorKind::LoginRetriesExceeded.into());
-                }
-                retries = retries.map(|n| n - 1);
-                writeln!(self.stderr(), "Failed to login. Try again.")?;
-                self.stderr().flush()?;
-                html = self.recv_html(res)?;
-            }
+            self.retry_login::<UsernameAndPassword, _>(
+                ("Handle/Email: ", "Password: "),
+                "Successfully logged in.",
+                "Failed to login. Try again.",
+                |this, (handle_or_email, password)| {
+                    let mut payload = html.extract_hidden_values(selector!("#enterForm"))?;
+                    payload.insert("handleOrEmail".to_owned(), handle_or_email);
+                    payload.insert("password".to_owned(), password);
+                    payload.insert("remember".to_owned(), "on".to_owned());
+                    let res = this
+                        .post("/enter")
+                        .acceptable(&[200])
+                        .redirect_unlimited()
+                        .form(&payload)
+                        .send()?;
+                    if res.url().path() == "/enter" {
+                        html = this.recv_html(res)?;
+                        Ok(false)
+                    } else {
+                        Ok(true)
+                    }
+                },
+            )?;
         } else {
             writeln!(self.stderr(), "Already logged in.")?;
             self.stderr().flush()?;

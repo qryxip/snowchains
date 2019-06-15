@@ -236,6 +236,29 @@ pub(super) trait Session: Sized {
         res.json(self.runtime())
     }
 
+    fn retry_login<C: Credentials, F: FnMut(&mut Self, C::Items) -> ServiceResult<bool>>(
+        &mut self,
+        prompts: C::Prompts,
+        success_msg: &'static str,
+        fail_msg: &'static str,
+        mut f: F,
+    ) -> ServiceResult<()> {
+        let mut login_retries = self.state_ref().login_retries;
+        loop {
+            let credentials = C::ask(prompts, &mut *self)?;
+            if f(&mut *self, credentials)? {
+                writeln!(self.stderr(), "{}", success_msg)?;
+                self.stderr().flush()?;
+                break Ok(());
+            }
+            if login_retries == Some(0) {
+                break Err(ServiceErrorKind::LoginRetriesExceeded.into());
+            }
+            login_retries = login_retries.map(|n| n - 1);
+            writeln!(self.stderr(), "{}", fail_msg)?;
+        }
+    }
+
     fn warn_not_found(
         &mut self,
         problems: &NonEmptyIndexSet<String>,
@@ -267,6 +290,7 @@ pub(super) struct State<I: Input, E: WriteColor + HasTermProps> {
     base_url: Option<&'static Url>,
     retries_on_get: u32,
     http_silent: bool,
+    login_retries: Option<u32>,
 }
 
 impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
@@ -282,6 +306,7 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
             api_token_path,
             retries_on_get,
             http_silent,
+            login_retries,
         } = args;
 
         let mut this = Self {
@@ -300,6 +325,7 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
             base_url,
             retries_on_get,
             http_silent,
+            login_retries,
         };
         if robots {
             if let Some(host) = base_url.and_then(Url::host_str) {
@@ -373,6 +399,7 @@ pub(super) struct StateStartArgs<'a, I: Input, E: WriteColor + HasTermProps> {
     pub(super) api_token_path: Option<&'a AbsPath>,
     pub(super) retries_on_get: u32,
     pub(super) http_silent: bool,
+    pub(super) login_retries: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -1128,6 +1155,41 @@ impl AutosavedCookieStore {
     }
 }
 
+pub(super) trait Credentials: Sized {
+    type Prompts: Copy;
+    type Items;
+
+    fn ask(prompts: Self::Prompts, sess: impl Session) -> io::Result<Self::Items>;
+}
+
+pub(super) enum Password {}
+
+impl Credentials for Password {
+    type Prompts = (&'static str,);
+    type Items = (String,);
+
+    fn ask((prompt,): (&'static str,), mut sess: impl Session) -> io::Result<(String,)> {
+        let password = sess.prompt_password_stderr(prompt)?;
+        Ok((password,))
+    }
+}
+
+pub(super) enum UsernameAndPassword {}
+
+impl Credentials for UsernameAndPassword {
+    type Prompts = (&'static str, &'static str);
+    type Items = (String, String);
+
+    fn ask(
+        (username_prompt, password_prompt): (&'static str, &'static str),
+        mut sess: impl Session,
+    ) -> io::Result<(String, String)> {
+        let username = sess.prompt_reply_stderr(username_prompt)?;
+        let password = sess.prompt_password_stderr(password_prompt)?;
+        Ok((username, password))
+    }
+}
+
 mod owned_robots {
     use robots_txt::{Robots, SimpleMatcher};
     use std::mem;
@@ -1244,6 +1306,7 @@ mod tests {
                 api_token_path: None,
                 retries_on_get: 1,
                 http_silent: false,
+                login_retries: None,
             })?;
 
             sess.get("/").retry_send()?;
@@ -1337,6 +1400,7 @@ mod tests {
                 api_token_path: None,
                 retries_on_get: 0,
                 http_silent: true,
+                login_retries: None,
             })
         }
 
@@ -1375,6 +1439,7 @@ mod tests {
             base_url: None,
             retries_on_get: 0,
             http_silent: true,
+            login_retries: None,
         };
 
         assert_eq!(state.ask_yn("Yes?: ", true)?, true);

@@ -296,10 +296,11 @@ GET https://yukicoder.me/ ... 200 OK
 
 Input "REVEL_SESSION".
 
-Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
 Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
+Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
 
 REVEL_SESSION: GET https://yukicoder.me/ ... 200 OK
+Confirmed.
 Username: ██████████
 GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
 

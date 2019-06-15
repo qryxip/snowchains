@@ -534,6 +534,10 @@ impl<
         E: AttemptEnableColor + ModifyTermProps,
     > App<I, O, E>
 {
+    /// # Panics
+    ///
+    /// It may panic if `opt` is not constructed by `StructOpt::from_clap`.
+    /// (e.g. `Opt::Participate { service: Yukicoder, .. }`)
     pub fn run(&mut self, opt: Opt) -> crate::Result<i32> {
         let wd = self.working_dir.clone();
 

@@ -1175,6 +1175,7 @@ impl SessionProps {
             api_token_path: Some(self.api_token_path.as_path()),
             retries_on_get: self.retries_on_get,
             http_silent: self.http_silent,
+            login_retries: self.login_retries,
         })
     }
 }

@@ -83,6 +83,7 @@ pub(super) trait DownloadProgress: Session {
 #[derive(Debug)]
 struct Downloading<
     W: AsyncWrite,
+    // `reqwest::async_impl::Pending` (private)
     R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
 > {
     sigwinch: Sigwinch,

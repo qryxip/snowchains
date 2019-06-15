@@ -1,6 +1,6 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::download::{self, DownloadProgress};
-use crate::service::session::{FormBuilder, ParseWithBaseUrl as _, Session, State};
+use crate::service::session::{FormBuilder, ParseWithBaseUrl as _, Password, Session, State};
 use crate::service::{
     Contest, ExtractZip, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
     RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
@@ -98,7 +98,6 @@ pub(super) fn submit(
 
 #[derive(Debug)]
 struct Yukicoder<I: Input, E: WriteColor + HasTermProps> {
-    login_retries: Option<u32>,
     username: Username,
     state: State<I, E>,
 }
@@ -130,7 +129,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
     fn try_new(props: SessionProps, stdin: I, stderr: E) -> ServiceResult<Self> {
         let state = props.start_state(stdin, stderr)?;
         Ok(Self {
-            login_retries: props.login_retries,
             username: Username::None,
             state,
         })
@@ -138,48 +136,33 @@ impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
 
     fn login(&mut self, assure: bool) -> ServiceResult<LoginOutcome> {
         self.fetch_username()?;
-        if self.username.name().is_none() {
-            let (mut first, mut retries) = (true, self.login_retries);
-            loop {
-                if first {
-                    if !assure && !self.ask_yn("Login? ", true)? {
-                        break;
-                    }
-                    self.stderr().write_str(
-                        r#"
+        if self.username.name().is_none() && (assure || self.ask_yn("Login? ", true)?) {
+            self.stderr().write_str(
+                r#"
 Input "REVEL_SESSION".
 
-Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
 Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
+Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
 
 "#,
-                    )?;
-                    first = false;
-                }
-                let revel_session = self.prompt_password_stderr("REVEL_SESSION: ")?;
-                if self.confirm_revel_session(revel_session)? {
-                    break;
-                }
-                if retries == Some(0) {
-                    return Err(ServiceErrorKind::LoginRetriesExceeded.into());
-                }
-                retries = retries.map(|n| n - 1);
-                writeln!(self.stderr(), "Wrong \"REVEL_SESSION\".")?;
-                self.stderr().flush()?;
-            }
+            )?;
+            self.retry_login::<Password, _>(
+                ("REVEL_SESSION: ",),
+                "Confirmed.",
+                "Wrong \"REVEL_SESSION\".",
+                |this, (revel_session,)| {
+                    this.clear_cookies()?;
+                    let cookie = Cookie::new("REVEL_SESSION", revel_session);
+                    this.insert_cookie(&cookie, &*BASE_URL)?;
+                    this.fetch_username()?;
+                    Ok(this.username.name().is_some())
+                },
+            )?;
         }
         let username = self.username.clone();
         writeln!(self.stderr(), "Username: {}", username)?;
         self.stderr().flush()?;
         Ok(LoginOutcome {})
-    }
-
-    fn confirm_revel_session(&mut self, revel_session: String) -> ServiceResult<bool> {
-        self.clear_cookies()?;
-        let cookie = Cookie::new("REVEL_SESSION", revel_session);
-        self.insert_cookie(&cookie, &*BASE_URL)?;
-        self.fetch_username()?;
-        Ok(self.username.name().is_some())
     }
 
     fn fetch_username(&mut self) -> ServiceResult<()> {

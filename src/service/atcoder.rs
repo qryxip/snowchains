@@ -1,7 +1,7 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::path::AbsPath;
 use crate::service::download::{self, DownloadProgress};
-use crate::service::session::{ParseWithBaseUrl as _, Session, State};
+use crate::service::session::{ParseWithBaseUrl as _, Session, State, UsernameAndPassword};
 use crate::service::{
     Contest, LoginOutcome, ParticipateOutcome, ParticipateOutcomeKind, RetrieveLangsOutcome,
     RetrieveLangsProps, RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
@@ -47,7 +47,6 @@ use std::{f64, vec};
 
 pub(super) static BASE_URL: Lazy<Url> = Lazy::new(|| "https://atcoder.jp".parse().unwrap());
 
-/// Logins to "atcoder.jp".
 pub(super) fn login(
     mut props: SessionProps,
     stdin: impl Input,
@@ -62,7 +61,6 @@ pub(super) fn login(
     Ok(LoginOutcome {})
 }
 
-/// Participates in a `contest_name`.
 pub(super) fn participate(
     props: (SessionProps, &str),
     stdin: impl Input,
@@ -72,8 +70,6 @@ pub(super) fn participate(
     Atcoder::try_new(sess_props, stdin, stderr)?.register_explicitly(&AtcoderContest::new(contest))
 }
 
-/// Accesses to pages of the problems and extracts pairs of sample input/output
-/// from them.
 pub(super) fn retrieve_testcases(
     props: (SessionProps, RetrieveTestCasesProps<String>),
     stdin: impl Input,
@@ -102,7 +98,6 @@ pub(super) fn retrieve_langs(
     Atcoder::try_new(sess_props, stdin, stderr)?.retrieve_langs(retrieve_props)
 }
 
-/// Downloads submitted source codes.
 pub(super) fn retrieve_submissions(
     props: (SessionProps, RetrieveSubmissionsProps<String>),
     stdin: impl Input,
@@ -116,7 +111,6 @@ pub(super) fn retrieve_submissions(
     Atcoder::try_new(sess_props, stdin, stderr)?.retrieve_submissions(&retrieve_props)
 }
 
-/// Submits a source code.
 pub(super) fn submit(
     props: (SessionProps, SubmitProps<String>),
     stdin: impl Input,
@@ -131,21 +125,18 @@ pub(super) fn submit(
 }
 
 #[derive(Debug)]
-struct Atcoder<I: Input, E: WriteColor + HasTermProps> {
-    login_retries: Option<u32>,
-    state: State<I, E>,
-}
+struct Atcoder<I: Input, E: WriteColor + HasTermProps>(State<I, E>);
 
 impl<I: Input, E: WriteColor + HasTermProps> Session for Atcoder<I, E> {
     type Stdin = I;
     type Stderr = E;
 
     fn state_ref(&self) -> &State<I, E> {
-        &self.state
+        &self.0
     }
 
     fn state_mut(&mut self) -> &mut State<I, E> {
-        &mut self.state
+        &mut self.0
     }
 }
 
@@ -153,11 +144,7 @@ impl<I: Input, E: WriteColor + HasTermProps> DownloadProgress for Atcoder<I, E> 
 
 impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
     fn try_new(props: SessionProps, stdin: I, stderr: E) -> ServiceResult<Self> {
-        let state = props.start_state(stdin, stderr)?;
-        Ok(Self {
-            login_retries: props.login_retries,
-            state,
-        })
+        props.start_state(stdin, stderr).map(Self)
     }
 
     fn login_if_not(&mut self, explicit: bool) -> ServiceResult<()> {
@@ -176,34 +163,32 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             }
         }
 
-        let mut retries = self.login_retries;
-        loop {
-            let payload = hashmap!(
-                "csrf_token" => self.get("/login").retry_recv_html()?.extract_csrf_token()?,
-                "username" => self.prompt_reply_stderr("Username: ")?,
-                "password" => self.prompt_password_stderr("Password: ")?,
-            );
+        self.retry_login::<UsernameAndPassword, _>(
+            ("Username: ", "Password: "),
+            "Successfully logged in.",
+            "Failed to login. Try again.",
+            |this, (username, password)| {
+                let payload = hashmap!(
+                    "csrf_token" => this.get("/login").retry_recv_html()?.extract_csrf_token()?,
+                    "username" => username,
+                    "password" => password,
+                );
+                this.post("/login").form(&payload).send()?;
 
-            self.post("/login").form(&payload).send()?;
-
-            if self
-                .get("/settings")
-                .acceptable(&[200, 302])
-                .warn(&[302])
-                .retry_status()?
-                == 200
-            {
-                writeln!(self.stderr(), "Successfully logged in.")?;
-                break self.stderr().flush().map_err(Into::into);
-            }
-            if retries == Some(0) {
-                return Err(ServiceErrorKind::LoginRetriesExceeded.into());
-            }
-            retries = retries.map(|n| n - 1);
-            writeln!(self.stderr(), "Failed to login. Try again.")?;
-            self.stderr().flush()?;
-            self.clear_cookies()?;
-        }
+                if this
+                    .get("/settings")
+                    .acceptable(&[200, 302])
+                    .warn(&[302])
+                    .retry_status()?
+                    == 200
+                {
+                    Ok(true)
+                } else {
+                    this.clear_cookies()?;
+                    Ok(false)
+                }
+            },
+        )
     }
 
     fn auth_dropbox(&mut self, auth_path: &AbsPath, explicit: bool) -> ServiceResult<String> {
@@ -245,6 +230,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             self.stderr().write_str("Invalid `accesss_token`.\n")?;
             self.stderr().flush()?;
         }
+
         self.open_in_browser(&format!(
             "https://dropbox.com/oauth2/authorize?response_type=code&client_id={}",
             CLIENT_ID,
@@ -256,9 +242,11 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             .basic_auth(CLIENT_ID, Some(CLIENT_SECRET))
             .form(&hashmap!("code" => code.as_str(), "grant_type" => "authorization_code"))
             .recv_json::<AuthToken>()?;
+
         crate::fs::write_json_pretty(auth_path, &auth)?;
         writeln!(self.stderr(), "Wrote {}", auth_path.display())?;
         self.stderr().flush()?;
+
         Ok(auth.access_token)
     }
 
@@ -301,8 +289,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             self.retry_recv_html(res)
         }?;
 
-        let duration = html.extract_contest_duration()?;
-        let status = duration.check_current_status(contest.to_string());
+        let status = ContestStatus::now(html.extract_contest_duration()?, &contest.slug());
 
         if !explicit {
             status.raise_if_not_begun()?;
@@ -733,8 +720,8 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         let tasks_page = self.fetch_tasks_page(&contest)?;
         let checks_if_accepted =
             !skip_checking_if_accepted && contest != AtcoderContest::Practice && {
-                let duration = tasks_page.extract_contest_duration()?;
-                let status = duration.check_current_status(contest.to_string());
+                let status =
+                    ContestStatus::now(tasks_page.extract_contest_duration()?, &contest.slug());
                 status.raise_if_not_begun()?;
                 status.is_active()
             };
@@ -949,6 +936,18 @@ enum ContestStatus {
 }
 
 impl ContestStatus {
+    fn now(dur: (DateTime<Utc>, DateTime<Utc>), contest_slug: &str) -> Self {
+        let (start, end) = dur;
+        let now = Utc::now();
+        if now < start {
+            ContestStatus::NotBegun(contest_slug.to_owned(), start.with_timezone(&Local))
+        } else if now > end {
+            ContestStatus::Finished
+        } else {
+            ContestStatus::Active
+        }
+    }
+
     fn is_finished(&self) -> bool {
         match self {
             ContestStatus::Finished => true,
@@ -968,22 +967,6 @@ impl ContestStatus {
             Err(ServiceErrorKind::ContestNotBegun(s.clone(), *t).into())
         } else {
             Ok(())
-        }
-    }
-}
-
-#[derive(Debug)]
-struct ContestDuration(DateTime<Utc>, DateTime<Utc>);
-
-impl ContestDuration {
-    fn check_current_status(&self, contest_name: String) -> ContestStatus {
-        let now = Utc::now();
-        if now < self.0 {
-            ContestStatus::NotBegun(contest_name, self.0.with_timezone(&Local))
-        } else if now > self.1 {
-            ContestStatus::Finished
-        } else {
-            ContestStatus::Active
         }
     }
 }
@@ -1009,7 +992,7 @@ trait Extract {
         &self,
         contest_slug: &str,
     ) -> ScrapeResult<NonEmptyIndexMap<String, TestSuite>>;
-    fn extract_contest_duration(&self) -> ScrapeResult<ContestDuration>;
+    fn extract_contest_duration(&self) -> ScrapeResult<(DateTime<Utc>, DateTime<Utc>)>;
     fn extract_submissions(&self) -> ScrapeResult<(Vec<Submission>, u32)>;
     fn extract_submitted_code(&self) -> ScrapeResult<String>;
     fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String>;
@@ -1321,7 +1304,7 @@ impl Extract for Html {
         }
     }
 
-    fn extract_contest_duration(&self) -> ScrapeResult<ContestDuration> {
+    fn extract_contest_duration(&self) -> ScrapeResult<(DateTime<Utc>, DateTime<Utc>)> {
         fn extract(this: &Html) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
             static FORMAT: &'static str = "%F %T%z";
             let mut it = this.select(selector!("time"));
@@ -1332,10 +1315,7 @@ impl Extract for Html {
             Some((t1.with_timezone(&Utc), t2.with_timezone(&Utc)))
         }
 
-        match extract(self) {
-            Some((t1, t2)) => Ok(ContestDuration(t1, t2)),
-            None => Err(ScrapeError::new()),
-        }
+        extract(self).ok_or_else(ScrapeError::new)
     }
 
     fn extract_submissions(&self) -> ScrapeResult<(Vec<Submission>, u32)> {
