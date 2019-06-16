@@ -50,7 +50,7 @@ use std::io::{self, Cursor, Write as _};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{cmp, fmt, mem};
+use std::{cmp, mem};
 
 /// # Panics
 ///
@@ -381,7 +381,7 @@ pub(self) enum ParticipateOutcomeKind {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct RetrieveTestCasesOutcome {
-    contest: RetrieveTestCasesOutcomeContest,
+    contest: OutcomeContest,
     #[serde(serialize_with = "util::serde::ser_str_slice")]
     submissions_urls: Vec<Url>,
     pub(self) problems: Vec<RetrieveTestCasesOutcomeProblem>,
@@ -411,7 +411,12 @@ impl Outcome for RetrieveTestCasesOutcome {
         }
 
         if verbose {
-            writeln!(stdout, "Contest slug: {:?}", self.contest.slug)?;
+            writeln!(
+                stdout,
+                "Contest slug:         {:?}\n\
+                 Contest display name: {:?}",
+                self.contest.slug, self.contest.display_name,
+            )?;
 
             for problem in &self.problems {
                 writeln!(stdout)?;
@@ -472,6 +477,12 @@ impl Outcome for RetrieveTestCasesOutcome {
                 }
             }
         } else {
+            writeln!(
+                stdout,
+                "Contest display name: {:?}",
+                self.contest.display_name,
+            )?;
+
             let lines = self
                 .problems
                 .iter()
@@ -605,17 +616,6 @@ impl Outcome for RetrieveTestCasesOutcome {
 }
 
 #[derive(Debug, Serialize)]
-struct RetrieveTestCasesOutcomeContest {
-    slug: String,
-    slug_lower_case: String,
-    slug_upper_case: String,
-    slug_snake_case: String,
-    slug_kebab_case: String,
-    slug_mixed_case: String,
-    slug_pascal_case: String,
-}
-
-#[derive(Debug, Serialize)]
 pub(self) struct RetrieveTestCasesOutcomeProblem {
     #[serde(serialize_with = "util::serde::ser_as_ref_str")]
     url: Url,
@@ -665,24 +665,16 @@ impl Serialize for RetrieveTestCasesOutcomeProblemTextFile {
 
 #[derive(Debug)]
 pub(self) struct RetrieveTestCasesOutcomeBuilder {
-    contest: RetrieveTestCasesOutcomeContest,
+    contest: OutcomeContest,
     submissions_urls: Vec<Url>,
     problems: Vec<RetrieveTestCasesOutcomeBuilderProblem>,
     save_files: bool,
 }
 
 impl RetrieveTestCasesOutcomeBuilder {
-    pub(self) fn new(contest: &impl Contest, save_files: bool) -> Self {
+    pub(self) fn new(contest_slug: &str, contest_display: &str, save_files: bool) -> Self {
         Self {
-            contest: RetrieveTestCasesOutcomeContest {
-                slug: contest.slug().into(),
-                slug_lower_case: contest.slug().to_lowercase(),
-                slug_upper_case: contest.slug().to_uppercase(),
-                slug_snake_case: contest.slug().to_snake_case(),
-                slug_kebab_case: contest.slug().to_kebab_case(),
-                slug_mixed_case: contest.slug().to_mixed_case(),
-                slug_pascal_case: contest.slug().to_camel_case(),
-            },
+            contest: OutcomeContest::new(contest_slug, contest_display),
             submissions_urls: vec![],
             problems: vec![],
             save_files,
@@ -1144,6 +1136,33 @@ impl Outcome for SubmitOutcome {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct OutcomeContest {
+    slug: String,
+    slug_lower_case: String,
+    slug_upper_case: String,
+    slug_snake_case: String,
+    slug_kebab_case: String,
+    slug_mixed_case: String,
+    slug_pascal_case: String,
+    display_name: String,
+}
+
+impl OutcomeContest {
+    fn new(slug: &str, display_name: &str) -> Self {
+        Self {
+            slug: slug.to_owned(),
+            slug_lower_case: slug.to_lowercase(),
+            slug_upper_case: slug.to_uppercase(),
+            slug_snake_case: slug.to_snake_case(),
+            slug_kebab_case: slug.to_kebab_case(),
+            slug_mixed_case: slug.to_mixed_case(),
+            slug_pascal_case: slug.to_camel_case(),
+            display_name: display_name.to_owned(),
+        }
+    }
+}
+
 pub(crate) struct SessionProps {
     pub(crate) base_url: Option<&'static Url>,
     pub(crate) cookies_path: AbsPathBuf,
@@ -1372,7 +1391,7 @@ impl RetrieveLangsProps<String> {
     }
 }
 
-pub(crate) trait Contest: fmt::Display + FromStr {
+pub(crate) trait Contest: FromStr {
     fn slug(&self) -> Cow<str>;
 }
 

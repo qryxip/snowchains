@@ -195,7 +195,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             .api::<Vec<api::Contest>>("contest.list", &[("gym", &contest.is_gym().to_string())])?
             .into_iter()
             .find(|c| c.id == contest.id)
-            .ok_or_else(|| ServiceErrorKind::ContestNotFound(contest.to_string()))?
+            .ok_or_else(|| ServiceErrorKind::ContestNotFound(contest.slug().into()))?
             .phase;
 
         if phase == api::ContestPhase::Finished {
@@ -231,8 +231,12 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         let problems = problems.as_ref();
         let top_path = format!("/contest/{}", contest.id);
 
-        let mut outcome = RetrieveTestCasesOutcomeBuilder::new(&contest, save_files);
-        outcome.push_submissions_url(contest.submissions_url());
+        let contest_display = self
+            .api::<Vec<api::Contest>>("contest.list", &[("gym", &contest.is_gym().to_string())])?
+            .into_iter()
+            .find(|c| c.id == contest.id)
+            .ok_or_else(|| ServiceErrorKind::ContestNotFound(contest.slug().into()))?
+            .name;
 
         let mut res = self.get(&top_path).acceptable(&[200, 302]).retry_send()?;
         if res.status() == 302 {
@@ -247,6 +251,10 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
                 res = self.get(&top_path).retry_send()?;
             }
         }
+
+        let mut outcome =
+            RetrieveTestCasesOutcomeBuilder::new(&contest.slug(), &contest_display, save_files);
+        outcome.push_submissions_url(contest.submissions_url());
 
         for ((slug, display_name), url) in self.retry_recv_html(res)?.extract_problems()? {
             if problems.map_or(true, |ps| ps.contains(&slug)) {
@@ -662,8 +670,7 @@ static LANG_IDS: Lazy<IndexMap<&'static str, &'static str>> = Lazy::new(|| {
     )
 });
 
-#[derive(Clone, Copy, Debug, derive_more::Display)]
-#[display(fmt = "{}", id)]
+#[derive(Clone, Copy, Debug)]
 struct CodeforcesContest {
     id: u64,
 }
@@ -698,7 +705,7 @@ impl FromStr for CodeforcesContest {
 
 impl Contest for CodeforcesContest {
     fn slug(&self) -> Cow<str> {
-        self.to_string().into()
+        self.id.to_string().into()
     }
 }
 
@@ -893,20 +900,30 @@ impl<'a> FoldTextAndBr for ElementRef<'a> {
 mod api {
     use serde::Deserialize;
 
+    /// "Represents a Codeforces user."
+    ///
     /// <https://codeforces.com/api/help/objects#User>
     #[derive(Debug, Deserialize)]
     pub(super) struct User {
         // __rest: (),
     }
 
+    /// "Represents a contest on Codeforces."
+    ///
     /// <https://codeforces.com/api/help/objects#Contest>
     #[derive(Debug, Deserialize)]
     pub(super) struct Contest {
+        /// "Integer."
         pub(super) id: u64,
+        /// "String. Localized."
+        pub(super) name: String,
+        /// "Enum: BEFORE, CODING, PENDING_SYSTEM_TEST, SYSTEM_TEST, FINISHED."
         pub(super) phase: ContestPhase,
         // __rest: (),
     }
 
+    /// "Enum: BEFORE, CODING, PENDING_SYSTEM_TEST, SYSTEM_TEST, FINISHED."
+    ///
     /// <https://codeforces.com/api/help/objects#Contest>
     #[derive(Debug, PartialEq, Deserialize)]
     #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -918,26 +935,39 @@ mod api {
         Finished,
     }
 
+    /// "Represents a problem."
+    ///
     /// <https://codeforces.com/api/help/objects#Problem>
     #[derive(Debug, Deserialize)]
     pub(super) struct Problem {
+        /// "String. Usually a letter of a letter, followed by a digit, that represent a problem index in a contest."
         pub(super) index: String,
+        /// "String. Localized."
         pub(super) name: String,
         // __rest: (),
     }
 
+    /// "Represents a submission."
+    ///
     /// <https://codeforces.com/api/help/objects#Submission>
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub(super) struct Submission {
+        /// "Integer."
         pub(super) id: u64,
+        /// "Integer. Time, when submission was created, in unix-format."
         pub(super) creation_time_seconds: i64,
+        /// "Problem object."
         pub(super) problem: Problem,
+        /// "String."
         pub(super) programming_language: String,
+        /// "Enum: FAILED, OK, PARTIAL, COMPILATION_ERROR, RUNTIME_ERROR, WRONG_ANSWER, PRESENTATION_ERROR, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED, IDLENESS_LIMIT_EXCEEDED, SECURITY_VIOLATED, CRASHED, INPUT_PREPARATION_CRASHED, CHALLENGED, SKIPPED, TESTING, REJECTED. Can be absent."
         pub(super) verdict: Option<SubmissionVerdict>,
         // __rest: (),
     }
 
+    /// "Enum: FAILED, OK, PARTIAL, COMPILATION_ERROR, RUNTIME_ERROR, WRONG_ANSWER, PRESENTATION_ERROR, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED, IDLENESS_LIMIT_EXCEEDED, SECURITY_VIOLATED, CRASHED, INPUT_PREPARATION_CRASHED, CHALLENGED, SKIPPED, TESTING, REJECTED. Can be absent."
+    ///
     /// <https://codeforces.com/api/help/objects#Submission>
     #[derive(Debug, PartialEq, strum_macros::Display, Deserialize)]
     #[strum(serialize_all = "shouty_snake_case")]
@@ -962,6 +992,8 @@ mod api {
         Rejected,
     }
 
+    /// "Returns object with three fields: "contest", "problems" and "rows". Field "contest" contains a Contest object. Field "problems" contains a list of Problem objects. Field "rows" contains a list of RanklistRow objects."
+    ///
     /// <https://codeforces.com/api/help/methods#contest.standings>
     #[derive(Debug, Deserialize)]
     pub(super) struct Standings {

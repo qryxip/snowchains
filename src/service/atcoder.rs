@@ -284,7 +284,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             .retry_send()?;
 
         let html = if res.status() == 302 {
-            Err(ServiceErrorKind::ContestNotFound(contest.to_string()).into())
+            Err(ServiceErrorKind::ContestNotFound(contest.slug().into()).into())
         } else {
             self.retry_recv_html(res)
         }?;
@@ -327,9 +327,9 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
         } = props;
         let problems = problems.as_ref();
 
-        let slugs_and_uris = self
-            .fetch_tasks_page(contest)?
-            .extract_task_slugs_and_uris()?;
+        let html = self.fetch_tasks_page(contest)?;
+        let contest_display = html.extract_contest_display_name()?;
+        let slugs_and_uris = html.extract_task_slugs_and_uris()?;
         let suites = self
             .get(&contest.url_tasks_print())
             .retry_recv_html()?
@@ -339,7 +339,8 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             return Err(ScrapeError::new().into());
         }
 
-        let mut outcome = RetrieveTestCasesOutcomeBuilder::new(contest, *save_files);
+        let mut outcome =
+            RetrieveTestCasesOutcomeBuilder::new(&contest.slug(), &contest_display, *save_files);
         outcome.push_submissions_url(contest.url_submissions_me(1));
 
         for ((slug, uri), (display_name, suite)) in slugs_and_uris.into_iter().zip_eq(suites) {
@@ -816,53 +817,18 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, derive_more::Display)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 enum AtcoderContest {
-    #[display(fmt = "practice contest")]
     Practice,
-    #[display(fmt = "AtCoder Programming Guide for beginners")]
-    Apg4b,
-    #[display(fmt = "ARC{:>03}", _0)]
-    Arc(u32),
-    #[display(fmt = "ABC{:>03}", _0)]
-    Abc(u32),
-    #[display(fmt = "AGC{:>03}", _0)]
-    Agc(u32),
-    #[display(fmt = "ATC{:>03}", _0)]
-    Atc(u32),
-    #[display(fmt = "APC{:>03}", _0)]
-    Apc(u32),
-    #[display(fmt = "Chokudai SpeedRun {:>03}", _0)]
-    ChokudaiS(u32),
-    #[display(fmt = "{}", _0)]
-    Other(String),
+    Screen(String),
 }
 
 impl AtcoderContest {
     fn new(s: &str) -> Self {
-        if let Some(caps) = lazy_regex!(r"\A\s*([a-zA-Z_]+)(\d{3})\s*\z").captures(s) {
-            let name = caps[1].to_lowercase();
-            let number = caps[2].parse::<u32>().unwrap_or(0);
-            if name == "abc" {
-                return AtcoderContest::Abc(number);
-            } else if name == "arc" {
-                return AtcoderContest::Arc(number);
-            } else if name == "agc" {
-                return AtcoderContest::Agc(number);
-            } else if name == "atc" {
-                return AtcoderContest::Atc(number);
-            } else if name == "apc" {
-                return AtcoderContest::Apc(number);
-            } else if name == "chokudai_s" || name == "chokudais" {
-                return AtcoderContest::ChokudaiS(number);
-            }
-        }
-        if s == "practice" {
+        if s.eq_ignore_ascii_case("practice") {
             AtcoderContest::Practice
-        } else if s == "apg4b" {
-            AtcoderContest::Apg4b
         } else {
-            AtcoderContest::Other(s.to_owned())
+            AtcoderContest::Screen(s.to_owned())
         }
     }
 
@@ -916,14 +882,7 @@ impl Contest for AtcoderContest {
     fn slug(&self) -> Cow<str> {
         match self {
             AtcoderContest::Practice => "practice".into(),
-            AtcoderContest::Apg4b => "apg4b".into(),
-            AtcoderContest::Abc(n) => format!("abc{:>03}", n).into(),
-            AtcoderContest::Arc(n) => format!("arc{:>03}", n).into(),
-            AtcoderContest::Agc(n) => format!("agc{:>03}", n).into(),
-            AtcoderContest::Atc(n) => format!("atc{:>03}", n).into(),
-            AtcoderContest::Apc(n) => format!("apc{:>03}", n).into(),
-            AtcoderContest::ChokudaiS(n) => format!("chokudai_s{:>03}", n).into(),
-            AtcoderContest::Other(s) => s.into(),
+            AtcoderContest::Screen(s) => s.into(),
         }
     }
 }
@@ -986,6 +945,7 @@ struct Submission {
 
 trait Extract {
     fn extract_csrf_token(&self) -> ScrapeResult<String>;
+    fn extract_contest_display_name(&self) -> ScrapeResult<String>;
     fn contains_registration_button(&self) -> ScrapeResult<bool>;
     fn extract_task_slugs_and_uris(&self) -> ScrapeResult<NonEmptyIndexMap<String, Uri>>;
     fn extract_as_suites(
@@ -1012,6 +972,14 @@ impl Extract for Html {
             Some(token)
         };
         extract_csrf_token().ok_or_else(ScrapeError::new)
+    }
+
+    fn extract_contest_display_name(&self) -> ScrapeResult<String> {
+        self.select(selector!("#navbar-collapse"))
+            .flat_map(|r| r.select(selector!("a.contest-title")))
+            .flat_map(|r| r.text().map(ToOwned::to_owned))
+            .next()
+            .ok_or_else(ScrapeError::new)
     }
 
     fn contains_registration_button(&self) -> ScrapeResult<bool> {
@@ -1432,6 +1400,15 @@ mod tests {
 
     use std::iter;
     use std::time::Duration;
+
+    #[test]
+    fn it_extracts_a_contest_display_name() -> Fallible<()> {
+        let display_name = service::reqwest_sync_client(Duration::from_secs(60))?
+            .retry_retrieve_html("/contests/arc001/tasks")?
+            .extract_contest_display_name()?;
+        assert_eq!(display_name, "AtCoder Regular Contest 001");
+        Ok(())
+    }
 
     #[test]
     fn it_extracts_a_timelimit_from_apg4b_b() -> Fallible<()> {

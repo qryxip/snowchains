@@ -1,4 +1,7 @@
-use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
+use crate::errors::{
+    ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceError,
+    ServiceErrorKind, ServiceResult,
+};
 use crate::service::download::{self, DownloadProgress};
 use crate::service::session::{FormBuilder, ParseWithBaseUrl as _, Password, Session, State};
 use crate::service::{
@@ -29,7 +32,6 @@ use url::Url;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::convert::Infallible;
 use std::fmt;
 use std::str::FromStr;
 use std::time::Duration;
@@ -52,9 +54,8 @@ pub(super) fn retrieve_testcases(
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
-        .parse_contest()
-        .unwrap();
-    Yukicoder::try_new(sess_props, stdin, stderr)?.retrieve_testcases(&retrieve_props)
+        .parse_contest()?;
+    Yukicoder::try_new(sess_props, stdin, stderr)?.retrieve_testcases(retrieve_props)
 }
 
 pub(super) fn retrieve_langs(
@@ -65,8 +66,7 @@ pub(super) fn retrieve_langs(
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problem(CaseConversion::Upper)
-        .parse_contest()
-        .unwrap();
+        .parse_contest()?;
     Yukicoder::try_new(sess_props, stdin, stderr)?.retrieve_langs(retrieve_props)
 }
 
@@ -78,8 +78,7 @@ pub(super) fn retrieve_submissions(
     let (sess_props, retrieve_props) = props;
     let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
-        .parse_contest()
-        .unwrap();
+        .parse_contest()?;
     Yukicoder::try_new(sess_props, stdin, stderr)?.retrieve_submissions(retrieve_props)
 }
 
@@ -91,8 +90,7 @@ pub(super) fn submit(
     let (sess_props, submit_props) = props;
     let submit_props = submit_props
         .convert_problem(CaseConversion::Upper)
-        .parse_contest()
-        .unwrap();
+        .parse_contest()?;
     Yukicoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
 }
 
@@ -172,7 +170,7 @@ Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_c
 
     fn retrieve_testcases(
         &mut self,
-        props: &RetrieveTestCasesProps<YukicoderContest>,
+        props: RetrieveTestCasesProps<YukicoderContest>,
     ) -> ServiceResult<RetrieveTestCasesOutcome> {
         let RetrieveTestCasesProps {
             contest,
@@ -182,17 +180,42 @@ Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_c
             attempt_full,
             save_files,
         } = props;
+
+        if contest == YukicoderContest::No && problems.is_none() {
+            return Err(ServiceErrorKind::PleaseSpecifyProblems.into());
+        }
+
         self.login(false)?;
+
         let scrape = |html: &Html, problem: &str| -> ServiceResult<_> {
             let (display_name, suite) = html.extract_samples()?;
             let path = destinations.expand(problem)?;
             Ok((display_name, suite, path))
         };
-        let mut outcome = RetrieveTestCasesOutcomeBuilder::new(contest, *save_files);
-        match (contest, problems.as_ref()) {
-            (YukicoderContest::No, None) => {
-                return Err(ServiceErrorKind::PleaseSpecifyProblems.into());
+
+        let contest_display = match contest {
+            YukicoderContest::No => "問題一覧".to_owned(),
+            YukicoderContest::Id(id) => {
+                let contest = self
+                    .api_v1_contest_future()?
+                    .into_iter()
+                    .find(|c| c.id == id);
+                match contest {
+                    Some(c) => c,
+                    None => self
+                        .api_v1_contest_past()?
+                        .into_iter()
+                        .find(|c| c.id == id)
+                        .ok_or_else(|| ServiceErrorKind::ContestNotFound(id.to_string()))?,
+                }
+                .name
             }
+        };
+        let mut outcome =
+            RetrieveTestCasesOutcomeBuilder::new(&contest.slug(), &contest_display, save_files);
+
+        match (contest, problems.as_ref()) {
+            (YukicoderContest::No, None) => unreachable!(),
             (YukicoderContest::No, Some(problems)) => {
                 for problem in problems {
                     let mut url = BASE_URL.clone();
@@ -248,13 +271,13 @@ Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_c
                     stderr.flush()?;
                 }
             }
-            (YukicoderContest::Contest(contest), problems) => {
+            (YukicoderContest::Id(id), problems) => {
                 let mut url = BASE_URL.clone();
-                url.set_path(&format!("/problems/contests/{}/submissions", contest));
+                url.set_path(&format!("/problems/contests/{}/submissions", id));
                 outcome.push_submissions_url(url);
 
                 let target_problems = self
-                    .get(&format!("/contests/{}", contest))
+                    .get(&format!("/contests/{}", id))
                     .retry_recv_html()?
                     .extract_problems()?;
                 for (slug, no, url) in target_problems {
@@ -275,7 +298,7 @@ Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_c
             }
         }
 
-        if *attempt_full {
+        if attempt_full {
             let nos = outcome
                 .problems()
                 .iter()
@@ -350,7 +373,7 @@ Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_c
             }
         }
 
-        outcome.finish(*open_in_browser, self.stderr())
+        outcome.finish(open_in_browser, self.stderr())
     }
 
     fn retrieve_langs(
@@ -400,9 +423,9 @@ Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_c
                 .iter()
                 .map(|no| (no.clone(), no.clone()))
                 .collect::<Vec<_>>(),
-            (YukicoderContest::Contest(contest), problems) => {
+            (YukicoderContest::Id(id), problems) => {
                 let iter = self
-                    .get(format!("/contests/{}", contest))
+                    .get(format!("/contests/{}", id))
                     .retry_recv_html()?
                     .extract_problems()?
                     .into_iter()
@@ -632,8 +655,8 @@ Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_c
                 url.set_path(&format!("/problems/no/{}", problem));
                 url
             }
-            YukicoderContest::Contest(contest) => self
-                .get(&format!("/contests/{}", contest))
+            YukicoderContest::Id(id) => self
+                .get(&format!("/contests/{}", id))
                 .retry_recv_html()?
                 .extract_problems()?
                 .into_iter()
@@ -657,38 +680,46 @@ Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_c
     fn api_v1_languages(&mut self) -> ServiceResult<Vec<api_v1::Language>> {
         self.get("/api/v1/languages").retry_recv_json()
     }
-}
 
-#[derive(Debug)]
-enum YukicoderContest {
-    No,
-    Contest(String),
-}
+    /// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml#/contest/get_contest_future>
+    fn api_v1_contest_future(&mut self) -> ServiceResult<Vec<api_v1::Contest>> {
+        self.get("/api/v1/contest/future").retry_recv_json()
+    }
 
-impl fmt::Display for YukicoderContest {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            YukicoderContest::No => write!(f, "no"),
-            YukicoderContest::Contest(contest) => write!(f, "{}", contest),
-        }
+    /// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml#/contest/get_contest_past>
+    fn api_v1_contest_past(&mut self) -> ServiceResult<Vec<api_v1::Contest>> {
+        self.get("/api/v1/contest/past").retry_recv_json()
     }
 }
 
-impl FromStr for YukicoderContest {
-    type Err = Infallible;
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum YukicoderContest {
+    /// "問題一覧".
+    No,
+    /// `Id`.
+    Id(u64),
+}
 
-    fn from_str(s: &str) -> std::result::Result<Self, Infallible> {
-        Ok(if s.eq_ignore_ascii_case("no") {
-            YukicoderContest::No
+impl FromStr for YukicoderContest {
+    type Err = ParseContestNameError;
+
+    fn from_str(s: &str) -> ParseContestNameResult<Self> {
+        if s.eq_ignore_ascii_case("no") {
+            Ok(YukicoderContest::No)
         } else {
-            YukicoderContest::Contest(s.to_owned())
-        })
+            s.parse()
+                .map(YukicoderContest::Id)
+                .map_err(|e| ParseContestNameError::new(s, e))
+        }
     }
 }
 
 impl Contest for YukicoderContest {
     fn slug(&self) -> Cow<str> {
-        self.to_string().into()
+        match self {
+            YukicoderContest::No => Cow::Borrowed("no"),
+            YukicoderContest::Id(id) => Cow::Owned(id.to_string()),
+        }
     }
 }
 
@@ -974,6 +1005,17 @@ mod api_v1 {
         pub(super) problem_id: u64,
         /// "問題名"
         pub(super) title: String,
+        // __rest: (),
+    }
+
+    /// <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml>
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub(super) struct Contest {
+        /// "一意な値　コンテストID"
+        pub(super) id: u64,
+        /// "コンテスト名"
+        pub(super) name: String,
         // __rest: (),
     }
 
