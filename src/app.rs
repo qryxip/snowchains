@@ -12,6 +12,7 @@ use crate::util::collections::NonEmptyIndexSet;
 
 use snowchains_proc_macros::ArgEnum;
 
+use indexmap::IndexMap;
 use serde::Serialize;
 use structopt::clap::Arg;
 use structopt::StructOpt;
@@ -926,7 +927,7 @@ fn finish(
     struct WithCliArgsAndConfig<'a, A: Serialize, T: Serialize> {
         command_line_arguments: A,
         config: &'a config::Inner,
-        target: &'a config::Target,
+        target: IndexMap<&'static str, String>,
         base_directory: &'a AbsPath,
         #[serde(flatten)]
         outcome: T,
@@ -935,7 +936,7 @@ fn finish(
     let outcome_json = serde_json::to_string(&WithCliArgsAndConfig {
         command_line_arguments,
         config: config.inner(),
-        target: config.target(),
+        target: config.target_with_case_converted_names(),
         base_directory: config.base_dir(),
         outcome: &outcome,
     })?;

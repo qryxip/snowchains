@@ -188,7 +188,7 @@ output_json = result['command_line_arguments']['json'] ||
 
 if open_browser && !output_json then
   service = result['target']['service']
-  contest = result['target']['contest']
+  contest = result['target']['contest_snake_case']
 
   unless Dir.exists? './%s/%s/rs' % [service, contest] then
     FileUtils.mkdir_p './%s/%s' % [service, contest]

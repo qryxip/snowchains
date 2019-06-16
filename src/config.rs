@@ -657,8 +657,18 @@ impl Config {
         &self.inner
     }
 
-    pub(crate) fn target(&self) -> &Target {
-        &self.target
+    pub(crate) fn target_with_case_converted_names(&self) -> IndexMap<&'static str, String> {
+        indexmap! {
+            "service" => self.target.service.to_string(),
+            "contest" => self.target.contest.clone(),
+            "contest_lower_case" => self.target.contest.to_lowercase(),
+            "contest_upper_case" => self.target.contest.to_uppercase(),
+            "contest_snake_case" => self.target.contest.to_snake_case(),
+            "contest_kebab_case" => self.target.contest.to_kebab_case(),
+            "contest_mixed_case" => self.target.contest.to_mixed_case(),
+            "contest_pascal_case" => self.target.contest.to_camel_case(),
+            "language" => self.target.language.clone(),
+        }
     }
 
     pub(crate) fn base_dir(&self) -> &AbsPath {
@@ -1534,7 +1544,7 @@ struct Language {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct Target {
+struct Target {
     service: ServiceKind,
     contest: String,
     language: String,
