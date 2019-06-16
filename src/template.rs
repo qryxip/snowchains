@@ -17,6 +17,7 @@ use failure::{Fail, ResultExt as _};
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use indexmap::IndexMap;
 use maplit::hashmap;
+use once_cell::sync::Lazy;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -25,7 +26,6 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::{env, fmt, iter};
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -140,27 +140,20 @@ impl Template<AbsPathBuf> {
 
 impl Template<HookCommands> {
     pub(crate) fn expand(&self) -> ExpandTemplateResult<HookCommands> {
+        static EMPTY: Lazy<HashMap<&'static str, &'static OsStr>> = Lazy::new(|| hashmap!());
+
         if self.inner.is_empty() {
             return Ok(iter::empty().collect());
         }
-        let HookCommandsRequirements {
-            base_dir,
-            shell,
-            snowchains_result,
-        } = &self.requirements;
-        let (mut vars, envs) = {
-            let vars = hashmap!("result" => OsString::from(&**snowchains_result));
-            let mut envs = self
-                .envs
-                .iter()
-                .map(|(k, v)| (k.clone(), OsString::from(v.clone())))
-                .collect::<HashMap<_, _>>();
-            envs.insert(
-                "SNOWCHAINS_RESULT".to_owned(),
-                OsString::from(&**snowchains_result),
-            );
-            (vars, envs)
-        };
+
+        let HookCommandsRequirements { base_dir, shell } = &self.requirements;
+
+        let envs = self
+            .envs
+            .iter()
+            .map(|(k, v)| (k.clone(), OsString::from(v.clone())))
+            .collect::<HashMap<_, _>>();
+
         self.inner
             .iter()
             .map(|inner| {
@@ -168,7 +161,7 @@ impl Template<HookCommands> {
                 match inner {
                     CommandTemplateInner::Args(ss) => {
                         for s in ss {
-                            args.push(s.expand_as_os_string(&vars, &envs)?);
+                            args.push(s.expand_as_os_string(&EMPTY, &envs)?);
                         }
                     }
                     CommandTemplateInner::Shell(SingleKeyValue { key, value }) => {
@@ -177,17 +170,16 @@ impl Template<HookCommands> {
                             .ok_or_else(|| ExpandTemplateErrorKind::NoSuchShell(key.to_owned()))?;
                         match shell {
                             config::Shell::Args(sh_args) => {
-                                vars.entry("command")
-                                    .or_insert_with(|| value.clone().into());
+                                let vars = hashmap!("command" => value);
                                 for TemplateBuilder(s) in sh_args {
                                     args.push(s.expand_as_os_string(&vars, &envs)?);
                                 }
                             }
                             config::Shell::File { runner, extension } => {
-                                let ext = extension.0.expand_as_os_string(&vars, &envs)?;
+                                let ext = extension.0.expand_as_os_string(&EMPTY, &envs)?;
                                 let temp = TempFile::create(&ext, value)
                                     .with_context(|_| ExpandTemplateErrorKind::CreateTempFile)?;
-                                args.push(runner.0.expand_as_os_string(&vars, &envs)?);
+                                args.push(runner.0.expand_as_os_string(&EMPTY, &envs)?);
                                 args.push(temp.path().into());
                                 temp_file = Some(temp);
                             }
@@ -534,7 +526,6 @@ pub(crate) struct AbsPathBufRequirements {
 pub(crate) struct HookCommandsRequirements {
     pub(crate) base_dir: AbsPathBuf,
     pub(crate) shell: IndexMap<String, config::Shell>,
-    pub(crate) snowchains_result: Arc<String>,
 }
 
 #[derive(Debug, Clone)]

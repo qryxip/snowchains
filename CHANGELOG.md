@@ -6,7 +6,7 @@
 * `--mode` option to `judge`, `retrieve submissions`, and `submit`.
 * `--release` option to `judge`, which equivalent to `--mode release`.
 * `--debug` option to `submit`, which equivalent to `--mode debug`.
-* `.command_line_arguments`, `.config`, `.base_directory`, and `.target` to `$SNOWCHAINS_RESULT` s.
+* `.command_line_arguments`, `.config`, `.base_directory`, and `.target` to the result JSON.
 * `--output` option and `--json` flag to all of the subcommands.
 * `--no-save` option to `retrieve testcases` and `retrieve submissions`.
 * `--fetch-all` flag to `retrieve submissions` command.
@@ -25,6 +25,7 @@
 * Make it find a executable binary's path with [`which`](https://crates.io/crates/which) crate.
 * Now it retrieves and parses `tasks_print` pages to improve the performance.
 * Save cookies as JSON files.
+* `$SNOWCHAINS_RESULT` to STDIN.
 
 ### Removed
 

@@ -13,11 +13,12 @@ use termcolor::WriteColor;
 use tokio_process::CommandExt as _;
 
 use std::collections::HashMap;
+use std::env;
 use std::ffi::OsString;
+use std::io::{self, Write as _};
 use std::iter::FromIterator;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
-use std::{env, io};
 
 #[derive(Debug)]
 pub(crate) struct HookCommands(Option<NonEmptyVec<HookCommand>>);
@@ -25,6 +26,7 @@ pub(crate) struct HookCommands(Option<NonEmptyVec<HookCommand>>);
 impl HookCommands {
     pub(crate) fn run(
         &self,
+        stdin: &str,
         stdout: impl HasTermProps,
         mut stderr: impl WriteColor + HasTermProps,
     ) -> HookCommandResult<()> {
@@ -34,7 +36,8 @@ impl HookCommands {
             stderr.reset()?;
             writeln!(stderr)?;
             stderr.flush()?;
-            cmds.iter().try_for_each(|c| c.run(&stdout, &stderr))?;
+            cmds.iter()
+                .try_for_each(|c| c.run(stdin, &stdout, &stderr))?;
             stderr.set_color(color!(bold))?;
             stderr.write_str("Done.")?;
             stderr.reset()?;
@@ -67,17 +70,26 @@ impl HookCommand {
         Ok(Self { inner })
     }
 
-    fn run(&self, stdout: impl HasTermProps, stderr: impl HasTermProps) -> HookCommandResult<()> {
+    fn run(
+        &self,
+        stdin: &str,
+        stdout: impl HasTermProps,
+        stderr: impl HasTermProps,
+    ) -> HookCommandResult<()> {
         let status = self
             .inner
             .build_checking_wd()?
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .stdout(stdout.process_redirection())
             .stderr(stderr.process_redirection())
-            .status()
-            .map_err(|e| {
+            .spawn()
+            .and_then(|mut child| {
+                child.stdin.as_mut().unwrap().write_all(stdin.as_ref())?;
+                child.wait()
+            })
+            .map_err(|err| {
                 let arg0 = self.inner.args[0].clone();
-                StdError::from(e).context(HookCommandErrorKind::Start(arg0))
+                StdError::from(err).context(HookCommandErrorKind::Execute(arg0))
             })?;
         if status.success() {
             Ok(())

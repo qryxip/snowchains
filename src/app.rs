@@ -959,8 +959,8 @@ fn finish(
         }
     }
 
-    let hooks = config.hooks(subcommand, outcome_json).expand()?;
-    hooks.run(&mut stdout, stderr)?;
+    let hooks = config.hooks(subcommand).expand()?;
+    hooks.run(&outcome_json, &mut stdout, stderr)?;
 
     Ok(if outcome.is_success() { 0 } else { 1 })
 }

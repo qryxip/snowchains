@@ -180,7 +180,7 @@ def check_system(args)
   unless system(*args) then raise '`%s` failed' % args[0]; end
 end
 
-result = JSON.parse(ENV['SNOWCHAINS_RESULT'])
+result = JSON.load(STDIN)
 
 open_browser = result['command_line_arguments']['open']
 output_json = result['command_line_arguments']['json'] ||

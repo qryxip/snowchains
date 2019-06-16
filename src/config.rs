@@ -31,7 +31,6 @@ use std::num::NonZeroUsize;
 use std::ops::Not;
 use std::path::{Path, PathBuf};
 use std::str::{self, FromStr};
-use std::sync::Arc;
 use std::time::Duration;
 use std::{env, fmt};
 
@@ -136,7 +135,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
         toml_edit::Value::from(path)
     }
 
-    let (bash, powershell, cmd, ruby, jq, shell, transpile_java, transpile_scala) = {
+    let (bash, powershell, cmd, ruby, shell, transpile_java, transpile_scala) = {
         trait WithExe: ToOwned {
             fn with_exe(&self, name: &str) -> Self::Owned;
         }
@@ -216,16 +215,14 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
             quote_path_normalizing_separator(&ruby),
         );
 
-        let (jq, shell, transpile_java, transpile_scala);
+        let (shell, transpile_java, transpile_scala);
         if cfg!(windows) && !bash_found {
-            jq = r#"ps = 'echo "${Env:SNOWCHAINS_RESULT}" | jq'"#;
             shell = "ps";
             transpile_java =
                 r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("class\s+${Env:SNOWCHAINS_PROBLEM_PASCAL_CASE}", "class Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
             transpile_scala =
                 r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("object\s+${Env:SNOWCHAINS_PROBLEM_PASCAL_CASE}", "object Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
         } else {
-            jq = r#"bash = 'echo "$SNOWCHAINS_RESULT" | jq'"#;
             shell = "bash";
             transpile_java =
                 r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/class Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
@@ -238,7 +235,6 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
             powershell,
             cmd,
             ruby,
-            jq,
             shell,
             transpile_java,
             transpile_scala,
@@ -330,16 +326,16 @@ CXXFLAGS = "-std=gnu++1z -lm -O2 -Wall -Wextra"
 RUST_VERSION = "1.30.1"
 
 # [hooks]
-# switch = {{ {jq} }}
-# login = {{ {jq} }}
-# participate = {{ {jq} }}
-# judge = {{ {jq} }}
-# submit = {{ {jq} }}
+# switch = ['jq']
+# login = ['jq']
+# participate = ['jq']
+# judge = ['jq']
+# submit = ['jq']
 
 # [hooks.retrieve]
-# testcases = {{ {jq} }}
-# submissions = {{ {jq} }}
-# languages = {{ {jq} }}
+# testcases = ['jq']
+# submissions = ['jq']
+# languages = ['jq']
 
 [tester]
 src = "testers/py/${{kebab_case(problem)}}.py"
@@ -477,7 +473,6 @@ yukicoder = "Text (cat 8.22)"
         powershell = powershell,
         cmd = cmd,
         ruby = ruby,
-        jq = jq,
         shell = shell,
         exe = EXE,
         tester_python3 = TESTER_PYTHON3,
@@ -741,11 +736,7 @@ impl Config {
         self.inner.judge.display_limit
     }
 
-    pub(crate) fn hooks(
-        &self,
-        kind: SubCommandKind,
-        snowchains_result: String,
-    ) -> Template<HookCommands> {
+    pub(crate) fn hooks(&self, kind: SubCommandKind) -> Template<HookCommands> {
         static DEFAULT: Lazy<TemplateBuilder<HookCommands>> = Lazy::new(TemplateBuilder::default);
         self.inner
             .hooks
@@ -754,7 +745,6 @@ impl Config {
             .build(HookCommandsRequirements {
                 base_dir: self.base_dir.clone(),
                 shell: self.inner.shell.clone(),
-                snowchains_result: Arc::new(snowchains_result),
             })
     }
 

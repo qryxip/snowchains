@@ -56,7 +56,7 @@ pub enum HookCommandError {
 #[derive(Debug, derive_more::Display)]
 pub enum HookCommandErrorKind {
     #[display(fmt = "Failed to execute {:?}", _0)]
-    Start(OsString),
+    Execute(OsString),
     #[display(
         fmt = "{:?} terminated abnormally {}",
         _0,
