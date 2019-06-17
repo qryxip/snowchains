@@ -5,6 +5,7 @@ use crate::terminal::HasTermProps;
 use crate::util::io::AsyncBufferedWriter;
 
 use futures::{task, try_ready, Async, Future, Poll, Stream as _};
+use maplit::btreeset;
 use reqwest::StatusCode;
 use termcolor::WriteColor;
 use tokio::io::AsyncWrite;
@@ -82,6 +83,7 @@ pub(super) trait DownloadProgress: Session {
 #[derive(Debug)]
 struct Downloading<
     W: AsyncWrite,
+    // `reqwest::async_impl::Pending` (private)
     R: Future<Item = reqwest::r#async::Response, Error = reqwest::Error> + Send + 'static,
 > {
     sigwinch: Sigwinch,
@@ -324,7 +326,7 @@ impl<
                             return Err(ServiceErrorKind::UnexpectedStatusCode(
                                 res.url().clone(),
                                 res.status(),
-                                vec![StatusCode::OK],
+                                btreeset![StatusCode::OK],
                             )
                             .into());
                         }

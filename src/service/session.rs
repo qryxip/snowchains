@@ -17,7 +17,7 @@ use http::{HttpTryFrom, Uri};
 use if_chain::if_chain;
 use indexmap::IndexSet;
 use itertools::Itertools as _;
-use maplit::hashmap;
+use maplit::{btreeset, hashmap};
 use mime::Mime;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::r#async::Decoder;
@@ -31,13 +31,12 @@ use tokio::runtime::Runtime;
 use url::Url;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::convert::TryFrom;
-use std::fmt::{self, Write as _};
 use std::io::{self, BufReader, Write as _};
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::{cmp, mem};
+use std::{cmp, fmt, mem};
 
 pub(super) trait Session: Sized {
     type Stdin: Input;
@@ -61,6 +60,13 @@ pub(super) trait Session: Sized {
 
     fn api_token(&mut self) -> &mut LazyLockedFile {
         &mut self.state_mut().api_token
+    }
+
+    fn wait_enter(&mut self, prompt: &str) -> io::Result<()> {
+        let State { stdin, stderr, .. } = self.state_mut();
+        stderr.write_str(prompt)?;
+        stderr.flush()?;
+        stdin.ignore_line()
     }
 
     fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
@@ -100,13 +106,13 @@ pub(super) trait Session: Sized {
         }
     }
 
-    /// Opens `url`, which is relative or absolute, with default browser
-    /// printing a message.
     fn open_in_browser(&mut self, url: impl ParseWithBaseUrl) -> ServiceResult<()> {
         let url = url.parse_with_base_url(self.state_ref().base_url)?;
-        writeln!(self.stderr(), "Opening {} in default browser...", url)?;
+        write!(self.stderr(), "Opening {} in default browser...", url)?;
         self.stderr().flush()?;
         let status = webbrowser::open(url.as_str())?.status;
+        writeln!(self.stderr())?;
+        self.stderr().flush()?;
         if status.success() {
             Ok(())
         } else {
@@ -145,17 +151,17 @@ pub(super) trait Session: Sized {
     }
 
     fn get(&mut self, url: impl ParseWithBaseUrl) -> self::Request<&mut Self, Get> {
-        self.request::<Get, _>(url, vec![StatusCode::OK])
+        self.request::<Get, _>(url, btreeset![StatusCode::OK])
     }
 
     fn post(&mut self, url: impl ParseWithBaseUrl) -> self::Request<&mut Self, Post> {
-        self.request::<Post, _>(url, vec![StatusCode::FOUND])
+        self.request::<Post, _>(url, btreeset![StatusCode::FOUND])
     }
 
     fn request<M: StaticMethod, U: ParseWithBaseUrl>(
         &mut self,
         url: U,
-        acceptable: Vec<StatusCode>,
+        acceptable: BTreeSet<StatusCode>,
     ) -> self::Request<&mut Self, M> {
         self::Request {
             inner: url
@@ -166,6 +172,7 @@ pub(super) trait Session: Sized {
                         inner: RequestBuilderBuilder::new::<M>(self.client(), url),
                         eprint: !self.state_ref().http_silent,
                         acceptable,
+                        warn: btreeset![],
                         redirect_unlimited: false,
                         retries_on_get: self.state_ref().retries_on_get,
                     })
@@ -229,12 +236,35 @@ pub(super) trait Session: Sized {
         res.json(self.runtime())
     }
 
+    fn retry_login<C: Credentials, F: FnMut(&mut Self, C::Items) -> ServiceResult<bool>>(
+        &mut self,
+        prompts: C::Prompts,
+        success_msg: &'static str,
+        fail_msg: &'static str,
+        mut f: F,
+    ) -> ServiceResult<()> {
+        let mut login_retries = self.state_ref().login_retries;
+        loop {
+            let credentials = C::ask(prompts, &mut *self)?;
+            if f(&mut *self, credentials)? {
+                writeln!(self.stderr(), "{}", success_msg)?;
+                self.stderr().flush()?;
+                break Ok(());
+            }
+            if login_retries == Some(0) {
+                break Err(ServiceErrorKind::LoginRetriesExceeded.into());
+            }
+            login_retries = login_retries.map(|n| n - 1);
+            writeln!(self.stderr(), "{}", fail_msg)?;
+        }
+    }
+
     fn warn_not_found(
         &mut self,
         problems: &NonEmptyIndexSet<String>,
         found: &IndexSet<String>,
     ) -> io::Result<()> {
-        let not_found = problems.intersection(found).collect::<IndexSet<_>>();
+        let not_found = problems.difference(found).collect::<IndexSet<_>>();
 
         if !not_found.is_empty() {
             let stderr = &mut self.state_mut().stderr;
@@ -260,6 +290,7 @@ pub(super) struct State<I: Input, E: WriteColor + HasTermProps> {
     base_url: Option<&'static Url>,
     retries_on_get: u32,
     http_silent: bool,
+    login_retries: Option<u32>,
 }
 
 impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
@@ -275,6 +306,7 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
             api_token_path,
             retries_on_get,
             http_silent,
+            login_retries,
         } = args;
 
         let mut this = Self {
@@ -293,6 +325,7 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
             base_url,
             retries_on_get,
             http_silent,
+            login_retries,
         };
         if robots {
             if let Some(host) = base_url.and_then(Url::host_str) {
@@ -366,6 +399,7 @@ pub(super) struct StateStartArgs<'a, I: Input, E: WriteColor + HasTermProps> {
     pub(super) api_token_path: Option<&'a AbsPath>,
     pub(super) retries_on_get: u32,
     pub(super) http_silent: bool,
+    pub(super) login_retries: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -396,21 +430,63 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
         self
     }
 
+    pub(super) fn push_path_segment(mut self, segment: &str) -> Self {
+        if let Ok(inner) = &mut self.inner {
+            if let Ok(mut segments) = inner.inner.url.path_segments_mut() {
+                segments.push(segment);
+            }
+        }
+        self
+    }
+
+    pub(super) fn extend_path_segments<I: IntoIterator>(mut self, segments: I) -> Self
+    where
+        I::Item: AsRef<str>,
+    {
+        if let Ok(inner) = &mut self.inner {
+            if let Ok(mut segments_mut) = inner.inner.url.path_segments_mut() {
+                segments_mut.extend(segments);
+            }
+        }
+        self
+    }
+
+    pub(super) fn push_url_query(mut self, key: &str, value: &str) -> Self {
+        if let Ok(inner) = &mut self.inner {
+            inner.inner.url.query_pairs_mut().append_pair(key, value);
+        }
+        self
+    }
+
     /// # Panics:
     ///
     /// Panics if:
     /// - `statuses` contains `n` such that `n < 100 || 600 <= n`
-    /// - `this.inner.redirect_unlimited` is `true` where `Ok(this) = self`
+    /// - `this.inner.warn` is not a subset of `statused` where `Ok(this) = self`
+    /// - `this.inner.redirect_unlimited` and `statuses` contains any 3xx status code where `Ok(this) = self`
     pub(super) fn acceptable(mut self, statuses: &'static [u16]) -> Self {
         if let Ok(inner) = &mut self.inner {
-            if inner.redirect_unlimited {
-                panic!("`redirect_unlimited` is `true`");
-            }
             inner.acceptable = statuses
                 .iter()
                 .map(|&n| StatusCode::from_u16(n))
                 .collect::<std::result::Result<_, _>>()
                 .unwrap();
+            inner.assert_constraints();
+        }
+        self
+    }
+
+    /// # Panics:
+    ///
+    /// Panics if `statuses` is not a subset of `acceptable`.
+    pub(super) fn warn(mut self, statuses: &'static [u16]) -> Self {
+        if let Ok(inner) = &mut self.inner {
+            inner.warn = statuses
+                .iter()
+                .map(|&n| StatusCode::from_u16(n))
+                .collect::<std::result::Result<_, _>>()
+                .unwrap();
+            inner.assert_constraints();
         }
         self
     }
@@ -420,10 +496,8 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
     /// Panics if `this.inner.acceptable` contains any 3xx status code where `Ok(this) = self`.
     pub(super) fn redirect_unlimited(mut self) -> Self {
         if let Ok(inner) = &mut self.inner {
-            if inner.acceptable.iter().any(|s| s.is_redirection()) {
-                panic!("`acceptable` contains 3xx status code(s)");
-            }
             inner.redirect_unlimited = true;
+            inner.assert_constraints();
         }
         self
     }
@@ -442,6 +516,7 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
             mut inner,
             eprint,
             acceptable,
+            warn,
             redirect_unlimited,
             retries_on_get,
         } = self.inner?;
@@ -484,7 +559,9 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
             let is_acceptable = is_redirect || acceptable.contains(&res.status());
 
             if eprint {
-                if is_acceptable {
+                if warn.contains(&res.status()) {
+                    stderr.set_color(color!(fg(Yellow), intense, bold))?;
+                } else if is_acceptable {
                     stderr.set_color(color!(fg(Green), intense, bold))?;
                 } else {
                     stderr.set_color(color!(fg(Red), intense, bold))?;
@@ -516,6 +593,7 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
                     inner,
                     eprint,
                     acceptable,
+                    warn,
                     redirect_unlimited,
                     retries_on_get,
                 };
@@ -617,9 +695,26 @@ impl<S: Session> Request<S, Post> {
 struct RequestInner {
     inner: RequestBuilderBuilder,
     eprint: bool,
-    acceptable: Vec<StatusCode>,
+    acceptable: BTreeSet<StatusCode>,
+    warn: BTreeSet<StatusCode>,
     redirect_unlimited: bool,
     retries_on_get: u32,
+}
+
+impl RequestInner {
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - `warn` is not a subset of `acceptable`
+    /// - `redirect_unlimited` and `acceptable` contains any 3xx status code
+    fn assert_constraints(&self) {
+        if !self.warn.is_subset(&self.acceptable) {
+            panic!("`warn` is not a subset of `acceptable`");
+        }
+        if self.redirect_unlimited && self.acceptable.iter().any(|s| s.is_redirection()) {
+            panic!("`redirect_unlimited` and `acceptable` contains 3xx status codes");
+        }
+    }
 }
 
 /// A builder that can construct a `reqwest::async::RequestBuilder` any number of times.
@@ -1012,23 +1107,11 @@ impl AutosavedCookieStore {
     }
 
     fn to_header_value(&self, url: &Url) -> Option<HeaderValue> {
-        use percent_encoding::USERINFO_ENCODE_SET;
-
-        // https://github.com/seanmonstar/reqwest/pull/522
-        let header =
-            self.store
-                .get_request_cookies(url)
-                .fold("".to_owned(), |mut header, cookie| {
-                    let name = cookie.name().as_ref();
-                    let name = percent_encoding::percent_encode(name, USERINFO_ENCODE_SET);
-                    let value = cookie.value().as_ref();
-                    let value = percent_encoding::percent_encode(value, USERINFO_ENCODE_SET);
-                    if !header.is_empty() {
-                        header.push_str("; ");
-                    }
-                    write!(header, "{}={}", name, value).unwrap();
-                    header
-                });
+        let header = self
+            .store
+            .get_request_cookies(url)
+            .map(|c| format!("{}={}", c.name(), c.value()))
+            .join("; ");
 
         guard!(!header.is_empty());
         let result = header.parse();
@@ -1069,6 +1152,41 @@ impl AutosavedCookieStore {
             .filter(|c| c.is_persistent())
             .collect::<Vec<_>>();
         self.file.write_json(&array).map_err(Into::into)
+    }
+}
+
+pub(super) trait Credentials: Sized {
+    type Prompts: Copy;
+    type Items;
+
+    fn ask(prompts: Self::Prompts, sess: impl Session) -> io::Result<Self::Items>;
+}
+
+pub(super) enum Password {}
+
+impl Credentials for Password {
+    type Prompts = (&'static str,);
+    type Items = (String,);
+
+    fn ask((prompt,): (&'static str,), mut sess: impl Session) -> io::Result<(String,)> {
+        let password = sess.prompt_password_stderr(prompt)?;
+        Ok((password,))
+    }
+}
+
+pub(super) enum UsernameAndPassword {}
+
+impl Credentials for UsernameAndPassword {
+    type Prompts = (&'static str, &'static str);
+    type Items = (String, String);
+
+    fn ask(
+        (username_prompt, password_prompt): (&'static str, &'static str),
+        mut sess: impl Session,
+    ) -> io::Result<(String, String)> {
+        let username = sess.prompt_reply_stderr(username_prompt)?;
+        let password = sess.prompt_password_stderr(password_prompt)?;
+        Ok((username, password))
     }
 }
 
@@ -1124,7 +1242,7 @@ mod tests {
     use futures::Future as _;
     use http::Uri;
     use if_chain::if_chain;
-    use maplit::hashmap;
+    use maplit::{btreeset, hashmap};
     use once_cell::sync::Lazy;
     use pretty_assertions::assert_eq;
     use reqwest::StatusCode;
@@ -1188,6 +1306,7 @@ mod tests {
                 api_token_path: None,
                 retries_on_get: 1,
                 http_silent: false,
+                login_retries: None,
             })?;
 
             sess.get("/").retry_send()?;
@@ -1203,7 +1322,7 @@ mod tests {
                     expected,
                 ) = ctx.get_context();
                 if url.as_str() == format!("http://127.0.0.1:{}/nonexisting", LOCALHOST_PORT);
-                if expected == &[StatusCode::OK];
+                if *expected == btreeset![StatusCode::OK];
                 then {
                 } else {
                     return Err(err.into())
@@ -1281,6 +1400,7 @@ mod tests {
                 api_token_path: None,
                 retries_on_get: 0,
                 http_silent: true,
+                login_retries: None,
             })
         }
 
@@ -1319,6 +1439,7 @@ mod tests {
             base_url: None,
             retries_on_get: 0,
             http_silent: true,
+            login_retries: None,
         };
 
         assert_eq!(state.ask_yn("Yes?: ", true)?, true);

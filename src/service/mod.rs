@@ -22,6 +22,7 @@ use crate::util::str::CaseConversion;
 use snowchains_proc_macros::{ArgEnum, DeserializeAsString};
 
 use chrono::{DateTime, FixedOffset};
+use derive_more::From;
 use derive_new::new;
 use failure::ResultExt as _;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
@@ -49,8 +50,11 @@ use std::io::{self, Cursor, Write as _};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::{cmp, fmt, mem};
+use std::{cmp, mem};
 
+/// # Panics
+///
+/// Panics if `service` is `Other`.
 pub(crate) fn login(
     service: ServiceKind,
     props: SessionProps,
@@ -61,10 +65,13 @@ pub(crate) fn login(
         ServiceKind::Atcoder => atcoder::login(props, stdin, stderr),
         ServiceKind::Codeforces => codeforces::login(props, stdin, stderr),
         ServiceKind::Yukicoder => yukicoder::login(props, stdin, stderr),
-        ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
+        ServiceKind::Other => panic!("`service` must not be `Other`"),
     }
 }
 
+/// # Panics
+///
+/// Panics if `service` is not `Atcoder` or `Codeforces`.
 pub(crate) fn participate(
     service: ServiceKind,
     sess_props: SessionProps,
@@ -75,9 +82,8 @@ pub(crate) fn participate(
     let props = (sess_props, contest);
     match service {
         ServiceKind::Atcoder => atcoder::participate(props, stdin, stderr),
-        ServiceKind::Codeforces => unimplemented!(),
-        ServiceKind::Yukicoder => unimplemented!(),
-        ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
+        ServiceKind::Codeforces => codeforces::participate(props, stdin, stderr),
+        _ => panic!("`service` must be `Atcoder` or `Codeforces`"),
     }
 }
 
@@ -125,7 +131,7 @@ pub(crate) fn retrieve_submissions(
     match service {
         ServiceKind::Atcoder => atcoder::retrieve_submissions(props, stdin, stderr),
         ServiceKind::Codeforces => codeforces::retrieve_submissions(props, stdin, stderr),
-        ServiceKind::Yukicoder => unimplemented!(),
+        ServiceKind::Yukicoder => yukicoder::retrieve_submissions(props, stdin, stderr),
         ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
     }
 }
@@ -335,25 +341,47 @@ impl Outcome for LoginOutcome {
     }
 }
 
-#[derive(Debug, Serialize)]
-pub(crate) struct ParticipateOutcome {}
+#[derive(Debug, From, Serialize)]
+pub(crate) struct ParticipateOutcome {
+    kind: ParticipateOutcomeKind,
+}
 
 impl Outcome for ParticipateOutcome {
     fn is_success(&self) -> bool {
         true
     }
 
-    fn print_pretty(&self, _: bool, _: impl Sized) -> io::Result<()> {
-        #[cfg(debug)]
-        unreachable!();
-
-        Ok(())
+    fn print_pretty(&self, _: bool, mut wtr: impl WriteColor) -> io::Result<()> {
+        match self.kind {
+            ParticipateOutcomeKind::Success => {
+                wtr.set_color(color!(fg(Green), intense))?;
+                wtr.write_str("Successfully registered.")?;
+            }
+            ParticipateOutcomeKind::AlreadyParticipated => {
+                wtr.set_color(color!(fg(Yellow), intense))?;
+                wtr.write_str("You have already registered.")?;
+            }
+            ParticipateOutcomeKind::ContestIsFinished => {
+                wtr.set_color(color!(fg(Yellow), intense))?;
+                wtr.write_str("The contest is finished.")?;
+            }
+        }
+        wtr.reset()?;
+        writeln!(wtr)?;
+        wtr.flush()
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub(self) enum ParticipateOutcomeKind {
+    Success,
+    AlreadyParticipated,
+    ContestIsFinished,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct RetrieveTestCasesOutcome {
-    contest: RetrieveTestCasesOutcomeContest,
+    contest: OutcomeContest,
     #[serde(serialize_with = "util::serde::ser_str_slice")]
     submissions_urls: Vec<Url>,
     pub(self) problems: Vec<RetrieveTestCasesOutcomeProblem>,
@@ -383,7 +411,12 @@ impl Outcome for RetrieveTestCasesOutcome {
         }
 
         if verbose {
-            writeln!(stdout, "Contest slug: {:?}", self.contest.slug)?;
+            writeln!(
+                stdout,
+                "Contest slug:         {:?}\n\
+                 Contest display name: {:?}",
+                self.contest.slug, self.contest.display_name,
+            )?;
 
             for problem in &self.problems {
                 writeln!(stdout)?;
@@ -444,6 +477,12 @@ impl Outcome for RetrieveTestCasesOutcome {
                 }
             }
         } else {
+            writeln!(
+                stdout,
+                "Contest display name: {:?}",
+                self.contest.display_name,
+            )?;
+
             let lines = self
                 .problems
                 .iter()
@@ -577,17 +616,6 @@ impl Outcome for RetrieveTestCasesOutcome {
 }
 
 #[derive(Debug, Serialize)]
-struct RetrieveTestCasesOutcomeContest {
-    slug: String,
-    slug_lower_case: String,
-    slug_upper_case: String,
-    slug_snake_case: String,
-    slug_kebab_case: String,
-    slug_mixed_case: String,
-    slug_pascal_case: String,
-}
-
-#[derive(Debug, Serialize)]
 pub(self) struct RetrieveTestCasesOutcomeProblem {
     #[serde(serialize_with = "util::serde::ser_as_ref_str")]
     url: Url,
@@ -637,24 +665,16 @@ impl Serialize for RetrieveTestCasesOutcomeProblemTextFile {
 
 #[derive(Debug)]
 pub(self) struct RetrieveTestCasesOutcomeBuilder {
-    contest: RetrieveTestCasesOutcomeContest,
+    contest: OutcomeContest,
     submissions_urls: Vec<Url>,
     problems: Vec<RetrieveTestCasesOutcomeBuilderProblem>,
     save_files: bool,
 }
 
 impl RetrieveTestCasesOutcomeBuilder {
-    pub(self) fn new(contest: &impl Contest, save_files: bool) -> Self {
+    pub(self) fn new(contest_slug: &str, contest_display: &str, save_files: bool) -> Self {
         Self {
-            contest: RetrieveTestCasesOutcomeContest {
-                slug: contest.slug().into(),
-                slug_lower_case: contest.slug().to_lowercase(),
-                slug_upper_case: contest.slug().to_uppercase(),
-                slug_snake_case: contest.slug().to_snake_case(),
-                slug_kebab_case: contest.slug().to_kebab_case(),
-                slug_mixed_case: contest.slug().to_mixed_case(),
-                slug_pascal_case: contest.slug().to_camel_case(),
-            },
+            contest: OutcomeContest::new(contest_slug, contest_display),
             submissions_urls: vec![],
             problems: vec![],
             save_files,
@@ -713,12 +733,11 @@ impl RetrieveTestCasesOutcomeBuilder {
         }
 
         if open_browser {
-            for submissions_url in &self.submissions_urls {
-                writeln!(stderr, "Opening {} in default browser...", submissions_url)?;
-            }
-            for problem in &self.problems {
-                writeln!(stderr, "Opening {} in default browser...", problem.url)?;
-                let status = webbrowser::open(problem.url.as_ref())?.status;
+            let mut urls = self.submissions_urls.iter().collect::<Vec<_>>();
+            urls.extend(self.problems.iter().map(|p| &p.url));
+            for url in urls {
+                writeln!(stderr, "Opening {} in default browser...", url)?;
+                let status = webbrowser::open(url.as_ref())?.status;
                 if !status.success() {
                     return Err(ServiceErrorKind::Webbrowser(status).into());
                 }
@@ -849,11 +868,7 @@ impl Outcome for RetrieveSubmissionsOutcome {
         } else {
             let mut num_saved = 0;
 
-            for (i, submission) in self.submissions.values().enumerate() {
-                if i > 0 {
-                    writeln!(stdout)?;
-                }
-
+            for (_, submission) in &self.submissions {
                 stdout.set_color(color!(bold))?;
                 stdout.write_str(&submission.problem.slug)?;
                 if let Some(saved_as) = &submission.saved_as {
@@ -917,7 +932,7 @@ struct RetrieveSubmissionsOutcomeSubmissionDetail {
 
 #[derive(Debug, Default)]
 struct RetrieveSubmissionsOutcomeBuilder {
-    submissions: IndexMap<Url, RetrieveSubmissionsOutcomeBuilderSubmission>,
+    pub(self) submissions: IndexMap<Url, RetrieveSubmissionsOutcomeBuilderSubmission>,
 }
 
 impl RetrieveSubmissionsOutcomeBuilder {
@@ -996,7 +1011,7 @@ pub(crate) struct RetrieveLangsOutcome {
 }
 
 impl RetrieveLangsOutcome {
-    fn new(url: Url, available_languages: NonEmptyIndexMap<String, String>) -> Self {
+    pub(self) fn new(url: Url, available_languages: NonEmptyIndexMap<String, String>) -> Self {
         Self {
             url,
             available_languages,
@@ -1121,6 +1136,33 @@ impl Outcome for SubmitOutcome {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct OutcomeContest {
+    slug: String,
+    slug_lower_case: String,
+    slug_upper_case: String,
+    slug_snake_case: String,
+    slug_kebab_case: String,
+    slug_mixed_case: String,
+    slug_pascal_case: String,
+    display_name: String,
+}
+
+impl OutcomeContest {
+    fn new(slug: &str, display_name: &str) -> Self {
+        Self {
+            slug: slug.to_owned(),
+            slug_lower_case: slug.to_lowercase(),
+            slug_upper_case: slug.to_uppercase(),
+            slug_snake_case: slug.to_snake_case(),
+            slug_kebab_case: slug.to_kebab_case(),
+            slug_mixed_case: slug.to_mixed_case(),
+            slug_pascal_case: slug.to_camel_case(),
+            display_name: display_name.to_owned(),
+        }
+    }
+}
+
 pub(crate) struct SessionProps {
     pub(crate) base_url: Option<&'static Url>,
     pub(crate) cookies_path: AbsPathBuf,
@@ -1152,6 +1194,7 @@ impl SessionProps {
             api_token_path: Some(self.api_token_path.as_path()),
             retries_on_get: self.retries_on_get,
             http_silent: self.http_silent,
+            login_retries: self.login_retries,
         })
     }
 }
@@ -1348,7 +1391,7 @@ impl RetrieveLangsProps<String> {
     }
 }
 
-pub(crate) trait Contest: fmt::Display + FromStr {
+pub(crate) trait Contest: FromStr {
     fn slug(&self) -> Cow<str>;
 }
 

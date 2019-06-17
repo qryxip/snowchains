@@ -40,8 +40,8 @@ fn it_logins() -> Fallible<()> {
         assert_diff!(
             &stderr,
             &r#"
-GET https://atcoder.jp/login ... 200 OK
-Username: Password: POST https://atcoder.jp/login ... 302 Found
+Username: Password: GET https://atcoder.jp/login ... 200 OK
+POST https://atcoder.jp/login ... 302 Found
 GET https://atcoder.jp/settings ... 200 OK
 Successfully logged in.
 POST https://api.dropboxapi.com/2/users/get_current_account ... 200 OK
@@ -208,7 +208,7 @@ fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
         |mut app| -> _ {
             let code = app.run(Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
                 fetch_all: false,
-                no_save: false,
+                no_save: true,
                 verbose: false,
                 json: false,
                 colorize: false,
@@ -227,12 +227,12 @@ fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
                 r#"GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 302 Found
 GET https://atcoder.jp/contests/practice ... 200 OK
 GET https://atcoder.jp/settings ... 302 Found
-GET https://atcoder.jp/login ... 200 OK
-Username: Password: POST https://atcoder.jp/login ... 302 Found
+Username: Password: GET https://atcoder.jp/login ... 200 OK
+POST https://atcoder.jp/login ... 302 Found
 GET https://atcoder.jp/settings ... 200 OK
 Successfully logged in.
 GET https://atcoder.jp/contests/practice ... 200 OK
-POST https://atcoder.jp/contests/practice/register ... 302 Found
+GET https://atcoder.jp/contests/practice/submissions/me?page=1 ... 200 OK
 "#,
             ));
             Ok(())
@@ -469,8 +469,8 @@ fn it_retrieves_languages_in_practice() -> Fallible<()> {
             assert_diff!(
                 &String::try_from(app.stderr)?,
                 &r#"
-GET https://atcoder.jp/login ... 200 OK
-Username: Password: POST https://atcoder.jp/login ... 302 Found
+Username: Password: GET https://atcoder.jp/login ... 200 OK
+POST https://atcoder.jp/login ... 302 Found
 GET https://atcoder.jp/settings ... 200 OK
 Successfully logged in.
 GET https://atcoder.jp/contests/practice/submit ... 200 OK
@@ -514,8 +514,8 @@ fn it_retrieves_languages_in_tenka1_2016_final_open_a() -> Fallible<()> {
             assert_diff!(
                 &String::try_from(app.stderr)?,
                 &r#"
-GET https://atcoder.jp/login ... 200 OK
-Username: Password: POST https://atcoder.jp/login ... 302 Found
+Username: Password: GET https://atcoder.jp/login ... 200 OK
+POST https://atcoder.jp/login ... 302 Found
 GET https://atcoder.jp/settings ... 200 OK
 Successfully logged in.
 GET https://atcoder.jp/contests/tenka1-2016-final-open/tasks ... 200 OK

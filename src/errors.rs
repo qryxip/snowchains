@@ -8,12 +8,13 @@ use chrono::{DateTime, Local};
 use derive_more::From;
 use derive_new::new;
 use failure::{Backtrace, Fail};
+use http::header::HeaderName;
+use http::{StatusCode, Uri};
 use itertools::Itertools as _;
-use reqwest::header::HeaderName;
-use reqwest::StatusCode;
 use url::Url;
 use zip::result::ZipError;
 
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::process::ExitStatus;
 use std::time::SystemTimeError;
@@ -55,7 +56,7 @@ pub enum HookCommandError {
 #[derive(Debug, derive_more::Display)]
 pub enum HookCommandErrorKind {
     #[display(fmt = "Failed to execute {:?}", _0)]
-    Start(OsString),
+    Execute(OsString),
     #[display(
         fmt = "{:?} terminated abnormally {}",
         _0,
@@ -119,11 +120,15 @@ pub enum ServiceErrorKind {
         _1,
         "_2.iter().format(\", \")"
     )]
-    UnexpectedStatusCode(Url, StatusCode, Vec<StatusCode>),
+    UnexpectedStatusCode(Url, StatusCode, BTreeSet<StatusCode>),
+    #[display(fmt = "Unexpected redirection: {:?}", _0)]
+    UnexpectedRedirection(Option<Uri>),
     #[display(fmt = "API error")]
     Api,
     #[display(fmt = "Unable to download full test cases")]
     UnableToDownloadFull,
+    #[display(fmt = "Unknown language: {:?}", _0)]
+    UnknownLanguage(String),
     #[display(
         fmt = "The default browser terminated abnormally {}",
         r#"match _0.code() {
@@ -346,6 +351,8 @@ pub enum ExpandTemplateErrorKind {
     },
     #[display(fmt = "Failed to find {:?}", _0)]
     Which(OsString),
+    #[display(fmt = "Failed to create a temporary file")]
+    CreateTempFile,
     #[display(fmt = "{:?} not found in the config", _0)]
     NoSuchShell(String),
     #[display(fmt = "Undefined namespace: {:?}", _0)]

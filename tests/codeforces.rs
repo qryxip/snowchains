@@ -50,6 +50,7 @@ fn it_logins() -> Fallible<()> {
 GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
 GET https://codeforces.com/ ... 200 OK
+Successfully logged in.
 GET https://codeforces.com/enter ... 302 Found
 API Key: API Secret: GET https://codeforces.com/api/user.info?apiKey=██████████&handles=██████████&time=██████████&apiSig=██████████ ... 200 OK
 "#[1..],
@@ -146,9 +147,9 @@ fn it_retrieves_languages() -> Fallible<()> {
 ├───────────────────────────┼────┤
 │ C# Mono 5.18              │ 9  │
 ├───────────────────────────┼────┤
-│ D DMD32 v2.083.1          │ 28 │
+│ D DMD32 v2.086.0          │ 28 │
 ├───────────────────────────┼────┤
-│ Go 1.11.4                 │ 32 │
+│ Go 1.12.6                 │ 32 │
 ├───────────────────────────┼────┤
 │ Haskell GHC 8.6.3         │ 12 │
 ├───────────────────────────┼────┤
@@ -178,7 +179,7 @@ fn it_retrieves_languages() -> Fallible<()> {
 ├───────────────────────────┼────┤
 │ Ruby 2.0.0p645            │ 8  │
 ├───────────────────────────┼────┤
-│ Rust 1.31.1               │ 49 │
+│ Rust 1.35.0               │ 49 │
 ├───────────────────────────┼────┤
 │ Scala 2.12.8              │ 20 │
 ├───────────────────────────┼────┤
@@ -196,6 +197,7 @@ fn it_retrieves_languages() -> Fallible<()> {
 GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
 GET https://codeforces.com/ ... 200 OK
+Successfully logged in.
 GET https://codeforces.com/enter ... 302 Found
 GET https://codeforces.com/contest/1000/submit ... 200 OK
 

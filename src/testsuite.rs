@@ -870,7 +870,8 @@ mod tests {
     use difference::assert_diff;
     use failure::Fallible;
     use if_chain::if_chain;
-    use maplit::{btreeset, hashmap};
+    use indexmap::indexmap;
+    use maplit::btreeset;
     use pretty_assertions::assert_eq;
     use tempdir::TempDir;
 
@@ -1056,7 +1057,7 @@ type: unsubmittable
             service: ServiceKind::Atcoder,
             contest: "arc078".to_owned(),
             mode: config::Mode::Debug,
-            shell: hashmap!(),
+            shell: indexmap!(),
             working_dir: ".".parse()?,
             src: "tester".parse()?,
             transpiled: None,

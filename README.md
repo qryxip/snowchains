@@ -114,6 +114,7 @@ bash = ["/usr/bin/bash", "-c", "${command}"]
 # bash = ["C:/Program Files/Git/usr/bin/bash.exe", "-c", "PATH=/usr/bin:$$PATH; ${command}"]
 # ps = ["C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", "-Command", "${command}"]
 # cmd = ["C:/Windows/System32/cmd.exe", "/C", "${command}"]
+ruby = { runner = "/usr/bin/ruby", extension = "rb" }
 
 [testfiles]
 path = ".snowchains/tests/${service}/${snake_case(contest)}/${snake_case(problem)}.${extension}"
@@ -171,50 +172,46 @@ CXXFLAGS = "-std=gnu++1z -lm -O2 -Wall -Wextra"
 RUST_VERSION = "1.30.1"
 
 [[hooks.retrieve.testcases]]
-bash = '''
-json="$(echo "$SNOWCHAINS_RESULT" | jq -r .command_line_arguments.json)"
-open="$(echo "$SNOWCHAINS_RESULT" | jq -r .command_line_arguments.open)"
-if [ "$json" = false ] && [ "$open" = true ]; then
-  service="$(echo "$SNOWCHAINS_RESULT" | jq -r .target.service)"
-  contest="$(echo "$SNOWCHAINS_RESULT" | jq -r .target.contest)"
-  if [ ! -d "./$service/$contest/rs" ]; then
-    mkdir -p "./$service/$contest" &&
-    cargo new --vcs none --lib --edition 2015 --name "${service}_${contest}" "./$service/$contest/rs" &&
-    mkdir "./$service/$contest/rs/src/bin" &&
-    rm "./$service/$contest/rs/src/lib.rs"
-  fi
-  echo "$SNOWCHAINS_RESULT" |
-    jq -r '
-      . as $root
-      | .problems
-      | map(
-          "./"
-          + $root.target.service
-          + "/" + $root.contest.slug_snake_case
-          + "/rs/src/bin/"
-          + .slug_kebab_case
-          + ".rs"
-        )
-      | join("\n")
-    ' | xargs -d \\n -I % -r cp "./templates/rs/src/bin/$service.rs" % &&
-  echo "$SNOWCHAINS_RESULT" |
-    jq -r '
-      . as $root
-      | .problems
-      | map(
-          "./"
-          + $root.target.service
-          + "/"
-          + $root.contest.slug_snake_case
-          + "/rs/src/bin/"
-          + .slug_kebab_case
-          + ".rs"
-          + "\n"
-          + .test_suite_path
-        )
-      | join("\n")
-    ' | xargs -d \\n -r emacsclient -n
-fi
+ruby = '''
+require 'fileutils'
+require 'json'
+
+def check_system(args)
+  unless system(*args) then raise '`%s` failed' % args[0]; end
+end
+
+result = JSON.load(STDIN)
+
+open_browser = result['command_line_arguments']['open']
+output_json = result['command_line_arguments']['json'] ||
+              result['command_line_arguments']['output'] == 'json'
+
+if open_browser && !output_json then
+  service = result['target']['service']
+  contest = result['target']['contest_snake_case']
+
+  unless Dir.exists? './%s/%s/rs' % [service, contest] then
+    FileUtils.mkdir_p './%s/%s' % [service, contest]
+    check_system ['cargo', 'new', '--vcs', 'none', '--lib', '--edition', '2015',
+                  '--name', '%s_%s' % [service, contest],
+                  '%s/%s/rs' % [service, contest]]
+    Dir.mkdir './%s/%s/rs/src/bin' % [service, contest]
+    FileUtils.rm './%s/%s/rs/src/lib.rs' % [service, contest]
+  end
+
+  args = ['emacsclient', '-n']
+
+  result['problems'].each do |problem|
+    src = './%s/%s/rs/src/bin/%s.rs' %
+          [service, contest, problem['slug_snake_case']]
+    unless File.exist? src then
+      FileUtils.cp './templates/rs/src/bin/%s.rs' % [service], src
+    end
+    args << src << problem['test_suite']['location']
+  end
+
+  check_system args
+end
 '''
 
 [tester]

@@ -12,6 +12,7 @@ use crate::util::collections::NonEmptyIndexSet;
 
 use snowchains_proc_macros::ArgEnum;
 
+use indexmap::IndexMap;
 use serde::Serialize;
 use structopt::clap::Arg;
 use structopt::StructOpt;
@@ -148,7 +149,7 @@ pub struct Participate {
     output: OutputKind,
     #[structopt(raw(color_choice = "2"))]
     color_choice: AnsiColorChoice,
-    #[structopt(raw(service = r#"&["atcoder"], Kind::Arg"#))]
+    #[structopt(raw(service = r#"&["atcoder", "codeforces"], Kind::Arg"#))]
     service: ServiceKind,
     #[structopt(raw(contest = "Kind::Arg"))]
     contest: String,
@@ -243,7 +244,7 @@ pub struct RetrieveSubmissions {
     pub json: bool,
     #[structopt(raw(colorize = "5"))]
     pub colorize: bool,
-    #[structopt(raw(service = "&[\"atcoder\"], Kind::Option(1)"))]
+    #[structopt(raw(service = "&ServiceKind::variants_except_other(), Kind::Option(1)"))]
     pub service: Option<ServiceKind>,
     #[structopt(raw(contest = "Kind::Option(2)"))]
     pub contest: Option<String>,
@@ -251,7 +252,7 @@ pub struct RetrieveSubmissions {
     pub mode: config::Mode,
     #[structopt(raw(problems = "4"))]
     pub problems: Vec<String>,
-    #[structopt(raw(output = r#""none", &["none", "pretty-verbose", "json"], 5"#))]
+    #[structopt(raw(output = r#""pretty", &["pretty", "pretty-verbose", "json"], 5"#))]
     pub output: OutputKind,
     #[structopt(raw(color_choice = "6"))]
     pub color_choice: AnsiColorChoice,
@@ -534,6 +535,10 @@ impl<
         E: AttemptEnableColor + ModifyTermProps,
     > App<I, O, E>
 {
+    /// # Panics
+    ///
+    /// It may panic if `opt` is not constructed by `StructOpt::from_clap`.
+    /// (e.g. `Opt::Participate { service: Yukicoder, .. }`)
     pub fn run(&mut self, opt: Opt) -> crate::Result<i32> {
         let wd = self.working_dir.clone();
 
@@ -922,7 +927,7 @@ fn finish(
     struct WithCliArgsAndConfig<'a, A: Serialize, T: Serialize> {
         command_line_arguments: A,
         config: &'a config::Inner,
-        target: &'a config::Target,
+        target: IndexMap<&'static str, String>,
         base_directory: &'a AbsPath,
         #[serde(flatten)]
         outcome: T,
@@ -931,7 +936,7 @@ fn finish(
     let outcome_json = serde_json::to_string(&WithCliArgsAndConfig {
         command_line_arguments,
         config: config.inner(),
-        target: config.target(),
+        target: config.target_with_case_converted_names(),
         base_directory: config.base_dir(),
         outcome: &outcome,
     })?;
@@ -954,8 +959,8 @@ fn finish(
         }
     }
 
-    let hooks = config.hooks(subcommand, outcome_json).expand()?;
-    hooks.run(&mut stdout, stderr)?;
+    let hooks = config.hooks(subcommand).expand()?;
+    hooks.run(&outcome_json, &mut stdout, stderr)?;
 
     Ok(if outcome.is_success() { 0 } else { 1 })
 }

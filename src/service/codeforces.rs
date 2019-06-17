@@ -1,13 +1,13 @@
-#![allow(non_snake_case)]
-
 use crate::errors::{
     ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceErrorKind,
     ServiceResult,
 };
-use crate::service::session::{ParseWithBaseUrl as _, Session, State};
+use crate::service::session::{ParseWithBaseUrl as _, Session, State, UsernameAndPassword};
 use crate::service::{
-    Contest, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps, RetrieveSubmissionsOutcome,
-    RetrieveSubmissionsProps, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
+    Contest, LoginOutcome, ParticipateOutcome, ParticipateOutcomeKind, RetrieveLangsOutcome,
+    RetrieveLangsProps, RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
+    RetrieveSubmissionsOutcomeBuilderSubmission, RetrieveSubmissionsProps,
+    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
     RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesProps, SessionProps, SubmitOutcome,
     SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
 };
@@ -17,14 +17,15 @@ use crate::util::collections::NonEmptyIndexMap;
 use crate::util::scraper::ElementRefExt as _;
 use crate::util::str::CaseConversion;
 
+use chrono::{FixedOffset, TimeZone as _};
 use if_chain::if_chain;
-use indexmap::{indexmap, IndexMap};
+use indexmap::{indexmap, IndexMap, IndexSet};
 use itertools::Itertools as _;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
-use scraper::{ElementRef, Html, Node, Selector};
+use scraper::{Html, Selector};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest as _, Sha512};
@@ -33,7 +34,6 @@ use url::Url;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
-use std::io;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
@@ -45,6 +45,15 @@ pub(super) fn login(
     stderr: impl WriteColor + HasTermProps,
 ) -> ServiceResult<LoginOutcome> {
     Codeforces::try_new(props, stdin, stderr)?.login(LoginOption::Explicit)
+}
+
+pub(super) fn participate(
+    props: (SessionProps, &str),
+    stdin: impl Input,
+    stderr: impl WriteColor + HasTermProps,
+) -> ServiceResult<ParticipateOutcome> {
+    let (sess_props, contest) = props;
+    Codeforces::try_new(sess_props, stdin, stderr)?.participate(contest.parse()?)
 }
 
 pub(super) fn retrieve_testcases(
@@ -97,7 +106,6 @@ pub(super) fn submit(
 
 #[derive(Debug)]
 struct Codeforces<I: Input, E: WriteColor + HasTermProps> {
-    login_retries: Option<u32>,
     handle: Option<String>,
     api_key: Option<ApiKey>,
     state: State<I, E>,
@@ -120,7 +128,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
     fn try_new(props: SessionProps, stdin: I, stderr: E) -> ServiceResult<Self> {
         let state = props.start_state(stdin, stderr)?;
         Ok(Self {
-            login_retries: props.login_retries,
             handle: None,
             api_key: None,
             state,
@@ -134,31 +141,29 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
 
         if res.url().path() == "/enter" {
             let mut html = self.retry_recv_html(res)?;
-            let mut retries = self.login_retries;
-            loop {
-                let mut payload = html.extract_hidden_values(selector!("#enterForm"))?;
-                let handle_or_email = self.prompt_reply_stderr("Handle/Email: ")?;
-                let password = self.prompt_password_stderr("Password: ")?;
-                payload.insert("handleOrEmail".to_owned(), handle_or_email);
-                payload.insert("password".to_owned(), password);
-                payload.insert("remember".to_owned(), "on".to_owned());
-                let res = self
-                    .post("/enter")
-                    .acceptable(&[200])
-                    .redirect_unlimited()
-                    .form(&payload)
-                    .send()?;
-                if res.url().path() != "/enter" {
-                    break;
-                }
-                if retries == Some(0) {
-                    return Err(ServiceErrorKind::LoginRetriesExceeded.into());
-                }
-                retries = retries.map(|n| n - 1);
-                writeln!(self.stderr(), "Failed to login. Try again.")?;
-                self.stderr().flush()?;
-                html = self.recv_html(res)?;
-            }
+            self.retry_login::<UsernameAndPassword, _>(
+                ("Handle/Email: ", "Password: "),
+                "Successfully logged in.",
+                "Failed to login. Try again.",
+                |this, (handle_or_email, password)| {
+                    let mut payload = html.extract_hidden_values(selector!("#enterForm"))?;
+                    payload.insert("handleOrEmail".to_owned(), handle_or_email);
+                    payload.insert("password".to_owned(), password);
+                    payload.insert("remember".to_owned(), "on".to_owned());
+                    let res = this
+                        .post("/enter")
+                        .acceptable(&[200])
+                        .redirect_unlimited()
+                        .form(&payload)
+                        .send()?;
+                    if res.url().path() == "/enter" {
+                        html = this.recv_html(res)?;
+                        Ok(false)
+                    } else {
+                        Ok(true)
+                    }
+                },
+            )?;
         } else {
             writeln!(self.stderr(), "Already logged in.")?;
             self.stderr().flush()?;
@@ -168,19 +173,46 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
 
         let location = res.location_uri()?;
         let handle = if_chain! {
-            if let Some(location) = &location;
-            if let Some(caps) = HANDLE.captures(location.path());
+            if let Some(loc) = &location;
+            if let Some(caps) = HANDLE.captures(loc.path());
             then {
                 caps[1].to_owned()
             } else {
-                unimplemented!("{:?}", location)
+                return Err(ServiceErrorKind::UnexpectedRedirection(location).into());
             }
         };
         if option == LoginOption::Explicit {
-            self.api::<Vec<User>>("user.info", &[("handles", &handle)])?;
+            self.api::<Vec<api::User>>("user.info", &[("handles", &handle)])?;
         }
         self.handle = Some(handle);
         Ok(LoginOutcome {})
+    }
+
+    fn participate(&mut self, contest: CodeforcesContest) -> ServiceResult<ParticipateOutcome> {
+        self.login(LoginOption::WithHandle)?;
+
+        let phase = self
+            .api::<Vec<api::Contest>>("contest.list", &[("gym", &contest.is_gym().to_string())])?
+            .into_iter()
+            .find(|c| c.id == contest.id)
+            .ok_or_else(|| ServiceErrorKind::ContestNotFound(contest.slug().into()))?
+            .phase;
+
+        if phase == api::ContestPhase::Finished {
+            Ok(ParticipateOutcomeKind::ContestIsFinished.into())
+        } else {
+            let status = self
+                .get(contest.registration_url())
+                .acceptable(&[200, 302])
+                .warn(&[302])
+                .retry_status()?;
+            if status == 200 {
+                self.open_in_browser(contest.registration_url())?;
+                Ok(ParticipateOutcomeKind::Success.into())
+            } else {
+                Ok(ParticipateOutcomeKind::AlreadyParticipated.into())
+            }
+        }
     }
 
     fn retrieve_testcases(
@@ -199,27 +231,31 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         let problems = problems.as_ref();
         let top_path = format!("/contest/{}", contest.id);
 
-        let mut outcome = RetrieveTestCasesOutcomeBuilder::new(&contest, save_files);
-        outcome.push_submissions_url(contest.submissions_url());
+        let contest_display = self
+            .api::<Vec<api::Contest>>("contest.list", &[("gym", &contest.is_gym().to_string())])?
+            .into_iter()
+            .find(|c| c.id == contest.id)
+            .ok_or_else(|| ServiceErrorKind::ContestNotFound(contest.slug().into()))?
+            .name;
 
         let mut res = self.get(&top_path).acceptable(&[200, 302]).retry_send()?;
         if res.status() == 302 {
-            self.login(LoginOption::WithHandle)?;
-            let contest_id = contest.id.to_string();
-            let handle = self.handle.clone().unwrap();
-            let standings = self.api::<Standings>(
-                "contest.standings",
-                &[("contestId", &contest_id), ("handles", &handle)],
-            )?;
-            // Codeforces returns "FAILED" if the contest has not started.
-            if standings.contest.phase != ContestPhase::Finished {
-                unimplemented!(
-                    "phase = {:?}: Register in browser.",
-                    standings.contest.phase
-                );
+            if res.location_uri()?.map_or(false, |l| l.path() == "/enter") {
+                self.login(LoginOption::WithHandle)?;
+                res = self.get(&top_path).acceptable(&[200, 302]).retry_send()?;
             }
-            res = self.get(&top_path).retry_send()?;
+            if res.status() == 302 {
+                self.get(contest.registration_url()).retry_status()?;
+                self.open_in_browser(contest.registration_url())?;
+                self.wait_enter("Press ENTER after registration: ")?;
+                res = self.get(&top_path).retry_send()?;
+            }
         }
+
+        let mut outcome =
+            RetrieveTestCasesOutcomeBuilder::new(&contest.slug(), &contest_display, save_files);
+        outcome.push_submissions_url(contest.submissions_url());
+
         for ((slug, display_name), url) in self.retry_recv_html(res)?.extract_problems()? {
             if problems.map_or(true, |ps| ps.contains(&slug)) {
                 let suite = self
@@ -261,37 +297,139 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         &mut self,
         props: RetrieveSubmissionsProps<CodeforcesContest>,
     ) -> ServiceResult<RetrieveSubmissionsOutcome> {
-        #[derive(Deserialize)]
-        struct SubmitSource {
-            source: String,
-        }
-
-        let RetrieveSubmissionsProps { contest, .. } = props;
+        let RetrieveSubmissionsProps {
+            contest,
+            problems,
+            src_paths,
+            fetch_all,
+            save_files,
+        } = props;
 
         self.login(LoginOption::WithHandle)?;
-
-        let contest_id = contest.id.to_string();
         let handle = self.handle.clone().unwrap();
-        let submissions = self.api::<Vec<Submission>>(
+
+        let submissions = self.api::<Vec<api::Submission>>(
             "contest.status",
-            &[("contestId", &contest_id), ("handle", &handle)],
+            &[("contestId", &contest.id.to_string()), ("handle", &handle)],
         )?;
 
         let csrf_token = self
             .get("/")
             .retry_recv_html()?
             .extract_meta_x_csrf_token()?;
-        for submission in submissions {
-            let submission_id = submission.id.to_string();
-            let SubmitSource { source } = self
-                .post("/data/submitSource")
-                .acceptable(&[200])
-                .form(&hashmap!("submissionId" => &submission_id, "csrf_token" => &csrf_token))
-                .recv_json()?;
-            dbg!((submission.id, &submission.programmingLanguage, source.len()));
+
+        let lang_full_names = self
+            .get(format!("/contest/{}/submit", contest.id))
+            .retry_recv_html()?
+            .extract_langs()?
+            .into_iter()
+            .map(|(k, v)| (v, k))
+            .collect::<HashMap<_, _>>();
+
+        #[derive(Default)]
+        struct Found(IndexMap<String, IndexSet<String>>);
+
+        impl Found {
+            fn contains(&self, slug: &str, lang: &str) -> bool {
+                self.0.get(slug).map_or(false, |ls| ls.contains(lang))
+            }
+
+            fn insert(&mut self, slug: String, lang: String) {
+                self.0.entry(slug).or_default().insert(lang);
+            }
         }
 
-        unimplemented!()
+        let mut found = Found::default();
+
+        let mut outcome = RetrieveSubmissionsOutcomeBuilder::new();
+
+        for submission in submissions {
+            if problems
+                .as_ref()
+                .map_or(false, |ps| !ps.contains(&submission.problem.index))
+            {
+                continue;
+            }
+
+            let language = LANG_IDS
+                .get(submission.programming_language.as_str())
+                .and_then(|id| lang_full_names.get(*id))
+                .ok_or_else(|| {
+                    ServiceErrorKind::UnknownLanguage(submission.programming_language.clone())
+                })?
+                .to_owned();
+
+            let submission_id = submission.id.to_string();
+            let mut retrieve_code = || -> _ {
+                #[derive(Deserialize)]
+                struct SubmitSource {
+                    source: String,
+                }
+
+                self.post("/data/submitSource")
+                    .acceptable(&[200])
+                    .form(&hashmap!("submissionId" => &submission_id, "csrf_token" => &csrf_token))
+                    .recv_json()
+                    .map(|SubmitSource { source }| source)
+            };
+
+            let problem_slug = submission.problem.index;
+
+            let (code, location) = match src_paths.get(language.as_str()) {
+                None if fetch_all => (Some(retrieve_code()?), None),
+                Some(location) if fetch_all => {
+                    if found.contains(&problem_slug, &language) {
+                        (Some(retrieve_code()?), Some(location))
+                    } else {
+                        found.insert(problem_slug.clone(), language.clone());
+                        (Some(retrieve_code()?), None)
+                    }
+                }
+                None => (None, None),
+                Some(location) => {
+                    if found.contains(&problem_slug, &language) {
+                        (None, None)
+                    } else {
+                        found.insert(problem_slug.clone(), language.clone());
+                        (Some(retrieve_code()?), Some(location))
+                    }
+                }
+            };
+            let location = if save_files {
+                location
+                    .map(|l| l.expand(Some(&problem_slug)))
+                    .transpose()?
+            } else {
+                None
+            };
+
+            outcome.submissions.insert(
+                format!("/contest/{}/submission/{}", contest.id, submission.id)
+                    .parse_with_base_url(Some(&BASE_URL))?,
+                RetrieveSubmissionsOutcomeBuilderSubmission {
+                    problem_url: format!("/contest/{}/problem/{}", contest.id, problem_slug)
+                        .parse_with_base_url(Some(&BASE_URL))?,
+                    problem_slug,
+                    problem_display_name: submission.problem.name,
+                    problem_screen_name: None,
+                    language,
+                    date_time: FixedOffset::east(0).timestamp(submission.creation_time_seconds, 0),
+                    verdict_is_ok: submission.verdict == Some(api::SubmissionVerdict::Ok),
+                    verdict_string: submission
+                        .verdict
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                    location,
+                    code,
+                },
+            );
+        }
+
+        if let Some(problems) = problems {
+            self.warn_not_found(&problems, &outcome.problem_slugs())?;
+        }
+
+        outcome.finish()
     }
 
     fn submit(&mut self, props: SubmitProps<CodeforcesContest>) -> ServiceResult<SubmitOutcome> {
@@ -307,26 +445,27 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         let code = crate::fs::read_to_string(&src_path)?;
 
         self.login(LoginOption::WithHandle)?;
-
-        let contest_id = contest.id.to_string();
         let handle = self.handle.clone().unwrap();
-        let standings = self.api::<Standings>(
+
+        let standings = self.api::<api::Standings>(
             "contest.standings",
-            &[("contestId", &contest_id), ("handles", &handle)],
+            &[("contestId", &contest.id.to_string()), ("handles", &handle)],
         )?;
 
         if standings.problems.iter().all(|p| p.index != problem) {
             return Err(ServiceErrorKind::NoSuchProblem(problem).into());
         }
-        if !skip_checking_if_accepted && standings.contest.phase != ContestPhase::Finished {
-            let submissions = self.api::<Vec<Submission>>(
-                "contest.status",
-                &[("contestId", &contest_id), ("handle", &handle)],
-            )?;
-            if submissions
-                .iter()
-                .any(|s| s.problem.index == *problem && s.verdict == Some(SubmissionVerdict::Ok))
-            {
+        if !skip_checking_if_accepted && standings.contest.phase != api::ContestPhase::Finished {
+            let already_accepted = self
+                .api::<Vec<api::Submission>>(
+                    "contest.status",
+                    &[("contestId", &contest.id.to_string()), ("handle", &handle)],
+                )?
+                .into_iter()
+                .any(|s| {
+                    s.problem.index == problem && s.verdict == Some(api::SubmissionVerdict::Ok)
+                });
+            if already_accepted {
                 return Err(ServiceErrorKind::AlreadyAccepted.into());
             }
         }
@@ -351,6 +490,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         let res = self
             .post(&submit_path)
             .acceptable(&[200, 302])
+            .warn(&[200])
             .form(&values)
             .send()?;
         let rejected = res.status() == 200;
@@ -426,11 +566,13 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
         fn ask_api_key(
             this: &mut Codeforces<impl Input, impl WriteColor + HasTermProps>,
             p: &mut bool,
-        ) -> io::Result<ApiKey> {
-            *p = true;
+        ) -> ServiceResult<ApiKey> {
             let key = this.prompt_password_stderr("API Key: ")?;
             let secret = this.prompt_password_stderr("API Secret: ")?;
-            Ok(ApiKey { key, secret })
+            let api_key = ApiKey { key, secret };
+            this.api_token().get_or_init()?.write_json(&api_key)?;
+            *p = true;
+            Ok(api_key)
         }
 
         let mut asked_api_key = false;
@@ -468,7 +610,11 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
             };
             url.query_pairs_mut().append_pair("apiSig", &sig);
 
-            let res = self.get(url).acceptable(&[200, 400]).retry_send()?;
+            let res = self
+                .get(url)
+                .acceptable(&[200, 400])
+                .warn(&[400])
+                .retry_send()?;
 
             if res.status() == 200 {
                 if asked_api_key {
@@ -491,13 +637,55 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
     }
 }
 
-#[derive(Clone, Copy, Debug, derive_more::Display)]
-#[display(fmt = "{}", id)]
+static LANG_IDS: Lazy<IndexMap<&'static str, &'static str>> = Lazy::new(|| {
+    indexmap!(
+        "GNU C11" => "43",
+        "Clang++17 Diagnostics" => "52",
+        "GNU C++11" => "42",
+        "GNU C++14" => "50",
+        "GNU C++17" => "54",
+        "MS C++ 2010" => "2",
+        "MS C++ 2017" => "59",
+        "Mono C#" => "9",
+        "D" => "28",
+        "Go" => "32",
+        "Haskell" => "12",
+        "Java 8" => "36",
+        "Kotlin" => "48",
+        "Ocaml" => "19",
+        "Delphi" => "3",
+        "FPC" => "4",
+        "PascalABC.NET" => "51",
+        "Perl" => "13",
+        "PHP" => "6",
+        "Python 2" => "7",
+        "Python 3" => "31",
+        "PyPy 2" => "40",
+        "PyPy 3" => "41",
+        "Ruby" => "8",
+        "Rust" => "49",
+        "Scala" => "20",
+        "JavaScript" => "34",
+        "Node.js" => "55",
+    )
+});
+
+#[derive(Clone, Copy, Debug)]
 struct CodeforcesContest {
     id: u64,
 }
 
 impl CodeforcesContest {
+    fn is_gym(self) -> bool {
+        self.id >= 100_000
+    }
+
+    fn registration_url(self) -> Url {
+        let mut ret = BASE_URL.clone();
+        ret.set_path(&format!("/contestRegistration/{}", self.id));
+        ret
+    }
+
     fn submissions_url(self) -> Url {
         let mut ret = BASE_URL.clone();
         ret.set_path(&format!("/contest/{}/my", self.id));
@@ -517,7 +705,7 @@ impl FromStr for CodeforcesContest {
 
 impl Contest for CodeforcesContest {
     fn slug(&self) -> Cow<str> {
-        self.to_string().into()
+        self.id.to_string().into()
     }
 }
 
@@ -531,116 +719,6 @@ enum LoginOption {
 struct ApiKey {
     key: String,
     secret: String,
-}
-
-#[derive(Debug, PartialEq, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ContestPhase {
-    Before,
-    Coding,
-    PendingSystemTest,
-    SystemTest,
-    Finished,
-}
-
-#[derive(Debug, Deserialize)]
-struct User {
-    // handle: String,
-// email: Option<String>,
-// vkld: Option<String>,
-// openId: Option<String>,
-// firstName: Option<String>,
-// lastName: Option<String>,
-// country: Option<String>,
-// city: Option<String>,
-// organization: Option<String>,
-// contribution: f64,
-// rank: Option<String>,
-// rating: Option<f64>,
-// maxRank: Option<String>,
-// maxRanking: Option<f64>,
-// lastOnlineTimeSeconds: f64,
-// registrationTimeSeconds: f64,
-// friendOfCount: f64,
-// avatar: String,
-// titlePhoto: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ContestEntity {
-    // id: u64,
-    // name: String,
-    // r#type: String,
-    phase: ContestPhase,
-    // frozen: bool,
-    // durationSeconds: f64,
-    // startTimeSeconds: Option<f64>,
-    // relativeTimeSeconds: Option<f64>,
-    // preparedBy: Option<String>,
-    // websiteUrl: Option<String>,
-    // description: Option<String>,
-    // difficulty: Option<f64>,
-    // kind: Option<String>,
-    // icpcRegion: Option<String>,
-    // country: Option<String>,
-    // city: Option<String>,
-    // season: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Problem {
-    // contestId: Option<u64>,
-    // problemsetName: Option<String>,
-    index: String,
-    // name: String,
-    // r#type: String,
-    // points: Option<f64>,
-    // tags: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Submission {
-    id: u64,
-    // contestId: Option<u64>,
-    // creationTimeSeconds: f64,
-    // relativeTimeSeconds: f64,
-    problem: Problem,
-    // author: (),
-    programmingLanguage: String,
-    verdict: Option<SubmissionVerdict>,
-    // testset: String,
-    // passedTestCount: f64,
-    // timeConsumedMillis: f64,
-    // memoryConsumedBytes: f64,
-}
-
-#[derive(Debug, PartialEq, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum SubmissionVerdict {
-    Failed,
-    Ok,
-    Partial,
-    CompilationError,
-    RuntimeError,
-    WrongAnswer,
-    PresentationError,
-    TimeLimitExceeded,
-    MemoryLimitExceeded,
-    IdlenessLimitExceeded,
-    SecurityViolated,
-    Crashed,
-    InputPreparationCrashed,
-    Challenged,
-    Skipped,
-    Testing,
-    Rejected,
-}
-
-#[derive(Debug, Deserialize)]
-struct Standings {
-    contest: ContestEntity,
-    problems: Vec<Problem>,
-    // rows: Vec<()>,
 }
 
 trait Extract {
@@ -801,20 +879,110 @@ impl<T, I: Iterator<Item = T>> AssertOne for I {
     }
 }
 
-trait FoldTextAndBr {
-    fn fold_text_and_br(&self) -> String;
-}
+/// <https://codeforces.com/api/help>
+mod api {
+    use serde::Deserialize;
 
-impl<'a> FoldTextAndBr for ElementRef<'a> {
-    fn fold_text_and_br(&self) -> String {
-        self.children().fold("".to_owned(), |mut ret, node| {
-            match node.value() {
-                Node::Text(t) => ret += t,
-                Node::Element(e) if e.name() == "br" => ret.push('\n'),
-                _ => {}
-            }
-            ret
-        })
+    /// "Represents a Codeforces user."
+    ///
+    /// <https://codeforces.com/api/help/objects#User>
+    #[derive(Debug, Deserialize)]
+    pub(super) struct User {
+        // __rest: (),
+    }
+
+    /// "Represents a contest on Codeforces."
+    ///
+    /// <https://codeforces.com/api/help/objects#Contest>
+    #[derive(Debug, Deserialize)]
+    pub(super) struct Contest {
+        /// "Integer."
+        pub(super) id: u64,
+        /// "String. Localized."
+        pub(super) name: String,
+        /// "Enum: BEFORE, CODING, PENDING_SYSTEM_TEST, SYSTEM_TEST, FINISHED."
+        pub(super) phase: ContestPhase,
+        // __rest: (),
+    }
+
+    /// "Enum: BEFORE, CODING, PENDING_SYSTEM_TEST, SYSTEM_TEST, FINISHED."
+    ///
+    /// <https://codeforces.com/api/help/objects#Contest>
+    #[derive(Debug, PartialEq, Deserialize)]
+    #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+    pub(super) enum ContestPhase {
+        Before,
+        Coding,
+        PendingSystemTest,
+        SystemTest,
+        Finished,
+    }
+
+    /// "Represents a problem."
+    ///
+    /// <https://codeforces.com/api/help/objects#Problem>
+    #[derive(Debug, Deserialize)]
+    pub(super) struct Problem {
+        /// "String. Usually a letter of a letter, followed by a digit, that represent a problem index in a contest."
+        pub(super) index: String,
+        /// "String. Localized."
+        pub(super) name: String,
+        // __rest: (),
+    }
+
+    /// "Represents a submission."
+    ///
+    /// <https://codeforces.com/api/help/objects#Submission>
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(super) struct Submission {
+        /// "Integer."
+        pub(super) id: u64,
+        /// "Integer. Time, when submission was created, in unix-format."
+        pub(super) creation_time_seconds: i64,
+        /// "Problem object."
+        pub(super) problem: Problem,
+        /// "String."
+        pub(super) programming_language: String,
+        /// "Enum: FAILED, OK, PARTIAL, COMPILATION_ERROR, RUNTIME_ERROR, WRONG_ANSWER, PRESENTATION_ERROR, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED, IDLENESS_LIMIT_EXCEEDED, SECURITY_VIOLATED, CRASHED, INPUT_PREPARATION_CRASHED, CHALLENGED, SKIPPED, TESTING, REJECTED. Can be absent."
+        pub(super) verdict: Option<SubmissionVerdict>,
+        // __rest: (),
+    }
+
+    /// "Enum: FAILED, OK, PARTIAL, COMPILATION_ERROR, RUNTIME_ERROR, WRONG_ANSWER, PRESENTATION_ERROR, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED, IDLENESS_LIMIT_EXCEEDED, SECURITY_VIOLATED, CRASHED, INPUT_PREPARATION_CRASHED, CHALLENGED, SKIPPED, TESTING, REJECTED. Can be absent."
+    ///
+    /// <https://codeforces.com/api/help/objects#Submission>
+    #[derive(Debug, PartialEq, strum_macros::Display, Deserialize)]
+    #[strum(serialize_all = "shouty_snake_case")]
+    #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+    pub(super) enum SubmissionVerdict {
+        Failed,
+        Ok,
+        Partial,
+        CompilationError,
+        RuntimeError,
+        WrongAnswer,
+        PresentationError,
+        TimeLimitExceeded,
+        MemoryLimitExceeded,
+        IdlenessLimitExceeded,
+        SecurityViolated,
+        Crashed,
+        InputPreparationCrashed,
+        Challenged,
+        Skipped,
+        Testing,
+        Rejected,
+    }
+
+    /// "Returns object with three fields: "contest", "problems" and "rows". Field "contest" contains a Contest object. Field "problems" contains a list of Problem objects. Field "rows" contains a list of RanklistRow objects."
+    ///
+    /// <https://codeforces.com/api/help/methods#contest.standings>
+    #[derive(Debug, Deserialize)]
+    pub(super) struct Standings {
+        pub(super) contest: Contest,
+        pub(super) problems: Vec<Problem>,
+        // __rest: (),
     }
 }
 

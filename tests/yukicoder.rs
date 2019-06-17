@@ -2,7 +2,9 @@ mod common;
 
 use crate::common::service;
 
-use snowchains::app::{App, Opt, OutputKind, Retrieve, RetrieveLanguages, Submit};
+use snowchains::app::{
+    App, Opt, OutputKind, Retrieve, RetrieveLanguages, RetrieveSubmissions, Submit,
+};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
@@ -47,6 +49,41 @@ fn it_scrapes_and_downloads_testcases() -> Fallible<()> {
                 CONTEST,
                 &[("3", 31), ("725", 9), ("726", 25)],
             )
+        },
+    )
+}
+
+#[test]
+fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
+    service::test_in_tempdir(
+        "retrieve_submissions_command_works_without_error",
+        &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
+        |mut app| -> _ {
+            let code = app.run(Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
+                fetch_all: false,
+                no_save: true,
+                verbose: false,
+                json: false,
+                colorize: false,
+                service: Some(ServiceKind::Yukicoder),
+                contest: Some("no".to_owned()),
+                mode: config::Mode::Debug,
+                problems: vec!["1".to_owned()],
+                output: OutputKind::Json,
+                color_choice: AnsiColorChoice::Never,
+            })))?;
+            assert_eq!(code, 0);
+            let stdout = String::try_from(app.stdout)?;
+            let stderr = String::try_from(app.stderr)?;
+            serde_json::from_str::<serde_json::Value>(&stdout)?;
+            assert!(stderr.starts_with(
+                &r#"
+GET https://yukicoder.me/api/v1/problems ... 200 OK
+GET https://yukicoder.me/api/v1/languages ... 200 OK
+GET https://yukicoder.me/problems/no/1/submissions?my_submission=enabled ... 200 OK
+"#[1..],
+            ));
+            Ok(())
         },
     )
 }
@@ -259,10 +296,11 @@ GET https://yukicoder.me/ ... 200 OK
 
 Input "REVEL_SESSION".
 
-Firefox: sqlite3 ~/path/to/cookies.sqlite 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
 Chrome: chrome://settings/cookies/detail?site=yukicoder.me&search=cookie
+Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_cookies WHERE baseDomain="yukicoder.me" AND name="REVEL_SESSION"'
 
 REVEL_SESSION: GET https://yukicoder.me/ ... 200 OK
+Confirmed.
 Username: ██████████
 GET https://yukicoder.me/problems/no/9000/submit ... 200 OK
 

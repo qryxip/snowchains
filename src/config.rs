@@ -31,7 +31,6 @@ use std::num::NonZeroUsize;
 use std::ops::Not;
 use std::path::{Path, PathBuf};
 use std::str::{self, FromStr};
-use std::sync::Arc;
 use std::time::Duration;
 use std::{env, fmt};
 
@@ -136,7 +135,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
         toml_edit::Value::from(path)
     }
 
-    let (bash, powershell, cmd, jq, shell, transpile_java, transpile_scala) = {
+    let (bash, powershell, cmd, ruby, shell, transpile_java, transpile_scala) = {
         trait WithExe: ToOwned {
             fn with_exe(&self, name: &str) -> Self::Owned;
         }
@@ -154,6 +153,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
         }
 
         let env_path = env::var_os("PATH").unwrap_or_default();
+
         let bash = env::split_paths(&env_path)
             .chain(if cfg!(windows) {
                 vec![
@@ -177,6 +177,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
                 "\"${command}\""
             }
         );
+
         let powershell = env::split_paths(&env_path)
             .flat_map(|p| vec![p.with_exe("pwsh"), p.with_exe("powershell")])
             .find(|p| cfg!(windows) && p.exists())
@@ -187,6 +188,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
                 )
             })
             .unwrap_or_default();
+
         let cmd = env::split_paths(&env_path)
             .map(|p| p.with_exe("cmd"))
             .find(|p| cfg!(windows) && p.exists())
@@ -198,16 +200,29 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
             })
             .unwrap_or_default();
 
-        let (jq, shell, transpile_java, transpile_scala);
+        let ruby = env::split_paths(&env_path)
+            .map(|p| p.with_exe("ruby"))
+            .find(|p| p.exists() && p.to_str().is_some())
+            .unwrap_or_else(|| {
+                PathBuf::from(if cfg!(windows) {
+                    r"C:\Ruby26-x64"
+                } else {
+                    "/usr/bin/ruby"
+                })
+            });
+        let ruby = format!(
+            "\nruby = {{ runner = {}, extension = \"rb\" }}",
+            quote_path_normalizing_separator(&ruby),
+        );
+
+        let (shell, transpile_java, transpile_scala);
         if cfg!(windows) && !bash_found {
-            jq = r#"ps = 'echo "${Env:SNOWCHAINS_RESULT}" | jq'"#;
             shell = "ps";
             transpile_java =
                 r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("class\s+${Env:SNOWCHAINS_PROBLEM_PASCAL_CASE}", "class Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
             transpile_scala =
                 r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("object\s+${Env:SNOWCHAINS_PROBLEM_PASCAL_CASE}", "object Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
         } else {
-            jq = r#"bash = 'echo "$SNOWCHAINS_RESULT" | jq'"#;
             shell = "bash";
             transpile_java =
                 r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/class Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
@@ -219,7 +234,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
             bash,
             powershell,
             cmd,
-            jq,
+            ruby,
             shell,
             transpile_java,
             transpile_scala,
@@ -253,7 +268,7 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
 cjk = false{console_alt_width}
 
 [shell]
-{bash}{powershell}{cmd}
+{bash}{powershell}{cmd}{ruby}
 
 [testfiles]
 path = ".snowchains/tests/${{service}}/${{snake_case(contest)}}/${{snake_case(problem)}}.${{extension}}"
@@ -311,16 +326,16 @@ CXXFLAGS = "-std=gnu++1z -lm -O2 -Wall -Wextra"
 RUST_VERSION = "1.30.1"
 
 # [hooks]
-# switch = {{ {jq} }}
-# login = {{ {jq} }}
-# participate = {{ {jq} }}
-# judge = {{ {jq} }}
-# submit = {{ {jq} }}
+# switch = ['jq']
+# login = ['jq']
+# participate = ['jq']
+# judge = ['jq']
+# submit = ['jq']
 
 # [hooks.retrieve]
-# testcases = {{ {jq} }}
-# submissions = {{ {jq} }}
-# languages = {{ {jq} }}
+# testcases = ['jq']
+# submissions = ['jq']
+# languages = ['jq']
 
 [tester]
 src = "testers/py/${{kebab_case(problem)}}.py"
@@ -457,7 +472,7 @@ yukicoder = "Text (cat 8.22)"
         bash = bash,
         powershell = powershell,
         cmd = cmd,
-        jq = jq,
+        ruby = ruby,
         shell = shell,
         exe = EXE,
         tester_python3 = TESTER_PYTHON3,
@@ -637,8 +652,18 @@ impl Config {
         &self.inner
     }
 
-    pub(crate) fn target(&self) -> &Target {
-        &self.target
+    pub(crate) fn target_with_case_converted_names(&self) -> IndexMap<&'static str, String> {
+        indexmap! {
+            "service" => self.target.service.to_string(),
+            "contest" => self.target.contest.clone(),
+            "contest_lower_case" => self.target.contest.to_lowercase(),
+            "contest_upper_case" => self.target.contest.to_uppercase(),
+            "contest_snake_case" => self.target.contest.to_snake_case(),
+            "contest_kebab_case" => self.target.contest.to_kebab_case(),
+            "contest_mixed_case" => self.target.contest.to_mixed_case(),
+            "contest_pascal_case" => self.target.contest.to_camel_case(),
+            "language" => self.target.language.clone(),
+        }
     }
 
     pub(crate) fn base_dir(&self) -> &AbsPath {
@@ -711,11 +736,7 @@ impl Config {
         self.inner.judge.display_limit
     }
 
-    pub(crate) fn hooks(
-        &self,
-        kind: SubCommandKind,
-        snowchains_result: String,
-    ) -> Template<HookCommands> {
+    pub(crate) fn hooks(&self, kind: SubCommandKind) -> Template<HookCommands> {
         static DEFAULT: Lazy<TemplateBuilder<HookCommands>> = Lazy::new(TemplateBuilder::default);
         self.inner
             .hooks
@@ -724,7 +745,6 @@ impl Config {
             .build(HookCommandsRequirements {
                 base_dir: self.base_dir.clone(),
                 shell: self.inner.shell.clone(),
-                snowchains_result: Arc::new(snowchains_result),
             })
     }
 
@@ -948,7 +968,7 @@ pub(crate) struct Inner {
     #[serde(default)]
     console: Console,
     #[serde(default)]
-    shell: HashMap<String, Vec<TemplateBuilder<OsString>>>,
+    shell: IndexMap<String, Shell>,
     testfiles: Testfiles,
     session: Session,
     judge: Judge,
@@ -993,6 +1013,16 @@ impl Console {
             props.str_width = str_width
         });
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum Shell {
+    Args(Vec<TemplateBuilder<OsString>>),
+    File {
+        runner: TemplateBuilder<OsString>,
+        extension: TemplateBuilder<OsString>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1504,7 +1534,7 @@ struct Language {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct Target {
+struct Target {
     service: ServiceKind,
     contest: String,
     language: String,
