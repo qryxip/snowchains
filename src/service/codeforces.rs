@@ -25,7 +25,7 @@ use maplit::hashmap;
 use once_cell::sync::Lazy;
 use rand::Rng;
 use regex::Regex;
-use scraper::{ElementRef, Html, Node, Selector};
+use scraper::{Html, Selector};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest as _, Sha512};
@@ -876,23 +876,6 @@ impl<T, I: Iterator<Item = T>> AssertOne for I {
                 Err(ScrapeError::new())
             }
         }
-    }
-}
-
-trait FoldTextAndBr {
-    fn fold_text_and_br(&self) -> String;
-}
-
-impl<'a> FoldTextAndBr for ElementRef<'a> {
-    fn fold_text_and_br(&self) -> String {
-        self.children().fold("".to_owned(), |mut ret, node| {
-            match node.value() {
-                Node::Text(t) => ret += t,
-                Node::Element(e) if e.name() == "br" => ret.push('\n'),
-                _ => {}
-            }
-            ret
-        })
     }
 }
 

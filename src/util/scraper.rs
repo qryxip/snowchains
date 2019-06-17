@@ -17,6 +17,7 @@ pub(crate) trait ElementRefExt {
     type ChildrenText;
     fn children_text(&self) -> Self::ChildrenText;
     fn collect_text(&self) -> String;
+    fn fold_text_and_br(&self) -> String;
 }
 
 impl<'a> ElementRefExt for ElementRef<'a> {
@@ -33,6 +34,17 @@ impl<'a> ElementRefExt for ElementRef<'a> {
         self.text().fold("".to_owned(), |mut r, s| {
             r.push_str(s);
             r
+        })
+    }
+
+    fn fold_text_and_br(&self) -> String {
+        self.children().fold("".to_owned(), |mut ret, node| {
+            match node.value() {
+                Node::Text(t) => ret += t,
+                Node::Element(e) if e.name() == "br" => ret.push('\n'),
+                _ => {}
+            }
+            ret
         })
     }
 }

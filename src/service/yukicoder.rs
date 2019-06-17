@@ -16,6 +16,7 @@ use crate::service::{
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, TestSuite};
 use crate::util::collections::{NonEmptyIndexMap, NonEmptyVec};
+use crate::util::scraper::ElementRefExt;
 use crate::util::str::CaseConversion;
 
 use chrono::offset::TimeZone as _;
@@ -811,7 +812,7 @@ impl Extract for Html {
                 .flat_map(|r| r.text())
                 .nth(1)?;
             let caps = lazy_regex!(
-                "\\A / 実行時間制限 : 1ケース (\\d)\\.(\\d{3})秒 / メモリ制限 : \\d+ MB / \
+                "\\A / 実行時間制限 : 1ケース ([0-9])\\.([0-9]{3})秒 / メモリ制限 : \\d+ MB / \
                  (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z",
             )
             .captures(text)?;
@@ -832,14 +833,11 @@ impl Extract for Html {
                     for paragraph in self.select(selector!(
                         "#content > div.block > div.sample > div.paragraph",
                     )) {
-                        let pres = paragraph
-                            .select(selector!("pre"))
-                            .flat_map(|r| r.text())
-                            .collect::<Vec<_>>();
+                        let pres = paragraph.select(selector!("pre")).collect::<Vec<_>>();
                         guard!(pres.len() == 2);
-                        let input = pres[0].to_owned();
+                        let input = pres[0].fold_text_and_br();
                         let output = match kind {
-                            ProblemKind::Regular => Some(pres[1].to_owned()),
+                            ProblemKind::Regular => Some(pres[1].fold_text_and_br()),
                             ProblemKind::Special => None,
                             ProblemKind::Reactive => unreachable!(),
                         };
@@ -1085,6 +1083,15 @@ mod tests {
             "https://yukicoder.me/problems/no/246",
             "No.246  質問と回答",
             "9debfd89a82271d763b717313363acda",
+        )
+    }
+
+    #[test]
+    fn it_extracts_samples_from_no_839() -> Fallible<()> {
+        test_extracting_samples(
+            "https://yukicoder.me/problems/no/839",
+            "No.839  Keep Distance and Nobody Explodes",
+            "0d28a99b0c63f6ecea938bc28bc3e1ed",
         )
     }
 
