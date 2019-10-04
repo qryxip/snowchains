@@ -12,8 +12,8 @@ keywords = ["windows", "cli"]
 categories = ["command-line-utilities"]
 
 [badges]
-travis-ci = { repository = "qryxip/snowchains" }
-codecov = { repository = "qryxip/snowchains" }
+# https://github.com/srijs/deps.rs/pull/33
+# codecov = { repository = "qryxip/snowchains" }
 
 [workspace]
 
