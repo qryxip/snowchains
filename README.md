@@ -1,8 +1,11 @@
 # Snowchains
 
-[![Build Status](https://img.shields.io/travis/qryxip/snowchains.svg?branch=master&label=windows%20%26%20macos%20%26%20linux)](https://travis-ci.org/qryxip/snowchains)
-[![codecov](https://codecov.io/gh/qryxip/snowchains/branch/master/graph/badge.svg)](https://codecov.io/gh/qryxip/snowchains)
+[![CI](https://github.com/qryxip/snowchains/workflows/CI/badge.svg)](https://github.com/qryxip/snowchains/actions?workflow=CI)
+<!-- [![codecov](https://codecov.io/gh/qryxip/snowchains/branch/master/graph/badge.svg)](https://codecov.io/gh/qryxip/snowchains/branch/master) -->
+<!-- https://github.com/srijs/deps.rs/pull/33 -->
+<!-- [![dependency status](https://deps.rs/repo/github/qryxip/snowchains/status.svg)](https://deps.rs/repo/github/qryxip/snowchains) -->
 [![Crates.io](https://img.shields.io/crates/v/snowchains.svg)](https://crates.io/crates/snowchains)
+[![Crates.io](https://img.shields.io/crates/l/snowchains.svg)](https://crates.io/crates/snowchains)
 
 Tools for online programming contests.
 
@@ -24,29 +27,18 @@ Tools for online programming contests.
 
 ### GitHub Releases
 
-https://github.com/qryxip/snowchains/releases
+<https://github.com/qryxip/snowchains/releases>
 
-### Crates.io
+### ~~`cargo install` (Crates.io)~~ not recommended for now
 
-Install [Cargo](https://github.com/rust-lang/cargo) with
-[rustup](https://github.com/rust-lang-nursery/rustup.rs),
-add `~/.cargo/bin` to your `$PATH`, and
-
-```console
+```
 $ cargo install snowchains
 ```
 
-To update:
-
-```console
-$ cargo uninstall snowchains && cargo install snowchains
-```
-
-Or
+### `cargo install` (GitHub)
 
 ```
-$ cargo install cargo-update
-$ cargo install-update snowchains
+$ cargo install --git https://github.com/qryxip/snowchains
 ```
 
 ## Usage
