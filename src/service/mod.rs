@@ -1029,11 +1029,9 @@ impl Outcome for RetrieveLangsOutcome {
 
         // `prettytable` assumes that East Asian Ambiguous Characters are halfwidth.
         let (column_separator, borders, top_sep, title_sep, intern_sep, bottom_sep);
-        if [
-            '─', '│', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼',
-        ]
-        .iter()
-        .all(|&c| stdout.char_width(c) == Some(1))
+        if ['─', '│', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼']
+            .iter()
+            .all(|&c| stdout.char_width(c) == Some(1))
         {
             column_separator = '│';
             borders = '│';
