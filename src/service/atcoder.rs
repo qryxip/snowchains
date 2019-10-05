@@ -38,7 +38,6 @@ use url::Url;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
 use std::convert::Infallible;
-use std::convert::TryInto as _;
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
@@ -1181,10 +1180,8 @@ impl Extract for Html {
         }
 
         fn parse_floating_error(s: &str) -> Option<PositiveFinite<f64>> {
-            let caps = lazy_regex!(r"\A([0-9]{1,2})\^\{(-?[0-9]{1,2})\}\z").captures(s)?;
-            let base = caps[1].parse::<f64>().ok()?;
-            let exp = caps[2].parse::<f64>().ok()?;
-            base.powf(exp).try_into().ok()
+            let caps = lazy_regex!(r"\A10\^\{(-?[0-9]{1,2})\}\z").captures(s)?;
+            format!("1e{}", &caps[1]).parse().ok()
         }
 
         fn parse_zenkaku<T: FromStr>(s: &str) -> Result<T, T::Err> {
