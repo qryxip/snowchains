@@ -11,7 +11,7 @@ use syn::spanned::Spanned;
 use syn::{
     parse_macro_input, AngleBracketedGenericArguments, Attribute, Data, DeriveInput, Field, Fields,
     FieldsUnnamed, GenericArgument, ItemEnum, ItemStruct, Lit, Meta, MetaList, MetaNameValue,
-    NestedMeta, PathArguments, PathSegment, Type, TypePath,
+    NestedMeta, Path, PathArguments, PathSegment, Type, TypePath,
 };
 
 use std::str::FromStr;
@@ -39,7 +39,9 @@ pub fn derive_double_from(input: proc_macro::TokenStream) -> proc_macro::TokenSt
             let mut from_ty = None;
             for meta in variant.attrs.iter().flat_map(Attribute::parse_meta) {
                 match &meta {
-                    Meta::NameValue(MetaNameValue { ident, lit, .. }) if ident == "double_from" => {
+                    Meta::NameValue(MetaNameValue { path, lit, .. })
+                        if path.eq_ident("double_from") =>
+                    {
                         match lit {
                             Lit::Str(s) => match s.parse::<Type>() {
                                 Err(err) => return Some(Err(err)),
@@ -48,10 +50,10 @@ pub fn derive_double_from(input: proc_macro::TokenStream) -> proc_macro::TokenSt
                             lit => return Some(Err(lit.error("expected str literal"))),
                         }
                     }
-                    Meta::Word(ident) | Meta::List(MetaList { ident, .. })
-                        if ident == "double_from" =>
+                    Meta::Path(path) | Meta::List(MetaList { path, .. })
+                        if path.eq_ident("double_from") =>
                     {
-                        return Some(Err(ident.error("invalid attr")));
+                        return Some(Err(path.error("invalid attr")));
                     }
                     _ => {}
                 }
@@ -309,20 +311,20 @@ pub fn derive_arg_enum(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         .iter()
         .flat_map(Attribute::parse_meta)
         .flat_map(|meta| match &meta {
-            Meta::Word(ident) | Meta::NameValue(MetaNameValue { ident, .. })
-                if ident == "arg_enum" =>
+            Meta::Path(path) | Meta::NameValue(MetaNameValue { path, .. })
+                if path.eq_ident("arg_enum") =>
             {
                 Some(Err(meta.error("expected `#[arg_enum(_)]`")))
             }
-            Meta::List(MetaList { ident, nested, .. }) if ident == "arg_enum" => {
+            Meta::List(MetaList { path, nested, .. }) if path.eq_ident("arg_enum") => {
                 let mut enum_attrs = EnumAttrs::default();
                 for nested in nested {
                     match nested {
-                        NestedMeta::Meta(Meta::NameValue(MetaNameValue { ident, lit, .. }))
-                            if ident == "case" =>
+                        NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, lit, .. }))
+                            if path.eq_ident("case") =>
                         {
                             if enum_attrs.case.is_some() {
-                                return Some(Err(ident.error("multiple `case`s")));
+                                return Some(Err(path.error("multiple `case`s")));
                             }
                             let s = match lit {
                                 Lit::Str(s) => s,
@@ -333,11 +335,11 @@ pub fn derive_arg_enum(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                                 Ok(case) => enum_attrs.case = Some(case),
                             }
                         }
-                        NestedMeta::Meta(Meta::NameValue(MetaNameValue { ident, lit, .. }))
-                            if ident == "rename_all" =>
+                        NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, lit, .. }))
+                            if path.eq_ident("rename_all") =>
                         {
                             if enum_attrs.rename_all.is_some() {
-                                return Some(Err(ident.error("multiple `rename_all`s")));
+                                return Some(Err(path.error("multiple `rename_all`s")));
                             }
                             let s = match lit {
                                 Lit::Str(s) => s,
@@ -517,12 +519,12 @@ pub fn derive_deserialize_as_string(input: proc_macro::TokenStream) -> proc_macr
         .iter()
         .flat_map(Attribute::parse_meta)
         .flat_map(|meta| match &meta {
-            Meta::List(MetaList { ident, nested, .. }) if ident == "deserialize_as_string" => {
+            Meta::List(MetaList { path, nested, .. }) if path.eq_ident("deserialize_as_string") => {
                 Some(match nested.len() {
                     0 => Ok(false),
                     1 => match nested.iter().next().unwrap() {
-                        NestedMeta::Meta(Meta::Word(ident))
-                            if ident == "map_err_into_serde_style" =>
+                        NestedMeta::Meta(Meta::Path(path))
+                            if path.eq_ident("map_err_into_serde_style") =>
                         {
                             Ok(true)
                         }
@@ -531,8 +533,8 @@ pub fn derive_deserialize_as_string(input: proc_macro::TokenStream) -> proc_macr
                     _ => Err(nested.error("expected 0 or 1 element")),
                 })
             }
-            Meta::Word(ident) | Meta::NameValue(MetaNameValue { ident, .. })
-                if ident == "deserialize_as_string" =>
+            Meta::Path(path) | Meta::NameValue(MetaNameValue { path, .. })
+                if path.eq_ident("deserialize_as_string") =>
             {
                 Some(Err(meta.error("expected list")))
             }
@@ -599,9 +601,9 @@ pub fn derive_deserialize_as_string(input: proc_macro::TokenStream) -> proc_macr
 
 fn find_attr(meta: &Meta, attr: &'static str) -> Option<Span> {
     match meta {
-        Meta::Word(ident) | Meta::NameValue(MetaNameValue { ident, .. }) => {
-            if ident == attr {
-                Some(ident.span())
+        Meta::Path(path) | Meta::NameValue(MetaNameValue { path, .. }) => {
+            if path.eq_ident(attr) {
+                Some(path.span())
             } else {
                 None
             }
@@ -611,8 +613,8 @@ fn find_attr(meta: &Meta, attr: &'static str) -> Option<Span> {
             .iter()
             .flat_map(|m| match m {
                 NestedMeta::Meta(m) => find_attr(m, attr),
-                NestedMeta::Literal(Lit::Str(s)) if s.value() == attr => Some(s.span()),
-                NestedMeta::Literal(_) => None,
+                NestedMeta::Lit(Lit::Str(s)) if s.value() == attr => Some(s.span()),
+                NestedMeta::Lit(_) => None,
             })
             .next(),
     }
@@ -629,6 +631,16 @@ trait SpannedExt {
 impl<T: Spanned> SpannedExt for T {
     fn error(&self, mes: impl fmt::Display) -> syn::Error {
         syn::Error::new(self.span(), mes)
+    }
+}
+
+trait PathExt {
+    fn eq_ident(&self, s: &str) -> bool;
+}
+
+impl PathExt for Path {
+    fn eq_ident(&self, s: &str) -> bool {
+        self.get_ident().map_or(false, |p| p == s)
     }
 }
 

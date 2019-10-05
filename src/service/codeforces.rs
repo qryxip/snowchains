@@ -952,7 +952,7 @@ mod api {
     /// "Enum: FAILED, OK, PARTIAL, COMPILATION_ERROR, RUNTIME_ERROR, WRONG_ANSWER, PRESENTATION_ERROR, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED, IDLENESS_LIMIT_EXCEEDED, SECURITY_VIOLATED, CRASHED, INPUT_PREPARATION_CRASHED, CHALLENGED, SKIPPED, TESTING, REJECTED. Can be absent."
     ///
     /// <https://codeforces.com/api/help/objects#Submission>
-    #[derive(Debug, PartialEq, strum_macros::Display, Deserialize)]
+    #[derive(Debug, PartialEq, strum::Display, Deserialize)]
     #[strum(serialize_all = "shouty_snake_case")]
     #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
     pub(super) enum SubmissionVerdict {
@@ -1100,7 +1100,7 @@ mod tests {
 
             retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
                 let text = self
-                    .get(url.clone())
+                    .get(url.as_str())
                     .send()
                     .and_then(|r| r.error_for_status()?.text());
                 match text {

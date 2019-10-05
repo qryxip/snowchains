@@ -325,7 +325,7 @@ Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_c
                 .map(|no| {
                     let mut url = BASE_URL.clone();
                     url.set_path(&format!("/problems/no/{}/testcase.zip", no));
-                    let mut req = client.get(url.clone());
+                    let mut req = client.get(url.as_str());
                     if let Some(value) = self.cookies_to_header_value(&url) {
                         req = req.header(header::COOKIE, value);
                     }
@@ -1156,7 +1156,7 @@ mod tests {
             let url = uri.parse_with_base_url(Some(&BASE_URL))?;
             retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
                 let text = self
-                    .get(url.clone())
+                    .get(url.as_str())
                     .send()
                     .and_then(|r| r.error_for_status()?.text());
                 match text {

@@ -5,7 +5,7 @@ use crate::errors::{
 use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
 use crate::service::session::owned_robots::OwnedRobots;
-use crate::service::USER_AGENT;
+use crate::service::{ResponseExt as _, USER_AGENT};
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::util::collections::NonEmptyIndexSet;
 use crate::util::indexmap::IndexSetAsRefStrExt as _;
@@ -614,11 +614,7 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
                 continue;
             }
 
-            let err = ServiceErrorKind::UnexpectedStatusCode(
-                res.url().to_owned(),
-                res.status(),
-                acceptable,
-            );
+            let err = ServiceErrorKind::UnexpectedStatusCode(res.url2(), res.status(), acceptable);
 
             break Err(if let Some(retry_after) = retry_after {
                 let msg = format!("The response contains `Retry-After: {}`", retry_after);
@@ -812,7 +808,7 @@ impl RequestBuilderBuilder {
     fn send(&self) -> impl Future<Item = reqwest::r#async::Response, Error = reqwest::Error> {
         let mut req = self
             .client
-            .request(self.method.clone(), self.url.clone())
+            .request(self.method.clone(), self.url.as_str())
             .headers(self.headers.clone());
         match &self.body {
             self::Body::None => {}
@@ -1099,6 +1095,7 @@ impl AutosavedCookieStore {
             let array = file.json::<Vec<serde_json::Value>>()?;
             let json_lines = array.iter().join("\n");
             CookieStore::load_json(BufReader::new(json_lines.as_bytes()))
+                .map_err(failure::err_msg)
                 .with_context(|_| FileErrorKind::Read(path.to_owned()))
                 .map_err(FileError::from)?
         };
@@ -1131,7 +1128,7 @@ impl AutosavedCookieStore {
         for setcookie in response.headers().get_all(header::SET_COOKIE) {
             // Ignores invalid cookies as `reqwest` does.
             if let Ok(cookie) = setcookie.to_str() {
-                inserted |= self.store.parse(cookie, response.url()).is_ok();
+                inserted |= self.store.parse(cookie, &response.url2()).is_ok();
             }
         }
         if inserted {

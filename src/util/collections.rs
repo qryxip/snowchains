@@ -137,7 +137,7 @@ impl<K: Eq + Hash, V> NonEmptyIndexMap<K, V> {
     }
 
     pub(crate) fn into_element(mut self, key: &(impl Hash + indexmap::Equivalent<K>)) -> Option<V> {
-        self.0.remove(key)
+        self.0.swap_remove(key)
     }
 }
 

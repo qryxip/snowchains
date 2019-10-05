@@ -1,5 +1,6 @@
 use crate::errors::{ServiceError, ServiceErrorKind, ServiceResult};
 use crate::service::session::Session;
+use crate::service::ResponseExt as _;
 use crate::signal::Sigwinch;
 use crate::terminal::HasTermProps;
 use crate::util::io::AsyncBufferedWriter;
@@ -324,7 +325,7 @@ impl<
                     Async::Ready(res) => {
                         if res.status() != 200 {
                             return Err(ServiceErrorKind::UnexpectedStatusCode(
-                                res.url().clone(),
+                                res.url2(),
                                 res.status(),
                                 btreeset![StatusCode::OK],
                             )
