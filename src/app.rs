@@ -22,336 +22,326 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
 #[derive(Debug, StructOpt)]
-#[structopt(usage = "snowchains <i|init> [FLAGS] [OPTIONS] [directory]\
-                     \n    snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]\
-                     \n    snowchains <l|login> [FLAGS] [OPTIONS] <service>\
-                     \n    snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>\
-                     \n    snowchains <d|download> [FLAGS] [OPTIONS]\
-                     \n    snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]\
-                     \n    snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]\
-                     \n    snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]\
-                     \n    snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>\
-                     \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>")]
+#[structopt(
+    author,
+    about,
+    usage(
+        "snowchains <i|init> [FLAGS] [OPTIONS] [directory]\
+         \n    snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]\
+         \n    snowchains <l|login> [FLAGS] [OPTIONS] <service>\
+         \n    snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>\
+         \n    snowchains <d|download> [FLAGS] [OPTIONS]\
+         \n    snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]\
+         \n    snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]\
+         \n    snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]\
+         \n    snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>\
+         \n    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>"
+    )
+)]
 pub enum Opt {
     #[structopt(
-        about = "Creates a config file (\"snowchains.toml\")",
-        name = "init",
-        usage = "snowchains <i|init> [FLAGS] [OPTIONS] [directory]",
-        raw(visible_alias = "\"i\"", display_order = "1")
+        visible_alias("i"),
+        display_order(1),
+        about("Creates a config file (\"snowchains.toml\")"),
+        usage("snowchains <i|init> [FLAGS] [OPTIONS] [directory]")
     )]
     Init(Init),
     #[structopt(
-        about = "Modifies values in a config file",
-        name = "switch",
-        usage = "snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]",
-        raw(visible_aliases = r#"&["w", "checkout", "c"]"#, display_order = "2")
+        visible_aliases(&["w", "checkout", "c"]),
+        display_order(2),
+        about("Modifies values in a config file"),
+        usage("snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]")
     )]
     Switch(Switch),
     #[structopt(
-        about = "Logges in to a service",
-        name = "login",
-        usage = "snowchains <l|login> [FLAGS] [OPTIONS] <service>",
-        raw(visible_alias = "\"l\"", display_order = "3")
+        visible_alias("l"),
+        display_order(3),
+        about("Logges in to a service"),
+        usage("snowchains <l|login> [FLAGS] [OPTIONS] <service>")
     )]
     Login(Login),
     #[structopt(
-        about = "Participates in a contest",
-        name = "participate",
-        usage = "snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>",
-        raw(visible_alias = "\"p\"", display_order = "4")
+        visible_alias("p"),
+        display_order(4),
+        about("Participates in a contest"),
+        usage("snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>")
     )]
     Participate(Participate),
     #[structopt(
-        about = "An alias for `retrieve testcases`",
-        name = "download",
-        usage = "snowchains <d|download> [FLAGS] [OPTIONS]",
-        raw(visible_alias = "\"d\"", display_order = "5")
+        visible_alias("d"),
+        display_order(5),
+        about("An alias for `retrieve testcases`"),
+        usage("snowchains <d|download> [FLAGS] [OPTIONS]")
     )]
     Download(RetrieveTestcases),
     #[structopt(
-        about = "Retrieves data",
-        name = "retrieve",
-        usage = "snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]\
-                 \n    snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]\
-                 \n    snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]",
-        raw(visible_alias = "\"r\"", display_order = "6")
+        visible_alias("r"),
+        display_order(6),
+        about("Retrieves data"),
+        usage(
+            "snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]\
+             \n    snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]\
+             \n    snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]"
+        )
     )]
     Retrieve(Retrieve),
     #[structopt(
-        about = "Tests a binary or script",
-        name = "judge",
-        usage = "snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>",
-        raw(visible_aliases = r#"&["j", "test", "t"]"#, display_order = "7")
+        visible_aliases(&["j", "test", "t"]),
+        display_order(7),
+        about("Tests a binary or script"),
+        usage("snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>")
     )]
     Judge(Judge),
     #[structopt(
-        about = "Submits a source file",
-        name = "submit",
-        usage = "snowchains <s|submit> [FLAGS] [OPTIONS] <problem>",
-        raw(visible_alias = "\"s\"", display_order = "8")
+        visible_alias("s"),
+        display_order(8),
+        about("Submits a source file"),
+        usage("snowchains <s|submit> [FLAGS] [OPTIONS] <problem>")
     )]
     Submit(Submit),
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Init {
-    #[structopt(raw(colorize = "1"))]
+    #[structopt(colorize(1))]
     colorize: bool,
-    #[structopt(raw(color_choice = "1"))]
+    #[structopt(color_choice(1))]
     color_choice: AnsiColorChoice,
     #[structopt(
-        help = "Directory to create a \"snowchains.toml\"",
         default_value = ".",
-        parse(from_os_str)
+        parse(from_os_str),
+        help("Directory to create a \"snowchains.toml\"")
     )]
     directory: PathBuf,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Switch {
-    #[structopt(raw(json = "1"))]
+    #[structopt(json(1))]
     json: bool,
-    #[structopt(raw(colorize = "2"))]
+    #[structopt(colorize(2))]
     colorize: bool,
-    #[structopt(raw(service = r#"&ServiceKind::variants(), Kind::Option(1)"#))]
+    #[structopt(service(&ServiceKind::variants(), Kind::Option(1)))]
     service: Option<ServiceKind>,
-    #[structopt(raw(contest = "Kind::Option(2)"))]
+    #[structopt(contest(Kind::Option(2)))]
     contest: Option<String>,
-    #[structopt(raw(language = "3"))]
+    #[structopt(language(3))]
     language: Option<String>,
-    #[structopt(raw(output = r#""pretty", &["pretty", "json"], 4"#))]
+    #[structopt(output("pretty", &["pretty", "json"], 4))]
     output: OutputKind,
-    #[structopt(raw(color_choice = "5"))]
+    #[structopt(color_choice(5))]
     color_choice: AnsiColorChoice,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Login {
-    #[structopt(raw(json = "1"))]
+    #[structopt(json(1))]
     pub json: bool,
-    #[structopt(raw(colorize = "2"))]
+    #[structopt(colorize(2))]
     pub colorize: bool,
-    #[structopt(raw(output = r#""pretty", &["pretty", "json"], 1"#))]
+    #[structopt(output("pretty", &["pretty", "json"], 1))]
     pub output: OutputKind,
-    #[structopt(raw(color_choice = "2"))]
+    #[structopt(color_choice(2))]
     pub color_choice: AnsiColorChoice,
-    #[structopt(raw(service = r#"&ServiceKind::variants_except_other(), Kind::Arg"#))]
+    #[structopt(service(&ServiceKind::variants_except_other(), Kind::Arg))]
     pub service: ServiceKind,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Participate {
-    #[structopt(raw(json = "1"))]
+    #[structopt(json(1))]
     json: bool,
-    #[structopt(raw(colorize = "2"))]
+    #[structopt(colorize(2))]
     colorize: bool,
-    #[structopt(raw(output = r#""pretty", &["pretty", "json"], 1"#))]
+    #[structopt(output("pretty", &["pretty", "json"], 1))]
     output: OutputKind,
-    #[structopt(raw(color_choice = "2"))]
+    #[structopt(color_choice(2))]
     color_choice: AnsiColorChoice,
-    #[structopt(raw(service = r#"&["atcoder", "codeforces"], Kind::Arg"#))]
+    #[structopt(service(&["atcoder", "codeforces"], Kind::Arg))]
     service: ServiceKind,
-    #[structopt(raw(contest = "Kind::Arg"))]
+    #[structopt(contest(Kind::Arg))]
     contest: String,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub enum Retrieve {
     #[structopt(
-        about = "Retrieves test cases",
-        name = "testcases",
-        usage = "snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]",
-        raw(visible_alias = "\"t\"", display_order = "1")
+        visible_alias("t"),
+        display_order(1),
+        about("Retrieves test cases"),
+        usage("snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]")
     )]
     Testcases(RetrieveTestcases),
     #[structopt(
-        about = "Retrieves available languages",
-        name = "languages",
-        usage = "snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]",
-        raw(visible_alias = "\"l\"", display_order = "2")
+        visible_alias("l"),
+        display_order(2),
+        about("Retrieves available languages"),
+        usage("snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]")
     )]
     Languages(RetrieveLanguages),
     #[structopt(
-        about = "Retrieves source files you have submitted",
-        name = "submissions",
-        usage = "snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]",
-        raw(visible_alias = "\"s\"", display_order = "3")
+        visible_alias("s"),
+        display_order(3),
+        about("Retrieves source files you have submitted"),
+        usage("snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]")
     )]
     Submissions(RetrieveSubmissions),
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct RetrieveTestcases {
-    #[structopt(
-        long = "full",
-        help = "Downloads full test cases",
-        raw(display_order = "1")
-    )]
+    #[structopt(display_order(1), help("Downloads full test cases"))]
     pub full: bool,
-    #[structopt(raw(no_save = "2"))]
+    #[structopt(no_save(2))]
     pub no_save: bool,
-    #[structopt(raw(open = "3"))]
+    #[structopt(open(3))]
     pub open: bool,
-    #[structopt(raw(verbose = "4"))]
+    #[structopt(verbose(4))]
     pub verbose: bool,
-    #[structopt(raw(json = "5"))]
+    #[structopt(json(5))]
     pub json: bool,
-    #[structopt(raw(colorize = "6"))]
+    #[structopt(colorize(6))]
     pub colorize: bool,
-    #[structopt(raw(service = r#"&ServiceKind::variants_except_other(), Kind::Option(1)"#))]
+    #[structopt(service(&ServiceKind::variants_except_other(), Kind::Option(1)))]
     pub service: Option<ServiceKind>,
-    #[structopt(raw(contest = "Kind::Option(2)"))]
+    #[structopt(contest(Kind::Option(2)))]
     pub contest: Option<String>,
-    #[structopt(raw(problems = "3"))]
+    #[structopt(problems(3))]
     pub problems: Vec<String>,
-    #[structopt(raw(output = r#""pretty", &["pretty", "json"], 4"#))]
+    #[structopt(output("pretty", &["pretty", "json"], 4))]
     pub output: OutputKind,
-    #[structopt(raw(color_choice = "5"))]
+    #[structopt(color_choice(5))]
     pub color_choice: AnsiColorChoice,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct RetrieveLanguages {
-    #[structopt(raw(json = "1"))]
+    #[structopt(json(1))]
     pub json: bool,
-    #[structopt(raw(colorize = "2"))]
+    #[structopt(colorize(2))]
     pub colorize: bool,
-    #[structopt(raw(service = "&ServiceKind::variants_except_other(), Kind::Option(1)"))]
+    #[structopt(service(&ServiceKind::variants_except_other(), Kind::Option(1)))]
     pub service: Option<ServiceKind>,
-    #[structopt(raw(contest = "Kind::Option(2)"))]
+    #[structopt(contest(Kind::Option(2)))]
     pub contest: Option<String>,
-    #[structopt(raw(output = r#""pretty", &["pretty", "json"], 3"#))]
+    #[structopt(output("pretty", &["pretty", "json"], 3))]
     pub output: OutputKind,
-    #[structopt(raw(color_choice = "4"))]
+    #[structopt(color_choice(4))]
     pub color_choice: AnsiColorChoice,
-    #[structopt(raw(problem = ""))]
+    #[structopt(problem())]
     pub problem: Option<String>,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct RetrieveSubmissions {
-    #[structopt(
-        long = "fetch-all",
-        help = "Fetches all of the code",
-        raw(display_order = "1")
-    )]
+    #[structopt(display_order(1), help("Fetches all of the code"))]
     pub fetch_all: bool,
-    #[structopt(raw(no_save = "2"))]
+    #[structopt(no_save(2))]
     pub no_save: bool,
-    #[structopt(raw(verbose = "3"))]
+    #[structopt(verbose(3))]
     pub verbose: bool,
-    #[structopt(raw(json = "4"))]
+    #[structopt(json(4))]
     pub json: bool,
-    #[structopt(raw(colorize = "5"))]
+    #[structopt(colorize(5))]
     pub colorize: bool,
-    #[structopt(raw(service = "&ServiceKind::variants_except_other(), Kind::Option(1)"))]
+    #[structopt(service(&ServiceKind::variants_except_other(), Kind::Option(1)))]
     pub service: Option<ServiceKind>,
-    #[structopt(raw(contest = "Kind::Option(2)"))]
+    #[structopt(contest(Kind::Option(2)))]
     pub contest: Option<String>,
-    #[structopt(raw(mode = "3, \"debug\""))]
+    #[structopt(mode(3, "debug"))]
     pub mode: config::Mode,
-    #[structopt(raw(problems = "4"))]
+    #[structopt(problems(4))]
     pub problems: Vec<String>,
-    #[structopt(raw(output = r#""pretty", &["pretty", "pretty-verbose", "json"], 5"#))]
+    #[structopt(output("pretty", &["pretty", "pretty-verbose", "json"], 5))]
     pub output: OutputKind,
-    #[structopt(raw(color_choice = "6"))]
+    #[structopt(color_choice(6))]
     pub color_choice: AnsiColorChoice,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Judge {
-    #[structopt(raw(force_compile = "1"))]
+    #[structopt(force_compile(1))]
     pub force_compile: bool,
     #[structopt(
-        long = "release",
-        raw(
-            help = "\"Equivalents to `--mode release`\"",
-            conflicts_with = "\"mode\"",
-            display_order = "2",
-        )
+        conflicts_with("mode"),
+        display_order(2),
+        help("Equivalents to `--mode release`")
     )]
     pub release: bool,
-    #[structopt(raw(verbose = "2"))]
+    #[structopt(verbose(3))]
     pub verbose: bool,
-    #[structopt(raw(json = "3"))]
+    #[structopt(json(4))]
     pub json: bool,
-    #[structopt(raw(colorize = "4"))]
+    #[structopt(colorize(5))]
     pub colorize: bool,
-    #[structopt(raw(service = "&ServiceKind::variants(), Kind::Option(1)"))]
+    #[structopt(service(&ServiceKind::variants(), Kind::Option(1)))]
     pub service: Option<ServiceKind>,
-    #[structopt(raw(contest = "Kind::Option(2)"))]
+    #[structopt(contest(Kind::Option(2)))]
     pub contest: Option<String>,
-    #[structopt(raw(language = "3"))]
+    #[structopt(language(3))]
     pub language: Option<String>,
-    #[structopt(raw(mode = "4, \"debug\""))]
+    #[structopt(mode(4, "debug"))]
     pub mode: config::Mode,
-    #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "5"))]
+    #[structopt(parse(try_from_str = parse_non_zero_usize), jobs(5))]
     pub jobs: Option<NonZeroUsize>,
-    #[structopt(raw(output = r#""pretty", &["pretty", "pretty-verbose", "json"], 6"#))]
+    #[structopt(output("pretty", &["pretty", "pretty-verbose", "json"], 6))]
     pub output: OutputKind,
-    #[structopt(raw(color_choice = "7"))]
+    #[structopt(color_choice(7))]
     pub color_choice: AnsiColorChoice,
-    #[structopt(raw(problem = ""))]
+    #[structopt(problem())]
     pub problem: String,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Submit {
-    #[structopt(raw(open = "1"))]
+    #[structopt(open(1))]
     pub open: bool,
-    #[structopt(raw(conflicts_with = "\"no_judge\"", force_compile = "2"))]
+    #[structopt(conflicts_with("no_judge"), force_compile(2))]
     pub force_compile: bool,
     #[structopt(
-        long = "only-transpile",
-        help = "Transpile the source code but not compile",
-        raw(conflicts_with = "\"no_judge\"", display_order = "3")
+        conflicts_with("no_judge"),
+        display_order(3),
+        help("Transpile the source code but not compile")
     )]
     pub only_transpile: bool,
     #[structopt(
-        long = "no-judge",
-        help = "Skips testing",
-        raw(
-            conflicts_with_all = r#"&["force_compile", "only_transpile"]"#,
-            display_order = "4"
-        )
+        conflicts_with_all(&["force_compile", "only_transpile"]),
+        display_order(4),
+        help("Skips testing")
     )]
     pub no_judge: bool,
     #[structopt(
-        long = "debug",
-        raw(
-            help = "\"Equivalents to `--mode debug`\"",
-            conflicts_with = "\"mode\"",
-            display_order = "5",
-        )
+        conflicts_with("mode"),
+        display_order(5),
+        help("Equivalents to `--mode debug`")
     )]
     pub debug: bool,
     #[structopt(
-        long = "no-check-duplication",
-        help = "Submits even if the contest is active and you have already solved the problem",
-        raw(display_order = "6")
+        display_order(6),
+        help("Submits even if the contest is active and you have already solved the problem")
     )]
     pub no_check_duplication: bool,
-    #[structopt(raw(verbose = "7"))]
+    #[structopt(verbose(7))]
     pub verbose: bool,
-    #[structopt(raw(json = "8"))]
+    #[structopt(json(8))]
     pub json: bool,
-    #[structopt(raw(colorize = "9"))]
+    #[structopt(colorize(9))]
     pub colorize: bool,
-    #[structopt(raw(service = "&ServiceKind::variants_except_other(), Kind::Option(1)"))]
+    #[structopt(service(&ServiceKind::variants_except_other(), Kind::Option(1)))]
     pub service: Option<ServiceKind>,
-    #[structopt(raw(contest = "Kind::Option(2)"))]
+    #[structopt(contest(Kind::Option(2)))]
     pub contest: Option<String>,
-    #[structopt(raw(language = "3"))]
+    #[structopt(language(3))]
     pub language: Option<String>,
-    #[structopt(raw(mode = "4, \"release\""))]
+    #[structopt(mode(4, "release"))]
     pub mode: config::Mode,
-    #[structopt(parse(try_from_str = "parse_non_zero_usize"), raw(jobs = "5"))]
+    #[structopt(parse(try_from_str = parse_non_zero_usize), jobs(5))]
     pub jobs: Option<NonZeroUsize>,
-    #[structopt(raw(output = r#""pretty", &["pretty", "pretty-verbose", "json"], 6"#))]
+    #[structopt(output("pretty", &["pretty", "pretty-verbose", "json"], 6))]
     pub output: OutputKind,
-    #[structopt(raw(color_choice = "7"))]
+    #[structopt(color_choice(7))]
     pub color_choice: AnsiColorChoice,
-    #[structopt(raw(problem = ""))]
+    #[structopt(problem())]
     pub problem: String,
 }
 
@@ -997,13 +987,11 @@ mod tests {
     fn verbose_json_and_output_conflict_with_each_other() {
         #[derive(Debug, StructOpt, new)]
         struct Opt {
-            #[structopt(raw(verbose = "1"))]
+            #[structopt(verbose(1))]
             verbose: bool,
-            #[structopt(raw(json = "2"))]
+            #[structopt(json(2))]
             json: bool,
-            #[structopt(raw(
-                output = r#""none", &["none", "pretty", "pretty-verbose", "json"], 1"#
-            ))]
+            #[structopt(output("none", &["none", "pretty", "pretty-verbose", "json"], 1))]
             output: OutputKind,
         }
 

@@ -533,7 +533,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             };
 
             for (name, in_contents) in in_contents {
-                if let Some(out_contents) = out_contents.remove(&name) {
+                if let Some(out_contents) = out_contents.shift_remove(&name) {
                     let dir = destinations.text_file_dir(&problem.slug)?;
                     let in_location = dir.join("in").join(&name).with_extension("txt");
                     let out_location = dir.join("out").join(&name).with_extension("txt");
@@ -1274,7 +1274,7 @@ impl Extract for Html {
 
     fn extract_contest_duration(&self) -> ScrapeResult<(DateTime<Utc>, DateTime<Utc>)> {
         fn extract(this: &Html) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
-            static FORMAT: &'static str = "%F %T%z";
+            static FORMAT: &str = "%F %T%z";
             let mut it = this.select(selector!("time"));
             let t1 = it.next()?.text().next()?;
             let t2 = it.next()?.text().next()?;
@@ -1306,7 +1306,7 @@ impl Extract for Html {
                     static SLUG: &Lazy<Regex> = lazy_regex!(r"\A(\w+).*\z");
                     static SCREEN: &Lazy<Regex> =
                         lazy_regex!(r"\A/contests/[\w-]+/tasks/([\w-]+)\z");
-                    static DATETIME: &'static str = "%F %T%z";
+                    static DATETIME: &str = "%F %T%z";
                     let a = tr.select(selector!("td > a")).nth(0)?;
                     let task_display = a.text().next()?.to_owned();
                     let task_slug = SLUG.captures(&task_display)?[1].to_owned();
@@ -1588,7 +1588,7 @@ mod tests {
             url.set_path(path);
             retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
                 let text = self
-                    .get(url.clone())
+                    .get(url.as_str())
                     .send()
                     .and_then(|r| r.error_for_status()?.text());
                 match text {

@@ -37,7 +37,7 @@ use regex::Regex;
 use reqwest::RedirectPolicy;
 use serde::ser::SerializeMap as _;
 use serde::{Serialize, Serializer};
-use strum_macros::IntoStaticStr;
+use strum::IntoStaticStr;
 use termcolor::WriteColor;
 use tokio::runtime::Runtime;
 use url::Url;
@@ -199,6 +199,28 @@ impl Default for ServiceKind {
 }
 
 pub(self) static USER_AGENT: &str = "snowchains <https://github.com/qryxip/snowchains>";
+
+pub(self) trait Url1Ext {
+    fn to_url2(&self) -> Url;
+}
+
+impl Url1Ext for url1::Url {
+    fn to_url2(&self) -> Url {
+        self.as_str()
+            .parse()
+            .unwrap_or_else(|e| unimplemented!("{:?}", e))
+    }
+}
+
+pub(self) trait ResponseExt {
+    fn url2(&self) -> Url;
+}
+
+impl ResponseExt for reqwest::r#async::Response {
+    fn url2(&self) -> Url {
+        self.url().to_url2()
+    }
+}
 
 pub(self) trait ExtractZip {
     type Write: WriteColor;
