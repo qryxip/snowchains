@@ -1,11 +1,11 @@
 # Snowchains
 
 [![CI](https://github.com/qryxip/snowchains/workflows/CI/badge.svg)](https://github.com/qryxip/snowchains/actions?workflow=CI)
+[![Crates.io](https://img.shields.io/crates/v/snowchains.svg)](https://crates.io/crates/snowchains)
+[![Crates.io](https://img.shields.io/crates/l/snowchains.svg)](https://crates.io/crates/snowchains)
 <!-- [![codecov](https://codecov.io/gh/qryxip/snowchains/branch/master/graph/badge.svg)](https://codecov.io/gh/qryxip/snowchains/branch/master) -->
 <!-- https://github.com/srijs/deps.rs/pull/33 -->
 <!-- [![dependency status](https://deps.rs/repo/github/qryxip/snowchains/status.svg)](https://deps.rs/repo/github/qryxip/snowchains) -->
-[![Crates.io](https://img.shields.io/crates/v/snowchains.svg)](https://crates.io/crates/snowchains)
-[![Crates.io](https://img.shields.io/crates/l/snowchains.svg)](https://crates.io/crates/snowchains)
 
 Tools for online programming contests.
 
