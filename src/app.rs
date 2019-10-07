@@ -190,7 +190,7 @@ pub enum Retrieve {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct RetrieveTestcases {
-    #[structopt(display_order(1), help("Downloads full test cases"))]
+    #[structopt(long, display_order(1), help("Downloads full test cases"))]
     pub full: bool,
     #[structopt(no_save(2))]
     pub no_save: bool,
@@ -234,7 +234,7 @@ pub struct RetrieveLanguages {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct RetrieveSubmissions {
-    #[structopt(display_order(1), help("Fetches all of the code"))]
+    #[structopt(long, display_order(1), help("Fetches all of the code"))]
     pub fetch_all: bool,
     #[structopt(no_save(2))]
     pub no_save: bool,
@@ -263,6 +263,7 @@ pub struct Judge {
     #[structopt(force_compile(1))]
     pub force_compile: bool,
     #[structopt(
+        long,
         conflicts_with("mode"),
         display_order(2),
         help("Equivalents to `--mode release`")
@@ -299,24 +300,28 @@ pub struct Submit {
     #[structopt(conflicts_with("no_judge"), force_compile(2))]
     pub force_compile: bool,
     #[structopt(
+        long,
         conflicts_with("no_judge"),
         display_order(3),
         help("Transpile the source code but not compile")
     )]
     pub only_transpile: bool,
     #[structopt(
+        long,
         conflicts_with_all(&["force_compile", "only_transpile"]),
         display_order(4),
         help("Skips testing")
     )]
     pub no_judge: bool,
     #[structopt(
+        long,
         conflicts_with("mode"),
         display_order(5),
         help("Equivalents to `--mode debug`")
     )]
     pub debug: bool,
     #[structopt(
+        long,
         display_order(6),
         help("Submits even if the contest is active and you have already solved the problem")
     )]
