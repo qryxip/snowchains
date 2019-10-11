@@ -1,4 +1,4 @@
-use futures::{task, try_ready, Async, Poll};
+use futures01::{task, try_ready, Async, Poll};
 use termcolor::{Color, ColorSpec};
 use tokio::io::AsyncWrite;
 

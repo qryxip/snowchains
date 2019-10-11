@@ -8,7 +8,7 @@ use crate::util;
 use crate::util::collections::NonEmptyVec;
 
 use derive_new::new;
-use futures::{task, try_ready, Async, Future, Poll, Stream};
+use futures01::{task, try_ready, Async, Future, Poll, Stream};
 use serde::Serialize;
 use termcolor::{Color, ColorSpec, WriteColor};
 use tokio::io::{AsyncRead, AsyncWrite};

@@ -13,7 +13,7 @@ use crate::testsuite::{BatchCase, InteractiveCase, TestCase, TestCases};
 use crate::util::collections::NonEmptyVec;
 use crate::util::io::AsyncBufferedWriter;
 
-use futures::{task, try_ready, Async, Future, Poll};
+use futures01::{task, try_ready, Async, Future, Poll};
 use serde::{Serialize, Serializer};
 use termcolor::{ColorSpec, WriteColor};
 use tokio::io::AsyncWrite;

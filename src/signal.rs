@@ -1,4 +1,4 @@
-use futures::{Async, Poll, Stream};
+use futures01::{Async, Poll, Stream};
 
 use std::io;
 use std::sync::atomic::{self, AtomicBool};
@@ -48,7 +48,7 @@ impl Stream for Sigwinch {
     #[cfg(unix)]
     #[inline]
     fn poll(&mut self) -> Poll<Option<()>, io::Error> {
-        use futures::try_ready;
+        use futures01::try_ready;
 
         try_ready!(self.0.poll());
         Ok(Async::Ready(Some(())))
