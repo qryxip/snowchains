@@ -12,7 +12,7 @@ use crate::util::indexmap::IndexSetAsRefStrExt as _;
 
 use cookie_store::CookieStore;
 use failure::{Fail, ResultExt as _};
-use futures::{task, try_ready, Async, Future, Poll, Stream as _};
+use futures01::{task, try_ready, Async, Future, Poll, Stream as _};
 use http::{HttpTryFrom, Uri};
 use if_chain::if_chain;
 use indexmap::IndexSet;
@@ -1236,7 +1236,7 @@ mod tests {
     use crate::terminal::{AnsiWithProps, Dumb, TtyOrPiped};
 
     use failure::Fallible;
-    use futures::Future as _;
+    use futures01::Future as _;
     use http::Uri;
     use if_chain::if_chain;
     use maplit::{btreeset, hashmap};
