@@ -259,14 +259,14 @@ Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_c
                 let stderr = self.stderr();
                 if !not_found.is_empty() {
                     stderr.set_color(color!(fg(Yellow), intense))?;
-                    write!(stderr, "Not found: {:?}", not_found)?;;
+                    write!(stderr, "Not found: {:?}", not_found)?;
                     stderr.reset()?;
                     writeln!(stderr)?;
                     stderr.flush()?;
                 }
                 if !not_public.is_empty() {
                     stderr.set_color(color!(fg(Yellow), intense))?;
-                    write!(stderr, "Not public: {:?}", not_public)?;;
+                    write!(stderr, "Not public: {:?}", not_public)?;
                     stderr.reset()?;
                     writeln!(stderr)?;
                     stderr.flush()?;
