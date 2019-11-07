@@ -14,7 +14,7 @@ proc-macro = true
 [dependencies]
 heck = "0.3.1"
 if_chain = "1.0.0"
-itertools = "0.8.0"
-proc-macro2 = "1.0.5"
+itertools = "0.8.1"
+proc-macro2 = "1.0.6"
 quote = "1.0.2"
-syn = { version = "1.0.5", features = ["full", "extra-traits"] }
+syn = { version = "1.0.7", features = ["full", "extra-traits"] }
