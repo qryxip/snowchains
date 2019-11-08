@@ -351,8 +351,8 @@ impl Template<JudgingCommand> {
 
         let wd = working_dir.expand_as_path(base_dir, &vars, &envs)?;
         let src = src.expand_as_path(base_dir, &vars, &envs)?;
-        vars.insert("src", src.clone().into());
-        envs.insert("SNOWCHAINS_SRC".into(), src.clone().into());
+        vars.insert("src", (&src).into());
+        envs.insert("SNOWCHAINS_SRC".into(), src.into());
         let transpiled = transpiled
             .as_ref()
             .map(|TemplateBuilder(transpiled)| transpiled.expand_as_path(base_dir, &vars, &envs))
