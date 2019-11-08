@@ -121,9 +121,9 @@ jobs:
         id: cargo_test_targets
         run: |
           if ${{ !!secrets }}; then
-            echo '::set-output name=targets::--workspace --lib --test batch'
-          else
             echo '::set-output name=targets::--workspace --all-targets'
+          else
+            echo '::set-output name=targets::--workspace --lib --test batch'
           fi
         shell: bash
 
