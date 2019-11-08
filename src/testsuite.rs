@@ -424,14 +424,14 @@ impl BatchSuite {
                     Some(name) => format!("{}[{}]: {:?}", filename, i, name),
                 };
                 let input = match case.input {
-                    BatchSuiteText::String(input) => input.clone(),
+                    BatchSuiteText::String(input) => input,
                     BatchSuiteText::Path { path } => {
                         Arc::new(crate::fs::read_to_string(&dir.join(path))?)
                     }
                 };
                 let output = match case.output {
                     None => None,
-                    Some(BatchSuiteText::String(output)) => Some(output.clone()),
+                    Some(BatchSuiteText::String(output)) => Some(output),
                     Some(BatchSuiteText::Path { path }) => {
                         Some(Arc::new(crate::fs::read_to_string(&dir.join(path))?))
                     }

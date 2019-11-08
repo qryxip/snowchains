@@ -482,7 +482,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
 
         let mut values = html.extract_hidden_values(selector!("form.submit-form"))?;
         values.insert("contestId".to_owned(), contest.id.to_string());
-        values.insert("submittedProblemIndex".to_owned(), problem.clone());
+        values.insert("submittedProblemIndex".to_owned(), problem);
         values.insert("tabSize".to_owned(), "4".to_owned());
         values.insert("programTypeId".to_owned(), lang_id.clone());
         values.insert("source".to_owned(), code.clone());
