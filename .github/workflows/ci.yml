@@ -219,7 +219,7 @@ jobs:
         shell: bash
 
       - name: GH Release
-        uses: softprops/action-gh-release@v0.1.0
+        uses: softprops/action-gh-release@v1
         with:
           files: ${{ steps.asset.outputs.asset }}
         env:
