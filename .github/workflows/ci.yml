@@ -98,7 +98,7 @@ jobs:
       # - name: '`cargo clippy`'
       #   run: |
       #     # Avoid IRC
-      #     cargo check --all --all-targets --all-features --target ${{ matrix.target_triple }}
+      #     cargo check --workspace --all-targets --all-features --target ${{ matrix.target_triple }}
       #     if ${{ matrix.os == 'windows-2019' }}; then
       #       TO_UNIX_PATHS='xargs cygpath -u'
       #     else
@@ -108,22 +108,22 @@ jobs:
       #       jq -r '.workspace_members[] as $members | .packages[] | select(.id == $members) | .targets[].src_path' |
       #       $TO_UNIX_PATHS |
       #       xargs touch
-      #     cargo clippy --all --all-targets --all-features --target ${{ matrix.target_triple }} -- -D warnings
+      #     cargo clippy --workspace --all-targets --all-features --target ${{ matrix.target_triple }} -- -D warnings
       #   shell: bash
 
       - name: '`cargo clippy`'
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --all --all-targets --all-features --target ${{ matrix.target_triple }} -- -D warnings
+          args: --workspace --all-targets --all-features --target ${{ matrix.target_triple }} -- -D warnings
 
       - name: Determine `cargo test` targets
         id: cargo_test_targets
         run: |
           if ${{ !!secrets }}; then
-            echo '::set-output name=targets::--all --lib --test batch'
+            echo '::set-output name=targets::--workspace --lib --test batch'
           else
-            echo '::set-output name=targets::--all --all-targets'
+            echo '::set-output name=targets::--workspace --all-targets'
           fi
         shell: bash
 
