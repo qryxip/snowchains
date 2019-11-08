@@ -202,8 +202,9 @@ jobs:
           if ${{ contains(matrix.target_triple, 'pc-windows') }}; then
             EXE=.exe
           fi
-          EXECUTABLE="./target/${{ matrix.target_triple }}/release/${GITHUB_REPOSITORY#*/}$EXE"
-          ASSET_STEM="${GITHUB_REPOSITORY#*/}-${GITHUB_REF#refs/tags/}-${{ matrix.target_triple }}"
+          BIN_TARGET=snowchains
+          EXECUTABLE="./target/${{ matrix.target_triple }}/release/$BIN_TARGET$EXE"
+          ASSET_STEM="BIN_TARGET-${GITHUB_REF#refs/tags/}-${{ matrix.target_triple }}"
           git archive -o "./$ASSET_STEM.tar" --prefix "$ASSET_STEM/" HEAD
           tar -xf "./$ASSET_STEM.tar"
           mv "$EXECUTABLE" ./Cargo.lock "./$ASSET_STEM/"
