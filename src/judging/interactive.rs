@@ -185,7 +185,7 @@ impl<O: AsyncRead, I: AsyncWrite> Stream for Pipe<O, I> {
                         }
                     }
                     let elapsed = Instant::now() - *start;
-                    let output = string_from_utf8(mem::replace(buf, Vec::with_capacity(0)))?;
+                    let output = string_from_utf8(mem::take(buf))?;
                     let output = if *crlf_to_lf && output.contains("\r\n") {
                         Text::new(Arc::new(output.replace("\r\n", "\n")))
                     } else {
@@ -255,7 +255,7 @@ impl<R: AsyncRead> Stream for Reading<R> {
             Async::Ready(0) if self.buf.is_empty() => Ok(Async::Ready(None)),
             Async::Ready(0) => {
                 let elapsed = Instant::now() - self.start;
-                let output = string_from_utf8(mem::replace(&mut self.buf, Vec::with_capacity(0)))?;
+                let output = string_from_utf8(mem::take(&mut self.buf))?;
                 let output = if self.crlf_to_lf && output.contains("\r\n") {
                     Text::new(Arc::new(output.replace("\r\n", "\n")))
                 } else {

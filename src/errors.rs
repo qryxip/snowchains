@@ -99,7 +99,7 @@ pub enum ServiceErrorKind {
     ServiceIsOther,
     #[display(
         fmt = "Received non UTF-8 content (encoding = {:?})",
-        r#"_0.as_ref().map(String::as_str).unwrap_or("<none>")"#
+        r#"_0.as_deref().unwrap_or("<none>")"#
     )]
     NonUtf8Content(Option<String>),
     #[display(fmt = "Failed to parse a URL: {:?}", _0)]
@@ -485,7 +485,7 @@ impl fmt::Debug for Messages {
 
 impl Fail for Messages {
     fn cause(&self) -> Option<&dyn Fail> {
-        self.next.as_ref().map(|n| n.as_ref() as &dyn Fail)
+        self.next.as_deref().map(|next| next as &dyn Fail)
     }
 }
 

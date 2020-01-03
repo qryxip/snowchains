@@ -298,7 +298,7 @@ pub(self) trait ExtractZip {
             .collect::<ZipResult<()>>()
             .with_context(|_| FileErrorKind::ReadZip)?;
 
-        let mut cases = mem::replace::<HashMap<_, _>>(&mut pairs.lock().unwrap(), hashmap!())
+        let mut cases = mem::take::<HashMap<_, _>>(&mut pairs.lock().unwrap())
             .into_iter()
             .filter_map(|(name, (input, output))| match (input, output) {
                 (Some(input), Some(output)) => Some((name, input, output)),
@@ -538,7 +538,7 @@ impl Outcome for RetrieveTestCasesOutcome {
                 .unwrap_or(0);
             let text_dir_max_width = lines
                 .iter()
-                .flat_map(|(_, _, _, _, _, s)| s.as_ref().map(|s| str_width(s)))
+                .flat_map(|(_, _, _, _, _, s)| s.as_deref().map(str_width))
                 .max()
                 .unwrap_or(0);
 

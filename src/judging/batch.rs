@@ -207,7 +207,7 @@ impl<R: AsyncRead> Reading<R> {
                 let s = match self {
                     Reading::Ready(_) => unreachable!(),
                     Reading::NotReady(_, buf, crlf_to_lf) => {
-                        let s = string_from_utf8(mem::replace(buf, vec![]))?;
+                        let s = string_from_utf8(mem::take(buf))?;
                         if *crlf_to_lf && s.contains("\r\n") {
                             s.replace("\r\n", "\n")
                         } else {
@@ -228,7 +228,7 @@ impl<R: AsyncRead> Reading<R> {
     fn unwrap(&mut self) -> String {
         match self {
             Reading::NotReady(..) => panic!(),
-            Reading::Ready(s) => mem::replace(s, "".to_owned()),
+            Reading::Ready(s) => mem::take(s),
         }
     }
 }
@@ -250,7 +250,7 @@ impl CommandOutcome {
         let stderr = Text::new(self.stderr.clone());
         let (expected, example, float_errors) = match expected {
             ExpectedStdout::Any { example } => {
-                let example = example.as_ref().map(Clone::clone).map(Text::new);
+                let example = example.clone().map(Text::new);
                 (None, example, None)
             }
             ExpectedStdout::Exact(expected) => (Some(expected.clone()), None, None),

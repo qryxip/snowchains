@@ -22,7 +22,7 @@ use tokio::runtime::Runtime;
 use std::fmt::{self, Write as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::{io, mem, str, vec};
+use std::{io, mem, str};
 
 pub(crate) fn only_transpile(
     stdout: impl HasTermProps,
@@ -134,7 +134,7 @@ pub(crate) fn judge(
             try_ready!(self.bufwtr.poll_flush_buf());
 
             if self.processes.iter().all(|(_, p)| p.is_finished()) && !newly_finished {
-                let verdicts = mem::replace(&mut self.processes, vec![])
+                let verdicts = mem::take(&mut self.processes)
                     .into_iter()
                     .map(|(_, v)| v.finished().unwrap())
                     .collect();

@@ -898,7 +898,7 @@ impl<M: StaticMethod> Response<M> {
                     task::current().notify();
                     Ok(Async::NotReady)
                 } else {
-                    Ok(Async::Ready(mem::replace(&mut self.buf, vec![])))
+                    Ok(Async::Ready(mem::take(&mut self.buf)))
                 }
             }
         }

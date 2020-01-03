@@ -351,7 +351,7 @@ impl<
                         None
                     }
                     Async::Ready(None) => {
-                        let buf = mem::replace(&mut progress.buf, vec![]);
+                        let buf = mem::take(&mut progress.buf);
                         let time = Instant::now() - self.started;
                         Some(Progress::Finished { buf, time })
                     }
@@ -417,7 +417,7 @@ impl<
                     .iter_mut()
                     .map(|(_, progress)| match progress {
                         Progress::Response(_) | Progress::Body(_) => unreachable!(),
-                        Progress::Finished { buf, .. } => mem::replace(buf, vec![]),
+                        Progress::Finished { buf, .. } => mem::take(buf),
                     })
                     .collect(),
             )),

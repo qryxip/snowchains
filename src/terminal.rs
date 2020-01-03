@@ -421,7 +421,7 @@ impl<W: AnsiStandardOutput> AttemptEnableColor for AnsiStandardStream<W> {
             use winapi::um::wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
 
             let term = env::var("TERM");
-            let term = term.as_ref().map(String::as_str);
+            let term = term.as_deref();
             if term == Ok("dumb") || term == Ok("cygwin") {
                 false
             } else if env::var_os("MSYSTEM").is_some() && term.is_ok() {
