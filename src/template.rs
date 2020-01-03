@@ -596,8 +596,7 @@ impl FromStr for Tokens {
         use combine::stream::state::{IndexPositioner, State};
         use combine::{choice, easy, eof, many, many1, satisfy, Parser};
 
-        static GRAMMER: &str =
-            r#"Template      ::= ( Plain | LeftCurly | RightCurly | DollarOrExpr )*
+        static GRAMMER: &str = r#"Template      ::= ( Plain | LeftCurly | RightCurly | DollarOrExpr )*
 Plain         ::= [^${}]+
 LeftCurly     ::= '{{'
 RightCurly    ::= '}}'

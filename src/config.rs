@@ -96,8 +96,7 @@ fn generate_toml() -> String {
     static VENV_PYPY3: &str = "\"../../../venvs/pypy3_${service}/Scripts/python.exe\"";
 
     #[cfg(not(windows))]
-    static CSHARP: &str =
-        r#"[languages.'c#']
+    static CSHARP: &str = r#"[languages.'c#']
 src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
 bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/${pascal_case(problem)}.exe"
 compile = ["mcs", "-o+", "-r:System.Numerics", "-out:${bin}", "${src}"]
@@ -109,8 +108,7 @@ atcoder = "C# (Mono 4.6.2.0)"
 codeforces = "C# Mono 5.18"
 yukicoder = "C#(mono) (mono 5.16.0.187)""#;
     #[cfg(windows)]
-    static CSHARP: &str =
-        r#"[languages.'c#']
+    static CSHARP: &str = r#"[languages.'c#']
 src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
 bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/${pascal_case(problem)}.exe"
 compile = ["csc", "/o+", "/r:System.Numerics", "/out:${bin}", "${src}"]
@@ -218,16 +216,12 @@ yukicoder = "C# (csc 2.8.2.62916)""#;
         let (shell, transpile_java, transpile_scala);
         if cfg!(windows) && !bash_found {
             shell = "ps";
-            transpile_java =
-                r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("class\s+${Env:SNOWCHAINS_PROBLEM_PASCAL_CASE}", "class Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
-            transpile_scala =
-                r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("object\s+${Env:SNOWCHAINS_PROBLEM_PASCAL_CASE}", "object Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
+            transpile_java = r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("class\s+${Env:SNOWCHAINS_PROBLEM_PASCAL_CASE}", "class Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
+            transpile_scala = r#"ps = 'Get-Content "${Env:SNOWCHAINS_SRC}" | ForEach-Object { $_.Replace("object\s+${Env:SNOWCHAINS_PROBLEM_PASCAL_CASE}", "object Main") } | sc "${Env:SNOWCHAINS_TRANSPILED}"'"#;
         } else {
             shell = "bash";
-            transpile_java =
-                r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/class Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
-            transpile_scala =
-                r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/object Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
+            transpile_java = r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/class Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
+            transpile_scala = r#"bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/object Main/g" > "$SNOWCHAINS_TRANSPILED"'"#;
         };
 
         (
