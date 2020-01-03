@@ -1,5 +1,9 @@
+#![allow(unused_parens)]
+use crate::util;
+
 use snowchains_proc_macros::ArgEnum;
 
+use derivative::Derivative;
 use either::Either;
 use serde::Serialize;
 use termcolor::{Ansi, ColorSpec, NoColor, WriteColor};
@@ -236,7 +240,10 @@ impl<W: AsyncWrite + Send + 'static> fmt::Debug for TermProps<W> {
 pub type Dumb = WriterWithProps<NoColor<Vec<u8>>>;
 pub type AnsiWithProps = WriterWithProps<Ansi<Vec<u8>>>;
 
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct WriterWithProps<W: WriteColor> {
+    #[derivative(Debug(format_with = "util::fmt::underscore"))]
     wtr: W,
     props: TermProps<Sink>,
 }
@@ -250,15 +257,6 @@ impl<W: Write + Default> WriterWithProps<NoColor<W>> {
 impl<W: Write + Default> WriterWithProps<Ansi<W>> {
     pub fn new() -> Self {
         Self::default()
-    }
-}
-
-impl<W: WriteColor> fmt::Debug for WriterWithProps<W> {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.debug_struct("Writer")
-            .field("wtr", &format_args!("_")) // `Ansi` and `NoColor` are not `Debug`
-            .field("props", &self.props)
-            .finish()
     }
 }
 
@@ -371,6 +369,7 @@ impl<W: AnsiStandardOutput> AnsiStandardStream<W> {
     }
 }
 
+// <https://github.com/mcarton/rust-derivative/issues/55>
 impl<W: AnsiStandardOutput + fmt::Debug> fmt::Debug for AnsiStandardStream<W> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         let wtr = match &self.wtr {
