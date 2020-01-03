@@ -1,4 +1,5 @@
 use derivative::Derivative;
+use ref_cast::RefCast;
 use serde::{Serialize, Serializer};
 
 use std::borrow::{Borrow, Cow};
@@ -7,7 +8,7 @@ use std::ops::Deref;
 use std::path::{Component, Path, PathBuf};
 use std::{env, io};
 
-#[derive(PartialEq, Derivative)]
+#[derive(PartialEq, Derivative, RefCast)]
 #[derivative(Debug = "transparent")]
 #[repr(transparent)]
 pub struct AbsPath {
@@ -16,7 +17,7 @@ pub struct AbsPath {
 
 impl AbsPath {
     fn unchecked(path: &Path) -> &Self {
-        unsafe { &*(path as *const Path as *const Self) }
+        Self::ref_cast(path)
     }
 
     #[cfg(test)]
