@@ -47,17 +47,17 @@ jobs:
             channel: stable
             target_triple: x86_64-pc-windows-msvc
             host_triple: x86_64-pc-windows-msvc
-            os: windows-2019
+            os: windows-latest
           - name: stable-x86_64-pc-windows-gnu
             channel: stable
             target_triple: x86_64-pc-windows-gnu
             host_triple: x86_64-pc-windows-gnu
-            os: windows-2019
+            os: windows-latest
           - name: stable-x86_64-apple-darwin
             channel: stable
             target_triple: x86_64-apple-darwin
             host_triple: x86_64-apple-darwin
-            os: macOS-10.14
+            os: macos-latest
           - name: stable-x86_64-unknown-linux-gnu
             channel: stable
             target_triple: x86_64-unknown-linux-gnu
@@ -99,7 +99,7 @@ jobs:
       #   run: |
       #     # Avoid IRC
       #     cargo check --workspace --all-targets --all-features --target ${{ matrix.target_triple }}
-      #     if ${{ matrix.os == 'windows-2019' }}; then
+      #     if ${{ matrix.os == 'windows-latest' }}; then
       #       TO_UNIX_PATHS='xargs cygpath -u'
       #     else
       #       TO_UNIX_PATHS=cat
@@ -156,13 +156,13 @@ jobs:
         include:
           - target_triple: x86_64-pc-windows-msvc
             host_triple: x86_64-pc-windows-msvc
-            os: windows-2019
+            os: windows-latest
           - target_triple: x86_64-pc-windows-gnu
             host_triple: x86_64-pc-windows-gnu
-            os: windows-2019
+            os: windows-latest
           - target_triple: x86_64-apple-darwin
             host_triple: x86_64-apple-darwin
-            os: macOS-10.14
+            os: macos-latest
           - target_triple: x86_64-unknown-linux-gnu
             host_triple: x86_64-unknown-linux-gnu
             os: ubuntu-18.04
