@@ -14,7 +14,7 @@ use snowchains_proc_macros::ArgEnum;
 
 use indexmap::IndexMap;
 use serde::Serialize;
-use structopt::clap::Arg;
+use structopt::clap::{AppSettings, Arg};
 use structopt::StructOpt;
 use termcolor::WriteColor;
 
@@ -25,6 +25,7 @@ use std::path::PathBuf;
 #[structopt(
     author,
     about,
+    global_setting(AppSettings::DeriveDisplayOrder),
     usage(
         "snowchains <i|init> [FLAGS] [OPTIONS] [directory]\
          \n    snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]\
@@ -41,42 +42,36 @@ use std::path::PathBuf;
 pub enum Opt {
     #[structopt(
         visible_alias("i"),
-        display_order(1),
         about("Creates a config file (\"snowchains.toml\")"),
         usage("snowchains <i|init> [FLAGS] [OPTIONS] [directory]")
     )]
     Init(Init),
     #[structopt(
         visible_aliases(&["w", "checkout", "c"]),
-        display_order(2),
         about("Modifies values in a config file"),
         usage("snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]")
     )]
     Switch(Switch),
     #[structopt(
         visible_alias("l"),
-        display_order(3),
         about("Logges in to a service"),
         usage("snowchains <l|login> [FLAGS] [OPTIONS] <service>")
     )]
     Login(Login),
     #[structopt(
         visible_alias("p"),
-        display_order(4),
         about("Participates in a contest"),
         usage("snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>")
     )]
     Participate(Participate),
     #[structopt(
         visible_alias("d"),
-        display_order(5),
         about("An alias for `retrieve testcases`"),
         usage("snowchains <d|download> [FLAGS] [OPTIONS]")
     )]
     Download(RetrieveTestcases),
     #[structopt(
         visible_alias("r"),
-        display_order(6),
         about("Retrieves data"),
         usage(
             "snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]\
@@ -87,14 +82,12 @@ pub enum Opt {
     Retrieve(Retrieve),
     #[structopt(
         visible_aliases(&["j", "test", "t"]),
-        display_order(7),
         about("Tests a binary or script"),
         usage("snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>")
     )]
     Judge(Judge),
     #[structopt(
         visible_alias("s"),
-        display_order(8),
         about("Submits a source file"),
         usage("snowchains <s|submit> [FLAGS] [OPTIONS] <problem>")
     )]
@@ -103,9 +96,9 @@ pub enum Opt {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Init {
-    #[structopt(colorize(1))]
+    #[structopt(short = "C", long, colorize())]
     colorize: bool,
-    #[structopt(color_choice(1))]
+    #[structopt(color_choice())]
     color_choice: AnsiColorChoice,
     #[structopt(
         default_value = ".",
@@ -117,49 +110,49 @@ pub struct Init {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Switch {
-    #[structopt(json(1))]
+    #[structopt(long, json())]
     json: bool,
-    #[structopt(colorize(2))]
+    #[structopt(short = "C", long, colorize())]
     colorize: bool,
-    #[structopt(service(&ServiceKind::variants(), Kind::Option(1)))]
+    #[structopt(service(&ServiceKind::variants(), true))]
     service: Option<ServiceKind>,
-    #[structopt(contest(Kind::Option(2)))]
+    #[structopt(contest(true))]
     contest: Option<String>,
-    #[structopt(language(3))]
+    #[structopt(language())]
     language: Option<String>,
-    #[structopt(output("pretty", &["pretty", "json"], 4))]
+    #[structopt(output("pretty", &["pretty", "json"]))]
     output: OutputKind,
-    #[structopt(color_choice(5))]
+    #[structopt(color_choice())]
     color_choice: AnsiColorChoice,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Login {
-    #[structopt(json(1))]
+    #[structopt(long, json())]
     pub json: bool,
-    #[structopt(colorize(2))]
+    #[structopt(short = "C", long, colorize())]
     pub colorize: bool,
-    #[structopt(output("pretty", &["pretty", "json"], 1))]
+    #[structopt(output("pretty", &["pretty", "json"]))]
     pub output: OutputKind,
-    #[structopt(color_choice(2))]
+    #[structopt(color_choice())]
     pub color_choice: AnsiColorChoice,
-    #[structopt(service(&ServiceKind::variants_except_other(), Kind::Arg))]
+    #[structopt(service(&ServiceKind::variants_except_other(), false))]
     pub service: ServiceKind,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Participate {
-    #[structopt(json(1))]
+    #[structopt(long, json())]
     json: bool,
-    #[structopt(colorize(2))]
+    #[structopt(short = "C", long, colorize())]
     colorize: bool,
-    #[structopt(output("pretty", &["pretty", "json"], 1))]
+    #[structopt(output("pretty", &["pretty", "json"]))]
     output: OutputKind,
-    #[structopt(color_choice(2))]
+    #[structopt(color_choice())]
     color_choice: AnsiColorChoice,
-    #[structopt(service(&["atcoder", "codeforces"], Kind::Arg))]
+    #[structopt(service(&["atcoder", "codeforces"], false))]
     service: ServiceKind,
-    #[structopt(contest(Kind::Arg))]
+    #[structopt(contest(false))]
     contest: String,
 }
 
@@ -167,21 +160,18 @@ pub struct Participate {
 pub enum Retrieve {
     #[structopt(
         visible_alias("t"),
-        display_order(1),
         about("Retrieves test cases"),
         usage("snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]")
     )]
     Testcases(RetrieveTestcases),
     #[structopt(
         visible_alias("l"),
-        display_order(2),
         about("Retrieves available languages"),
         usage("snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]")
     )]
     Languages(RetrieveLanguages),
     #[structopt(
         visible_alias("s"),
-        display_order(3),
         about("Retrieves source files you have submitted"),
         usage("snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]")
     )]
@@ -190,43 +180,43 @@ pub enum Retrieve {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct RetrieveTestcases {
-    #[structopt(long, display_order(1), help("Downloads full test cases"))]
+    #[structopt(long, help("Downloads full test cases"))]
     pub full: bool,
-    #[structopt(no_save(2))]
+    #[structopt(long, no_save())]
     pub no_save: bool,
-    #[structopt(open(3))]
+    #[structopt(short, long, open())]
     pub open: bool,
-    #[structopt(verbose(4))]
+    #[structopt(long, verbose())]
     pub verbose: bool,
-    #[structopt(json(5))]
+    #[structopt(long, json())]
     pub json: bool,
-    #[structopt(colorize(6))]
+    #[structopt(short = "C", long, colorize())]
     pub colorize: bool,
-    #[structopt(service(&ServiceKind::variants_except_other(), Kind::Option(1)))]
+    #[structopt(service(&ServiceKind::variants_except_other(), true))]
     pub service: Option<ServiceKind>,
-    #[structopt(contest(Kind::Option(2)))]
+    #[structopt(contest(true))]
     pub contest: Option<String>,
-    #[structopt(problems(3))]
+    #[structopt(problems())]
     pub problems: Vec<String>,
-    #[structopt(output("pretty", &["pretty", "json"], 4))]
+    #[structopt(output("pretty", &["pretty", "json"]))]
     pub output: OutputKind,
-    #[structopt(color_choice(5))]
+    #[structopt(color_choice())]
     pub color_choice: AnsiColorChoice,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct RetrieveLanguages {
-    #[structopt(json(1))]
+    #[structopt(long, json())]
     pub json: bool,
-    #[structopt(colorize(2))]
+    #[structopt(short = "C", long, colorize())]
     pub colorize: bool,
-    #[structopt(service(&ServiceKind::variants_except_other(), Kind::Option(1)))]
+    #[structopt(service(&ServiceKind::variants_except_other(), true))]
     pub service: Option<ServiceKind>,
-    #[structopt(contest(Kind::Option(2)))]
+    #[structopt(contest(true))]
     pub contest: Option<String>,
-    #[structopt(output("pretty", &["pretty", "json"], 3))]
+    #[structopt(output("pretty", &["pretty", "json"]))]
     pub output: OutputKind,
-    #[structopt(color_choice(4))]
+    #[structopt(color_choice())]
     pub color_choice: AnsiColorChoice,
     #[structopt(problem())]
     pub problem: Option<String>,
@@ -234,60 +224,55 @@ pub struct RetrieveLanguages {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct RetrieveSubmissions {
-    #[structopt(long, display_order(1), help("Fetches all of the code"))]
+    #[structopt(long, help("Fetches all of the code"))]
     pub fetch_all: bool,
-    #[structopt(no_save(2))]
+    #[structopt(long, no_save())]
     pub no_save: bool,
-    #[structopt(verbose(3))]
+    #[structopt(long, verbose())]
     pub verbose: bool,
-    #[structopt(json(4))]
+    #[structopt(long, json())]
     pub json: bool,
-    #[structopt(colorize(5))]
+    #[structopt(short = "C", long, colorize())]
     pub colorize: bool,
-    #[structopt(service(&ServiceKind::variants_except_other(), Kind::Option(1)))]
+    #[structopt(service(&ServiceKind::variants_except_other(), true))]
     pub service: Option<ServiceKind>,
-    #[structopt(contest(Kind::Option(2)))]
+    #[structopt(contest(true))]
     pub contest: Option<String>,
-    #[structopt(mode(3, "debug"))]
+    #[structopt(mode("debug"))]
     pub mode: config::Mode,
-    #[structopt(problems(4))]
+    #[structopt(problems())]
     pub problems: Vec<String>,
-    #[structopt(output("pretty", &["pretty", "pretty-verbose", "json"], 5))]
+    #[structopt(output("pretty", &["pretty", "pretty-verbose", "json"]))]
     pub output: OutputKind,
-    #[structopt(color_choice(6))]
+    #[structopt(color_choice())]
     pub color_choice: AnsiColorChoice,
 }
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Judge {
-    #[structopt(force_compile(1))]
+    #[structopt(long, force_compile())]
     pub force_compile: bool,
-    #[structopt(
-        long,
-        conflicts_with("mode"),
-        display_order(2),
-        help("Equivalents to `--mode release`")
-    )]
+    #[structopt(long, conflicts_with("mode"), help("Equivalents to `--mode release`"))]
     pub release: bool,
-    #[structopt(verbose(3))]
+    #[structopt(long, verbose())]
     pub verbose: bool,
-    #[structopt(json(4))]
+    #[structopt(long, json())]
     pub json: bool,
-    #[structopt(colorize(5))]
+    #[structopt(short = "C", long, colorize())]
     pub colorize: bool,
-    #[structopt(service(&ServiceKind::variants(), Kind::Option(1)))]
+    #[structopt(service(&ServiceKind::variants(), true))]
     pub service: Option<ServiceKind>,
-    #[structopt(contest(Kind::Option(2)))]
+    #[structopt(contest(true))]
     pub contest: Option<String>,
-    #[structopt(language(3))]
+    #[structopt(language())]
     pub language: Option<String>,
-    #[structopt(mode(4, "debug"))]
+    #[structopt(mode("debug"))]
     pub mode: config::Mode,
-    #[structopt(parse(try_from_str = parse_non_zero_usize), jobs(5))]
+    #[structopt(parse(try_from_str = parse_non_zero_usize), jobs())]
     pub jobs: Option<NonZeroUsize>,
-    #[structopt(output("pretty", &["pretty", "pretty-verbose", "json"], 6))]
+    #[structopt(output("pretty", &["pretty", "pretty-verbose", "json"]))]
     pub output: OutputKind,
-    #[structopt(color_choice(7))]
+    #[structopt(color_choice())]
     pub color_choice: AnsiColorChoice,
     #[structopt(problem())]
     pub problem: String,
@@ -295,145 +280,115 @@ pub struct Judge {
 
 #[derive(Debug, Serialize, StructOpt)]
 pub struct Submit {
-    #[structopt(open(1))]
+    #[structopt(short, long, open())]
     pub open: bool,
-    #[structopt(conflicts_with("no_judge"), force_compile(2))]
+    #[structopt(long, conflicts_with("no_judge"), force_compile())]
     pub force_compile: bool,
     #[structopt(
         long,
         conflicts_with("no_judge"),
-        display_order(3),
         help("Transpile the source code but not compile")
     )]
     pub only_transpile: bool,
     #[structopt(
         long,
         conflicts_with_all(&["force_compile", "only_transpile"]),
-        display_order(4),
         help("Skips testing")
     )]
     pub no_judge: bool,
-    #[structopt(
-        long,
-        conflicts_with("mode"),
-        display_order(5),
-        help("Equivalents to `--mode debug`")
-    )]
+    #[structopt(long, conflicts_with("mode"), help("Equivalents to `--mode debug`"))]
     pub debug: bool,
     #[structopt(
         long,
-        display_order(6),
         help("Submits even if the contest is active and you have already solved the problem")
     )]
     pub no_check_duplication: bool,
-    #[structopt(verbose(7))]
+    #[structopt(long, verbose())]
     pub verbose: bool,
-    #[structopt(json(8))]
+    #[structopt(long, json())]
     pub json: bool,
-    #[structopt(colorize(9))]
+    #[structopt(short = "C", long, colorize())]
     pub colorize: bool,
-    #[structopt(service(&ServiceKind::variants_except_other(), Kind::Option(1)))]
+    #[structopt(service(&ServiceKind::variants_except_other(), true))]
     pub service: Option<ServiceKind>,
-    #[structopt(contest(Kind::Option(2)))]
+    #[structopt(contest(true))]
     pub contest: Option<String>,
-    #[structopt(language(3))]
+    #[structopt(language())]
     pub language: Option<String>,
-    #[structopt(mode(4, "release"))]
+    #[structopt(mode("release"))]
     pub mode: config::Mode,
-    #[structopt(parse(try_from_str = parse_non_zero_usize), jobs(5))]
+    #[structopt(parse(try_from_str = parse_non_zero_usize), jobs())]
     pub jobs: Option<NonZeroUsize>,
-    #[structopt(output("pretty", &["pretty", "pretty-verbose", "json"], 6))]
+    #[structopt(output("pretty", &["pretty", "pretty-verbose", "json"]))]
     pub output: OutputKind,
-    #[structopt(color_choice(7))]
+    #[structopt(color_choice())]
     pub color_choice: AnsiColorChoice,
     #[structopt(problem())]
     pub problem: String,
 }
 
-#[derive(Debug)]
-enum Kind {
-    Option(usize),
-    Arg,
-}
-
 trait ArgExt {
-    fn verbose(self, order: usize) -> Self;
-    fn json(self, order: usize) -> Self;
-    fn colorize(self, order: usize) -> Self;
-    fn force_compile(self, order: usize) -> Self;
-    fn no_save(self, order: usize) -> Self;
-    fn open(self, order: usize) -> Self;
-    fn language(self, order: usize) -> Self;
-    fn problems(self, order: usize) -> Self;
-    fn mode(self, order: usize, default: &'static str) -> Self;
-    fn jobs(self, order: usize) -> Self;
-    fn output(self, default: &'static str, possible: &'static [&str], order: usize) -> Self;
-    fn color_choice(self, order: usize) -> Self;
+    fn verbose(self) -> Self;
+    fn json(self) -> Self;
+    fn colorize(self) -> Self;
+    fn force_compile(self) -> Self;
+    fn no_save(self) -> Self;
+    fn open(self) -> Self;
+    fn language(self) -> Self;
+    fn problems(self) -> Self;
+    fn mode(self, default: &'static str) -> Self;
+    fn jobs(self) -> Self;
+    fn output(self, default: &'static str, possible: &'static [&str]) -> Self;
+    fn color_choice(self) -> Self;
     fn problem(self) -> Self;
     fn nth(self) -> Self;
-    fn service(self, values: &[&'static str], kind: Kind) -> Self;
-    fn contest(self, kind: Kind) -> Self;
+    fn service(self, values: &[&'static str], option: bool) -> Self;
+    fn contest(self, option: bool) -> Self;
 }
 
 impl ArgExt for Arg<'static, 'static> {
-    fn verbose(self, order: usize) -> Self {
-        self.long("verbose")
-            .help("Equivalents to `--output pretty-verbose`")
+    fn verbose(self) -> Self {
+        self.help("Equivalents to `--output pretty-verbose`")
             .conflicts_with_all(&["json", "output"])
-            .display_order(order)
     }
 
-    fn json(self, order: usize) -> Self {
-        self.long("json")
-            .help("Equivalents to `--output json`")
+    fn json(self) -> Self {
+        self.help("Equivalents to `--output json`")
             .conflicts_with_all(&["verbose", "output"])
-            .display_order(order)
     }
 
-    fn colorize(self, order: usize) -> Self {
-        self.short("C")
-            .long("colorize")
-            .help("Equivalents to `--color always`")
+    fn colorize(self) -> Self {
+        self.help("Equivalents to `--color always`")
             .conflicts_with("color")
-            .display_order(order)
     }
 
-    fn force_compile(self, order: usize) -> Self {
-        self.long("force-compile")
-            .help("Force to transpile and to compile")
-            .display_order(order)
+    fn force_compile(self) -> Self {
+        self.help("Force to transpile and to compile")
     }
 
-    fn no_save(self, order: usize) -> Self {
-        self.long("no-save")
-            .help("Does not save files")
-            .display_order(order)
+    fn no_save(self) -> Self {
+        self.help("Does not save files")
     }
 
-    fn open(self, order: usize) -> Self {
-        self.short("o")
-            .long("--open")
-            .help("Opens the pages in your default browser")
-            .display_order(order)
+    fn open(self) -> Self {
+        self.help("Opens the pages in your default browser")
     }
 
-    fn language(self, order: usize) -> Self {
+    fn language(self) -> Self {
         self.short("l")
             .long("language")
             .help("Language name")
             .value_name("STRING")
-            .display_order(order)
     }
 
-    fn problems(self, order: usize) -> Self {
+    fn problems(self) -> Self {
         self.short("p")
             .long("problems")
             .help("Problem names")
             .value_name("STRING")
-            .display_order(order)
     }
 
-    fn mode(self, order: usize, default: &'static str) -> Self {
+    fn mode(self, default: &'static str) -> Self {
         self.short("m")
             .long("mode")
             .help("Mode")
@@ -441,35 +396,31 @@ impl ArgExt for Arg<'static, 'static> {
             .possible_values(&config::Mode::variants())
             .value_name("MODE")
             .default_value(default)
-            .display_order(order)
     }
 
-    fn jobs(self, order: usize) -> Self {
+    fn jobs(self) -> Self {
         self.short("j")
             .long("jobs")
             .help("Number of jobs")
             .value_name("NUMBER")
-            .display_order(order)
     }
 
-    fn output(self, default: &'static str, possible: &'static [&str], order: usize) -> Self {
+    fn output(self, default: &'static str, possible: &'static [&str]) -> Self {
         self.long("output")
             .help("Output")
             .value_name("OUTPUT")
             .required(false)
             .default_value(default)
             .possible_values(possible)
-            .display_order(order)
     }
 
-    fn color_choice(self, order: usize) -> Self {
+    fn color_choice(self) -> Self {
         self.long("color")
             .help("Coloring")
             .required(false)
             .possible_values(&AnsiColorChoice::variants())
             .value_name("WHEN")
             .default_value("auto")
-            .display_order(order)
     }
 
     fn problem(self) -> Self {
@@ -480,27 +431,22 @@ impl ArgExt for Arg<'static, 'static> {
         self.help("0-based index")
     }
 
-    fn service(mut self, values: &[&'static str], kind: Kind) -> Self {
+    fn service(mut self, values: &[&'static str], option: bool) -> Self {
         self = self.help("Service name").possible_values(values);
-        if let Kind::Option(order) = kind {
+        if option {
             self = self
                 .short("s")
                 .long("service")
                 .help("Service name")
                 .value_name("SERVICE")
-                .display_order(order);
         }
         self
     }
 
-    fn contest(mut self, kind: Kind) -> Self {
+    fn contest(mut self, option: bool) -> Self {
         self = self.help("Contest name");
-        if let Kind::Option(order) = kind {
-            self = self
-                .short("c")
-                .long("contest")
-                .value_name("STRING")
-                .display_order(order);
+        if option {
+            self = self.short("c").long("contest").value_name("STRING")
         }
         self
     }
@@ -992,11 +938,11 @@ mod tests {
     fn verbose_json_and_output_conflict_with_each_other() {
         #[derive(Debug, StructOpt, new)]
         struct Opt {
-            #[structopt(verbose(1))]
+            #[structopt(long, verbose())]
             verbose: bool,
-            #[structopt(json(2))]
+            #[structopt(long, json())]
             json: bool,
-            #[structopt(output("none", &["none", "pretty", "pretty-verbose", "json"], 1))]
+            #[structopt(output("none", &["none", "pretty", "pretty-verbose", "json"]))]
             output: OutputKind,
         }
 
