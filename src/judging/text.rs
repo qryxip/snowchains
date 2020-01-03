@@ -579,8 +579,15 @@ impl<'a> DiffLine<'a> {
 mod inner {
     use crate::judging::text::{DiffLine, Word};
 
+    use stable_deref_trait::StableDeref;
+    use static_assertions::assert_impl_all;
+
+    use std::ops::Deref;
     use std::sync::Arc;
     use std::{fmt, mem};
+
+    assert_impl_all!(Arc<String>: StableDeref<Target = String>);
+    assert_impl_all!(String: Deref<Target = str>);
 
     /// **NOTE:** this is a self-referential struct.
     #[derive(Debug)]

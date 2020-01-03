@@ -1189,7 +1189,12 @@ impl Credentials for UsernameAndPassword {
 
 mod owned_robots {
     use robots_txt::{Robots, SimpleMatcher};
+    use stable_deref_trait::StableDeref;
+    use static_assertions::assert_impl_all;
+
     use std::mem;
+
+    assert_impl_all!(String: StableDeref<Target = str>);
 
     /// **NOTE:** this is a self-referential struct.
     #[derive(Debug)]

@@ -64,6 +64,8 @@ serde_yaml = "0.8.11"
 sha2 = "0.8.0"
 smallvec = "1.1.0"
 snowchains_proc_macros = { path = "./proc_macros", version = "0.1.0" }
+stable_deref_trait = "1.1.1"
+static_assertions = "1.1.0"
 structopt = "0.3.7"
 strum = { version = "0.17.1", features = ["derive"] }
 take_mut = "0.2.2"
