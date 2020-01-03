@@ -502,9 +502,9 @@ impl Outcome for SwitchOutcome {
 
         let str_width = stdout.str_width_fn();
         let max_width = [
-            old_service.as_ref().map(|s| str_width(s)).unwrap_or(1),
-            old_contest.as_ref().map(|s| str_width(s)).unwrap_or(1),
-            old_language.as_ref().map(|s| str_width(s)).unwrap_or(1),
+            old_service.as_deref().map(str_width).unwrap_or(1),
+            old_contest.as_deref().map(str_width).unwrap_or(1),
+            old_language.as_deref().map(str_width).unwrap_or(1),
         ]
         .iter()
         .cloned()
@@ -516,8 +516,8 @@ impl Outcome for SwitchOutcome {
             ("contest:  ", &old_contest, &new_contest),
             ("language: ", &old_language, &new_language),
         ] {
-            let old = old.as_ref().map(AsRef::as_ref).unwrap_or("~");
-            let new = new.as_ref().map(AsRef::as_ref).unwrap_or("~");
+            let old = old.as_deref().unwrap_or("~");
+            let new = new.as_deref().unwrap_or("~");
             stdout.write_str(title)?;
             stdout.set_color(color!(bold))?;
             stdout.write_str(old)?;

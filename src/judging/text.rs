@@ -188,11 +188,11 @@ impl TextDiff {
                 for word in parse_words(s, floats) {
                     current.push(word);
                     if word.is_lf() {
-                        ret.push(Line(mem::replace(&mut current, vec![]).into_boxed_slice()));
+                        ret.push(Line(mem::take(&mut current).into_boxed_slice()));
                     }
                 }
                 if !current.is_empty() {
-                    ret.push(Line(mem::replace(&mut current, vec![]).into_boxed_slice()));
+                    ret.push(Line(mem::take(&mut current).into_boxed_slice()));
                 }
                 ret
             }

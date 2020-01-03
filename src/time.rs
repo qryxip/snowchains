@@ -218,7 +218,7 @@ mod tests {
 
             let actual = serde_json::to_string(&S { value: Some(dur) })?;
             let actual = serde_json::from_str::<D>(&actual)?.value;
-            assert_eq!(actual.as_ref().map(AsRef::as_ref), Some(expected));
+            assert_eq!(actual.as_deref(), Some(expected));
             Ok(())
         }
 
@@ -244,7 +244,7 @@ mod tests {
 
             let actual = serde_json::to_string(&S { value: Some(dur) })?;
             let actual = serde_json::from_str::<D>(&actual)?.value;
-            assert_eq!(actual.as_ref().map(AsRef::as_ref), Some(expected));
+            assert_eq!(actual.as_deref(), Some(expected));
             Ok(())
         }
 

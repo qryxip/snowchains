@@ -37,7 +37,7 @@ pub(crate) fn ser_option_arc<T: Serialize, S: Serializer>(
     arc: &Option<Arc<T>>,
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error> {
-    arc.as_ref().map(|x| &**x).serialize(serializer)
+    arc.as_deref().serialize(serializer)
 }
 
 pub(crate) fn ser_option_display<T: fmt::Display, S: Serializer>(

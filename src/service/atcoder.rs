@@ -38,7 +38,6 @@ use url::Url;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
 use std::convert::Infallible;
-use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
@@ -76,7 +75,7 @@ pub(super) fn retrieve_testcases(
 ) -> ServiceResult<RetrieveTestCasesOutcome> {
     let (mut sess_props, retrieve_props) = props;
     let dropbox_path = sess_props.dropbox_path.take();
-    let dropbox_path = dropbox_path.as_ref().map(Deref::deref);
+    let dropbox_path = dropbox_path.as_deref();
     let retrieve_props = retrieve_props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()

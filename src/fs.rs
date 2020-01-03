@@ -131,7 +131,7 @@ impl LazyLockedFile {
     }
 
     pub(crate) fn get_or_init(&mut self) -> FileResult<&mut LockedFile> {
-        *self = match mem::replace(self, LazyLockedFile::Null) {
+        *self = match mem::take(self) {
             LazyLockedFile::Null => LazyLockedFile::Null,
             LazyLockedFile::Uninited(path) => LazyLockedFile::Inited(LockedFile::try_new(&path)?),
             LazyLockedFile::Inited(file) => LazyLockedFile::Inited(file),
@@ -141,6 +141,12 @@ impl LazyLockedFile {
             LazyLockedFile::Uninited(_) => unreachable!(),
             LazyLockedFile::Inited(file) => Ok(file),
         }
+    }
+}
+
+impl Default for LazyLockedFile {
+    fn default() -> Self {
+        LazyLockedFile::Null
     }
 }
 

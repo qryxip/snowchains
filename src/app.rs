@@ -505,8 +505,8 @@ impl<
                     output,
                     color_choice,
                 } = cli_args;
-                let contest = contest.as_ref().map(AsRef::as_ref);
-                let language = language.as_ref().map(AsRef::as_ref);
+                let contest = contest.as_deref();
+                let language = language.as_deref();
                 self.attempt_enable_color(color_choice.with(*colorize));
                 let (config, outcome) = config::switch(
                     &mut self.stdout,
@@ -597,7 +597,7 @@ impl<
                     output,
                     color_choice,
                 } = cli_args;
-                let contest = contest.as_ref().map(AsRef::as_ref);
+                let contest = contest.as_deref();
                 self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(*service, contest, None, &self.working_dir)?;
                 self.apply_console_conf(config.console());
@@ -635,7 +635,7 @@ impl<
                     color_choice,
                     problem,
                 } = cli_args;
-                let contest = contest.as_ref().map(AsRef::as_ref);
+                let contest = contest.as_deref();
                 let problem = problem.clone();
                 self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(*service, contest, None, &wd)?;
@@ -672,7 +672,7 @@ impl<
                     output,
                     color_choice,
                 } = cli_args;
-                let contest = contest.as_ref().map(AsRef::as_ref);
+                let contest = contest.as_deref();
                 let problems = problems.clone();
                 self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(*service, contest, None, &wd)?;
@@ -710,8 +710,8 @@ impl<
                     color_choice,
                     problem,
                 } = cli_args;
-                let contest = contest.as_ref().map(AsRef::as_ref);
-                let language = language.as_ref().map(AsRef::as_ref);
+                let contest = contest.as_deref();
+                let language = language.as_deref();
                 let mode = if *release {
                     config::Mode::Release
                 } else {
@@ -759,8 +759,8 @@ impl<
                     color_choice,
                     problem,
                 } = cli_args;
-                let contest = contest.as_ref().map(AsRef::as_ref);
-                let language = language.as_ref().map(AsRef::as_ref);
+                let contest = contest.as_deref();
+                let language = language.as_deref();
                 let mode = if *debug { config::Mode::Debug } else { *mode };
                 self.attempt_enable_color(color_choice.with(*colorize));
                 let config = Config::load(*service, contest, language, &wd)?;
