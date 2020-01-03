@@ -1,13 +1,15 @@
+use derivative::Derivative;
 use serde::{Serialize, Serializer};
 
 use std::borrow::{Borrow, Cow};
 use std::ffi::{OsStr, OsString};
 use std::ops::Deref;
 use std::path::{Component, Path, PathBuf};
-use std::{env, fmt, io};
+use std::{env, io};
 
+#[derive(PartialEq, Derivative)]
+#[derivative(Debug = "transparent")]
 #[repr(transparent)]
-#[derive(PartialEq)]
 pub struct AbsPath {
     inner: Path,
 }
@@ -140,12 +142,6 @@ impl AbsPath {
     }
 }
 
-impl fmt::Debug for AbsPath {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&self.inner, fmt)
-    }
-}
-
 impl ToOwned for AbsPath {
     type Owned = AbsPathBuf;
 
@@ -188,7 +184,8 @@ impl Serialize for AbsPath {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Derivative)]
+#[derivative(Debug = "transparent")]
 pub struct AbsPathBuf {
     inner: PathBuf,
 }
@@ -228,12 +225,6 @@ impl AbsPathBuf {
 
     pub(crate) fn pop(&mut self) -> bool {
         self.inner.pop()
-    }
-}
-
-impl fmt::Debug for AbsPathBuf {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&self.inner, f)
     }
 }
 

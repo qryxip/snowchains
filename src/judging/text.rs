@@ -95,17 +95,10 @@ impl Text {
     }
 
     pub(super) fn partial_debug<'a>(&'a self) -> impl fmt::Debug + 'a {
-        struct Debug<'a>(&'a TextInner);
+        #[derive(Debug)]
+        struct Text<T: fmt::Debug>(T);
 
-        impl fmt::Debug for Debug<'_> {
-            fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-                fmt.debug_tuple("Text")
-                    .field(&self.0.partial_debug())
-                    .finish()
-            }
-        }
-
-        Debug(&self.0)
+        Text(self.0.partial_debug())
     }
 }
 
@@ -616,18 +609,16 @@ mod inner {
         }
 
         pub(super) fn partial_debug<'a>(&'a self) -> impl fmt::Debug + 'a {
-            struct Debug<'a>(&'a str);
-
-            impl fmt::Debug for Debug<'_> {
-                fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-                    fmt.debug_struct("TextInner")
-                        .field("words", &format_args!("_"))
-                        .field("string", &self.0)
-                        .finish()
-                }
+            #[derive(Debug)]
+            struct TextInner<'a> {
+                words: fmt::Arguments<'static>,
+                string: &'a str,
             }
 
-            Debug(&self.string)
+            TextInner {
+                words: format_args!("_"),
+                string: &self.string,
+            }
         }
     }
 

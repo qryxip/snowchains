@@ -1,5 +1,9 @@
 use std::fmt;
 
+pub(crate) fn underscore(_: impl Sized, fmt: &mut fmt::Formatter) -> fmt::Result {
+    write!(fmt, "_")
+}
+
 pub(crate) trait OptionDisplayExt {
     type Item: fmt::Display;
     fn fmt_display_or(&self, or: &'static str) -> FmtDisplayOr<&Self::Item>;
