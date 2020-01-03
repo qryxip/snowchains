@@ -419,8 +419,10 @@ impl<W: AnsiStandardOutput> AttemptEnableColor for AnsiStandardStream<W> {
         fn should_enable_color_on_auto<W: AnsiStandardOutput>() -> bool {
             use winapi::um::wincon::ENABLE_VIRTUAL_TERMINAL_PROCESSING;
 
+            use std::ops::Deref;
+
             let term = env::var("TERM");
-            let term = term.as_deref();
+            let term = term.as_ref().map(Deref::deref);
             if term == Ok("dumb") || term == Ok("cygwin") {
                 false
             } else if env::var_os("MSYSTEM").is_some() && term.is_ok() {
