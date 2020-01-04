@@ -801,7 +801,7 @@ impl Extract for Html {
             Reactive,
         }
 
-        let extract = || {
+        (|| {
             let display_name = self
                 .select(selector!("#content > h3"))
                 .flat_map(|r| r.text())
@@ -811,9 +811,9 @@ impl Extract for Html {
                 .select(selector!("#content > div"))
                 .flat_map(|r| r.text())
                 .nth(1)?;
+            dbg!(&text);
             let caps = lazy_regex!(
-                "\\A / 実行時間制限 : 1ケース ([0-9])\\.([0-9]{3})秒 / メモリ制限 : \\d+ MB / \
-                 (通常|スペシャルジャッジ|リアクティブ)問題.*\n?.*\\z",
+                r"\A[ \n]+/[ \n]+実行時間制限[ \n]+:[ \n]+1ケース[ \n]+([0-9])\.([0-9]{3})秒[ \n]+/[ \n]+メモリ制限[ \n]+:[ \n]+\d+[ \n]+MB[ \n]+/[ \n]+(通常|スペシャルジャッジ|リアクティブ)問題[\s\S]*\z",
             )
             .captures(text)?;
             let timelimit = {
@@ -853,8 +853,8 @@ impl Extract for Html {
                 ProblemKind::Reactive => InteractiveSuite::new(timelimit).into(),
             };
             Some((display_name, suite))
-        };
-        extract().ok_or_else(ScrapeError::new)
+        })()
+        .ok_or_else(ScrapeError::new)
     }
 
     fn extract_problems(&self) -> ScrapeResult<NonEmptyVec<(String, String, Url)>> {
