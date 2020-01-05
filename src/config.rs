@@ -18,6 +18,7 @@ use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use if_chain::if_chain;
 use indexmap::{indexmap, IndexMap};
 use maplit::hashmap;
+use matches::matches;
 use once_cell::sync::Lazy;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -1436,18 +1437,14 @@ Space        ::= ? White_Space character ?
         ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = String>
         {
             recognize(
-                satisfy(|c| match c {
-                    'a'..='z' | 'A'..='Z' | '-' | '=' | '_' => true,
-                    _ => false,
-                })
-                .expected("[a-zA-Z] | [-=_]")
-                .and(skip_many(
-                    satisfy(|c| match c {
-                        'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '=' | '_' => true,
-                        _ => false,
-                    })
-                    .expected("[a-zA-Z0-9] | [-=_]"),
-                )),
+                satisfy(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '-' | '=' | '_'))
+                    .expected("[a-zA-Z] | [-=_]")
+                    .and(skip_many(
+                        satisfy(
+                            |c| matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '=' | '_'),
+                        )
+                        .expected("[a-zA-Z0-9] | [-=_]"),
+                    )),
             )
             .map(ToOwned::to_owned)
         }

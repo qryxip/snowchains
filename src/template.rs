@@ -17,6 +17,7 @@ use failure::{Fail, ResultExt as _};
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use indexmap::IndexMap;
 use maplit::hashmap;
+use matches::matches;
 use once_cell::sync::Lazy;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -645,11 +646,8 @@ Spaces        ::= ? White_Space character ?+
         ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = String>
         {
             many1(
-                satisfy(|c| match c {
-                    'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => true,
-                    _ => false,
-                })
-                .expected("[a-zA-Z0-9] | '_'"),
+                satisfy(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_'))
+                    .expected("[a-zA-Z0-9] | '_'"),
             )
         }
 
