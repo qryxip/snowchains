@@ -20,15 +20,6 @@ impl AbsPath {
         Self::ref_cast(path)
     }
 
-    #[cfg(test)]
-    pub(crate) fn try_new(path: &Path) -> Option<&Self> {
-        if path.is_absolute() {
-            Some(Self::unchecked(path))
-        } else {
-            None
-        }
-    }
-
     pub(crate) fn parent(&self) -> Option<&Self> {
         self.inner.parent().map(Self::unchecked)
     }
@@ -218,10 +209,6 @@ impl AbsPathBuf {
         let inner = path.into();
         guard!(inner.is_absolute());
         Some(Self { inner })
-    }
-
-    pub(crate) fn as_path(&self) -> &AbsPath {
-        &self
     }
 
     pub(crate) fn pop(&mut self) -> bool {

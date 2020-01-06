@@ -1,9 +1,9 @@
-use snowchains::app::{App, Opt};
 use snowchains::path::AbsPathBuf;
 use snowchains::terminal::{AnsiStandardStream, TtyOrPiped};
+use snowchains::Opt;
 
 use failure::{Fail, Fallible};
-use structopt::StructOpt;
+use structopt::StructOpt as _;
 use termcolor::{Color, ColorSpec, WriteColor as _};
 
 use std::io::{self, BufWriter, Write as _};
@@ -14,19 +14,21 @@ fn main() -> Fallible<()> {
     let code = {
         let opt = Opt::from_args();
         let stdin = io::stdin();
-        let mut stdout = AnsiStandardStream::new(BufWriter::new(io::stdout()));
-        let mut stderr = AnsiStandardStream::new(BufWriter::new(io::stderr()));
-        let result = App {
-            working_dir: AbsPathBuf::cwd()?,
+        let mut ctx = snowchains::Context {
+            cwd: AbsPathBuf::cwd()?,
             login_retries: None,
             stdin: TtyOrPiped::auto(&stdin),
-            stdout: &mut stdout,
-            stderr: &mut stderr,
-        }
-        .run(opt);
-        match result {
+            stdout: AnsiStandardStream::new(BufWriter::new(io::stdout())),
+            stderr: AnsiStandardStream::new(BufWriter::new(io::stderr())),
+        };
+        match snowchains::run(opt, &mut ctx) {
             Ok(code) => code,
             Err(err) => {
+                let snowchains::Context {
+                    mut stdout,
+                    mut stderr,
+                    ..
+                } = ctx;
                 stdout.flush()?;
                 writeln!(stderr)?;
                 for (i, cause) in Fail::iter_chain(&err).enumerate() {

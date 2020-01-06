@@ -1,6 +1,5 @@
 mod common;
 
-use snowchains::app::{App, Judge, Opt, OutputKind};
 use snowchains::config;
 use snowchains::errors::{JudgeError, JudgeErrorKind};
 use snowchains::path::AbsPathBuf;
@@ -8,6 +7,7 @@ use snowchains::service::ServiceKind;
 use snowchains::terminal::{
     AnsiColorChoice, AttemptEnableColor, Dumb, Input, ModifyTermProps, TtyOrPiped,
 };
+use snowchains::{Judge, Opt, OutputKind};
 
 use failure::Fallible;
 use if_chain::if_chain;
@@ -150,8 +150,8 @@ fn main() {
     std::fs::create_dir_all(&suite_dir)?;
     std::fs::write(&suite_path, SUITE)?;
 
-    let mut app = App {
-        working_dir: AbsPathBuf::try_new(tempdir.path()).unwrap(),
+    let mut ctx = snowchains::Context {
+        cwd: AbsPathBuf::try_new(tempdir.path()).unwrap(),
         login_retries: Some(0),
         stdin: TtyOrPiped::Piped(io::empty()),
         stdout: Dumb::new(),
@@ -162,7 +162,7 @@ fn main() {
     const INTERVAL: Duration = Duration::from_secs(1);
 
     retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
-        match app.test(&src_path, CODE) {
+        match test(&src_path, CODE, &mut ctx) {
             Ok(0) => OperationResult::Ok(()),
             Ok(n) => OperationResult::Retry(failure::err_msg(n.to_string())),
             Err(err) => OperationResult::Retry(failure::Error::from(err)),
@@ -174,7 +174,7 @@ fn main() {
     })?;
 
     retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
-        match app.test(&src_path, INVALID_CODE) {
+        match test(&src_path, INVALID_CODE, &mut ctx) {
             Ok(n) => OperationResult::Retry(failure::err_msg(n.to_string())),
             Err(err) => {
                 if_chain! {
@@ -195,7 +195,7 @@ fn main() {
     })?;
 
     retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
-        match app.test(&src_path, WRONG_CODE) {
+        match test(&src_path, WRONG_CODE, &mut ctx) {
             Ok(1) => OperationResult::Ok(()),
             Ok(n) => OperationResult::Retry(failure::err_msg(n.to_string())),
             Err(err) => OperationResult::Retry(err.into()),
@@ -209,7 +209,7 @@ fn main() {
     std::fs::write(&suite_path, SUITE_WITH_TIMELIMIT)?;
 
     retry::retry(iter::repeat(INTERVAL).take(RETRIES), || {
-        match app.test(&src_path, FREEZING_CODE) {
+        match test(&src_path, FREEZING_CODE, &mut ctx) {
             Ok(1) => OperationResult::Ok(()),
             Ok(n) => OperationResult::Retry(failure::err_msg(n.to_string())),
             Err(err) => OperationResult::Retry(err.into()),
@@ -221,32 +221,30 @@ fn main() {
     })
 }
 
-trait AppExt {
-    fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<i32>;
-}
-
-impl<
-        I: Input,
-        O: AttemptEnableColor + ModifyTermProps,
-        E: AttemptEnableColor + ModifyTermProps,
-    > AppExt for App<I, O, E>
-{
-    fn test(&mut self, src_path: &Path, code: &str) -> snowchains::Result<i32> {
-        std::fs::write(src_path, code)?;
-        self.run(Opt::Judge(Judge {
-            force_compile: false,
-            release: false,
-            verbose: false,
-            json: false,
-            colorize: false,
-            service: Some(ServiceKind::Atcoder),
-            contest: Some("practice".to_owned()),
-            language: Some("rust".to_owned()),
-            mode: config::Mode::Debug,
-            jobs: None,
-            output: OutputKind::Pretty,
-            color_choice: AnsiColorChoice::Never,
-            problem: "a".to_owned(),
-        }))
-    }
+fn test<
+    I: Input,
+    O: AttemptEnableColor + ModifyTermProps,
+    E: AttemptEnableColor + ModifyTermProps,
+>(
+    src_path: &Path,
+    code: &str,
+    ctx: &mut snowchains::Context<I, O, E>,
+) -> snowchains::Result<i32> {
+    std::fs::write(src_path, code)?;
+    let opt = Opt::Judge(Judge {
+        force_compile: false,
+        release: false,
+        verbose: false,
+        json: false,
+        colorize: false,
+        service: Some(ServiceKind::Atcoder),
+        contest: Some("practice".to_owned()),
+        language: Some("rust".to_owned()),
+        mode: config::Mode::Debug,
+        jobs: None,
+        output: OutputKind::Pretty,
+        color_choice: AnsiColorChoice::Never,
+        problem: "a".to_owned(),
+    });
+    snowchains::run(opt, ctx)
 }

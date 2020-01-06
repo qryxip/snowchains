@@ -7,7 +7,7 @@ use crate::template::{
     AbsPathBufRequirements, CompilationCommandRequirements, HookCommandsRequirements,
     JudgingCommandRequirements, Template, TemplateBuilder, TranspilationCommandRequirements,
 };
-use crate::terminal::{HasTermProps, ModifyTermProps, WriteExt as _};
+use crate::terminal::{HasTermProps, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFileExtension, TestCaseLoader};
 use crate::time;
 use crate::util::combine::ParseFieldError;
@@ -23,7 +23,6 @@ use once_cell::sync::Lazy;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use termcolor::WriteColor;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
@@ -38,21 +37,22 @@ use std::{env, fmt};
 static CONFIG_FILE_NAME: &str = "snowchains.toml";
 
 /// Creates "snowchains.toml" in `directory`.
-pub(crate) fn init(mut stderr: impl Write, directory: &AbsPath) -> FileResult<()> {
+pub(crate) fn init(dir: &Path, mut ctx: impl crate::HasContextMut) -> FileResult<()> {
     static TARGET_JSON: &str = r#"{
   "service": "atcoder",
   "contest": "arc100",
   "language": "c++"
 }
 "#;
-    let toml_path = directory.join(CONFIG_FILE_NAME);
+    let dir = ctx.context().cwd.join_canonicalizing_lossy(dir);
+    let toml_path = dir.join(CONFIG_FILE_NAME);
     let toml = generate_toml();
-    let target_path = directory.join(".snowchains").join("target.json");
+    let target_path = dir.join(".snowchains").join("target.json");
     for (path, content) in &[(toml_path, toml.as_str()), (target_path, TARGET_JSON)] {
         crate::fs::write(path, content.as_bytes())?;
-        writeln!(stderr, "Wrote {}", path.display())?;
+        writeln!(ctx.stderr(), "Wrote {}", path.display())?;
     }
-    stderr.flush().map_err(Into::into)
+    ctx.stderr().flush().map_err(Into::into)
 }
 
 fn generate_toml() -> String {
@@ -549,17 +549,15 @@ struct SwitchOutcomeAttrs {
 
 /// Changes attributes.
 pub(crate) fn switch(
-    mut stdout: impl ModifyTermProps,
-    mut stderr: impl Write + ModifyTermProps,
-    directory: &AbsPath,
     service: Option<ServiceKind>,
     contest: Option<&str>,
     language: Option<&str>,
+    mut ctx: impl crate::HasContextMut,
 ) -> FileResult<(Config, SwitchOutcome)> {
-    let path = crate::fs::find_path(CONFIG_FILE_NAME, directory)?;
+    let path = crate::fs::find_path(CONFIG_FILE_NAME, ctx.cwd())?;
     let base_dir = path.parent().unwrap().to_owned();
     let inner = crate::fs::read_toml::<Inner>(&path)?;
-    let path = directory.join_expanding_user(&inner.target)?;
+    let path = base_dir.join_expanding_user(&inner.target)?;
     let old_target = crate::fs::read_json::<Target>(&path)?;
     let new_target = Target {
         service: service.unwrap_or(old_target.service),
@@ -568,10 +566,10 @@ pub(crate) fn switch(
     };
 
     crate::fs::write_json_pretty(&path, &new_target)?;
-    writeln!(stderr, "Wrote {}", path.display())?;
-    stderr.flush()?;
+    writeln!(ctx.stderr(), "Wrote {}", path.display())?;
+    ctx.stderr().flush()?;
 
-    inner.console.modify_term_props(&mut stdout, &mut stderr);
+    ctx.context_mut().apply_console_conf(&inner.console);
 
     let outcome = SwitchOutcome {
         old: SwitchOutcomeAttrs {
@@ -978,36 +976,8 @@ pub(crate) struct Inner {
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Console {
     #[serde(default)]
-    cjk: bool,
-    alt_width: Option<usize>,
-}
-
-impl Console {
-    pub(crate) fn modify_term_props(
-        &self,
-        mut stdout: impl ModifyTermProps,
-        mut stderr: impl ModifyTermProps,
-    ) {
-        let char_width: fn(char) -> Option<usize> = if self.cjk {
-            UnicodeWidthChar::width_cjk
-        } else {
-            UnicodeWidthChar::width
-        };
-        let str_width: fn(&str) -> usize = if self.cjk {
-            UnicodeWidthStr::width_cjk
-        } else {
-            UnicodeWidthStr::width
-        };
-
-        stdout.modify_term_props(|props| {
-            props.char_width = char_width;
-            props.str_width = str_width
-        });
-        stderr.modify_term_props(|props| {
-            props.char_width = char_width;
-            props.str_width = str_width
-        });
-    }
+    pub(crate) cjk: bool,
+    pub(crate) alt_width: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1535,9 +1505,11 @@ struct Target {
 mod tests {
     use crate::config::{Inner, SwitchOutcome, SwitchOutcomeAttrs, Target};
     use crate::outcome::Outcome as _;
-    use crate::path::AbsPath;
+    use crate::path::AbsPathBuf;
     use crate::service::ServiceKind;
-    use crate::terminal::{AnsiWithProps, HasTermProps as _, ModifyTermProps as _};
+    use crate::terminal::{
+        AnsiWithProps, Dumb, HasTermProps as _, ModifyTermProps as _, TtyOrPiped,
+    };
     use crate::util::combine::ParseFieldError;
 
     use difference::assert_diff;
@@ -1550,16 +1522,21 @@ mod tests {
 
     use std::convert::TryFrom as _;
     use std::fs::File;
-    use std::io::Write as _;
+    use std::io::{self, Write as _};
     use std::{env, str};
 
     #[test]
     fn test_init() -> Fallible<()> {
         let tempdir = dunce::canonicalize(&env::temp_dir())?;
         let tempdir = TempDir::new_in(&tempdir, "config_test_init")?;
-        let mut stderr = vec![];
-
-        super::init(&mut stderr, AbsPath::try_new(tempdir.path()).unwrap())?;
+        let mut ctx = crate::Context {
+            cwd: AbsPathBuf::try_new(tempdir.path()).unwrap(),
+            login_retries: None,
+            stdin: TtyOrPiped::Piped(io::empty()),
+            stdout: Dumb::new(),
+            stderr: AnsiWithProps::new(),
+        };
+        super::init(".".as_ref(), &mut ctx)?;
 
         let toml_path = tempdir.path().join(super::CONFIG_FILE_NAME);
         let toml = std::fs::read_to_string(&toml_path)?;
@@ -1569,7 +1546,7 @@ mod tests {
         serde_json::from_reader::<_, Target>(File::open(&json_path)?)?;
 
         assert_diff!(
-            str::from_utf8(&stderr)?,
+            &String::try_from(ctx.stderr)?,
             &format!(
                 "Wrote {}\nWrote {}\n",
                 toml_path.display(),
@@ -1606,15 +1583,22 @@ mod tests {
         std::fs::write(&toml_path, &toml)?;
         std::fs::write(&json_path, OLD_JSON)?;
 
+        let mut ctx = crate::Context {
+            cwd: AbsPathBuf::try_new(tempdir.path()).unwrap(),
+            login_retries: None,
+            stdin: TtyOrPiped::Piped(io::empty()),
+            stdout,
+            stderr,
+        };
+
         super::switch(
-            &mut stdout,
-            &mut stderr,
-            AbsPath::try_new(tempdir.path()).unwrap(),
             Some(ServiceKind::Yukicoder),
             Some("no"),
             Some("rust"),
+            &mut ctx,
         )?;
 
+        let crate::Context { stdout, stderr, .. } = ctx;
         let new_target = serde_json::from_reader::<_, Target>(File::open(&json_path)?)?;
 
         assert_eq!(old_target.service, ServiceKind::Atcoder);

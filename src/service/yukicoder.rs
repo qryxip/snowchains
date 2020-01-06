@@ -2,16 +2,16 @@ use crate::errors::{
     ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceError,
     ServiceErrorKind, ServiceResult,
 };
+use crate::service::context::{FormBuilder, ParseWithBaseUrl as _, Password};
 use crate::service::download::{self, DownloadProgress};
-use crate::service::session::{FormBuilder, ParseWithBaseUrl as _, Password, Session, State};
 use crate::service::{
-    Contest, ExtractZip, LoginOutcome, RetrieveLangsOutcome, RetrieveLangsProps,
-    RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
+    self, Contest, ExtractZip, HasContextMut as _, LoginOutcome, RetrieveLangsOutcome,
+    RetrieveLangsProps, RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
     RetrieveSubmissionsOutcomeBuilderSubmission, RetrieveSubmissionsProps,
     RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
     RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesOutcomeBuilderProblemTextFiles,
-    RetrieveTestCasesProps, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
-    SubmitOutcomeResponse, SubmitProps, ZipEntries, ZipEntriesSorting,
+    RetrieveTestCasesProps, SubmitOutcome, SubmitOutcomeLanguage, SubmitOutcomeResponse,
+    SubmitProps, ZipEntries, ZipEntriesSorting,
 };
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{self, BatchSuite, InteractiveSuite, TestSuite};
@@ -40,77 +40,67 @@ use std::time::Duration;
 pub(super) static BASE_URL: Lazy<Url> = Lazy::new(|| "https://yukicoder.me".parse().unwrap());
 
 pub(super) fn login(
-    props: SessionProps,
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<LoginOutcome> {
-    Yukicoder::try_new(props, stdin, stderr)?.login(true)
+    Yukicoder::start(ctx)?.login(true)
 }
 
 pub(super) fn retrieve_testcases(
-    props: (SessionProps, RetrieveTestCasesProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveTestCasesProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveTestCasesOutcome> {
-    let (sess_props, retrieve_props) = props;
-    let retrieve_props = retrieve_props
+    let props = props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    Yukicoder::try_new(sess_props, stdin, stderr)?.retrieve_testcases(retrieve_props)
+    Yukicoder::start(ctx)?.retrieve_testcases(props)
 }
 
 pub(super) fn retrieve_langs(
-    props: (SessionProps, RetrieveLangsProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveLangsProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveLangsOutcome> {
-    let (sess_props, retrieve_props) = props;
-    let retrieve_props = retrieve_props
+    let props = props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    Yukicoder::try_new(sess_props, stdin, stderr)?.retrieve_langs(retrieve_props)
+    Yukicoder::start(ctx)?.retrieve_langs(props)
 }
 
 pub(super) fn retrieve_submissions(
-    props: (SessionProps, RetrieveSubmissionsProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveSubmissionsProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveSubmissionsOutcome> {
-    let (sess_props, retrieve_props) = props;
-    let retrieve_props = retrieve_props
+    let props = props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    Yukicoder::try_new(sess_props, stdin, stderr)?.retrieve_submissions(retrieve_props)
+    Yukicoder::start(ctx)?.retrieve_submissions(props)
 }
 
 pub(super) fn submit(
-    props: (SessionProps, SubmitProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: SubmitProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<SubmitOutcome> {
-    let (sess_props, submit_props) = props;
-    let submit_props = submit_props
+    let props = props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    Yukicoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
+    Yukicoder::start(ctx)?.submit(props)
 }
 
 #[derive(Debug)]
 struct Yukicoder<I: Input, E: WriteColor + HasTermProps> {
     username: Username,
-    state: State<I, E>,
+    ctx: service::Context<I, E>,
 }
 
-impl<I: Input, E: WriteColor + HasTermProps> Session for Yukicoder<I, E> {
+impl<I: Input, E: WriteColor + HasTermProps> service::HasContextMut for Yukicoder<I, E> {
     type Stdin = I;
     type Stderr = E;
 
-    fn state_ref(&self) -> &State<I, E> {
-        &self.state
+    fn context(&self) -> &service::Context<I, E> {
+        &self.ctx
     }
 
-    fn state_mut(&mut self) -> &mut State<I, E> {
-        &mut self.state
+    fn context_mut(&mut self) -> &mut service::Context<I, E> {
+        &mut self.ctx
     }
 }
 
@@ -125,11 +115,11 @@ impl<I: Input, E: WriteColor + HasTermProps> ExtractZip for Yukicoder<I, E> {
 }
 
 impl<I: Input, E: WriteColor + HasTermProps> Yukicoder<I, E> {
-    fn try_new(props: SessionProps, stdin: I, stderr: E) -> ServiceResult<Self> {
-        let state = props.start_state(stdin, stderr)?;
+    fn start(mut ctx: service::Context<I, E>) -> ServiceResult<Self> {
+        ctx.get_robots_txt()?;
         Ok(Self {
             username: Username::None,
-            state,
+            ctx,
         })
     }
 
@@ -180,6 +170,7 @@ Firefox: sqlite3 "$YOUR_FIREFOX_PROFILE/cookies.sqlite" 'SELECT value FROM moz_c
             open_in_browser,
             attempt_full,
             save_files,
+            ..
         } = props;
 
         if contest == YukicoderContest::No && problems.is_none() {
@@ -1039,7 +1030,7 @@ mod api_v1 {
 #[cfg(test)]
 mod tests {
     use crate::service;
-    use crate::service::session::ParseWithBaseUrl as _;
+    use crate::service::context::ParseWithBaseUrl as _;
     use crate::service::yukicoder::{Extract as _, BASE_URL};
 
     use failure::Fallible;

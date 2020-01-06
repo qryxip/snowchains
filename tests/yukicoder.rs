@@ -2,13 +2,11 @@ mod common;
 
 use crate::common::service;
 
-use snowchains::app::{
-    App, Opt, OutputKind, Retrieve, RetrieveLanguages, RetrieveSubmissions, Submit,
-};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Dumb, TtyOrPiped};
+use snowchains::{Opt, OutputKind, Retrieve, RetrieveLanguages, RetrieveSubmissions, Submit};
 
 use difference::assert_diff;
 use failure::Fallible;
@@ -21,8 +19,8 @@ use std::convert::TryFrom as _;
 
 #[test]
 fn it_logins() -> Fallible<()> {
-    fn login(app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> {
-        service::login(app, ServiceKind::Yukicoder).map_err(Into::into)
+    fn login(ctx: snowchains::Context<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> {
+        service::login(ctx, ServiceKind::Yukicoder).map_err(Into::into)
     }
 
     let stdin = format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?);
@@ -34,11 +32,11 @@ fn it_scrapes_and_downloads_testcases() -> Fallible<()> {
     service::test_in_tempdir(
         "it_downloads_test_cases_from_master",
         &format!("Y\n{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
-        |app| -> _ {
+        |ctx| -> _ {
             static CONTEST: &str = "no";
-            let wd = app.working_dir.clone();
+            let wd = ctx.cwd.clone();
             service::retrieve_testcases(
-                app,
+                ctx,
                 ServiceKind::Yukicoder,
                 CONTEST,
                 &["3", "725", "726"],
@@ -58,8 +56,8 @@ fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
     service::test_in_tempdir(
         "retrieve_submissions_command_works_without_error",
         &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
-        |mut app| -> _ {
-            let code = app.run(Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
+        |mut ctx| -> _ {
+            let opt = Opt::Retrieve(Retrieve::Submissions(RetrieveSubmissions {
                 fetch_all: false,
                 no_save: true,
                 verbose: false,
@@ -71,10 +69,11 @@ fn retrieve_submissions_command_works_without_error() -> Fallible<()> {
                 problems: vec!["1".to_owned()],
                 output: OutputKind::Json,
                 color_choice: AnsiColorChoice::Never,
-            })))?;
+            }));
+            let code = snowchains::run(opt, &mut ctx)?;
             assert_eq!(code, 0);
-            let stdout = String::try_from(app.stdout)?;
-            let stderr = String::try_from(app.stderr)?;
+            let stdout = String::try_from(ctx.stdout)?;
+            let stderr = String::try_from(ctx.stderr)?;
             serde_json::from_str::<serde_json::Value>(&stdout)?;
             assert!(stderr.starts_with(
                 &r#"
@@ -93,32 +92,31 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
     service::test_in_tempdir(
         "it_fails_to_submit_if_the_lang_name_is_invalid",
         &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
-        |mut app| -> _ {
+        |mut ctx| -> _ {
             static CODE: &[u8] = b"#";
-            let dir = app.working_dir.join("yukicoder").join("no").join("py");
+            let dir = ctx.cwd.join("yukicoder").join("no").join("py");
             std::fs::create_dir_all(&dir)?;
             std::fs::write(&dir.join("9000.py"), CODE)?;
-            let err = app
-                .run(Opt::Submit(Submit {
-                    open: false,
-                    force_compile: false,
-                    only_transpile: false,
-                    no_judge: true,
-                    debug: false,
-                    no_check_duplication: false,
-                    verbose: false,
-                    json: false,
-                    colorize: false,
-                    service: Some(ServiceKind::Yukicoder),
-                    contest: Some("no".to_owned()),
-                    language: Some("python3-with-invalid-lang-names".to_owned()),
-                    mode: config::Mode::Release,
-                    jobs: None,
-                    output: OutputKind::Pretty,
-                    color_choice: AnsiColorChoice::Never,
-                    problem: "9000".to_owned(),
-                }))
-                .unwrap_err();
+            let opt = Opt::Submit(Submit {
+                open: false,
+                force_compile: false,
+                only_transpile: false,
+                no_judge: true,
+                debug: false,
+                no_check_duplication: false,
+                verbose: false,
+                json: false,
+                colorize: false,
+                service: Some(ServiceKind::Yukicoder),
+                contest: Some("no".to_owned()),
+                language: Some("python3-with-invalid-lang-names".to_owned()),
+                mode: config::Mode::Release,
+                jobs: None,
+                output: OutputKind::Pretty,
+                color_choice: AnsiColorChoice::Never,
+                problem: "9000".to_owned(),
+            });
+            let err = snowchains::run(opt, &mut ctx).unwrap_err();
             if_chain! {
                 if let snowchains::Error::Service(ServiceError::Context(ctx)) = &err;
                 if let ServiceErrorKind::NoSuchLang(lang_name) = ctx.get_context();
@@ -139,12 +137,12 @@ fn it_submits_to_no_9000() -> Fallible<()> {
     service::test_in_tempdir(
         "it_submits_to_no_9000",
         &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
-        |mut app| -> _ {
+        |mut ctx| -> _ {
             static CODE: &[u8] = b"Hello World!\n";
-            let dir = app.working_dir.join("yukicoder").join("no").join("txt");
+            let dir = ctx.cwd.join("yukicoder").join("no").join("txt");
             std::fs::create_dir_all(&dir)?;
             std::fs::write(&dir.join("9000.txt"), CODE)?;
-            let code = app.run(Opt::Submit(Submit {
+            let opt = Opt::Submit(Submit {
                 open: false,
                 force_compile: false,
                 only_transpile: false,
@@ -162,10 +160,11 @@ fn it_submits_to_no_9000() -> Fallible<()> {
                 output: OutputKind::Json,
                 color_choice: AnsiColorChoice::Never,
                 problem: "9000".to_owned(),
-            }))?;
+            });
+            let code = snowchains::run(opt, &mut ctx)?;
             assert_eq!(code, 0);
-            let stdout = String::try_from(app.stdout)?;
-            String::try_from(app.stderr)?;
+            let stdout = String::try_from(ctx.stdout)?;
+            String::try_from(ctx.stderr)?;
             serde_json::from_str::<serde_json::Value>(&stdout)?;
             Ok(())
         },
@@ -177,10 +176,10 @@ fn it_retrieves_languages() -> Fallible<()> {
     service::test_in_tempdir(
         "it_retrieves_languages",
         &format!("{}\n", service::env_var("YUKICODER_REVEL_SESSION")?),
-        |mut app| -> _ {
+        |mut ctx| -> _ {
             static MASK_USERNAME: Lazy<Regex> = Lazy::new(|| Regex::new("Username: .*").unwrap());
 
-            let code = app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
+            let opt = Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
                 json: false,
                 colorize: false,
                 service: Some(ServiceKind::Yukicoder),
@@ -188,10 +187,11 @@ fn it_retrieves_languages() -> Fallible<()> {
                 output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("9000".to_owned()),
-            })))?;
+            }));
+            let code = snowchains::run(opt, &mut ctx)?;
             assert_eq!(code, 0);
-            let stdout = String::try_from(app.stdout)?;
-            let stderr = String::try_from(app.stderr)?;
+            let stdout = String::try_from(ctx.stdout)?;
+            let stderr = String::try_from(ctx.stderr)?;
             assert_diff!(
                 &r#"
 ┌──────────────────────────────────────────────┬─────────────┐

@@ -2,11 +2,11 @@ mod common;
 
 use crate::common::service;
 
-use snowchains::app::{App, Login, Opt, OutputKind, Retrieve, RetrieveLanguages, Submit};
 use snowchains::config;
 use snowchains::errors::{ServiceError, ServiceErrorKind};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Dumb, TtyOrPiped};
+use snowchains::{Login, Opt, OutputKind, Retrieve, RetrieveLanguages, Submit};
 
 use difference::assert_diff;
 use failure::Fallible;
@@ -19,24 +19,25 @@ use std::convert::TryFrom as _;
 
 #[test]
 fn it_logins() -> Fallible<()> {
-    fn login(mut app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> {
+    fn login(mut ctx: snowchains::Context<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> {
         static MASK_API_KEY: Lazy<Regex> = Lazy::new(|| Regex::new("apiKey=[0-9a-f]+").unwrap());
         static MASK_HANDLES: Lazy<Regex> =
             Lazy::new(|| Regex::new(r"handles=[0-9a-zA-Z_\-]+").unwrap());
         static MASK_TIME: Lazy<Regex> = Lazy::new(|| Regex::new("time=[0-9]+").unwrap());
         static MASK_API_SIG: Lazy<Regex> = Lazy::new(|| Regex::new("apiSig=[0-9a-f]+").unwrap());
 
-        let code = app.run(Opt::Login(Login {
+        let opt = Opt::Login(Login {
             json: false,
             colorize: false,
             output: OutputKind::Json,
             color_choice: AnsiColorChoice::Never,
             service: ServiceKind::Codeforces,
-        }))?;
+        });
+        let code = snowchains::run(opt, &mut ctx)?;
         assert_eq!(code, 0);
 
-        let stdout = String::try_from(app.stdout)?;
-        let stderr = String::try_from(app.stderr)?;
+        let stdout = String::try_from(ctx.stdout)?;
+        let stderr = String::try_from(ctx.stderr)?;
 
         serde_json::from_str::<serde_json::Value>(&stdout)?;
 
@@ -69,32 +70,31 @@ fn it_fails_to_submit_if_the_lang_name_is_invalid() -> Fallible<()> {
     service::test_in_tempdir(
         "it_fails_to_submit_if_the_lang_name_is_invalid",
         &credentials_as_input()?,
-        |mut app| -> Fallible<()> {
+        |mut ctx| -> Fallible<()> {
             static CODE: &[u8] = b"#";
-            let dir = app.working_dir.join("codeforces").join("1000").join("py");
+            let dir = ctx.cwd.join("codeforces").join("1000").join("py");
             std::fs::create_dir_all(&dir)?;
             std::fs::write(&dir.join("a.py"), CODE)?;
-            let err = app
-                .run(Opt::Submit(Submit {
-                    open: false,
-                    force_compile: false,
-                    only_transpile: false,
-                    no_judge: true,
-                    debug: false,
-                    no_check_duplication: false,
-                    verbose: false,
-                    json: false,
-                    colorize: false,
-                    service: Some(ServiceKind::Codeforces),
-                    contest: Some("1000".to_owned()),
-                    language: Some("python3-with-invalid-lang-names".to_owned()),
-                    mode: config::Mode::Release,
-                    jobs: None,
-                    output: OutputKind::Pretty,
-                    color_choice: AnsiColorChoice::Never,
-                    problem: "a".to_owned(),
-                }))
-                .unwrap_err();
+            let opt = Opt::Submit(Submit {
+                open: false,
+                force_compile: false,
+                only_transpile: false,
+                no_judge: true,
+                debug: false,
+                no_check_duplication: false,
+                verbose: false,
+                json: false,
+                colorize: false,
+                service: Some(ServiceKind::Codeforces),
+                contest: Some("1000".to_owned()),
+                language: Some("python3-with-invalid-lang-names".to_owned()),
+                mode: config::Mode::Release,
+                jobs: None,
+                output: OutputKind::Pretty,
+                color_choice: AnsiColorChoice::Never,
+                problem: "a".to_owned(),
+            });
+            let err = snowchains::run(opt, &mut ctx).unwrap_err();
             if_chain! {
                 if let snowchains::Error::Service(ServiceError::Context(ctx)) = &err;
                 if let ServiceErrorKind::NoSuchLang(lang_name) = ctx.get_context();
@@ -114,8 +114,8 @@ fn it_retrieves_languages() -> Fallible<()> {
     service::test_in_tempdir(
         "it_retrieves_languages",
         &credentials_as_input()?,
-        |mut app| -> Fallible<()> {
-            let code = app.run(Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
+        |mut ctx| -> Fallible<()> {
+            let opt = Opt::Retrieve(Retrieve::Languages(RetrieveLanguages {
                 json: false,
                 colorize: false,
                 service: Some(ServiceKind::Codeforces),
@@ -123,10 +123,11 @@ fn it_retrieves_languages() -> Fallible<()> {
                 output: OutputKind::Pretty,
                 color_choice: AnsiColorChoice::Never,
                 problem: Some("a".to_owned()),
-            })))?;
+            }));
+            let code = snowchains::run(opt, &mut ctx)?;
             assert_eq!(code, 0);
             assert_diff!(
-                &String::try_from(app.stdout)?,
+                &String::try_from(ctx.stdout)?,
                 &r#"
 ┌───────────────────────────┬────┐
 │ Name                      │ ID │
@@ -194,7 +195,7 @@ fn it_retrieves_languages() -> Fallible<()> {
                 0
             );
             assert_diff!(
-                &String::try_from(app.stderr)?,
+                &String::try_from(ctx.stderr)?,
                 &r#"
 GET https://codeforces.com/enter ... 200 OK
 Handle/Email: Password: POST https://codeforces.com/enter ... 302 Found
