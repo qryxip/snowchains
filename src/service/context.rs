@@ -4,7 +4,7 @@ use crate::errors::{
 };
 use crate::fs::{LazyLockedFile, LockedFile};
 use crate::path::AbsPath;
-use crate::service::session::owned_robots::OwnedRobots;
+use crate::service::context::owned_robots::OwnedRobots;
 use crate::service::{ResponseExt as _, USER_AGENT};
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::util::collections::NonEmptyIndexSet;
@@ -21,7 +21,7 @@ use maplit::{btreeset, hashmap};
 use mime::Mime;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::r#async::Decoder;
-use reqwest::{Method, StatusCode};
+use reqwest::{Method, RedirectPolicy, StatusCode};
 use robots_txt::{Robots, SimpleMatcher};
 use scraper::Html;
 use serde::de::DeserializeOwned;
@@ -36,55 +36,56 @@ use std::convert::TryFrom;
 use std::io::{self, BufReader, Write as _};
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::time::Duration;
 use std::{cmp, fmt, mem};
 
-pub(super) trait Session: Sized {
+pub(super) trait HasContextMut: Sized {
     type Stdin: Input;
     type Stderr: WriteColor + HasTermProps;
 
-    fn state_ref(&self) -> &State<Self::Stdin, Self::Stderr>;
+    fn context(&self) -> &Context<Self::Stdin, Self::Stderr>;
 
-    fn state_mut(&mut self) -> &mut State<Self::Stdin, Self::Stderr>;
+    fn context_mut(&mut self) -> &mut Context<Self::Stdin, Self::Stderr>;
 
     fn stderr(&mut self) -> &mut Self::Stderr {
-        &mut self.state_mut().stderr
+        &mut self.context_mut().stderr
     }
 
     fn runtime(&mut self) -> &mut Runtime {
-        &mut self.state_mut().runtime
+        &mut self.context_mut().runtime
     }
 
     fn client(&self) -> reqwest::r#async::Client {
-        self.state_ref().client.clone()
+        self.context().client.clone()
     }
 
     fn api_token(&mut self) -> &mut LazyLockedFile {
-        &mut self.state_mut().api_token
+        &mut self.context_mut().api_token
     }
 
     fn wait_enter(&mut self, prompt: &str) -> io::Result<()> {
-        let State { stdin, stderr, .. } = self.state_mut();
+        let Context { stdin, stderr, .. } = self.context_mut();
         stderr.write_str(prompt)?;
         stderr.flush()?;
         stdin.ignore_line()
     }
 
     fn prompt_reply_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        let State { stdin, stderr, .. } = self.state_mut();
+        let Context { stdin, stderr, .. } = self.context_mut();
         stderr.write_str(prompt)?;
         stderr.flush()?;
         stdin.read_reply()
     }
 
     fn prompt_password_stderr(&mut self, prompt: &str) -> io::Result<String> {
-        let State { stdin, stderr, .. } = self.state_mut();
+        let Context { stdin, stderr, .. } = self.context_mut();
         stderr.write_str(prompt)?;
         stderr.flush()?;
         stdin.read_password()
     }
 
     fn ask_yn(&mut self, prompt: &str, default: bool) -> io::Result<bool> {
-        let State { stdin, stderr, .. } = self.state_mut();
+        let Context { stdin, stderr, .. } = self.context_mut();
         let prompt = format!("{}{} ", prompt, if default { "(Y/n)" } else { "(y/N)" });
         loop {
             stderr.write_str(&prompt)?;
@@ -107,7 +108,7 @@ pub(super) trait Session: Sized {
     }
 
     fn open_in_browser(&mut self, url: impl ParseWithBaseUrl) -> ServiceResult<()> {
-        let url = url.parse_with_base_url(self.state_ref().base_url)?;
+        let url = url.parse_with_base_url(self.context().base_url)?;
         write!(self.stderr(), "Opening {} in default browser...", url)?;
         self.stderr().flush()?;
         let status = webbrowser::open(url.as_str())?.status;
@@ -122,21 +123,21 @@ pub(super) trait Session: Sized {
 
     /// Whether it has any **unexpired** cookie.
     fn has_cookie(&self) -> bool {
-        self.state_ref()
+        self.context()
             .cookie_store
             .as_ref()
             .map_or(false, |s| s.store.iter_unexpired().next().is_some())
     }
 
     fn cookies_to_header_value(&self, url: &Url) -> Option<HeaderValue> {
-        self.state_ref()
+        self.context()
             .cookie_store
             .as_ref()
             .and_then(|s| s.to_header_value(url))
     }
 
     fn insert_cookie(&mut self, cookie: &cookie::Cookie, url: &Url) -> ServiceResult<()> {
-        if let Some(store) = &mut self.state_mut().cookie_store {
+        if let Some(store) = &mut self.context_mut().cookie_store {
             store.insert_cookie(cookie, url)?;
         }
         Ok(())
@@ -144,7 +145,7 @@ pub(super) trait Session: Sized {
 
     /// Removes all cookies.
     fn clear_cookies(&mut self) -> ServiceResult<()> {
-        if let Some(store) = &mut self.state_mut().cookie_store {
+        if let Some(store) = &mut self.context_mut().cookie_store {
             store.clear()?;
         }
         Ok(())
@@ -165,16 +166,17 @@ pub(super) trait Session: Sized {
     ) -> self::Request<&mut Self, M> {
         self::Request {
             inner: url
-                .parse_with_base_url(self.state_ref().base_url)
+                .parse_with_base_url(self.context().base_url)
                 .and_then(|url| {
-                    self.state_mut().assert_not_forbidden_by_robots_txt(&url)?;
+                    self.context_mut()
+                        .assert_not_forbidden_by_robots_txt(&url)?;
                     Ok(RequestInner {
                         inner: RequestBuilderBuilder::new::<M>(self.client(), url),
-                        eprint: !self.state_ref().http_silent,
+                        eprint: !self.context().http_silent,
                         acceptable,
                         warn: btreeset![],
                         redirect_unlimited: false,
-                        retries_on_get: self.state_ref().retries_on_get,
+                        retries_on_get: self.context().retries_on_get,
                     })
                 }),
             session: self,
@@ -243,7 +245,7 @@ pub(super) trait Session: Sized {
         fail_msg: &'static str,
         mut f: F,
     ) -> ServiceResult<()> {
-        let mut login_retries = self.state_ref().login_retries;
+        let mut login_retries = self.context().login_retries;
         loop {
             let credentials = C::ask(prompts, &mut *self)?;
             if f(&mut *self, credentials)? {
@@ -267,7 +269,7 @@ pub(super) trait Session: Sized {
         let not_found = problems.difference(found).collect::<IndexSet<_>>();
 
         if !not_found.is_empty() {
-            let stderr = &mut self.state_mut().stderr;
+            let stderr = &mut self.context_mut().stderr;
             stderr.set_color(color!(fg(Yellow), intense))?;
             write!(stderr, "Not found: {}", not_found.format_as_str_list())?;
             stderr.reset()?;
@@ -278,13 +280,82 @@ pub(super) trait Session: Sized {
     }
 }
 
+pub(crate) struct ContextBuilder<'a, I: Input, E: WriteColor + HasTermProps> {
+    pub(crate) stdin: I,
+    pub(crate) stderr: E,
+    pub(crate) base_url: Option<&'static Url>,
+    pub(crate) cookies_path: Option<&'a AbsPath>,
+    pub(crate) api_token_path: Option<&'a AbsPath>,
+    pub(crate) retries_on_get: u32,
+    pub(crate) timeout: Option<Duration>,
+    pub(crate) robots: bool,
+    pub(crate) http_silent: bool,
+    pub(crate) login_retries: Option<u32>,
+}
+
+impl<I: Input, E: WriteColor + HasTermProps> ContextBuilder<'_, I, E> {
+    pub(crate) fn build(self) -> ServiceResult<Context<I, E>> {
+        let Self {
+            stdin,
+            stderr,
+            base_url,
+            cookies_path,
+            api_token_path,
+            retries_on_get,
+            robots,
+            http_silent,
+            timeout,
+            login_retries,
+        } = self;
+
+        let runtime = tokio::runtime::Runtime::new()?;
+        let client = {
+            let mut builder = reqwest::r#async::Client::builder()
+                .referer(false)
+                .redirect(RedirectPolicy::none()) // Redirects manually
+                .cookie_store(false) // Uses `CookieStore` directly
+                .default_headers({
+                    let mut headers = HeaderMap::new();
+                    headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());
+                    headers
+                });
+            if let Some(timeout) = timeout {
+                builder = builder.timeout(timeout);
+            }
+            builder.build()?
+        };
+        let robots = if robots { Some(hashmap!()) } else { None };
+        let cookie_store = cookies_path
+            .map(AutosavedCookieStore::try_new)
+            .transpose()?;
+        let api_token = match api_token_path {
+            None => LazyLockedFile::Null,
+            Some(path) => LazyLockedFile::Uninited(path.to_owned()),
+        };
+
+        Ok(Context {
+            stdin,
+            stderr,
+            runtime,
+            client,
+            robots,
+            cookie_store,
+            api_token,
+            base_url,
+            retries_on_get,
+            http_silent,
+            login_retries,
+        })
+    }
+}
+
 #[derive(Debug)]
-pub(super) struct State<I: Input, E: WriteColor + HasTermProps> {
+pub(crate) struct Context<I: Input, E: WriteColor + HasTermProps> {
     stdin: I,
     stderr: E,
     runtime: Runtime,
     client: reqwest::r#async::Client,
-    robots: HashMap<String, OwnedRobots>,
+    robots: Option<HashMap<String, OwnedRobots>>,
     cookie_store: Option<AutosavedCookieStore>,
     api_token: LazyLockedFile,
     base_url: Option<&'static Url>,
@@ -293,64 +364,34 @@ pub(super) struct State<I: Input, E: WriteColor + HasTermProps> {
     login_retries: Option<u32>,
 }
 
-impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
-    pub(super) fn start(args: StateStartArgs<I, E>) -> ServiceResult<Self> {
-        let StateStartArgs {
-            stdin,
-            stderr,
-            runtime,
-            robots,
-            client,
-            base_url,
-            cookies_path,
-            api_token_path,
-            retries_on_get,
-            http_silent,
-            login_retries,
-        } = args;
-
-        let mut this = Self {
-            stdin,
-            stderr,
-            runtime,
-            client,
-            robots: hashmap!(),
-            cookie_store: cookies_path
-                .map(AutosavedCookieStore::try_new)
-                .transpose()?,
-            api_token: match api_token_path {
-                None => LazyLockedFile::Null,
-                Some(path) => LazyLockedFile::Uninited(path.to_owned()),
-            },
-            base_url,
-            retries_on_get,
-            http_silent,
-            login_retries,
-        };
-        if robots {
-            if let Some(host) = base_url.and_then(Url::host_str) {
-                let res = this
-                    .get("/robots.txt")
-                    .acceptable(&[200, 404])
-                    .redirect_unlimited()
-                    .retry_send()?;
-                if res.status() == 200 {
-                    let robots = OwnedRobots::new(
-                        this.retry_recv_text(res)?,
-                        |s| Robots::from_str(s),
-                        |robots| SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules),
-                    );
-                    this.robots.insert(host.to_string(), robots);
-                }
+impl<I: Input, E: WriteColor + HasTermProps> Context<I, E> {
+    pub(super) fn get_robots_txt(&mut self) -> ServiceResult<()> {
+        if_chain! {
+            if self.robots.is_some();
+            if let Some(host) = self.base_url.and_then(Url::host_str);
+            let res = self
+                .get("/robots.txt")
+                .acceptable(&[200, 404])
+                .redirect_unlimited()
+                .retry_send()?;
+            if res.status() == 200;
+            then {
+                let robots = OwnedRobots::new(
+                    self.retry_recv_text(res)?,
+                    |s| Robots::from_str(s),
+                    |robots| SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules),
+                );
+                self.robots.as_mut().unwrap().insert(host.to_string(), robots);
             }
         }
-        Ok(this)
+        Ok(())
     }
 
     fn assert_not_forbidden_by_robots_txt(&self, url: &Url) -> ServiceResult<()> {
         if_chain! {
             if let Some(host) = url.host_str();
-            if let Some(robots) = self.robots.get(host);
+            if let Some(robots) = &self.robots;
+            if let Some(robots) = robots.get(host);
             if !robots.rent_matcher(|m| m.check_path(url.path()));
             then {
                 Err(ServiceErrorKind::ForbiddenByRobotsTxt.into())
@@ -361,34 +402,34 @@ impl<I: Input, E: WriteColor + HasTermProps> State<I, E> {
     }
 }
 
-impl<'a, S: Session> Session for &'a mut S {
+impl<'a, S: HasContextMut> HasContextMut for &'a mut S {
     type Stdin = S::Stdin;
     type Stderr = S::Stderr;
 
-    fn state_ref(&self) -> &State<S::Stdin, S::Stderr> {
-        (**self).state_ref()
+    fn context(&self) -> &Context<S::Stdin, S::Stderr> {
+        (**self).context()
     }
 
-    fn state_mut(&mut self) -> &mut State<S::Stdin, S::Stderr> {
-        (**self).state_mut()
+    fn context_mut(&mut self) -> &mut Context<S::Stdin, S::Stderr> {
+        (**self).context_mut()
     }
 }
 
-impl<I: Input, E: WriteColor + HasTermProps> Session for State<I, E> {
+impl<I: Input, E: WriteColor + HasTermProps> HasContextMut for Context<I, E> {
     type Stdin = I;
     type Stderr = E;
 
-    fn state_ref(&self) -> &Self {
+    fn context(&self) -> &Self {
         self
     }
 
-    fn state_mut(&mut self) -> &mut Self {
+    fn context_mut(&mut self) -> &mut Self {
         self
     }
 }
 
 #[derive(Debug)]
-pub(super) struct StateStartArgs<'a, I: Input, E: WriteColor + HasTermProps> {
+pub(crate) struct ContextStartArgs<'a, I: Input, E: WriteColor + HasTermProps> {
     pub(super) stdin: I,
     pub(super) stderr: E,
     pub(super) runtime: Runtime,
@@ -403,13 +444,13 @@ pub(super) struct StateStartArgs<'a, I: Input, E: WriteColor + HasTermProps> {
 }
 
 #[derive(Debug)]
-pub(super) struct Request<S: Session, M: StaticMethod> {
+pub(super) struct Request<S: HasContextMut, M: StaticMethod> {
     inner: ServiceResult<RequestInner>,
     session: S,
     phantom: PhantomData<fn() -> M>,
 }
 
-impl<S: Session, M: StaticMethod> Request<S, M> {
+impl<S: HasContextMut, M: StaticMethod> Request<S, M> {
     pub(super) fn basic_auth(
         mut self,
         username: impl fmt::Display,
@@ -505,7 +546,7 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
     fn send_internal(mut self, allow_retry: bool) -> ServiceResult<(S, self::Response<M>)> {
         if_chain! {
             if let Ok(inner) = &mut self.inner;
-            if let Some(store) = &self.session.state_ref().cookie_store;
+            if let Some(store) = &self.session.context().cookie_store;
             if let Some(value) = store.to_header_value(&inner.inner.url);
             then {
                 inner.inner.headers.insert(header::COOKIE, value);
@@ -523,7 +564,7 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
 
         let mut retries_on_get = if allow_retry { retries_on_get } else { 0 };
 
-        let st = self.session.state_mut();
+        let st = self.session.context_mut();
         let (rt, stderr, mut cookie_store) =
             (&mut st.runtime, &mut st.stderr, st.cookie_store.as_mut());
 
@@ -626,7 +667,7 @@ impl<S: Session, M: StaticMethod> Request<S, M> {
     }
 }
 
-impl<S: Session> Request<S, Get> {
+impl<S: HasContextMut> Request<S, Get> {
     pub(super) fn retry_send(self) -> ServiceResult<self::Response<Get>> {
         self.send_internal(true).map(|(_, res)| res)
     }
@@ -648,7 +689,7 @@ impl<S: Session> Request<S, Get> {
     }
 }
 
-impl<S: Session> Request<S, Post> {
+impl<S: HasContextMut> Request<S, Post> {
     pub(super) fn form(mut self, form: &(impl Serialize + ?Sized)) -> Self {
         self.inner = self.inner.and_then(|mut inner| {
             inner.inner = inner.inner.form(form)?;
@@ -1156,7 +1197,7 @@ pub(super) trait Credentials: Sized {
     type Prompts: Copy;
     type Items;
 
-    fn ask(prompts: Self::Prompts, sess: impl Session) -> io::Result<Self::Items>;
+    fn ask(prompts: Self::Prompts, sess: impl HasContextMut) -> io::Result<Self::Items>;
 }
 
 pub(super) enum Password {}
@@ -1165,7 +1206,7 @@ impl Credentials for Password {
     type Prompts = (&'static str,);
     type Items = (String,);
 
-    fn ask((prompt,): (&'static str,), mut sess: impl Session) -> io::Result<(String,)> {
+    fn ask((prompt,): (&'static str,), mut sess: impl HasContextMut) -> io::Result<(String,)> {
         let password = sess.prompt_password_stderr(prompt)?;
         Ok((password,))
     }
@@ -1179,7 +1220,7 @@ impl Credentials for UsernameAndPassword {
 
     fn ask(
         (username_prompt, password_prompt): (&'static str, &'static str),
-        mut sess: impl Session,
+        mut sess: impl HasContextMut,
     ) -> io::Result<(String, String)> {
         let username = sess.prompt_reply_stderr(username_prompt)?;
         let password = sess.prompt_password_stderr(password_prompt)?;
@@ -1237,14 +1278,14 @@ mod tests {
     use crate::fs::LazyLockedFile;
     use crate::path::{AbsPath, AbsPathBuf};
     use crate::service;
-    use crate::service::session::{Session, State, StateStartArgs};
+    use crate::service::context::{Context, HasContextMut};
     use crate::terminal::{AnsiWithProps, Dumb, TtyOrPiped};
 
     use failure::Fallible;
     use futures01::Future as _;
     use http::Uri;
     use if_chain::if_chain;
-    use maplit::{btreeset, hashmap};
+    use maplit::btreeset;
     use once_cell::sync::Lazy;
     use pretty_assertions::assert_eq;
     use reqwest::StatusCode;
@@ -1297,20 +1338,21 @@ mod tests {
             let mut stderr = AnsiWithProps::new();
 
             let cookies = AbsPathBuf::try_new(tempdir.path().join("cookies.json")).unwrap();
-            let mut sess = State::start(StateStartArgs {
+            let mut sess = service::ContextBuilder {
                 stdin: TtyOrPiped::Piped(io::empty()),
                 stderr: &mut stderr,
-                runtime: Runtime::new()?,
-                robots: true,
-                client: service::reqwest_async_client(None)?,
                 base_url: Some(&BASE_URL),
                 cookies_path: Some(&cookies),
                 api_token_path: None,
-                retries_on_get: 1,
+                timeout: None,
                 http_silent: false,
+                robots: true,
+                retries_on_get: 1,
                 login_retries: None,
-            })?;
+            }
+            .build()?;
 
+            sess.get_robots_txt()?;
             sess.get("/").retry_send()?;
             sess.get("/confirm-cookie").retry_send()?;
             sess.get("/redirect").redirect_unlimited().retry_send()?;
@@ -1386,35 +1428,30 @@ mod tests {
 
     #[test]
     fn it_keeps_a_file_locked_while_alive() -> Fallible<()> {
-        fn construct_state(
-            client: &reqwest::r#async::Client,
-            path: &AbsPath,
-        ) -> ServiceResult<State<TtyOrPiped<Empty>, Dumb>> {
-            let runtime = Runtime::new()?;
-            State::start(StateStartArgs {
+        fn construct_ctx(path: &AbsPath) -> ServiceResult<Context<TtyOrPiped<Empty>, Dumb>> {
+            service::ContextBuilder {
                 stdin: TtyOrPiped::Piped(io::empty()),
                 stderr: Dumb::new(),
-                runtime,
-                robots: true,
-                client: client.clone(),
                 base_url: None,
                 cookies_path: Some(path),
                 api_token_path: None,
-                retries_on_get: 0,
+                timeout: None,
                 http_silent: true,
+                robots: false,
+                retries_on_get: 0,
                 login_retries: None,
-            })
+            }
+            .build()
         }
 
         let tempdir = dunce::canonicalize(&env::temp_dir())?;
         let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
         let path = AbsPathBuf::try_new(tempdir.path().join("cookies")).unwrap();
-        let client = service::reqwest_async_client(None)?;
-        construct_state(&client, path.as_path())?;
-        construct_state(&client, path.as_path())?;
-        let _state = construct_state(&client, path.as_path())?;
+        construct_ctx(&path)?;
+        construct_ctx(&path)?;
+        let _ctx = construct_ctx(&path)?;
         if_chain! {
-            let err = construct_state(&client, path.as_path()).unwrap_err();
+            let err = construct_ctx(&path).unwrap_err();
             if let ServiceError::File(FileError::Context(kind)) = &err;
             if let FileErrorKind::Lock(_) = kind.get_context();
             then {
@@ -1430,12 +1467,12 @@ mod tests {
         let mut rdr = "y\nn\n\ny\nn\nヌ\n\n".as_bytes();
         let mut stderr = AnsiWithProps::new();
 
-        let mut state = State {
+        let mut ctx = Context {
             stdin: TtyOrPiped::Piped(&mut rdr),
             stderr: &mut stderr,
             runtime: Runtime::new()?,
             client: reqwest::r#async::Client::builder().build()?,
-            robots: hashmap!(),
+            robots: None,
             cookie_store: None,
             api_token: LazyLockedFile::Null,
             base_url: None,
@@ -1444,14 +1481,14 @@ mod tests {
             login_retries: None,
         };
 
-        assert_eq!(state.ask_yn("Yes?: ", true)?, true);
-        assert_eq!(state.ask_yn("Yes?: ", true)?, false);
-        assert_eq!(state.ask_yn("Yes?: ", true)?, true);
-        assert_eq!(state.ask_yn("No?: ", false)?, true);
-        assert_eq!(state.ask_yn("No?: ", false)?, false);
-        assert_eq!(state.ask_yn("No?: ", false)?, false);
+        assert_eq!(ctx.ask_yn("Yes?: ", true)?, true);
+        assert_eq!(ctx.ask_yn("Yes?: ", true)?, false);
+        assert_eq!(ctx.ask_yn("Yes?: ", true)?, true);
+        assert_eq!(ctx.ask_yn("No?: ", false)?, true);
+        assert_eq!(ctx.ask_yn("No?: ", false)?, false);
+        assert_eq!(ctx.ask_yn("No?: ", false)?, false);
 
-        let err = state.ask_yn("Yes?: ", true).unwrap_err();
+        let err = ctx.ask_yn("Yes?: ", true).unwrap_err();
         if err.kind() != io::ErrorKind::UnexpectedEof {
             return Err(err.into());
         }

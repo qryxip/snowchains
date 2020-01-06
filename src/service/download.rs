@@ -1,5 +1,5 @@
 use crate::errors::{ServiceError, ServiceErrorKind, ServiceResult};
-use crate::service::session::Session;
+use crate::service::context::HasContextMut;
 use crate::service::ResponseExt as _;
 use crate::signal::Sigwinch;
 use crate::terminal::HasTermProps;
@@ -27,7 +27,7 @@ impl Name {
     }
 }
 
-pub(super) trait DownloadProgress: Session {
+pub(super) trait DownloadProgress: HasContextMut {
     fn download_progress(
         &mut self,
         reqs: Vec<(Name, reqwest::r#async::RequestBuilder)>,

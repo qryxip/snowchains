@@ -1,4 +1,4 @@
-pub mod session;
+pub mod context;
 
 pub(crate) mod atcoder;
 pub(crate) mod codeforces;
@@ -6,11 +6,14 @@ pub(crate) mod yukicoder;
 
 pub(self) mod download;
 
+pub(crate) use crate::service::context::{Context, ContextBuilder};
+
+pub(self) use crate::service::context::HasContextMut;
+
 use crate::config::{self, Config};
 use crate::errors::{ConfigResult, FileErrorKind, FileResult, ServiceErrorKind, ServiceResult};
 use crate::outcome::Outcome;
 use crate::path::{AbsPath, AbsPathBuf};
-use crate::service::session::{State, StateStartArgs};
 use crate::template::Template;
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{Destinations, SuiteFilePath, TestSuite};
@@ -26,7 +29,6 @@ use derive_more::From;
 use derive_new::new;
 use failure::ResultExt as _;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
-use http::header::{self, HeaderMap};
 use http::{StatusCode, Uri};
 use indexmap::{IndexMap, IndexSet};
 use maplit::hashmap;
@@ -34,12 +36,10 @@ use prettytable::format::{FormatBuilder, LinePosition, LineSeparator};
 use prettytable::{cell, row, Table};
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use regex::Regex;
-use reqwest::RedirectPolicy;
 use serde::ser::SerializeMap as _;
 use serde::{Serialize, Serializer};
 use strum::IntoStaticStr;
 use termcolor::WriteColor;
-use tokio::runtime::Runtime;
 use url::Url;
 use zip::result::ZipResult;
 use zip::ZipArchive;
@@ -49,7 +49,6 @@ use std::collections::HashMap;
 use std::io::{self, Cursor, Write as _};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use std::{cmp, mem};
 
 /// # Panics
@@ -57,14 +56,13 @@ use std::{cmp, mem};
 /// Panics if `service` is `Other`.
 pub(crate) fn login(
     service: ServiceKind,
-    props: SessionProps,
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    dropbox_path: Option<&AbsPath>,
+    ctx: self::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<LoginOutcome> {
     match service {
-        ServiceKind::Atcoder => atcoder::login(props, stdin, stderr),
-        ServiceKind::Codeforces => codeforces::login(props, stdin, stderr),
-        ServiceKind::Yukicoder => yukicoder::login(props, stdin, stderr),
+        ServiceKind::Atcoder => atcoder::login(dropbox_path, ctx),
+        ServiceKind::Codeforces => codeforces::login(ctx),
+        ServiceKind::Yukicoder => yukicoder::login(ctx),
         ServiceKind::Other => panic!("`service` must not be `Other`"),
     }
 }
@@ -74,47 +72,38 @@ pub(crate) fn login(
 /// Panics if `service` is not `Atcoder` or `Codeforces`.
 pub(crate) fn participate(
     service: ServiceKind,
-    sess_props: SessionProps,
     contest: &str,
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    ctx: self::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<ParticipateOutcome> {
-    let props = (sess_props, contest);
     match service {
-        ServiceKind::Atcoder => atcoder::participate(props, stdin, stderr),
-        ServiceKind::Codeforces => codeforces::participate(props, stdin, stderr),
+        ServiceKind::Atcoder => atcoder::participate(contest, ctx),
+        ServiceKind::Codeforces => codeforces::participate(contest, ctx),
         _ => panic!("`service` must be `Atcoder` or `Codeforces`"),
     }
 }
 
 pub(crate) fn retrieve_testcases(
     service: ServiceKind,
-    sess_props: SessionProps,
-    retrieve_props: RetrieveTestCasesProps<String>,
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveTestCasesProps<String>,
+    ctx: self::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveTestCasesOutcome> {
-    let props = (sess_props, retrieve_props);
     match service {
-        ServiceKind::Atcoder => atcoder::retrieve_testcases(props, stdin, stderr),
-        ServiceKind::Codeforces => codeforces::retrieve_testcases(props, stdin, stderr),
-        ServiceKind::Yukicoder => yukicoder::retrieve_testcases(props, stdin, stderr),
+        ServiceKind::Atcoder => atcoder::retrieve_testcases(props, ctx),
+        ServiceKind::Codeforces => codeforces::retrieve_testcases(props, ctx),
+        ServiceKind::Yukicoder => yukicoder::retrieve_testcases(props, ctx),
         ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
     }
 }
 
 pub(crate) fn retrieve_langs(
     service: ServiceKind,
-    sess_props: SessionProps,
-    retrieve_props: RetrieveLangsProps<String>,
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveLangsProps<String>,
+    ctx: self::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveLangsOutcome> {
-    let props = (sess_props, retrieve_props);
     match service {
-        ServiceKind::Atcoder => atcoder::retrieve_langs(props, stdin, stderr),
-        ServiceKind::Codeforces => codeforces::retrieve_langs(props, stdin, stderr),
-        ServiceKind::Yukicoder => yukicoder::retrieve_langs(props, stdin, stderr),
+        ServiceKind::Atcoder => atcoder::retrieve_langs(props, ctx),
+        ServiceKind::Codeforces => codeforces::retrieve_langs(props, ctx),
+        ServiceKind::Yukicoder => yukicoder::retrieve_langs(props, ctx),
         ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
     }
 }
@@ -122,16 +111,13 @@ pub(crate) fn retrieve_langs(
 /// Downloads submitted source codes.
 pub(crate) fn retrieve_submissions(
     service: ServiceKind,
-    sess_props: SessionProps,
-    retrieve_props: RetrieveSubmissionsProps<String>,
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveSubmissionsProps<String>,
+    ctx: self::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveSubmissionsOutcome> {
-    let props = (sess_props, retrieve_props);
     match service {
-        ServiceKind::Atcoder => atcoder::retrieve_submissions(props, stdin, stderr),
-        ServiceKind::Codeforces => codeforces::retrieve_submissions(props, stdin, stderr),
-        ServiceKind::Yukicoder => yukicoder::retrieve_submissions(props, stdin, stderr),
+        ServiceKind::Atcoder => atcoder::retrieve_submissions(props, ctx),
+        ServiceKind::Codeforces => codeforces::retrieve_submissions(props, ctx),
+        ServiceKind::Yukicoder => yukicoder::retrieve_submissions(props, ctx),
         ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
     }
 }
@@ -139,16 +125,13 @@ pub(crate) fn retrieve_submissions(
 /// Submits a source code.
 pub(crate) fn submit(
     service: ServiceKind,
-    sess_props: SessionProps,
-    submit_props: SubmitProps<String>,
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: SubmitProps<String>,
+    ctx: self::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<SubmitOutcome> {
-    let props = (sess_props, submit_props);
     match service {
-        ServiceKind::Atcoder => atcoder::submit(props, stdin, stderr),
-        ServiceKind::Codeforces => codeforces::submit(props, stdin, stderr),
-        ServiceKind::Yukicoder => yukicoder::submit(props, stdin, stderr),
+        ServiceKind::Atcoder => atcoder::submit(props, ctx),
+        ServiceKind::Codeforces => codeforces::submit(props, ctx),
+        ServiceKind::Yukicoder => yukicoder::submit(props, ctx),
         ServiceKind::Other => Err(ServiceErrorKind::ServiceIsOther.into()),
     }
 }
@@ -1183,79 +1166,6 @@ impl OutcomeContest {
     }
 }
 
-pub(crate) struct SessionProps {
-    pub(crate) base_url: Option<&'static Url>,
-    pub(crate) cookies_path: AbsPathBuf,
-    pub(crate) api_token_path: AbsPathBuf,
-    pub(crate) dropbox_path: Option<AbsPathBuf>,
-    pub(crate) timeout: Option<Duration>,
-    pub(crate) login_retries: Option<u32>,
-    pub(crate) retries_on_get: u32,
-    pub(crate) http_silent: bool,
-    pub(crate) robots: bool,
-}
-
-impl SessionProps {
-    pub(self) fn start_state<I: Input, E: WriteColor + HasTermProps>(
-        &self,
-        stdin: I,
-        stderr: E,
-    ) -> ServiceResult<State<I, E>> {
-        let runtime = Runtime::new()?;
-        let client = reqwest_async_client(self.timeout)?;
-        State::start(StateStartArgs {
-            stdin,
-            stderr,
-            runtime,
-            robots: self.robots,
-            client,
-            base_url: self.base_url,
-            cookies_path: Some(self.cookies_path.as_path()),
-            api_token_path: Some(self.api_token_path.as_path()),
-            retries_on_get: self.retries_on_get,
-            http_silent: self.http_silent,
-            login_retries: self.login_retries,
-        })
-    }
-}
-
-pub(self) fn reqwest_async_client(
-    timeout: impl Into<Option<Duration>>,
-) -> reqwest::Result<reqwest::r#async::Client> {
-    let mut builder = reqwest::r#async::Client::builder()
-        .referer(false)
-        .redirect(RedirectPolicy::none()) // Redirects manually
-        .cookie_store(false) // Uses `CookieStore` directly
-        .default_headers({
-            let mut headers = HeaderMap::new();
-            headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());
-            headers
-        });
-    if let Some(timeout) = timeout.into() {
-        builder = builder.timeout(timeout);
-    }
-    builder.build()
-}
-
-#[cfg(test)]
-pub(self) fn reqwest_sync_client(
-    timeout: impl Into<Option<Duration>>,
-) -> reqwest::Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder()
-        .referer(false)
-        .redirect(RedirectPolicy::none())
-        .cookie_store(false)
-        .default_headers({
-            let mut headers = HeaderMap::new();
-            headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());
-            headers
-        });
-    if let Some(timeout) = timeout.into() {
-        builder = builder.timeout(timeout);
-    }
-    builder.build()
-}
-
 #[derive(Debug)]
 pub(crate) struct RetrieveTestCasesProps<C: Contest> {
     pub(crate) contest: C,
@@ -1264,6 +1174,7 @@ pub(crate) struct RetrieveTestCasesProps<C: Contest> {
     pub(crate) open_in_browser: bool,
     pub(crate) attempt_full: bool,
     pub(crate) save_files: bool,
+    pub(crate) dropbox_path: Option<AbsPathBuf>,
 }
 
 impl RetrieveTestCasesProps<String> {
@@ -1284,6 +1195,7 @@ impl RetrieveTestCasesProps<String> {
             open_in_browser: self.open_in_browser,
             attempt_full: self.attempt_full,
             save_files: self.save_files,
+            dropbox_path: self.dropbox_path,
         })
     }
 }
@@ -1423,4 +1335,26 @@ impl Contest for String {
 
 pub(self) trait DetermineSubmissionsUrls: Contest {
     fn submissions_urls(&self, problems: &[&str]) -> Vec<Url>;
+}
+
+#[cfg(test)]
+pub(self) fn reqwest_sync_client(
+    timeout: impl Into<Option<std::time::Duration>>,
+) -> reqwest::Result<reqwest::Client> {
+    use reqwest::header::{self, HeaderMap};
+    use reqwest::RedirectPolicy;
+
+    let mut builder = reqwest::Client::builder()
+        .referer(false)
+        .redirect(RedirectPolicy::none())
+        .cookie_store(false)
+        .default_headers({
+            let mut headers = HeaderMap::new();
+            headers.insert(header::USER_AGENT, USER_AGENT.parse().unwrap());
+            headers
+        });
+    if let Some(timeout) = timeout.into() {
+        builder = builder.timeout(timeout);
+    }
+    builder.build()
 }

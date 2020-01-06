@@ -1,15 +1,15 @@
 use crate::errors::{ScrapeError, ScrapeResult, ServiceError, ServiceErrorKind, ServiceResult};
 use crate::path::AbsPath;
+use crate::service::context::{ParseWithBaseUrl as _, UsernameAndPassword};
 use crate::service::download::{self, DownloadProgress};
-use crate::service::session::{ParseWithBaseUrl as _, Session, State, UsernameAndPassword};
 use crate::service::{
-    Contest, LoginOutcome, ParticipateOutcome, ParticipateOutcomeKind, RetrieveLangsOutcome,
-    RetrieveLangsProps, RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
-    RetrieveSubmissionsOutcomeBuilderSubmission, RetrieveSubmissionsProps,
-    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
+    self, Contest, HasContextMut as _, LoginOutcome, ParticipateOutcome, ParticipateOutcomeKind,
+    RetrieveLangsOutcome, RetrieveLangsProps, RetrieveSubmissionsOutcome,
+    RetrieveSubmissionsOutcomeBuilder, RetrieveSubmissionsOutcomeBuilderSubmission,
+    RetrieveSubmissionsProps, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
     RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesOutcomeBuilderProblemTextFiles,
-    RetrieveTestCasesProps, SessionProps, SubmitOutcome, SubmitOutcomeLanguage,
-    SubmitOutcomeResponse, SubmitProps,
+    RetrieveTestCasesProps, SubmitOutcome, SubmitOutcomeLanguage, SubmitOutcomeResponse,
+    SubmitProps,
 };
 use crate::terminal::{HasTermProps, Input, WriteExt as _};
 use crate::testsuite::{self, BatchSuite, Destinations, InteractiveSuite, TestSuite};
@@ -46,94 +46,80 @@ use std::{f64, vec};
 pub(super) static BASE_URL: Lazy<Url> = Lazy::new(|| "https://atcoder.jp".parse().unwrap());
 
 pub(super) fn login(
-    mut props: SessionProps,
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    dropbox_path: Option<&AbsPath>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<LoginOutcome> {
-    let dropbox_path = props.dropbox_path.take();
-    let mut atcoder = Atcoder::try_new(props, stdin, stderr)?;
+    let mut atcoder = Atcoder::start(ctx)?;
     atcoder.login_if_not(true)?;
     if let Some(dropbox_path) = dropbox_path {
-        atcoder.auth_dropbox(&dropbox_path, true)?;
+        atcoder.auth_dropbox(dropbox_path, true)?;
     }
     Ok(LoginOutcome {})
 }
 
 pub(super) fn participate(
-    props: (SessionProps, &str),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    contest: &str,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<ParticipateOutcome> {
-    let (sess_props, contest) = props;
-    Atcoder::try_new(sess_props, stdin, stderr)?.register_explicitly(&AtcoderContest::new(contest))
+    Atcoder::start(ctx)?.register_explicitly(&AtcoderContest::new(contest))
 }
 
 pub(super) fn retrieve_testcases(
-    props: (SessionProps, RetrieveTestCasesProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveTestCasesProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveTestCasesOutcome> {
-    let (mut sess_props, retrieve_props) = props;
-    let dropbox_path = sess_props.dropbox_path.take();
-    let dropbox_path = dropbox_path.as_deref();
-    let retrieve_props = retrieve_props
+    let props = props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Atcoder::try_new(sess_props, stdin, stderr)?.retrieve_testcases(&retrieve_props, dropbox_path)
+    Atcoder::start(ctx)?.retrieve_testcases(&props)
 }
 
 pub(super) fn retrieve_langs(
-    props: (SessionProps, RetrieveLangsProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveLangsProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveLangsOutcome> {
-    let (sess_props, retrieve_props) = props;
-    let retrieve_props = retrieve_props
+    let props = props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Atcoder::try_new(sess_props, stdin, stderr)?.retrieve_langs(retrieve_props)
+    Atcoder::start(ctx)?.retrieve_langs(props)
 }
 
 pub(super) fn retrieve_submissions(
-    props: (SessionProps, RetrieveSubmissionsProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveSubmissionsProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveSubmissionsOutcome> {
-    let (sess_props, retrieve_props) = props;
-    let retrieve_props = retrieve_props
+    let props = props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Atcoder::try_new(sess_props, stdin, stderr)?.retrieve_submissions(&retrieve_props)
+    Atcoder::start(ctx)?.retrieve_submissions(&props)
 }
 
 pub(super) fn submit(
-    props: (SessionProps, SubmitProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: SubmitProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<SubmitOutcome> {
-    let (sess_props, submit_props) = props;
-    let submit_props = submit_props
+    let props = props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()
         .unwrap();
-    Atcoder::try_new(sess_props, stdin, stderr)?.submit(submit_props)
+    Atcoder::start(ctx)?.submit(props)
 }
 
 #[derive(Debug)]
-struct Atcoder<I: Input, E: WriteColor + HasTermProps>(State<I, E>);
+struct Atcoder<I: Input, E: WriteColor + HasTermProps>(service::Context<I, E>);
 
-impl<I: Input, E: WriteColor + HasTermProps> Session for Atcoder<I, E> {
+impl<I: Input, E: WriteColor + HasTermProps> service::HasContextMut for Atcoder<I, E> {
     type Stdin = I;
     type Stderr = E;
 
-    fn state_ref(&self) -> &State<I, E> {
+    fn context(&self) -> &service::Context<I, E> {
         &self.0
     }
 
-    fn state_mut(&mut self) -> &mut State<I, E> {
+    fn context_mut(&mut self) -> &mut service::Context<I, E> {
         &mut self.0
     }
 }
@@ -141,8 +127,9 @@ impl<I: Input, E: WriteColor + HasTermProps> Session for Atcoder<I, E> {
 impl<I: Input, E: WriteColor + HasTermProps> DownloadProgress for Atcoder<I, E> {}
 
 impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
-    fn try_new(props: SessionProps, stdin: I, stderr: E) -> ServiceResult<Self> {
-        props.start_state(stdin, stderr).map(Self)
+    fn start(mut ctx: service::Context<I, E>) -> ServiceResult<Self> {
+        ctx.get_robots_txt()?;
+        Ok(Self(ctx))
     }
 
     fn login_if_not(&mut self, explicit: bool) -> ServiceResult<()> {
@@ -313,7 +300,6 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
     fn retrieve_testcases(
         &mut self,
         props: &RetrieveTestCasesProps<AtcoderContest>,
-        dropbox_path: Option<&AbsPath>,
     ) -> ServiceResult<RetrieveTestCasesOutcome> {
         let RetrieveTestCasesProps {
             contest,
@@ -322,6 +308,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Atcoder<I, E> {
             open_in_browser,
             attempt_full,
             save_files,
+            dropbox_path,
         } = props;
         let problems = problems.as_ref();
 

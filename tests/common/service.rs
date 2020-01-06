@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-use snowchains::app::{App, Login, Opt, OutputKind, Retrieve, RetrieveTestcases};
 use snowchains::path::{AbsPath, AbsPathBuf};
 use snowchains::service::ServiceKind;
 use snowchains::terminal::{AnsiColorChoice, Dumb, TtyOrPiped};
+use snowchains::{Login, Opt, OutputKind, Retrieve, RetrieveTestcases};
 
 use failure::Fallible;
 use pretty_assertions::assert_eq;
@@ -18,7 +18,7 @@ use std::{env, panic};
 pub(crate) fn test_in_tempdir(
     tempdir_prefix: &str,
     stdin: &str,
-    f: impl FnOnce(App<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> + UnwindSafe,
+    f: impl FnOnce(snowchains::Context<TtyOrPiped<&[u8]>, Dumb, Dumb>) -> Fallible<()> + UnwindSafe,
 ) -> Fallible<()> {
     static CONFIG: &str = r#"
 target = ".snowchains/target.json"
@@ -89,8 +89,8 @@ yukicoder = "Text (cat 8.22)"
             File::create(tempdir_path.join("local").join("dropbox.json"))?,
             &json!({ "access_token": env_var("DROPBOX_ACCESS_TOKEN")? }),
         )?;
-        f(App {
-            working_dir: AbsPathBuf::try_new(&tempdir_path).unwrap(),
+        f(snowchains::Context {
+            cwd: AbsPathBuf::try_new(&tempdir_path).unwrap(),
             login_retries: Some(0),
             stdin: TtyOrPiped::Piped(stdin.as_ref()),
             stdout: Dumb::new(),
@@ -109,27 +109,28 @@ pub(crate) fn env_var(name: &'static str) -> Fallible<String> {
 }
 
 pub(crate) fn login(
-    mut app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>,
+    mut ctx: snowchains::Context<TtyOrPiped<&[u8]>, Dumb, Dumb>,
     service: ServiceKind,
 ) -> snowchains::Result<()> {
-    let code = app.run(Opt::Login(Login {
+    let opt = Opt::Login(Login {
         json: false,
         colorize: false,
         output: OutputKind::Json,
         color_choice: AnsiColorChoice::Never,
         service,
-    }))?;
+    });
+    let code = snowchains::run(opt, &mut ctx)?;
     assert_eq!(code, 0);
     Ok(())
 }
 
 pub(crate) fn retrieve_testcases(
-    mut app: App<TtyOrPiped<&[u8]>, Dumb, Dumb>,
+    mut ctx: snowchains::Context<TtyOrPiped<&[u8]>, Dumb, Dumb>,
     service: ServiceKind,
     contest: &str,
     problems: &[&str],
 ) -> snowchains::Result<()> {
-    let code = app.run(Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
+    let opt = Opt::Retrieve(Retrieve::Testcases(RetrieveTestcases {
         full: true,
         no_save: false,
         open: false,
@@ -141,7 +142,8 @@ pub(crate) fn retrieve_testcases(
         problems: problems.iter().map(|&s| s.to_owned()).collect(),
         output: OutputKind::Json,
         color_choice: AnsiColorChoice::Never,
-    })))?;
+    }));
+    let code = snowchains::run(opt, &mut ctx)?;
     assert_eq!(code, 0);
     Ok(())
 }

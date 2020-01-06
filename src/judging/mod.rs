@@ -20,9 +20,10 @@ use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
 use std::fmt::{self, Write as _};
+use std::io::{self, Write as _};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::{io, mem, str};
+use std::{mem, str};
 
 pub(crate) fn only_transpile(
     stdout: impl HasTermProps,
@@ -48,7 +49,12 @@ pub(crate) fn only_transpile(
 ///
 /// Returns `Err` if compilation or execution command fails, or any test fails.
 pub(crate) fn judge(
-    params: JudgeParams<impl HasTermProps, impl WriteColor + HasTermProps>,
+    config: &Config,
+    mode: config::Mode,
+    problem: &str,
+    force_compile: bool,
+    jobs: Option<NonZeroUsize>,
+    mut ctx: impl crate::HasContextMut,
 ) -> JudgeResult<JudgeOutcome> {
     struct Progress<W: AsyncWrite, C, F: Future> {
         jobs: NonZeroUsize,
@@ -277,22 +283,14 @@ pub(crate) fn judge(
         })
     }
 
-    let JudgeParams {
-        stdout,
-        mut stderr,
-        config,
-        mode,
-        problem,
-        force_compile,
-        jobs,
-    } = params;
-
     let (cases, paths_formatted) = config.testcase_loader(mode)?.load_merging(problem)?;
     let jobs = jobs
         .or_else(|| config.judge_jobs())
         .or_else(|| NonZeroUsize::new(num_cpus::get()))
         .unwrap_or_else(|| NonZeroUsize::new(1).unwrap());
     let display_limit = config.judge_display_limit();
+
+    let (_, stdout, mut stderr) = ctx.stdio();
 
     for tester_transpilation in cases.interactive_tester_transpilations() {
         tester_transpilation.run(&stdout, &mut stderr, force_compile)?;
@@ -331,17 +329,6 @@ pub(crate) fn judge(
             judge_all(stderr, jobs, display_limit, cases, &solver, f).map(JudgeOutcome::Interactive)
         }
     }
-}
-
-#[derive(Debug)]
-pub(crate) struct JudgeParams<'a, O: HasTermProps, E: WriteColor + HasTermProps> {
-    pub(crate) stdout: O,
-    pub(crate) stderr: E,
-    pub(crate) config: &'a Config,
-    pub(crate) mode: config::Mode,
-    pub(crate) problem: &'a str,
-    pub(crate) force_compile: bool,
-    pub(crate) jobs: Option<NonZeroUsize>,
 }
 
 #[derive(Debug)]

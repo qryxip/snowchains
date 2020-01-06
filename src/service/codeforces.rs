@@ -2,13 +2,13 @@ use crate::errors::{
     ParseContestNameError, ParseContestNameResult, ScrapeError, ScrapeResult, ServiceErrorKind,
     ServiceResult,
 };
-use crate::service::session::{ParseWithBaseUrl as _, Session, State, UsernameAndPassword};
+use crate::service::context::{ParseWithBaseUrl as _, UsernameAndPassword};
 use crate::service::{
-    Contest, LoginOutcome, ParticipateOutcome, ParticipateOutcomeKind, RetrieveLangsOutcome,
-    RetrieveLangsProps, RetrieveSubmissionsOutcome, RetrieveSubmissionsOutcomeBuilder,
-    RetrieveSubmissionsOutcomeBuilderSubmission, RetrieveSubmissionsProps,
-    RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
-    RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesProps, SessionProps, SubmitOutcome,
+    self, Contest, HasContextMut as _, LoginOutcome, ParticipateOutcome, ParticipateOutcomeKind,
+    RetrieveLangsOutcome, RetrieveLangsProps, RetrieveSubmissionsOutcome,
+    RetrieveSubmissionsOutcomeBuilder, RetrieveSubmissionsOutcomeBuilderSubmission,
+    RetrieveSubmissionsProps, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeBuilder,
+    RetrieveTestCasesOutcomeBuilderProblem, RetrieveTestCasesProps, SubmitOutcome,
     SubmitOutcomeLanguage, SubmitOutcomeResponse, SubmitProps,
 };
 use crate::terminal::{HasTermProps, Input};
@@ -40,97 +40,85 @@ use std::time::{Duration, SystemTime};
 pub(super) static BASE_URL: Lazy<Url> = Lazy::new(|| "https://codeforces.com".parse().unwrap());
 
 pub(super) fn login(
-    props: SessionProps,
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<LoginOutcome> {
-    Codeforces::try_new(props, stdin, stderr)?.login(LoginOption::Explicit)
+    Codeforces::start(ctx)?.login(LoginOption::Explicit)
 }
 
 pub(super) fn participate(
-    props: (SessionProps, &str),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    contest: &str,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<ParticipateOutcome> {
-    let (sess_props, contest) = props;
-    Codeforces::try_new(sess_props, stdin, stderr)?.participate(contest.parse()?)
+    Codeforces::start(ctx)?.participate(contest.parse()?)
 }
 
 pub(super) fn retrieve_testcases(
-    props: (SessionProps, RetrieveTestCasesProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveTestCasesProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveTestCasesOutcome> {
-    let (sess_props, retrieve_props) = props;
-    let retrieve_props = retrieve_props
+    let props = props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    Codeforces::try_new(sess_props, stdin, stderr)?.retrieve_testcases(retrieve_props)
+    Codeforces::start(ctx)?.retrieve_testcases(props)
 }
 
 pub(super) fn retrieve_langs(
-    props: (SessionProps, RetrieveLangsProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveLangsProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveLangsOutcome> {
-    let (sess_props, retrieve_props) = props;
-    let retrieve_props = retrieve_props
+    let props = props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    Codeforces::try_new(sess_props, stdin, stderr)?.retrieve_langs(retrieve_props)
+    Codeforces::start(ctx)?.retrieve_langs(props)
 }
 
 pub(super) fn retrieve_submissions(
-    props: (SessionProps, RetrieveSubmissionsProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: RetrieveSubmissionsProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<RetrieveSubmissionsOutcome> {
-    let (sess_props, retrieve_props) = props;
-    let retrieve_props = retrieve_props
+    let props = props
         .convert_problems(CaseConversion::Upper)
         .parse_contest()?;
-    Codeforces::try_new(sess_props, stdin, stderr)?.retrieve_submissions(retrieve_props)
+    Codeforces::start(ctx)?.retrieve_submissions(props)
 }
 
 pub(super) fn submit(
-    props: (SessionProps, SubmitProps<String>),
-    stdin: impl Input,
-    stderr: impl WriteColor + HasTermProps,
+    props: SubmitProps<String>,
+    ctx: service::Context<impl Input, impl WriteColor + HasTermProps>,
 ) -> ServiceResult<SubmitOutcome> {
-    let (sess_props, submit_props) = props;
-    let submit_props = submit_props
+    let props = props
         .convert_problem(CaseConversion::Upper)
         .parse_contest()?;
-    Codeforces::try_new(sess_props, stdin, stderr)?.submit(submit_props)
+    Codeforces::start(ctx)?.submit(props)
 }
 
 #[derive(Debug)]
 struct Codeforces<I: Input, E: WriteColor + HasTermProps> {
     handle: Option<String>,
     api_key: Option<ApiKey>,
-    state: State<I, E>,
+    ctx: service::Context<I, E>,
 }
 
-impl<I: Input, E: WriteColor + HasTermProps> Session for Codeforces<I, E> {
+impl<I: Input, E: WriteColor + HasTermProps> service::HasContextMut for Codeforces<I, E> {
     type Stdin = I;
     type Stderr = E;
 
-    fn state_ref(&self) -> &State<I, E> {
-        &self.state
+    fn context(&self) -> &service::Context<I, E> {
+        &self.ctx
     }
 
-    fn state_mut(&mut self) -> &mut State<I, E> {
-        &mut self.state
+    fn context_mut(&mut self) -> &mut service::Context<I, E> {
+        &mut self.ctx
     }
 }
 
 impl<I: Input, E: WriteColor + HasTermProps> Codeforces<I, E> {
-    fn try_new(props: SessionProps, stdin: I, stderr: E) -> ServiceResult<Self> {
-        let state = props.start_state(stdin, stderr)?;
+    fn start(mut ctx: service::Context<I, E>) -> ServiceResult<Self> {
+        ctx.get_robots_txt()?;
         Ok(Self {
             handle: None,
             api_key: None,
-            state,
+            ctx,
         })
     }
 
