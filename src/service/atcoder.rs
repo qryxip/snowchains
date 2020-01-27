@@ -22,7 +22,7 @@ use crate::util::str::CaseConversion;
 
 use chrono::{DateTime, FixedOffset, Local, Utc};
 use failure::{Fail as _, ResultExt as _};
-use http::{header, StatusCode, Uri};
+use http01::{header, StatusCode, Uri};
 use if_chain::if_chain;
 use indexmap::{indexmap, indexset, IndexMap, IndexSet};
 use itertools::Itertools as _;

@@ -1,6 +1,6 @@
 use futures01::{task, try_ready, Async, Poll};
 use termcolor::{Color, ColorSpec};
-use tokio::io::AsyncWrite;
+use tokio01::io::AsyncWrite;
 
 use std::fmt::{self, Write as _};
 use std::{io, str};

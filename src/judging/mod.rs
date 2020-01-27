@@ -16,8 +16,8 @@ use crate::util::io::AsyncBufferedWriter;
 use futures01::{task, try_ready, Async, Future, Poll};
 use serde::{Serialize, Serializer};
 use termcolor::{ColorSpec, WriteColor};
-use tokio::io::AsyncWrite;
-use tokio::runtime::Runtime;
+use tokio01::io::AsyncWrite;
+use tokio01::runtime::Runtime;
 
 use std::fmt::{self, Write as _};
 use std::io::{self, Write as _};

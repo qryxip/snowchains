@@ -7,7 +7,7 @@ use derivative::Derivative;
 use either::Either;
 use serde::Serialize;
 use termcolor::{Ansi, ColorSpec, NoColor, WriteColor};
-use tokio::io::AsyncWrite;
+use tokio01::io::AsyncWrite;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use std::convert::TryFrom;
@@ -520,10 +520,10 @@ impl<W: AnsiStandardOutput> AnsiStandardOutput for BufWriter<W> {
 }
 
 impl AnsiStandardOutput for Stdout {
-    type AnsiAsyncWrite = tokio::io::Stdout;
+    type AnsiAsyncWrite = tokio01::io::Stdout;
 
-    fn ansi_async_wtr() -> tokio::io::Stdout {
-        tokio::io::stdout()
+    fn ansi_async_wtr() -> tokio01::io::Stdout {
+        tokio01::io::stdout()
     }
 
     #[cfg(not(windows))]
@@ -542,10 +542,10 @@ impl AnsiStandardOutput for Stdout {
 }
 
 impl AnsiStandardOutput for Stderr {
-    type AnsiAsyncWrite = tokio::io::Stderr;
+    type AnsiAsyncWrite = tokio01::io::Stderr;
 
-    fn ansi_async_wtr() -> tokio::io::Stderr {
-        tokio::io::stderr()
+    fn ansi_async_wtr() -> tokio01::io::Stderr {
+        tokio01::io::stderr()
     }
 
     #[cfg(not(windows))]

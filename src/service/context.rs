@@ -13,7 +13,7 @@ use crate::util::indexmap::IndexSetAsRefStrExt as _;
 use cookie_store::CookieStore;
 use failure::{Fail, ResultExt as _};
 use futures01::{task, try_ready, Async, Future, Poll, Stream as _};
-use http::{HttpTryFrom, Uri};
+use http01::{HttpTryFrom, Uri};
 use if_chain::if_chain;
 use indexmap::IndexSet;
 use itertools::Itertools as _;
@@ -27,7 +27,7 @@ use scraper::Html;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use termcolor::WriteColor;
-use tokio::runtime::Runtime;
+use tokio01::runtime::Runtime;
 use url::Url;
 
 use std::borrow::Cow;
@@ -308,7 +308,7 @@ impl<I: Input, E: WriteColor + HasTermProps> ContextBuilder<'_, I, E> {
             login_retries,
         } = self;
 
-        let runtime = tokio::runtime::Runtime::new()?;
+        let runtime = tokio01::runtime::Runtime::new()?;
         let client = {
             let mut builder = reqwest::r#async::Client::builder()
                 .referer(false)
@@ -1282,16 +1282,13 @@ mod tests {
     use crate::terminal::{AnsiWithProps, Dumb, TtyOrPiped};
 
     use failure::Fallible;
-    use futures01::Future as _;
-    use http::Uri;
+    use http::{StatusCode, Uri};
     use if_chain::if_chain;
     use maplit::btreeset;
     use once_cell::sync::Lazy;
     use pretty_assertions::assert_eq;
-    use reqwest::StatusCode;
     use tempdir::TempDir;
     use termcolor::{Ansi, Color, ColorSpec, WriteColor};
-    use tokio::runtime::Runtime;
     use url::Url;
     use warp::Filter;
 
@@ -1299,8 +1296,8 @@ mod tests {
     use std::io::{self, Empty, Write as _};
     use std::{env, panic, str};
 
-    #[test]
-    fn it_works() -> Fallible<()> {
+    #[tokio::test(threaded_scheduler)]
+    async fn it_works() -> Fallible<()> {
         const LOCALHOST_PORT: u16 = 2000;
 
         let filter_ua = warp::filters::header::exact("User-Agent", service::USER_AGENT);
@@ -1320,10 +1317,14 @@ mod tests {
         let redirect = warp::path("redirect")
             .and(filter_ua)
             .map(|| warp::redirect(Uri::from_static("/")));
-        let server = warp::serve(index.or(confirm_cookie).or(robots_txt).or(redirect));
 
-        let mut runtime = Runtime::new()?;
-        runtime.spawn(server.bind(([127, 0, 0, 1], LOCALHOST_PORT)));
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        let (_, server) = warp::serve(index.or(confirm_cookie).or(robots_txt).or(redirect))
+            .bind_with_graceful_shutdown(([127, 0, 0, 1], LOCALHOST_PORT), async {
+                rx.await.unwrap();
+            });
+        let handle = tokio::task::spawn(server);
 
         let tempdir = dunce::canonicalize(&env::temp_dir())?;
         let tempdir = TempDir::new_in(&tempdir, "it_keeps_a_file_locked_while_alive")?;
@@ -1362,11 +1363,11 @@ mod tests {
                 if let ServiceError::Context(ctx) = &err;
                 if let ServiceErrorKind::UnexpectedStatusCode(
                     url,
-                    StatusCode::NOT_FOUND,
+                    http01::StatusCode::NOT_FOUND,
                     expected,
                 ) = ctx.get_context();
                 if url.as_str() == format!("http://127.0.0.1:{}/nonexisting", LOCALHOST_PORT);
-                if *expected == btreeset![StatusCode::OK];
+                if *expected == btreeset![http01::StatusCode::OK];
                 then {
                 } else {
                     return Err(err.into())
@@ -1421,7 +1422,9 @@ mod tests {
             Ok(())
         });
 
-        runtime.shutdown_now().wait().unwrap();
+        tx.send(()).unwrap();
+        handle.await?;
+
         tempdir.close()?;
         result.unwrap_or_else(|p| panic::resume_unwind(p))
     }
@@ -1470,7 +1473,7 @@ mod tests {
         let mut ctx = Context {
             stdin: TtyOrPiped::Piped(&mut rdr),
             stderr: &mut stderr,
-            runtime: Runtime::new()?,
+            runtime: tokio01::runtime::Runtime::new()?,
             client: reqwest::r#async::Client::builder().build()?,
             robots: None,
             cookie_store: None,
