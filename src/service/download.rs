@@ -9,7 +9,7 @@ use futures01::{task, try_ready, Async, Future, Poll, Stream as _};
 use maplit::btreeset;
 use reqwest::StatusCode;
 use termcolor::WriteColor;
-use tokio::io::AsyncWrite;
+use tokio01::io::AsyncWrite;
 
 use std::time::{Duration, Instant};
 use std::{char, io, mem};

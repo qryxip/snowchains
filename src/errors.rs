@@ -8,8 +8,8 @@ use chrono::{DateTime, Local};
 use derive_more::From;
 use derive_new::new;
 use failure::{Backtrace, Fail};
-use http::header::HeaderName;
-use http::{StatusCode, Uri};
+use http01::header::HeaderName;
+use http01::{StatusCode, Uri};
 use itertools::Itertools as _;
 use url::Url;
 use zip::result::ZipError;
@@ -85,8 +85,8 @@ pub enum ServiceError {
     SerdeUrlencodedSer(StdError<serde_urlencoded::ser::Error>),
     #[double_from = "ZipError"]
     Zip(StdError<ZipError>),
-    #[double_from = "tokio::timer::Error"]
-    TokioTimer(StdError<tokio::timer::Error>),
+    #[double_from = "tokio01::timer::Error"]
+    TokioTimer(StdError<tokio01::timer::Error>),
     #[double_from = "io::Error"]
     Io(StdError<io::Error>),
     #[double_from = "SystemTimeError"]
@@ -204,7 +204,7 @@ impl Fail for PseudoReqwestError {
 
 #[derive(Debug, From)]
 pub(crate) enum PseudoReqwestErrorKind {
-    Http(http::Error),
+    Http(http01::Error),
     UrlEncoded(serde_urlencoded::ser::Error),
     Json(serde_json::Error),
 }
@@ -250,8 +250,8 @@ pub enum JudgeError {
     Config(ConfigError),
     ExpandTemplate(ExpandTemplateError),
     File(FileError),
-    #[double_from = "tokio::timer::Error"]
-    TokioTimer(StdError<tokio::timer::Error>),
+    #[double_from = "tokio01::timer::Error"]
+    TokioTimer(StdError<tokio01::timer::Error>),
     #[double_from = "io::Error"]
     Io(StdError<io::Error>),
 }

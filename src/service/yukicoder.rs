@@ -22,7 +22,7 @@ use crate::util::str::CaseConversion;
 use chrono::offset::TimeZone as _;
 use chrono::{DateTime, FixedOffset, NaiveDateTime};
 use cookie::Cookie;
-use http::{header, StatusCode};
+use http01::{header, StatusCode};
 use indexmap::{indexmap, IndexMap, IndexSet};
 use once_cell::sync::Lazy;
 use regex::Regex;

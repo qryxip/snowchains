@@ -10,7 +10,7 @@ use crate::util;
 use futures01::{task, try_ready, Async, Future, Poll};
 use serde::Serialize;
 use termcolor::{Color, ColorSpec, WriteColor};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio01::io::{AsyncRead, AsyncWrite};
 
 use std::process::ExitStatus;
 use std::sync::Arc;

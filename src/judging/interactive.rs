@@ -11,7 +11,7 @@ use derive_new::new;
 use futures01::{task, try_ready, Async, Future, Poll, Stream};
 use serde::Serialize;
 use termcolor::{Color, ColorSpec, WriteColor};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio01::io::{AsyncRead, AsyncWrite};
 
 use std::process::ExitStatus;
 use std::sync::Arc;

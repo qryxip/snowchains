@@ -29,7 +29,7 @@ use derive_more::From;
 use derive_new::new;
 use failure::ResultExt as _;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
-use http::{StatusCode, Uri};
+use http01::{StatusCode, Uri};
 use indexmap::{IndexMap, IndexSet};
 use maplit::hashmap;
 use prettytable::format::{FormatBuilder, LinePosition, LineSeparator};
