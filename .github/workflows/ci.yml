@@ -17,15 +17,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v2
 
-      - name: rust-toolchain
+      - name: Setup stable-x86_64-unknown-linux-gnu
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable-x86_64-unknown-linux-gnu
           default: true
 
-      - name: '`cargo fmt -- --check`'
+      - name: '`cargo fmt --all -- --check`'
         uses: actions-rs/cargo@v1
         with:
           command: fmt
@@ -79,39 +79,21 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v2
 
-      - name: '`apt-get install`'
+      - name: '`sudo apt-get install musl-tools`'
         run: sudo apt-get install musl-tools
         if: matrix.target_triple == 'x86_64-unknown-linux-musl'
 
-      - name: rust-toolchain
+      - name: Setup ${{ matrix.channel }}-${{ matrix.host_triple }} (target = ${{ matrix.target_triple }})
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.channel }}-${{ matrix.host_triple }}
           target: ${{ matrix.target_triple }}
           default: true
+          profile: default
 
-      - name: '`rustup component add clippy`'
-        run: rustup component add clippy
-
-      # - name: '`cargo clippy`'
-      #   run: |
-      #     # Avoid IRC
-      #     cargo check --workspace --all-targets --all-features --target ${{ matrix.target_triple }}
-      #     if ${{ matrix.os == 'windows-latest' }}; then
-      #       TO_UNIX_PATHS='xargs cygpath -u'
-      #     else
-      #       TO_UNIX_PATHS=cat
-      #     fi
-      #     cargo metadata --format-version 1 |
-      #       jq -r '.workspace_members[] as $members | .packages[] | select(.id == $members) | .targets[].src_path' |
-      #       $TO_UNIX_PATHS |
-      #       xargs touch
-      #     cargo clippy --workspace --all-targets --all-features --target ${{ matrix.target_triple }} -- -D warnings
-      #   shell: bash
-
-      - name: '`cargo clippy`'
+      - name: '`cargo clippy --workspace --all-targets --all-features --target ${{ matrix.target_triple }} -- -D warnings`'
         uses: actions-rs/cargo@v1
         with:
           command: clippy
@@ -127,7 +109,7 @@ jobs:
           fi
         shell: bash
 
-      - name: '`cargo test`'
+      - name: '`cargo test --no-fail-fast --all-features ${{ steps.cargo_test_targets.outputs.targets }} --target ${{ matrix.target_triple }}`'
         uses: actions-rs/cargo@v1
         with:
           command: test
@@ -177,20 +159,21 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v2
 
-      - name: '`apt-get install`'
+      - name: '`sudo apt-get install musl-tools`'
         run: sudo apt-get install musl-tools
         if: matrix.target_triple == 'x86_64-unknown-linux-musl'
 
-      - name: Install toolchain and target
+      - name: Setup stable-${{ matrix.host_triple }} (target = ${{ matrix.target_triple }})
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable-${{ matrix.host_triple }}
           target: ${{ matrix.target_triple }}
           default: true
+          profile: minimal
 
-      - name: '`cargo build --release`'
+      - name: '`cargo build --release --all-features --target ${{ matrix.target_triple }}`'
         uses: actions-rs/cargo@v1
         with:
           command: build
@@ -204,7 +187,7 @@ jobs:
           fi
           BIN_TARGET=snowchains
           EXECUTABLE="./target/${{ matrix.target_triple }}/release/$BIN_TARGET$EXE"
-          ASSET_STEM="BIN_TARGET-${GITHUB_REF#refs/tags/}-${{ matrix.target_triple }}"
+          ASSET_STEM="$BIN_TARGET-${GITHUB_REF#refs/tags/}-${{ matrix.target_triple }}"
           git archive -o "./$ASSET_STEM.tar" --prefix "$ASSET_STEM/" HEAD
           tar -xf "./$ASSET_STEM.tar"
           mv "$EXECUTABLE" ./Cargo.lock "./$ASSET_STEM/"
@@ -227,23 +210,30 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish:
-    name: '`cargo pubish`'
+    name: Publish
     runs-on: ubuntu-18.04
     needs: [rustfmt, build, release]
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v2
 
-      - name: Install toolchain and target
+      - name: Setup stable-x86_64-unknown-linux-gnu
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable-x86_64-unknown-linux-gnu
           default: true
+          profile: minimal
 
-      - name: '`cargo publish`'
+      - name: '`cargo install --git https://github.com/sunng87/cargo-release --rev 943c64384f80463b4ca844230a360c1f7c821165 --debug cargo-release`'
         uses: actions-rs/cargo@v1
         with:
-          command: publish
-          args: --all-features --verbose --token ${{ secrets.CRATES_IO_TOKEN }}
+          command: install
+          args: --git https://github.com/sunng87/cargo-release --rev 943c64384f80463b4ca844230a360c1f7c821165 --debug cargo-release
+
+      - name: '`cargo release --workspace --skip-push --skip-tag --no-dev-version --token "$CRATES_IO_TOKEN" --no-confirm`'
+        uses: actions-rs/cargo@v1
+        with:
+          command: release
+          args: --workspace --skip-push --skip-tag --no-dev-version --token ${{ secrets.CRATES_IO_TOKEN }} --no-confirm

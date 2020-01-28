@@ -29,7 +29,7 @@ Tools for online programming contests.
 
 <https://github.com/qryxip/snowchains/releases>
 
-### ~~`cargo install` (Crates.io)~~ not recommended for now
+### `cargo install` (Crates.io)
 
 ```
 $ cargo install snowchains
@@ -44,7 +44,7 @@ $ cargo install --git https://github.com/qryxip/snowchains
 ## Usage
 
 ```
-snowchains 0.2.0
+snowchains 0.3.0
 Ryo Yamashita <qryxip@gmail.com>
 Tools for online programming contests
 
