@@ -21,7 +21,7 @@ use crate::util::str::CaseConversion;
 
 use chrono::offset::TimeZone as _;
 use chrono::{DateTime, FixedOffset, NaiveDateTime};
-use cookie::Cookie;
+use cookie012::Cookie;
 use http01::{header, StatusCode};
 use indexmap::{indexmap, IndexMap, IndexSet};
 use once_cell::sync::Lazy;
@@ -796,7 +796,7 @@ impl Extract for Html {
             let display_name = self
                 .select(selector!("#content > h3"))
                 .flat_map(|r| r.text())
-                .nth(0)?
+                .next()?
                 .to_owned();
             let text = self
                 .select(selector!("#content > div"))
@@ -851,7 +851,7 @@ impl Extract for Html {
     fn extract_problems(&self) -> ScrapeResult<NonEmptyVec<(String, String, Url)>> {
         self.select(selector!("#content > div.left > table.table > tbody > tr"))
             .map(|tr| {
-                let slug = tr.select(selector!("td")).nth(0)?.text().next()?.to_owned();
+                let slug = tr.select(selector!("td")).next()?.text().next()?.to_owned();
                 let no = tr.select(selector!("td")).nth(1)?.text().next()?.to_owned();
                 let href = tr
                     .select(selector!("td"))
@@ -896,7 +896,7 @@ impl Extract for Html {
             .map(|tr| {
                 let url = tr
                     .select(selector!("td > a"))
-                    .nth(0)?
+                    .next()?
                     .value()
                     .attr("href")?
                     .parse_with_base_url(Some(&BASE_URL))

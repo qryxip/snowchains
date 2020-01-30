@@ -1290,7 +1290,7 @@ impl Extract for Html {
                     static SCREEN: &Lazy<Regex> =
                         lazy_regex!(r"\A/contests/[\w-]+/tasks/([\w-]+)\z");
                     static DATETIME: &str = "%F %T%z";
-                    let a = tr.select(selector!("td > a")).nth(0)?;
+                    let a = tr.select(selector!("td > a")).next()?;
                     let task_display = a.text().next()?.to_owned();
                     let task_slug = SLUG.captures(&task_display)?[1].to_owned();
                     let task_path = a.value().attr("href")?;
@@ -1304,7 +1304,7 @@ impl Extract for Html {
                 let lang = tr.select(selector!("td")).nth(3)?.text().next()?.to_owned();
                 let verdict = tr
                     .select(selector!("td > span"))
-                    .nth(0)?
+                    .next()?
                     .text()
                     .next()?
                     .to_owned();

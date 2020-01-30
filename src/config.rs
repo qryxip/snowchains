@@ -1110,11 +1110,11 @@ fn de_size<'de, D: Deserializer<'de>>(
 }
 
 fn parse_size(s: &str) -> std::result::Result<usize, ParseFieldError<&str>> {
-    use combine::char::{char, digit, string};
+    use combine::parser::char::{char, digit, string};
     use combine::parser::choice::or;
     use combine::parser::range::recognize;
-    use combine::stream::state::{IndexPositioner, State};
-    use combine::{choice, eof, optional, skip_many, skip_many1, Parser as _};
+    use combine::stream::position::{self, IndexPositioner};
+    use combine::{choice, eof, optional, skip_many, skip_many1, EasyParser as _, Parser as _};
 
     static GRAMMER: &str = r#"Size  ::= Float Unit
 Unit  ::= ( 'B' | ( [KMG] ( 'B' | 'iB' ) ) )?
@@ -1157,7 +1157,7 @@ Digit ::= [0-9]
     let ((float, unit), _) = float
         .and(unit)
         .skip(eof())
-        .easy_parse(State::with_positioner(s, IndexPositioner::new()))
+        .easy_parse(position::Stream::with_positioner(s, IndexPositioner::new()))
         .map_err(|e| ParseFieldError::new(s, e, GRAMMER))?;
     let size = float * unit;
     debug_assert!(size.is_sign_positive() && size.is_finite());
@@ -1341,12 +1341,12 @@ impl FromStr for Predicate {
     type Err = ParseFieldError<String>;
 
     fn from_str(input: &str) -> std::result::Result<Self, ParseFieldError<String>> {
-        use combine::char::{char, space, spaces, string};
+        use combine::parser::char::{char, space, spaces, string};
         use combine::parser::choice::or;
         use combine::parser::range::recognize;
-        use combine::stream::state::{IndexPositioner, State};
+        use combine::stream::position::{self, IndexPositioner};
         use combine::{choice, easy, eof, many, parser, satisfy, skip_many, skip_many1};
-        use combine::{ParseResult, Parser};
+        use combine::{EasyParser as _, Parser, StdParseResult};
 
         static GRAMMER: &str = r#"Predicate    ::= Space* Expr Space*
 Expr         ::= ConstOrVar | LitStr | SymbolOrList | Apply
@@ -1361,8 +1361,9 @@ Space        ::= ? White_Space character ?
 "#;
 
         fn parse_expr<'a>(
-            input: &mut easy::Stream<State<&'a str, IndexPositioner>>,
-        ) -> ParseResult<Predicate, easy::Stream<State<&'a str, IndexPositioner>>> {
+            input: &mut easy::Stream<position::Stream<&'a str, IndexPositioner>>,
+        ) -> StdParseResult<Predicate, easy::Stream<position::Stream<&'a str, IndexPositioner>>>
+        {
             let const_or_var = ident().map(|s| match s.as_ref() {
                 "t" => Predicate::T,
                 "nil" => Predicate::List(vec![]),
@@ -1400,11 +1401,13 @@ Space        ::= ? White_Space character ?
                 .skip(char(')'))
                 .map(|(f, xs)| Predicate::Apply(f, xs));
 
-            choice((const_or_var, litstr, symbol_or_list, apply)).parse_stream(input)
+            choice((const_or_var, litstr, symbol_or_list, apply))
+                .parse_stream(input)
+                .into_result()
         }
 
         fn ident<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = String>
+        ) -> impl Parser<easy::Stream<position::Stream<&'a str, IndexPositioner>>, Output = String>
         {
             recognize(
                 satisfy(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '-' | '=' | '_'))
@@ -1423,7 +1426,10 @@ Space        ::= ? White_Space character ?
             .with(parser(parse_expr))
             .skip(spaces())
             .skip(eof())
-            .easy_parse(State::with_positioner(input, IndexPositioner::new()))
+            .easy_parse(position::Stream::with_positioner(
+                input,
+                IndexPositioner::new(),
+            ))
             .map(|(p, _)| p)
             .map_err(|e| ParseFieldError::new(input, e, GRAMMER).into_owned())
     }
