@@ -591,11 +591,13 @@ impl FromStr for Tokens {
     type Err = ParseFieldError<String>;
 
     fn from_str(input: &str) -> std::result::Result<Self, ParseFieldError<String>> {
-        use combine::char::{char, spaces, string};
+        use combine::parser::char::{char, spaces, string};
         use combine::parser::choice::or;
         use combine::parser::function::parser;
-        use combine::stream::state::{IndexPositioner, State};
-        use combine::{choice, easy, eof, many, many1, satisfy, Parser};
+        use combine::stream::position::{self, IndexPositioner};
+        use combine::{
+            choice, easy, eof, many, many1, satisfy, EasyParser as _, Parser, StdParseResult,
+        };
 
         static GRAMMER: &str = r#"Template      ::= ( Plain | LeftCurly | RightCurly | DollarOrExpr )*
 Plain         ::= [^${}]+
@@ -612,8 +614,9 @@ Spaces        ::= ? White_Space character ?+
 "#;
 
         fn parse_expr<'a>(
-            input: &mut easy::Stream<State<&'a str, IndexPositioner>>,
-        ) -> combine::ParseResult<Expr, easy::Stream<State<&'a str, IndexPositioner>>> {
+            input: &mut easy::Stream<position::Stream<&'a str, IndexPositioner>>,
+        ) -> StdParseResult<Expr, easy::Stream<position::Stream<&'a str, IndexPositioner>>>
+        {
             enum Right {
                 Comma(String),
                 Arg(Expr),
@@ -640,10 +643,11 @@ Spaces        ::= ? White_Space character ?+
                     Right::None => Expr::Var(left),
                 })
                 .parse_stream(input)
+                .into_result()
         }
 
         fn identifier<'a>(
-        ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = String>
+        ) -> impl Parser<easy::Stream<position::Stream<&'a str, IndexPositioner>>, Output = String>
         {
             many1(
                 satisfy(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_'))
@@ -668,7 +672,10 @@ Spaces        ::= ? White_Space character ?+
 
         many(choice((plain, left_curly, right_curly, dollar_or_expr)))
             .skip(eof())
-            .easy_parse(State::with_positioner(input, IndexPositioner::new()))
+            .easy_parse(position::Stream::with_positioner(
+                input,
+                IndexPositioner::new(),
+            ))
             .map(|(tokens, _)| Tokens(tokens))
             .map_err(|e| ParseFieldError::new(input, e, GRAMMER).into_owned())
     }

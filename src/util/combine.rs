@@ -76,8 +76,8 @@ mod tests {
 
     #[test]
     fn test_display() {
-        use combine::stream::state::{IndexPositioner, State};
-        use combine::{eof, Parser as _};
+        use combine::stream::position::{self, IndexPositioner};
+        use combine::{eof, EasyParser as _};
 
         static GRAMMER: &str = "Terminal ::= ''\n";
         static INPUT: &str = "foo";
@@ -92,7 +92,10 @@ Terminal ::= ''
  "#;
 
         let err = eof()
-            .easy_parse(State::with_positioner(INPUT, IndexPositioner::new()))
+            .easy_parse(position::Stream::with_positioner(
+                INPUT,
+                IndexPositioner::new(),
+            ))
             .unwrap_err();
         let err = ParseFieldError::new(INPUT, err, GRAMMER);
         assert_diff!(&err.to_string(), EXPECTED, "\n", 0);

@@ -136,7 +136,7 @@ pub(super) trait HasContextMut: Sized {
             .and_then(|s| s.to_header_value(url))
     }
 
-    fn insert_cookie(&mut self, cookie: &cookie::Cookie, url: &Url) -> ServiceResult<()> {
+    fn insert_cookie(&mut self, cookie: &cookie012::Cookie, url: &Url) -> ServiceResult<()> {
         if let Some(store) = &mut self.context_mut().cookie_store {
             store.insert_cookie(cookie, url)?;
         }
@@ -1157,7 +1157,7 @@ impl AutosavedCookieStore {
         result.ok()
     }
 
-    fn insert_cookie(&mut self, cookie: &cookie::Cookie, url: &Url) -> ServiceResult<()> {
+    fn insert_cookie(&mut self, cookie: &cookie012::Cookie, url: &Url) -> ServiceResult<()> {
         self.store
             .insert_raw(cookie, url)
             .with_context(|_| ServiceErrorKind::InvalidCookie)?;

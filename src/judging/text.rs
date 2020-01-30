@@ -459,15 +459,18 @@ impl Serialize for TextDiff {
 }
 
 fn parse_words(s: &str, floats: bool) -> impl Iterator<Item = Word> {
-    use combine::char::char;
+    use combine::parser::char::char;
     use combine::parser::choice::or;
     use combine::parser::range::recognize;
-    use combine::stream::state::{IndexPositioner, State};
-    use combine::{choice, easy, eof, many, optional, satisfy, skip_many1, Parser};
+    use combine::stream::position::{self, IndexPositioner};
+    use combine::{
+        choice, easy, eof, many, optional, satisfy, skip_many1, EasyParser as _, Parser,
+    };
 
     fn no_u0020<'a>(
         floats: bool,
-    ) -> impl Parser<Input = easy::Stream<State<&'a str, IndexPositioner>>, Output = Word<'a>> {
+    ) -> impl Parser<easy::Stream<position::Stream<&'a str, IndexPositioner>>, Output = Word<'a>>
+    {
         let plain_or_float = recognize(skip_many1(satisfy(|c: char| {
             !(c.is_whitespace() || c.is_control())
         })))
@@ -502,12 +505,12 @@ fn parse_words(s: &str, floats: bool) -> impl Iterator<Item = Word> {
             }
         });
 
-    many::<Vec<_>, _>(or(
+    many::<Vec<_>, _, _>(or(
         with_u0020s,
         no_u0020(floats).map(|w| iter::once(w).collect()),
     ))
     .skip(eof())
-    .easy_parse(State::with_positioner(s, IndexPositioner::new()))
+    .easy_parse(position::Stream::with_positioner(s, IndexPositioner::new()))
     .unwrap_or_else(|e| unreachable!("{:?}", e))
     .0
     .into_iter()
