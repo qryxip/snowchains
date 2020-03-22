@@ -43,36 +43,12 @@ jobs:
           - stable-x86_64-unknown-linux-musl
           - beta-x86_64-unknown-linux-gnu
         include:
-          - name: stable-x86_64-pc-windows-msvc
-            channel: stable
-            target_triple: x86_64-pc-windows-msvc
-            host_triple: x86_64-pc-windows-msvc
-            os: windows-latest
-          - name: stable-x86_64-pc-windows-gnu
-            channel: stable
-            target_triple: x86_64-pc-windows-gnu
-            host_triple: x86_64-pc-windows-gnu
-            os: windows-latest
-          - name: stable-x86_64-apple-darwin
-            channel: stable
-            target_triple: x86_64-apple-darwin
-            host_triple: x86_64-apple-darwin
-            os: macos-latest
-          - name: stable-x86_64-unknown-linux-gnu
-            channel: stable
-            target_triple: x86_64-unknown-linux-gnu
-            host_triple: x86_64-unknown-linux-gnu
-            os: ubuntu-18.04
-          - name: stable-x86_64-unknown-linux-musl
-            channel: stable
-            target_triple: x86_64-unknown-linux-musl
-            host_triple: x86_64-unknown-linux-gnu
-            os: ubuntu-18.04
-          - name: beta-x86_64-unknown-linux-gnu
-            channel: beta
-            target_triple: x86_64-unknown-linux-gnu
-            host_triple: x86_64-unknown-linux-gnu
-            os: ubuntu-18.04
+          - { name: stable-x86_64-pc-windows-msvc   , channel: stable, target_triple: x86_64-pc-windows-msvc   , host_triple: x86_64-pc-windows-msvc  , os: windows-latest }
+          - { name: stable-x86_64-pc-windows-gnu    , channel: stable, target_triple: x86_64-pc-windows-gnu    , host_triple: x86_64-pc-windows-gnu   , os: windows-latest }
+          - { name: stable-x86_64-apple-darwin      , channel: stable, target_triple: x86_64-apple-darwin      , host_triple: x86_64-apple-darwin     , os: macos-latest   }
+          - { name: stable-x86_64-unknown-linux-gnu , channel: stable, target_triple: x86_64-unknown-linux-gnu , host_triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
+          - { name: stable-x86_64-unknown-linux-musl, channel: stable, target_triple: x86_64-unknown-linux-musl, host_triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
+          - { name: beta-x86_64-unknown-linux-gnu   , channel: beta  , target_triple: x86_64-unknown-linux-gnu , host_triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
 
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -98,6 +74,7 @@ jobs:
         with:
           command: clippy
           args: --workspace --all-targets --all-features --target ${{ matrix.target_triple }} -- -D warnings
+        if: matrix.channel == 'stable'
 
       - name: Determine `cargo test` targets
         id: cargo_test_targets
@@ -136,21 +113,11 @@ jobs:
           - x86_64-unknown-linux-gnu
           - x86_64-unknown-linux-musl
         include:
-          - target_triple: x86_64-pc-windows-msvc
-            host_triple: x86_64-pc-windows-msvc
-            os: windows-latest
-          - target_triple: x86_64-pc-windows-gnu
-            host_triple: x86_64-pc-windows-gnu
-            os: windows-latest
-          - target_triple: x86_64-apple-darwin
-            host_triple: x86_64-apple-darwin
-            os: macos-latest
-          - target_triple: x86_64-unknown-linux-gnu
-            host_triple: x86_64-unknown-linux-gnu
-            os: ubuntu-18.04
-          - target_triple: x86_64-unknown-linux-musl
-            host_triple: x86_64-unknown-linux-gnu
-            os: ubuntu-18.04
+          - { target_triple: x86_64-pc-windows-msvc   , host_triple: x86_64-pc-windows-msvc  , os: windows-latest }
+          - { target_triple: x86_64-pc-windows-gnu    , host_triple: x86_64-pc-windows-gnu   , os: windows-latest }
+          - { target_triple: x86_64-apple-darwin      , host_triple: x86_64-apple-darwin     , os: macos-latest   }
+          - { target_triple: x86_64-unknown-linux-gnu , host_triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
+          - { target_triple: x86_64-unknown-linux-musl, host_triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
 
     name: GitHub Release (${{ matrix.target_triple }})
     runs-on: ${{ matrix.os }}
