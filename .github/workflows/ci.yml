@@ -157,7 +157,7 @@ jobs:
           ASSET_STEM="$BIN_TARGET-${GITHUB_REF#refs/tags/}-${{ matrix.target_triple }}"
           git archive -o "./$ASSET_STEM.tar" --prefix "$ASSET_STEM/" HEAD
           tar -xf "./$ASSET_STEM.tar"
-          mv "$EXECUTABLE" ./Cargo.lock "./$ASSET_STEM/"
+          mv "$EXECUTABLE" "./$ASSET_STEM/"
           if ${{ contains(matrix.target_triple, 'pc-windows') }}; then
             ASSET="./$ASSET_STEM.zip"
             7z a "$ASSET" "./$ASSET_STEM"
