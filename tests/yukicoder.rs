@@ -45,7 +45,7 @@ fn it_scrapes_and_downloads_testcases() -> Fallible<()> {
                 &wd,
                 ServiceKind::Yukicoder,
                 CONTEST,
-                &[("3", 31), ("725", 9), ("726", 25)],
+                &[("3", 32), ("725", 9), ("726", 25)],
             )
         },
     )
