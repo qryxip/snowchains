@@ -40,13 +40,11 @@ jobs:
       matrix:
         name:
           - stable-x86_64-pc-windows-msvc
-          - stable-x86_64-pc-windows-gnu
           - stable-x86_64-apple-darwin
           - stable-x86_64-unknown-linux-gnu
           - stable-x86_64-unknown-linux-musl
         include:
           - { name: stable-x86_64-pc-windows-msvc   , channel: stable, target-triple: x86_64-pc-windows-msvc   , host-triple: x86_64-pc-windows-msvc  , os: windows-latest }
-          - { name: stable-x86_64-pc-windows-gnu    , channel: stable, target-triple: x86_64-pc-windows-gnu    , host-triple: x86_64-pc-windows-gnu   , os: windows-latest }
           - { name: stable-x86_64-apple-darwin      , channel: stable, target-triple: x86_64-apple-darwin      , host-triple: x86_64-apple-darwin     , os: macos-latest   }
           - { name: stable-x86_64-unknown-linux-gnu , channel: stable, target-triple: x86_64-unknown-linux-gnu , host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
           - { name: stable-x86_64-unknown-linux-musl, channel: stable, target-triple: x86_64-unknown-linux-musl, host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
@@ -109,13 +107,11 @@ jobs:
       matrix:
         target-triple:
           - x86_64-pc-windows-msvc
-          - x86_64-pc-windows-gnu
           - x86_64-apple-darwin
           - x86_64-unknown-linux-gnu
           - x86_64-unknown-linux-musl
         include:
           - { target-triple: x86_64-pc-windows-msvc   , host-triple: x86_64-pc-windows-msvc  , os: windows-latest }
-          - { target-triple: x86_64-pc-windows-gnu    , host-triple: x86_64-pc-windows-gnu   , os: windows-latest }
           - { target-triple: x86_64-apple-darwin      , host-triple: x86_64-apple-darwin     , os: macos-latest   }
           - { target-triple: x86_64-unknown-linux-gnu , host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
           - { target-triple: x86_64-unknown-linux-musl, host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
@@ -197,12 +193,6 @@ jobs:
           name: ${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-msvc.zip
           path: .
 
-      - name: Download `${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-gnu.zip`
-        uses: actions/download-artifact@v1
-        with:
-          name: ${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-gnu.zip
-          path: .
-
       - name: Download `${{ steps.prefix.outputs.prefix }}x86_64-apple-darwin.tar.gz`
         uses: actions/download-artifact@v1
         with:
@@ -226,7 +216,6 @@ jobs:
         with:
           files: |
             ${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-msvc.zip
-            ${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-gnu.zip
             ${{ steps.prefix.outputs.prefix }}x86_64-apple-darwin.tar.gz
             ${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-gnu.tar.gz
             ${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-musl.tar.gz
