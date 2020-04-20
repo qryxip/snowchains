@@ -10,6 +10,9 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+**'
   pull_request:
 
+env:
+  BIN_TARGET: snowchains
+
 jobs:
   rustfmt:
     name: Rustfmt
@@ -19,7 +22,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Setup stable-x86_64-unknown-linux-gnu
+      - name: Setup `stable-x86_64-unknown-linux-gnu`
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable-x86_64-unknown-linux-gnu
@@ -41,14 +44,12 @@ jobs:
           - stable-x86_64-apple-darwin
           - stable-x86_64-unknown-linux-gnu
           - stable-x86_64-unknown-linux-musl
-          # - beta-x86_64-unknown-linux-gnu
         include:
-          - { name: stable-x86_64-pc-windows-msvc   , channel: stable, target_triple: x86_64-pc-windows-msvc   , host_triple: x86_64-pc-windows-msvc  , os: windows-latest }
-          - { name: stable-x86_64-pc-windows-gnu    , channel: stable, target_triple: x86_64-pc-windows-gnu    , host_triple: x86_64-pc-windows-gnu   , os: windows-latest }
-          - { name: stable-x86_64-apple-darwin      , channel: stable, target_triple: x86_64-apple-darwin      , host_triple: x86_64-apple-darwin     , os: macos-latest   }
-          - { name: stable-x86_64-unknown-linux-gnu , channel: stable, target_triple: x86_64-unknown-linux-gnu , host_triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
-          - { name: stable-x86_64-unknown-linux-musl, channel: stable, target_triple: x86_64-unknown-linux-musl, host_triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
-          # - { name: beta-x86_64-unknown-linux-gnu   , channel: beta  , target_triple: x86_64-unknown-linux-gnu , host_triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
+          - { name: stable-x86_64-pc-windows-msvc   , channel: stable, target-triple: x86_64-pc-windows-msvc   , host-triple: x86_64-pc-windows-msvc  , os: windows-latest }
+          - { name: stable-x86_64-pc-windows-gnu    , channel: stable, target-triple: x86_64-pc-windows-gnu    , host-triple: x86_64-pc-windows-gnu   , os: windows-latest }
+          - { name: stable-x86_64-apple-darwin      , channel: stable, target-triple: x86_64-apple-darwin      , host-triple: x86_64-apple-darwin     , os: macos-latest   }
+          - { name: stable-x86_64-unknown-linux-gnu , channel: stable, target-triple: x86_64-unknown-linux-gnu , host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
+          - { name: stable-x86_64-unknown-linux-musl, channel: stable, target-triple: x86_64-unknown-linux-musl, host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
 
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -59,21 +60,21 @@ jobs:
 
       - name: '`sudo apt-get install musl-tools`'
         run: sudo apt-get install musl-tools
-        if: matrix.target_triple == 'x86_64-unknown-linux-musl'
+        if: matrix.target-triple == 'x86_64-unknown-linux-musl'
 
-      - name: Setup ${{ matrix.channel }}-${{ matrix.host_triple }} (target = ${{ matrix.target_triple }})
+      - name: 'Setup `${{ matrix.channel }}-${{ matrix.host-triple }}` (target: `${{ matrix.target-triple }}`)'
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.channel }}-${{ matrix.host_triple }}
-          target: ${{ matrix.target_triple }}
+          toolchain: ${{ matrix.channel }}-${{ matrix.host-triple }}
+          target: ${{ matrix.target-triple }}
           default: true
           profile: default
 
-      - name: '`cargo clippy --workspace --all-targets --all-features --target ${{ matrix.target_triple }} -- -D warnings`'
+      - name: '`cargo clippy --workspace --all-targets --target ${{ matrix.target-triple }} -- -D warnings`'
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --workspace --all-targets --all-features --target ${{ matrix.target_triple }} -- -D warnings
+          args: --workspace --all-targets --target ${{ matrix.target-triple }} -- -D warnings
         if: matrix.channel == 'stable'
 
       - name: Determine `cargo test` targets
@@ -86,11 +87,11 @@ jobs:
           fi
         shell: bash
 
-      - name: '`cargo test --no-fail-fast --all-features ${{ steps.cargo_test_targets.outputs.targets }} --target ${{ matrix.target_triple }}`'
+      - name: '`cargo test --no-fail-fast ${{ steps.cargo_test_targets.outputs.targets }} --target ${{ matrix.target-triple }}`'
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --no-fail-fast --all-features ${{ steps.cargo_test_targets.outputs.targets }} --target ${{ matrix.target_triple }}
+          args: --no-fail-fast ${{ steps.cargo_test_targets.outputs.targets }} --target ${{ matrix.target-triple }}
         env:
           RUST_BACKTRACE: full
           ATCODER_USERNAME: ${{ secrets.ATCODER_USERNAME }}
@@ -102,26 +103,25 @@ jobs:
           CODEFORCES_API_SECRET: ${{ secrets.CODEFORCES_API_SECRET }}
           YUKICODER_REVEL_SESSION: ${{ secrets.YUKICODER_REVEL_SESSION }}
 
-  release:
+  upload:
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
-        target_triple:
+        target-triple:
           - x86_64-pc-windows-msvc
           - x86_64-pc-windows-gnu
           - x86_64-apple-darwin
           - x86_64-unknown-linux-gnu
           - x86_64-unknown-linux-musl
         include:
-          - { target_triple: x86_64-pc-windows-msvc   , host_triple: x86_64-pc-windows-msvc  , os: windows-latest }
-          - { target_triple: x86_64-pc-windows-gnu    , host_triple: x86_64-pc-windows-gnu   , os: windows-latest }
-          - { target_triple: x86_64-apple-darwin      , host_triple: x86_64-apple-darwin     , os: macos-latest   }
-          - { target_triple: x86_64-unknown-linux-gnu , host_triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
-          - { target_triple: x86_64-unknown-linux-musl, host_triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
+          - { target-triple: x86_64-pc-windows-msvc   , host-triple: x86_64-pc-windows-msvc  , os: windows-latest }
+          - { target-triple: x86_64-pc-windows-gnu    , host-triple: x86_64-pc-windows-gnu   , os: windows-latest }
+          - { target-triple: x86_64-apple-darwin      , host-triple: x86_64-apple-darwin     , os: macos-latest   }
+          - { target-triple: x86_64-unknown-linux-gnu , host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
+          - { target-triple: x86_64-unknown-linux-musl, host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
 
-    name: GitHub Release (${{ matrix.target_triple }})
+    name: Upload (`${{ matrix.target-triple }}`)
     runs-on: ${{ matrix.os }}
-    needs: [rustfmt, build]
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
@@ -130,57 +130,113 @@ jobs:
 
       - name: '`sudo apt-get install musl-tools`'
         run: sudo apt-get install musl-tools
-        if: matrix.target_triple == 'x86_64-unknown-linux-musl'
+        if: matrix.target-triple == 'x86_64-unknown-linux-musl'
 
-      - name: Setup stable-${{ matrix.host_triple }} (target = ${{ matrix.target_triple }})
+      - name: 'Setup `stable-${{ matrix.host-triple }}` (target: `${{ matrix.target-triple }}`)'
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable-${{ matrix.host_triple }}
-          target: ${{ matrix.target_triple }}
+          toolchain: stable-${{ matrix.host-triple }}
+          target: ${{ matrix.target-triple }}
           default: true
           profile: minimal
 
-      - name: '`cargo build --release --all-features --target ${{ matrix.target_triple }}`'
+      - name: '`cargo install --path . --target ${{ matrix.target-triple }} -v --locked`'
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: --path . --target ${{ matrix.target-triple }} -v --locked
+
+      - name: '`cargo build --release --target ${{ matrix.target-triple }}`'
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --all-features --target ${{ matrix.target_triple }}
+          args: --release --target ${{ matrix.target-triple }}
 
-      - name: Create an asset
-        id: asset
+      - name: Create an artifact
+        id: artifact
         run: |
-          if ${{ contains(matrix.target_triple, 'pc-windows') }}; then
-            EXE=.exe
+          if ${{ contains(matrix.target-triple, 'pc-windows') }}; then
+            DOT_EXE=.exe
           fi
-          BIN_TARGET=snowchains
-          EXECUTABLE="./target/${{ matrix.target_triple }}/release/$BIN_TARGET$EXE"
-          ASSET_STEM="$BIN_TARGET-${GITHUB_REF#refs/tags/}-${{ matrix.target_triple }}"
-          git archive -o "./$ASSET_STEM.tar" --prefix "$ASSET_STEM/" HEAD
-          tar -xf "./$ASSET_STEM.tar"
-          mv "$EXECUTABLE" "./$ASSET_STEM/"
-          if ${{ contains(matrix.target_triple, 'pc-windows') }}; then
-            ASSET="./$ASSET_STEM.zip"
-            7z a "$ASSET" "./$ASSET_STEM"
-            zipinfo "$ASSET"
+          ARTIFACT_STEM="$BIN_TARGET-${GITHUB_REF#refs/tags/}-${{ matrix.target-triple }}"
+          git archive -o "./$ARTIFACT_STEM.tar" --prefix "$ARTIFACT_STEM/" HEAD
+          tar -xf "./$ARTIFACT_STEM.tar"
+          mv "$HOME/.cargo/bin/$BIN_TARGET$DOT_EXE" "./$ARTIFACT_STEM/"
+          if ${{ contains(matrix.target-triple, 'pc-windows') }}; then
+            ARTIFACT="$ARTIFACT_STEM.zip"
+            7z a "$ARTIFACT" "./$ARTIFACT_STEM"
+            zipinfo "./$ARTIFACT"
           else
-            ASSET="./$ASSET_STEM.tar.gz"
-            tar -czvf "$ASSET" "./$ASSET_STEM"
+            ARTIFACT="$ARTIFACT_STEM.tar.gz"
+            tar -czvf "./$ARTIFACT" "./$ARTIFACT_STEM"
           fi
-          echo "::set-output name=asset::$ASSET"
+          echo "::set-output name=artifact::$ARTIFACT"
         shell: bash
+
+      - name: Upload the artifact
+        uses: actions/upload-artifact@v1
+        with:
+          name: ${{ steps.artifact.outputs.artifact }}
+          path: ${{ steps.artifact.outputs.artifact }}
+
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-18.04
+    needs: [rustfmt, build, upload]
+
+    steps:
+      # https://github.com/actions/download-artifact/issues/6
+
+      - name: Prefix
+        id: prefix
+        run: echo "::set-output name=prefix::$BIN_TARGET-${GITHUB_REF#refs/tags/}-"
+
+      - name: Download `${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-msvc.zip`
+        uses: actions/download-artifact@v1
+        with:
+          name: ${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-msvc.zip
+          path: .
+
+      - name: Download `${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-gnu.zip`
+        uses: actions/download-artifact@v1
+        with:
+          name: ${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-gnu.zip
+          path: .
+
+      - name: Download `${{ steps.prefix.outputs.prefix }}x86_64-apple-darwin.tar.gz`
+        uses: actions/download-artifact@v1
+        with:
+          name: ${{ steps.prefix.outputs.prefix }}x86_64-apple-darwin.tar.gz
+          path: .
+
+      - name: Download `${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-gnu.tar.gz`
+        uses: actions/download-artifact@v1
+        with:
+          name: ${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-gnu.tar.gz
+          path: .
+
+      - name: Download `${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-musl.tar.gz`
+        uses: actions/download-artifact@v1
+        with:
+          name: ${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-musl.tar.gz
+          path: .
 
       - name: GH Release
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ steps.asset.outputs.asset }}
+          files: |
+            ${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-msvc.zip
+            ${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-gnu.zip
+            ${{ steps.prefix.outputs.prefix }}x86_64-apple-darwin.tar.gz
+            ${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-gnu.tar.gz
+            ${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-musl.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish:
     name: Publish
     runs-on: ubuntu-18.04
-    needs: [rustfmt, build, release]
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [release]
 
     steps:
       - name: Checkout
@@ -193,11 +249,11 @@ jobs:
           default: true
           profile: minimal
 
-      - name: '`cargo install --git https://github.com/sunng87/cargo-release --rev 943c64384f80463b4ca844230a360c1f7c821165 --debug cargo-release`'
+      - name: '`cargo install --debug cargo-release`'
         uses: actions-rs/cargo@v1
         with:
           command: install
-          args: --git https://github.com/sunng87/cargo-release --rev 943c64384f80463b4ca844230a360c1f7c821165 --debug cargo-release
+          args: --debug cargo-release
 
       - name: '`cargo release --workspace --skip-push --skip-tag --no-dev-version --token "$CRATES_IO_TOKEN" --no-confirm`'
         uses: actions-rs/cargo@v1
