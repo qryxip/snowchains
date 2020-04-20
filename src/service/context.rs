@@ -22,7 +22,8 @@ use mime::Mime;
 use reqwest::header::{self, HeaderMap, HeaderName, HeaderValue};
 use reqwest::r#async::Decoder;
 use reqwest::{Method, RedirectPolicy, StatusCode};
-use robots_txt::{Robots, SimpleMatcher};
+use robots_txt::matcher::SimpleMatcher;
+use robots_txt::Robots;
 use scraper::Html;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -378,7 +379,7 @@ impl<I: Input, E: WriteColor + HasTermProps> Context<I, E> {
             then {
                 let robots = OwnedRobots::new(
                     self.retry_recv_text(res)?,
-                    |s| Robots::from_str(s),
+                    |s| Robots::from_str_lossy(s),
                     |robots| SimpleMatcher::new(&robots.choose_section(USER_AGENT).rules),
                 );
                 self.robots.as_mut().unwrap().insert(host.to_string(), robots);
@@ -1229,7 +1230,8 @@ impl Credentials for UsernameAndPassword {
 }
 
 mod owned_robots {
-    use robots_txt::{Robots, SimpleMatcher};
+    use robots_txt::matcher::SimpleMatcher;
+    use robots_txt::Robots;
     use stable_deref_trait::StableDeref;
     use static_assertions::assert_impl_all;
 

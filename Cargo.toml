@@ -26,9 +26,9 @@ cookie012 = { package = "cookie", version = "0.12.0" }
 cookie_store = "0.10.0"
 crossbeam-utils = "0.7.2"
 ctrlc = "3.1.3"
-derivative = "2.0.2"
+derivative = "2.1.1"
 derive-new = "0.5.8"
-derive_more = "0.99.2"
+derive_more = "0.99.5"
 diff = "0.1.12"
 dirs = "2.0.2"
 dunce = "1.0.0"
@@ -47,27 +47,27 @@ maplit = "1.0.2"
 matches = "0.1.8"
 mime = "0.3.16"
 num-traits = "0.2.11"
-num_cpus = "1.12.0"
+num_cpus = "1.13.0"
 once_cell = "1.3.1"
 prettytable-rs = { version = "0.8.0", default-features = false }
 rand = "0.7.3"
 rayon = "1.3.0"
-ref-cast = "1.0.0"
-regex = "1.3.5"
+ref-cast = "1.0.1"
+regex = "1.3.7"
 reqwest = { version = "0.9.24", default-features = false, features = ["rustls-tls"] }
-robots_txt = "0.6.0"
+robots_txt = "0.7.0"
 rpassword = "4.0.5"
 scraper = "0.11.0"
-serde = { version = "1.0.105", features = ["derive"] }
-serde_json = "1.0.45"
+serde = { version = "1.0.106", features = ["derive"] }
+serde_json = "1.0.51"
 serde_urlencoded = "0.6.1"
 serde_yaml = "0.8.11"
 sha2 = "0.8.1"
-smallvec = "1.2.0"
+smallvec = "1.3.0"
 snowchains_proc_macros = { path = "./proc_macros", version = "0.2.0" }
 stable_deref_trait = "1.1.1"
 static_assertions = "1.1.0"
-structopt = "0.3.12"
+structopt = "0.3.13"
 strum = { version = "0.18.0", features = ["derive"] }
 take_mut = "0.2.2"
 termcolor = "1.1.0"
@@ -88,17 +88,17 @@ term_size = "0.3.1"
 
 [target.'cfg(windows)'.dependencies]
 winapi = "0.3.8"
-winapi-util = "0.1.3"
+winapi-util = "0.1.4"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = { version = "0.1.13", features = ["tokio-support"] }
 
 [dev-dependencies]
 difference = "2.0.0"
-http = "0.2.0"
+http = "0.2.1"
 md5 = "0.7.0"
 pretty_assertions = "0.6.1"
 retry = "1.0.0"
 tempdir = "0.3.7"
-tokio = { version = "0.2.11", features = ["macros", "rt-core", "rt-threaded", "sync"] }
+tokio = { version = "0.2.18", features = ["macros", "rt-core", "rt-threaded", "sync"] }
 warp = "0.2.2"
