@@ -1,3 +1,9 @@
+## Unreleased
+
+## Fixed
+
+* Fix the parser for Codeforces
+
 ## [0.3.0] - 2020-01-29Z
 
 ### Added

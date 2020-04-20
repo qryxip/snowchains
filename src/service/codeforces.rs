@@ -777,26 +777,29 @@ impl Extract for Html {
                     .unwrap_or(0);
                 Some(Duration::new(secs, nanos))
             })
-            .assert_one()?;
-        dbg!(self
-            .select(selector!("#pageContent div.input-file"))
-            .flat_map(|r| r.text())
-            .collect::<Vec<_>>());
-        let input_file = self
+            .exactly_one()
+            .map_err(|_| ScrapeError::new())?;
+
+        let input_file_text = self
             .select(selector!("#pageContent div.input-file"))
             .flat_map(|r| r.children_text())
-            .assert_one()?;
-        let output_file = self
+            .collect::<Vec<_>>();
+
+        let output_file_text = self
             .select(selector!("#pageContent div.output-file"))
             .flat_map(|r| r.children_text())
-            .assert_one()?;
-        if input_file != "standard input" || output_file != "standard output" {
-            unimplemented!();
+            .collect::<Vec<_>>();
+
+        if !(input_file_text.contains(&"standard input")
+            && output_file_text.contains(&"standard output"))
+        {
+            todo!();
         }
 
         let sample_test = self
             .select(selector!("#pageContent div.sample-test"))
-            .assert_one()?;
+            .exactly_one()
+            .map_err(|_| ScrapeError::new())?;
         let ins = sample_test
             .select(selector!("div.input > pre"))
             .map(|p| p.fold_text_and_br())
@@ -842,28 +845,6 @@ impl Extract for Html {
             .map(|o| o.ok_or_else(ScrapeError::new))
             .collect::<ScrapeResult<IndexMap<_, _>>>()?;
         NonEmptyIndexMap::try_new(names).ok_or_else(ScrapeError::new)
-    }
-}
-
-trait AssertOne {
-    type Item;
-    fn assert_one(self) -> ScrapeResult<Self::Item>;
-}
-
-impl<T, I: Iterator<Item = T>> AssertOne for I {
-    type Item = T;
-
-    fn assert_one(self) -> ScrapeResult<Self::Item> {
-        let mut vec = self.collect::<Vec<_>>();
-        if_chain! {
-            if let Some(ret) = vec.pop();
-            if vec.is_empty();
-            then {
-                Ok(ret)
-            } else {
-                Err(ScrapeError::new())
-            }
-        }
     }
 }
 
