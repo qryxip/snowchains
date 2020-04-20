@@ -44,7 +44,7 @@ $ cargo install --git https://github.com/qryxip/snowchains
 ## Usage
 
 ```
-snowchains 0.3.0
+snowchains 0.3.1
 Ryo Yamashita <qryxip@gmail.com>
 Tools for online programming contests
 

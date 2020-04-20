@@ -1,12 +1,12 @@
-## Unreleased
+## [0.3.1] - 2020-04-21Z
 
-## Removed
+### Removed
 
-* Drop the support for `stable-x86_64-pc-windows-gnu`
+* Dropped the support for `x86_64-pc-windows-gnu`.
 
-## Fixed
+### Fixed
 
-* Fix the parser for Codeforces
+* Fixed the parser for Codeforces.
 
 ## [0.3.0] - 2020-01-29Z
 
