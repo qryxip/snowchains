@@ -1,5 +1,9 @@
 ## Unreleased
 
+## Removed
+
+* Drop the support for `stable-x86_64-pc-windows-gnu`
+
 ## Fixed
 
 * Fix the parser for Codeforces
