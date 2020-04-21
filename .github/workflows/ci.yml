@@ -238,14 +238,21 @@ jobs:
           default: true
           profile: minimal
 
-      - name: '`cargo install --debug cargo-release`'
+      - name: '`cargo publish --token "$CRATES_IO_TOKEN"` --allow-dirty -v'
         uses: actions-rs/cargo@v1
         with:
-          command: install
-          args: --debug cargo-release
+          command: publish
+          args: --token ${{ secrets.CRATES_IO_TOKEN }} --allow-dirty -v
 
-      - name: '`cargo release --workspace --skip-push --skip-tag --no-dev-version --token "$CRATES_IO_TOKEN" --no-confirm`'
-        uses: actions-rs/cargo@v1
-        with:
-          command: release
-          args: --workspace --skip-push --skip-tag --no-dev-version --token ${{ secrets.CRATES_IO_TOKEN }} --no-confirm
+      # https://github.com/sunng87/cargo-release/issues/195
+      #- name: '`cargo install --debug cargo-release`'
+      #  uses: actions-rs/cargo@v1
+      #  with:
+      #    command: install
+      #    args: --debug cargo-release
+      #
+      #- name: '`cargo release --workspace --skip-push --skip-tag --no-dev-version --token "$CRATES_IO_TOKEN" --no-confirm`'
+      #  uses: actions-rs/cargo@v1
+      #  with:
+      #    command: release
+      #    args: --workspace --skip-push --skip-tag --no-dev-version --token ${{ secrets.CRATES_IO_TOKEN }} --no-confirm
