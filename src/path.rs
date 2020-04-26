@@ -277,7 +277,6 @@ impl Serialize for AbsPathBuf {
 mod tests {
     use super::{AbsPath, AbsPathBuf};
 
-    use dirs;
     use pretty_assertions::assert_eq;
 
     use std::io;
