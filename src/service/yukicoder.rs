@@ -24,6 +24,7 @@ use chrono::{DateTime, FixedOffset, NaiveDateTime};
 use cookie012::Cookie;
 use http01::{header, StatusCode};
 use indexmap::{indexmap, IndexMap, IndexSet};
+use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use scraper::Html;
@@ -769,10 +770,17 @@ trait Extract {
 
 impl Extract for Html {
     fn extract_username(&self) -> Username {
-        let extract = || {
-            let a = self.select(selector!("#usermenu > a")).next()?;
-            let name = a.text().next()?.to_owned();
-            let src = a.select(selector!("img")).next()?.value().attr("src")?;
+        (|| {
+            let usermenu_btn = self.select(selector!("#usermenu-btn")).next()?;
+
+            let name = usermenu_btn.text().exactly_one().ok()?.to_owned();
+            let src = usermenu_btn
+                .select(selector!("img"))
+                .exactly_one()
+                .ok()?
+                .value()
+                .attr("src")?;
+
             Some(if src == "/public/img/anony.png" {
                 Username::Yukicoder(name)
             } else if src.starts_with("https://avatars2.githubusercontent.com") {
@@ -780,8 +788,8 @@ impl Extract for Html {
             } else {
                 Username::ProbablyTwitter(name)
             })
-        };
-        extract().unwrap_or(Username::None)
+        })()
+        .unwrap_or(Username::None)
     }
 
     fn extract_samples(&self) -> ScrapeResult<(String, TestSuite)> {
