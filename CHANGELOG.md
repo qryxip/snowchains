@@ -1,3 +1,9 @@
+## Unreleased
+
+### Fixed
+
+* Fixed build on Rust 1.42.0.
+
 ## [0.3.1] - 2020-04-21Z
 
 ### Removed

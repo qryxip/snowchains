@@ -179,11 +179,11 @@ impl<T: Hash + Eq> NonEmptyIndexSet<T> {
 
 impl<T: Hash + Eq> NonEmptyIndexSet<T> {
     pub(crate) fn ref_map<B: Hash + Eq, F: FnMut(&T) -> B>(&self, f: F) -> NonEmptyIndexSet<B> {
-        Self(self.0.iter().map(f).collect())
+        NonEmptyIndexSet(self.0.iter().map(f).collect())
     }
 
     pub(crate) fn map<B: Hash + Eq, F: FnMut(T) -> B>(self, f: F) -> NonEmptyIndexSet<B> {
-        Self(self.0.into_iter().map(f).collect())
+        NonEmptyIndexSet(self.0.into_iter().map(f).collect())
     }
 }
 
