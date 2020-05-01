@@ -1,3 +1,9 @@
+## Unreleased
+
+### Fixed
+
+* On 2020-05-01, AtCoder updated the submission pages and broke utility tools including `snowchains`. Now `snowchains` follows the update.
+
 ## [0.3.2] - 2020-04-26Z
 
 ### Fixed

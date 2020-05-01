@@ -1346,6 +1346,7 @@ impl Extract for Html {
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
         let names = self
             .select(selector!("#select-lang option"))
+            .filter(|o| o.text().next().is_some()) // Ignores `<option></option>`
             .map(|option| {
                 let name = option.text().next()?.to_owned();
                 let id = option.value().attr("value")?.to_owned();
