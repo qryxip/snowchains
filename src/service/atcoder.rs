@@ -940,7 +940,6 @@ trait Extract {
     fn extract_contest_duration(&self) -> ScrapeResult<(DateTime<Utc>, DateTime<Utc>)>;
     fn extract_submissions(&self) -> ScrapeResult<(Vec<Submission>, u32)>;
     fn extract_submitted_code(&self) -> ScrapeResult<String>;
-    fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String>;
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>>;
 }
 
@@ -1342,16 +1341,6 @@ impl Extract for Html {
             .next()
             .ok_or_else(ScrapeError::new)?;
         Ok(submission_code.text().next().unwrap_or_default().to_owned())
-    }
-
-    fn extract_lang_id_by_name(&self, name: &str) -> ScrapeResult<String> {
-        self.select(selector!("#select-language > option"))
-            .find(|r| r.text().next().map_or(false, |t| t == name))
-            .ok_or_else(ScrapeError::new)?
-            .value()
-            .attr("value")
-            .map(ToOwned::to_owned)
-            .ok_or_else(ScrapeError::new)
     }
 
     fn extract_langs(&self) -> ScrapeResult<NonEmptyIndexMap<String, String>> {
