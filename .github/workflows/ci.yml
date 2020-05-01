@@ -173,7 +173,7 @@ jobs:
         shell: bash
 
       - name: Upload the artifact
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2
         with:
           name: ${{ steps.artifact.outputs.artifact }}
           path: ${{ steps.artifact.outputs.artifact }}
@@ -184,35 +184,14 @@ jobs:
     needs: [rustfmt, build, upload]
 
     steps:
-      # https://github.com/actions/download-artifact/issues/6
+      - name: Download the artifacts
+        uses: actions/download-artifact@v2
+        with:
+          path: .
 
       - name: Prefix
         id: prefix
         run: echo "::set-output name=prefix::$BIN_TARGET-${GITHUB_REF#refs/tags/}-"
-
-      - name: Download `${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-msvc.zip`
-        uses: actions/download-artifact@v1
-        with:
-          name: ${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-msvc.zip
-          path: .
-
-      - name: Download `${{ steps.prefix.outputs.prefix }}x86_64-apple-darwin.tar.gz`
-        uses: actions/download-artifact@v1
-        with:
-          name: ${{ steps.prefix.outputs.prefix }}x86_64-apple-darwin.tar.gz
-          path: .
-
-      - name: Download `${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-gnu.tar.gz`
-        uses: actions/download-artifact@v1
-        with:
-          name: ${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-gnu.tar.gz
-          path: .
-
-      - name: Download `${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-musl.tar.gz`
-        uses: actions/download-artifact@v1
-        with:
-          name: ${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-musl.tar.gz
-          path: .
 
       - name: GH Release
         uses: softprops/action-gh-release@v1
