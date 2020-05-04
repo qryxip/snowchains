@@ -119,7 +119,7 @@ jobs:
           - { target-triple: x86_64-unknown-linux-gnu , host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
           - { target-triple: x86_64-unknown-linux-musl, host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
 
-    name: Upload (`${{ matrix.target-triple }}`)
+    name: Upload (${{ matrix.target-triple }})
     runs-on: ${{ matrix.os }}
     if: startsWith(github.ref, 'refs/tags/')
 
@@ -151,32 +151,32 @@ jobs:
           command: build
           args: --release --target ${{ matrix.target-triple }}
 
-      - name: Create an artifact
-        id: artifact
+      - name: Create an asset
+        id: asset
         run: |
           if ${{ contains(matrix.target-triple, 'pc-windows') }}; then
             DOT_EXE=.exe
           fi
-          ARTIFACT_STEM="$BIN_TARGET-${GITHUB_REF#refs/tags/}-${{ matrix.target-triple }}"
-          git archive -o "./$ARTIFACT_STEM.tar" --prefix "$ARTIFACT_STEM/" HEAD
-          tar -xf "./$ARTIFACT_STEM.tar"
-          mv "$HOME/.cargo/bin/$BIN_TARGET$DOT_EXE" "./$ARTIFACT_STEM/"
+          ASSET_STEM="$BIN_TARGET-${GITHUB_REF#refs/tags/}-${{ matrix.target-triple }}"
+          git archive -o "./$ASSET_STEM.tar" --prefix "$ASSET_STEM/" HEAD
+          tar -xf "./$ASSET_STEM.tar"
+          mv "$HOME/.cargo/bin/$BIN_TARGET$DOT_EXE" "./$ASSET_STEM/"
           if ${{ contains(matrix.target-triple, 'pc-windows') }}; then
-            ARTIFACT="$ARTIFACT_STEM.zip"
-            7z a "$ARTIFACT" "./$ARTIFACT_STEM"
-            zipinfo "./$ARTIFACT"
+            ASSET="$ASSET_STEM.zip"
+            7z a "$ASSET" "./$ASSET_STEM"
+            zipinfo "./$ASSET"
           else
-            ARTIFACT="$ARTIFACT_STEM.tar.gz"
-            tar -czvf "./$ARTIFACT" "./$ARTIFACT_STEM"
+            ASSET="$ASSET_STEM.tar.gz"
+            tar -czvf "./$ASSET" "./$ASSET_STEM"
           fi
-          echo "::set-output name=artifact::$ARTIFACT"
+          echo "::set-output name=asset::$ASSET"
         shell: bash
 
       - name: Upload the artifact
         uses: actions/upload-artifact@v2
         with:
-          name: ${{ steps.artifact.outputs.artifact }}
-          path: ${{ steps.artifact.outputs.artifact }}
+          name: assets
+          path: ${{ steps.asset.outputs.asset }}
 
   release:
     name: GitHub Release
@@ -184,23 +184,16 @@ jobs:
     needs: [rustfmt, build, upload]
 
     steps:
-      - name: Download the artifacts
+      - name: Download the assets
         uses: actions/download-artifact@v2
         with:
-          path: .
-
-      - name: Prefix
-        id: prefix
-        run: echo "::set-output name=prefix::$BIN_TARGET-${GITHUB_REF#refs/tags/}-"
+          name: assets
+          path: ./assets
 
       - name: GH Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            ${{ steps.prefix.outputs.prefix }}x86_64-pc-windows-msvc.zip
-            ${{ steps.prefix.outputs.prefix }}x86_64-apple-darwin.tar.gz
-            ${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-gnu.tar.gz
-            ${{ steps.prefix.outputs.prefix }}x86_64-unknown-linux-musl.tar.gz
+          files: ./assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
