@@ -50,8 +50,7 @@ src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
 run = ["false"]
 
 [languages.python3.names]
-atcoder = "Python3 (3.4.3)"
-yukicoder = "Python3 (3.7.1 + numpy 1.14.5 + scipy 1.1.0)"
+atcoder = "Python (3.8.2)"
 
 [languages.python3-with-invalid-lang-names]
 src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
