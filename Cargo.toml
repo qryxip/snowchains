@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "snowchains"
 version = "0.3.3"
@@ -10,12 +12,6 @@ documentation = "https://docs.rs/snowchains"
 readme = "README.md"
 keywords = ["windows", "cli"]
 categories = ["command-line-utilities"]
-
-[badges]
-# https://github.com/srijs/deps.rs/pull/33
-# codecov = { repository = "qryxip/snowchains" }
-
-[workspace]
 
 [dependencies]
 atty = "0.2.14"
@@ -64,7 +60,6 @@ serde_urlencoded = "0.6.1"
 serde_yaml = "0.8.11"
 sha2 = "0.8.1"
 smallvec = "1.3.0"
-snowchains_proc_macros = { path = "./proc_macros", version = "0.2.0" }
 stable_deref_trait = "1.1.1"
 static_assertions = "1.1.0"
 structopt = "0.3.13"
