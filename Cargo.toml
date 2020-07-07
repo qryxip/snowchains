@@ -1,4 +1,5 @@
 [workspace]
+members = ["./snowchains_core"]
 
 [package]
 name = "snowchains"
