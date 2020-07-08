@@ -1,0 +1,85 @@
+use crate::{
+    config::{Config, Mode},
+    shell::Shell,
+};
+use anyhow::{bail, Context as _};
+use snowchains_core::web::PlatformVariant;
+use std::{
+    fs,
+    io::{self, BufRead},
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+use structopt::StructOpt;
+use strum::VariantNames as _;
+use termcolor::WriteColor;
+
+#[derive(StructOpt, Debug)]
+pub struct OptInit {
+    /// Overwrites the existing config
+    #[structopt(short, long)]
+    pub force: bool,
+
+    /// Coloring
+    #[structopt(
+        long,
+        possible_values(crate::ColorChoice::VARIANTS),
+        default_value("auto")
+    )]
+    pub color: crate::ColorChoice,
+
+    /// Directory to create a `snowchains.dhall`
+    #[structopt(default_value("."))]
+    pub directory: PathBuf,
+}
+
+pub(crate) fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
+    opt: OptInit,
+    ctx: crate::Context<R, W1, W2>,
+) -> anyhow::Result<()> {
+    let OptInit {
+        force,
+        color: _,
+        directory,
+    } = opt;
+
+    let crate::Context {
+        cwd,
+        stdin: _,
+        stdout: _,
+        stderr,
+        draw_progress,
+    } = ctx;
+
+    let mut shell = Shell::new(&Arc::new(Mutex::new(io::empty())), stderr, draw_progress);
+
+    let path = cwd
+        .join(directory.strip_prefix(".").unwrap_or(&directory))
+        .join("snowchains.dhall");
+
+    if !force && path.exists() {
+        bail!(
+            "`{}` exists. Enable to `--force` to overwrite",
+            path.display(),
+        );
+    }
+
+    fs::write(
+        &path,
+        include_str!("../../resources/config/default-config.dhall"),
+    )
+    .with_context(|| format!("Could not write `{}`", path.display()))?;
+    shell.info(format!("Wrote `{}`", path.display()))?;
+
+    Config::load(
+        &mut shell,
+        &cwd,
+        Some(&path),
+        Some(PlatformVariant::Atcoder),
+        Some("practice"),
+        Some("a"),
+        Mode::Debug,
+    )?;
+
+    Ok(())
+}

@@ -1,20 +1,35 @@
-use std::{env, io::Write as _, process};
-use structopt::clap;
-use termcolor::{BufferedStandardStream, Color, ColorChoice, ColorSpec, WriteColor as _};
+use anyhow::Context as _;
+use std::{
+    env,
+    io::{self, Write as _},
+    process,
+};
+use structopt::StructOpt as _;
+use termcolor::{BufferedStandardStream, Color, ColorSpec, WriteColor as _};
 
 fn main() {
-    if let Err(err) = snowchains::run(env::args_os()) {
-        if let Some(err) = err.downcast_ref::<clap::Error>() {
-            err.exit();
-        }
+    let opt = snowchains::Opt::from_args();
 
-        // same as `clap`
-        let mut stderr = BufferedStandardStream::stderr(if atty::is(atty::Stream::Stderr) {
-            ColorChoice::Auto
-        } else {
-            ColorChoice::Never
-        });
+    let color = opt.color();
 
+    let stdin = io::stdin();
+    let stdin = stdin.lock();
+    let stdout = BufferedStandardStream::stdout(termcolor_color(color, atty::Stream::Stdout));
+    let mut stderr = BufferedStandardStream::stderr(termcolor_color(color, atty::Stream::Stdout));
+
+    let result = (|| -> _ {
+        let ctx = snowchains::Context {
+            cwd: env::current_dir().with_context(|| "Failed to get the current directory")?,
+            stdin,
+            stdout,
+            stderr: &mut stderr,
+            draw_progress: true,
+        };
+
+        snowchains::run(opt, ctx)
+    })();
+
+    if let Err(err) = result {
         for (i, s) in format!("{:?}", err).splitn(2, "Caused by:\n").enumerate() {
             let _ = stderr.set_color(
                 ColorSpec::new()
@@ -40,5 +55,17 @@ fn main() {
         let _ = stderr.flush();
 
         process::exit(1);
+    }
+}
+
+fn termcolor_color(color: snowchains::ColorChoice, stream: atty::Stream) -> termcolor::ColorChoice {
+    if atty::is(stream) {
+        match color {
+            snowchains::ColorChoice::Auto => termcolor::ColorChoice::Auto,
+            snowchains::ColorChoice::Always => termcolor::ColorChoice::Always,
+            snowchains::ColorChoice::Never => termcolor::ColorChoice::Never,
+        }
+    } else {
+        termcolor::ColorChoice::Never
     }
 }
