@@ -2025,14 +2025,17 @@ dependencies = [
  "difference",
  "heck",
  "indexmap",
+ "indicatif",
  "indoc",
  "pretty_assertions",
+ "reqwest",
  "retry",
  "serde",
  "serde_dhall",
  "serde_json",
  "snowchains_core",
  "structopt",
+ "strum",
  "termcolor",
 ]
 

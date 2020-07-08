@@ -20,12 +20,15 @@ atty = "0.2.14"
 dhall = "0.5.3"
 heck = "0.3.1"
 indexmap = { version = "1.4.0", features = ["serde-1"] }
+indicatif = "0.15.0"
 indoc = "0.3.6"
+reqwest = { version = "0.10.6", default-features = false, features = ["blocking"] }
 serde = { version = "1.0.114", features = ["derive"] }
 serde_dhall = "0.5.3"
 serde_json = "1.0.56"
 snowchains_core = { version = "0.0.0", path = "./snowchains_core" }
 structopt = "0.3.15"
+strum = { version = "0.18.0", features = ["derive"] }
 termcolor = "1.1.0"
 
 [dev-dependencies]
