@@ -92,10 +92,22 @@ pub trait Platform: Sized {
     Deserialize,
     Serialize,
 )]
+#[strum(serialize_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum PlatformVariant {
     Atcoder,
     Codeforces,
     Yukicoder,
+}
+
+impl PlatformVariant {
+    pub fn to_pascal_case_str(self) -> &'static str {
+        match self {
+            Self::Atcoder => "Atcoder",
+            Self::Codeforces => "Codeforces",
+            Self::Yukicoder => "Yukicoder",
+        }
+    }
 }
 
 pub trait Exec<A>: Platform {

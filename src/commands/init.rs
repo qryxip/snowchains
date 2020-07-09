@@ -1,5 +1,5 @@
 use crate::{
-    config::{Config, Mode},
+    config::{self, Mode},
     shell::Shell,
 };
 use anyhow::{bail, Context as _};
@@ -71,15 +71,19 @@ pub(crate) fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
     .with_context(|| format!("Could not write `{}`", path.display()))?;
     shell.info(format!("Wrote `{}`", path.display()))?;
 
-    Config::load(
-        &mut shell,
-        &cwd,
+    let t = std::time::Instant::now();
+    let lang = config::load_language(
+        &path,
         Some(&path),
         Some(PlatformVariant::Atcoder),
         Some("practice"),
         Some("a"),
+        Some("cpp"),
         Mode::Debug,
     )?;
+    let t = std::time::Instant::now() - t;
+    dbg!(t);
+    dbg!(lang);
 
     Ok(())
 }
