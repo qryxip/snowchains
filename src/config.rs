@@ -1,105 +1,200 @@
-use crate::shell::Shell;
-use anyhow::{ensure, Context as _};
+use anyhow::{anyhow, bail, ensure, Context as _};
 use dhall::syntax::InterpolatedText;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
-use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
+use itertools::Itertools as _;
+use serde::Deserialize;
+use serde_dhall::StaticType;
 use snowchains_core::web::PlatformVariant;
-use std::collections::BTreeMap;
-use std::convert::Infallible;
-use std::{fmt, fs, io::BufRead, path::Path};
-use termcolor::WriteColor;
+use std::{collections::BTreeMap, convert::Infallible, fmt, path::Path};
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Config {
-    pub(crate) custom_subcommands: BTreeMap<String, RunCommand>,
-    pub(crate) default_language: Language,
-    pub(crate) languages: IndexMap<String, Language>,
+pub(crate) fn load_language(
+    cwd: &Path,
+    rel_path: Option<&Path>,
+    cli_opt_service: Option<PlatformVariant>,
+    cli_opt_contest: Option<&str>,
+    cli_opt_problem: Option<&str>,
+    cli_opt_language: Option<&str>,
+    cli_opt_mode: Mode,
+) -> anyhow::Result<Language> {
+    let path = find_snowchains_dhall(cwd, rel_path)?;
+
+    let (target, language_name) = Detected::load_and_eval(cwd, &path)?.merge_with_cli_options(
+        cli_opt_service,
+        cli_opt_contest,
+        cli_opt_problem,
+        cli_opt_language,
+        cli_opt_mode,
+    )?;
+
+    let mut languages = serde_dhall::from_str(&format!(
+        "let target = {} let config = {} in config.languages target",
+        target.to_dhall_expr(),
+        path,
+    ))
+    .parse::<BTreeMap<String, Language>>()
+    .with_context(|| format!("Could not evaluate `{}`", path))?;
+
+    let expected_names = languages.keys().join(", ");
+
+    languages.remove(&language_name).with_context(|| {
+        format!(
+            "The language `{}` not found. Expected one of [{}]",
+            language_name, expected_names,
+        )
+    })
 }
 
-impl Config {
-    pub(crate) fn load(
-        shell: &mut Shell<impl BufRead, impl WriteColor>,
-        cwd: &Path,
-        path: Option<&Path>,
-        target_service: Option<PlatformVariant>,
-        target_contest: Option<&str>,
-        target_problem: Option<&str>,
-        target_mode: Mode,
-    ) -> anyhow::Result<Config> {
-        let dhall_path = if let Some(path) = path {
-            let path = cwd.join(path.strip_prefix(".").unwrap_or(path));
-            ensure!(path.exists(), "`{}` does not exist", path.display());
-            path
+fn find_snowchains_dhall(cwd: &Path, rel_path: Option<&Path>) -> anyhow::Result<String> {
+    let path = if let Some(rel_path) = rel_path {
+        let rel_path = rel_path.strip_prefix(".").unwrap_or(rel_path);
+        let path = cwd.join(rel_path);
+        ensure!(path.exists(), "`{}` does not exist", path.display());
+        path
+    } else {
+        cwd.ancestors()
+            .map(|p| p.join("snowchains.dhall"))
+            .find(|p| p.exists())
+            .with_context(|| {
+                format!(
+                    "Could not find `snowchains.dhall` in `{}` or any parent directory",
+                    cwd.display(),
+                )
+            })?
+    };
+
+    let path = path
+        .into_os_string()
+        .into_string()
+        .map_err(|path| anyhow!("The config path must be valid UTF-8: {:?}", path))?;
+
+    if path.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        bail!(
+            "The config path must not contain whitespace and control characters: {:?}",
+            path,
+        );
+    }
+
+    Ok(path)
+}
+
+fn quote(s: impl AsRef<str>) -> impl fmt::Display {
+    InterpolatedText::<Infallible>::from(s.as_ref().to_owned())
+}
+
+#[derive(Debug, Deserialize, StaticType)]
+struct Detected {
+    service: Option<String>,
+    contest: Option<String>,
+    problem: Option<String>,
+    language: Option<String>,
+}
+
+impl Detected {
+    fn load_and_eval(cwd: &Path, path: &str) -> anyhow::Result<Self> {
+        let rel_path_components = Path::new(path)
+            .strip_prefix(cwd)
+            .map(|rel_path| {
+                rel_path
+                    .iter()
+                    .map(|comp| {
+                        quote(
+                            comp.to_str()
+                                .expect("components of a UTF-8 path should also be UTF-8"),
+                        )
+                    })
+                    .join(", ")
+            })
+            .unwrap_or_default();
+
+        let rel_path_components = if rel_path_components.is_empty() {
+            "[] : List Text".to_owned()
         } else {
-            cwd.ancestors()
-                .map(|p| p.join("snowchains.dhall"))
-                .find(|p| p.exists())
-                .with_context(|| {
-                    format!(
-                        "Could not find `snowchains.toml` in `{}` or any parent directory",
-                        cwd.display()
-                    )
-                })?
+            format!("[{}]", rel_path_components)
         };
 
-        let dhall_path = dhall_path
-            .to_str()
-            .with_context(|| format!("`{}` is not valid UTF-8 path", dhall_path.display()))?;
+        serde_dhall::from_str(&format!(
+            r"let relativePathSegments = {}
 
-        let target = Target::load_or_create(
-            shell,
-            Path::new(dhall_path)
-                .with_file_name(".snowchains")
-                .join("target.json"),
-            target_service,
-            target_contest,
-            target_problem,
-            target_mode,
-        )?
-        .to_dhall_expr();
+let config = {}
 
-        serde_dhall::from_str(&format!("{} ({})", dhall_path, target))
-            .parse()
-            .with_context(|| format!("Could not evaluate `{}`", dhall_path))
+in  {{ service = config.detectServiceFromRelativePathSegments relativePathSegments
+    , contest = config.detectContestFromRelativePathSegments relativePathSegments
+    , problem = config.detectProblemFromRelativePathSegments relativePathSegments
+    , language = config.detectLanguageFromRelativePathSegments relativePathSegments
+    }}
+",
+            rel_path_components, path,
+        ))
+        .static_type_annotation()
+        .parse()
+        .with_context(|| format!("Could not evalute `{}`", path))
+    }
+
+    fn merge_with_cli_options(
+        &self,
+        service: Option<PlatformVariant>,
+        contest: Option<&str>,
+        problem: Option<&str>,
+        language: Option<&str>,
+        mode: Mode,
+    ) -> anyhow::Result<(Target, String)> {
+        let service = service.map(Ok).unwrap_or_else(|| {
+            self.service
+                .as_deref()
+                .with_context(|| "`service` was not detected. Specify with `--service`")?
+                .parse()
+                .with_context(|| {
+                    "`detectServiceFromRelativePathSegments` returned unrecognized `service`. \
+                     Specify the correct `service` with `--service`"
+                })
+        })?;
+
+        let contest = contest
+            .or_else(|| self.contest.as_deref())
+            .map(ToOwned::to_owned);
+
+        let problem = problem
+            .map(Ok)
+            .unwrap_or_else(|| {
+                self.problem
+                    .as_deref()
+                    .with_context(|| "`problem` was not detected. Specify with `--problem`")
+            })?
+            .to_owned();
+
+        let language = language
+            .map(Ok)
+            .unwrap_or_else(|| {
+                self.language
+                    .as_deref()
+                    .with_context(|| "`language` was not detected. Specify with `--language`")
+            })?
+            .to_owned();
+
+        let target = Target {
+            service,
+            contest,
+            problem,
+            mode,
+        };
+
+        Ok((target, language))
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub(crate) enum RunCommand {
-    Args(Vec<String>),
-    Shell(ShellCommand),
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ShellCommand {
-    pub(crate) shell: ShellRunner,
-    pub(crate) code: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ShellRunner {
-    pub(crate) runner: String,
-    pub(crate) extension: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[allow(non_snake_case)] // for `StaticType`
+#[derive(Debug, Deserialize, StaticType)]
 pub(crate) struct Language {
     pub(crate) src: String,
     pub(crate) transpile: Option<Compile>,
     pub(crate) compile: Option<Compile>,
-    pub(crate) run: RunCommand,
-    pub(crate) language_id: Option<String>,
+    pub(crate) run: Vec<String>,
+    pub(crate) languageId: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Deserialize, StaticType)]
 pub(crate) struct Compile {
-    pub(crate) command: RunCommand,
+    pub(crate) command: Vec<String>,
     pub(crate) output: String,
 }
 
@@ -112,89 +207,38 @@ struct Target {
 }
 
 impl Target {
-    fn load_or_create(
-        shell: &mut Shell<impl BufRead, impl WriteColor>,
-        path: impl AsRef<Path>,
-        service: Option<PlatformVariant>,
-        contest: Option<impl AsRef<str>>,
-        problem: Option<impl AsRef<str>>,
-        mode: Mode,
-    ) -> anyhow::Result<Self> {
-        return {
-            let path = path.as_ref();
-
-            let repr = if path.exists() {
-                let repr = fs::read_to_string(path)
-                    .with_context(|| format!("Could not read `{}`", path.display()))?;
-
-                serde_json::from_str::<Repr>(&repr).with_context(|| {
-                    format!("Could not parse the JSON file at `{}`", path.display())
-                })?
-            } else {
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent)
-                        .with_context(|| format!("Could not create `{}`", parent.display()))?;
-                }
-
-                let repr = Repr {
-                    service,
-                    contest: contest.as_ref().map(AsRef::as_ref).map(ToOwned::to_owned),
-                    problem: problem.as_ref().map(AsRef::as_ref).map(ToOwned::to_owned),
-                };
-
-                fs::write(path, repr.to_json())
-                    .with_context(|| format!("Could not write `{}`", path.display()))?;
-                shell.info(format!("Wrote `{}`", path.display()))?;
-
-                repr
-            };
-
-            let service = service
-                .or(repr.service)
-                .with_context(|| "Missing `service`")?;
-
-            let contest = contest.map(|s| s.as_ref().to_owned());
-
-            let problem = problem.map(|s| s.as_ref().to_owned()).with_context(|| "")?;
-
-            Ok(Self {
-                service,
-                contest,
-                problem,
-                mode,
-            })
-        };
-
-        #[derive(Deserialize, Serialize)]
-        struct Repr {
-            service: Option<PlatformVariant>,
-            contest: Option<String>,
-            problem: Option<String>,
-        }
-
-        impl Repr {
-            fn to_json(&self) -> String {
-                serde_json::to_string(self).expect("should not fail")
-            }
-        }
-    }
-
     fn to_dhall_expr(&self) -> String {
-        return format!(
+        format!(
             r"let Service = < Atcoder | Codeforces | Yukicoder >
+
+let CaseConvertedText =
+      {{ lowercase : Text
+      , uppercase : Text
+      , snakeCase : Text
+      , kebabCase : Text
+      , mixedCase : Text
+      , pascalCase : Text
+      }}
+
 let Mode = < Debug | Release >
-let CaseConvertedText = {{ original : Text, lowercase : Text, uppercase : Text, snakeCase : Text, kebabCase : Text, mixedCase : Text, pascalCase : Text }}
+
 in  {{ service = Service.{}
     , contest = {}
-    , problem = {{ original = {}, lowercase = {}, uppercase = {}, snakeCase = {}, kebabCase = {}, mixedCase = {}, pascalCase = {} }}
+    , problem =
+        {{ lowercase = {}
+        , uppercase = {}
+        , snakeCase = {}
+        , kebabCase = {}
+        , mixedCase = {}
+        , pascalCase = {}
+        }}
     , mode = Mode.Debug
     }}
 ",
-            self.service,
+            self.service.to_pascal_case_str(),
             if let Some(contest) = &self.contest {
                 format!(
-                    r"Some {{ original = {}, lowercase =  {}, uppercase =  {}, snakeCase =  {}, kebabCase =  {}, mixedCase =  {}, pascalCase = {} }}",
-                    quote(contest),
+                    r"Some {{ lowercase =  {}, uppercase =  {}, snakeCase =  {}, kebabCase =  {}, mixedCase =  {}, pascalCase = {} }}",
                     quote(contest.to_lowercase()),
                     quote(contest.to_uppercase()),
                     quote(contest.to_snake_case()),
@@ -205,18 +249,13 @@ in  {{ service = Service.{}
             } else {
                 "None CaseConvertedText".to_owned()
             },
-            quote(&self.problem),
             quote(self.problem.to_lowercase()),
             quote(self.problem.to_uppercase()),
             quote(self.problem.to_snake_case()),
             quote(self.problem.to_kebab_case()),
             quote(self.problem.to_mixed_case()),
             quote(self.problem.to_camel_case()),
-        );
-
-        fn quote(s: impl AsRef<str>) -> impl fmt::Display {
-            InterpolatedText::<Infallible>::from(s.as_ref().to_owned())
-        }
+        )
     }
 }
 

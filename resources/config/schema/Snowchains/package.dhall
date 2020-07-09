@@ -1,18 +1,5 @@
-let Shell = { runner : Text, extension : Text }
-
-let ShellCommand = { shell : Shell, code : Text }
-
-let Command = < Args : List Text | Shell : ShellCommand >
-
-let Compile = { command : Command, output : Text }
-
-let Language =
-      { src : Text
-      , transpile : Optional Compile
-      , compile : Optional Compile
-      , run : Command
-      , languageId : Optional Text
-      }
+let Map =
+      https://prelude.dhall-lang.org/v17.0.0/Map/Type sha256:210c7a9eba71efbb0f7a66b3dcf8b9d3976ffc2bc0e907aadfb6aa29c333e8ed
 
 let Service = < Atcoder | Codeforces | Yukicoder >
 
@@ -51,14 +38,25 @@ let Service/pascalCase =
 
 let CaseConvertedText =
     -- https://github.com/dhall-lang/dhall-lang/issues/631
-      { original : Text
-      , lowercase : Text
+      { lowercase : Text
       , uppercase : Text
       , snakeCase : Text
       , kebabCase : Text
       , mixedCase : Text
       , pascalCase : Text
       }
+
+let CaseConvertedText/lowercase = λ(s : CaseConvertedText) → s.lowercase
+
+let CaseConvertedText/uppercase = λ(s : CaseConvertedText) → s.uppercase
+
+let CaseConvertedText/snakeCase = λ(s : CaseConvertedText) → s.snakeCase
+
+let CaseConvertedText/kebabCase = λ(s : CaseConvertedText) → s.kebabCase
+
+let CaseConvertedText/mixedCase = λ(s : CaseConvertedText) → s.mixedCase
+
+let CaseConvertedText/pascalCase = λ(s : CaseConvertedText) → s.pascalCase
 
 let Mode = < Debug | Release >
 
@@ -69,21 +67,26 @@ let Target =
       , mode : Mode
       }
 
+let Compile = { command : List Text, output : Text }
+
+let Language =
+      { src : Text
+      , transpile : Optional Compile
+      , compile : Optional Compile
+      , run : List Text
+      , languageId : Optional Text
+      }
+
 let Config =
-      let Map =
-            https://prelude.dhall-lang.org/v17.0.0/Map/Type sha256:210c7a9eba71efbb0f7a66b3dcf8b9d3976ffc2bc0e907aadfb6aa29c333e8ed
+      { customSubcommands : Map Text (List Text)
+      , detectServiceFromRelativePathSegments : List Text → Optional Text
+      , detectContestFromRelativePathSegments : List Text → Optional Text
+      , detectProblemFromRelativePathSegments : List Text → Optional Text
+      , detectLanguageFromRelativePathSegments : List Text → Optional Text
+      , languages : Target → Map Text Language
+      }
 
-      in  { customSubcommands : Map Text Command
-          , defaultLanguage : Language
-          , languages : Map Text Language
-          }
-
-in  { Shell
-    , ShellCommand
-    , Command
-    , Compile
-    , Language
-    , Service
+in  { Service
     , Service/lowercase
     , Service/uppercase
     , Service/snakeCase
@@ -91,7 +94,14 @@ in  { Shell
     , Service/mixedCase
     , Service/pascalCase
     , CaseConvertedText
-    , Mode
+    , CaseConvertedText/lowercase
+    , CaseConvertedText/uppercase
+    , CaseConvertedText/snakeCase
+    , CaseConvertedText/kebabCase
+    , CaseConvertedText/mixedCase
+    , CaseConvertedText/pascalCase
     , Target
+    , Compile
+    , Language
     , Config
     }
