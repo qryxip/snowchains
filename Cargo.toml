@@ -23,6 +23,7 @@ indexmap = { version = "1.4.0", features = ["serde-1"] }
 indicatif = "0.15.0"
 indoc = "0.3.6"
 itertools = "0.9.0"
+maplit = "1.0.2"
 reqwest = { version = "0.10.6", default-features = false, features = ["blocking"] }
 serde = { version = "1.0.114", features = ["derive"] }
 serde_dhall = "0.5.3"

@@ -78,7 +78,7 @@ let Language =
       }
 
 let Config =
-      { customSubcommands : Map Text (List Text)
+      { xtask : Map Text (List Text)
       , detectServiceFromRelativePathSegments : List Text → Optional Text
       , detectContestFromRelativePathSegments : List Text → Optional Text
       , detectProblemFromRelativePathSegments : List Text → Optional Text
