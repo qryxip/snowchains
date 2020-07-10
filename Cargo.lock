@@ -2028,6 +2028,7 @@ dependencies = [
  "indicatif",
  "indoc",
  "itertools",
+ "maplit",
  "pretty_assertions",
  "reqwest",
  "retry",

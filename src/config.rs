@@ -1,9 +1,11 @@
 use anyhow::{anyhow, bail, ensure, Context as _};
 use dhall::syntax::InterpolatedText;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
+use indexmap::IndexMap;
 use itertools::Itertools as _;
+use maplit::hashmap;
 use serde::Deserialize;
-use serde_dhall::StaticType;
+use serde_dhall::{SimpleType, StaticType};
 use snowchains_core::web::PlatformVariant;
 use std::{collections::BTreeMap, convert::Infallible, fmt, path::Path};
 
@@ -44,6 +46,32 @@ pub(crate) fn load_language(
     })
 }
 
+pub(crate) fn xtask(
+    cwd: &Path,
+    rel_path: Option<&Path>,
+    name: &str,
+) -> anyhow::Result<Vec<String>> {
+    let path = find_snowchains_dhall(cwd, rel_path)?;
+
+    let xtask = serde_dhall::from_str(&format!("let config = {} in config.xtask", path))
+        .type_annotation(&map_annot(
+            SimpleType::Text,
+            SimpleType::List(SimpleType::Text.into()),
+        ))
+        .parse::<IndexMap<String, Vec<String>>>()
+        .with_context(|| format!("Could not evalute `{}`", path))?;
+
+    xtask.get(name).cloned().with_context(|| {
+        format!(
+            "No such xtask subcommand: `{}` (found [{}])",
+            name,
+            xtask
+                .keys()
+                .format_with(", ", |s, f| f(&format_args!("`{}`", s)))
+        )
+    })
+}
+
 fn find_snowchains_dhall(cwd: &Path, rel_path: Option<&Path>) -> anyhow::Result<String> {
     let path = if let Some(rel_path) = rel_path {
         let rel_path = rel_path.strip_prefix(".").unwrap_or(rel_path);
@@ -79,6 +107,12 @@ fn find_snowchains_dhall(cwd: &Path, rel_path: Option<&Path>) -> anyhow::Result<
 
 fn quote(s: impl AsRef<str>) -> impl fmt::Display {
     InterpolatedText::<Infallible>::from(s.as_ref().to_owned())
+}
+
+fn map_annot(key: SimpleType, value: SimpleType) -> SimpleType {
+    SimpleType::List(Box::new(SimpleType::Record(
+        hashmap!("mapKey".to_owned() => key, "mapValue".to_owned() => value),
+    )))
 }
 
 #[derive(Debug, Deserialize, StaticType)]

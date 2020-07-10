@@ -16,13 +16,24 @@ let Language = Snowchains.Language
 
 let Config = Snowchains.Config
 
-let bash = λ(code : Text) → [ "bash", "-c", code, "" ]
+let bash = λ(cmd : Text) → [ "bash", "-c", cmd, "" ]
 
-in    { customSubcommands = toMap
+let python = λ(cmd : Text) → [ "python", "-c", cmd ]
+
+in    { xtask = toMap
           { custom-cmd =
-              bash
+              python
                 ''
-                echo "args: $@"
+                from argparse import ArgumentParser
+
+
+                def main() -> None:
+                    parser = ArgumentParser(prog='snowchains xtask custom-cmd')
+                    _ = parser.parse_args()
+
+
+                if __name__ == '__main__':
+                    main()
                 ''
           }
       , detectServiceFromRelativePathSegments = List/index 0 Text

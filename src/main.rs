@@ -4,11 +4,10 @@ use std::{
     io::{self, Write as _},
     process,
 };
-use structopt::StructOpt as _;
 use termcolor::{BufferedStandardStream, Color, ColorSpec, WriteColor as _};
 
 fn main() {
-    let opt = snowchains::Opt::from_args();
+    let opt = snowchains::Opt::from_args_with_workaround_for_clap_issue_1538();
 
     let color = opt.color();
 
