@@ -214,7 +214,13 @@ impl<
             .build()?;
 
         let problem_id = match target {
-            Either::Left(problem_no) => retrieve_problem_id(&mut sess, problem_no)?,
+            Either::Left(problem_no) => {
+                let problem_no = problem_no
+                    .as_ref()
+                    .parse()
+                    .with_context(|| "`ProblemId` must be integer")?;
+                sess.get_problem_by_problem_no(problem_no)?.problem_id
+            }
             Either::Right((contest_id, problem_slug)) => {
                 let (contest_id, problem_slug) = (contest_id.as_ref(), problem_slug.as_ref());
 
@@ -235,7 +241,7 @@ impl<
             }
         };
 
-        return match sess.submit_problem_by_problem_id(
+        match sess.submit_problem_by_problem_id(
             &api_key,
             problem_id,
             language_id.as_ref(),
@@ -253,20 +259,6 @@ impl<
             Err((status_code, message)) => {
                 bail!("Submission rejected: ({}, {:?})", status_code, message);
             }
-        };
-
-        fn retrieve_problem_id(
-            mut sess: impl SessionMut,
-            problem_no: impl AsRef<str>,
-        ) -> anyhow::Result<u64> {
-            let url = yukicoder_url(format!("/problems/no/{}", problem_no.as_ref()))?;
-
-            sess.get(url)
-                .colorize_status_code(&[200], (), ..)
-                .send()?
-                .ensure_status(&[200])?
-                .html()?
-                .extract_problem_id()
         }
     }
 }
@@ -280,8 +272,10 @@ fn retrieve_samples(
     match targets {
         Either::Left(problem_nos) => {
             for &problem_no in problem_nos {
-                let (url, problem_id, test_suite) = retrieve_samples(&mut sess, problem_no)?;
-                let api::Problem { title, .. } = sess.get_problem_by_problem_id(problem_id)?;
+                let (url, test_suite) = retrieve_samples(&mut sess, problem_no)?;
+                let api::Problem {
+                    problem_id, title, ..
+                } = sess.get_problem_by_problem_no(problem_no)?;
 
                 outcome.problems.push(RetrieveTestCasesOutcomeProblem {
                     slug: problem_no.to_string(),
@@ -315,8 +309,10 @@ fn retrieve_samples(
                     }
                 }
 
-                let (url, problem_id, test_suite) = retrieve_samples(&mut sess, problem_no)?;
-                let api::Problem { title, .. } = sess.get_problem_by_problem_id(problem_id)?;
+                let (url, test_suite) = retrieve_samples(&mut sess, problem_no)?;
+                let api::Problem {
+                    problem_id, title, ..
+                } = sess.get_problem_by_problem_no(problem_no)?;
 
                 outcome.problems.push(RetrieveTestCasesOutcomeProblem {
                     slug: problem_no.to_string(),
@@ -341,20 +337,18 @@ fn retrieve_samples(
     fn retrieve_samples(
         mut sess: impl SessionMut,
         problem_no: u64,
-    ) -> anyhow::Result<(Url, u64, TestSuite)> {
+    ) -> anyhow::Result<(Url, TestSuite)> {
         let url = yukicoder_url(format!("/problems/no/{}", problem_no))?;
 
-        let html = sess
+        let test_suite = sess
             .get(url.clone())
             .colorize_status_code(&[200], (), ..)
             .send()?
             .ensure_status(&[200])?
-            .html()?;
+            .html()?
+            .extract_samples()?;
 
-        let id = html.extract_problem_id()?;
-        let test_suite = html.extract_samples()?;
-
-        Ok((url, id, test_suite))
+        Ok((url, test_suite))
     }
 }
 
@@ -387,21 +381,6 @@ impl Html {
         fn exactly_one_text(element_ref: ElementRef<'_>) -> Option<&str> {
             element_ref.text().exactly_one().ok()
         }
-    }
-
-    fn extract_problem_id(&self) -> anyhow::Result<u64> {
-        self.select(static_selector!("#content > div"))
-            .nth(1)
-            .into_iter()
-            .flat_map(|r| r.text())
-            .flat_map(|s| {
-                static_regex!("ProblemId[ ]*:[ ]*(.*)")
-                    .captures(s)
-                    .and_then(|caps| caps[1].parse().ok())
-            })
-            .exactly_one()
-            .ok()
-            .with_context(|| "Could not extract the problem ID")
     }
 
     fn extract_samples(&self) -> anyhow::Result<TestSuite> {
@@ -578,6 +557,24 @@ mod api {
             }
         }
 
+        /// <https://twitter.com/yukicoder/status/1281965396778606593>
+        fn get_problem_by_problem_no(&mut self, problem_no: u64) -> anyhow::Result<Problem> {
+            let url = BASE_URL.join(&format!("problems/no/{}", problem_no))?;
+
+            let res = self
+                .get(url)
+                .colorize_status_code(&[200], (), ..)
+                .send()?
+                .ensure_status(&[200, 404])?;
+
+            if res.status() == 200 {
+                res.json().map_err(Into::into)
+            } else {
+                let res = res.json::<serde_json::Value>()?;
+                bail!("{}", serde_json::to_string_pretty(&res).unwrap());
+            }
+        }
+
         /// > Get all problems
         ///
         /// > 公開されているテスト以外のすべての問題を取得します
@@ -678,7 +675,7 @@ mod api {
     #[serde(rename_all = "PascalCase")]
     pub(super) struct Problem {
         //no: u64,
-        //problem_id: u64,
+        pub(super) problem_id: u64,
         pub(super) title: String,
         //author_id: u64,
         //tester_id: u64,
