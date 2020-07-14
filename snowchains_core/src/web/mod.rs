@@ -122,10 +122,16 @@ pub struct Login<K, S, R> {
     pub credentials: R,
 }
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub enum LoginOutcome {
     Success,
     AlreadyLoggedIn,
+}
+
+impl LoginOutcome {
+    pub fn to_json(self) -> String {
+        serde_json::to_string(&self).expect("should not fail")
+    }
 }
 
 pub struct Participate<T, K, S, R> {

@@ -1,8 +1,9 @@
 mod commands;
 mod config;
 mod shell;
+mod web;
 
-pub use crate::commands::{init::OptInit, xtask::OptXtask};
+pub use crate::commands::{init::OptInit, login::OptLogin, xtask::OptXtask};
 use std::{env, io::BufRead, path::PathBuf};
 use structopt::{
     clap::{self, AppSettings},
@@ -12,13 +13,18 @@ use strum::{EnumString, EnumVariantNames};
 use termcolor::WriteColor;
 
 #[derive(StructOpt, Debug)]
+#[structopt(author, about, global_setting = AppSettings::DeriveDisplayOrder)]
 pub enum Opt {
     /// Create a new config file
-    #[structopt(visible_alias("i"))]
+    #[structopt(author, visible_alias("i"))]
     Init(OptInit),
 
+    /// Logges in to a service
+    #[structopt(author, visible_alias("l"))]
+    Login(OptLogin),
+
     /// Run a custom subcommand written in the config file
-    #[structopt(visible_alias("x"), setting = AppSettings::TrailingVarArg)]
+    #[structopt(author, visible_alias("x"), setting = AppSettings::TrailingVarArg)]
     Xtask(OptXtask),
 }
 
@@ -47,7 +53,7 @@ impl Opt {
 
     pub fn color(&self) -> crate::ColorChoice {
         match *self {
-            Self::Init(OptInit { color, .. }) => color,
+            Self::Init(OptInit { color, .. }) | Self::Login(OptLogin { color, .. }) => color,
             Self::Xtask(_) => crate::ColorChoice::Auto,
         }
     }
@@ -76,6 +82,7 @@ pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
 ) -> anyhow::Result<()> {
     match opt {
         Opt::Init(opt) => commands::init::run(opt, ctx),
+        Opt::Login(opt) => commands::login::run(opt, ctx),
         Opt::Xtask(opt) => commands::xtask::run(opt, ctx),
     }
 }
