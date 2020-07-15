@@ -1,44 +1,48 @@
 use indicatif::ProgressDrawTarget;
 use snowchains_core::web::StatusCodeColor;
-use std::{
-    fmt,
-    io::BufRead,
-    sync::{Arc, Mutex},
-};
+use std::{cell::RefCell, fmt, io};
 use termcolor::{Color, ColorSpec, WriteColor};
 
-pub(crate) struct Shell<R, W> {
-    input: Arc<Mutex<R>>,
-    wtr: W,
+pub(crate) struct Shell<'a, W, F> {
+    wtr: &'a RefCell<W>,
+    wait_for_enter_key: F,
     draw_progress: bool,
 }
 
-impl<R: BufRead, W: WriteColor> self::Shell<R, W> {
-    pub(crate) fn new(input: &Arc<Mutex<R>>, wtr: W, draw_progress: bool) -> Self {
+impl<'a, W: WriteColor, F: FnMut() -> io::Result<()>> self::Shell<'a, W, F> {
+    pub(crate) fn new(wtr: &'a RefCell<W>, wait_for_enter_key: F, draw_progress: bool) -> Self {
         Self {
-            input: input.clone(),
             wtr,
+            wait_for_enter_key,
             draw_progress,
         }
     }
 
     pub(crate) fn info(&mut self, message: impl fmt::Display) -> anyhow::Result<()> {
-        writeln!(self.wtr, "{}", message)?;
-        self.wtr.flush().map_err(Into::into)
+        let mut wtr = self.wtr.borrow_mut();
+
+        writeln!(wtr, "{}", message)?;
+        wtr.flush().map_err(Into::into)
     }
 
     pub(crate) fn warn(&mut self, message: impl fmt::Display) -> anyhow::Result<()> {
-        self.wtr.set_color(&color_spec(Some(Color::Yellow), true))?;
-        write!(self.wtr, "warning:")?;
-        self.wtr.reset()?;
-        writeln!(self.wtr, " {}", message)?;
-        self.wtr.flush().map_err(Into::into)
+        let mut wtr = self.wtr.borrow_mut();
+
+        wtr.set_color(&color_spec(Some(Color::Yellow), true))?;
+        write!(wtr, "warning:")?;
+        wtr.reset()?;
+        writeln!(wtr, " {}", message)?;
+        wtr.flush().map_err(Into::into)
     }
 }
 
-impl<R: BufRead, W: WriteColor> snowchains_core::web::Shell for self::Shell<R, W> {
+impl<'a, W: WriteColor, F: FnMut() -> io::Result<()>> snowchains_core::web::Shell
+    for self::Shell<'a, W, F>
+{
     fn progress_draw_target(&self) -> ProgressDrawTarget {
-        if self.draw_progress && self.wtr.supports_color() {
+        let wtr = self.wtr.borrow();
+
+        if self.draw_progress && wtr.supports_color() {
             ProgressDrawTarget::stderr()
         } else {
             ProgressDrawTarget::hidden()
@@ -54,26 +58,29 @@ impl<R: BufRead, W: WriteColor> snowchains_core::web::Shell for self::Shell<R, W
     }
 
     fn wait_for_enter_key(&mut self, prompt: &'static str) -> anyhow::Result<()> {
-        write!(self.wtr, "{}", prompt)?;
-        self.wtr.flush()?;
-        self.input.lock().unwrap().read_line(&mut "".to_owned())?;
-        Ok(())
+        let mut wtr = self.wtr.borrow_mut();
+
+        write!(wtr, "{}", prompt)?;
+        wtr.flush()?;
+        (self.wait_for_enter_key)().map_err(Into::into)
     }
 
     fn on_request(&mut self, req: &reqwest::blocking::Request) -> anyhow::Result<()> {
-        self.wtr.set_color(&color_spec(None, true))?;
-        write!(self.wtr, "{}", req.method())?;
-        self.wtr.reset()?;
+        let mut wtr = self.wtr.borrow_mut();
 
-        write!(self.wtr, " ")?;
+        wtr.set_color(&color_spec(None, true))?;
+        write!(wtr, "{}", req.method())?;
+        wtr.reset()?;
 
-        self.wtr.set_color(&color_spec(Some(Color::Cyan), false))?;
-        write!(self.wtr, "{}", req.url())?;
-        self.wtr.reset()?;
+        write!(wtr, " ")?;
 
-        write!(self.wtr, " ... ")?;
+        wtr.set_color(&color_spec(Some(Color::Cyan), false))?;
+        write!(wtr, "{}", req.url())?;
+        wtr.reset()?;
 
-        self.wtr.flush().map_err(Into::into)
+        write!(wtr, " ... ")?;
+
+        wtr.flush().map_err(Into::into)
     }
 
     fn on_response(
@@ -81,6 +88,8 @@ impl<R: BufRead, W: WriteColor> snowchains_core::web::Shell for self::Shell<R, W
         res: &reqwest::blocking::Response,
         status_code_color: StatusCodeColor,
     ) -> anyhow::Result<()> {
+        let mut wtr = self.wtr.borrow_mut();
+
         let fg = match status_code_color {
             StatusCodeColor::Ok => Some(Color::Green),
             StatusCodeColor::Warn => Some(Color::Yellow),
@@ -88,13 +97,13 @@ impl<R: BufRead, W: WriteColor> snowchains_core::web::Shell for self::Shell<R, W
             StatusCodeColor::Unknown => None,
         };
 
-        self.wtr.set_color(&color_spec(fg, true))?;
-        write!(self.wtr, "{}", res.status())?;
-        self.wtr.reset()?;
+        wtr.set_color(&color_spec(fg, true))?;
+        write!(wtr, "{}", res.status())?;
+        wtr.reset()?;
 
-        writeln!(self.wtr)?;
+        writeln!(wtr)?;
 
-        self.wtr.flush().map_err(Into::into)
+        wtr.flush().map_err(Into::into)
     }
 }
 

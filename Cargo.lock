@@ -2112,6 +2112,7 @@ dependencies = [
  "reqwest",
  "retry",
  "rpassword",
+ "rprompt",
  "serde",
  "serde_dhall",
  "serde_json",

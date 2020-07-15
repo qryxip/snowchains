@@ -4,7 +4,11 @@ mod shell;
 mod web;
 
 pub use crate::commands::{init::OptInit, login::OptLogin, xtask::OptXtask};
-use std::{env, io::BufRead, path::PathBuf};
+use std::{
+    env,
+    io::{self, BufRead, Stdin, StdinLock},
+    path::PathBuf,
+};
 use structopt::{
     clap::{self, AppSettings},
     StructOpt,
@@ -70,10 +74,53 @@ pub enum ColorChoice {
 #[derive(Debug)]
 pub struct Context<R, W1, W2> {
     pub cwd: PathBuf,
-    pub stdin: R,
+    pub stdin: TtyOrPiped<R>,
     pub stdout: W1,
     pub stderr: W2,
     pub draw_progress: bool,
+}
+
+#[derive(Debug)]
+pub enum TtyOrPiped<R> {
+    Tty,
+    Piped(R),
+}
+
+impl<'a> TtyOrPiped<StdinLock<'a>> {
+    /// Creates a new `TtyOrPiped`.
+    ///
+    /// Returns `Tty` if the stdin is a TTY, otherwise `Piped`.
+    pub fn auto(stdin: &'a Stdin) -> Self {
+        if atty::is(atty::Stream::Stdin) && !(cfg!(windows) && env::var_os("MSYSTEM").is_some()) {
+            TtyOrPiped::Tty
+        } else {
+            TtyOrPiped::Piped(stdin.lock())
+        }
+    }
+}
+
+impl<R: BufRead> TtyOrPiped<R> {
+    fn read_reply(&mut self) -> io::Result<String> {
+        match self {
+            Self::Tty => rprompt::read_reply(),
+            Self::Piped(r) => rpassword::read_password_with_reader(Some(r)),
+        }
+    }
+
+    fn read_password(&mut self) -> io::Result<String> {
+        match self {
+            Self::Tty => rpassword::read_password_from_tty(None),
+            Self::Piped(r) => rpassword::read_password_with_reader(Some(r)),
+        }
+    }
+
+    fn wait_for_enter_key(&mut self) -> io::Result<()> {
+        match self {
+            Self::Tty => io::stdin().read_line(&mut "".to_owned()),
+            Self::Piped(r) => r.read_line(&mut "".to_owned()),
+        }
+        .map(|_| ())
+    }
 }
 
 pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(

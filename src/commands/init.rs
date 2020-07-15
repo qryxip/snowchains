@@ -4,12 +4,7 @@ use crate::{
 };
 use anyhow::{bail, Context as _};
 use snowchains_core::web::PlatformVariant;
-use std::{
-    fs,
-    io::{self, BufRead},
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::{cell::RefCell, fs, path::PathBuf};
 use structopt::StructOpt;
 use strum::VariantNames as _;
 use termcolor::WriteColor;
@@ -33,7 +28,7 @@ pub struct OptInit {
     pub directory: PathBuf,
 }
 
-pub(crate) fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
+pub(crate) fn run<R: Sized, W1: Sized, W2: WriteColor>(
     opt: OptInit,
     ctx: crate::Context<R, W1, W2>,
 ) -> anyhow::Result<()> {
@@ -51,7 +46,8 @@ pub(crate) fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
         draw_progress,
     } = ctx;
 
-    let mut shell = Shell::new(&Arc::new(Mutex::new(io::empty())), stderr, draw_progress);
+    let stderr = RefCell::new(stderr);
+    let mut shell = Shell::new(&stderr, || unreachable!(), draw_progress);
 
     let path = cwd
         .join(directory.strip_prefix(".").unwrap_or(&directory))

@@ -1,8 +1,8 @@
 use crate::{shell::Shell, web::LazyLockedFile};
 use snowchains_core::web::{Atcoder, Login, PlatformVariant};
 use std::{
+    cell::RefCell,
     io::{self, BufRead, Write},
-    sync::{Arc, Mutex},
 };
 use structopt::StructOpt;
 use strum::VariantNames as _;
@@ -52,16 +52,19 @@ pub(crate) fn run(
     let on_update_cookie_store =
         |cookie_store: &_| crate::web::save_cookie_store(cookie_store, &cookies_file);
 
-    let shell = Shell::new(&Arc::new(Mutex::new(io::empty())), stderr, false);
+    let stderr = RefCell::new(stderr);
+    let shell = Shell::new(&stderr, || unreachable!(), false);
 
     let username_and_password = || -> _ {
-        eprint!("Username: ");
-        io::stderr().flush()?;
-        let username = rpassword::read_password_with_reader(Some(&mut stdin))?;
+        let mut stderr = stderr.borrow_mut();
 
-        eprint!("Password: ");
-        io::stderr().flush()?;
-        let password = rpassword::read_password_with_reader(Some(&mut stdin))?;
+        write!(stderr, "Username: ")?;
+        stderr.flush()?;
+        let username = stdin.read_reply()?;
+
+        write!(stderr, "Password: ")?;
+        stderr.flush()?;
+        let password = stdin.read_password()?;
 
         Ok((username, password))
     };

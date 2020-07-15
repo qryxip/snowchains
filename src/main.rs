@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use snowchains::TtyOrPiped;
 use std::{
     env,
     io::{self, Write as _},
@@ -12,7 +13,7 @@ fn main() {
     let color = opt.color();
 
     let stdin = io::stdin();
-    let stdin = stdin.lock();
+    let stdin = TtyOrPiped::auto(&stdin);
     let stdout = BufferedStandardStream::stdout(termcolor_color(color, atty::Stream::Stdout));
     let mut stderr = BufferedStandardStream::stderr(termcolor_color(color, atty::Stream::Stdout));
 
