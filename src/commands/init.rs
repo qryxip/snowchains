@@ -1,10 +1,7 @@
-use crate::{
-    config::{self, Mode},
-    shell::Shell,
-};
+use crate::config::{self, Mode};
 use anyhow::{bail, Context as _};
 use snowchains_core::web::PlatformVariant;
-use std::{cell::RefCell, fs, path::PathBuf};
+use std::{fs, path::PathBuf};
 use structopt::StructOpt;
 use strum::VariantNames as _;
 use termcolor::WriteColor;
@@ -42,12 +39,9 @@ pub(crate) fn run<R: Sized, W1: Sized, W2: WriteColor>(
         cwd,
         stdin: _,
         stdout: _,
-        stderr,
-        draw_progress,
+        mut stderr,
+        draw_progress: _,
     } = ctx;
-
-    let stderr = RefCell::new(stderr);
-    let mut shell = Shell::new(&stderr, || unreachable!(), draw_progress);
 
     let path = cwd
         .join(directory.strip_prefix(".").unwrap_or(&directory))
@@ -65,7 +59,9 @@ pub(crate) fn run<R: Sized, W1: Sized, W2: WriteColor>(
         include_str!("../../resources/config/default-config.dhall"),
     )
     .with_context(|| format!("Could not write `{}`", path.display()))?;
-    shell.info(format!("Wrote `{}`", path.display()))?;
+
+    writeln!(stderr, "Wrote `{}`", path.display())?;
+    stderr.flush()?;
 
     let t = std::time::Instant::now();
     let lang = config::load_language(
