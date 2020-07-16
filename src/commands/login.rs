@@ -1,8 +1,9 @@
 use crate::{shell::Shell, web::LazyLockedFile};
+use serde::Serialize;
 use snowchains_core::web::{Atcoder, Login, PlatformVariant};
 use std::{
     cell::RefCell,
-    io::{self, BufRead, Write},
+    io::{BufRead, Write},
 };
 use structopt::StructOpt;
 use strum::VariantNames as _;
@@ -25,6 +26,17 @@ pub struct OptLogin {
     /// Target platform
     #[structopt(possible_values(&["atcoder"]))]
     pub service: PlatformVariant,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+struct Outcome {
+    kind: snowchains_core::web::LoginOutcome,
+}
+
+impl Outcome {
+    fn to_json(self) -> String {
+        serde_json::to_string(&self).expect("should not fail")
+    }
 }
 
 pub(crate) fn run(
@@ -82,7 +94,7 @@ pub(crate) fn run(
     })?;
 
     let message = if json {
-        outcome.to_json()
+        Outcome { kind: outcome }.to_json()
     } else {
         match outcome {
             snowchains_core::web::LoginOutcome::Success => "Successfully logged in.",
