@@ -1,6 +1,6 @@
 use crate::{shell::Shell, web::LazyLockedFile};
 use serde::Serialize;
-use snowchains_core::web::{Atcoder, Login, PlatformVariant};
+use snowchains_core::web::{Atcoder, Codeforces, Login, PlatformVariant};
 use std::{
     cell::RefCell,
     io::{BufRead, Write},
@@ -24,7 +24,7 @@ pub struct OptLogin {
     pub color: crate::ColorChoice,
 
     /// Target platform
-    #[structopt(possible_values(&["atcoder"]))]
+    #[structopt(possible_values(&["atcoder", "codeforces"]))]
     pub service: PlatformVariant,
 }
 
@@ -84,14 +84,18 @@ pub(crate) fn run(
         Ok((username, password))
     };
 
-    debug_assert_eq!(service, PlatformVariant::Atcoder);
-
-    let outcome = Atcoder::exec(Login {
+    let args = Login {
         timeout: Some(crate::web::SESSION_TIMEOUT),
         cookie_store: (cookie_store, on_update_cookie_store),
         shell,
         credentials: (username_and_password,),
-    })?;
+    };
+
+    let outcome = match service {
+        PlatformVariant::Atcoder => Atcoder::exec(args),
+        PlatformVariant::Codeforces => Codeforces::exec(args),
+        PlatformVariant::Yukicoder => unreachable!("should be filtered by `possible_values`"),
+    }?;
 
     let message = if json {
         Outcome { kind: outcome }.to_json()
