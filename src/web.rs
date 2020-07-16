@@ -59,9 +59,10 @@ impl LazyLockedFile {
 
         file.seek(SeekFrom::Start(0))
             .and_then(|_| file.set_len(0))
-            .with_context(|| format!("Could not clear the content of `{}`", path.display()))?;
-
-        f(file)
+            .map_err(Into::into)
+            .and_then(|()| f(file))
+            .and_then(|()| file.sync_data().map_err(Into::into))
+            .with_context(|| format!("Could not write `{}`", path.display()))
     }
 }
 
