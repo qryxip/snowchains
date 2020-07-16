@@ -40,6 +40,9 @@ pub(crate) fn run<R: Sized, W1: Sized, W2: WriteColor>(
         stdin: _,
         stdout: _,
         mut stderr,
+        stdin_process_redirection: _,
+        stdout_process_redirection: _,
+        stderr_process_redirection: _,
         draw_progress: _,
     } = ctx;
 

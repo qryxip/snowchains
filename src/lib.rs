@@ -8,6 +8,7 @@ use std::{
     env,
     io::{self, BufRead, Stdin, StdinLock},
     path::PathBuf,
+    process::Stdio,
 };
 use structopt::{
     clap::{self, AppSettings},
@@ -77,6 +78,9 @@ pub struct Context<R, W1, W2> {
     pub stdin: TtyOrPiped<R>,
     pub stdout: W1,
     pub stderr: W2,
+    pub stdin_process_redirection: Stdio,
+    pub stdout_process_redirection: Stdio,
+    pub stderr_process_redirection: Stdio,
     pub draw_progress: bool,
 }
 
