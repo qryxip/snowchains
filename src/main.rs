@@ -3,7 +3,7 @@ use snowchains::TtyOrPiped;
 use std::{
     env,
     io::{self, Write as _},
-    process,
+    process::{self, Stdio},
 };
 use termcolor::{BufferedStandardStream, Color, ColorSpec, WriteColor as _};
 
@@ -23,6 +23,9 @@ fn main() {
             stdin,
             stdout,
             stderr: &mut stderr,
+            stdin_process_redirection: Stdio::inherit(),
+            stdout_process_redirection: Stdio::inherit(),
+            stderr_process_redirection: Stdio::inherit(),
             draw_progress: true,
         };
 

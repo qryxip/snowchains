@@ -42,6 +42,9 @@ pub(crate) fn run(
         mut stdin,
         mut stdout,
         stderr,
+        stdin_process_redirection: _,
+        stdout_process_redirection: _,
+        stderr_process_redirection: _,
         draw_progress: _,
     } = ctx;
 

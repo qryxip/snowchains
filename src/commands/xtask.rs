@@ -24,6 +24,9 @@ pub(crate) fn run(
         stdin: _,
         stdout: _,
         stderr: _,
+        stdin_process_redirection,
+        stdout_process_redirection,
+        stderr_process_redirection,
         draw_progress: _,
     } = ctx;
 
@@ -34,9 +37,9 @@ pub(crate) fn run(
     let status = std::process::Command::new(&cmd[0])
         .args(&cmd[1..])
         .args(args)
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
+        .stdin(stdin_process_redirection)
+        .stdout(stdout_process_redirection)
+        .stderr(stderr_process_redirection)
         .status()?;
 
     if !status.success() {
