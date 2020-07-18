@@ -101,6 +101,17 @@ pub enum PlatformVariant {
 }
 
 impl PlatformVariant {
+    pub const KEBAB_CASE_VARIANTS: &'static [&'static str] =
+        &["atcoder", "codeforces", "yukicoder"];
+
+    pub fn to_kebab_case_str(self) -> &'static str {
+        match self {
+            Self::Atcoder => "atcoder",
+            Self::Codeforces => "codeforces",
+            Self::Yukicoder => "yukicoder",
+        }
+    }
+
     pub fn to_pascal_case_str(self) -> &'static str {
         match self {
             Self::Atcoder => "Atcoder",
@@ -196,8 +207,8 @@ pub struct RetrieveTestCasesOutcomeProblem {
 
 #[derive(Debug, Serialize)]
 pub struct RetrieveTestCasesOutcomeProblemTextFiles {
-    r#in: String,
-    out: Option<String>,
+    pub r#in: String,
+    pub out: Option<String>,
 }
 
 #[derive(Debug)]

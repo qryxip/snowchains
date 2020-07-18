@@ -7,7 +7,25 @@ use maplit::hashmap;
 use serde::Deserialize;
 use serde_dhall::{SimpleType, StaticType};
 use snowchains_core::web::PlatformVariant;
-use std::{collections::BTreeMap, convert::Infallible, fmt, path::Path};
+use std::{
+    collections::BTreeMap,
+    convert::Infallible,
+    fmt,
+    path::{Path, PathBuf},
+};
+
+pub(crate) fn detect_target(
+    cwd: &Path,
+    rel_path: Option<&Path>,
+) -> anyhow::Result<(Detected, PathBuf)> {
+    let path = find_snowchains_dhall(cwd, rel_path)?;
+    let detected = Detected::load_and_eval(cwd, &path)?;
+    let dir = Path::new(&path)
+        .parent()
+        .unwrap_or_else(|| path.as_ref())
+        .to_owned();
+    Ok((detected, dir))
+}
 
 pub(crate) fn load_language(
     cwd: &Path,
@@ -116,16 +134,18 @@ fn map_annot(key: SimpleType, value: SimpleType) -> SimpleType {
 }
 
 #[derive(Debug, Deserialize, StaticType)]
-struct Detected {
-    service: Option<String>,
-    contest: Option<String>,
-    problem: Option<String>,
-    language: Option<String>,
+pub(crate) struct Detected {
+    pub(crate) service: Option<String>,
+    pub(crate) contest: Option<String>,
+    pub(crate) problem: Option<String>,
+    pub(crate) language: Option<String>,
 }
 
 impl Detected {
     fn load_and_eval(cwd: &Path, path: &str) -> anyhow::Result<Self> {
         let rel_path_components = Path::new(path)
+            .parent()
+            .unwrap_or_else(|| path.as_ref())
             .strip_prefix(cwd)
             .map(|rel_path| {
                 rel_path
