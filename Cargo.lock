@@ -2101,6 +2101,7 @@ dependencies = [
  "dhall",
  "difference",
  "dirs",
+ "either",
  "fs2",
  "heck",
  "indexmap",
@@ -2120,6 +2121,7 @@ dependencies = [
  "structopt",
  "strum",
  "termcolor",
+ "url",
 ]
 
 [[package]]

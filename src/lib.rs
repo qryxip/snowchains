@@ -1,9 +1,15 @@
 mod commands;
 mod config;
+mod fs;
 mod shell;
 mod web;
 
-pub use crate::commands::{init::OptInit, login::OptLogin, xtask::OptXtask};
+pub use crate::commands::{
+    init::OptInit,
+    login::OptLogin,
+    retrieve::{testcases::OptRetrieveTestcases, OptRetrieve},
+    xtask::OptXtask,
+};
 use std::{
     env,
     io::{self, BufRead, Stdin, StdinLock},
@@ -27,6 +33,10 @@ pub enum Opt {
     /// Logges in to a service
     #[structopt(author, visible_alias("l"))]
     Login(OptLogin),
+
+    /// Retrieves data
+    #[structopt(author, visible_alias("r"))]
+    Retrieve(OptRetrieve),
 
     /// Run a custom subcommand written in the config file
     #[structopt(author, visible_alias("x"), setting = AppSettings::TrailingVarArg)]
@@ -58,7 +68,9 @@ impl Opt {
 
     pub fn color(&self) -> crate::ColorChoice {
         match *self {
-            Self::Init(OptInit { color, .. }) | Self::Login(OptLogin { color, .. }) => color,
+            Self::Init(OptInit { color, .. })
+            | Self::Login(OptLogin { color, .. })
+            | Self::Retrieve(OptRetrieve::Testcases(OptRetrieveTestcases { color, .. })) => color,
             Self::Xtask(_) => crate::ColorChoice::Auto,
         }
     }
@@ -134,6 +146,7 @@ pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
     match opt {
         Opt::Init(opt) => commands::init::run(opt, ctx),
         Opt::Login(opt) => commands::login::run(opt, ctx),
+        Opt::Retrieve(opt) => commands::retrieve::run(opt, ctx),
         Opt::Xtask(opt) => commands::xtask::run(opt, ctx),
     }
 }
