@@ -15,7 +15,7 @@ fn main() {
     let stdin = io::stdin();
     let stdin = TtyOrPiped::auto(&stdin);
     let stdout = BufferedStandardStream::stdout(termcolor_color(color, atty::Stream::Stdout));
-    let mut stderr = BufferedStandardStream::stderr(termcolor_color(color, atty::Stream::Stdout));
+    let mut stderr = BufferedStandardStream::stderr(termcolor_color(color, atty::Stream::Stderr));
 
     let result = (|| -> _ {
         let ctx = snowchains::Context {
