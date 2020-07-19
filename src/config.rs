@@ -64,19 +64,12 @@ pub(crate) fn load_language(
     })
 }
 
-pub(crate) fn xtask(
-    cwd: &Path,
-    rel_path: Option<&Path>,
-    name: &str,
-) -> anyhow::Result<Vec<String>> {
+pub(crate) fn xtask(cwd: &Path, rel_path: Option<&Path>, name: &str) -> anyhow::Result<Script> {
     let path = find_snowchains_dhall(cwd, rel_path)?;
 
     let xtask = serde_dhall::from_str(&format!("let config = {} in config.xtask", path))
-        .type_annotation(&map_annot(
-            SimpleType::Text,
-            SimpleType::List(SimpleType::Text.into()),
-        ))
-        .parse::<IndexMap<String, Vec<String>>>()
+        .type_annotation(&map_annot(SimpleType::Text, Script::static_type()))
+        .parse::<IndexMap<String, _>>()
         .with_context(|| format!("Could not evalute `{}`", path))?;
 
     xtask.get(name).cloned().with_context(|| {
@@ -236,19 +229,32 @@ in  {{ service = config.detectServiceFromRelativePathSegments relativePathSegmen
     }
 }
 
+#[derive(Debug, Deserialize, StaticType, Clone)]
+pub(crate) enum Command {
+    Args(Vec<String>),
+    Script(Script),
+}
+
+#[derive(Debug, Deserialize, StaticType, Clone)]
+pub(crate) struct Script {
+    pub(crate) program: String,
+    pub(crate) extension: String,
+    pub(crate) content: String,
+}
+
 #[allow(non_snake_case)] // for `StaticType`
 #[derive(Debug, Deserialize, StaticType)]
 pub(crate) struct Language {
     pub(crate) src: String,
     pub(crate) transpile: Option<Compile>,
     pub(crate) compile: Option<Compile>,
-    pub(crate) run: Vec<String>,
+    pub(crate) run: Command,
     pub(crate) languageId: Option<String>,
 }
 
 #[derive(Debug, Deserialize, StaticType)]
 pub(crate) struct Compile {
-    pub(crate) command: Vec<String>,
+    pub(crate) command: Command,
     pub(crate) output: String,
 }
 
