@@ -58,6 +58,16 @@ let CaseConvertedText/mixedCase = λ(s : CaseConvertedText) → s.mixedCase
 
 let CaseConvertedText/pascalCase = λ(s : CaseConvertedText) → s.pascalCase
 
+let Script = { program : Text, extension : Text, content : Text }
+
+let Script/new =
+      λ(program : Text) →
+      λ(extension : Text) →
+      λ(content : Text) →
+        { program, extension, content }
+
+let Command = < Args : List Text | Script : Script >
+
 let Mode = < Debug | Release >
 
 let Target =
@@ -67,18 +77,18 @@ let Target =
       , mode : Mode
       }
 
-let Compile = { command : List Text, output : Text }
+let Compile = { command : Command, output : Text }
 
 let Language =
       { src : Text
       , transpile : Optional Compile
       , compile : Optional Compile
-      , run : List Text
+      , run : Command
       , languageId : Optional Text
       }
 
 let Config =
-      { xtask : Map Text (List Text)
+      { xtask : Map Text Script
       , detectServiceFromRelativePathSegments : List Text → Optional Text
       , detectContestFromRelativePathSegments : List Text → Optional Text
       , detectProblemFromRelativePathSegments : List Text → Optional Text
@@ -100,6 +110,9 @@ in  { Service
     , CaseConvertedText/kebabCase
     , CaseConvertedText/mixedCase
     , CaseConvertedText/pascalCase
+    , Script
+    , Script/new
+    , Command
     , Target
     , Compile
     , Language

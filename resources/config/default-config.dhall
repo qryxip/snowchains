@@ -8,6 +8,10 @@ let Service/lowercase = Snowchains.Service/lowercase
 
 let CaseConvertedText/kebabCase = Snowchains.CaseConvertedText/kebabCase
 
+let Script/new = Snowchains.Script/new
+
+let Command = Snowchains.Command
+
 let Target = Snowchains.Target
 
 let Compile = Snowchains.Compile
@@ -16,9 +20,9 @@ let Language = Snowchains.Language
 
 let Config = Snowchains.Config
 
-let bash = λ(cmd : Text) → [ "bash", "-c", cmd, "" ]
+let bash = Script/new "bash" "bash"
 
-let python = λ(cmd : Text) → [ "python", "-c", cmd ]
+let python = Script/new "python" "py"
 
 in    { xtask = toMap
           { custom-cmd =
@@ -69,33 +73,35 @@ in    { xtask = toMap
                       , transpile = None Compile
                       , compile = Some
                         { command =
-                              [ "g++", src, "-o", bin, "-Wall", "-Wextra" ]
-                            # merge
-                                { Atcoder =
-                                  [ "-std=gnu++17"
-                                  , "-DONLINE_JUDGE"
-                                  , "-I/usr/include/boost"
-                                  ]
-                                , Codeforces = [ "-std=gnu++17" ]
-                                , Yukicoder =
-                                  [ "-std=c++1z"
-                                  , "-lm"
-                                  , "-I/usr/include/boost"
-                                  ]
-                                }
-                                service
-                            # merge
-                                { Debug =
-                                  [ "-g"
-                                  , "-fsanitize=undefined"
-                                  , "-D_GLIBCXX_DEBUG"
-                                  ]
-                                , Release = [ "-O2" ]
-                                }
-                                mode
+                            Command.Args
+                              (   [ "g++", src, "-o", bin, "-Wall", "-Wextra" ]
+                                # merge
+                                    { Atcoder =
+                                      [ "-std=gnu++17"
+                                      , "-DONLINE_JUDGE"
+                                      , "-I/usr/include/boost"
+                                      ]
+                                    , Codeforces = [ "-std=gnu++17" ]
+                                    , Yukicoder =
+                                      [ "-std=c++1z"
+                                      , "-lm"
+                                      , "-I/usr/include/boost"
+                                      ]
+                                    }
+                                    service
+                                # merge
+                                    { Debug =
+                                      [ "-g"
+                                      , "-fsanitize=undefined"
+                                      , "-D_GLIBCXX_DEBUG"
+                                      ]
+                                    , Release = [ "-O2" ]
+                                    }
+                                    mode
+                              )
                         , output = bin
                         }
-                      , run = [ bin ]
+                      , run = Command.Args [ bin ]
                       , languageId =
                           merge
                             { Atcoder = Some "4003"
@@ -137,19 +143,20 @@ in    { xtask = toMap
                                     }
                                     service
 
-                            in  [ "rustup"
-                                , "run"
-                                , version
-                                , "rustc"
-                                , "-C"
-                                , "opt-level=${optLevel}"
-                                , "-o"
-                                , bin
-                                , src
-                                ]
+                            in  Command.Args
+                                  [ "rustup"
+                                  , "run"
+                                  , version
+                                  , "rustc"
+                                  , "-C"
+                                  , "opt-level=${optLevel}"
+                                  , "-o"
+                                  , bin
+                                  , src
+                                  ]
                         , output = bin
                         }
-                      , run = [ bin ]
+                      , run = Command.Args [ bin ]
                       , languageId =
                           merge
                             { Atcoder = Some "4050"
@@ -178,17 +185,22 @@ in    { xtask = toMap
                   in  { src
                       , transpile = Some
                         { command =
-                            bash
-                              ''
-                              cat ${src} | sed -r 's/class\s+${problem}/class Main/g' > ${bin}
-                              ''
+                            Command.Script
+                              ( bash
+                                  ''
+                                  cat ${src} | sed -r 's/class\s+${problem}/class Main/g' > ${bin}
+                                  ''
+                              )
                         , output = transpiled
                         }
                       , compile = Some
-                        { command = [ "javac", "-d", buildDir, transpiled ]
+                        { command =
+                            Command.Args [ "javac", "-d", buildDir, transpiled ]
                         , output = bin
                         }
-                      , run = [ "java", "-classpath", buildDir, "Main" ]
+                      , run =
+                          Command.Args
+                            [ "java", "-classpath", buildDir, "Main" ]
                       , languageId =
                           merge
                             { Atcoder = Some "4052"
@@ -209,7 +221,7 @@ in    { xtask = toMap
                   in  { src
                       , transpile = None Compile
                       , compile = None Compile
-                      , run = [ "python", src ]
+                      , run = Command.Args [ "python", src ]
                       , languageId =
                           merge
                             { Atcoder = Some "3006"

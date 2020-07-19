@@ -1,6 +1,6 @@
 use crate::config;
 use anyhow::{bail, ensure};
-use std::ffi::OsString;
+use std::{ffi::OsString, io::Write as _};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -30,12 +30,22 @@ pub(crate) fn run(
         draw_progress: _,
     } = ctx;
 
-    let cmd = config::xtask(&cwd, None, &subcommand)?;
+    let config::Script {
+        program,
+        extension,
+        content,
+    } = config::xtask(&cwd, None, &subcommand)?;
 
-    ensure!(!cmd.is_empty(), "Empty arguments");
+    let mut tempfile = tempfile::Builder::new()
+        .prefix(&format!("snowchains-xtask-{}", subcommand))
+        .suffix(&format!(".{}", extension))
+        .tempfile()?;
 
-    let status = std::process::Command::new(&cmd[0])
-        .args(&cmd[1..])
+    tempfile.write_all(content.as_ref())?;
+    tempfile.flush()?;
+
+    let status = std::process::Command::new(program)
+        .arg(tempfile.path())
         .args(args)
         .stdin(stdin_process_redirection)
         .stdout(stdout_process_redirection)
@@ -49,5 +59,6 @@ pub(crate) fn run(
         }
     }
 
+    tempfile.close()?;
     Ok(())
 }
