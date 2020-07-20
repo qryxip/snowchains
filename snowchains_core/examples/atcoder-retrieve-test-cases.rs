@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use cookie_store::CookieStore;
 use snowchains_core::web::{
-    Atcoder, RetrieveFullTestCases, RetrieveSampleTestCases, StandardStreamShell,
+    Atcoder, Cookies, RetrieveFullTestCases, RetrieveSampleTestCases, StandardStreamShell,
 };
 use std::{env, str};
 use structopt::StructOpt;
@@ -50,13 +50,16 @@ fn main() -> anyhow::Result<()> {
 
     let targets = (contest, problems.as_deref());
     let timeout = timeout.map(Into::into);
-    let cookie_store = (CookieStore::default(), |cookie_store: &CookieStore| {
-        cookies_jsonl.clear();
-        cookie_store
-            .save_json(&mut cookies_jsonl)
-            .map_err(|e| anyhow!("{}", e))?;
-        Ok(())
-    });
+    let cookies = Cookies {
+        cookie_store: CookieStore::default(),
+        on_update_cookie_store: |cookie_store| -> _ {
+            cookies_jsonl.clear();
+            cookie_store
+                .save_json(&mut cookies_jsonl)
+                .map_err(|e| anyhow!("{}", e))?;
+            Ok(())
+        },
+    };
     let shell = StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
         ColorChoice::Auto
     } else {
@@ -77,7 +80,7 @@ fn main() -> anyhow::Result<()> {
         Atcoder::exec(RetrieveFullTestCases {
             targets,
             timeout,
-            cookie_store,
+            cookies,
             shell,
             credentials: (username_and_password, || match credentials {
                 CredentialsVia::Prompt => {
@@ -93,7 +96,7 @@ fn main() -> anyhow::Result<()> {
         let outcome = Atcoder::exec(RetrieveSampleTestCases {
             targets,
             timeout,
-            cookie_store,
+            cookies,
             shell,
             credentials: (username_and_password,),
         })?;

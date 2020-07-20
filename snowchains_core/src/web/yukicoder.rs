@@ -48,7 +48,7 @@ impl<S: Shell> Exec<RetrieveLanguages<(), (), S, ()>> for Yukicoder {
         let RetrieveLanguages {
             target: (),
             timeout,
-            cookie_store: (),
+            cookies: (),
             shell,
             credentials: (),
         } = args;
@@ -79,7 +79,7 @@ impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell>
         let RetrieveSampleTestCases {
             targets,
             timeout,
-            cookie_store: (),
+            cookies: (),
             shell,
             credentials: (),
         } = args;
@@ -106,7 +106,7 @@ impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result
         let RetrieveFullTestCases {
             targets,
             timeout,
-            cookie_store: (),
+            cookies: (),
             shell,
             credentials: (api_token,),
         } = args;
@@ -204,7 +204,7 @@ impl<
             code,
             watch_submission,
             timeout,
-            cookie_store: (),
+            cookies: (),
             shell,
             credentials: (api_key,),
         } = args;

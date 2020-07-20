@@ -1,6 +1,6 @@
 use crate::{shell::Shell, web::LazyLockedFile};
 use serde::Serialize;
-use snowchains_core::web::{Atcoder, Codeforces, Login, PlatformVariant};
+use snowchains_core::web::{Atcoder, Codeforces, Cookies, Login, PlatformVariant};
 use std::{
     cell::RefCell,
     io::{BufRead, Write},
@@ -63,9 +63,12 @@ pub(crate) fn run(
     let cookies_path = crate::web::cookies_path()?;
     let cookies_file = LazyLockedFile::new(&cookies_path);
 
-    let cookie_store = crate::web::load_cookie_store(cookies_file.path())?;
-    let on_update_cookie_store =
-        |cookie_store: &_| crate::web::save_cookie_store(cookie_store, &cookies_file);
+    let cookies = Cookies {
+        cookie_store: crate::web::load_cookie_store(cookies_file.path())?,
+        on_update_cookie_store: |cookie_store| {
+            crate::web::save_cookie_store(cookie_store, &cookies_file)
+        },
+    };
 
     let stderr = RefCell::new(stderr);
     let shell = Shell::new(&stderr, || unreachable!(), false);
@@ -86,7 +89,7 @@ pub(crate) fn run(
 
     let args = Login {
         timeout: Some(crate::web::SESSION_TIMEOUT),
-        cookie_store: (cookie_store, on_update_cookie_store),
+        cookies,
         shell,
         credentials: (username_and_password,),
     };

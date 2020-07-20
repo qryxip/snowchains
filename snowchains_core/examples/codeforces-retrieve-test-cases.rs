@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use cookie_store::CookieStore;
-use snowchains_core::web::{Codeforces, RetrieveSampleTestCases, StandardStreamShell};
+use snowchains_core::web::{Codeforces, Cookies, RetrieveSampleTestCases, StandardStreamShell};
 use std::{env, str};
 use structopt::StructOpt;
 use strum::{EnumString, EnumVariantNames, VariantNames as _};
@@ -45,13 +45,16 @@ fn main() -> anyhow::Result<()> {
     let outcome = Codeforces::exec(RetrieveSampleTestCases {
         targets: (contest, problems.as_deref()),
         timeout: timeout.map(Into::into),
-        cookie_store: (CookieStore::default(), |cookie_store: &CookieStore| -> _ {
-            cookies_jsonl.clear();
-            cookie_store
-                .save_json(&mut cookies_jsonl)
-                .map_err(|e| anyhow!("{}", e))?;
-            Ok(())
-        }),
+        cookies: Cookies {
+            cookie_store: CookieStore::default(),
+            on_update_cookie_store: |cookie_store| -> _ {
+                cookies_jsonl.clear();
+                cookie_store
+                    .save_json(&mut cookies_jsonl)
+                    .map_err(|e| anyhow!("{}", e))?;
+                Ok(())
+            },
+        },
         shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
             ColorChoice::Auto
         } else {

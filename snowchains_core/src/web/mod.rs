@@ -144,7 +144,7 @@ pub trait Exec<A>: Platform {
 
 pub struct Login<K, S, R> {
     pub timeout: Option<Duration>,
-    pub cookie_store: K,
+    pub cookies: K,
     pub shell: S,
     pub credentials: R,
 }
@@ -164,7 +164,7 @@ impl LoginOutcome {
 pub struct Participate<T, K, S, R> {
     pub target: T,
     pub timeout: Option<Duration>,
-    pub cookie_store: K,
+    pub cookies: K,
     pub shell: S,
     pub credentials: R,
 }
@@ -180,7 +180,7 @@ pub enum ParticipateOutcome {
 pub struct RetrieveLanguages<T, K, S, R> {
     pub target: T,
     pub timeout: Option<Duration>,
-    pub cookie_store: K,
+    pub cookies: K,
     pub shell: S,
     pub credentials: R,
 }
@@ -193,7 +193,7 @@ pub struct RetrieveLanguagesOutcome {
 pub struct RetrieveSampleTestCases<T, K, S, R> {
     pub targets: T,
     pub timeout: Option<Duration>,
-    pub cookie_store: K,
+    pub cookies: K,
     pub shell: S,
     pub credentials: R,
 }
@@ -201,7 +201,7 @@ pub struct RetrieveSampleTestCases<T, K, S, R> {
 pub struct RetrieveFullTestCases<T, K, S, R> {
     pub targets: T,
     pub timeout: Option<Duration>,
-    pub cookie_store: K,
+    pub cookies: K,
     pub shell: S,
     pub credentials: R,
 }
@@ -241,7 +241,7 @@ pub struct Submit<T1, T2, T3, K, S, R> {
     pub code: T3,
     pub watch_submission: bool,
     pub timeout: Option<Duration>,
-    pub cookie_store: K,
+    pub cookies: K,
     pub shell: S,
     pub credentials: R,
 }
@@ -251,6 +251,12 @@ pub struct SubmitOutcome {
     problem_screen_name: String,
     submission_url: Url,
     submissions_url: Url,
+}
+
+#[derive(Debug)]
+pub struct Cookies<F: FnMut(&CookieStore) -> anyhow::Result<()>> {
+    pub cookie_store: CookieStore,
+    pub on_update_cookie_store: F,
 }
 
 pub trait Shell {
