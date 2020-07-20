@@ -7,8 +7,9 @@ use crate::{
         CaseConverted, Exec, Login, LoginOutcome, LowerCase, Participate, ParticipateOutcome,
         Platform, PlatformVariant, ResponseExt as _, RetrieveFullTestCases, RetrieveLanguages,
         RetrieveLanguagesOutcome, RetrieveSampleTestCases, RetrieveTestCasesOutcome,
-        RetrieveTestCasesOutcomeProblem, RetrieveTestCasesOutcomeProblemTextFiles, SessionBuilder,
-        SessionMut, Shell, Submit, SubmitOutcome, UpperCase,
+        RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem,
+        RetrieveTestCasesOutcomeProblemTextFiles, SessionBuilder, SessionMut, Shell, Submit,
+        SubmitOutcome, UpperCase,
     },
 };
 use anyhow::{anyhow, bail, Context as _};
@@ -35,6 +36,13 @@ use std::{
 use tokio::runtime::Runtime;
 use unicode_width::UnicodeWidthStr as _;
 use url::Url;
+
+// Used by `url!` which is defined in `super`.
+fn url_from_rel(rel_url: impl AsRef<str>) -> std::result::Result<Url, url::ParseError> {
+    return BASE_URL.join(rel_url.as_ref());
+
+    static BASE_URL: Lazy<Url> = Lazy::new(|| "https://atcoder.jp".parse().unwrap());
+}
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum Atcoder {}
@@ -162,9 +170,9 @@ impl<
                 .get(&problem)
                 .with_context(|| "")?
                 .clone();
-            atcoder_url(rel_url.to_string())?
+            url_from_rel(rel_url.to_string())?
         } else {
-            atcoder_url(format!("/contests/{}/submit", contest))?
+            url!("/contests/{}/submit", contest)
         };
 
         let names_by_id = sess
@@ -402,7 +410,7 @@ impl<
                 .with_context(|| "Could not extract screen name of the problem")?;
 
         let csrf_token = sess
-            .get(atcoder_url(rel_url.to_string())?)
+            .get(url_from_rel(rel_url.to_string())?)
             .colorize_status_code(&[200], (), ..)
             .send()?
             .ensure_status(&[200])?
@@ -410,7 +418,7 @@ impl<
             .extract_csrf_token()?;
 
         let res = sess
-            .post(atcoder_url(format!("/contests/{}/submit", contest))?)
+            .post(url!("/contests/{}/submit", contest))
             .form(&hashmap! {
                 "data.TaskScreenName" => &*problem_screen_name,
                 "data.LanguageId" => language_id.as_ref(),
@@ -432,7 +440,7 @@ impl<
                 let outcome = SubmitOutcome {
                     problem_screen_name,
                     submission_url: submission_summaries[0].url.clone(),
-                    submissions_url: atcoder_url(format!("/contests/{}//submissions/me", contest))?,
+                    submissions_url: url!("/contests/{}//submissions/me", contest),
                 };
 
                 if watch_submission {
@@ -441,7 +449,7 @@ impl<
 
                 Ok(outcome)
             } else {
-                sess.get(atcoder_url(loc)?)
+                sess.get(url_from_rel(loc)?)
                     .colorize_status_code((), (), ..)
                     .send()?;
 
@@ -491,8 +499,7 @@ impl<
                 if is_wj_or_judging(&summary.verdict) {
                     let id = summary.id().to_owned();
 
-                    let mut url =
-                        atcoder_url(format!("/contests/{}/submissions/me/status/json", contest))?;
+                    let mut url = url!("/contests/{}/submissions/me/status/json", contest);
 
                     url.query_pairs_mut()
                         .append_pair("reload", "true")
@@ -676,7 +683,7 @@ fn retrieve_sample_test_cases(
     let slugs_and_rel_urls = html.extract_task_slugs_and_rel_urls()?;
 
     let test_suites = sess
-        .get(atcoder_url(format!("/contests/{}/tasks_print", contest))?)
+        .get(url!("/contests/{}/tasks_print", contest))
         .send()?
         .html()?
         .extract_samples()?;
@@ -695,13 +702,19 @@ fn retrieve_sample_test_cases(
             .collect::<BTreeSet<_>>()
     });
 
-    let mut outcome = RetrieveTestCasesOutcome { problems: vec![] };
+    let mut outcome = RetrieveTestCasesOutcome {
+        contest: Some(RetrieveTestCasesOutcomeContest {
+            id: (*contest).to_owned(),
+            submissions_url: url!("/contests/{}/submissions/me", contest),
+        }),
+        problems: vec![],
+    };
 
     for ((slug, rel_url), (display_name, test_suite)) in
         slugs_and_rel_urls.into_iter().zip_eq(test_suites)
     {
         if problems.as_mut().map_or(true, |ps| ps.remove(&*slug)) {
-            let url = atcoder_url(rel_url.to_string())?;
+            let url = url_from_rel(rel_url.to_string())?;
 
             let screen_name = url
                 .path_segments()
@@ -729,12 +742,6 @@ fn retrieve_sample_test_cases(
     Ok(outcome)
 }
 
-fn atcoder_url(rel_url: impl AsRef<str>) -> std::result::Result<Url, url::ParseError> {
-    return BASE_URL.join(rel_url.as_ref());
-
-    static BASE_URL: Lazy<Url> = Lazy::new(|| "https://atcoder.jp".parse().unwrap());
-}
-
 fn login(
     mut sess: impl SessionMut,
     mut username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
@@ -743,7 +750,7 @@ fn login(
         let (username, password) = username_and_password()?;
 
         let csrf_token = sess
-            .get(atcoder_url("/login").unwrap())
+            .get(url!("/login"))
             .colorize_status_code(&[200], (), ..)
             .send()?
             .ensure_status(&[200])?
@@ -756,7 +763,7 @@ fn login(
             "password" => password,
         );
 
-        sess.post(atcoder_url("/login").unwrap())
+        sess.post(url!("/login"))
             .form(&payload)
             .colorize_status_code(&[302], (), ..)
             .send()?
@@ -770,7 +777,7 @@ fn login(
 
 fn check_logged_in(mut sess: impl SessionMut) -> anyhow::Result<bool> {
     let status = sess
-        .get(atcoder_url("/settings").unwrap())
+        .get(url!("/settings"))
         .colorize_status_code(&[200], &[302], ())
         .send()?
         .ensure_status(&[200, 302])?
@@ -786,7 +793,7 @@ fn participate(
     explicit: bool,
 ) -> anyhow::Result<ParticipateOutcome> {
     let res = sess
-        .get(atcoder_url(format!("/contests/{}", contest))?)
+        .get(url!("/contests/{}", contest))
         .colorize_status_code(&[200], (), ..)
         .send()?
         .ensure_status(&[200, 404])?;
@@ -812,7 +819,7 @@ fn participate(
         Ok(ParticipateOutcome::ContestIsFinished)
     } else {
         let html = sess
-            .get(atcoder_url(format!("/contests/{}", contest))?)
+            .get(url!("/contests/{}", contest))
             .colorize_status_code(&[200], (), ..)
             .send()?
             .ensure_status(&[200])?
@@ -821,7 +828,7 @@ fn participate(
         if html.contains_registration_button()? {
             let csrf_token = html.extract_csrf_token()?;
 
-            sess.post(atcoder_url(format!("/contests/{}/register", contest))?)
+            sess.post(url!("/contests/{}/register", contest))
                 .form(&hashmap!("csrf_token" => csrf_token))
                 .colorize_status_code(&[302], (), ..)
                 .send()?
@@ -840,7 +847,7 @@ fn retrieve_tasks_page(
     contest: &CaseConverted<LowerCase>,
 ) -> anyhow::Result<Html> {
     let res = sess
-        .get(atcoder_url(format!("/contests/{}/tasks", contest))?)
+        .get(url!("/contests/{}/tasks", contest))
         .colorize_status_code(&[200], &[404], ..)
         .send()?
         .ensure_status(&[200, 404])?;
@@ -850,7 +857,7 @@ fn retrieve_tasks_page(
     } else {
         participate(&mut sess, username_and_password, contest, false)?;
 
-        sess.get(atcoder_url(format!("/contests/{}/tasks", contest))?)
+        sess.get(url!("/contests/{}/tasks", contest))
             .colorize_status_code(&[200], (), ..)
             .send()?
             .ensure_status(&[200])?
@@ -884,7 +891,7 @@ fn retrieve_submission_summaries_from_page_1(
 }
 
 fn submissions_me(contest: &CaseConverted<LowerCase>, page: u32) -> anyhow::Result<Url> {
-    let mut url = atcoder_url(format!("/contests/{}/submissions/me", contest))?;
+    let mut url = url!("/contests/{}/submissions/me", contest);
     url.query_pairs_mut().append_pair("page", &page.to_string());
     Ok(url)
 }

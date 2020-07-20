@@ -2151,6 +2151,7 @@ dependencies = [
  "nom",
  "num_cpus",
  "once_cell",
+ "percent-encoding",
  "pretty_assertions",
  "rand",
  "regex",

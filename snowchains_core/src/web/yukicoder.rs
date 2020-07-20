@@ -3,9 +3,9 @@ use crate::{
     web::{
         yukicoder::api::SessionMutExt as _, CaseConverted, Exec, Platform, PlatformVariant,
         ResponseExt as _, RetrieveFullTestCases, RetrieveLanguages, RetrieveLanguagesOutcome,
-        RetrieveSampleTestCases, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem,
-        RetrieveTestCasesOutcomeProblemTextFiles, SessionBuilder, SessionMut, Shell, Submit,
-        SubmitOutcome, UpperCase,
+        RetrieveSampleTestCases, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeContest,
+        RetrieveTestCasesOutcomeProblem, RetrieveTestCasesOutcomeProblemTextFiles, SessionBuilder,
+        SessionMut, Shell, Submit, SubmitOutcome, UpperCase,
     },
 };
 use anyhow::{bail, Context as _};
@@ -17,6 +17,13 @@ use once_cell::sync::Lazy;
 use scraper::{ElementRef, Html, Node};
 use std::{collections::BTreeSet, hash::Hash, time::Duration};
 use url::Url;
+
+// Used by `url!` which is defined in `super`.
+fn url_from_rel(rel_url: impl AsRef<str>) -> Result<Url, url::ParseError> {
+    return BASE_URL.join(rel_url.as_ref());
+
+    static BASE_URL: Lazy<Url> = lazy_url!("https://yukicoder.me");
+}
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum Yukicoder {}
@@ -225,7 +232,7 @@ impl<
                 let (contest_id, problem_slug) = (contest_id.as_ref(), problem_slug.as_ref());
 
                 let (_, problem_id) = sess
-                    .get(yukicoder_url(format!("/contests/{}", contest_id))?)
+                    .get(url!("/contests/{}", contest_id))
                     .colorize_status_code(&[200], (), ..)
                     .send()?
                     .ensure_status(&[200])?
@@ -249,12 +256,8 @@ impl<
         )? {
             Ok(submission_id) => Ok(SubmitOutcome {
                 problem_screen_name: problem_id.to_string(),
-                submission_url: format!("https://yukicoder.me/submissions/{}", submission_id)
-                    .parse()?,
-                submissions_url: yukicoder_url(format!(
-                    "/problems/{}/submissions?my_submission=enabled",
-                    problem_id,
-                ))?,
+                submission_url: url!("/submissions/{}", submission_id),
+                submissions_url: url!("/problems/{}/submissions?my_submission=enabled", problem_id),
             }),
             Err((status_code, message)) => {
                 bail!("Submission rejected: ({}, {:?})", status_code, message);
@@ -267,7 +270,10 @@ fn retrieve_samples(
     mut sess: impl SessionMut,
     targets: Either<&[u64], (impl AsRef<str>, Option<&[impl AsRef<str>]>)>,
 ) -> anyhow::Result<RetrieveTestCasesOutcome> {
-    let mut outcome = RetrieveTestCasesOutcome { problems: vec![] };
+    let mut outcome = RetrieveTestCasesOutcome {
+        contest: None,
+        problems: vec![],
+    };
 
     match targets {
         Either::Left(problem_nos) => {
@@ -288,6 +294,13 @@ fn retrieve_samples(
             }
         }
         Either::Right((contest_id, problem_slugs)) => {
+            let contest_id = contest_id.as_ref();
+
+            outcome.contest = Some(RetrieveTestCasesOutcomeContest {
+                id: contest_id.to_owned(),
+                submissions_url: url!("/contests/{}/submissions?my_submission=enabled", contest_id),
+            });
+
             let mut not_found = problem_slugs.map(|problem_slugs| {
                 problem_slugs
                     .iter()
@@ -296,7 +309,7 @@ fn retrieve_samples(
             });
 
             for (slug, problem_no) in sess
-                .get(yukicoder_url(format!("/contests/{}", contest_id.as_ref()))?)
+                .get(url_from_rel(format!("/contests/{}", contest_id))?)
                 .colorize_status_code(&[200], (), ..)
                 .send()?
                 .ensure_status(&[200])?
@@ -338,7 +351,7 @@ fn retrieve_samples(
         mut sess: impl SessionMut,
         problem_no: u64,
     ) -> anyhow::Result<(Url, TestSuite)> {
-        let url = yukicoder_url(format!("/problems/no/{}", problem_no))?;
+        let url = url!("/problems/no/{}", problem_no);
 
         let test_suite = sess
             .get(url.clone())
@@ -350,12 +363,6 @@ fn retrieve_samples(
 
         Ok((url, test_suite))
     }
-}
-
-fn yukicoder_url(rel_url: impl AsRef<str>) -> Result<Url, url::ParseError> {
-    return BASE_URL.join(rel_url.as_ref());
-
-    static BASE_URL: Lazy<Url> = lazy_url!("https://yukicoder.me");
 }
 
 #[ext]

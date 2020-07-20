@@ -1,7 +1,9 @@
-use crate::{shell::Shell, web::LazyLockedFile};
+use crate::{
+    shell::Shell,
+    web::{CaseConversions, LazyLockedFile},
+};
 use anyhow::Context as _;
 use either::Either;
-use heck::KebabCase;
 use serde::Serialize;
 use snowchains_core::{
     testsuite::{Additional, BatchTestSuite, TestSuite},
@@ -56,6 +58,7 @@ pub struct OptRetrieveTestcases {
 
 #[derive(Debug, Serialize)]
 struct Outcome {
+    contest: Option<OutcomeContest>,
     problems: Vec<OutcomeProblem>,
 }
 
@@ -66,12 +69,24 @@ impl Outcome {
 }
 
 #[derive(Debug, Serialize)]
+struct OutcomeContest {
+    id: CaseConversions,
+    submissions_url: Url,
+}
+
+#[derive(Debug, Serialize)]
 struct OutcomeProblem {
-    slug: String,
+    slug: CaseConversions,
     url: Url,
     screen_name: String,
     display_name: String,
-    test_suite: TestSuite,
+    test_suite: OutcomeProblemTestSuite,
+}
+
+#[derive(Debug, Serialize)]
+struct OutcomeProblemTestSuite {
+    path: String,
+    content: TestSuite,
 }
 
 pub(crate) fn run(
@@ -211,7 +226,18 @@ pub(crate) fn run(
         }
     }?;
 
-    let mut acc = Outcome { problems: vec![] };
+    let mut acc = Outcome {
+        contest: outcome.contest.map(
+            |snowchains_core::web::RetrieveTestCasesOutcomeContest {
+                 id,
+                 submissions_url,
+             }| OutcomeContest {
+                id: CaseConversions::new(id),
+                submissions_url,
+            },
+        ),
+        problems: vec![],
+    };
 
     for snowchains_core::web::RetrieveTestCasesOutcomeProblem {
         slug,
@@ -222,16 +248,18 @@ pub(crate) fn run(
         text_files,
     } in outcome.problems
     {
+        let slug = CaseConversions::new(slug);
+
         let path = workspace
             .join(".snowchains")
             .join("tests")
             .join(service.to_kebab_case_str())
             .join(contest.unwrap_or(""))
-            .join(slug.to_kebab_case())
+            .join(&slug.kebab)
             .with_extension("yml");
 
         let txt_path = |dir_file_name: &str, txt_file_name: &str| -> _ {
-            path.with_file_name(slug.to_kebab_case())
+            path.with_file_name(&slug.kebab)
                 .join(dir_file_name)
                 .join(txt_file_name)
                 .with_extension("txt")
@@ -251,7 +279,7 @@ pub(crate) fn run(
                 cases.clear();
 
                 extend.push(Additional::Text {
-                    base: format!("./{}", slug),
+                    base: format!("./{}", slug.kebab),
                     r#in: "/in/*.txt".to_owned(),
                     out: "/out/*.txt".to_owned(),
                     timelimit: None,
@@ -265,7 +293,7 @@ pub(crate) fn run(
         let mut stderr = stderr.borrow_mut();
 
         stderr.set_color(ColorSpec::new().set_reset(false).set_bold(true))?;
-        write!(stderr, "{}:", slug)?;
+        write!(stderr, "{}:", slug.original)?;
         stderr.reset()?;
 
         write!(stderr, " Saved to ")?;
@@ -277,7 +305,7 @@ pub(crate) fn run(
             write!(
                 stderr,
                 "{}",
-                path.with_file_name(format!("{{{slug}.yml, {slug}/}}", slug = slug))
+                path.with_file_name(format!("{{{slug}.yml, {slug}/}}", slug = slug.kebab))
                     .display(),
             )
         }?;
@@ -309,7 +337,13 @@ pub(crate) fn run(
             url,
             screen_name,
             display_name,
-            test_suite,
+            test_suite: OutcomeProblemTestSuite {
+                path: path
+                    .into_os_string()
+                    .into_string()
+                    .expect("should be UTF-8"),
+                content: test_suite,
+            },
         });
     }
 

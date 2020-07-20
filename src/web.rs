@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Context as _};
 use cookie_store::CookieStore;
 use fs2::FileExt as _;
+use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
+use serde::Serialize;
 use std::{
     fs::{self, File},
     io::BufReader,
@@ -63,6 +65,32 @@ impl LazyLockedFile {
             .and_then(|()| f(file))
             .and_then(|()| file.sync_data().map_err(Into::into))
             .with_context(|| format!("Could not write `{}`", path.display()))
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct CaseConversions {
+    pub(crate) original: String,
+    pub(crate) lower: String,
+    pub(crate) upper: String,
+    pub(crate) snake: String,
+    pub(crate) kebab: String,
+    pub(crate) mixed: String,
+    pub(crate) pascal: String,
+}
+
+impl CaseConversions {
+    pub(crate) fn new(s: impl AsRef<str>) -> Self {
+        let s = s.as_ref();
+        Self {
+            original: s.to_owned(),
+            lower: s.to_lowercase(),
+            upper: s.to_uppercase(),
+            snake: s.to_snake_case(),
+            kebab: s.to_kebab_case(),
+            mixed: s.to_mixed_case(),
+            pascal: s.to_camel_case(),
+        }
     }
 }
 
