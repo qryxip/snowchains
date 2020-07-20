@@ -37,6 +37,22 @@ macro_rules! static_regex {
     }};
 }
 
+macro_rules! url {
+    ($fmt:literal $(, $expr:expr)* $(,)*) => {
+        // `self::url_from_rel` is defined in each module.
+
+        self::url_from_rel(format!(
+            $fmt,
+            $(
+                ::percent_encoding::utf8_percent_encode(
+                    &$expr.to_string(),
+                    ::percent_encoding::NON_ALPHANUMERIC
+                ),
+            )*
+        )).unwrap()
+    };
+}
+
 mod atcoder;
 mod codeforces;
 mod yukicoder;
@@ -192,7 +208,14 @@ pub struct RetrieveFullTestCases<T, K, S, R> {
 
 #[derive(Debug)]
 pub struct RetrieveTestCasesOutcome {
+    pub contest: Option<RetrieveTestCasesOutcomeContest>,
     pub problems: Vec<RetrieveTestCasesOutcomeProblem>,
+}
+
+#[derive(Debug)]
+pub struct RetrieveTestCasesOutcomeContest {
+    pub id: String,
+    pub submissions_url: Url,
 }
 
 #[derive(Debug, Serialize)]

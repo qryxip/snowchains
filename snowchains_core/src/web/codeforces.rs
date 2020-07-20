@@ -4,7 +4,8 @@ use crate::{
         codeforces::api::SessionMutExt as _, Exec, Login, LoginOutcome, Participate,
         ParticipateOutcome, Platform, PlatformVariant, ResponseExt as _, RetrieveLanguages,
         RetrieveLanguagesOutcome, RetrieveSampleTestCases, RetrieveTestCasesOutcome,
-        RetrieveTestCasesOutcomeProblem, SessionBuilder, SessionMut, Shell, Submit, SubmitOutcome,
+        RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem, SessionBuilder,
+        SessionMut, Shell, Submit, SubmitOutcome,
     },
 };
 use anyhow::{bail, Context as _};
@@ -19,6 +20,13 @@ use std::{
     time::Duration,
 };
 use url::Url;
+
+// Used by `url!` which is defined in `super`.
+fn url_from_rel(rel_url: impl AsRef<str>) -> Result<Url, url::ParseError> {
+    return BASE_URL.join(rel_url.as_ref());
+
+    static BASE_URL: Lazy<Url> = lazy_url!("https://codeforces.com");
+}
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum Codeforces {}
@@ -124,7 +132,7 @@ impl<
         participate(&mut sess, username_and_password, contest_id)?;
 
         let names_by_id = sess
-            .get(codeforces_url(format!("/contest/{}/submit", contest_id))?)
+            .get(url!("/contest/{}/submit", contest_id))
             .colorize_status_code(&[200], (), ..)
             .send()?
             .ensure_status(&[200])?
@@ -175,7 +183,7 @@ impl<
         });
 
         let problems = sess
-            .get(codeforces_url(format!("/contest/{}", contest_id))?)
+            .get(url!("/contest/{}", contest_id))
             .colorize_status_code(&[200], (), ..)
             .send()?
             .ensure_status(&[200])?
@@ -215,7 +223,13 @@ impl<
             }
         }
 
-        Ok(RetrieveTestCasesOutcome { problems })
+        Ok(RetrieveTestCasesOutcome {
+            contest: Some(RetrieveTestCasesOutcomeContest {
+                id: contest_id.to_string(),
+                submissions_url: url!("/contest/{}/my", contest_id),
+            }),
+            problems,
+        })
     }
 }
 
@@ -271,7 +285,7 @@ impl<
                 )
             })?;
 
-        let url = codeforces_url(format!("/contest/{}/submit", contest_id))?;
+        let url = url!("/contest/{}/submit", contest_id);
 
         let mut payload = sess
             .get(url.clone())
@@ -297,7 +311,7 @@ impl<
         if res.status() == 200 {
             bail!("Submission rejected");
         } else {
-            let submissions_url = codeforces_url(res.location()?)?;
+            let submissions_url = url_from_rel(res.location()?)?;
 
             let (api_key, api_secret) = api_key_and_secret()?;
 
@@ -308,10 +322,7 @@ impl<
                 .get(0)
                 .with_context(|| "Recieved no submission")?;
 
-            let submission_url = codeforces_url(format!(
-                "/contest/{}/submission/{}",
-                contest_id, submission.id,
-            ))?;
+            let submission_url = url!("/contest/{}/submission/{}", contest_id, submission.id);
 
             Ok(SubmitOutcome {
                 problem_screen_name: problem.name,
@@ -326,7 +337,7 @@ fn login(
     mut sess: impl SessionMut,
     mut username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
 ) -> anyhow::Result<(LoginOutcome, String)> {
-    let url = codeforces_url("/enter").unwrap();
+    let url = url!("/enter");
 
     let mut res = sess
         .get(url.clone())
@@ -335,7 +346,7 @@ fn login(
         .ensure_status(&[200, 302])?;
 
     if res.status() == 302 {
-        let handle = handle(&codeforces_url(res.location()?)?).to_owned();
+        let handle = handle(&url_from_rel(res.location()?)?).to_owned();
         return Ok((LoginOutcome::AlreadyLoggedIn, handle));
     }
 
@@ -358,7 +369,7 @@ fn login(
             .ensure_status(&[200, 302])?;
 
         if res.status() == 302 {
-            let handle = handle(&codeforces_url(res.location()?)?).to_owned();
+            let handle = handle(&url_from_rel(res.location()?)?).to_owned();
             break Ok((LoginOutcome::Success, handle));
         }
 
@@ -387,10 +398,7 @@ fn participate(
         Ok((ParticipateOutcome::ContestIsFinished, handle))
     } else {
         let status = sess
-            .get(codeforces_url(format!(
-                "/contestRegistration/{}",
-                contest_id,
-            ))?)
+            .get(url!("/contestRegistration/{}", contest_id))
             .colorize_status_code(&[200, 302], (), ..)
             .send()?
             .ensure_status(&[200, 302])?
@@ -404,11 +412,6 @@ fn participate(
 
         Ok((outcome, handle))
     }
-}
-
-fn codeforces_url(rel_url: impl AsRef<str>) -> Result<Url, url::ParseError> {
-    return BASE_URL.join(rel_url.as_ref());
-    static BASE_URL: Lazy<Url> = lazy_url!("https://codeforces.com");
 }
 
 fn is_gym(contest_id: u64) -> bool {
