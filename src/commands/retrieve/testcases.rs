@@ -7,7 +7,7 @@ use either::Either;
 use serde::Serialize;
 use snowchains_core::{
     testsuite::{Additional, BatchTestSuite, TestSuite},
-    web::{Atcoder, Codeforces, PlatformVariant, RetrieveSampleTestCases, Yukicoder},
+    web::{Atcoder, Codeforces, Cookies, PlatformVariant, RetrieveSampleTestCases, Yukicoder},
 };
 use std::{
     cell::RefCell,
@@ -140,9 +140,12 @@ pub(crate) fn run(
     let cookies_path = crate::web::cookies_path()?;
     let cookies_file = LazyLockedFile::new(&cookies_path);
 
-    let cookie_store = crate::web::load_cookie_store(cookies_file.path())?;
-    let on_update_cookie_store =
-        |cookie_store: &_| crate::web::save_cookie_store(cookie_store, &cookies_file);
+    let cookies = Cookies {
+        cookie_store: crate::web::load_cookie_store(cookies_file.path())?,
+        on_update_cookie_store: |cookie_store| {
+            crate::web::save_cookie_store(cookie_store, &cookies_file)
+        },
+    };
 
     let stderr = RefCell::new(stderr);
     let shell = Shell::new(&stderr, || unreachable!(), false);
@@ -167,13 +170,12 @@ pub(crate) fn run(
                 let contest = contest.with_context(|| "`contest` is required for AtCoder")?;
                 (contest, problems)
             };
-            let cookie_store = (cookie_store, on_update_cookie_store);
             let credentials = (username_and_password,);
 
             Atcoder::exec(RetrieveSampleTestCases {
                 targets,
                 timeout,
-                cookie_store,
+                cookies,
                 shell,
                 credentials,
             })
@@ -186,13 +188,12 @@ pub(crate) fn run(
                     .with_context(|| "`contest` for Codeforces must be 64-bit unsigned integer")?;
                 (contest, problems)
             };
-            let cookie_store = (cookie_store, on_update_cookie_store);
             let credentials = (username_and_password,);
 
             Codeforces::exec(RetrieveSampleTestCases {
                 targets,
                 timeout,
-                cookie_store,
+                cookies,
                 shell,
                 credentials,
             })
@@ -213,13 +214,13 @@ pub(crate) fn run(
                 Either::Left(nos) => Either::Left(&**nos),
                 Either::Right((contest, problems)) => Either::Right((contest, *problems)),
             };
-            let cookie_store = ();
+            let cookies = ();
             let credentials = ();
 
             Yukicoder::exec(RetrieveSampleTestCases {
                 targets,
                 timeout,
-                cookie_store,
+                cookies,
                 shell,
                 credentials,
             })

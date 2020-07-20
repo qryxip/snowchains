@@ -83,7 +83,7 @@ fn main() -> anyhow::Result<()> {
         Yukicoder::exec(RetrieveFullTestCases {
             targets,
             timeout,
-            cookie_store: (),
+            cookies: (),
             shell,
             credentials: (|| match credentials {
                 CredentialsVia::Prompt => {
@@ -97,7 +97,7 @@ fn main() -> anyhow::Result<()> {
         let outcome = Yukicoder::exec(RetrieveSampleTestCases {
             targets,
             timeout,
-            cookie_store: (),
+            cookies: (),
             shell,
             credentials: (),
         })?;
