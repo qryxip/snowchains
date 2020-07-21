@@ -1,6 +1,8 @@
 use anyhow::anyhow;
 use cookie_store::CookieStore;
-use snowchains_core::web::{Codeforces, Cookies, Participate, StandardStreamShell};
+use snowchains_core::web::{
+    Codeforces, CodeforcesParticipateCredentials, Cookies, Participate, StandardStreamShell,
+};
 use std::{env, str};
 use structopt::StructOpt;
 use strum::{EnumString, EnumVariantNames, VariantNames as _};
@@ -56,19 +58,21 @@ fn main() -> anyhow::Result<()> {
         } else {
             ColorChoice::Never
         }),
-        credentials: (|| {
-            let username_and_password = match credentials {
-                CredentialsVia::Prompt => (
-                    rprompt::prompt_reply_stderr("Handle/Email: ")?,
-                    rpassword::read_password_from_tty(Some("Password: "))?,
-                ),
-                CredentialsVia::Env => (
-                    env::var("CODEFORCES_USERNAME")?,
-                    env::var("CODEFORCES_PASSWORD")?,
-                ),
-            };
-            Ok(username_and_password)
-        },),
+        credentials: CodeforcesParticipateCredentials {
+            username_and_password: || {
+                let username_and_password = match credentials {
+                    CredentialsVia::Prompt => (
+                        rprompt::prompt_reply_stderr("Handle/Email: ")?,
+                        rpassword::read_password_from_tty(Some("Password: "))?,
+                    ),
+                    CredentialsVia::Env => (
+                        env::var("CODEFORCES_USERNAME")?,
+                        env::var("CODEFORCES_PASSWORD")?,
+                    ),
+                };
+                Ok(username_and_password)
+            },
+        },
     })?;
 
     dbg!(outcome);

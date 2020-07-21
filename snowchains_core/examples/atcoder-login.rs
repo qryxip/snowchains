@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use cookie_store::CookieStore;
-use snowchains_core::web::{Atcoder, Cookies, Login, StandardStreamShell};
+use snowchains_core::web::{Atcoder, AtcoderLoginCredentials, Cookies, Login, StandardStreamShell};
 use std::{env, str};
 use structopt::StructOpt;
 use strum::{EnumString, EnumVariantNames, VariantNames as _};
@@ -52,18 +52,20 @@ fn main() -> anyhow::Result<()> {
         } else {
             ColorChoice::Never
         }),
-        credentials: (|| {
-            let username_and_password = match credentials {
-                CredentialsVia::Prompt => (
-                    rprompt::prompt_reply_stderr("Username: ")?,
-                    rpassword::read_password_from_tty(Some("Password: "))?,
-                ),
-                CredentialsVia::Env => {
-                    (env::var("ATCODER_USERNAME")?, env::var("ATCODER_PASSWORD")?)
-                }
-            };
-            Ok(username_and_password)
-        },),
+        credentials: AtcoderLoginCredentials {
+            username_and_password: || {
+                let username_and_password = match credentials {
+                    CredentialsVia::Prompt => (
+                        rprompt::prompt_reply_stderr("Username: ")?,
+                        rpassword::read_password_from_tty(Some("Password: "))?,
+                    ),
+                    CredentialsVia::Env => {
+                        (env::var("ATCODER_USERNAME")?, env::var("ATCODER_PASSWORD")?)
+                    }
+                };
+                Ok(username_and_password)
+            },
+        },
     })?;
 
     dbg!(outcome);

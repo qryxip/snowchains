@@ -2,6 +2,7 @@ use anyhow::Context as _;
 use either::Either;
 use snowchains_core::web::{
     RetrieveFullTestCases, RetrieveSampleTestCases, StandardStreamShell, Yukicoder,
+    YukicoderRetrieveFullTestCasesCredentials,
 };
 use std::{env, str};
 use structopt::StructOpt;
@@ -85,13 +86,15 @@ fn main() -> anyhow::Result<()> {
             timeout,
             cookies: (),
             shell,
-            credentials: (|| match credentials {
-                CredentialsVia::Prompt => {
-                    rpassword::read_password_from_tty(Some("yukicoder API Key: "))
-                        .map_err(Into::into)
-                }
-                CredentialsVia::Env => env::var("YUKICODER_API_KEY").map_err(Into::into),
-            },),
+            credentials: YukicoderRetrieveFullTestCasesCredentials {
+                api_key: || match credentials {
+                    CredentialsVia::Prompt => {
+                        rpassword::read_password_from_tty(Some("yukicoder API Key: "))
+                            .map_err(Into::into)
+                    }
+                    CredentialsVia::Env => env::var("YUKICODER_API_KEY").map_err(Into::into),
+                },
+            },
         })?;
     } else {
         let outcome = Yukicoder::exec(RetrieveSampleTestCases {

@@ -48,11 +48,13 @@ impl<
         S: Shell,
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Login<Cookies<F1>, S, (F2,)>> for Codeforces
+    > Exec<Login<Cookies<F1>, S, CodeforcesLoginCredentials<F2>>> for Codeforces
 {
     type Output = LoginOutcome;
 
-    fn exec(args: Login<Cookies<F1>, S, (F2,)>) -> anyhow::Result<LoginOutcome> {
+    fn exec(
+        args: Login<Cookies<F1>, S, CodeforcesLoginCredentials<F2>>,
+    ) -> anyhow::Result<LoginOutcome> {
         let Login {
             timeout,
             cookies:
@@ -61,7 +63,10 @@ impl<
                     on_update_cookie_store,
                 },
             shell,
-            credentials: (username_and_password,),
+            credentials:
+                CodeforcesLoginCredentials {
+                    username_and_password,
+                },
         } = args;
 
         let sess = SessionBuilder::new()
@@ -80,11 +85,13 @@ impl<
         S: Shell,
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Participate<u64, Cookies<F1>, S, (F2,)>> for Codeforces
+    > Exec<Participate<u64, Cookies<F1>, S, CodeforcesParticipateCredentials<F2>>> for Codeforces
 {
     type Output = ParticipateOutcome;
 
-    fn exec(args: Participate<u64, Cookies<F1>, S, (F2,)>) -> anyhow::Result<ParticipateOutcome> {
+    fn exec(
+        args: Participate<u64, Cookies<F1>, S, CodeforcesParticipateCredentials<F2>>,
+    ) -> anyhow::Result<ParticipateOutcome> {
         let Participate {
             target: contest_id,
             timeout,
@@ -94,7 +101,10 @@ impl<
                     on_update_cookie_store,
                 },
             shell,
-            credentials: (username_and_password,),
+            credentials:
+                CodeforcesParticipateCredentials {
+                    username_and_password,
+                },
         } = args;
 
         let sess = SessionBuilder::new()
@@ -113,12 +123,13 @@ impl<
         S: Shell,
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<RetrieveLanguages<u64, Cookies<F1>, S, (F2,)>> for Codeforces
+    > Exec<RetrieveLanguages<u64, Cookies<F1>, S, CodeforcesRetrieveLanguagesCredentials<F2>>>
+    for Codeforces
 {
     type Output = RetrieveLanguagesOutcome;
 
     fn exec(
-        args: RetrieveLanguages<u64, Cookies<F1>, S, (F2,)>,
+        args: RetrieveLanguages<u64, Cookies<F1>, S, CodeforcesRetrieveLanguagesCredentials<F2>>,
     ) -> anyhow::Result<RetrieveLanguagesOutcome> {
         let RetrieveLanguages {
             target: contest_id,
@@ -129,7 +140,10 @@ impl<
                     on_update_cookie_store,
                 },
             shell,
-            credentials: (username_and_password,),
+            credentials:
+                CodeforcesRetrieveLanguagesCredentials {
+                    username_and_password,
+                },
         } = args;
 
         let mut sess = SessionBuilder::new()
@@ -160,12 +174,25 @@ impl<
         S: Shell,
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<RetrieveSampleTestCases<(u64, Option<&'a [T]>), Cookies<F1>, S, (F2,)>> for Codeforces
+    >
+    Exec<
+        RetrieveSampleTestCases<
+            (u64, Option<&'a [T]>),
+            Cookies<F1>,
+            S,
+            CodeforcesRetrieveSampleTestCasesCredentials<F2>,
+        >,
+    > for Codeforces
 {
     type Output = RetrieveTestCasesOutcome;
 
     fn exec(
-        args: RetrieveSampleTestCases<(u64, Option<&'a [T]>), Cookies<F1>, S, (F2,)>,
+        args: RetrieveSampleTestCases<
+            (u64, Option<&'a [T]>),
+            Cookies<F1>,
+            S,
+            CodeforcesRetrieveSampleTestCasesCredentials<F2>,
+        >,
     ) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveSampleTestCases {
             targets: (contest_id, problem_indices),
@@ -176,7 +203,10 @@ impl<
                     on_update_cookie_store,
                 },
             shell,
-            credentials: (username_and_password,),
+            credentials:
+                CodeforcesRetrieveSampleTestCasesCredentials {
+                    username_and_password,
+                },
         } = args;
 
         let mut sess = SessionBuilder::new()
@@ -253,14 +283,15 @@ impl<
         T3: AsRef<str>,
         S: Shell,
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        F2: FnOnce() -> anyhow::Result<(String, String)>,
-        F3: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Submit<(u64, T1), T2, T3, Cookies<F1>, S, (F2, F3)>> for Codeforces
+        F2: FnMut() -> anyhow::Result<(String, String)>,
+        F3: FnOnce() -> anyhow::Result<(String, String)>,
+    > Exec<Submit<(u64, T1), T2, T3, Cookies<F1>, S, CodeforcesSubmitCredentials<F2, F3>>>
+    for Codeforces
 {
     type Output = SubmitOutcome;
 
     fn exec(
-        args: Submit<(u64, T1), T2, T3, Cookies<F1>, S, (F2, F3)>,
+        args: Submit<(u64, T1), T2, T3, Cookies<F1>, S, CodeforcesSubmitCredentials<F2, F3>>,
     ) -> anyhow::Result<SubmitOutcome> {
         let Submit {
             target: (contest_id, problem_index),
@@ -274,7 +305,11 @@ impl<
                     on_update_cookie_store,
                 },
             shell,
-            credentials: (api_key_and_secret, username_and_password),
+            credentials:
+                CodeforcesSubmitCredentials {
+                    username_and_password,
+                    api_key_and_secret,
+                },
         } = args;
 
         if watch_submission {
@@ -348,6 +383,37 @@ impl<
             })
         }
     }
+}
+
+#[derive(Debug)]
+pub struct CodeforcesLoginCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
+    pub username_and_password: F,
+}
+
+#[derive(Debug)]
+pub struct CodeforcesParticipateCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
+    pub username_and_password: F,
+}
+
+#[derive(Debug)]
+pub struct CodeforcesRetrieveLanguagesCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
+    pub username_and_password: F,
+}
+
+#[derive(Debug)]
+pub struct CodeforcesRetrieveSampleTestCasesCredentials<
+    F: FnMut() -> anyhow::Result<(String, String)>,
+> {
+    pub username_and_password: F,
+}
+
+#[derive(Debug)]
+pub struct CodeforcesSubmitCredentials<
+    F1: FnMut() -> anyhow::Result<(String, String)>,
+    F2: FnOnce() -> anyhow::Result<(String, String)>,
+> {
+    pub username_and_password: F1,
+    pub api_key_and_secret: F2,
 }
 
 fn login(

@@ -95,23 +95,34 @@ impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell>
 
 #[allow(clippy::type_complexity)]
 impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result<String>>
-    Exec<RetrieveFullTestCases<Either<&'a [u64], (T1, Option<&'a [T2]>)>, (), S, (F,)>>
-    for Yukicoder
+    Exec<
+        RetrieveFullTestCases<
+            Either<&'a [u64], (T1, Option<&'a [T2]>)>,
+            (),
+            S,
+            YukicoderRetrieveFullTestCasesCredentials<F>,
+        >,
+    > for Yukicoder
 {
     type Output = RetrieveTestCasesOutcome;
 
     fn exec(
-        args: RetrieveFullTestCases<Either<&'a [u64], (T1, Option<&'a [T2]>)>, (), S, (F,)>,
+        args: RetrieveFullTestCases<
+            Either<&'a [u64], (T1, Option<&'a [T2]>)>,
+            (),
+            S,
+            YukicoderRetrieveFullTestCasesCredentials<F>,
+        >,
     ) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveFullTestCases {
             targets,
             timeout,
             cookies: (),
             shell,
-            credentials: (api_token,),
+            credentials: YukicoderRetrieveFullTestCasesCredentials { api_key },
         } = args;
 
-        let api_token = api_token()?;
+        let api_key = api_key()?;
 
         let mut sess = SessionBuilder::new()
             .timeout(timeout)
@@ -127,7 +138,7 @@ impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result
                 .expect("should be integer");
 
             let in_file_names =
-                sess.get_test_case_files_by_problem_id(&api_token, problem_id, api::Which::In)?;
+                sess.get_test_case_files_by_problem_id(&api_key, problem_id, api::Which::In)?;
 
             let in_contents = super::download_with_progress(
                 sess.shell.progress_draw_target(),
@@ -135,7 +146,7 @@ impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result
                     .iter()
                     .map(|file_name| {
                         let req = sess.get_test_case_file_by_problem_id(
-                            &api_token,
+                            &api_key,
                             problem_id,
                             api::Which::In,
                             file_name,
@@ -146,7 +157,7 @@ impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result
             )?;
 
             let out_file_names =
-                sess.get_test_case_files_by_problem_id(&api_token, problem_id, api::Which::Out)?;
+                sess.get_test_case_files_by_problem_id(&api_key, problem_id, api::Which::Out)?;
 
             let out_contents = super::download_with_progress(
                 sess.shell.progress_draw_target(),
@@ -154,7 +165,7 @@ impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result
                     .iter()
                     .map(|file_name| {
                         let req = sess.get_test_case_file_by_problem_id(
-                            &api_token,
+                            &api_key,
                             problem_id,
                             api::Which::Out,
                             file_name,
@@ -191,12 +202,13 @@ impl<
         T5: AsRef<str>,
         S: Shell,
         F: FnOnce() -> anyhow::Result<String>,
-    > Exec<Submit<Either<T1, (T2, T3)>, T4, T5, (), S, (F,)>> for Yukicoder
+    > Exec<Submit<Either<T1, (T2, T3)>, T4, T5, (), S, YukicoderSubmitCredentials<F>>>
+    for Yukicoder
 {
     type Output = SubmitOutcome;
 
     fn exec(
-        args: Submit<Either<T1, (T2, T3)>, T4, T5, (), S, (F,)>,
+        args: Submit<Either<T1, (T2, T3)>, T4, T5, (), S, YukicoderSubmitCredentials<F>>,
     ) -> anyhow::Result<SubmitOutcome> {
         let Submit {
             target,
@@ -206,7 +218,7 @@ impl<
             timeout,
             cookies: (),
             shell,
-            credentials: (api_key,),
+            credentials: YukicoderSubmitCredentials { api_key },
         } = args;
 
         if watch_submission {
@@ -264,6 +276,16 @@ impl<
             }
         }
     }
+}
+
+#[derive(Debug)]
+pub struct YukicoderRetrieveFullTestCasesCredentials<F: FnOnce() -> anyhow::Result<String>> {
+    pub api_key: F,
+}
+
+#[derive(Debug)]
+pub struct YukicoderSubmitCredentials<F: FnOnce() -> anyhow::Result<String>> {
+    pub api_key: F,
 }
 
 fn retrieve_samples(

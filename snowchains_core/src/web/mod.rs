@@ -57,7 +57,19 @@ mod atcoder;
 mod codeforces;
 mod yukicoder;
 
-pub use crate::web::{atcoder::Atcoder, codeforces::Codeforces, yukicoder::Yukicoder};
+pub use crate::web::{
+    atcoder::{
+        Atcoder, AtcoderLoginCredentials, AtcoderParticipateCredentials,
+        AtcoderRetrieveFullTestCasesCredentials, AtcoderRetrieveLanguagesCredentials,
+        AtcoderRetrieveSampleTestCasesCredentials, AtcoderSubmitCredentials,
+    },
+    codeforces::{
+        Codeforces, CodeforcesLoginCredentials, CodeforcesParticipateCredentials,
+        CodeforcesRetrieveLanguagesCredentials, CodeforcesRetrieveSampleTestCasesCredentials,
+        CodeforcesSubmitCredentials,
+    },
+    yukicoder::{Yukicoder, YukicoderRetrieveFullTestCasesCredentials, YukicoderSubmitCredentials},
+};
 
 use crate::testsuite::TestSuite;
 use anyhow::{anyhow, bail, Context as _};

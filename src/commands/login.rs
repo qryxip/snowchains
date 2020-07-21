@@ -1,6 +1,9 @@
 use crate::{shell::Shell, web::LazyLockedFile};
 use serde::Serialize;
-use snowchains_core::web::{Atcoder, Codeforces, Cookies, Login, PlatformVariant};
+use snowchains_core::web::{
+    Atcoder, AtcoderLoginCredentials, Codeforces, CodeforcesLoginCredentials, Cookies, Login,
+    PlatformVariant,
+};
 use std::{
     cell::RefCell,
     io::{BufRead, Write},
@@ -87,16 +90,23 @@ pub(crate) fn run(
         Ok((username, password))
     };
 
-    let args = Login {
-        timeout: Some(crate::web::SESSION_TIMEOUT),
-        cookies,
-        shell,
-        credentials: (username_and_password,),
-    };
-
     let outcome = match service {
-        PlatformVariant::Atcoder => Atcoder::exec(args),
-        PlatformVariant::Codeforces => Codeforces::exec(args),
+        PlatformVariant::Atcoder => Atcoder::exec(Login {
+            timeout: Some(crate::web::SESSION_TIMEOUT),
+            cookies,
+            shell,
+            credentials: AtcoderLoginCredentials {
+                username_and_password,
+            },
+        }),
+        PlatformVariant::Codeforces => Codeforces::exec(Login {
+            timeout: Some(crate::web::SESSION_TIMEOUT),
+            cookies,
+            shell,
+            credentials: CodeforcesLoginCredentials {
+                username_and_password,
+            },
+        }),
         PlatformVariant::Yukicoder => unreachable!("should be filtered by `possible_values`"),
     }?;
 
