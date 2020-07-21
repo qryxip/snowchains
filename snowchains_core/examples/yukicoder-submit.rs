@@ -1,6 +1,6 @@
 use anyhow::Context as _;
 use either::Either;
-use snowchains_core::web::{StandardStreamShell, Submit, Yukicoder};
+use snowchains_core::web::{StandardStreamShell, Submit, Yukicoder, YukicoderSubmitCredentials};
 use std::{env, fs, path::PathBuf, str};
 use structopt::StructOpt;
 use strum::{EnumString, EnumVariantNames, VariantNames as _};
@@ -63,12 +63,15 @@ fn main() -> anyhow::Result<()> {
         } else {
             ColorChoice::Never
         }),
-        credentials: (|| match credentials {
-            CredentialsVia::Prompt => {
-                rpassword::read_password_from_tty(Some("yukicoder API Key: ")).map_err(Into::into)
-            }
-            CredentialsVia::Env => env::var("YUKICODER_API_KEY").map_err(Into::into),
-        },),
+        credentials: YukicoderSubmitCredentials {
+            api_key: || match credentials {
+                CredentialsVia::Prompt => {
+                    rpassword::read_password_from_tty(Some("yukicoder API Key: "))
+                        .map_err(Into::into)
+                }
+                CredentialsVia::Env => env::var("YUKICODER_API_KEY").map_err(Into::into),
+            },
+        },
     })?;
 
     dbg!(outcome);

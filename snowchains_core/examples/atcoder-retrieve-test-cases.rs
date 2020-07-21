@@ -1,7 +1,8 @@
 use anyhow::anyhow;
 use cookie_store::CookieStore;
 use snowchains_core::web::{
-    Atcoder, Cookies, RetrieveFullTestCases, RetrieveSampleTestCases, StandardStreamShell,
+    Atcoder, AtcoderRetrieveFullTestCasesCredentials, AtcoderRetrieveSampleTestCasesCredentials,
+    Cookies, RetrieveFullTestCases, RetrieveSampleTestCases, StandardStreamShell,
 };
 use std::{env, str};
 use structopt::StructOpt;
@@ -82,13 +83,16 @@ fn main() -> anyhow::Result<()> {
             timeout,
             cookies,
             shell,
-            credentials: (username_and_password, || match credentials {
-                CredentialsVia::Prompt => {
-                    rpassword::read_password_from_tty(Some("Dropbox access token: "))
-                        .map_err(Into::into)
-                }
-                CredentialsVia::Env => env::var("DROPBOX_ACCESS_TOKEN").map_err(Into::into),
-            }),
+            credentials: AtcoderRetrieveFullTestCasesCredentials {
+                username_and_password,
+                dropbox_access_token: || match credentials {
+                    CredentialsVia::Prompt => {
+                        rpassword::read_password_from_tty(Some("Dropbox access token: "))
+                            .map_err(Into::into)
+                    }
+                    CredentialsVia::Env => env::var("DROPBOX_ACCESS_TOKEN").map_err(Into::into),
+                },
+            },
         })?;
 
         eprintln!("{}", str::from_utf8(&cookies_jsonl)?);
@@ -98,7 +102,9 @@ fn main() -> anyhow::Result<()> {
             timeout,
             cookies,
             shell,
-            credentials: (username_and_password,),
+            credentials: AtcoderRetrieveSampleTestCasesCredentials {
+                username_and_password,
+            },
         })?;
 
         dbg!(outcome);

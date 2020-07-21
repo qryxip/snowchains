@@ -64,11 +64,13 @@ impl<
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         S: Shell,
         F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Login<Cookies<F1>, S, (F2,)>> for Atcoder
+    > Exec<Login<Cookies<F1>, S, AtcoderLoginCredentials<F2>>> for Atcoder
 {
     type Output = LoginOutcome;
 
-    fn exec(args: Login<Cookies<F1>, S, (F2,)>) -> anyhow::Result<LoginOutcome> {
+    fn exec(
+        args: Login<Cookies<F1>, S, AtcoderLoginCredentials<F2>>,
+    ) -> anyhow::Result<LoginOutcome> {
         let Login {
             timeout,
             cookies:
@@ -77,7 +79,10 @@ impl<
                     on_update_cookie_store,
                 },
             shell,
-            credentials: (username_and_password,),
+            credentials:
+                AtcoderLoginCredentials {
+                    username_and_password,
+                },
         } = args;
 
         let mut sess = SessionBuilder::new()
@@ -101,11 +106,13 @@ impl<
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         S: Shell,
         F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Participate<T, Cookies<F1>, S, (F2,)>> for Atcoder
+    > Exec<Participate<T, Cookies<F1>, S, AtcoderParticipateCredentials<F2>>> for Atcoder
 {
     type Output = ParticipateOutcome;
 
-    fn exec(args: Participate<T, Cookies<F1>, S, (F2,)>) -> anyhow::Result<ParticipateOutcome> {
+    fn exec(
+        args: Participate<T, Cookies<F1>, S, AtcoderParticipateCredentials<F2>>,
+    ) -> anyhow::Result<ParticipateOutcome> {
         let Participate {
             target: contest,
             timeout,
@@ -115,7 +122,10 @@ impl<
                     on_update_cookie_store,
                 },
             shell,
-            credentials: (username_and_password,),
+            credentials:
+                AtcoderParticipateCredentials {
+                    username_and_password,
+                },
         } = args;
 
         let contest = CaseConverted::new(contest);
@@ -137,12 +147,25 @@ impl<
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         S: Shell,
         F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<RetrieveLanguages<Option<(T1, T2)>, Cookies<F1>, S, (F2,)>> for Atcoder
+    >
+    Exec<
+        RetrieveLanguages<
+            Option<(T1, T2)>,
+            Cookies<F1>,
+            S,
+            AtcoderRetrieveLanguagesCredentials<F2>,
+        >,
+    > for Atcoder
 {
     type Output = RetrieveLanguagesOutcome;
 
     fn exec(
-        args: RetrieveLanguages<Option<(T1, T2)>, Cookies<F1>, S, (F2,)>,
+        args: RetrieveLanguages<
+            Option<(T1, T2)>,
+            Cookies<F1>,
+            S,
+            AtcoderRetrieveLanguagesCredentials<F2>,
+        >,
     ) -> anyhow::Result<RetrieveLanguagesOutcome> {
         let RetrieveLanguages {
             target,
@@ -153,7 +176,10 @@ impl<
                     on_update_cookie_store,
                 },
             shell,
-            credentials: (username_and_password,),
+            credentials:
+                AtcoderRetrieveLanguagesCredentials {
+                    username_and_password,
+                },
         } = args;
 
         let (contest, problem) = if let Some((contest, problem)) = target {
@@ -204,12 +230,25 @@ impl<
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         S: Shell,
         F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<RetrieveSampleTestCases<(T1, Option<&'_ [T2]>), Cookies<F1>, S, (F2,)>> for Atcoder
+    >
+    Exec<
+        RetrieveSampleTestCases<
+            (T1, Option<&'_ [T2]>),
+            Cookies<F1>,
+            S,
+            AtcoderRetrieveSampleTestCasesCredentials<F2>,
+        >,
+    > for Atcoder
 {
     type Output = RetrieveTestCasesOutcome;
 
     fn exec(
-        args: RetrieveSampleTestCases<(T1, Option<&'_ [T2]>), Cookies<F1>, S, (F2,)>,
+        args: RetrieveSampleTestCases<
+            (T1, Option<&'_ [T2]>),
+            Cookies<F1>,
+            S,
+            AtcoderRetrieveSampleTestCasesCredentials<F2>,
+        >,
     ) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveSampleTestCases {
             targets,
@@ -220,7 +259,10 @@ impl<
                     on_update_cookie_store,
                 },
             shell,
-            credentials: (username_and_password,),
+            credentials:
+                AtcoderRetrieveSampleTestCasesCredentials {
+                    username_and_password,
+                },
         } = args;
 
         let (contest, problems) = targets;
@@ -244,12 +286,25 @@ impl<
         S: Shell,
         F2: FnMut() -> anyhow::Result<(String, String)>,
         F3: FnOnce() -> anyhow::Result<String>,
-    > Exec<RetrieveFullTestCases<(T1, Option<&'_ [T2]>), Cookies<F1>, S, (F2, F3)>> for Atcoder
+    >
+    Exec<
+        RetrieveFullTestCases<
+            (T1, Option<&'_ [T2]>),
+            Cookies<F1>,
+            S,
+            AtcoderRetrieveFullTestCasesCredentials<F2, F3>,
+        >,
+    > for Atcoder
 {
     type Output = RetrieveTestCasesOutcome;
 
     fn exec(
-        args: RetrieveFullTestCases<(T1, Option<&'_ [T2]>), Cookies<F1>, S, (F2, F3)>,
+        args: RetrieveFullTestCases<
+            (T1, Option<&'_ [T2]>),
+            Cookies<F1>,
+            S,
+            AtcoderRetrieveFullTestCasesCredentials<F2, F3>,
+        >,
     ) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveFullTestCases {
             targets,
@@ -260,7 +315,11 @@ impl<
                     on_update_cookie_store,
                 },
             shell,
-            credentials: (username_and_password, dropbox_access_token),
+            credentials:
+                AtcoderRetrieveFullTestCasesCredentials {
+                    username_and_password,
+                    dropbox_access_token,
+                },
         } = args;
 
         let (contest, problems) = targets;
@@ -384,12 +443,12 @@ impl<
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         S: Shell,
         F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Submit<(T1, T2), T3, T4, Cookies<F1>, S, (F2,)>> for Atcoder
+    > Exec<Submit<(T1, T2), T3, T4, Cookies<F1>, S, AtcoderSubmitCredentials<F2>>> for Atcoder
 {
     type Output = SubmitOutcome;
 
     fn exec(
-        args: Submit<(T1, T2), T3, T4, Cookies<F1>, S, (F2,)>,
+        args: Submit<(T1, T2), T3, T4, Cookies<F1>, S, AtcoderSubmitCredentials<F2>>,
     ) -> anyhow::Result<SubmitOutcome> {
         let Submit {
             target: (contest, problem),
@@ -403,7 +462,10 @@ impl<
                     on_update_cookie_store,
                 },
             shell,
-            credentials: (username_and_password,),
+            credentials:
+                AtcoderSubmitCredentials {
+                    username_and_password,
+                },
         } = args;
 
         let contest = CaseConverted::<LowerCase>::new(contest);
@@ -689,6 +751,41 @@ impl<
             }
         }
     }
+}
+
+#[derive(Debug)]
+pub struct AtcoderLoginCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
+    pub username_and_password: F,
+}
+
+#[derive(Debug)]
+pub struct AtcoderParticipateCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
+    pub username_and_password: F,
+}
+
+#[derive(Debug)]
+pub struct AtcoderRetrieveLanguagesCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
+    pub username_and_password: F,
+}
+
+#[derive(Debug)]
+pub struct AtcoderRetrieveSampleTestCasesCredentials<F: FnMut() -> anyhow::Result<(String, String)>>
+{
+    pub username_and_password: F,
+}
+
+#[derive(Debug)]
+pub struct AtcoderRetrieveFullTestCasesCredentials<
+    F1: FnMut() -> anyhow::Result<(String, String)>,
+    F2: FnOnce() -> anyhow::Result<String>,
+> {
+    pub username_and_password: F1,
+    pub dropbox_access_token: F2,
+}
+
+#[derive(Debug)]
+pub struct AtcoderSubmitCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
+    pub username_and_password: F,
 }
 
 fn retrieve_sample_test_cases(

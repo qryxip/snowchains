@@ -7,7 +7,11 @@ use either::Either;
 use serde::Serialize;
 use snowchains_core::{
     testsuite::{Additional, BatchTestSuite, TestSuite},
-    web::{Atcoder, Codeforces, Cookies, PlatformVariant, RetrieveSampleTestCases, Yukicoder},
+    web::{
+        Atcoder, AtcoderRetrieveSampleTestCasesCredentials, Codeforces,
+        CodeforcesRetrieveSampleTestCasesCredentials, Cookies, PlatformVariant,
+        RetrieveSampleTestCases, Yukicoder,
+    },
 };
 use std::{
     cell::RefCell,
@@ -170,7 +174,9 @@ pub(crate) fn run(
                 let contest = contest.with_context(|| "`contest` is required for AtCoder")?;
                 (contest, problems)
             };
-            let credentials = (username_and_password,);
+            let credentials = AtcoderRetrieveSampleTestCasesCredentials {
+                username_and_password,
+            };
 
             Atcoder::exec(RetrieveSampleTestCases {
                 targets,
@@ -188,7 +194,9 @@ pub(crate) fn run(
                     .with_context(|| "`contest` for Codeforces must be 64-bit unsigned integer")?;
                 (contest, problems)
             };
-            let credentials = (username_and_password,);
+            let credentials = CodeforcesRetrieveSampleTestCasesCredentials {
+                username_and_password,
+            };
 
             Codeforces::exec(RetrieveSampleTestCases {
                 targets,
