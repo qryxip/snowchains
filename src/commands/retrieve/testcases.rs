@@ -4,14 +4,15 @@ use crate::{
 };
 use anyhow::Context as _;
 use maplit::btreeset;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use snowchains_core::{
     testsuite::{Additional, BatchTestSuite, TestSuite},
     web::{
-        Atcoder, AtcoderRetrieveSampleTestCasesCredentials, AtcoderRetrieveTestCasesTargets,
-        Codeforces, CodeforcesRetrieveSampleTestCasesCredentials,
-        CodeforcesRetrieveTestCasesTargets, Cookies, PlatformVariant, RetrieveTestCases, Yukicoder,
-        YukicoderRetrieveTestCasesTargets,
+        Atcoder, AtcoderRetrieveFullTestCasesCredentials,
+        AtcoderRetrieveSampleTestCasesCredentials, AtcoderRetrieveTestCasesTargets, Codeforces,
+        CodeforcesRetrieveSampleTestCasesCredentials, CodeforcesRetrieveTestCasesTargets, Cookies,
+        PlatformVariant, RetrieveFullTestCases, RetrieveTestCases, Yukicoder,
+        YukicoderRetrieveFullTestCasesCredentials, YukicoderRetrieveTestCasesTargets,
     },
 };
 use std::{
@@ -26,6 +27,10 @@ use url::Url;
 
 #[derive(StructOpt, Debug)]
 pub struct OptRetrieveTestcases {
+    /// Downloads full test cases
+    #[structopt(long)]
+    pub full: bool,
+
     /// Prints the output as a JSON value
     #[structopt(long)]
     pub json: bool,
@@ -98,6 +103,7 @@ pub(crate) fn run(
     ctx: crate::Context<impl BufRead, impl Write, impl WriteColor>,
 ) -> anyhow::Result<()> {
     let OptRetrieveTestcases {
+        full,
         json,
         config,
         color: _,
@@ -152,7 +158,7 @@ pub(crate) fn run(
     };
 
     let stderr = RefCell::new(stderr);
-    let shell = Shell::new(&stderr, || unreachable!(), false);
+    let shell = Shell::new(&stderr, || unreachable!(), true);
 
     let username_and_password = || -> _ {
         let mut stderr = stderr.borrow_mut();
@@ -176,8 +182,36 @@ pub(crate) fn run(
                     .to_owned();
                 AtcoderRetrieveTestCasesTargets { contest, problems }
             };
+
             let credentials = AtcoderRetrieveSampleTestCasesCredentials {
                 username_and_password,
+            };
+
+            let full = if full {
+                Some({
+                    #[derive(Deserialize)]
+                    struct Dropbox {
+                        access_token: String,
+                    }
+
+                    let path = dirs::data_local_dir()
+                        .with_context(|| "Could not find the local data directory")?
+                        .join("snowchains")
+                        .join("dropbox.json");
+
+                    let Dropbox { access_token } =
+                        crate::fs::read_json(&path).with_context(|| {
+                            format!("First, save the access token to `{}`", path.display())
+                        })?;
+
+                    RetrieveFullTestCases {
+                        credentials: AtcoderRetrieveFullTestCasesCredentials {
+                            dropbox_access_token: access_token,
+                        },
+                    }
+                })
+            } else {
+                None
             };
 
             Atcoder::exec(RetrieveTestCases {
@@ -186,7 +220,7 @@ pub(crate) fn run(
                 cookies,
                 shell,
                 credentials,
-                full: None,
+                full,
             })
         }
         PlatformVariant::Codeforces => {
@@ -226,13 +260,39 @@ pub(crate) fn run(
                 YukicoderRetrieveTestCasesTargets::ProblemNos(nos)
             };
 
+            let full = if full {
+                Some({
+                    let path = dirs::data_local_dir()
+                        .with_context(|| "Could not find the local data directory")?
+                        .join("snowchains")
+                        .join("yukicoder.json");
+
+                    let api_key = if path.exists() {
+                        crate::fs::read_json(path)?
+                    } else {
+                        let mut stderr = stderr.borrow_mut();
+                        write!(stderr, "yukicoder API key: ")?;
+                        stderr.flush()?;
+                        let api_key = stdin.read_reply()?;
+                        crate::fs::write_json(path, &api_key, true)?;
+                        api_key
+                    };
+
+                    RetrieveFullTestCases {
+                        credentials: YukicoderRetrieveFullTestCasesCredentials { api_key },
+                    }
+                })
+            } else {
+                None
+            };
+
             Yukicoder::exec(RetrieveTestCases {
                 targets,
                 timeout,
                 cookies: (),
                 shell,
                 credentials: (),
-                full: None,
+                full,
             })
         }
     }?;
