@@ -2,7 +2,8 @@ use anyhow::anyhow;
 use cookie_store::CookieStore;
 use snowchains_core::web::{
     Atcoder, AtcoderRetrieveFullTestCasesCredentials, AtcoderRetrieveSampleTestCasesCredentials,
-    Cookies, RetrieveFullTestCases, RetrieveSampleTestCases, StandardStreamShell,
+    AtcoderRetrieveTestCasesTargets, Cookies, RetrieveFullTestCases, RetrieveSampleTestCases,
+    StandardStreamShell,
 };
 use std::{env, str};
 use structopt::StructOpt;
@@ -49,7 +50,10 @@ fn main() -> anyhow::Result<()> {
 
     let mut cookies_jsonl = vec![];
 
-    let targets = (contest, problems.as_deref());
+    let targets = AtcoderRetrieveTestCasesTargets {
+        contest,
+        problems: problems.map(|ps| ps.into_iter().collect()),
+    };
     let timeout = timeout.map(Into::into);
     let cookies = Cookies {
         cookie_store: CookieStore::default(),

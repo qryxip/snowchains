@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Context as _};
 use cookie_store::CookieStore;
 use snowchains_core::web::{
-    Codeforces, CodeforcesSubmitCredentials, Cookies, StandardStreamShell, Submit,
+    Codeforces, CodeforcesSubmitCredentials, CodeforcesSubmitTarget, Cookies, StandardStreamShell,
+    Submit,
 };
 use std::{env, fs, path::PathBuf, str};
 use structopt::StructOpt;
@@ -50,7 +51,7 @@ fn main() -> anyhow::Result<()> {
     let mut cookies_jsonl = vec![];
 
     let outcome = Codeforces::exec(Submit {
-        target: (contest, problem),
+        target: CodeforcesSubmitTarget { contest, problem },
         language_id,
         code: fs::read_to_string(&file)
             .with_context(|| format!("Failed to read {}", file.display()))?,

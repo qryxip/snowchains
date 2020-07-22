@@ -102,19 +102,24 @@ impl<
 }
 
 impl<
-        T: AsRef<str>,
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         S: Shell,
         F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Participate<T, Cookies<F1>, S, AtcoderParticipateCredentials<F2>>> for Atcoder
+    > Exec<Participate<AtcoderParticipateTarget, Cookies<F1>, S, AtcoderParticipateCredentials<F2>>>
+    for Atcoder
 {
     type Output = ParticipateOutcome;
 
     fn exec(
-        args: Participate<T, Cookies<F1>, S, AtcoderParticipateCredentials<F2>>,
+        args: Participate<
+            AtcoderParticipateTarget,
+            Cookies<F1>,
+            S,
+            AtcoderParticipateCredentials<F2>,
+        >,
     ) -> anyhow::Result<ParticipateOutcome> {
         let Participate {
-            target: contest,
+            target: AtcoderParticipateTarget { contest },
             timeout,
             cookies:
                 Cookies {
@@ -140,17 +145,14 @@ impl<
     }
 }
 
-#[allow(clippy::type_complexity)]
 impl<
-        T1: AsRef<str>,
-        T2: AsRef<str>,
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         S: Shell,
         F2: FnMut() -> anyhow::Result<(String, String)>,
     >
     Exec<
         RetrieveLanguages<
-            Option<(T1, T2)>,
+            AtcoderRetrieveLanguagesTarget,
             Cookies<F1>,
             S,
             AtcoderRetrieveLanguagesCredentials<F2>,
@@ -161,7 +163,7 @@ impl<
 
     fn exec(
         args: RetrieveLanguages<
-            Option<(T1, T2)>,
+            AtcoderRetrieveLanguagesTarget,
             Cookies<F1>,
             S,
             AtcoderRetrieveLanguagesCredentials<F2>,
@@ -182,7 +184,10 @@ impl<
                 },
         } = args;
 
-        let (contest, problem) = if let Some((contest, problem)) = target {
+        let AtcoderRetrieveLanguagesTarget {
+            contest_and_problem,
+        } = target;
+        let (contest, problem) = if let Some((contest, problem)) = contest_and_problem {
             (
                 CaseConverted::<LowerCase>::new(contest),
                 Some(CaseConverted::<UpperCase>::new(problem)),
@@ -223,17 +228,14 @@ impl<
     }
 }
 
-#[allow(clippy::type_complexity)]
 impl<
-        T1: AsRef<str>,
-        T2: AsRef<str>,
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         S: Shell,
         F2: FnMut() -> anyhow::Result<(String, String)>,
     >
     Exec<
         RetrieveSampleTestCases<
-            (T1, Option<&'_ [T2]>),
+            AtcoderRetrieveTestCasesTargets,
             Cookies<F1>,
             S,
             AtcoderRetrieveSampleTestCasesCredentials<F2>,
@@ -244,7 +246,7 @@ impl<
 
     fn exec(
         args: RetrieveSampleTestCases<
-            (T1, Option<&'_ [T2]>),
+            AtcoderRetrieveTestCasesTargets,
             Cookies<F1>,
             S,
             AtcoderRetrieveSampleTestCasesCredentials<F2>,
@@ -265,7 +267,7 @@ impl<
                 },
         } = args;
 
-        let (contest, problems) = targets;
+        let AtcoderRetrieveTestCasesTargets { contest, problems } = targets;
 
         let sess = SessionBuilder::new()
             .timeout(timeout)
@@ -274,14 +276,11 @@ impl<
             .shell(shell)
             .build()?;
 
-        retrieve_sample_test_cases(sess, username_and_password, problems, contest)
+        retrieve_sample_test_cases(sess, username_and_password, &contest, problems.as_ref())
     }
 }
 
-#[allow(clippy::type_complexity)]
 impl<
-        T1: AsRef<str>,
-        T2: AsRef<str>,
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         S: Shell,
         F2: FnMut() -> anyhow::Result<(String, String)>,
@@ -289,7 +288,7 @@ impl<
     >
     Exec<
         RetrieveFullTestCases<
-            (T1, Option<&'_ [T2]>),
+            AtcoderRetrieveTestCasesTargets,
             Cookies<F1>,
             S,
             AtcoderRetrieveFullTestCasesCredentials<F2, F3>,
@@ -300,7 +299,7 @@ impl<
 
     fn exec(
         args: RetrieveFullTestCases<
-            (T1, Option<&'_ [T2]>),
+            AtcoderRetrieveTestCasesTargets,
             Cookies<F1>,
             S,
             AtcoderRetrieveFullTestCasesCredentials<F2, F3>,
@@ -322,8 +321,7 @@ impl<
                 },
         } = args;
 
-        let (contest, problems) = targets;
-        let contest = contest.as_ref();
+        let AtcoderRetrieveTestCasesTargets { contest, problems } = targets;
 
         let mut sess = SessionBuilder::new()
             .timeout(timeout)
@@ -334,8 +332,12 @@ impl<
 
         let access_token = dropbox_access_token()?;
 
-        let mut outcome =
-            retrieve_sample_test_cases(&mut sess, username_and_password, problems, contest)?;
+        let mut outcome = retrieve_sample_test_cases(
+            &mut sess,
+            username_and_password,
+            &contest,
+            problems.as_ref(),
+        )?;
 
         for problem in &mut outcome.problems {
             let mut retrieve = |dir_file_name: &'static str| -> anyhow::Result<_> {
@@ -434,24 +436,22 @@ impl<
     }
 }
 
-#[allow(clippy::type_complexity)]
 impl<
         T1: AsRef<str>,
         T2: AsRef<str>,
-        T3: AsRef<str>,
-        T4: AsRef<str>,
         F1: FnMut(&CookieStore) -> anyhow::Result<()>,
         S: Shell,
         F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Submit<(T1, T2), T3, T4, Cookies<F1>, S, AtcoderSubmitCredentials<F2>>> for Atcoder
+    > Exec<Submit<AtcoderSubmitTarget, T1, T2, Cookies<F1>, S, AtcoderSubmitCredentials<F2>>>
+    for Atcoder
 {
     type Output = SubmitOutcome;
 
     fn exec(
-        args: Submit<(T1, T2), T3, T4, Cookies<F1>, S, AtcoderSubmitCredentials<F2>>,
+        args: Submit<AtcoderSubmitTarget, T1, T2, Cookies<F1>, S, AtcoderSubmitCredentials<F2>>,
     ) -> anyhow::Result<SubmitOutcome> {
         let Submit {
-            target: (contest, problem),
+            target: AtcoderSubmitTarget { contest, problem },
             language_id,
             code,
             watch_submission,
@@ -759,13 +759,29 @@ pub struct AtcoderLoginCredentials<F: FnMut() -> anyhow::Result<(String, String)
 }
 
 #[derive(Debug)]
+pub struct AtcoderParticipateTarget {
+    pub contest: String,
+}
+
+#[derive(Debug)]
 pub struct AtcoderParticipateCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
     pub username_and_password: F,
 }
 
 #[derive(Debug)]
+pub struct AtcoderRetrieveLanguagesTarget {
+    pub contest_and_problem: Option<(String, String)>,
+}
+
+#[derive(Debug)]
 pub struct AtcoderRetrieveLanguagesCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
     pub username_and_password: F,
+}
+
+#[derive(Debug)]
+pub struct AtcoderRetrieveTestCasesTargets {
+    pub contest: String,
+    pub problems: Option<BTreeSet<String>>,
 }
 
 #[derive(Debug)]
@@ -784,6 +800,12 @@ pub struct AtcoderRetrieveFullTestCasesCredentials<
 }
 
 #[derive(Debug)]
+pub struct AtcoderSubmitTarget {
+    pub contest: String,
+    pub problem: String,
+}
+
+#[derive(Debug)]
 pub struct AtcoderSubmitCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
     pub username_and_password: F,
 }
@@ -791,8 +813,8 @@ pub struct AtcoderSubmitCredentials<F: FnMut() -> anyhow::Result<(String, String
 fn retrieve_sample_test_cases(
     mut sess: impl SessionMut,
     username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
-    problems: Option<&[impl AsRef<str>]>,
-    contest: impl AsRef<str>,
+    contest: &str,
+    problems: Option<&BTreeSet<String>>,
 ) -> anyhow::Result<RetrieveTestCasesOutcome> {
     let contest = CaseConverted::<LowerCase>::new(contest);
 
@@ -813,11 +835,8 @@ fn retrieve_sample_test_cases(
         );
     }
 
-    let mut problems = problems.map(|ps| {
-        ps.iter()
-            .map(|p| p.as_ref().to_uppercase())
-            .collect::<BTreeSet<_>>()
-    });
+    let mut problems =
+        problems.map(|ps| ps.iter().map(|p| p.to_uppercase()).collect::<BTreeSet<_>>());
 
     let mut outcome = RetrieveTestCasesOutcome {
         contest: Some(RetrieveTestCasesOutcomeContest {

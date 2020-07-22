@@ -1,8 +1,8 @@
 use anyhow::anyhow;
 use cookie_store::CookieStore;
 use snowchains_core::web::{
-    Codeforces, CodeforcesRetrieveLanguagesCredentials, Cookies, RetrieveLanguages,
-    StandardStreamShell,
+    Codeforces, CodeforcesRetrieveLanguagesCredentials, CodeforcesRetrieveLanguagesTarget, Cookies,
+    RetrieveLanguages, StandardStreamShell,
 };
 use std::{env, str};
 use structopt::StructOpt;
@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
     let mut cookies_jsonl = vec![];
 
     let outcome = Codeforces::exec(RetrieveLanguages {
-        target: contest,
+        target: CodeforcesRetrieveLanguagesTarget { contest },
         timeout: timeout.map(Into::into),
         cookies: Cookies {
             cookie_store: CookieStore::default(),

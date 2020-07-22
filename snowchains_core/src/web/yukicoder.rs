@@ -10,7 +10,6 @@ use crate::{
 };
 use anyhow::{bail, Context as _};
 use easy_ext::ext;
-use either::Either;
 use indexmap::indexmap;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
@@ -66,15 +65,13 @@ impl<S: Shell> Exec<RetrieveLanguages<(), (), S, ()>> for Yukicoder {
     }
 }
 
-#[allow(clippy::type_complexity)]
-impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell>
-    Exec<RetrieveSampleTestCases<Either<&'a [u64], (T1, Option<&'a [T2]>)>, (), S, ()>>
+impl<S: Shell> Exec<RetrieveSampleTestCases<YukicoderRetrieveTestCasesTargets, (), S, ()>>
     for Yukicoder
 {
     type Output = RetrieveTestCasesOutcome;
 
     fn exec(
-        args: RetrieveSampleTestCases<Either<&'a [u64], (T1, Option<&'a [T2]>)>, (), S, ()>,
+        args: RetrieveSampleTestCases<YukicoderRetrieveTestCasesTargets, (), S, ()>,
     ) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveSampleTestCases {
             targets,
@@ -93,11 +90,10 @@ impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell>
     }
 }
 
-#[allow(clippy::type_complexity)]
-impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result<String>>
+impl<S: Shell, F: FnOnce() -> anyhow::Result<String>>
     Exec<
         RetrieveFullTestCases<
-            Either<&'a [u64], (T1, Option<&'a [T2]>)>,
+            YukicoderRetrieveTestCasesTargets,
             (),
             S,
             YukicoderRetrieveFullTestCasesCredentials<F>,
@@ -108,7 +104,7 @@ impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result
 
     fn exec(
         args: RetrieveFullTestCases<
-            Either<&'a [u64], (T1, Option<&'a [T2]>)>,
+            YukicoderRetrieveTestCasesTargets,
             (),
             S,
             YukicoderRetrieveFullTestCasesCredentials<F>,
@@ -193,22 +189,14 @@ impl<'a, T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result
     }
 }
 
-#[allow(clippy::type_complexity)]
-impl<
-        T1: AsRef<str>,
-        T2: AsRef<str>,
-        T3: AsRef<str>,
-        T4: AsRef<str>,
-        T5: AsRef<str>,
-        S: Shell,
-        F: FnOnce() -> anyhow::Result<String>,
-    > Exec<Submit<Either<T1, (T2, T3)>, T4, T5, (), S, YukicoderSubmitCredentials<F>>>
+impl<T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result<String>>
+    Exec<Submit<YukicoderSubmitTarget, T1, T2, (), S, YukicoderSubmitCredentials<F>>>
     for Yukicoder
 {
     type Output = SubmitOutcome;
 
     fn exec(
-        args: Submit<Either<T1, (T2, T3)>, T4, T5, (), S, YukicoderSubmitCredentials<F>>,
+        args: Submit<YukicoderSubmitTarget, T1, T2, (), S, YukicoderSubmitCredentials<F>>,
     ) -> anyhow::Result<SubmitOutcome> {
         let Submit {
             target,
@@ -233,16 +221,10 @@ impl<
             .build()?;
 
         let problem_id = match target {
-            Either::Left(problem_no) => {
-                let problem_no = problem_no
-                    .as_ref()
-                    .parse()
-                    .with_context(|| "`ProblemId` must be integer")?;
+            YukicoderSubmitTarget::ProblemNo(problem_no) => {
                 sess.get_problem_by_problem_no(problem_no)?.problem_id
             }
-            Either::Right((contest_id, problem_slug)) => {
-                let (contest_id, problem_slug) = (contest_id.as_ref(), problem_slug.as_ref());
-
+            YukicoderSubmitTarget::Contest(contest_id, problem_index) => {
                 let (_, problem_id) = sess
                     .get(url!("/contests/{}", contest_id))
                     .colorize_status_code(&[200], (), ..)
@@ -251,9 +233,9 @@ impl<
                     .html()?
                     .extract_problems()?
                     .into_iter()
-                    .find(|(slug, _)| slug.eq_ignore_ascii_case(problem_slug))
+                    .find(|(index, _)| index.eq_ignore_ascii_case(&problem_index))
                     .with_context(|| {
-                        format!("No such problem in `{}`: `{}`", contest_id, problem_slug)
+                        format!("No such problem in `{}`: `{}`", contest_id, problem_index)
                     })?;
 
                 problem_id
@@ -279,8 +261,20 @@ impl<
 }
 
 #[derive(Debug)]
+pub enum YukicoderRetrieveTestCasesTargets {
+    ProblemNos(BTreeSet<u64>),
+    Contest(u64, Option<BTreeSet<String>>),
+}
+
+#[derive(Debug)]
 pub struct YukicoderRetrieveFullTestCasesCredentials<F: FnOnce() -> anyhow::Result<String>> {
     pub api_key: F,
+}
+
+#[derive(Debug)]
+pub enum YukicoderSubmitTarget {
+    ProblemNo(u64),
+    Contest(u64, String),
 }
 
 #[derive(Debug)]
@@ -290,7 +284,7 @@ pub struct YukicoderSubmitCredentials<F: FnOnce() -> anyhow::Result<String>> {
 
 fn retrieve_samples(
     mut sess: impl SessionMut,
-    targets: Either<&[u64], (impl AsRef<str>, Option<&[impl AsRef<str>]>)>,
+    targets: YukicoderRetrieveTestCasesTargets,
 ) -> anyhow::Result<RetrieveTestCasesOutcome> {
     let mut outcome = RetrieveTestCasesOutcome {
         contest: None,
@@ -298,8 +292,8 @@ fn retrieve_samples(
     };
 
     match targets {
-        Either::Left(problem_nos) => {
-            for &problem_no in problem_nos {
+        YukicoderRetrieveTestCasesTargets::ProblemNos(problem_nos) => {
+            for &problem_no in &problem_nos {
                 let (url, test_suite) = retrieve_samples(&mut sess, problem_no)?;
                 let api::Problem {
                     problem_id, title, ..
@@ -315,16 +309,14 @@ fn retrieve_samples(
                 });
             }
         }
-        Either::Right((contest_id, problem_slugs)) => {
-            let contest_id = contest_id.as_ref();
-
+        YukicoderRetrieveTestCasesTargets::Contest(contest_id, problem_indexes) => {
             outcome.contest = Some(RetrieveTestCasesOutcomeContest {
-                id: contest_id.to_owned(),
+                id: contest_id.to_string(),
                 submissions_url: url!("/contests/{}/submissions?my_submission=enabled", contest_id),
             });
 
-            let mut not_found = problem_slugs.map(|problem_slugs| {
-                problem_slugs
+            let mut not_found = problem_indexes.map(|problem_indexes| {
+                problem_indexes
                     .iter()
                     .map(CaseConverted::<UpperCase>::new)
                     .collect::<BTreeSet<_>>()

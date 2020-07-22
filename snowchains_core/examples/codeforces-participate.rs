@@ -1,7 +1,8 @@
 use anyhow::anyhow;
 use cookie_store::CookieStore;
 use snowchains_core::web::{
-    Codeforces, CodeforcesParticipateCredentials, Cookies, Participate, StandardStreamShell,
+    Codeforces, CodeforcesParticipateCredentials, CodeforcesParticipateTarget, Cookies,
+    Participate, StandardStreamShell,
 };
 use std::{env, str};
 use structopt::StructOpt;
@@ -41,7 +42,7 @@ fn main() -> anyhow::Result<()> {
     let mut cookies_jsonl = vec![];
 
     let outcome = Codeforces::exec(Participate {
-        target: contest,
+        target: CodeforcesParticipateTarget { contest },
         timeout: timeout.map(Into::into),
         cookies: Cookies {
             cookie_store: CookieStore::default(),

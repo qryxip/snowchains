@@ -1,7 +1,8 @@
 use anyhow::anyhow;
 use cookie_store::CookieStore;
 use snowchains_core::web::{
-    Atcoder, AtcoderRetrieveLanguagesCredentials, Cookies, RetrieveLanguages, StandardStreamShell,
+    Atcoder, AtcoderRetrieveLanguagesCredentials, AtcoderRetrieveLanguagesTarget, Cookies,
+    RetrieveLanguages, StandardStreamShell,
 };
 use std::{env, str};
 use structopt::StructOpt;
@@ -43,7 +44,7 @@ fn main() -> anyhow::Result<()> {
         problem,
     } = Opt::from_args();
 
-    let target = match (contest, problem) {
+    let contest_and_problem = match (contest, problem) {
         (Some(contest), Some(problem)) => Some((contest, problem)),
         (Some(_), None) | (None, Some(_)) => unreachable!(),
         (None, None) => None,
@@ -52,7 +53,9 @@ fn main() -> anyhow::Result<()> {
     let mut cookies_jsonl = vec![];
 
     let outcome = Atcoder::exec(RetrieveLanguages {
-        target,
+        target: AtcoderRetrieveLanguagesTarget {
+            contest_and_problem,
+        },
         timeout: timeout.map(Into::into),
         cookies: Cookies {
             cookie_store: CookieStore::default(),
