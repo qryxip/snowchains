@@ -536,15 +536,17 @@ fn participate(
     if phase == api::ContestPhase::Finished {
         Ok((ParticipateOutcome::ContestIsFinished, handle))
     } else {
+        let url = url!("/contestRegistration/{}", contest_id);
+
         let status = sess
-            .get(url!("/contestRegistration/{}", contest_id))
+            .get(url.clone())
             .colorize_status_code(&[200, 302], (), ..)
             .send()?
             .ensure_status(&[200, 302])?
             .status();
 
         let outcome = if status == 200 {
-            ParticipateOutcome::Success
+            todo!("Contest registration for Codeforces is not yet implemented. Please open {} in browser", url);
         } else {
             ParticipateOutcome::AlreadyParticipated
         };
