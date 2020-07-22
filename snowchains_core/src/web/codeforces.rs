@@ -3,7 +3,7 @@ use crate::{
     web::{
         codeforces::api::SessionMutExt as _, Cookies, Exec, Login, LoginOutcome, Participate,
         ParticipateOutcome, Platform, PlatformVariant, ResponseExt as _, RetrieveLanguages,
-        RetrieveLanguagesOutcome, RetrieveSampleTestCases, RetrieveTestCasesOutcome,
+        RetrieveLanguagesOutcome, RetrieveTestCases, RetrieveTestCasesOutcome,
         RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem, SessionBuilder,
         SessionMut, Shell, Submit, SubmitOutcome,
     },
@@ -17,6 +17,7 @@ use once_cell::sync::Lazy;
 use scraper::{ElementRef, Html, Node, Selector};
 use std::{
     collections::{BTreeSet, HashMap},
+    convert::Infallible,
     time::Duration,
 };
 use url::Url;
@@ -198,25 +199,27 @@ impl<
         F2: FnMut() -> anyhow::Result<(String, String)>,
     >
     Exec<
-        RetrieveSampleTestCases<
+        RetrieveTestCases<
             CodeforcesRetrieveTestCasesTargets,
             Cookies<F1>,
             S,
             CodeforcesRetrieveSampleTestCasesCredentials<F2>,
+            Infallible,
         >,
     > for Codeforces
 {
     type Output = RetrieveTestCasesOutcome;
 
     fn exec(
-        args: RetrieveSampleTestCases<
+        args: RetrieveTestCases<
             CodeforcesRetrieveTestCasesTargets,
             Cookies<F1>,
             S,
             CodeforcesRetrieveSampleTestCasesCredentials<F2>,
+            Infallible,
         >,
     ) -> anyhow::Result<RetrieveTestCasesOutcome> {
-        let RetrieveSampleTestCases {
+        let RetrieveTestCases {
             targets: CodeforcesRetrieveTestCasesTargets { contest, problems },
             timeout,
             cookies:
@@ -229,6 +232,7 @@ impl<
                 CodeforcesRetrieveSampleTestCasesCredentials {
                     username_and_password,
                 },
+            full: _,
         } = args;
 
         let mut sess = SessionBuilder::new()

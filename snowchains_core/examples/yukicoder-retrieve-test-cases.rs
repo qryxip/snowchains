@@ -1,6 +1,6 @@
 use anyhow::Context as _;
 use snowchains_core::web::{
-    RetrieveFullTestCases, RetrieveSampleTestCases, StandardStreamShell, Yukicoder,
+    RetrieveFullTestCases, RetrieveTestCases, StandardStreamShell, Yukicoder,
     YukicoderRetrieveFullTestCasesCredentials, YukicoderRetrieveTestCasesTargets,
 };
 use std::{env, str};
@@ -52,58 +52,48 @@ fn main() -> anyhow::Result<()> {
         contest,
     } = Opt::from_args();
 
-    let targets = match (contest, problems) {
-        (None, None) => unreachable!(),
-        (None, Some(problem_nos)) => YukicoderRetrieveTestCasesTargets::ProblemNos(
-            problem_nos
-                .iter()
-                .map(|p| p.parse::<u64>())
-                .collect::<Result<_, _>>()
-                .with_context(|| "Problem numbers must be integer")?,
-        ),
-        (Some(contest), problem_indexes) => YukicoderRetrieveTestCasesTargets::Contest(
-            contest
-                .parse()
-                .with_context(|| "Contest IDs for yukicoder must be integer")?,
-            problem_indexes.map(|ps| ps.into_iter().collect()),
-        ),
-    };
-
-    let timeout = timeout.map(Into::into);
-
-    let shell = StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
-        ColorChoice::Auto
-    } else {
-        ColorChoice::Never
-    });
-
-    if full {
-        Yukicoder::exec(RetrieveFullTestCases {
-            targets,
-            timeout,
-            cookies: (),
-            shell,
-            credentials: YukicoderRetrieveFullTestCasesCredentials {
-                api_key: || match credentials {
-                    CredentialsVia::Prompt => {
-                        rpassword::read_password_from_tty(Some("yukicoder API Key: "))
-                            .map_err(Into::into)
-                    }
-                    CredentialsVia::Env => env::var("YUKICODER_API_KEY").map_err(Into::into),
+    let outcome = Yukicoder::exec(RetrieveTestCases {
+        targets: match (contest, problems) {
+            (None, None) => unreachable!(),
+            (None, Some(problem_nos)) => YukicoderRetrieveTestCasesTargets::ProblemNos(
+                problem_nos
+                    .iter()
+                    .map(|p| p.parse::<u64>())
+                    .collect::<Result<_, _>>()
+                    .with_context(|| "Problem numbers must be integer")?,
+            ),
+            (Some(contest), problem_indexes) => YukicoderRetrieveTestCasesTargets::Contest(
+                contest
+                    .parse()
+                    .with_context(|| "Contest IDs for yukicoder must be integer")?,
+                problem_indexes.map(|ps| ps.into_iter().collect()),
+            ),
+        },
+        timeout: timeout.map(Into::into),
+        cookies: (),
+        shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
+            ColorChoice::Auto
+        } else {
+            ColorChoice::Never
+        }),
+        credentials: (),
+        full: if full {
+            Some(RetrieveFullTestCases {
+                credentials: YukicoderRetrieveFullTestCasesCredentials {
+                    api_key: match credentials {
+                        CredentialsVia::Prompt => {
+                            rpassword::read_password_from_tty(Some("yukicoder API Key: "))?
+                        }
+                        CredentialsVia::Env => env::var("YUKICODER_API_KEY")?,
+                    },
                 },
-            },
-        })?;
-    } else {
-        let outcome = Yukicoder::exec(RetrieveSampleTestCases {
-            targets,
-            timeout,
-            cookies: (),
-            shell,
-            credentials: (),
-        })?;
+            })
+        } else {
+            None
+        },
+    })?;
 
-        dbg!(outcome);
-    }
+    dbg!(outcome);
 
     Ok(())
 }

@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use cookie_store::CookieStore;
 use snowchains_core::web::{
     Codeforces, CodeforcesRetrieveSampleTestCasesCredentials, CodeforcesRetrieveTestCasesTargets,
-    Cookies, RetrieveSampleTestCases, StandardStreamShell,
+    Cookies, RetrieveTestCases, StandardStreamShell,
 };
 use std::{env, str};
 use structopt::StructOpt;
@@ -45,7 +45,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut cookies_jsonl = vec![];
 
-    let outcome = Codeforces::exec(RetrieveSampleTestCases {
+    let outcome = Codeforces::exec(RetrieveTestCases {
         targets: CodeforcesRetrieveTestCasesTargets {
             contest,
             problems: problems.map(|ps| ps.into_iter().collect()),
@@ -81,6 +81,7 @@ fn main() -> anyhow::Result<()> {
                 Ok(username_and_password)
             },
         },
+        full: None,
     })?;
 
     dbg!(outcome);

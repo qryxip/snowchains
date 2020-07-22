@@ -6,8 +6,8 @@ use crate::{
     web::{
         CaseConverted, Cookies, Exec, Login, LoginOutcome, LowerCase, Participate,
         ParticipateOutcome, Platform, PlatformVariant, ResponseExt as _, RetrieveFullTestCases,
-        RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveSampleTestCases,
-        RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem,
+        RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveTestCases, RetrieveTestCasesOutcome,
+        RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem,
         RetrieveTestCasesOutcomeProblemTextFiles, SessionBuilder, SessionMut, Shell, Submit,
         SubmitOutcome, UpperCase,
     },
@@ -234,25 +234,27 @@ impl<
         F2: FnMut() -> anyhow::Result<(String, String)>,
     >
     Exec<
-        RetrieveSampleTestCases<
+        RetrieveTestCases<
             AtcoderRetrieveTestCasesTargets,
             Cookies<F1>,
             S,
             AtcoderRetrieveSampleTestCasesCredentials<F2>,
+            AtcoderRetrieveFullTestCasesCredentials,
         >,
     > for Atcoder
 {
     type Output = RetrieveTestCasesOutcome;
 
     fn exec(
-        args: RetrieveSampleTestCases<
+        args: RetrieveTestCases<
             AtcoderRetrieveTestCasesTargets,
             Cookies<F1>,
             S,
             AtcoderRetrieveSampleTestCasesCredentials<F2>,
+            AtcoderRetrieveFullTestCasesCredentials,
         >,
     ) -> anyhow::Result<RetrieveTestCasesOutcome> {
-        let RetrieveSampleTestCases {
+        let RetrieveTestCases {
             targets,
             timeout,
             cookies:
@@ -265,60 +267,7 @@ impl<
                 AtcoderRetrieveSampleTestCasesCredentials {
                     username_and_password,
                 },
-        } = args;
-
-        let AtcoderRetrieveTestCasesTargets { contest, problems } = targets;
-
-        let sess = SessionBuilder::new()
-            .timeout(timeout)
-            .cookie_store(Some(cookie_store))
-            .on_update_cookie_store(on_update_cookie_store)
-            .shell(shell)
-            .build()?;
-
-        retrieve_sample_test_cases(sess, username_and_password, &contest, problems.as_ref())
-    }
-}
-
-impl<
-        F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        S: Shell,
-        F2: FnMut() -> anyhow::Result<(String, String)>,
-        F3: FnOnce() -> anyhow::Result<String>,
-    >
-    Exec<
-        RetrieveFullTestCases<
-            AtcoderRetrieveTestCasesTargets,
-            Cookies<F1>,
-            S,
-            AtcoderRetrieveFullTestCasesCredentials<F2, F3>,
-        >,
-    > for Atcoder
-{
-    type Output = RetrieveTestCasesOutcome;
-
-    fn exec(
-        args: RetrieveFullTestCases<
-            AtcoderRetrieveTestCasesTargets,
-            Cookies<F1>,
-            S,
-            AtcoderRetrieveFullTestCasesCredentials<F2, F3>,
-        >,
-    ) -> anyhow::Result<RetrieveTestCasesOutcome> {
-        let RetrieveFullTestCases {
-            targets,
-            timeout,
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
-            shell,
-            credentials:
-                AtcoderRetrieveFullTestCasesCredentials {
-                    username_and_password,
-                    dropbox_access_token,
-                },
+            full,
         } = args;
 
         let AtcoderRetrieveTestCasesTargets { contest, problems } = targets;
@@ -330,8 +279,6 @@ impl<
             .shell(shell)
             .build()?;
 
-        let access_token = dropbox_access_token()?;
-
         let mut outcome = retrieve_sample_test_cases(
             &mut sess,
             username_and_password,
@@ -339,22 +286,31 @@ impl<
             problems.as_ref(),
         )?;
 
-        for problem in &mut outcome.problems {
-            let mut retrieve = |dir_file_name: &'static str| -> anyhow::Result<_> {
-                let path = format!("/{}/{}/{}", contest, problem.slug, dir_file_name);
-                let ListFolder { entries } = list_folder(&mut sess, &access_token, &path)?;
-                retrieve_files(&mut sess, &access_token, &path, &entries)
-            };
+        if let Some(RetrieveFullTestCases {
+            credentials:
+                AtcoderRetrieveFullTestCasesCredentials {
+                    dropbox_access_token,
+                },
+        }) = full
+        {
+            for problem in &mut outcome.problems {
+                let mut retrieve = |dir_file_name: &'static str| -> anyhow::Result<_> {
+                    let path = format!("/{}/{}/{}", contest, problem.slug, dir_file_name);
+                    let ListFolder { entries } =
+                        list_folder(&mut sess, &dropbox_access_token, &path)?;
+                    retrieve_files(&mut sess, &dropbox_access_token, &path, &entries)
+                };
 
-            let (in_contents, mut out_contents) = (retrieve("in")?, retrieve("out")?);
+                let (in_contents, mut out_contents) = (retrieve("in")?, retrieve("out")?);
 
-            problem.text_files = in_contents
-                .into_iter()
-                .map(|(name, r#in)| {
-                    let out = out_contents.shift_remove(&name);
-                    (name, RetrieveTestCasesOutcomeProblemTextFiles { r#in, out })
-                })
-                .collect();
+                problem.text_files = in_contents
+                    .into_iter()
+                    .map(|(name, r#in)| {
+                        let out = out_contents.shift_remove(&name);
+                        (name, RetrieveTestCasesOutcomeProblemTextFiles { r#in, out })
+                    })
+                    .collect();
+            }
         }
 
         return Ok(outcome);
@@ -791,12 +747,8 @@ pub struct AtcoderRetrieveSampleTestCasesCredentials<F: FnMut() -> anyhow::Resul
 }
 
 #[derive(Debug)]
-pub struct AtcoderRetrieveFullTestCasesCredentials<
-    F1: FnMut() -> anyhow::Result<(String, String)>,
-    F2: FnOnce() -> anyhow::Result<String>,
-> {
-    pub username_and_password: F1,
-    pub dropbox_access_token: F2,
+pub struct AtcoderRetrieveFullTestCasesCredentials {
+    pub dropbox_access_token: String,
 }
 
 #[derive(Debug)]

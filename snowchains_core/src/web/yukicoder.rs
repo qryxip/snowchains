@@ -3,7 +3,7 @@ use crate::{
     web::{
         yukicoder::api::SessionMutExt as _, CaseConverted, Exec, Platform, PlatformVariant,
         ResponseExt as _, RetrieveFullTestCases, RetrieveLanguages, RetrieveLanguagesOutcome,
-        RetrieveSampleTestCases, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeContest,
+        RetrieveTestCases, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeContest,
         RetrieveTestCasesOutcomeProblem, RetrieveTestCasesOutcomeProblemTextFiles, SessionBuilder,
         SessionMut, Shell, Submit, SubmitOutcome, UpperCase,
     },
@@ -65,60 +65,36 @@ impl<S: Shell> Exec<RetrieveLanguages<(), (), S, ()>> for Yukicoder {
     }
 }
 
-impl<S: Shell> Exec<RetrieveSampleTestCases<YukicoderRetrieveTestCasesTargets, (), S, ()>>
-    for Yukicoder
-{
-    type Output = RetrieveTestCasesOutcome;
-
-    fn exec(
-        args: RetrieveSampleTestCases<YukicoderRetrieveTestCasesTargets, (), S, ()>,
-    ) -> anyhow::Result<RetrieveTestCasesOutcome> {
-        let RetrieveSampleTestCases {
-            targets,
-            timeout,
-            cookies: (),
-            shell,
-            credentials: (),
-        } = args;
-
-        let sess = SessionBuilder::new()
-            .timeout(timeout)
-            .shell(shell)
-            .build()?;
-
-        retrieve_samples(sess, targets)
-    }
-}
-
-impl<S: Shell, F: FnOnce() -> anyhow::Result<String>>
+impl<S: Shell>
     Exec<
-        RetrieveFullTestCases<
+        RetrieveTestCases<
             YukicoderRetrieveTestCasesTargets,
             (),
             S,
-            YukicoderRetrieveFullTestCasesCredentials<F>,
+            (),
+            YukicoderRetrieveFullTestCasesCredentials,
         >,
     > for Yukicoder
 {
     type Output = RetrieveTestCasesOutcome;
 
     fn exec(
-        args: RetrieveFullTestCases<
+        args: RetrieveTestCases<
             YukicoderRetrieveTestCasesTargets,
             (),
             S,
-            YukicoderRetrieveFullTestCasesCredentials<F>,
+            (),
+            YukicoderRetrieveFullTestCasesCredentials,
         >,
     ) -> anyhow::Result<RetrieveTestCasesOutcome> {
-        let RetrieveFullTestCases {
+        let RetrieveTestCases {
             targets,
             timeout,
             cookies: (),
             shell,
-            credentials: YukicoderRetrieveFullTestCasesCredentials { api_key },
+            credentials: (),
+            full,
         } = args;
-
-        let api_key = api_key()?;
 
         let mut sess = SessionBuilder::new()
             .timeout(timeout)
@@ -127,60 +103,65 @@ impl<S: Shell, F: FnOnce() -> anyhow::Result<String>>
 
         let mut outcome = retrieve_samples(&mut sess, targets)?;
 
-        for outcome_problem in &mut outcome.problems {
-            let problem_id = outcome_problem
-                .screen_name
-                .parse()
-                .expect("should be integer");
+        if let Some(RetrieveFullTestCases {
+            credentials: YukicoderRetrieveFullTestCasesCredentials { api_key },
+        }) = full
+        {
+            for outcome_problem in &mut outcome.problems {
+                let problem_id = outcome_problem
+                    .screen_name
+                    .parse()
+                    .expect("should be integer");
 
-            let in_file_names =
-                sess.get_test_case_files_by_problem_id(&api_key, problem_id, api::Which::In)?;
+                let in_file_names =
+                    sess.get_test_case_files_by_problem_id(&api_key, problem_id, api::Which::In)?;
 
-            let in_contents = super::download_with_progress(
-                sess.shell.progress_draw_target(),
-                in_file_names
-                    .iter()
-                    .map(|file_name| {
-                        let req = sess.get_test_case_file_by_problem_id(
-                            &api_key,
-                            problem_id,
-                            api::Which::In,
-                            file_name,
-                        )?;
-                        Ok((format!("in/{}", file_name), req))
-                    })
-                    .collect::<Result<_, url::ParseError>>()?,
-            )?;
+                let in_contents = super::download_with_progress(
+                    sess.shell.progress_draw_target(),
+                    in_file_names
+                        .iter()
+                        .map(|file_name| {
+                            let req = sess.get_test_case_file_by_problem_id(
+                                &api_key,
+                                problem_id,
+                                api::Which::In,
+                                file_name,
+                            )?;
+                            Ok((format!("in/{}", file_name), req))
+                        })
+                        .collect::<Result<_, url::ParseError>>()?,
+                )?;
 
-            let out_file_names =
-                sess.get_test_case_files_by_problem_id(&api_key, problem_id, api::Which::Out)?;
+                let out_file_names =
+                    sess.get_test_case_files_by_problem_id(&api_key, problem_id, api::Which::Out)?;
 
-            let out_contents = super::download_with_progress(
-                sess.shell.progress_draw_target(),
-                out_file_names
-                    .iter()
-                    .map(|file_name| {
-                        let req = sess.get_test_case_file_by_problem_id(
-                            &api_key,
-                            problem_id,
-                            api::Which::Out,
-                            file_name,
-                        )?;
-                        Ok((format!("out/{}", file_name), req))
-                    })
-                    .collect::<Result<_, url::ParseError>>()?,
-            )?;
+                let out_contents = super::download_with_progress(
+                    sess.shell.progress_draw_target(),
+                    out_file_names
+                        .iter()
+                        .map(|file_name| {
+                            let req = sess.get_test_case_file_by_problem_id(
+                                &api_key,
+                                problem_id,
+                                api::Which::Out,
+                                file_name,
+                            )?;
+                            Ok((format!("out/{}", file_name), req))
+                        })
+                        .collect::<Result<_, url::ParseError>>()?,
+                )?;
 
-            for (name, r#in) in in_file_names.into_iter().zip_eq(in_contents) {
-                outcome_problem.text_files.insert(
-                    name,
-                    RetrieveTestCasesOutcomeProblemTextFiles { r#in, out: None },
-                );
-            }
+                for (name, r#in) in in_file_names.into_iter().zip_eq(in_contents) {
+                    outcome_problem.text_files.insert(
+                        name,
+                        RetrieveTestCasesOutcomeProblemTextFiles { r#in, out: None },
+                    );
+                }
 
-            for (name, out) in out_file_names.into_iter().zip_eq(out_contents) {
-                if let Some(text_files) = outcome_problem.text_files.get_mut(&name) {
-                    text_files.out = Some(out);
+                for (name, out) in out_file_names.into_iter().zip_eq(out_contents) {
+                    if let Some(text_files) = outcome_problem.text_files.get_mut(&name) {
+                        text_files.out = Some(out);
+                    }
                 }
             }
         }
@@ -267,8 +248,8 @@ pub enum YukicoderRetrieveTestCasesTargets {
 }
 
 #[derive(Debug)]
-pub struct YukicoderRetrieveFullTestCasesCredentials<F: FnOnce() -> anyhow::Result<String>> {
-    pub api_key: F,
+pub struct YukicoderRetrieveFullTestCasesCredentials {
+    pub api_key: String,
 }
 
 #[derive(Debug)]

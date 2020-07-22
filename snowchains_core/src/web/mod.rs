@@ -207,19 +207,16 @@ pub struct RetrieveLanguagesOutcome {
     pub names_by_id: IndexMap<String, String>,
 }
 
-pub struct RetrieveSampleTestCases<T, K, S, R> {
+pub struct RetrieveTestCases<T, K, S, R1, R2> {
     pub targets: T,
     pub timeout: Option<Duration>,
     pub cookies: K,
     pub shell: S,
-    pub credentials: R,
+    pub credentials: R1,
+    pub full: Option<RetrieveFullTestCases<R2>>,
 }
 
-pub struct RetrieveFullTestCases<T, K, S, R> {
-    pub targets: T,
-    pub timeout: Option<Duration>,
-    pub cookies: K,
-    pub shell: S,
+pub struct RetrieveFullTestCases<R> {
     pub credentials: R,
 }
 
