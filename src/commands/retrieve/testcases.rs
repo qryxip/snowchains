@@ -10,8 +10,8 @@ use snowchains_core::{
     web::{
         Atcoder, AtcoderRetrieveSampleTestCasesCredentials, AtcoderRetrieveTestCasesTargets,
         Codeforces, CodeforcesRetrieveSampleTestCasesCredentials,
-        CodeforcesRetrieveTestCasesTargets, Cookies, PlatformVariant, RetrieveSampleTestCases,
-        Yukicoder, YukicoderRetrieveTestCasesTargets,
+        CodeforcesRetrieveTestCasesTargets, Cookies, PlatformVariant, RetrieveTestCases, Yukicoder,
+        YukicoderRetrieveTestCasesTargets,
     },
 };
 use std::{
@@ -180,12 +180,13 @@ pub(crate) fn run(
                 username_and_password,
             };
 
-            Atcoder::exec(RetrieveSampleTestCases {
+            Atcoder::exec(RetrieveTestCases {
                 targets,
                 timeout,
                 cookies,
                 shell,
                 credentials,
+                full: None,
             })
         }
         PlatformVariant::Codeforces => {
@@ -200,12 +201,13 @@ pub(crate) fn run(
                 username_and_password,
             };
 
-            Codeforces::exec(RetrieveSampleTestCases {
+            Codeforces::exec(RetrieveTestCases {
                 targets,
                 timeout,
                 cookies,
                 shell,
                 credentials,
+                full: None,
             })
         }
         PlatformVariant::Yukicoder => {
@@ -223,15 +225,14 @@ pub(crate) fn run(
                     .with_context(|| "`problem`s for yukicoder must be unsigned integer")?;
                 YukicoderRetrieveTestCasesTargets::ProblemNos(nos)
             };
-            let cookies = ();
-            let credentials = ();
 
-            Yukicoder::exec(RetrieveSampleTestCases {
+            Yukicoder::exec(RetrieveTestCases {
                 targets,
                 timeout,
-                cookies,
+                cookies: (),
                 shell,
-                credentials,
+                credentials: (),
+                full: None,
             })
         }
     }?;
