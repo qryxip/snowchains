@@ -74,7 +74,7 @@ pub(crate) fn run(
     };
 
     let stderr = RefCell::new(stderr);
-    let shell = Shell::new(&stderr, || unreachable!(), false);
+    let shell = Shell::new(&stderr, false);
 
     let username_and_password = || -> _ {
         let mut stderr = stderr.borrow_mut();
