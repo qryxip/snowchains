@@ -1,5 +1,5 @@
 use crate::config;
-use anyhow::{bail, ensure};
+use anyhow::bail;
 use std::{ffi::OsString, io::Write as _};
 use structopt::StructOpt;
 
