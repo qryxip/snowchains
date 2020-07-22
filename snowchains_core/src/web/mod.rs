@@ -95,7 +95,7 @@ use std::{
     convert::TryInto,
     fmt,
     hash::Hash,
-    io::{self, Write as _},
+    io::Write as _,
     marker::PhantomData,
     ops::{Deref, RangeFull, RangeInclusive},
     str,
@@ -286,10 +286,6 @@ pub trait Shell {
         Ok(())
     }
 
-    fn wait_for_enter_key(&mut self, _: &'static str) -> anyhow::Result<()> {
-        Ok(())
-    }
-
     fn on_request(&mut self, _: &reqwest::blocking::Request) -> anyhow::Result<()> {
         Ok(())
     }
@@ -361,13 +357,6 @@ impl Shell for StandardStreamShell {
         self.wtr.reset()?;
         writeln!(self.wtr, " {}", message)?;
         self.wtr.flush().map_err(Into::into)
-    }
-
-    fn wait_for_enter_key(&mut self, prompt: &'static str) -> anyhow::Result<()> {
-        self.wtr.write_all(prompt.as_ref())?;
-        self.wtr.flush()?;
-        io::stdin().read_line(&mut "".to_owned())?;
-        Ok(())
     }
 
     fn on_request(&mut self, req: &reqwest::blocking::Request) -> anyhow::Result<()> {

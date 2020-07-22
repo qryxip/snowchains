@@ -129,14 +129,6 @@ impl<R: BufRead> TtyOrPiped<R> {
             Self::Piped(r) => rpassword::read_password_with_reader(Some(r)),
         }
     }
-
-    fn wait_for_enter_key(&mut self) -> io::Result<()> {
-        match self {
-            Self::Tty => io::stdin().read_line(&mut "".to_owned()),
-            Self::Piped(r) => r.read_line(&mut "".to_owned()),
-        }
-        .map(|_| ())
-    }
 }
 
 pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(

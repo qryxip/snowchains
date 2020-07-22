@@ -1,21 +1,16 @@
 use indicatif::ProgressDrawTarget;
 use snowchains_core::web::StatusCodeColor;
-use std::{cell::RefCell, fmt, io};
+use std::{cell::RefCell, fmt};
 use termcolor::{Color, ColorSpec, WriteColor};
 
-pub(crate) struct Shell<'a, W, F> {
+pub(crate) struct Shell<'a, W> {
     wtr: &'a RefCell<W>,
-    wait_for_enter_key: F,
     draw_progress: bool,
 }
 
-impl<'a, W: WriteColor, F: FnMut() -> io::Result<()>> self::Shell<'a, W, F> {
-    pub(crate) fn new(wtr: &'a RefCell<W>, wait_for_enter_key: F, draw_progress: bool) -> Self {
-        Self {
-            wtr,
-            wait_for_enter_key,
-            draw_progress,
-        }
+impl<'a, W: WriteColor> self::Shell<'a, W> {
+    pub(crate) fn new(wtr: &'a RefCell<W>, draw_progress: bool) -> Self {
+        Self { wtr, draw_progress }
     }
 
     pub(crate) fn info(&mut self, message: impl fmt::Display) -> anyhow::Result<()> {
@@ -36,9 +31,7 @@ impl<'a, W: WriteColor, F: FnMut() -> io::Result<()>> self::Shell<'a, W, F> {
     }
 }
 
-impl<'a, W: WriteColor, F: FnMut() -> io::Result<()>> snowchains_core::web::Shell
-    for self::Shell<'a, W, F>
-{
+impl<'a, W: WriteColor> snowchains_core::web::Shell for self::Shell<'a, W> {
     fn progress_draw_target(&self) -> ProgressDrawTarget {
         let wtr = self.wtr.borrow();
 
@@ -55,14 +48,6 @@ impl<'a, W: WriteColor, F: FnMut() -> io::Result<()>> snowchains_core::web::Shel
 
     fn warn<T: fmt::Display>(&mut self, message: T) -> anyhow::Result<()> {
         self.warn(message)
-    }
-
-    fn wait_for_enter_key(&mut self, prompt: &'static str) -> anyhow::Result<()> {
-        let mut wtr = self.wtr.borrow_mut();
-
-        write!(wtr, "{}", prompt)?;
-        wtr.flush()?;
-        (self.wait_for_enter_key)().map_err(Into::into)
     }
 
     fn on_request(&mut self, req: &reqwest::blocking::Request) -> anyhow::Result<()> {
