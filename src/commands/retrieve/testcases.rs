@@ -3,21 +3,21 @@ use crate::{
     web::{CaseConversions, LazyLockedFile},
 };
 use anyhow::Context as _;
-use either::Either;
+use maplit::btreeset;
 use serde::Serialize;
 use snowchains_core::{
     testsuite::{Additional, BatchTestSuite, TestSuite},
     web::{
-        Atcoder, AtcoderRetrieveSampleTestCasesCredentials, Codeforces,
-        CodeforcesRetrieveSampleTestCasesCredentials, Cookies, PlatformVariant,
-        RetrieveSampleTestCases, Yukicoder,
+        Atcoder, AtcoderRetrieveSampleTestCasesCredentials, AtcoderRetrieveTestCasesTargets,
+        Codeforces, CodeforcesRetrieveSampleTestCasesCredentials,
+        CodeforcesRetrieveTestCasesTargets, Cookies, PlatformVariant, RetrieveSampleTestCases,
+        Yukicoder, YukicoderRetrieveTestCasesTargets,
     },
 };
 use std::{
     cell::RefCell,
     io::{BufRead, Write},
     path::PathBuf,
-    slice,
 };
 use structopt::StructOpt;
 use strum::VariantNames as _;
@@ -57,7 +57,7 @@ pub struct OptRetrieveTestcases {
 
     /// Problem indexes (e.g. "a", "b", "c")
     #[structopt(short, long, value_name("STRING"))]
-    pub problems: Vec<String>,
+    pub problems: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -133,10 +133,10 @@ pub(crate) fn run(
     let contest = contest.or(detected_target.contest);
     let contest = contest.as_deref();
 
-    let problems = match (&*problems, &detected_target.problem) {
+    let problems = match (problems.as_deref().unwrap_or(&[]), &detected_target.problem) {
         ([], None) => None,
-        ([], Some(problem)) => Some(slice::from_ref(problem)),
-        (problems, _) => Some(problems),
+        ([], Some(problem)) => Some(btreeset!(problem.clone())),
+        (problems, _) => Some(problems.iter().cloned().collect()),
     };
 
     let timeout = Some(crate::web::SESSION_TIMEOUT);
@@ -171,8 +171,10 @@ pub(crate) fn run(
     let outcome = match service {
         PlatformVariant::Atcoder => {
             let targets = {
-                let contest = contest.with_context(|| "`contest` is required for AtCoder")?;
-                (contest, problems)
+                let contest = contest
+                    .with_context(|| "`contest` is required for AtCoder")?
+                    .to_owned();
+                AtcoderRetrieveTestCasesTargets { contest, problems }
             };
             let credentials = AtcoderRetrieveSampleTestCasesCredentials {
                 username_and_password,
@@ -192,7 +194,7 @@ pub(crate) fn run(
                     .with_context(|| "`contest` is required for Codeforces")?
                     .parse()
                     .with_context(|| "`contest` for Codeforces must be 64-bit unsigned integer")?;
-                (contest, problems)
+                CodeforcesRetrieveTestCasesTargets { contest, problems }
             };
             let credentials = CodeforcesRetrieveSampleTestCasesCredentials {
                 username_and_password,
@@ -208,19 +210,18 @@ pub(crate) fn run(
         }
         PlatformVariant::Yukicoder => {
             let targets = if let Some(contest) = contest {
-                Either::Right((contest, problems))
+                let contest = contest
+                    .parse()
+                    .with_context(|| "`contest` for yukicoder must be 64-bit unsigned integer")?;
+                YukicoderRetrieveTestCasesTargets::Contest(contest, problems)
             } else {
                 let nos = problems
                     .with_context(|| "`contest` or `problem`s are required for yukicoder")?
                     .iter()
                     .map(|s| s.parse())
-                    .collect::<Result<Vec<_>, _>>()
+                    .collect::<Result<_, _>>()
                     .with_context(|| "`problem`s for yukicoder must be unsigned integer")?;
-                Either::Left(nos)
-            };
-            let targets = match &targets {
-                Either::Left(nos) => Either::Left(&**nos),
-                Either::Right((contest, problems)) => Either::Right((contest, *problems)),
+                YukicoderRetrieveTestCasesTargets::ProblemNos(nos)
             };
             let cookies = ();
             let credentials = ();
@@ -263,7 +264,7 @@ pub(crate) fn run(
             .join(".snowchains")
             .join("tests")
             .join(service.to_kebab_case_str())
-            .join(contest.unwrap_or(""))
+            .join(contest.as_deref().unwrap_or(""))
             .join(&slug.kebab)
             .with_extension("yml");
 

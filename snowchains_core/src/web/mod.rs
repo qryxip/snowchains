@@ -59,16 +59,21 @@ mod yukicoder;
 
 pub use crate::web::{
     atcoder::{
-        Atcoder, AtcoderLoginCredentials, AtcoderParticipateCredentials,
+        Atcoder, AtcoderLoginCredentials, AtcoderParticipateCredentials, AtcoderParticipateTarget,
         AtcoderRetrieveFullTestCasesCredentials, AtcoderRetrieveLanguagesCredentials,
-        AtcoderRetrieveSampleTestCasesCredentials, AtcoderSubmitCredentials,
+        AtcoderRetrieveLanguagesTarget, AtcoderRetrieveSampleTestCasesCredentials,
+        AtcoderRetrieveTestCasesTargets, AtcoderSubmitCredentials, AtcoderSubmitTarget,
     },
     codeforces::{
         Codeforces, CodeforcesLoginCredentials, CodeforcesParticipateCredentials,
-        CodeforcesRetrieveLanguagesCredentials, CodeforcesRetrieveSampleTestCasesCredentials,
-        CodeforcesSubmitCredentials,
+        CodeforcesParticipateTarget, CodeforcesRetrieveLanguagesCredentials,
+        CodeforcesRetrieveLanguagesTarget, CodeforcesRetrieveSampleTestCasesCredentials,
+        CodeforcesRetrieveTestCasesTargets, CodeforcesSubmitCredentials, CodeforcesSubmitTarget,
     },
-    yukicoder::{Yukicoder, YukicoderRetrieveFullTestCasesCredentials, YukicoderSubmitCredentials},
+    yukicoder::{
+        Yukicoder, YukicoderRetrieveFullTestCasesCredentials, YukicoderRetrieveTestCasesTargets,
+        YukicoderSubmitCredentials, YukicoderSubmitTarget,
+    },
 };
 
 use crate::testsuite::TestSuite;

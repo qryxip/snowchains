@@ -1,8 +1,7 @@
 use anyhow::Context as _;
-use either::Either;
 use snowchains_core::web::{
     RetrieveFullTestCases, RetrieveSampleTestCases, StandardStreamShell, Yukicoder,
-    YukicoderRetrieveFullTestCasesCredentials,
+    YukicoderRetrieveFullTestCasesCredentials, YukicoderRetrieveTestCasesTargets,
 };
 use std::{env, str};
 use structopt::StructOpt;
@@ -55,21 +54,19 @@ fn main() -> anyhow::Result<()> {
 
     let targets = match (contest, problems) {
         (None, None) => unreachable!(),
-        (None, Some(problem_nos)) => Either::Left(
+        (None, Some(problem_nos)) => YukicoderRetrieveTestCasesTargets::ProblemNos(
             problem_nos
                 .iter()
                 .map(|p| p.parse::<u64>())
-                .collect::<Result<Vec<_>, _>>()
-                .with_context(|| "Problem numbers be unsigned integer")?,
+                .collect::<Result<_, _>>()
+                .with_context(|| "Problem numbers must be integer")?,
         ),
-        (Some(contest), problem_slugs) => Either::Right((contest, problem_slugs)),
-    };
-
-    let targets = match &targets {
-        Either::Left(problem_nos) => Either::Left(&**problem_nos),
-        Either::Right((contest, problem_slugs)) => {
-            Either::Right((contest, problem_slugs.as_deref()))
-        }
+        (Some(contest), problem_indexes) => YukicoderRetrieveTestCasesTargets::Contest(
+            contest
+                .parse()
+                .with_context(|| "Contest IDs for yukicoder must be integer")?,
+            problem_indexes.map(|ps| ps.into_iter().collect()),
+        ),
     };
 
     let timeout = timeout.map(Into::into);

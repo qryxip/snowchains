@@ -1,7 +1,8 @@
 use anyhow::anyhow;
 use cookie_store::CookieStore;
 use snowchains_core::web::{
-    Atcoder, AtcoderParticipateCredentials, Cookies, Participate, StandardStreamShell,
+    Atcoder, AtcoderParticipateCredentials, AtcoderParticipateTarget, Cookies, Participate,
+    StandardStreamShell,
 };
 use std::{env, str};
 use structopt::StructOpt;
@@ -41,7 +42,7 @@ fn main() -> anyhow::Result<()> {
     let mut cookies_jsonl = vec![];
 
     let outcome = Atcoder::exec(Participate {
-        target: contest,
+        target: AtcoderParticipateTarget { contest },
         timeout: timeout.map(Into::into),
         cookies: Cookies {
             cookie_store: CookieStore::default(),

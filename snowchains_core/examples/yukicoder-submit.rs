@@ -1,6 +1,7 @@
 use anyhow::Context as _;
-use either::Either;
-use snowchains_core::web::{StandardStreamShell, Submit, Yukicoder, YukicoderSubmitCredentials};
+use snowchains_core::web::{
+    StandardStreamShell, Submit, Yukicoder, YukicoderSubmitCredentials, YukicoderSubmitTarget,
+};
 use std::{env, fs, path::PathBuf, str};
 use structopt::StructOpt;
 use strum::{EnumString, EnumVariantNames, VariantNames as _};
@@ -20,7 +21,7 @@ struct Opt {
     credentials: CredentialsVia,
 
     #[structopt(long, value_name("CONTEST_ID"))]
-    contest: Option<String>,
+    contest: Option<u64>,
 
     problem_no_or_slug: String,
 
@@ -48,9 +49,13 @@ fn main() -> anyhow::Result<()> {
 
     let outcome = Yukicoder::exec(Submit {
         target: if let Some(contest) = contest {
-            Either::Right((contest, problem_no_or_slug))
+            YukicoderSubmitTarget::Contest(contest, problem_no_or_slug)
         } else {
-            Either::Left(problem_no_or_slug)
+            YukicoderSubmitTarget::ProblemNo(
+                problem_no_or_slug
+                    .parse()
+                    .with_context(|| "Problem numbers must be integer")?,
+            )
         },
         language_id,
         code: fs::read_to_string(&file)

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context as _};
 use cookie_store::CookieStore;
 use snowchains_core::web::{
-    Atcoder, AtcoderSubmitCredentials, Cookies, StandardStreamShell, Submit,
+    Atcoder, AtcoderSubmitCredentials, AtcoderSubmitTarget, Cookies, StandardStreamShell, Submit,
 };
 use std::{env, fs, path::PathBuf, str};
 use structopt::StructOpt;
@@ -54,7 +54,7 @@ fn main() -> anyhow::Result<()> {
     let mut cookies_jsonl = vec![];
 
     let outcome = Atcoder::exec(Submit {
-        target: (contest, problem),
+        target: AtcoderSubmitTarget { contest, problem },
         language_id,
         code: fs::read_to_string(&file)
             .with_context(|| format!("Failed to read {}", file.display()))?,

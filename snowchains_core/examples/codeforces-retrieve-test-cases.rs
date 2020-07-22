@@ -1,8 +1,8 @@
 use anyhow::anyhow;
 use cookie_store::CookieStore;
 use snowchains_core::web::{
-    Codeforces, CodeforcesRetrieveSampleTestCasesCredentials, Cookies, RetrieveSampleTestCases,
-    StandardStreamShell,
+    Codeforces, CodeforcesRetrieveSampleTestCasesCredentials, CodeforcesRetrieveTestCasesTargets,
+    Cookies, RetrieveSampleTestCases, StandardStreamShell,
 };
 use std::{env, str};
 use structopt::StructOpt;
@@ -46,7 +46,10 @@ fn main() -> anyhow::Result<()> {
     let mut cookies_jsonl = vec![];
 
     let outcome = Codeforces::exec(RetrieveSampleTestCases {
-        targets: (contest, problems.as_deref()),
+        targets: CodeforcesRetrieveTestCasesTargets {
+            contest,
+            problems: problems.map(|ps| ps.into_iter().collect()),
+        },
         timeout: timeout.map(Into::into),
         cookies: Cookies {
             cookie_store: CookieStore::default(),
