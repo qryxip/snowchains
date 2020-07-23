@@ -4,7 +4,7 @@ use crate::{
         yukicoder::api::SessionMutExt as _, CaseConverted, Exec, Platform, PlatformVariant,
         ResponseExt as _, RetrieveFullTestCases, RetrieveLanguages, RetrieveLanguagesOutcome,
         RetrieveTestCases, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeContest,
-        RetrieveTestCasesOutcomeProblem, RetrieveTestCasesOutcomeProblemTextFiles, SessionBuilder,
+        RetrieveTestCasesOutcomeProblem, RetrieveTestCasesOutcomeProblemTextFiles, Session,
         SessionMut, Shell, Submit, SubmitOutcome, UpperCase,
     },
 };
@@ -37,7 +37,7 @@ impl Yukicoder {
 }
 
 impl Platform for Yukicoder {
-    type Cookies = ();
+    type CookieStorage = ();
     type LoginCredentials = Infallible;
     type ParticipateTarget = Infallible;
     type ParticipateCredentials = Infallible;
@@ -59,15 +59,12 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Yukicoder {
         let RetrieveLanguages {
             target: (),
             credentials: (),
-            cookies: (),
+            cookie_storage: (),
             timeout,
             shell,
         } = args;
 
-        let names_by_id = SessionBuilder::new()
-            .timeout(timeout)
-            .shell(shell)
-            .build()?
+        let names_by_id = Session::new(timeout, None, shell)?
             .get_available_language()?
             .into_iter()
             .map(|api::Language { id, name, ver }| (id, format!("{} ({})", name, ver)))
@@ -85,15 +82,12 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Yukicoder {
             targets,
             credentials: (),
             full,
-            cookies: (),
+            cookie_storage: (),
             timeout,
             shell,
         } = args;
 
-        let mut sess = SessionBuilder::new()
-            .timeout(timeout)
-            .shell(shell)
-            .build()?;
+        let mut sess = Session::new(timeout, None, shell)?;
 
         let mut outcome = retrieve_samples(&mut sess, targets)?;
 
@@ -174,7 +168,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
             language_id,
             code,
             watch_submission,
-            cookies: (),
+            cookie_storage: (),
             timeout,
             shell,
         } = args;
@@ -183,10 +177,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
             todo!("`watch_submissions` in yukicoder is not yet supported");
         }
 
-        let mut sess = SessionBuilder::new()
-            .timeout(timeout)
-            .shell(shell)
-            .build()?;
+        let mut sess = Session::new(timeout, None, shell)?;
 
         let problem_id = match target {
             YukicoderSubmitTarget::ProblemNo(problem_no) => {

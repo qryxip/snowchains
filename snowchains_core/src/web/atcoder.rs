@@ -4,11 +4,11 @@ use crate::{
         TestSuite,
     },
     web::{
-        CaseConverted, Cookies, Exec, Login, LoginOutcome, LowerCase, Participate,
+        CaseConverted, CookieStorage, Exec, Login, LoginOutcome, LowerCase, Participate,
         ParticipateOutcome, Platform, PlatformVariant, ResponseExt as _, RetrieveFullTestCases,
         RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveTestCases, RetrieveTestCasesOutcome,
         RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem,
-        RetrieveTestCasesOutcomeProblemTextFiles, SessionBuilder, SessionMut, Shell, Submit,
+        RetrieveTestCasesOutcomeProblemTextFiles, Session, SessionMut, Shell, Submit,
         SubmitOutcome, UpperCase,
     },
 };
@@ -60,7 +60,7 @@ impl Atcoder<'_> {
 }
 
 impl<'closures> Platform for Atcoder<'closures> {
-    type Cookies = Cookies<'closures>;
+    type CookieStorage = CookieStorage;
     type LoginCredentials = AtcoderLoginCredentials<'closures>;
     type ParticipateTarget = AtcoderParticipateTarget;
     type ParticipateCredentials = AtcoderParticipateCredentials<'closures>;
@@ -84,21 +84,12 @@ impl<S: Shell> Exec<Login<Self, S>> for Atcoder<'_> {
                 AtcoderLoginCredentials {
                     username_and_password,
                 },
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
+            cookie_storage,
             timeout,
             shell,
         } = args;
 
-        let mut sess = SessionBuilder::new()
-            .timeout(timeout)
-            .cookie_store(Some(cookie_store))
-            .on_update_cookie_store(on_update_cookie_store)
-            .shell(shell)
-            .build()?;
+        let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
         if check_logged_in(&mut sess)? {
             Ok(LoginOutcome::AlreadyLoggedIn)
@@ -119,23 +110,13 @@ impl<S: Shell> Exec<Participate<Self, S>> for Atcoder<'_> {
                 AtcoderParticipateCredentials {
                     username_and_password,
                 },
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
+            cookie_storage,
             timeout,
             shell,
         } = args;
 
         let contest = CaseConverted::new(contest);
-        let sess = SessionBuilder::new()
-            .timeout(timeout)
-            .cookie_store(Some(cookie_store))
-            .on_update_cookie_store(on_update_cookie_store)
-            .shell(shell)
-            .build()?;
-
+        let sess = Session::new(timeout, Some(cookie_storage), shell)?;
         participate(sess, username_and_password, &contest, true)
     }
 }
@@ -150,11 +131,7 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Atcoder<'_> {
                 AtcoderRetrieveLanguagesCredentials {
                     username_and_password,
                 },
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
+            cookie_storage,
             timeout,
             shell,
         } = args;
@@ -171,12 +148,7 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Atcoder<'_> {
             (CaseConverted::<LowerCase>::new("practice"), None)
         };
 
-        let mut sess = SessionBuilder::new()
-            .timeout(timeout)
-            .cookie_store(Some(cookie_store))
-            .on_update_cookie_store(on_update_cookie_store)
-            .shell(shell)
-            .build()?;
+        let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
         login(&mut sess, username_and_password)?;
 
@@ -214,23 +186,14 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
                     username_and_password,
                 },
             full,
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
+            cookie_storage,
             timeout,
             shell,
         } = args;
 
         let AtcoderRetrieveTestCasesTargets { contest, problems } = targets;
 
-        let mut sess = SessionBuilder::new()
-            .timeout(timeout)
-            .cookie_store(Some(cookie_store))
-            .on_update_cookie_store(on_update_cookie_store)
-            .shell(shell)
-            .build()?;
+        let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
         let mut outcome = retrieve_sample_test_cases(
             &mut sess,
@@ -358,11 +321,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
             language_id,
             code,
             watch_submission,
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
+            cookie_storage,
             timeout,
             shell,
         } = args;
@@ -370,12 +329,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
         let contest = CaseConverted::<LowerCase>::new(contest);
         let problem = CaseConverted::<UpperCase>::new(problem);
 
-        let mut sess = SessionBuilder::new()
-            .timeout(timeout)
-            .cookie_store(Some(cookie_store))
-            .on_update_cookie_store(on_update_cookie_store)
-            .shell(shell)
-            .build()?;
+        let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
         let tasks_page = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
 

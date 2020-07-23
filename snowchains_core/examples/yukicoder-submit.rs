@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
         code: fs::read_to_string(&file)
             .with_context(|| format!("Failed to read {}", file.display()))?,
         watch_submission: false,
-        cookies: (),
+        cookie_storage: (),
         timeout: timeout.map(Into::into),
         shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
             ColorChoice::Auto
