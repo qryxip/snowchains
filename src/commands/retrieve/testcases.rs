@@ -124,13 +124,7 @@ pub(crate) fn run(
 
     let service = service
         .map(Ok)
-        .or_else(|| {
-            detected_target.service.as_ref().map(|s| {
-                s.parse().with_context(|| {
-                    "Specified invalid `service` by `detectServiceFromRelativePathSegments`"
-                })
-            })
-        })
+        .or_else(|| detected_target.parse_service().transpose())
         .with_context(|| "`service` is not specified")??;
 
     let contest = contest.or(detected_target.contest);
