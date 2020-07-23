@@ -246,7 +246,7 @@ pub struct RetrieveTestCasesOutcomeContest {
 
 #[derive(Debug, Serialize)]
 pub struct RetrieveTestCasesOutcomeProblem {
-    pub slug: String,
+    pub index: String,
     pub url: Url,
     pub screen_name: String,
     pub display_name: String,

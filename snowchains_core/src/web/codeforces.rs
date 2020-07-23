@@ -166,9 +166,9 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
             .html()?
             .extract_problems()?
             .into_iter()
-            .map(|(slug, display_name, url)| {
+            .map(|(index, display_name, url)| {
                 if let Some(problem_indices) = &mut problem_indices {
-                    if !problem_indices.remove(&slug) {
+                    if !problem_indices.remove(&index) {
                         return Ok(None);
                     }
                 }
@@ -181,7 +181,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
                     .extract_test_cases()?;
 
                 Ok(Some(RetrieveTestCasesOutcomeProblem {
-                    slug,
+                    index,
                     url,
                     screen_name: "TODO: problems in Codeforces don't have global identifiers"
                         .to_owned(),
@@ -480,7 +480,7 @@ impl Html {
             .skip(1)
             .map(|tr| {
                 let a1 = tr.select(static_selector!("td.id > a")).next()?;
-                let slug = a1.text().next()?.trim().to_owned();
+                let index = a1.text().next()?.trim().to_owned();
                 let href1 = a1.value().attr("href")?;
 
                 let a2 = tr.select(static_selector!("td > div > div > a")).next()?;
@@ -497,7 +497,7 @@ impl Html {
                     .join(href1)
                     .ok()?;
 
-                Some((slug, display, url))
+                Some((index, display, url))
             })
             .collect::<Option<Vec<_>>>()
             .filter(|ss| !ss.is_empty())

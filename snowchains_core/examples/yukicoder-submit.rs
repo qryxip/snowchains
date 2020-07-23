@@ -23,7 +23,7 @@ struct Opt {
     #[structopt(long, value_name("CONTEST_ID"))]
     contest: Option<u64>,
 
-    problem_no_or_slug: String,
+    problem_no_or_index: String,
 
     language_id: String,
 
@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
         timeout,
         credentials,
         contest,
-        problem_no_or_slug,
+        problem_no_or_index,
         language_id,
         file,
     } = Opt::from_args();
@@ -54,10 +54,10 @@ fn main() -> anyhow::Result<()> {
 
     let outcome = Yukicoder::exec(Submit {
         target: if let Some(contest) = contest {
-            YukicoderSubmitTarget::Contest(contest, problem_no_or_slug)
+            YukicoderSubmitTarget::Contest(contest, problem_no_or_index)
         } else {
             YukicoderSubmitTarget::ProblemNo(
-                problem_no_or_slug
+                problem_no_or_index
                     .parse()
                     .with_context(|| "Problem numbers must be integer")?,
             )
