@@ -1,3 +1,24 @@
+macro_rules! color_spec {
+    ($($tt:tt)*) => {
+        color_spec_inner!(@acc(::termcolor::ColorSpec::new().set_reset(false)), @rest($($tt)*))
+    };
+}
+
+macro_rules! color_spec_inner {
+    (@acc($acc:expr), @rest()) => {
+        $acc
+    };
+    (@acc($acc:expr), @rest(, $($rest:tt)*)) => {
+        color_spec_inner!(@acc($acc), @rest($($rest)*))
+    };
+    (@acc($acc:expr), @rest(bold $($rest:tt)*)) => {
+        color_spec_inner!(@acc($acc.set_bold(true)), @rest($($rest)*))
+    };
+    (@acc($acc:expr), @rest(fg($color:expr) $($rest:tt)*)) => {
+        color_spec_inner!(@acc($acc.set_fg(::std::option::Option::Some($color))), @rest($($rest)*))
+    };
+}
+
 mod commands;
 mod config;
 mod fs;
@@ -8,6 +29,7 @@ pub use crate::commands::{
     init::OptInit,
     login::OptLogin,
     retrieve::{testcases::OptRetrieveTestcases, OptRetrieve},
+    test::OptTest,
     xtask::OptXtask,
 };
 use std::{
@@ -37,6 +59,10 @@ pub enum Opt {
     /// Retrieves data
     #[structopt(author, visible_alias("r"))]
     Retrieve(OptRetrieve),
+
+    /// Test code
+    #[structopt(author, visible_alias("t"))]
+    Test(OptTest),
 
     /// Run a custom subcommand written in the config file
     #[structopt(author, visible_alias("x"), setting = AppSettings::TrailingVarArg)]
@@ -70,7 +96,8 @@ impl Opt {
         match *self {
             Self::Init(OptInit { color, .. })
             | Self::Login(OptLogin { color, .. })
-            | Self::Retrieve(OptRetrieve::Testcases(OptRetrieveTestcases { color, .. })) => color,
+            | Self::Retrieve(OptRetrieve::Testcases(OptRetrieveTestcases { color, .. }))
+            | Self::Test(OptTest { color, .. }) => color,
             Self::Xtask(_) => crate::ColorChoice::Auto,
         }
     }
@@ -90,9 +117,9 @@ pub struct Context<R, W1, W2> {
     pub stdin: TtyOrPiped<R>,
     pub stdout: W1,
     pub stderr: W2,
-    pub stdin_process_redirection: Stdio,
-    pub stdout_process_redirection: Stdio,
-    pub stderr_process_redirection: Stdio,
+    pub stdin_process_redirection: fn() -> Stdio,
+    pub stdout_process_redirection: fn() -> Stdio,
+    pub stderr_process_redirection: fn() -> Stdio,
     pub draw_progress: bool,
 }
 
@@ -139,6 +166,7 @@ pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
         Opt::Init(opt) => commands::init::run(opt, ctx),
         Opt::Login(opt) => commands::login::run(opt, ctx),
         Opt::Retrieve(opt) => commands::retrieve::run(opt, ctx),
+        Opt::Test(opt) => commands::test::run(opt, ctx),
         Opt::Xtask(opt) => commands::xtask::run(opt, ctx),
     }
 }
