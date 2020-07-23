@@ -108,7 +108,7 @@ use unicode_width::UnicodeWidthStr as _;
 use url::Url;
 
 pub trait Platform: Sized {
-    type Cookies;
+    type CookieStorage;
     type LoginCredentials;
     type ParticipateTarget;
     type ParticipateCredentials;
@@ -173,7 +173,7 @@ pub trait Exec<A>: Platform {
 
 pub struct Login<P: Platform, S: Shell> {
     pub credentials: P::LoginCredentials,
-    pub cookies: P::Cookies,
+    pub cookie_storage: P::CookieStorage,
     pub timeout: Option<Duration>,
     pub shell: S,
 }
@@ -193,7 +193,7 @@ impl LoginOutcome {
 pub struct Participate<P: Platform, S: Shell> {
     pub target: P::ParticipateTarget,
     pub credentials: P::ParticipateCredentials,
-    pub cookies: P::Cookies,
+    pub cookie_storage: P::CookieStorage,
     pub timeout: Option<Duration>,
     pub shell: S,
 }
@@ -209,7 +209,7 @@ pub enum ParticipateOutcome {
 pub struct RetrieveLanguages<P: Platform, S: Shell> {
     pub target: P::RetrieveLanguagesTarget,
     pub credentials: P::RetrieveLanguagesCredentials,
-    pub cookies: P::Cookies,
+    pub cookie_storage: P::CookieStorage,
     pub timeout: Option<Duration>,
     pub shell: S,
 }
@@ -223,7 +223,7 @@ pub struct RetrieveTestCases<P: Platform, S: Shell> {
     pub targets: P::RetrieveTestCasesTargets,
     pub credentials: P::RetrieveTestCasesCredentials,
     pub full: Option<RetrieveFullTestCases<P>>,
-    pub cookies: P::Cookies,
+    pub cookie_storage: P::CookieStorage,
     pub timeout: Option<Duration>,
     pub shell: S,
 }
@@ -267,7 +267,7 @@ pub struct Submit<P: Platform, S: Shell> {
     pub language_id: String,
     pub code: String,
     pub watch_submission: bool,
-    pub cookies: P::Cookies,
+    pub cookie_storage: P::CookieStorage,
     pub timeout: Option<Duration>,
     pub shell: S,
 }
@@ -279,9 +279,9 @@ pub struct SubmitOutcome {
     submissions_url: Url,
 }
 
-pub struct Cookies<'closures> {
+pub struct CookieStorage {
     pub cookie_store: CookieStore,
-    pub on_update_cookie_store: &'closures mut dyn FnMut(&CookieStore) -> anyhow::Result<()>,
+    pub on_update: Box<dyn Fn(&CookieStore) -> anyhow::Result<()>>,
 }
 
 pub trait Shell {
@@ -417,73 +417,19 @@ pub enum StatusCodeColor {
     Unknown,
 }
 
-struct Session<S, U> {
+struct Session<S> {
     async_client: reqwest::Client,
     blocking_client: reqwest::blocking::Client,
-    cookie_store: Option<CookieStore>,
-    on_update_cookie_store: U,
+    cookie_storage: Option<CookieStorage>,
     shell: S,
 }
 
-struct SessionBuilder<S, U> {
-    timeout: Option<Duration>,
-    cookie_store: Option<CookieStore>,
-    on_update_cookie_store: U,
-    shell: S,
-}
-
-impl SessionBuilder<SinkShell, fn(&CookieStore) -> anyhow::Result<()>> {
-    fn new() -> Self {
-        Self {
-            timeout: None,
-            cookie_store: None,
-            on_update_cookie_store: |_| Ok(()),
-            shell: SinkShell,
-        }
-    }
-}
-
-impl<S: Shell, U: FnMut(&CookieStore) -> anyhow::Result<()>> SessionBuilder<S, U> {
-    fn timeout(self, timeout: Option<Duration>) -> Self {
-        Self { timeout, ..self }
-    }
-
-    fn cookie_store(self, cookie_store: Option<CookieStore>) -> Self {
-        Self {
-            cookie_store,
-            ..self
-        }
-    }
-
-    fn on_update_cookie_store<U2: FnMut(&CookieStore) -> anyhow::Result<()>>(
-        self,
-        on_update_cookie_store: U2,
-    ) -> SessionBuilder<S, U2> {
-        SessionBuilder {
-            timeout: self.timeout,
-            cookie_store: self.cookie_store,
-            on_update_cookie_store,
-            shell: self.shell,
-        }
-    }
-
-    fn shell<S2: Shell>(self, shell: S2) -> SessionBuilder<S2, U> {
-        SessionBuilder {
-            timeout: self.timeout,
-            cookie_store: self.cookie_store,
-            on_update_cookie_store: self.on_update_cookie_store,
-            shell,
-        }
-    }
-
-    fn build(self) -> reqwest::Result<Session<S, U>> {
-        let Self {
-            timeout,
-            cookie_store,
-            on_update_cookie_store,
-            shell,
-        } = self;
-
+impl<S: Shell> Session<S> {
+    fn new(
+        timeout: Option<Duration>,
+        cookie_storage: Option<CookieStorage>,
+        shell: S,
+    ) -> anyhow::Result<Self> {
         macro_rules! client(($builder:path) => {{
             let client = $builder()
                 .user_agent(USER_AGENT)
@@ -500,11 +446,10 @@ impl<S: Shell, U: FnMut(&CookieStore) -> anyhow::Result<()>> SessionBuilder<S, U
         let async_client = client!(reqwest::ClientBuilder::new)?;
         let blocking_client = client!(reqwest::blocking::ClientBuilder::new)?;
 
-        return Ok(Session {
+        return Ok(Self {
             async_client,
             blocking_client,
-            cookie_store,
-            on_update_cookie_store,
+            cookie_storage,
             shell,
         });
 
@@ -523,7 +468,6 @@ impl<S: Shell, U: FnMut(&CookieStore) -> anyhow::Result<()>> SessionBuilder<S, U
 
 trait SessionMut: Sized {
     type Shell: Shell;
-    type OnUpdateCookieStore: FnMut(&CookieStore) -> anyhow::Result<()>;
 
     fn async_client(&self) -> &reqwest::Client;
 
@@ -531,11 +475,7 @@ trait SessionMut: Sized {
 
     fn cookie_store(&self) -> Option<&CookieStore>;
 
-    fn request(
-        &mut self,
-        method: Method,
-        url: Url,
-    ) -> SessionRequestBuilder<'_, Self::Shell, Self::OnUpdateCookieStore>;
+    fn request(&mut self, method: Method, url: Url) -> SessionRequestBuilder<'_, Self::Shell>;
 
     fn cookie_header(&self, url: &Url) -> String {
         self.cookie_store()
@@ -544,24 +484,17 @@ trait SessionMut: Sized {
             .join("; ")
     }
 
-    fn get(
-        &mut self,
-        url: Url,
-    ) -> SessionRequestBuilder<'_, Self::Shell, Self::OnUpdateCookieStore> {
+    fn get(&mut self, url: Url) -> SessionRequestBuilder<'_, Self::Shell> {
         self.request(Method::GET, url)
     }
 
-    fn post(
-        &mut self,
-        url: Url,
-    ) -> SessionRequestBuilder<'_, Self::Shell, Self::OnUpdateCookieStore> {
+    fn post(&mut self, url: Url) -> SessionRequestBuilder<'_, Self::Shell> {
         self.request(Method::POST, url)
     }
 }
 
-impl<S: Shell, U: FnMut(&CookieStore) -> anyhow::Result<()>> SessionMut for Session<S, U> {
+impl<S: Shell> SessionMut for Session<S> {
     type Shell = S;
-    type OnUpdateCookieStore = U;
 
     fn async_client(&self) -> &reqwest::Client {
         &self.async_client
@@ -572,10 +505,12 @@ impl<S: Shell, U: FnMut(&CookieStore) -> anyhow::Result<()>> SessionMut for Sess
     }
 
     fn cookie_store(&self) -> Option<&CookieStore> {
-        self.cookie_store.as_ref()
+        self.cookie_storage
+            .as_ref()
+            .map(|CookieStorage { cookie_store, .. }| cookie_store)
     }
 
-    fn request(&mut self, method: Method, url: Url) -> SessionRequestBuilder<'_, S, U> {
+    fn request(&mut self, method: Method, url: Url) -> SessionRequestBuilder<'_, S> {
         SessionRequestBuilder {
             inner: self.blocking_client.request(method, url.clone()),
             url,
@@ -588,7 +523,6 @@ impl<S: Shell, U: FnMut(&CookieStore) -> anyhow::Result<()>> SessionMut for Sess
 
 impl<S: SessionMut> SessionMut for &'_ mut S {
     type Shell = S::Shell;
-    type OnUpdateCookieStore = S::OnUpdateCookieStore;
 
     fn async_client(&self) -> &reqwest::Client {
         (**self).async_client()
@@ -602,24 +536,20 @@ impl<S: SessionMut> SessionMut for &'_ mut S {
         (**self).cookie_store()
     }
 
-    fn request(
-        &mut self,
-        method: Method,
-        url: Url,
-    ) -> SessionRequestBuilder<'_, S::Shell, S::OnUpdateCookieStore> {
+    fn request(&mut self, method: Method, url: Url) -> SessionRequestBuilder<'_, S::Shell> {
         (**self).request(method, url)
     }
 }
 
-struct SessionRequestBuilder<'a, S, U> {
+struct SessionRequestBuilder<'a, S> {
     inner: reqwest::blocking::RequestBuilder,
     url: Url,
     redirects: usize,
     colorize_status_code: Box<dyn FnOnce(StatusCode) -> StatusCodeColor>,
-    sess: &'a mut Session<S, U>,
+    sess: &'a mut Session<S>,
 }
 
-impl<S: Shell, U: FnMut(&CookieStore) -> anyhow::Result<()>> SessionRequestBuilder<'_, S, U> {
+impl<S: Shell> SessionRequestBuilder<'_, S> {
     fn bearer_auth<T>(self, token: T) -> Self
     where
         T: fmt::Display,
@@ -691,7 +621,11 @@ impl<S: Shell, U: FnMut(&CookieStore) -> anyhow::Result<()>> SessionRequestBuild
         sess.shell
             .on_response(&res, colorize_status_code(res.status()))?;
 
-        if let Some(cookie_store) = &mut sess.cookie_store {
+        if let Some(CookieStorage {
+            cookie_store,
+            on_update,
+        }) = &mut sess.cookie_storage
+        {
             for set_cookie in res.headers().get_all(header::SET_COOKIE) {
                 let set_cookie = str::from_utf8(set_cookie.as_bytes())
                     .map_err(|e| anyhow!("{}: {}", e, &url))?;
@@ -700,7 +634,7 @@ impl<S: Shell, U: FnMut(&CookieStore) -> anyhow::Result<()>> SessionRequestBuild
             }
 
             if res.headers().contains_key(header::SET_COOKIE) {
-                (sess.on_update_cookie_store)(cookie_store)?;
+                (on_update)(cookie_store)?;
             }
         }
 

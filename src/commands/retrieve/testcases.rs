@@ -1,7 +1,4 @@
-use crate::{
-    shell::Shell,
-    web::{CaseConversions, LazyLockedFile},
-};
+use crate::{shell::Shell, web::CaseConversions};
 use anyhow::Context as _;
 use maplit::btreeset;
 use serde::{Deserialize, Serialize};
@@ -10,7 +7,7 @@ use snowchains_core::{
     web::{
         Atcoder, AtcoderRetrieveFullTestCasesCredentials,
         AtcoderRetrieveSampleTestCasesCredentials, AtcoderRetrieveTestCasesTargets, Codeforces,
-        CodeforcesRetrieveSampleTestCasesCredentials, CodeforcesRetrieveTestCasesTargets, Cookies,
+        CodeforcesRetrieveSampleTestCasesCredentials, CodeforcesRetrieveTestCasesTargets,
         PlatformVariant, RetrieveFullTestCases, RetrieveTestCases, Yukicoder,
         YukicoderRetrieveFullTestCasesCredentials, YukicoderRetrieveTestCasesTargets,
     },
@@ -145,16 +142,7 @@ pub(crate) fn run(
         (problems, _) => Some(problems.iter().cloned().collect()),
     };
 
-    let cookies_path = crate::web::cookies_path()?;
-    let cookies_file = LazyLockedFile::new(&cookies_path);
-
-    let mut on_update_cookie_store =
-        |cookie_store: &_| crate::web::save_cookie_store(cookie_store, &cookies_file);
-
-    let cookies = Cookies {
-        cookie_store: crate::web::load_cookie_store(cookies_file.path())?,
-        on_update_cookie_store: &mut on_update_cookie_store,
-    };
+    let cookie_storage = crate::web::cookie_storage::cookie_storage()?;
 
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
@@ -209,7 +197,7 @@ pub(crate) fn run(
                 targets,
                 credentials,
                 full,
-                cookies,
+                cookie_storage,
                 timeout,
                 shell,
             })
@@ -235,7 +223,7 @@ pub(crate) fn run(
                 targets,
                 credentials,
                 full: None,
-                cookies,
+                cookie_storage,
                 timeout,
                 shell,
             })
@@ -286,7 +274,7 @@ pub(crate) fn run(
                 targets,
                 credentials: (),
                 full,
-                cookies: (),
+                cookie_storage: (),
                 timeout,
                 shell,
             })

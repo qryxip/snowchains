@@ -1,11 +1,11 @@
 use crate::{
     testsuite::{BatchTestSuite, Match, PartialBatchTestCase, TestSuite},
     web::{
-        codeforces::api::SessionMutExt as _, Cookies, Exec, Login, LoginOutcome, Participate,
+        codeforces::api::SessionMutExt as _, CookieStorage, Exec, Login, LoginOutcome, Participate,
         ParticipateOutcome, Platform, PlatformVariant, ResponseExt as _, RetrieveLanguages,
         RetrieveLanguagesOutcome, RetrieveTestCases, RetrieveTestCasesOutcome,
-        RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem, SessionBuilder,
-        SessionMut, Shell, Submit, SubmitOutcome,
+        RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem, Session, SessionMut,
+        Shell, Submit, SubmitOutcome,
     },
 };
 use anyhow::{bail, Context as _};
@@ -35,7 +35,7 @@ pub enum Codeforces<'closures> {
 }
 
 impl<'closures> Platform for Codeforces<'closures> {
-    type Cookies = Cookies<'closures>;
+    type CookieStorage = CookieStorage;
     type LoginCredentials = CodeforcesLoginCredentials<'closures>;
     type ParticipateTarget = CodeforcesParticipateTarget;
     type ParticipateCredentials = CodeforcesParticipateCredentials<'closures>;
@@ -68,22 +68,12 @@ impl<S: Shell> Exec<Login<Self, S>> for Codeforces<'_> {
                 CodeforcesLoginCredentials {
                     username_and_password,
                 },
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
+            cookie_storage,
             timeout,
             shell,
         } = args;
 
-        let sess = SessionBuilder::new()
-            .timeout(timeout)
-            .cookie_store(Some(cookie_store))
-            .on_update_cookie_store(on_update_cookie_store)
-            .shell(shell)
-            .build()?;
-
+        let sess = Session::new(timeout, Some(cookie_storage), shell)?;
         let (outcome, _) = login(sess, username_and_password)?;
         Ok(outcome)
     }
@@ -99,22 +89,12 @@ impl<S: Shell> Exec<Participate<Self, S>> for Codeforces<'_> {
                 CodeforcesParticipateCredentials {
                     username_and_password,
                 },
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
+            cookie_storage,
             timeout,
             shell,
         } = args;
 
-        let sess = SessionBuilder::new()
-            .timeout(timeout)
-            .cookie_store(Some(cookie_store))
-            .on_update_cookie_store(on_update_cookie_store)
-            .shell(shell)
-            .build()?;
-
+        let sess = Session::new(timeout, Some(cookie_storage), shell)?;
         let (outcome, _) = participate(sess, username_and_password, contest)?;
         Ok(outcome)
     }
@@ -130,21 +110,12 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Codeforces<'_> {
                 CodeforcesRetrieveLanguagesCredentials {
                     username_and_password,
                 },
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
+            cookie_storage,
             timeout,
             shell,
         } = args;
 
-        let mut sess = SessionBuilder::new()
-            .timeout(timeout)
-            .cookie_store(Some(cookie_store))
-            .on_update_cookie_store(on_update_cookie_store)
-            .shell(shell)
-            .build()?;
+        let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
         participate(&mut sess, username_and_password, contest)?;
 
@@ -171,21 +142,12 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
                     username_and_password,
                 },
             full: _,
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
+            cookie_storage,
             timeout,
             shell,
         } = args;
 
-        let mut sess = SessionBuilder::new()
-            .timeout(timeout)
-            .cookie_store(Some(cookie_store))
-            .on_update_cookie_store(on_update_cookie_store)
-            .shell(shell)
-            .build()?;
+        let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
         participate(&mut sess, username_and_password, contest)?;
 
@@ -266,11 +228,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
             language_id,
             code,
             watch_submission,
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
+            cookie_storage,
             timeout,
             shell,
         } = args;
@@ -279,12 +237,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
             todo!("`watch_submissions` in Codeforces is not yet supported");
         }
 
-        let mut sess = SessionBuilder::new()
-            .timeout(timeout)
-            .cookie_store(Some(cookie_store))
-            .on_update_cookie_store(on_update_cookie_store)
-            .shell(shell)
-            .build()?;
+        let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
         let (_, handle) = participate(&mut sess, username_and_password, contest_id)?;
 

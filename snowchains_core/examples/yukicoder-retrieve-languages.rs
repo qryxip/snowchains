@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
     let outcome = Yukicoder::exec(RetrieveLanguages {
         target: (),
         credentials: (),
-        cookies: (),
+        cookie_storage: (),
         timeout: timeout.map(Into::into),
         shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
             ColorChoice::Auto

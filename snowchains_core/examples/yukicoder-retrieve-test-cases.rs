@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
         } else {
             None
         },
-        cookies: (),
+        cookie_storage: (),
         timeout: timeout.map(Into::into),
         shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
             ColorChoice::Auto

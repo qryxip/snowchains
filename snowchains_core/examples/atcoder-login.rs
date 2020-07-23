@@ -1,7 +1,9 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Context as _};
 use cookie_store::CookieStore;
-use snowchains_core::web::{Atcoder, AtcoderLoginCredentials, Cookies, Login, StandardStreamShell};
-use std::{env, str};
+use snowchains_core::web::{
+    Atcoder, AtcoderLoginCredentials, CookieStorage, Login, StandardStreamShell,
+};
+use std::{env, fs, path::PathBuf, str};
 use structopt::StructOpt;
 use strum::{EnumString, EnumVariantNames, VariantNames as _};
 use termcolor::ColorChoice;
@@ -18,6 +20,9 @@ struct Opt {
         possible_values(CredentialsVia::VARIANTS)
     )]
     credentials: CredentialsVia,
+
+    #[structopt(long, value_name("PATH"))]
+    cookies: Option<PathBuf>,
 }
 
 #[derive(EnumString, EnumVariantNames, Debug)]
@@ -31,9 +36,8 @@ fn main() -> anyhow::Result<()> {
     let Opt {
         timeout,
         credentials,
+        cookies,
     } = Opt::from_args();
-
-    let mut cookies_jsonl = vec![];
 
     let outcome = Atcoder::exec(Login {
         credentials: AtcoderLoginCredentials {
@@ -50,15 +54,21 @@ fn main() -> anyhow::Result<()> {
                 Ok(username_and_password)
             },
         },
-        cookies: Cookies {
+        cookie_storage: CookieStorage {
             cookie_store: CookieStore::default(),
-            on_update_cookie_store: &mut |cookie_store| -> _ {
-                cookies_jsonl.clear();
-                cookie_store
-                    .save_json(&mut cookies_jsonl)
-                    .map_err(|e| anyhow!("{}", e))?;
+            on_update: Box::new(move |cookie_store| -> _ {
+                if let Some(cookies) = &cookies {
+                    let mut content = vec![];
+
+                    cookie_store
+                        .save_json(&mut content)
+                        .map_err(|e| anyhow!("{}", e))?;
+
+                    fs::write(cookies, content)
+                        .with_context(|| format!("Could not write `{}`", cookies.display()))?;
+                }
                 Ok(())
-            },
+            }),
         },
         timeout: timeout.map(Into::into),
         shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
@@ -69,7 +79,6 @@ fn main() -> anyhow::Result<()> {
     })?;
 
     dbg!(outcome);
-    eprintln!("\n{}", str::from_utf8(&cookies_jsonl)?);
 
     Ok(())
 }
