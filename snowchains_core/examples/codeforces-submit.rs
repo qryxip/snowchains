@@ -50,6 +50,16 @@ fn main() -> anyhow::Result<()> {
 
     let mut cookies_jsonl = vec![];
 
+    let api_key = match credentials {
+        CredentialsVia::Prompt => rprompt::prompt_reply_stderr("API Key: ")?,
+        CredentialsVia::Env => env::var("CODEFORCES_API_KEY")?,
+    };
+
+    let api_secret = match credentials {
+        CredentialsVia::Prompt => rpassword::read_password_from_tty(Some("API Secret: "))?,
+        CredentialsVia::Env => env::var("CODEFORCES_API_SECRET")?,
+    };
+
     let outcome = Codeforces::exec(Submit {
         target: CodeforcesSubmitTarget { contest, problem },
         language_id,
@@ -59,7 +69,7 @@ fn main() -> anyhow::Result<()> {
         timeout: timeout.map(Into::into),
         cookies: Cookies {
             cookie_store: CookieStore::default(),
-            on_update_cookie_store: |cookie_store| -> _ {
+            on_update_cookie_store: &mut |cookie_store| -> _ {
                 cookies_jsonl.clear();
                 cookie_store
                     .save_json(&mut cookies_jsonl)
@@ -73,7 +83,7 @@ fn main() -> anyhow::Result<()> {
             ColorChoice::Never
         }),
         credentials: CodeforcesSubmitCredentials {
-            username_and_password: || {
+            username_and_password: &mut || {
                 let username_and_password = match credentials {
                     CredentialsVia::Prompt => (
                         rprompt::prompt_reply_stderr("Handle/Email: ")?,
@@ -86,19 +96,8 @@ fn main() -> anyhow::Result<()> {
                 };
                 Ok(username_and_password)
             },
-            api_key_and_secret: || {
-                let api_key_and_secret = match credentials {
-                    CredentialsVia::Prompt => (
-                        rprompt::prompt_reply_stderr("API Key: ")?,
-                        rpassword::read_password_from_tty(Some("API Secret: "))?,
-                    ),
-                    CredentialsVia::Env => (
-                        env::var("CODEFORCES_API_KEY")?,
-                        env::var("CODEFORCES_API_SECRET")?,
-                    ),
-                };
-                Ok(api_key_and_secret)
-            },
+            api_key,
+            api_secret,
         },
     })?;
 

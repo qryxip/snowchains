@@ -14,7 +14,7 @@ use indexmap::indexmap;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
 use scraper::{ElementRef, Html, Node};
-use std::{collections::BTreeSet, hash::Hash, time::Duration};
+use std::{collections::BTreeSet, convert::Infallible, hash::Hash, time::Duration};
 use url::Url;
 
 // Used by `url!` which is defined in `super`.
@@ -37,13 +37,25 @@ impl Yukicoder {
 }
 
 impl Platform for Yukicoder {
+    type Cookies = ();
+    type LoginCredentials = Infallible;
+    type ParticipateTarget = Infallible;
+    type ParticipateCredentials = Infallible;
+    type RetrieveLanguagesTarget = ();
+    type RetrieveLanguagesCredentials = ();
+    type RetrieveTestCasesTargets = YukicoderRetrieveTestCasesTargets;
+    type RetrieveTestCasesCredentials = ();
+    type RetrieveFullTestCasesCredentials = YukicoderRetrieveFullTestCasesCredentials;
+    type SubmitTarget = YukicoderSubmitTarget;
+    type SubmitCredentials = YukicoderSubmitCredentials;
+
     const VARIANT: PlatformVariant = PlatformVariant::Yukicoder;
 }
 
-impl<S: Shell> Exec<RetrieveLanguages<(), (), S, ()>> for Yukicoder {
+impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Yukicoder {
     type Output = RetrieveLanguagesOutcome;
 
-    fn exec(args: RetrieveLanguages<(), (), S, ()>) -> anyhow::Result<RetrieveLanguagesOutcome> {
+    fn exec(args: RetrieveLanguages<Self, S>) -> anyhow::Result<RetrieveLanguagesOutcome> {
         let RetrieveLanguages {
             target: (),
             timeout,
@@ -65,28 +77,10 @@ impl<S: Shell> Exec<RetrieveLanguages<(), (), S, ()>> for Yukicoder {
     }
 }
 
-impl<S: Shell>
-    Exec<
-        RetrieveTestCases<
-            YukicoderRetrieveTestCasesTargets,
-            (),
-            S,
-            (),
-            YukicoderRetrieveFullTestCasesCredentials,
-        >,
-    > for Yukicoder
-{
+impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Yukicoder {
     type Output = RetrieveTestCasesOutcome;
 
-    fn exec(
-        args: RetrieveTestCases<
-            YukicoderRetrieveTestCasesTargets,
-            (),
-            S,
-            (),
-            YukicoderRetrieveFullTestCasesCredentials,
-        >,
-    ) -> anyhow::Result<RetrieveTestCasesOutcome> {
+    fn exec(args: RetrieveTestCases<Self, S>) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveTestCases {
             targets,
             timeout,
@@ -170,15 +164,10 @@ impl<S: Shell>
     }
 }
 
-impl<T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result<String>>
-    Exec<Submit<YukicoderSubmitTarget, T1, T2, (), S, YukicoderSubmitCredentials<F>>>
-    for Yukicoder
-{
+impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
     type Output = SubmitOutcome;
 
-    fn exec(
-        args: Submit<YukicoderSubmitTarget, T1, T2, (), S, YukicoderSubmitCredentials<F>>,
-    ) -> anyhow::Result<SubmitOutcome> {
+    fn exec(args: Submit<Self, S>) -> anyhow::Result<SubmitOutcome> {
         let Submit {
             target,
             language_id,
@@ -193,8 +182,6 @@ impl<T1: AsRef<str>, T2: AsRef<str>, S: Shell, F: FnOnce() -> anyhow::Result<Str
         if watch_submission {
             todo!("`watch_submissions` in yukicoder is not yet supported");
         }
-
-        let api_key = api_key()?;
 
         let mut sess = SessionBuilder::new()
             .timeout(timeout)
@@ -259,8 +246,8 @@ pub enum YukicoderSubmitTarget {
 }
 
 #[derive(Debug)]
-pub struct YukicoderSubmitCredentials<F: FnOnce() -> anyhow::Result<String>> {
-    pub api_key: F,
+pub struct YukicoderSubmitCredentials {
+    pub api_key: String,
 }
 
 fn retrieve_samples(

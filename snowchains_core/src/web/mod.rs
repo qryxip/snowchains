@@ -108,6 +108,18 @@ use unicode_width::UnicodeWidthStr as _;
 use url::Url;
 
 pub trait Platform: Sized {
+    type Cookies;
+    type LoginCredentials;
+    type ParticipateTarget;
+    type ParticipateCredentials;
+    type RetrieveLanguagesTarget;
+    type RetrieveLanguagesCredentials;
+    type RetrieveTestCasesTargets;
+    type RetrieveTestCasesCredentials;
+    type RetrieveFullTestCasesCredentials;
+    type SubmitTarget;
+    type SubmitCredentials;
+
     const VARIANT: PlatformVariant;
 }
 
@@ -159,11 +171,11 @@ pub trait Exec<A>: Platform {
     fn exec(args: A) -> anyhow::Result<Self::Output>;
 }
 
-pub struct Login<K, S, R> {
+pub struct Login<P: Platform, S: Shell> {
     pub timeout: Option<Duration>,
-    pub cookies: K,
+    pub cookies: P::Cookies,
     pub shell: S,
-    pub credentials: R,
+    pub credentials: P::LoginCredentials,
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize)]
@@ -178,12 +190,12 @@ impl LoginOutcome {
     }
 }
 
-pub struct Participate<T, K, S, R> {
-    pub target: T,
+pub struct Participate<P: Platform, S: Shell> {
+    pub target: P::ParticipateTarget,
     pub timeout: Option<Duration>,
-    pub cookies: K,
+    pub cookies: P::Cookies,
     pub shell: S,
-    pub credentials: R,
+    pub credentials: P::ParticipateCredentials,
 }
 
 #[derive(Debug, From, Serialize)]
@@ -194,12 +206,12 @@ pub enum ParticipateOutcome {
 }
 
 #[derive(Debug)]
-pub struct RetrieveLanguages<T, K, S, R> {
-    pub target: T,
+pub struct RetrieveLanguages<P: Platform, S: Shell> {
+    pub target: P::RetrieveLanguagesTarget,
     pub timeout: Option<Duration>,
-    pub cookies: K,
+    pub cookies: P::Cookies,
     pub shell: S,
-    pub credentials: R,
+    pub credentials: P::RetrieveLanguagesCredentials,
 }
 
 #[derive(Debug)]
@@ -207,17 +219,17 @@ pub struct RetrieveLanguagesOutcome {
     pub names_by_id: IndexMap<String, String>,
 }
 
-pub struct RetrieveTestCases<T, K, S, R1, R2> {
-    pub targets: T,
+pub struct RetrieveTestCases<P: Platform, S: Shell> {
+    pub targets: P::RetrieveTestCasesTargets,
     pub timeout: Option<Duration>,
-    pub cookies: K,
+    pub cookies: P::Cookies,
     pub shell: S,
-    pub credentials: R1,
-    pub full: Option<RetrieveFullTestCases<R2>>,
+    pub credentials: P::RetrieveTestCasesCredentials,
+    pub full: Option<RetrieveFullTestCases<P>>,
 }
 
-pub struct RetrieveFullTestCases<R> {
-    pub credentials: R,
+pub struct RetrieveFullTestCases<P: Platform> {
+    pub credentials: P::RetrieveFullTestCasesCredentials,
 }
 
 #[derive(Debug)]
@@ -249,15 +261,15 @@ pub struct RetrieveTestCasesOutcomeProblemTextFiles {
 }
 
 #[derive(Debug)]
-pub struct Submit<T1, T2, T3, K, S, R> {
-    pub target: T1,
-    pub language_id: T2,
-    pub code: T3,
+pub struct Submit<P: Platform, S: Shell> {
+    pub target: P::SubmitTarget,
+    pub language_id: String,
+    pub code: String,
     pub watch_submission: bool,
     pub timeout: Option<Duration>,
-    pub cookies: K,
+    pub cookies: P::Cookies,
     pub shell: S,
-    pub credentials: R,
+    pub credentials: P::SubmitCredentials,
 }
 
 #[derive(Debug)]
@@ -267,10 +279,9 @@ pub struct SubmitOutcome {
     submissions_url: Url,
 }
 
-#[derive(Debug)]
-pub struct Cookies<F: FnMut(&CookieStore) -> anyhow::Result<()>> {
+pub struct Cookies<'closures> {
     pub cookie_store: CookieStore,
-    pub on_update_cookie_store: F,
+    pub on_update_cookie_store: &'closures mut dyn FnMut(&CookieStore) -> anyhow::Result<()>,
 }
 
 pub trait Shell {

@@ -66,17 +66,17 @@ pub(crate) fn run(
     let cookies_path = crate::web::cookies_path()?;
     let cookies_file = LazyLockedFile::new(&cookies_path);
 
+    let mut on_update_cookie_store =
+        |cookie_store: &_| crate::web::save_cookie_store(cookie_store, &cookies_file);
     let cookies = Cookies {
         cookie_store: crate::web::load_cookie_store(cookies_file.path())?,
-        on_update_cookie_store: |cookie_store| {
-            crate::web::save_cookie_store(cookie_store, &cookies_file)
-        },
+        on_update_cookie_store: &mut on_update_cookie_store,
     };
 
     let stderr = RefCell::new(stderr);
     let shell = Shell::new(&stderr, false);
 
-    let username_and_password = || -> _ {
+    let mut username_and_password = || -> _ {
         let mut stderr = stderr.borrow_mut();
 
         write!(stderr, "Username: ")?;
@@ -89,6 +89,7 @@ pub(crate) fn run(
 
         Ok((username, password))
     };
+    let username_and_password = &mut username_and_password;
 
     let outcome = match service {
         PlatformVariant::Atcoder => Atcoder::exec(Login {
