@@ -1,3 +1,5 @@
+pub(crate) mod prompt;
+
 use anyhow::{anyhow, Context as _};
 use cookie_store::CookieStore;
 use fs2::FileExt as _;

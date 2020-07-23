@@ -54,7 +54,7 @@ pub(crate) fn run(
 
     let crate::Context {
         cwd: _,
-        mut stdin,
+        stdin,
         mut stdout,
         stderr,
         stdin_process_redirection: _,
@@ -77,40 +77,41 @@ pub(crate) fn run(
     let stderr = RefCell::new(stderr);
     let shell = Shell::new(&stderr, false);
 
-    let mut username_and_password = || -> _ {
-        let mut stderr = stderr.borrow_mut();
-
-        write!(stderr, "Username: ")?;
-        stderr.flush()?;
-        let username = stdin.read_reply()?;
-
-        write!(stderr, "Password: ")?;
-        stderr.flush()?;
-        let password = stdin.read_password()?;
-
-        Ok((username, password))
-    };
-    let username_and_password = &mut username_and_password;
-
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
     let outcome = match service {
-        PlatformVariant::Atcoder => Atcoder::exec(Login {
-            credentials: AtcoderLoginCredentials {
-                username_and_password,
-            },
-            cookies,
-            timeout,
-            shell,
-        }),
-        PlatformVariant::Codeforces => Codeforces::exec(Login {
-            credentials: CodeforcesLoginCredentials {
-                username_and_password,
-            },
-            cookies,
-            timeout,
-            shell,
-        }),
+        PlatformVariant::Atcoder => {
+            let credentials = AtcoderLoginCredentials {
+                username_and_password: &mut crate::web::prompt::username_and_password(
+                    stdin,
+                    &stderr,
+                    "Username: ",
+                ),
+            };
+
+            Atcoder::exec(Login {
+                credentials,
+                cookies,
+                timeout,
+                shell,
+            })
+        }
+        PlatformVariant::Codeforces => {
+            let credentials = CodeforcesLoginCredentials {
+                username_and_password: &mut crate::web::prompt::username_and_password(
+                    stdin,
+                    &stderr,
+                    "Handle/Email: ",
+                ),
+            };
+
+            Codeforces::exec(Login {
+                credentials,
+                cookies,
+                timeout,
+                shell,
+            })
+        }
         PlatformVariant::Yukicoder => unreachable!("should be filtered by `possible_values`"),
     }?;
 
