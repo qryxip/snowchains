@@ -259,7 +259,7 @@ fn retrieve_samples(
                 } = sess.get_problem_by_problem_no(problem_no)?;
 
                 outcome.problems.push(RetrieveTestCasesOutcomeProblem {
-                    slug: problem_no.to_string(),
+                    index: problem_no.to_string(),
                     url,
                     screen_name: problem_id.to_string(),
                     display_name: title.clone(),
@@ -281,7 +281,7 @@ fn retrieve_samples(
                     .collect::<BTreeSet<_>>()
             });
 
-            for (slug, problem_no) in sess
+            for (index, problem_no) in sess
                 .get(url_from_rel(format!("/contests/{}", contest_id))?)
                 .colorize_status_code(&[200], (), ..)
                 .send()?
@@ -290,7 +290,7 @@ fn retrieve_samples(
                 .extract_problems()?
             {
                 if let Some(not_found) = &mut not_found {
-                    if !not_found.remove(&slug) {
+                    if !not_found.remove(&index) {
                         continue;
                     }
                 }
@@ -301,7 +301,7 @@ fn retrieve_samples(
                 } = sess.get_problem_by_problem_no(problem_no)?;
 
                 outcome.problems.push(RetrieveTestCasesOutcomeProblem {
-                    slug: problem_no.to_string(),
+                    index: problem_no.to_string(),
                     url,
                     screen_name: problem_id.to_string(),
                     display_name: title.clone(),
@@ -347,9 +347,9 @@ impl Html {
             ))
             .map(|tr| {
                 if let [td1, td2, ..] = *tr.select(static_selector!("td")).collect::<Vec<_>>() {
-                    let slug = CaseConverted::new(exactly_one_text(td1)?);
+                    let index = CaseConverted::new(exactly_one_text(td1)?);
                     let no = exactly_one_text(td2)?.parse().ok()?;
-                    Some((slug, no))
+                    Some((index, no))
                 } else {
                     None
                 }

@@ -154,7 +154,7 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Atcoder<'_> {
 
         let url = if let Some(problem) = problem {
             let rel_url = retrieve_tasks_page(&mut sess, || unreachable!(), &contest)?
-                .extract_task_slugs_and_rel_urls()?
+                .extract_task_indexes_and_rel_urls()?
                 .get(&problem)
                 .with_context(|| "")?
                 .clone();
@@ -211,7 +211,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
         {
             for problem in &mut outcome.problems {
                 let mut retrieve = |dir_file_name: &'static str| -> anyhow::Result<_> {
-                    let path = format!("/{}/{}/{}", contest, problem.slug, dir_file_name);
+                    let path = format!("/{}/{}/{}", contest, problem.index, dir_file_name);
                     let ListFolder { entries } =
                         list_folder(&mut sess, &dropbox_access_token, &path)?;
                     retrieve_files(&mut sess, &dropbox_access_token, &path, &entries)
@@ -334,7 +334,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
         let tasks_page = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
 
         let rel_url = tasks_page
-            .extract_task_slugs_and_rel_urls()?
+            .extract_task_indexes_and_rel_urls()?
             .remove(&problem)
             .with_context(|| format!("No such problem: `{}`", problem))?;
 
@@ -662,7 +662,7 @@ fn retrieve_sample_test_cases(
     let contest = CaseConverted::<LowerCase>::new(contest);
 
     let html = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
-    let slugs_and_rel_urls = html.extract_task_slugs_and_rel_urls()?;
+    let indexes_and_rel_urls = html.extract_task_indexes_and_rel_urls()?;
 
     let test_suites = sess
         .get(url!("/contests/{}/tasks_print", contest))
@@ -670,10 +670,10 @@ fn retrieve_sample_test_cases(
         .html()?
         .extract_samples()?;
 
-    if slugs_and_rel_urls.len() != test_suites.len() {
+    if indexes_and_rel_urls.len() != test_suites.len() {
         bail!(
             "Found {} task(s) in `tasks`, {} task(s) in `tasks_print`",
-            slugs_and_rel_urls.len(),
+            indexes_and_rel_urls.len(),
             test_suites.len(),
         );
     }
@@ -689,10 +689,10 @@ fn retrieve_sample_test_cases(
         problems: vec![],
     };
 
-    for ((slug, rel_url), (display_name, test_suite)) in
-        slugs_and_rel_urls.into_iter().zip_eq(test_suites)
+    for ((index, rel_url), (display_name, test_suite)) in
+        indexes_and_rel_urls.into_iter().zip_eq(test_suites)
     {
-        if problems.as_mut().map_or(true, |ps| ps.remove(&*slug)) {
+        if problems.as_mut().map_or(true, |ps| ps.remove(&*index)) {
             let url = url_from_rel(rel_url.to_string())?;
 
             let screen_name = url
@@ -703,7 +703,7 @@ fn retrieve_sample_test_cases(
 
             outcome.problems.push(RetrieveTestCasesOutcomeProblem {
                 url,
-                slug: slug.into(),
+                index: index.into(),
                 screen_name,
                 display_name,
                 test_suite,
@@ -883,11 +883,11 @@ enum ContestStatus {
 }
 
 impl ContestStatus {
-    fn now(dur: (DateTime<Utc>, DateTime<Utc>), contest_slug: &CaseConverted<LowerCase>) -> Self {
+    fn now(dur: (DateTime<Utc>, DateTime<Utc>), contest_id: &CaseConverted<LowerCase>) -> Self {
         let (start, end) = dur;
         let now = Utc::now();
         if now < start {
-            ContestStatus::NotBegun(contest_slug.to_owned(), start.with_timezone(&Local))
+            ContestStatus::NotBegun(contest_id.to_owned(), start.with_timezone(&Local))
         } else if now > end {
             ContestStatus::Finished
         } else {
@@ -914,7 +914,7 @@ impl ContestStatus {
 struct SubmissionSummary {
     url: Url,
     task_url: Url,
-    task_slug: String,
+    task_index: String,
     task_display: String,
     task_screen: String,
     datetime: DateTime<FixedOffset>,
@@ -980,7 +980,7 @@ impl Html {
             .any(|s| ["参加登録", "Register"].contains(&s)))
     }
 
-    fn extract_task_slugs_and_rel_urls(
+    fn extract_task_indexes_and_rel_urls(
         &self,
     ) -> anyhow::Result<IndexMap<CaseConverted<UpperCase>, Uri>> {
         self.select(static_selector!(
@@ -988,13 +988,13 @@ impl Html {
         ))
         .map(|tr| {
             let a = tr.select(static_selector!("td.text-center > a")).next()?;
-            let slug = CaseConverted::new(a.text().next()?);
+            let index = CaseConverted::new(a.text().next()?);
             let uri = a.value().attr("href")?.parse().ok()?;
-            Some((slug, uri))
+            Some((index, uri))
         })
         .collect::<Option<IndexMap<_, _>>>()
         .filter(|m| !m.is_empty())
-        .with_context(|| "Could not extract task slugs and URLs")
+        .with_context(|| "Could not extract task indexes and URLs")
     }
 
     fn extract_samples(&self) -> anyhow::Result<IndexMap<String, TestSuite>> {
@@ -1317,7 +1317,7 @@ impl Html {
             );
 
             for tr in self.select(&SELECTOR) {
-                let (task_url, task_slug, task_display, task_screen, datetime) = {
+                let (task_url, task_index, task_display, task_screen, datetime) = {
                     static SLUG: Lazy<Regex> = lazy_regex!(r"\A(\w+).*\z");
                     static SCREEN: Lazy<Regex> =
                         lazy_regex!(r"\A/contests/[\w-]+/tasks/([\w-]+)\z");
@@ -1325,7 +1325,7 @@ impl Html {
 
                     let a = tr.select(static_selector!("td > a")).next()?;
                     let task_display = a.text().next()?.to_owned();
-                    let task_slug = SLUG.captures(&task_display)?[1].to_owned();
+                    let task_index = SLUG.captures(&task_display)?[1].to_owned();
                     let task_path = a.value().attr("href")?;
                     let task_screen = SCREEN.captures(task_path)?[1].to_owned();
                     let mut task_url = "https://atcoder.jp".parse::<Url>().unwrap();
@@ -1336,7 +1336,7 @@ impl Html {
                         .text()
                         .next()?;
                     let datetime = DateTime::parse_from_str(datetime, DATETIME).ok()?;
-                    (task_url, task_slug, task_display, task_screen, datetime)
+                    (task_url, task_index, task_display, task_screen, datetime)
                 };
 
                 let lang = tr
@@ -1381,7 +1381,7 @@ impl Html {
                 submissions.push(SubmissionSummary {
                     url,
                     task_url,
-                    task_slug,
+                    task_index,
                     task_display,
                     task_screen,
                     lang,

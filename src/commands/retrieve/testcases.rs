@@ -82,7 +82,7 @@ struct OutcomeContest {
 
 #[derive(Debug, Serialize)]
 struct OutcomeProblem {
-    slug: CaseConversions,
+    index: CaseConversions,
     url: Url,
     screen_name: String,
     display_name: String,
@@ -289,7 +289,7 @@ pub(crate) fn run(
     };
 
     for snowchains_core::web::RetrieveTestCasesOutcomeProblem {
-        slug,
+        index,
         url,
         screen_name,
         display_name,
@@ -297,18 +297,18 @@ pub(crate) fn run(
         text_files,
     } in outcome.problems
     {
-        let slug = CaseConversions::new(slug);
+        let index = CaseConversions::new(index);
 
         let path = workspace
             .join(".snowchains")
             .join("tests")
             .join(service.to_kebab_case_str())
             .join(contest.as_deref().unwrap_or(""))
-            .join(&slug.kebab)
+            .join(&index.kebab)
             .with_extension("yml");
 
         let txt_path = |dir_file_name: &str, txt_file_name: &str| -> _ {
-            path.with_file_name(&slug.kebab)
+            path.with_file_name(&index.kebab)
                 .join(dir_file_name)
                 .join(txt_file_name)
                 .with_extension("txt")
@@ -328,7 +328,7 @@ pub(crate) fn run(
                 cases.clear();
 
                 extend.push(Additional::Text {
-                    base: format!("./{}", slug.kebab),
+                    base: format!("./{}", index.kebab),
                     r#in: "/in/*.txt".to_owned(),
                     out: "/out/*.txt".to_owned(),
                     timelimit: None,
@@ -342,7 +342,7 @@ pub(crate) fn run(
         let mut stderr = stderr.borrow_mut();
 
         stderr.set_color(ColorSpec::new().set_reset(false).set_bold(true))?;
-        write!(stderr, "{}:", slug.original)?;
+        write!(stderr, "{}:", index.original)?;
         stderr.reset()?;
 
         write!(stderr, " Saved to ")?;
@@ -354,7 +354,7 @@ pub(crate) fn run(
             write!(
                 stderr,
                 "{}",
-                path.with_file_name(format!("{{{slug}.yml, {slug}/}}", slug = slug.kebab))
+                path.with_file_name(format!("{{{index}.yml, {index}/}}", index = index.kebab))
                     .display(),
             )
         }?;
@@ -382,7 +382,7 @@ pub(crate) fn run(
         stderr.flush()?;
 
         acc.problems.push(OutcomeProblem {
-            slug,
+            index,
             url,
             screen_name,
             display_name,
