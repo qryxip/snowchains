@@ -23,9 +23,9 @@ fn main() {
             stdin,
             stdout,
             stderr: &mut stderr,
-            stdin_process_redirection: Stdio::inherit(),
-            stdout_process_redirection: Stdio::inherit(),
-            stderr_process_redirection: Stdio::inherit(),
+            stdin_process_redirection: Stdio::inherit,
+            stdout_process_redirection: Stdio::inherit,
+            stderr_process_redirection: Stdio::inherit,
             draw_progress: true,
         };
 

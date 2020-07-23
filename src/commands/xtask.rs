@@ -47,9 +47,9 @@ pub(crate) fn run(
     let status = std::process::Command::new(program)
         .arg(tempfile.path())
         .args(args)
-        .stdin(stdin_process_redirection)
-        .stdout(stdout_process_redirection)
-        .stderr(stderr_process_redirection)
+        .stdin(stdin_process_redirection())
+        .stdout(stdout_process_redirection())
+        .stderr(stderr_process_redirection())
         .status()?;
 
     if !status.success() {

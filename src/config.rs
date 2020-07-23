@@ -27,7 +27,7 @@ pub(crate) fn detect_target(
     Ok((detected, dir))
 }
 
-pub(crate) fn load_language(
+pub(crate) fn target_and_language(
     cwd: &Path,
     rel_path: Option<&Path>,
     cli_opt_service: Option<PlatformVariant>,
@@ -35,7 +35,7 @@ pub(crate) fn load_language(
     cli_opt_problem: Option<&str>,
     cli_opt_language: Option<&str>,
     cli_opt_mode: Mode,
-) -> anyhow::Result<Language> {
+) -> anyhow::Result<(Target, Language, PathBuf)> {
     let path = find_snowchains_dhall(cwd, rel_path)?;
 
     let (target, language_name) = Detected::load_and_eval(cwd, &path)?.merge_with_cli_options(
@@ -56,12 +56,19 @@ pub(crate) fn load_language(
 
     let expected_names = languages.keys().join(", ");
 
-    languages.remove(&language_name).with_context(|| {
+    let language = languages.remove(&language_name).with_context(|| {
         format!(
             "The language `{}` not found. Expected one of [{}]",
             language_name, expected_names,
         )
-    })
+    })?;
+
+    let dir = Path::new(&path)
+        .parent()
+        .unwrap_or_else(|| path.as_ref())
+        .to_owned();
+
+    Ok((target, language, dir))
 }
 
 pub(crate) fn xtask(cwd: &Path, rel_path: Option<&Path>, name: &str) -> anyhow::Result<Script> {
@@ -136,10 +143,11 @@ pub(crate) struct Detected {
 
 impl Detected {
     fn load_and_eval(cwd: &Path, path: &str) -> anyhow::Result<Self> {
-        let rel_path_components = Path::new(path)
-            .parent()
-            .unwrap_or_else(|| path.as_ref())
-            .strip_prefix(cwd)
+        let rel_path_components = cwd
+            .strip_prefix({
+                let path = Path::new(path);
+                path.parent().unwrap_or(path)
+            })
             .map(|rel_path| {
                 rel_path
                     .iter()
@@ -269,11 +277,11 @@ pub(crate) struct Compile {
 }
 
 #[derive(Debug)]
-struct Target {
-    service: PlatformVariant,
-    contest: Option<String>,
-    problem: String,
-    mode: Mode,
+pub(crate) struct Target {
+    pub(crate) service: PlatformVariant,
+    pub(crate) contest: Option<String>,
+    pub(crate) problem: String,
+    pub(crate) mode: Mode,
 }
 
 impl Target {
