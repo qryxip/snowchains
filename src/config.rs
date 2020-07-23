@@ -227,6 +227,16 @@ in  {{ service = config.detectServiceFromRelativePathSegments relativePathSegmen
 
         Ok((target, language))
     }
+
+    pub(crate) fn parse_service(&self) -> anyhow::Result<Option<PlatformVariant>> {
+        self.service
+            .as_deref()
+            .map(str::parse)
+            .transpose()
+            .with_context(|| {
+                "Specified invalid `service` by `detectServiceFromRelativePathSegments`"
+            })
+    }
 }
 
 #[derive(Debug, Deserialize, StaticType, Clone)]
