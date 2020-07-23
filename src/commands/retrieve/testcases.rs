@@ -161,21 +161,6 @@ pub(crate) fn run(
     let stderr = RefCell::new(stderr);
     let shell = Shell::new(&stderr, true);
 
-    let mut username_and_password = || -> _ {
-        let mut stderr = stderr.borrow_mut();
-
-        write!(stderr, "Username: ")?;
-        stderr.flush()?;
-        let username = stdin.read_reply()?;
-
-        write!(stderr, "Password: ")?;
-        stderr.flush()?;
-        let password = stdin.read_password()?;
-
-        Ok((username, password))
-    };
-    let username_and_password = &mut username_and_password;
-
     let outcome = match service {
         PlatformVariant::Atcoder => {
             let targets = {
@@ -186,7 +171,11 @@ pub(crate) fn run(
             };
 
             let credentials = AtcoderRetrieveSampleTestCasesCredentials {
-                username_and_password,
+                username_and_password: &mut crate::web::prompt::username_and_password(
+                    stdin,
+                    &stderr,
+                    "Username: ",
+                ),
             };
 
             let full = if full {
@@ -235,7 +224,11 @@ pub(crate) fn run(
             };
 
             let credentials = CodeforcesRetrieveSampleTestCasesCredentials {
-                username_and_password,
+                username_and_password: &mut crate::web::prompt::username_and_password(
+                    stdin,
+                    &stderr,
+                    "Handle/Email: ",
+                ),
             };
 
             Codeforces::exec(RetrieveTestCases {
