@@ -145,17 +145,18 @@ pub(crate) fn run(
         (problems, _) => Some(problems.iter().cloned().collect()),
     };
 
-    let timeout = Some(crate::web::SESSION_TIMEOUT);
-
     let cookies_path = crate::web::cookies_path()?;
     let cookies_file = LazyLockedFile::new(&cookies_path);
 
     let mut on_update_cookie_store =
         |cookie_store: &_| crate::web::save_cookie_store(cookie_store, &cookies_file);
+
     let cookies = Cookies {
         cookie_store: crate::web::load_cookie_store(cookies_file.path())?,
         on_update_cookie_store: &mut on_update_cookie_store,
     };
+
+    let timeout = Some(crate::web::SESSION_TIMEOUT);
 
     let stderr = RefCell::new(stderr);
     let shell = Shell::new(&stderr, true);
@@ -217,11 +218,11 @@ pub(crate) fn run(
 
             Atcoder::exec(RetrieveTestCases {
                 targets,
-                timeout,
-                cookies,
-                shell,
                 credentials,
                 full,
+                cookies,
+                timeout,
+                shell,
             })
         }
         PlatformVariant::Codeforces => {
@@ -232,17 +233,18 @@ pub(crate) fn run(
                     .with_context(|| "`contest` for Codeforces must be 64-bit unsigned integer")?;
                 CodeforcesRetrieveTestCasesTargets { contest, problems }
             };
+
             let credentials = CodeforcesRetrieveSampleTestCasesCredentials {
                 username_and_password,
             };
 
             Codeforces::exec(RetrieveTestCases {
                 targets,
-                timeout,
-                cookies,
-                shell,
                 credentials,
                 full: None,
+                cookies,
+                timeout,
+                shell,
             })
         }
         PlatformVariant::Yukicoder => {
@@ -289,11 +291,11 @@ pub(crate) fn run(
 
             Yukicoder::exec(RetrieveTestCases {
                 targets,
-                timeout,
-                cookies: (),
-                shell,
                 credentials: (),
                 full,
+                cookies: (),
+                timeout,
+                shell,
             })
         }
     }?;

@@ -69,13 +69,6 @@ fn main() -> anyhow::Result<()> {
                 problem_indexes.map(|ps| ps.into_iter().collect()),
             ),
         },
-        timeout: timeout.map(Into::into),
-        cookies: (),
-        shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
-            ColorChoice::Auto
-        } else {
-            ColorChoice::Never
-        }),
         credentials: (),
         full: if full {
             Some(RetrieveFullTestCases {
@@ -91,6 +84,13 @@ fn main() -> anyhow::Result<()> {
         } else {
             None
         },
+        cookies: (),
+        timeout: timeout.map(Into::into),
+        shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
+            ColorChoice::Auto
+        } else {
+            ColorChoice::Never
+        }),
     })?;
 
     dbg!(outcome);

@@ -64,17 +64,17 @@ impl<S: Shell> Exec<Login<Self, S>> for Codeforces<'_> {
 
     fn exec(args: Login<Self, S>) -> anyhow::Result<LoginOutcome> {
         let Login {
-            timeout,
+            credentials:
+                CodeforcesLoginCredentials {
+                    username_and_password,
+                },
             cookies:
                 Cookies {
                     cookie_store,
                     on_update_cookie_store,
                 },
+            timeout,
             shell,
-            credentials:
-                CodeforcesLoginCredentials {
-                    username_and_password,
-                },
         } = args;
 
         let sess = SessionBuilder::new()
@@ -95,17 +95,17 @@ impl<S: Shell> Exec<Participate<Self, S>> for Codeforces<'_> {
     fn exec(args: Participate<Self, S>) -> anyhow::Result<ParticipateOutcome> {
         let Participate {
             target: CodeforcesParticipateTarget { contest },
-            timeout,
+            credentials:
+                CodeforcesParticipateCredentials {
+                    username_and_password,
+                },
             cookies:
                 Cookies {
                     cookie_store,
                     on_update_cookie_store,
                 },
+            timeout,
             shell,
-            credentials:
-                CodeforcesParticipateCredentials {
-                    username_and_password,
-                },
         } = args;
 
         let sess = SessionBuilder::new()
@@ -126,17 +126,17 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Codeforces<'_> {
     fn exec(args: RetrieveLanguages<Self, S>) -> anyhow::Result<RetrieveLanguagesOutcome> {
         let RetrieveLanguages {
             target: CodeforcesRetrieveLanguagesTarget { contest },
-            timeout,
+            credentials:
+                CodeforcesRetrieveLanguagesCredentials {
+                    username_and_password,
+                },
             cookies:
                 Cookies {
                     cookie_store,
                     on_update_cookie_store,
                 },
+            timeout,
             shell,
-            credentials:
-                CodeforcesRetrieveLanguagesCredentials {
-                    username_and_password,
-                },
         } = args;
 
         let mut sess = SessionBuilder::new()
@@ -166,18 +166,18 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
     fn exec(args: RetrieveTestCases<Self, S>) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveTestCases {
             targets: CodeforcesRetrieveTestCasesTargets { contest, problems },
-            timeout,
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
-            shell,
             credentials:
                 CodeforcesRetrieveSampleTestCasesCredentials {
                     username_and_password,
                 },
             full: _,
+            cookies:
+                Cookies {
+                    cookie_store,
+                    on_update_cookie_store,
+                },
+            timeout,
+            shell,
         } = args;
 
         let mut sess = SessionBuilder::new()
@@ -257,22 +257,22 @@ impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
                     contest: contest_id,
                     problem: problem_index,
                 },
-            language_id,
-            code,
-            watch_submission,
-            timeout,
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
-            shell,
             credentials:
                 CodeforcesSubmitCredentials {
                     username_and_password,
                     api_key,
                     api_secret,
                 },
+            language_id,
+            code,
+            watch_submission,
+            cookies:
+                Cookies {
+                    cookie_store,
+                    on_update_cookie_store,
+                },
+            timeout,
+            shell,
         } = args;
 
         if watch_submission {

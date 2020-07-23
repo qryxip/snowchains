@@ -58,10 +58,10 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Yukicoder {
     fn exec(args: RetrieveLanguages<Self, S>) -> anyhow::Result<RetrieveLanguagesOutcome> {
         let RetrieveLanguages {
             target: (),
-            timeout,
-            cookies: (),
-            shell,
             credentials: (),
+            cookies: (),
+            timeout,
+            shell,
         } = args;
 
         let names_by_id = SessionBuilder::new()
@@ -83,11 +83,11 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Yukicoder {
     fn exec(args: RetrieveTestCases<Self, S>) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveTestCases {
             targets,
-            timeout,
-            cookies: (),
-            shell,
             credentials: (),
             full,
+            cookies: (),
+            timeout,
+            shell,
         } = args;
 
         let mut sess = SessionBuilder::new()
@@ -170,13 +170,13 @@ impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
     fn exec(args: Submit<Self, S>) -> anyhow::Result<SubmitOutcome> {
         let Submit {
             target,
+            credentials: YukicoderSubmitCredentials { api_key },
             language_id,
             code,
             watch_submission,
-            timeout,
             cookies: (),
+            timeout,
             shell,
-            credentials: YukicoderSubmitCredentials { api_key },
         } = args;
 
         if watch_submission {

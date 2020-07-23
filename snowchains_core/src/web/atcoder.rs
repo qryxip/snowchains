@@ -80,17 +80,17 @@ impl<S: Shell> Exec<Login<Self, S>> for Atcoder<'_> {
 
     fn exec(args: Login<Self, S>) -> anyhow::Result<LoginOutcome> {
         let Login {
-            timeout,
+            credentials:
+                AtcoderLoginCredentials {
+                    username_and_password,
+                },
             cookies:
                 Cookies {
                     cookie_store,
                     on_update_cookie_store,
                 },
+            timeout,
             shell,
-            credentials:
-                AtcoderLoginCredentials {
-                    username_and_password,
-                },
         } = args;
 
         let mut sess = SessionBuilder::new()
@@ -115,17 +115,17 @@ impl<S: Shell> Exec<Participate<Self, S>> for Atcoder<'_> {
     fn exec(args: Participate<Self, S>) -> anyhow::Result<ParticipateOutcome> {
         let Participate {
             target: AtcoderParticipateTarget { contest },
-            timeout,
+            credentials:
+                AtcoderParticipateCredentials {
+                    username_and_password,
+                },
             cookies:
                 Cookies {
                     cookie_store,
                     on_update_cookie_store,
                 },
+            timeout,
             shell,
-            credentials:
-                AtcoderParticipateCredentials {
-                    username_and_password,
-                },
         } = args;
 
         let contest = CaseConverted::new(contest);
@@ -146,17 +146,17 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Atcoder<'_> {
     fn exec(args: RetrieveLanguages<Self, S>) -> anyhow::Result<RetrieveLanguagesOutcome> {
         let RetrieveLanguages {
             target,
-            timeout,
+            credentials:
+                AtcoderRetrieveLanguagesCredentials {
+                    username_and_password,
+                },
             cookies:
                 Cookies {
                     cookie_store,
                     on_update_cookie_store,
                 },
+            timeout,
             shell,
-            credentials:
-                AtcoderRetrieveLanguagesCredentials {
-                    username_and_password,
-                },
         } = args;
 
         let AtcoderRetrieveLanguagesTarget {
@@ -209,18 +209,18 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
     fn exec(args: RetrieveTestCases<Self, S>) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveTestCases {
             targets,
-            timeout,
-            cookies:
-                Cookies {
-                    cookie_store,
-                    on_update_cookie_store,
-                },
-            shell,
             credentials:
                 AtcoderRetrieveSampleTestCasesCredentials {
                     username_and_password,
                 },
             full,
+            cookies:
+                Cookies {
+                    cookie_store,
+                    on_update_cookie_store,
+                },
+            timeout,
+            shell,
         } = args;
 
         let AtcoderRetrieveTestCasesTargets { contest, problems } = targets;
@@ -351,20 +351,20 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
     fn exec(args: Submit<Self, S>) -> anyhow::Result<SubmitOutcome> {
         let Submit {
             target: AtcoderSubmitTarget { contest, problem },
+            credentials:
+                AtcoderSubmitCredentials {
+                    username_and_password,
+                },
             language_id,
             code,
             watch_submission,
-            timeout,
             cookies:
                 Cookies {
                     cookie_store,
                     on_update_cookie_store,
                 },
+            timeout,
             shell,
-            credentials:
-                AtcoderSubmitCredentials {
-                    username_and_password,
-                },
         } = args;
 
         let contest = CaseConverted::<LowerCase>::new(contest);
