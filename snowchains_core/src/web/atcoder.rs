@@ -14,7 +14,6 @@ use crate::{
 };
 use anyhow::{anyhow, bail, Context as _};
 use chrono::{DateTime, FixedOffset, Local, Utc};
-use cookie_store::CookieStore;
 use easy_ext::ext;
 use http::Uri;
 use indexmap::{indexmap, IndexMap};
@@ -29,7 +28,9 @@ use serde::Deserialize;
 use serde_json::json;
 use std::{
     collections::{BTreeMap, BTreeSet},
+    convert::Infallible,
     hash::Hash,
+    marker::PhantomData,
     str::FromStr,
     time::Duration,
 };
@@ -45,9 +46,11 @@ fn url_from_rel(rel_url: impl AsRef<str>) -> std::result::Result<Url, url::Parse
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub enum Atcoder {}
+pub enum Atcoder<'closures> {
+    Infallible(Infallible, PhantomData<fn() -> &'closures ()>),
+}
 
-impl Atcoder {
+impl Atcoder<'_> {
     pub fn exec<A>(args: A) -> anyhow::Result<<Self as Exec<A>>::Output>
     where
         Self: Exec<A>,
@@ -56,21 +59,26 @@ impl Atcoder {
     }
 }
 
-impl Platform for Atcoder {
+impl<'closures> Platform for Atcoder<'closures> {
+    type Cookies = Cookies<'closures>;
+    type LoginCredentials = AtcoderLoginCredentials<'closures>;
+    type ParticipateTarget = AtcoderParticipateTarget;
+    type ParticipateCredentials = AtcoderParticipateCredentials<'closures>;
+    type RetrieveLanguagesTarget = AtcoderRetrieveLanguagesTarget;
+    type RetrieveLanguagesCredentials = AtcoderRetrieveLanguagesCredentials<'closures>;
+    type RetrieveTestCasesTargets = AtcoderRetrieveTestCasesTargets;
+    type RetrieveTestCasesCredentials = AtcoderRetrieveSampleTestCasesCredentials<'closures>;
+    type RetrieveFullTestCasesCredentials = AtcoderRetrieveFullTestCasesCredentials;
+    type SubmitTarget = AtcoderSubmitTarget;
+    type SubmitCredentials = AtcoderSubmitCredentials<'closures>;
+
     const VARIANT: PlatformVariant = PlatformVariant::Atcoder;
 }
 
-impl<
-        F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        S: Shell,
-        F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Login<Cookies<F1>, S, AtcoderLoginCredentials<F2>>> for Atcoder
-{
+impl<S: Shell> Exec<Login<Self, S>> for Atcoder<'_> {
     type Output = LoginOutcome;
 
-    fn exec(
-        args: Login<Cookies<F1>, S, AtcoderLoginCredentials<F2>>,
-    ) -> anyhow::Result<LoginOutcome> {
+    fn exec(args: Login<Self, S>) -> anyhow::Result<LoginOutcome> {
         let Login {
             timeout,
             cookies:
@@ -101,23 +109,10 @@ impl<
     }
 }
 
-impl<
-        F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        S: Shell,
-        F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Participate<AtcoderParticipateTarget, Cookies<F1>, S, AtcoderParticipateCredentials<F2>>>
-    for Atcoder
-{
+impl<S: Shell> Exec<Participate<Self, S>> for Atcoder<'_> {
     type Output = ParticipateOutcome;
 
-    fn exec(
-        args: Participate<
-            AtcoderParticipateTarget,
-            Cookies<F1>,
-            S,
-            AtcoderParticipateCredentials<F2>,
-        >,
-    ) -> anyhow::Result<ParticipateOutcome> {
+    fn exec(args: Participate<Self, S>) -> anyhow::Result<ParticipateOutcome> {
         let Participate {
             target: AtcoderParticipateTarget { contest },
             timeout,
@@ -145,30 +140,10 @@ impl<
     }
 }
 
-impl<
-        F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        S: Shell,
-        F2: FnMut() -> anyhow::Result<(String, String)>,
-    >
-    Exec<
-        RetrieveLanguages<
-            AtcoderRetrieveLanguagesTarget,
-            Cookies<F1>,
-            S,
-            AtcoderRetrieveLanguagesCredentials<F2>,
-        >,
-    > for Atcoder
-{
+impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Atcoder<'_> {
     type Output = RetrieveLanguagesOutcome;
 
-    fn exec(
-        args: RetrieveLanguages<
-            AtcoderRetrieveLanguagesTarget,
-            Cookies<F1>,
-            S,
-            AtcoderRetrieveLanguagesCredentials<F2>,
-        >,
-    ) -> anyhow::Result<RetrieveLanguagesOutcome> {
+    fn exec(args: RetrieveLanguages<Self, S>) -> anyhow::Result<RetrieveLanguagesOutcome> {
         let RetrieveLanguages {
             target,
             timeout,
@@ -228,32 +203,10 @@ impl<
     }
 }
 
-impl<
-        F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        S: Shell,
-        F2: FnMut() -> anyhow::Result<(String, String)>,
-    >
-    Exec<
-        RetrieveTestCases<
-            AtcoderRetrieveTestCasesTargets,
-            Cookies<F1>,
-            S,
-            AtcoderRetrieveSampleTestCasesCredentials<F2>,
-            AtcoderRetrieveFullTestCasesCredentials,
-        >,
-    > for Atcoder
-{
+impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
     type Output = RetrieveTestCasesOutcome;
 
-    fn exec(
-        args: RetrieveTestCases<
-            AtcoderRetrieveTestCasesTargets,
-            Cookies<F1>,
-            S,
-            AtcoderRetrieveSampleTestCasesCredentials<F2>,
-            AtcoderRetrieveFullTestCasesCredentials,
-        >,
-    ) -> anyhow::Result<RetrieveTestCasesOutcome> {
+    fn exec(args: RetrieveTestCases<Self, S>) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveTestCases {
             targets,
             timeout,
@@ -392,20 +345,10 @@ impl<
     }
 }
 
-impl<
-        T1: AsRef<str>,
-        T2: AsRef<str>,
-        F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        S: Shell,
-        F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Submit<AtcoderSubmitTarget, T1, T2, Cookies<F1>, S, AtcoderSubmitCredentials<F2>>>
-    for Atcoder
-{
+impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
     type Output = SubmitOutcome;
 
-    fn exec(
-        args: Submit<AtcoderSubmitTarget, T1, T2, Cookies<F1>, S, AtcoderSubmitCredentials<F2>>,
-    ) -> anyhow::Result<SubmitOutcome> {
+    fn exec(args: Submit<Self, S>) -> anyhow::Result<SubmitOutcome> {
         let Submit {
             target: AtcoderSubmitTarget { contest, problem },
             language_id,
@@ -709,9 +652,8 @@ impl<
     }
 }
 
-#[derive(Debug)]
-pub struct AtcoderLoginCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
-    pub username_and_password: F,
+pub struct AtcoderLoginCredentials<'closures> {
+    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -719,9 +661,8 @@ pub struct AtcoderParticipateTarget {
     pub contest: String,
 }
 
-#[derive(Debug)]
-pub struct AtcoderParticipateCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
-    pub username_and_password: F,
+pub struct AtcoderParticipateCredentials<'closures> {
+    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -729,9 +670,8 @@ pub struct AtcoderRetrieveLanguagesTarget {
     pub contest_and_problem: Option<(String, String)>,
 }
 
-#[derive(Debug)]
-pub struct AtcoderRetrieveLanguagesCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
-    pub username_and_password: F,
+pub struct AtcoderRetrieveLanguagesCredentials<'closures> {
+    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -740,10 +680,8 @@ pub struct AtcoderRetrieveTestCasesTargets {
     pub problems: Option<BTreeSet<String>>,
 }
 
-#[derive(Debug)]
-pub struct AtcoderRetrieveSampleTestCasesCredentials<F: FnMut() -> anyhow::Result<(String, String)>>
-{
-    pub username_and_password: F,
+pub struct AtcoderRetrieveSampleTestCasesCredentials<'closures> {
+    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -757,9 +695,8 @@ pub struct AtcoderSubmitTarget {
     pub problem: String,
 }
 
-#[derive(Debug)]
-pub struct AtcoderSubmitCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
-    pub username_and_password: F,
+pub struct AtcoderSubmitCredentials<'closures> {
+    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
 fn retrieve_sample_test_cases(

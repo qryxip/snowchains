@@ -44,22 +44,20 @@ fn main() -> anyhow::Result<()> {
         problem,
     } = Opt::from_args();
 
-    let contest_and_problem = match (contest, problem) {
-        (Some(contest), Some(problem)) => Some((contest, problem)),
-        (Some(_), None) | (None, Some(_)) => unreachable!(),
-        (None, None) => None,
-    };
-
     let mut cookies_jsonl = vec![];
 
     let outcome = Atcoder::exec(RetrieveLanguages {
         target: AtcoderRetrieveLanguagesTarget {
-            contest_and_problem,
+            contest_and_problem: match (contest, problem) {
+                (Some(contest), Some(problem)) => Some((contest, problem)),
+                (Some(_), None) | (None, Some(_)) => unreachable!(),
+                (None, None) => None,
+            },
         },
         timeout: timeout.map(Into::into),
         cookies: Cookies {
             cookie_store: CookieStore::default(),
-            on_update_cookie_store: |cookie_store| -> _ {
+            on_update_cookie_store: &mut |cookie_store| -> _ {
                 cookies_jsonl.clear();
                 cookie_store
                     .save_json(&mut cookies_jsonl)
@@ -73,7 +71,7 @@ fn main() -> anyhow::Result<()> {
             ColorChoice::Never
         }),
         credentials: AtcoderRetrieveLanguagesCredentials {
-            username_and_password: || {
+            username_and_password: &mut || {
                 let username_and_password = match credentials {
                     CredentialsVia::Prompt => (
                         rprompt::prompt_reply_stderr("Username: ")?,

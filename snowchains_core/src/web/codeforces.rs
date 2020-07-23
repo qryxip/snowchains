@@ -9,7 +9,6 @@ use crate::{
     },
 };
 use anyhow::{bail, Context as _};
-use cookie_store::CookieStore;
 use easy_ext::ext;
 use indexmap::{indexmap, IndexMap};
 use itertools::Itertools as _;
@@ -18,6 +17,7 @@ use scraper::{ElementRef, Html, Node, Selector};
 use std::{
     collections::{BTreeSet, HashMap},
     convert::Infallible,
+    marker::PhantomData,
     time::Duration,
 };
 use url::Url;
@@ -30,13 +30,27 @@ fn url_from_rel(rel_url: impl AsRef<str>) -> Result<Url, url::ParseError> {
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub enum Codeforces {}
+pub enum Codeforces<'closures> {
+    Infallible(Infallible, PhantomData<fn() -> &'closures ()>),
+}
 
-impl Platform for Codeforces {
+impl<'closures> Platform for Codeforces<'closures> {
+    type Cookies = Cookies<'closures>;
+    type LoginCredentials = CodeforcesLoginCredentials<'closures>;
+    type ParticipateTarget = CodeforcesParticipateTarget;
+    type ParticipateCredentials = CodeforcesParticipateCredentials<'closures>;
+    type RetrieveLanguagesTarget = CodeforcesRetrieveLanguagesTarget;
+    type RetrieveLanguagesCredentials = CodeforcesRetrieveLanguagesCredentials<'closures>;
+    type RetrieveTestCasesTargets = CodeforcesRetrieveTestCasesTargets;
+    type RetrieveTestCasesCredentials = CodeforcesRetrieveSampleTestCasesCredentials<'closures>;
+    type RetrieveFullTestCasesCredentials = Infallible;
+    type SubmitTarget = CodeforcesSubmitTarget;
+    type SubmitCredentials = CodeforcesSubmitCredentials<'closures>;
+
     const VARIANT: PlatformVariant = PlatformVariant::Codeforces;
 }
 
-impl Codeforces {
+impl Codeforces<'_> {
     pub fn exec<A>(args: A) -> anyhow::Result<<Self as Exec<A>>::Output>
     where
         Self: Exec<A>,
@@ -45,17 +59,10 @@ impl Codeforces {
     }
 }
 
-impl<
-        S: Shell,
-        F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        F2: FnMut() -> anyhow::Result<(String, String)>,
-    > Exec<Login<Cookies<F1>, S, CodeforcesLoginCredentials<F2>>> for Codeforces
-{
+impl<S: Shell> Exec<Login<Self, S>> for Codeforces<'_> {
     type Output = LoginOutcome;
 
-    fn exec(
-        args: Login<Cookies<F1>, S, CodeforcesLoginCredentials<F2>>,
-    ) -> anyhow::Result<LoginOutcome> {
+    fn exec(args: Login<Self, S>) -> anyhow::Result<LoginOutcome> {
         let Login {
             timeout,
             cookies:
@@ -82,30 +89,10 @@ impl<
     }
 }
 
-impl<
-        S: Shell,
-        F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        F2: FnMut() -> anyhow::Result<(String, String)>,
-    >
-    Exec<
-        Participate<
-            CodeforcesParticipateTarget,
-            Cookies<F1>,
-            S,
-            CodeforcesParticipateCredentials<F2>,
-        >,
-    > for Codeforces
-{
+impl<S: Shell> Exec<Participate<Self, S>> for Codeforces<'_> {
     type Output = ParticipateOutcome;
 
-    fn exec(
-        args: Participate<
-            CodeforcesParticipateTarget,
-            Cookies<F1>,
-            S,
-            CodeforcesParticipateCredentials<F2>,
-        >,
-    ) -> anyhow::Result<ParticipateOutcome> {
+    fn exec(args: Participate<Self, S>) -> anyhow::Result<ParticipateOutcome> {
         let Participate {
             target: CodeforcesParticipateTarget { contest },
             timeout,
@@ -133,30 +120,10 @@ impl<
     }
 }
 
-impl<
-        S: Shell,
-        F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        F2: FnMut() -> anyhow::Result<(String, String)>,
-    >
-    Exec<
-        RetrieveLanguages<
-            CodeforcesRetrieveLanguagesTarget,
-            Cookies<F1>,
-            S,
-            CodeforcesRetrieveLanguagesCredentials<F2>,
-        >,
-    > for Codeforces
-{
+impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Codeforces<'_> {
     type Output = RetrieveLanguagesOutcome;
 
-    fn exec(
-        args: RetrieveLanguages<
-            CodeforcesRetrieveLanguagesTarget,
-            Cookies<F1>,
-            S,
-            CodeforcesRetrieveLanguagesCredentials<F2>,
-        >,
-    ) -> anyhow::Result<RetrieveLanguagesOutcome> {
+    fn exec(args: RetrieveLanguages<Self, S>) -> anyhow::Result<RetrieveLanguagesOutcome> {
         let RetrieveLanguages {
             target: CodeforcesRetrieveLanguagesTarget { contest },
             timeout,
@@ -193,32 +160,10 @@ impl<
     }
 }
 
-impl<
-        S: Shell,
-        F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        F2: FnMut() -> anyhow::Result<(String, String)>,
-    >
-    Exec<
-        RetrieveTestCases<
-            CodeforcesRetrieveTestCasesTargets,
-            Cookies<F1>,
-            S,
-            CodeforcesRetrieveSampleTestCasesCredentials<F2>,
-            Infallible,
-        >,
-    > for Codeforces
-{
+impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
     type Output = RetrieveTestCasesOutcome;
 
-    fn exec(
-        args: RetrieveTestCases<
-            CodeforcesRetrieveTestCasesTargets,
-            Cookies<F1>,
-            S,
-            CodeforcesRetrieveSampleTestCasesCredentials<F2>,
-            Infallible,
-        >,
-    ) -> anyhow::Result<RetrieveTestCasesOutcome> {
+    fn exec(args: RetrieveTestCases<Self, S>) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveTestCases {
             targets: CodeforcesRetrieveTestCasesTargets { contest, problems },
             timeout,
@@ -302,30 +247,10 @@ impl<
     }
 }
 
-impl<
-        T1: AsRef<str>,
-        T2: AsRef<str>,
-        S: Shell,
-        F1: FnMut(&CookieStore) -> anyhow::Result<()>,
-        F2: FnMut() -> anyhow::Result<(String, String)>,
-        F3: FnOnce() -> anyhow::Result<(String, String)>,
-    >
-    Exec<
-        Submit<CodeforcesSubmitTarget, T1, T2, Cookies<F1>, S, CodeforcesSubmitCredentials<F2, F3>>,
-    > for Codeforces
-{
+impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
     type Output = SubmitOutcome;
 
-    fn exec(
-        args: Submit<
-            CodeforcesSubmitTarget,
-            T1,
-            T2,
-            Cookies<F1>,
-            S,
-            CodeforcesSubmitCredentials<F2, F3>,
-        >,
-    ) -> anyhow::Result<SubmitOutcome> {
+    fn exec(args: Submit<Self, S>) -> anyhow::Result<SubmitOutcome> {
         let Submit {
             target:
                 CodeforcesSubmitTarget {
@@ -345,7 +270,8 @@ impl<
             credentials:
                 CodeforcesSubmitCredentials {
                     username_and_password,
-                    api_key_and_secret,
+                    api_key,
+                    api_secret,
                 },
         } = args;
 
@@ -384,8 +310,8 @@ impl<
         payload.insert("contestId".to_owned(), contest_id.to_string());
         payload.insert("submittedProblemIndex".to_owned(), problem.index);
         payload.insert("tabSize".to_owned(), "4".to_owned());
-        payload.insert("programTypeId".to_owned(), language_id.as_ref().to_owned());
-        payload.insert("source".to_owned(), code.as_ref().to_owned());
+        payload.insert("programTypeId".to_owned(), language_id);
+        payload.insert("source".to_owned(), code);
 
         let res = sess
             .post(url)
@@ -398,8 +324,6 @@ impl<
             bail!("Submission rejected");
         } else {
             let submissions_url = url_from_rel(res.location()?)?;
-
-            let (api_key, api_secret) = api_key_and_secret()?;
 
             let submissions =
                 sess.api_contest_status(&api_key, &api_secret, contest_id, &handle, 1, Some(1))?;
@@ -419,9 +343,8 @@ impl<
     }
 }
 
-#[derive(Debug)]
-pub struct CodeforcesLoginCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
-    pub username_and_password: F,
+pub struct CodeforcesLoginCredentials<'closures> {
+    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -429,9 +352,8 @@ pub struct CodeforcesParticipateTarget {
     pub contest: u64,
 }
 
-#[derive(Debug)]
-pub struct CodeforcesParticipateCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
-    pub username_and_password: F,
+pub struct CodeforcesParticipateCredentials<'closures> {
+    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -439,9 +361,8 @@ pub struct CodeforcesRetrieveLanguagesTarget {
     pub contest: u64,
 }
 
-#[derive(Debug)]
-pub struct CodeforcesRetrieveLanguagesCredentials<F: FnMut() -> anyhow::Result<(String, String)>> {
-    pub username_and_password: F,
+pub struct CodeforcesRetrieveLanguagesCredentials<'closures> {
+    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -450,11 +371,8 @@ pub struct CodeforcesRetrieveTestCasesTargets {
     pub problems: Option<BTreeSet<String>>,
 }
 
-#[derive(Debug)]
-pub struct CodeforcesRetrieveSampleTestCasesCredentials<
-    F: FnMut() -> anyhow::Result<(String, String)>,
-> {
-    pub username_and_password: F,
+pub struct CodeforcesRetrieveSampleTestCasesCredentials<'closures> {
+    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -463,13 +381,10 @@ pub struct CodeforcesSubmitTarget {
     pub problem: String,
 }
 
-#[derive(Debug)]
-pub struct CodeforcesSubmitCredentials<
-    F1: FnMut() -> anyhow::Result<(String, String)>,
-    F2: FnOnce() -> anyhow::Result<(String, String)>,
-> {
-    pub username_and_password: F1,
-    pub api_key_and_secret: F2,
+pub struct CodeforcesSubmitCredentials<'closures> {
+    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub api_key: String,
+    pub api_secret: String,
 }
 
 fn login(

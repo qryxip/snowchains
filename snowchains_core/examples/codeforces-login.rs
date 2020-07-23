@@ -41,7 +41,7 @@ fn main() -> anyhow::Result<()> {
         timeout: timeout.map(Into::into),
         cookies: Cookies {
             cookie_store: CookieStore::default(),
-            on_update_cookie_store: |cookie_store| -> _ {
+            on_update_cookie_store: &mut |cookie_store| -> _ {
                 cookies_jsonl.clear();
                 cookie_store
                     .save_json(&mut cookies_jsonl)
@@ -55,7 +55,7 @@ fn main() -> anyhow::Result<()> {
             ColorChoice::Never
         }),
         credentials: CodeforcesLoginCredentials {
-            username_and_password: || {
+            username_and_password: &mut || {
                 let username_and_password = match credentials {
                     CredentialsVia::Prompt => (
                         rprompt::prompt_reply_stderr("Handle/Email: ")?,

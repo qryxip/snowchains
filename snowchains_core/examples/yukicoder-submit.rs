@@ -47,6 +47,11 @@ fn main() -> anyhow::Result<()> {
         file,
     } = Opt::from_args();
 
+    let api_key = match credentials {
+        CredentialsVia::Prompt => rpassword::read_password_from_tty(Some("yukicoder API Key: "))?,
+        CredentialsVia::Env => env::var("YUKICODER_API_KEY")?,
+    };
+
     let outcome = Yukicoder::exec(Submit {
         target: if let Some(contest) = contest {
             YukicoderSubmitTarget::Contest(contest, problem_no_or_slug)
@@ -68,15 +73,7 @@ fn main() -> anyhow::Result<()> {
         } else {
             ColorChoice::Never
         }),
-        credentials: YukicoderSubmitCredentials {
-            api_key: || match credentials {
-                CredentialsVia::Prompt => {
-                    rpassword::read_password_from_tty(Some("yukicoder API Key: "))
-                        .map_err(Into::into)
-                }
-                CredentialsVia::Env => env::var("YUKICODER_API_KEY").map_err(Into::into),
-            },
-        },
+        credentials: YukicoderSubmitCredentials { api_key },
     })?;
 
     dbg!(outcome);
