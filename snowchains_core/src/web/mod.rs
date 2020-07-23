@@ -172,10 +172,10 @@ pub trait Exec<A>: Platform {
 }
 
 pub struct Login<P: Platform, S: Shell> {
-    pub timeout: Option<Duration>,
-    pub cookies: P::Cookies,
-    pub shell: S,
     pub credentials: P::LoginCredentials,
+    pub cookies: P::Cookies,
+    pub timeout: Option<Duration>,
+    pub shell: S,
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Deserialize, Serialize)]
@@ -192,10 +192,10 @@ impl LoginOutcome {
 
 pub struct Participate<P: Platform, S: Shell> {
     pub target: P::ParticipateTarget,
-    pub timeout: Option<Duration>,
-    pub cookies: P::Cookies,
-    pub shell: S,
     pub credentials: P::ParticipateCredentials,
+    pub cookies: P::Cookies,
+    pub timeout: Option<Duration>,
+    pub shell: S,
 }
 
 #[derive(Debug, From, Serialize)]
@@ -208,10 +208,10 @@ pub enum ParticipateOutcome {
 #[derive(Debug)]
 pub struct RetrieveLanguages<P: Platform, S: Shell> {
     pub target: P::RetrieveLanguagesTarget,
-    pub timeout: Option<Duration>,
-    pub cookies: P::Cookies,
-    pub shell: S,
     pub credentials: P::RetrieveLanguagesCredentials,
+    pub cookies: P::Cookies,
+    pub timeout: Option<Duration>,
+    pub shell: S,
 }
 
 #[derive(Debug)]
@@ -221,11 +221,11 @@ pub struct RetrieveLanguagesOutcome {
 
 pub struct RetrieveTestCases<P: Platform, S: Shell> {
     pub targets: P::RetrieveTestCasesTargets,
-    pub timeout: Option<Duration>,
-    pub cookies: P::Cookies,
-    pub shell: S,
     pub credentials: P::RetrieveTestCasesCredentials,
     pub full: Option<RetrieveFullTestCases<P>>,
+    pub cookies: P::Cookies,
+    pub timeout: Option<Duration>,
+    pub shell: S,
 }
 
 pub struct RetrieveFullTestCases<P: Platform> {
@@ -263,13 +263,13 @@ pub struct RetrieveTestCasesOutcomeProblemTextFiles {
 #[derive(Debug)]
 pub struct Submit<P: Platform, S: Shell> {
     pub target: P::SubmitTarget,
+    pub credentials: P::SubmitCredentials,
     pub language_id: String,
     pub code: String,
     pub watch_submission: bool,
-    pub timeout: Option<Duration>,
     pub cookies: P::Cookies,
+    pub timeout: Option<Duration>,
     pub shell: S,
-    pub credentials: P::SubmitCredentials,
 }
 
 #[derive(Debug)]

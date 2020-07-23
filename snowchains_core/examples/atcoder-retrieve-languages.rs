@@ -54,22 +54,6 @@ fn main() -> anyhow::Result<()> {
                 (None, None) => None,
             },
         },
-        timeout: timeout.map(Into::into),
-        cookies: Cookies {
-            cookie_store: CookieStore::default(),
-            on_update_cookie_store: &mut |cookie_store| -> _ {
-                cookies_jsonl.clear();
-                cookie_store
-                    .save_json(&mut cookies_jsonl)
-                    .map_err(|e| anyhow!("{}", e))?;
-                Ok(())
-            },
-        },
-        shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
-            ColorChoice::Auto
-        } else {
-            ColorChoice::Never
-        }),
         credentials: AtcoderRetrieveLanguagesCredentials {
             username_and_password: &mut || {
                 let username_and_password = match credentials {
@@ -84,6 +68,22 @@ fn main() -> anyhow::Result<()> {
                 Ok(username_and_password)
             },
         },
+        cookies: Cookies {
+            cookie_store: CookieStore::default(),
+            on_update_cookie_store: &mut |cookie_store| -> _ {
+                cookies_jsonl.clear();
+                cookie_store
+                    .save_json(&mut cookies_jsonl)
+                    .map_err(|e| anyhow!("{}", e))?;
+                Ok(())
+            },
+        },
+        timeout: timeout.map(Into::into),
+        shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
+            ColorChoice::Auto
+        } else {
+            ColorChoice::Never
+        }),
     })?;
 
     dbg!(outcome);

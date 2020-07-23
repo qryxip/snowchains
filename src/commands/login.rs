@@ -68,6 +68,7 @@ pub(crate) fn run(
 
     let mut on_update_cookie_store =
         |cookie_store: &_| crate::web::save_cookie_store(cookie_store, &cookies_file);
+
     let cookies = Cookies {
         cookie_store: crate::web::load_cookie_store(cookies_file.path())?,
         on_update_cookie_store: &mut on_update_cookie_store,
@@ -91,22 +92,24 @@ pub(crate) fn run(
     };
     let username_and_password = &mut username_and_password;
 
+    let timeout = Some(crate::web::SESSION_TIMEOUT);
+
     let outcome = match service {
         PlatformVariant::Atcoder => Atcoder::exec(Login {
-            timeout: Some(crate::web::SESSION_TIMEOUT),
-            cookies,
-            shell,
             credentials: AtcoderLoginCredentials {
                 username_and_password,
             },
+            cookies,
+            timeout,
+            shell,
         }),
         PlatformVariant::Codeforces => Codeforces::exec(Login {
-            timeout: Some(crate::web::SESSION_TIMEOUT),
-            cookies,
-            shell,
             credentials: CodeforcesLoginCredentials {
                 username_and_password,
             },
+            cookies,
+            timeout,
+            shell,
         }),
         PlatformVariant::Yukicoder => unreachable!("should be filtered by `possible_values`"),
     }?;

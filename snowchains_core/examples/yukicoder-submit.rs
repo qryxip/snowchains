@@ -62,18 +62,18 @@ fn main() -> anyhow::Result<()> {
                     .with_context(|| "Problem numbers must be integer")?,
             )
         },
+        credentials: YukicoderSubmitCredentials { api_key },
         language_id,
         code: fs::read_to_string(&file)
             .with_context(|| format!("Failed to read {}", file.display()))?,
         watch_submission: false,
-        timeout: timeout.map(Into::into),
         cookies: (),
+        timeout: timeout.map(Into::into),
         shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
             ColorChoice::Auto
         } else {
             ColorChoice::Never
         }),
-        credentials: YukicoderSubmitCredentials { api_key },
     })?;
 
     dbg!(outcome);

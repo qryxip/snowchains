@@ -55,26 +55,6 @@ fn main() -> anyhow::Result<()> {
 
     let outcome = Atcoder::exec(Submit {
         target: AtcoderSubmitTarget { contest, problem },
-        language_id,
-        code: fs::read_to_string(&file)
-            .with_context(|| format!("Failed to read {}", file.display()))?,
-        watch_submission: !no_watch,
-        timeout: timeout.map(Into::into),
-        cookies: Cookies {
-            cookie_store: CookieStore::default(),
-            on_update_cookie_store: &mut |cookie_store| -> _ {
-                cookies_jsonl.clear();
-                cookie_store
-                    .save_json(&mut cookies_jsonl)
-                    .map_err(|e| anyhow!("{}", e))?;
-                Ok(())
-            },
-        },
-        shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
-            ColorChoice::Auto
-        } else {
-            ColorChoice::Never
-        }),
         credentials: AtcoderSubmitCredentials {
             username_and_password: &mut || {
                 let username_and_password = match credentials {
@@ -89,6 +69,26 @@ fn main() -> anyhow::Result<()> {
                 Ok(username_and_password)
             },
         },
+        language_id,
+        code: fs::read_to_string(&file)
+            .with_context(|| format!("Failed to read {}", file.display()))?,
+        watch_submission: !no_watch,
+        cookies: Cookies {
+            cookie_store: CookieStore::default(),
+            on_update_cookie_store: &mut |cookie_store| -> _ {
+                cookies_jsonl.clear();
+                cookie_store
+                    .save_json(&mut cookies_jsonl)
+                    .map_err(|e| anyhow!("{}", e))?;
+                Ok(())
+            },
+        },
+        timeout: timeout.map(Into::into),
+        shell: StandardStreamShell::new(if atty::is(atty::Stream::Stderr) {
+            ColorChoice::Auto
+        } else {
+            ColorChoice::Never
+        }),
     })?;
 
     eprintln!();
