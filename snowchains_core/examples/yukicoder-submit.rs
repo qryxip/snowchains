@@ -54,13 +54,9 @@ fn main() -> anyhow::Result<()> {
 
     let outcome = Yukicoder::exec(Submit {
         target: if let Some(contest) = contest {
-            YukicoderSubmitTarget::Contest(contest, problem_no_or_index)
+            YukicoderSubmitTarget::Contest(contest.to_string(), problem_no_or_index)
         } else {
-            YukicoderSubmitTarget::ProblemNo(
-                problem_no_or_index
-                    .parse()
-                    .with_context(|| "Problem numbers must be integer")?,
-            )
+            YukicoderSubmitTarget::ProblemNo(problem_no_or_index)
         },
         credentials: YukicoderSubmitCredentials { api_key },
         language_id,

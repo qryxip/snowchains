@@ -10,6 +10,7 @@ use crate::{
 };
 use anyhow::{bail, Context as _};
 use easy_ext::ext;
+use either::Either;
 use indexmap::indexmap;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
@@ -179,11 +180,9 @@ impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
 
         let mut sess = Session::new(timeout, None, shell)?;
 
-        let problem_id = match target {
-            YukicoderSubmitTarget::ProblemNo(problem_no) => {
-                sess.get_problem_by_problem_no(problem_no)?.problem_id
-            }
-            YukicoderSubmitTarget::Contest(contest_id, problem_index) => {
+        let problem_id = match target.parse()? {
+            Either::Left(problem_no) => sess.get_problem_by_problem_no(problem_no)?.problem_id,
+            Either::Right((contest_id, problem_index)) => {
                 let (_, problem_id) = sess
                     .get(url!("/contests/{}", contest_id))
                     .colorize_status_code(&[200], (), ..)
@@ -221,8 +220,27 @@ impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
 
 #[derive(Debug)]
 pub enum YukicoderRetrieveTestCasesTargets {
-    ProblemNos(BTreeSet<u64>),
-    Contest(u64, Option<BTreeSet<String>>),
+    ProblemNos(BTreeSet<String>),
+    Contest(String, Option<BTreeSet<String>>),
+}
+
+impl YukicoderRetrieveTestCasesTargets {
+    #[allow(clippy::type_complexity)]
+    fn parse(&self) -> anyhow::Result<Either<BTreeSet<u64>, (u64, Option<BTreeSet<String>>)>> {
+        match self {
+            Self::ProblemNos(nos) => {
+                let nos = nos
+                    .iter()
+                    .map(|no| parse_problem_no(no))
+                    .collect::<Result<_, _>>()?;
+                Ok(Either::Left(nos))
+            }
+            Self::Contest(contest_id, indexes) => {
+                let contest_id = parse_contest_id(contest_id)?;
+                Ok(Either::Right((contest_id, indexes.clone())))
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -232,13 +250,46 @@ pub struct YukicoderRetrieveFullTestCasesCredentials {
 
 #[derive(Debug)]
 pub enum YukicoderSubmitTarget {
-    ProblemNo(u64),
-    Contest(u64, String),
+    ProblemNo(String),
+    Contest(String, String),
+}
+
+impl YukicoderSubmitTarget {
+    fn parse(&self) -> anyhow::Result<Either<u64, (u64, String)>> {
+        match self {
+            Self::ProblemNo(no) => {
+                let no = parse_problem_no(no)?;
+                Ok(Either::Left(no))
+            }
+            Self::Contest(contest_id, problem_index) => {
+                let contest_id = parse_contest_id(contest_id)?;
+                Ok(Either::Right((contest_id, problem_index.clone())))
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct YukicoderSubmitCredentials {
     pub api_key: String,
+}
+
+fn parse_problem_no(s: &str) -> anyhow::Result<u64> {
+    s.parse().with_context(|| {
+        format!(
+            "A problem number for yukicoder must be unsigned integer: {:?}",
+            s,
+        )
+    })
+}
+
+fn parse_contest_id(s: &str) -> anyhow::Result<u64> {
+    s.parse().with_context(|| {
+        format!(
+            "A contest ID for yukicoder must be unsigned integer: {:?}",
+            s,
+        )
+    })
 }
 
 fn retrieve_samples(
@@ -250,8 +301,8 @@ fn retrieve_samples(
         problems: vec![],
     };
 
-    match targets {
-        YukicoderRetrieveTestCasesTargets::ProblemNos(problem_nos) => {
+    match targets.parse()? {
+        Either::Left(problem_nos) => {
             for &problem_no in &problem_nos {
                 let (url, test_suite) = retrieve_samples(&mut sess, problem_no)?;
                 let api::Problem {
@@ -268,7 +319,7 @@ fn retrieve_samples(
                 });
             }
         }
-        YukicoderRetrieveTestCasesTargets::Contest(contest_id, problem_indexes) => {
+        Either::Right((contest_id, problem_indexes)) => {
             outcome.contest = Some(RetrieveTestCasesOutcomeContest {
                 id: contest_id.to_string(),
                 submissions_url: url!("/contests/{}/submissions?my_submission=enabled", contest_id),

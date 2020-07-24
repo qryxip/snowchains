@@ -94,6 +94,7 @@ impl<S: Shell> Exec<Participate<Self, S>> for Codeforces<'_> {
             shell,
         } = args;
 
+        let contest = parse_contest_id(&contest)?;
         let sess = Session::new(timeout, Some(cookie_storage), shell)?;
         let (outcome, _) = participate(sess, username_and_password, contest)?;
         Ok(outcome)
@@ -114,6 +115,8 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Codeforces<'_> {
             timeout,
             shell,
         } = args;
+
+        let contest = parse_contest_id(&contest)?;
 
         let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
@@ -146,6 +149,8 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
             timeout,
             shell,
         } = args;
+
+        let contest = parse_contest_id(&contest)?;
 
         let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
@@ -237,6 +242,8 @@ impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
             todo!("`watch_submissions` in Codeforces is not yet supported");
         }
 
+        let contest_id = parse_contest_id(&contest_id)?;
+
         let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
         let (_, handle) = participate(&mut sess, username_and_password, contest_id)?;
@@ -302,7 +309,7 @@ pub struct CodeforcesLoginCredentials<'closures> {
 
 #[derive(Debug)]
 pub struct CodeforcesParticipateTarget {
-    pub contest: u64,
+    pub contest: String,
 }
 
 pub struct CodeforcesParticipateCredentials<'closures> {
@@ -311,7 +318,7 @@ pub struct CodeforcesParticipateCredentials<'closures> {
 
 #[derive(Debug)]
 pub struct CodeforcesRetrieveLanguagesTarget {
-    pub contest: u64,
+    pub contest: String,
 }
 
 pub struct CodeforcesRetrieveLanguagesCredentials<'closures> {
@@ -320,7 +327,7 @@ pub struct CodeforcesRetrieveLanguagesCredentials<'closures> {
 
 #[derive(Debug)]
 pub struct CodeforcesRetrieveTestCasesTargets {
-    pub contest: u64,
+    pub contest: String,
     pub problems: Option<BTreeSet<String>>,
 }
 
@@ -330,7 +337,7 @@ pub struct CodeforcesRetrieveSampleTestCasesCredentials<'closures> {
 
 #[derive(Debug)]
 pub struct CodeforcesSubmitTarget {
-    pub contest: u64,
+    pub contest: String,
     pub problem: String,
 }
 
@@ -338,6 +345,15 @@ pub struct CodeforcesSubmitCredentials<'closures> {
     pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
     pub api_key: String,
     pub api_secret: String,
+}
+
+fn parse_contest_id(s: &str) -> anyhow::Result<u64> {
+    s.parse().with_context(|| {
+        format!(
+            "A contest ID for Codeforces must be unsigned integer: {:?}",
+            s,
+        )
+    })
 }
 
 fn login(

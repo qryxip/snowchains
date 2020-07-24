@@ -63,7 +63,10 @@ fn main() -> anyhow::Result<()> {
     };
 
     let outcome = Codeforces::exec(Submit {
-        target: CodeforcesSubmitTarget { contest, problem },
+        target: CodeforcesSubmitTarget {
+            contest: contest.to_string(),
+            problem,
+        },
         credentials: CodeforcesSubmitCredentials {
             username_and_password: &mut || {
                 let username_and_password = match credentials {
