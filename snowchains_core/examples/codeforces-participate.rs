@@ -44,7 +44,9 @@ fn main() -> anyhow::Result<()> {
     } = Opt::from_args();
 
     let outcome = Codeforces::exec(Participate {
-        target: CodeforcesParticipateTarget { contest },
+        target: CodeforcesParticipateTarget {
+            contest: contest.to_string(),
+        },
         credentials: CodeforcesParticipateCredentials {
             username_and_password: &mut || {
                 let username_and_password = match credentials {

@@ -1,4 +1,3 @@
-use anyhow::Context as _;
 use snowchains_core::web::{
     RetrieveFullTestCases, RetrieveTestCases, StandardStreamShell, Yukicoder,
     YukicoderRetrieveFullTestCasesCredentials, YukicoderRetrieveTestCasesTargets,
@@ -55,17 +54,11 @@ fn main() -> anyhow::Result<()> {
     let outcome = Yukicoder::exec(RetrieveTestCases {
         targets: match (contest, problems) {
             (None, None) => unreachable!(),
-            (None, Some(problem_nos)) => YukicoderRetrieveTestCasesTargets::ProblemNos(
-                problem_nos
-                    .iter()
-                    .map(|p| p.parse::<u64>())
-                    .collect::<Result<_, _>>()
-                    .with_context(|| "Problem numbers must be integer")?,
-            ),
+            (None, Some(problem_nos)) => {
+                YukicoderRetrieveTestCasesTargets::ProblemNos(problem_nos.into_iter().collect())
+            }
             (Some(contest), problem_indexes) => YukicoderRetrieveTestCasesTargets::Contest(
-                contest
-                    .parse()
-                    .with_context(|| "Contest IDs for yukicoder must be integer")?,
+                contest,
                 problem_indexes.map(|ps| ps.into_iter().collect()),
             ),
         },

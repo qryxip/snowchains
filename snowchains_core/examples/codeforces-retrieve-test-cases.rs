@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
 
     let outcome = Codeforces::exec(RetrieveTestCases {
         targets: CodeforcesRetrieveTestCasesTargets {
-            contest,
+            contest: contest.to_string(),
             problems: problems.map(|ps| ps.into_iter().collect()),
         },
         credentials: CodeforcesRetrieveSampleTestCasesCredentials {

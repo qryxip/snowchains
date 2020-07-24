@@ -128,7 +128,6 @@ pub(crate) fn run(
         .with_context(|| "`service` is not specified")??;
 
     let contest = contest.or(detected_target.contest);
-    let contest = contest.as_deref();
 
     let problems = match (problems.as_deref().unwrap_or(&[]), &detected_target.problem) {
         ([], None) => None,
@@ -147,8 +146,8 @@ pub(crate) fn run(
         PlatformVariant::Atcoder => {
             let targets = {
                 let contest = contest
-                    .with_context(|| "`contest` is required for AtCoder")?
-                    .to_owned();
+                    .clone()
+                    .with_context(|| "`contest` is required for AtCoder")?;
                 AtcoderRetrieveTestCasesTargets { contest, problems }
             };
 
@@ -199,9 +198,8 @@ pub(crate) fn run(
         PlatformVariant::Codeforces => {
             let targets = {
                 let contest = contest
-                    .with_context(|| "`contest` is required for Codeforces")?
-                    .parse()
-                    .with_context(|| "`contest` for Codeforces must be 64-bit unsigned integer")?;
+                    .clone()
+                    .with_context(|| "`contest` is required for Codeforces")?;
                 CodeforcesRetrieveTestCasesTargets { contest, problems }
             };
 
@@ -223,11 +221,8 @@ pub(crate) fn run(
             })
         }
         PlatformVariant::Yukicoder => {
-            let targets = if let Some(contest) = contest {
-                let contest = contest
-                    .parse()
-                    .with_context(|| "`contest` for yukicoder must be 64-bit unsigned integer")?;
-                YukicoderRetrieveTestCasesTargets::Contest(contest, problems)
+            let targets = if let Some(contest) = &contest {
+                YukicoderRetrieveTestCasesTargets::Contest(contest.clone(), problems)
             } else {
                 let nos = problems
                     .with_context(|| "`contest` or `problem`s are required for yukicoder")?
