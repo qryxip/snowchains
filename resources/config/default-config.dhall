@@ -2,7 +2,7 @@ let List/index =
       https://prelude.dhall-lang.org/v17.0.0/List/index sha256:e657b55ecae4d899465c3032cb1a64c6aa6dc2aa3034204f3c15ce5c96c03e63
 
 let Snowchains =
-      /home/ryo/src/github.com/qryxip/snowchains/resources/config/schema/Snowchains/package.dhall
+      https://raw.githubusercontent.com/qryxip/snowchains/rewrite-almost-everything/resources/config/schema/Snowchains/package.dhall sha256:28a3f4b9125086c16d99389249a3dce4f8c1044a6a8e85b2fed410d61d1bdecf
 
 let Service/lowercase = Snowchains.Service/lowercase
 
