@@ -88,12 +88,12 @@ let Language =
       }
 
 let Config =
-      { xtask : Map Text Script
-      , detectServiceFromRelativePathSegments : List Text → Optional Text
+      { detectServiceFromRelativePathSegments : List Text → Optional Text
       , detectContestFromRelativePathSegments : List Text → Optional Text
       , detectProblemFromRelativePathSegments : List Text → Optional Text
       , detectLanguageFromRelativePathSegments : List Text → Optional Text
       , languages : Target → Map Text Language
+      , xtask : Map Text Script
       }
 
 in  { Service
