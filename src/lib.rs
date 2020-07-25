@@ -22,6 +22,7 @@ macro_rules! color_spec_inner {
 mod commands;
 mod config;
 mod fs;
+mod judge;
 mod shell;
 mod web;
 
@@ -29,6 +30,7 @@ pub use crate::commands::{
     init::OptInit,
     login::OptLogin,
     retrieve::{testcases::OptRetrieveTestcases, OptRetrieve},
+    submit::OptSubmit,
     test::OptTest,
     xtask::OptXtask,
 };
@@ -60,9 +62,13 @@ pub enum Opt {
     #[structopt(author, visible_alias("r"))]
     Retrieve(OptRetrieve),
 
-    /// Test code
+    /// Tests code
     #[structopt(author, visible_alias("t"))]
     Test(OptTest),
+
+    /// Submits code
+    #[structopt(author, visible_alias("s"))]
+    Submit(OptSubmit),
 
     /// Run a custom subcommand written in the config file
     #[structopt(author, visible_alias("x"), setting = AppSettings::TrailingVarArg)]
@@ -97,7 +103,8 @@ impl Opt {
             Self::Init(OptInit { color, .. })
             | Self::Login(OptLogin { color, .. })
             | Self::Retrieve(OptRetrieve::Testcases(OptRetrieveTestcases { color, .. }))
-            | Self::Test(OptTest { color, .. }) => color,
+            | Self::Test(OptTest { color, .. })
+            | Self::Submit(OptSubmit { color, .. }) => color,
             Self::Xtask(_) => crate::ColorChoice::Auto,
         }
     }
@@ -167,6 +174,7 @@ pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
         Opt::Login(opt) => commands::login::run(opt, ctx),
         Opt::Retrieve(opt) => commands::retrieve::run(opt, ctx),
         Opt::Test(opt) => commands::test::run(opt, ctx),
+        Opt::Submit(opt) => commands::submit::run(opt, ctx),
         Opt::Xtask(opt) => commands::xtask::run(opt, ctx),
     }
 }

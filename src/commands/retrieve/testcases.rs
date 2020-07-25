@@ -1,7 +1,7 @@
 use crate::{shell::Shell, web::CaseConversions};
 use anyhow::Context as _;
 use maplit::btreeset;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use snowchains_core::{
     testsuite::{Additional, BatchTestSuite, TestSuite},
     web::{
@@ -28,7 +28,7 @@ pub struct OptRetrieveTestcases {
     #[structopt(long)]
     pub full: bool,
 
-    /// Prints the output as a JSON value
+    /// Prints JSON data
     #[structopt(long)]
     pub json: bool,
 
@@ -113,7 +113,7 @@ pub(crate) fn run(
         cwd,
         mut stdin,
         mut stdout,
-        stderr,
+        mut stderr,
         stdin_process_redirection: _,
         stdout_process_redirection: _,
         stderr_process_redirection: _,
@@ -139,9 +139,6 @@ pub(crate) fn run(
 
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
-    let stderr = RefCell::new(stderr);
-    let shell = Shell::new(&stderr, true);
-
     let outcome = match service {
         PlatformVariant::Atcoder => {
             let targets = {
@@ -151,36 +148,20 @@ pub(crate) fn run(
                 AtcoderRetrieveTestCasesTargets { contest, problems }
             };
 
+            let stderr = RefCell::new(&mut stderr);
+            let shell = Shell::new(&stderr, true);
+
             let credentials = AtcoderRetrieveSampleTestCasesCredentials {
-                username_and_password: &mut crate::web::prompt::username_and_password(
-                    stdin,
-                    &stderr,
-                    "Username: ",
+                username_and_password: &mut crate::web::credentials::atcoder_username_and_password(
+                    stdin, &stderr,
                 ),
             };
 
             let full = if full {
-                Some({
-                    #[derive(Deserialize)]
-                    struct Dropbox {
-                        access_token: String,
-                    }
-
-                    let path = dirs::data_local_dir()
-                        .with_context(|| "Could not find the local data directory")?
-                        .join("snowchains")
-                        .join("dropbox.json");
-
-                    let Dropbox { access_token } =
-                        crate::fs::read_json(&path).with_context(|| {
-                            format!("First, save the access token to `{}`", path.display())
-                        })?;
-
-                    RetrieveFullTestCases {
-                        credentials: AtcoderRetrieveFullTestCasesCredentials {
-                            dropbox_access_token: access_token,
-                        },
-                    }
+                Some(RetrieveFullTestCases {
+                    credentials: AtcoderRetrieveFullTestCasesCredentials {
+                        dropbox_access_token: crate::web::credentials::dropbox_access_token()?,
+                    },
                 })
             } else {
                 None
@@ -203,12 +184,12 @@ pub(crate) fn run(
                 CodeforcesRetrieveTestCasesTargets { contest, problems }
             };
 
+            let stderr = RefCell::new(&mut stderr);
+            let shell = Shell::new(&stderr, true);
+
             let credentials = CodeforcesRetrieveSampleTestCasesCredentials {
-                username_and_password: &mut crate::web::prompt::username_and_password(
-                    stdin,
-                    &stderr,
-                    "Handle/Email: ",
-                ),
+                username_and_password:
+                    &mut crate::web::credentials::codeforces_username_and_password(stdin, &stderr),
             };
 
             Codeforces::exec(RetrieveTestCases {
@@ -234,30 +215,20 @@ pub(crate) fn run(
             };
 
             let full = if full {
-                Some({
-                    let path = dirs::data_local_dir()
-                        .with_context(|| "Could not find the local data directory")?
-                        .join("snowchains")
-                        .join("yukicoder.json");
-
-                    let api_key = if path.exists() {
-                        crate::fs::read_json(path)?
-                    } else {
-                        let mut stderr = stderr.borrow_mut();
-                        write!(stderr, "yukicoder API key: ")?;
-                        stderr.flush()?;
-                        let api_key = stdin.read_reply()?;
-                        crate::fs::write_json(path, &api_key, true)?;
-                        api_key
-                    };
-
-                    RetrieveFullTestCases {
-                        credentials: YukicoderRetrieveFullTestCasesCredentials { api_key },
-                    }
+                Some(RetrieveFullTestCases {
+                    credentials: YukicoderRetrieveFullTestCasesCredentials {
+                        api_key: crate::web::credentials::yukicoder_api_key(
+                            &mut stdin,
+                            &mut stderr,
+                        )?,
+                    },
                 })
             } else {
                 None
             };
+
+            let stderr = RefCell::new(&mut stderr);
+            let shell = Shell::new(&stderr, true);
 
             Yukicoder::exec(RetrieveTestCases {
                 targets,
@@ -333,8 +304,6 @@ pub(crate) fn run(
         }
 
         crate::fs::write(&path, test_suite.to_yaml_pretty(), true)?;
-
-        let mut stderr = stderr.borrow_mut();
 
         stderr.set_color(ColorSpec::new().set_reset(false).set_bold(true))?;
         write!(stderr, "{}:", index.original)?;
