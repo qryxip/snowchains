@@ -323,7 +323,7 @@ pub(crate) fn run(
                 cases.clear();
 
                 extend.push(Additional::Text {
-                    base: format!("./{}", index.kebab),
+                    path: format!("./{}", index.kebab),
                     r#in: "/in/*.txt".to_owned(),
                     out: "/out/*.txt".to_owned(),
                     timelimit: None,
