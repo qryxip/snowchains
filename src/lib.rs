@@ -27,8 +27,8 @@ mod shell;
 mod web;
 
 pub use crate::commands::{
-    init::OptInit, login::OptLogin, retrieve_testcases::OptRetrieveTestcases, submit::OptSubmit,
-    test::OptTest, xtask::OptXtask,
+    init::OptInit, login::OptLogin, retrieve_languages::OptRetrieveLanguages,
+    retrieve_testcases::OptRetrieveTestcases, submit::OptSubmit, test::OptTest, xtask::OptXtask,
 };
 use std::{
     env,
@@ -73,6 +73,10 @@ pub enum Opt {
 
 #[derive(StructOpt, Debug)]
 pub enum OptRetrieve {
+    /// Retrieves list of languages
+    #[structopt(author, visible_alias("l"))]
+    Languages(OptRetrieveLanguages),
+
     /// Retrieves test cases
     #[structopt(author, visible_alias("t"))]
     Testcases(OptRetrieveTestcases),
@@ -105,6 +109,7 @@ impl Opt {
         match *self {
             Self::Init(OptInit { color, .. })
             | Self::Login(OptLogin { color, .. })
+            | Self::Retrieve(OptRetrieve::Languages(OptRetrieveLanguages { color, .. }))
             | Self::Retrieve(OptRetrieve::Testcases(OptRetrieveTestcases { color, .. }))
             | Self::Test(OptTest { color, .. })
             | Self::Submit(OptSubmit { color, .. }) => color,
@@ -175,6 +180,7 @@ pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
     match opt {
         Opt::Init(opt) => commands::init::run(opt, ctx),
         Opt::Login(opt) => commands::login::run(opt, ctx),
+        Opt::Retrieve(OptRetrieve::Languages(opt)) => commands::retrieve_languages::run(opt, ctx),
         Opt::Retrieve(OptRetrieve::Testcases(opt)) => commands::retrieve_testcases::run(opt, ctx),
         Opt::Test(opt) => commands::test::run(opt, ctx),
         Opt::Submit(opt) => commands::submit::run(opt, ctx),
