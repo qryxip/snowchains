@@ -27,12 +27,8 @@ mod shell;
 mod web;
 
 pub use crate::commands::{
-    init::OptInit,
-    login::OptLogin,
-    retrieve::{testcases::OptRetrieveTestcases, OptRetrieve},
-    submit::OptSubmit,
-    test::OptTest,
-    xtask::OptXtask,
+    init::OptInit, login::OptLogin, retrieve_testcases::OptRetrieveTestcases, submit::OptSubmit,
+    test::OptTest, xtask::OptXtask,
 };
 use std::{
     env,
@@ -73,6 +69,13 @@ pub enum Opt {
     /// Run a custom subcommand written in the config file
     #[structopt(author, visible_alias("x"), setting = AppSettings::TrailingVarArg)]
     Xtask(OptXtask),
+}
+
+#[derive(StructOpt, Debug)]
+pub enum OptRetrieve {
+    /// Retrieves test cases
+    #[structopt(author, visible_alias("t"))]
+    Testcases(OptRetrieveTestcases),
 }
 
 impl Opt {
@@ -172,7 +175,7 @@ pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
     match opt {
         Opt::Init(opt) => commands::init::run(opt, ctx),
         Opt::Login(opt) => commands::login::run(opt, ctx),
-        Opt::Retrieve(opt) => commands::retrieve::run(opt, ctx),
+        Opt::Retrieve(OptRetrieve::Testcases(opt)) => commands::retrieve_testcases::run(opt, ctx),
         Opt::Test(opt) => commands::test::run(opt, ctx),
         Opt::Submit(opt) => commands::submit::run(opt, ctx),
         Opt::Xtask(opt) => commands::xtask::run(opt, ctx),
