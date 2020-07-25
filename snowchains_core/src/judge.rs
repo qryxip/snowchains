@@ -1,5 +1,5 @@
 use crate::testsuite::{BatchTestCase, ExpectedOutput};
-use anyhow::Context as _;
+use anyhow::{bail, Context as _};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::{
     collections::BTreeMap,
@@ -194,6 +194,25 @@ impl JudgeOutcome {
             spec.set_reset(false).set_bold(bold).set_fg(Some(fg));
             spec
         }
+    }
+
+    pub fn error_on_fail(&self) -> anyhow::Result<()> {
+        let fails = self
+            .verdicts
+            .iter()
+            .filter(|v| !matches!(v, Verdict::Accepted {..}))
+            .count();
+
+        if fails > 0 {
+            bail!(
+                "{}/{} test{} failed",
+                fails,
+                self.verdicts.len(),
+                if fails == 0 { "" } else { "s" }
+            );
+        }
+
+        Ok(())
     }
 }
 
