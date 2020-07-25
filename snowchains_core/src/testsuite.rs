@@ -186,7 +186,7 @@ pub struct PartialBatchTestCase {
 #[serde(tag = "type")]
 pub enum Additional {
     Text {
-        base: String,
+        path: String,
         r#in: String,
         out: String,
         #[serde(
@@ -204,7 +204,7 @@ impl Additional {
     fn load_test_cases(&self, parent_dir: &Path) -> anyhow::Result<Vec<PartialBatchTestCase>> {
         match self {
             Self::Text {
-                base,
+                path: base,
                 r#in,
                 out,
                 r#match,
@@ -556,7 +556,7 @@ cases: []
 
 extend:
   - type: Text
-    base: "./a"
+    path: "./a"
     in: /in/*.txt
     out: /out/*.txt
 "#,
@@ -565,7 +565,7 @@ extend:
                 r#match: Match::Lines,
                 cases: vec![],
                 extend: vec![Additional::Text {
-                    base: "./a".to_owned(),
+                    path: "./a".to_owned(),
                     r#in: "/in/*.txt".into(),
                     out: "/out/*.txt".into(),
                     timelimit: None,
