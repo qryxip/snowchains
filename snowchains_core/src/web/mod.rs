@@ -86,6 +86,11 @@ use futures_util::StreamExt as _;
 use indexmap::IndexMap;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use itertools::Itertools as _;
+use prettytable::{
+    cell,
+    format::{FormatBuilder, LinePosition, LineSeparator},
+    row, Table,
+};
 use reqwest::{header, redirect::Policy, Method, StatusCode};
 use scraper::Html;
 use serde::{Deserialize, Serialize, Serializer};
@@ -214,9 +219,37 @@ pub struct RetrieveLanguages<P: Platform, S: Shell> {
     pub shell: S,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct RetrieveLanguagesOutcome {
     pub names_by_id: IndexMap<String, String>,
+}
+
+impl RetrieveLanguagesOutcome {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("should not fail")
+    }
+
+    pub fn to_table(&self) -> impl fmt::Display {
+        let mut table = Table::new();
+
+        *table.get_format() = FormatBuilder::new()
+            .padding(1, 1)
+            .column_separator('│')
+            .borders('│')
+            .separator(LinePosition::Top, LineSeparator::new('─', '┬', '┌', '┐'))
+            .separator(LinePosition::Title, LineSeparator::new('─', '┼', '├', '┤'))
+            .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
+            .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '└', '┘'))
+            .build();
+
+        table.set_titles(row!["ID", "Name"]);
+
+        for (id, name) in &self.names_by_id {
+            table.add_row(row![id, name]);
+        }
+
+        table
+    }
 }
 
 pub struct RetrieveTestCases<P: Platform, S: Shell> {
