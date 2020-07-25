@@ -157,7 +157,8 @@ pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Res
     writeln!(stderr)?;
     stderr.flush()?;
     outcome.print_pretty(stdout, Some(64 * 1024))?;
-    Ok(())
+
+    outcome.error_on_fail()
 }
 
 pub(crate) fn transpile(
