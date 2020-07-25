@@ -310,7 +310,7 @@ in  {{ service = Service.{}
         , mixedCase = {}
         , pascalCase = {}
         }}
-    , mode = Mode.Debug
+    , mode = Mode.{}
     }}
 ",
             self.service.to_pascal_case_str(),
@@ -333,11 +333,15 @@ in  {{ service = Service.{}
             quote(self.problem.to_kebab_case()),
             quote(self.problem.to_mixed_case()),
             quote(self.problem.to_camel_case()),
+            match self.mode {
+                Mode::Debug => "Debug",
+                Mode::Release => "Release",
+            },
         )
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum Mode {
     Debug,
     Release,
