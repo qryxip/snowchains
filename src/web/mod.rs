@@ -1,4 +1,5 @@
 pub(crate) mod cookie_storage;
+pub(crate) mod credentials;
 pub(crate) mod prompt;
 
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};

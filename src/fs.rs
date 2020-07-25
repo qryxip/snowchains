@@ -8,18 +8,21 @@ pub(crate) fn metadata(path: impl AsRef<Path>) -> anyhow::Result<Metadata> {
         .with_context(|| format!("Could not get the metadata of `{}`", path.display()))
 }
 
+pub(crate) fn read_to_string(path: impl AsRef<Path>) -> anyhow::Result<String> {
+    let path = path.as_ref();
+    std::fs::read_to_string(path).with_context(|| format!("Could not read `{}`", path.display()))
+}
+
 pub(crate) fn read_json<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> anyhow::Result<T> {
     let path = path.as_ref();
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("Could not read `{}`", path.display()))?;
+    let content = read_to_string(path)?;
     serde_json::from_str(&content)
         .with_context(|| format!("Could not parse the JSON at `{}`", path.display()))
 }
 
 pub(crate) fn read_yaml<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> anyhow::Result<T> {
     let path = path.as_ref();
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("Could not read `{}`", path.display()))?;
+    let content = read_to_string(path)?;
     serde_yaml::from_str(&content)
         .with_context(|| format!("Could not parse the YAML at `{}`", path.display()))
 }

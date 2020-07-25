@@ -272,11 +272,17 @@ pub struct Submit<P: Platform, S: Shell> {
     pub shell: S,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct SubmitOutcome {
-    problem_screen_name: String,
-    submission_url: Url,
-    submissions_url: Url,
+    pub problem_screen_name: String,
+    pub submission_url: Url,
+    pub submissions_url: Url,
+}
+
+impl SubmitOutcome {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("should not fail")
+    }
 }
 
 pub struct CookieStorage {
