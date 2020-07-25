@@ -73,10 +73,8 @@ pub(crate) fn run(
     let outcome = match service {
         PlatformVariant::Atcoder => {
             let credentials = AtcoderLoginCredentials {
-                username_and_password: &mut crate::web::prompt::username_and_password(
-                    stdin,
-                    &stderr,
-                    "Username: ",
+                username_and_password: &mut crate::web::credentials::atcoder_username_and_password(
+                    stdin, &stderr,
                 ),
             };
 
@@ -89,11 +87,8 @@ pub(crate) fn run(
         }
         PlatformVariant::Codeforces => {
             let credentials = CodeforcesLoginCredentials {
-                username_and_password: &mut crate::web::prompt::username_and_password(
-                    stdin,
-                    &stderr,
-                    "Handle/Email: ",
-                ),
+                username_and_password:
+                    &mut crate::web::credentials::codeforces_username_and_password(stdin, &stderr),
             };
 
             Codeforces::exec(Login {
