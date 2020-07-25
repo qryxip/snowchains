@@ -224,7 +224,7 @@ in    { xtask = toMap
                       , run = Command.Args [ "python", src ]
                       , languageId =
                           merge
-                            { Atcoder = Some "3006"
+                            { Atcoder = Some "4050"
                             , Codeforces = Some "31"
                             , Yukicoder = Some "python3"
                             }
