@@ -2,7 +2,7 @@ let List/index =
       https://prelude.dhall-lang.org/v17.0.0/List/index sha256:e657b55ecae4d899465c3032cb1a64c6aa6dc2aa3034204f3c15ce5c96c03e63
 
 let Snowchains =
-      https://raw.githubusercontent.com/qryxip/snowchains/rewrite-almost-everything/resources/config/schema/Snowchains/package.dhall sha256:28a3f4b9125086c16d99389249a3dce4f8c1044a6a8e85b2fed410d61d1bdecf
+      https://raw.githubusercontent.com/qryxip/snowchains/rewrite-almost-everything/resources/config/schema/Snowchains/package.dhall sha256:6acc68ed8830bdabc6beb6bc39d4348886bdcf2d78a102b3f1c9338b07f84389
 
 let Service/lowercase = Snowchains.Service/lowercase
 
@@ -11,6 +11,8 @@ let CaseConvertedText/kebabCase = Snowchains.CaseConvertedText/kebabCase
 let Script/new = Snowchains.Script/new
 
 let Command = Snowchains.Command
+
+let Mode/lowercase = Snowchains.Mode/lowercase
 
 let Target = Snowchains.Target
 
@@ -105,39 +107,28 @@ in    { detectServiceFromRelativePathSegments = List/index 0 Text
 
                   let bin =
                         "${Service/lowercase
-                             service}/${contest}/rs/target/manual/${problem}"
+                             service}/target/${Mode/lowercase
+                                                 mode}/${contest}-${problem}"
 
                   in  { src
                       , transpile = None Compile
                       , compile = Some
                         { command =
-                            let version =
-                                  merge
-                                    { Atcoder = "1.42.0"
-                                    , Codeforces = "1.42.0"
-                                    , Yukicoder = "1.44.1"
-                                    }
-                                    service
-
-                            let optLevel =
-                                  merge
-                                    { Atcoder = "3"
-                                    , Codeforces = "2"
-                                    , Yukicoder = "2"
-                                    }
-                                    service
-
-                            in  Command.Args
-                                  [ "rustup"
-                                  , "run"
-                                  , version
-                                  , "rustc"
-                                  , "-C"
-                                  , "opt-level=${optLevel}"
-                                  , "-o"
-                                  , bin
-                                  , src
+                            Command.Args
+                              (   [ "cargo"
+                                  , "build"
+                                  , "--manifest-path"
+                                  , "./${Service/lowercase
+                                           service}/${contest}/rs/Cargo.toml"
+                                  , "--bin"
+                                  , "${contest}-${problem}"
                                   ]
+                                # merge
+                                    { Debug = [] : List Text
+                                    , Release = [ "--release" ]
+                                    }
+                                    mode
+                              )
                         , output = bin
                         }
                       , run = Command.Args [ bin ]
