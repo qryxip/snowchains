@@ -70,6 +70,21 @@ let Command = < Args : List Text | Script : Script >
 
 let Mode = < Debug | Release >
 
+let Mode/lowercase =
+      λ(m : Mode) → merge { Debug = "debug", Release = "release" } m
+
+let Mode/uppercase =
+      λ(m : Mode) → merge { Debug = "DEBUG", Release = "RELEASE" } m
+
+let Mode/snakeCase = Mode/lowercase
+
+let Mode/kebabCase = Mode/lowercase
+
+let Mode/mixedCase = Mode/lowercase
+
+let Mode/pascalCase =
+      λ(m : Mode) → merge { Debug = "Debug", Release = "Release" } m
+
 let Target =
       { service : Service
       , contest : Optional CaseConvertedText
@@ -113,6 +128,13 @@ in  { Service
     , Script
     , Script/new
     , Command
+    , Mode
+    , Mode/lowercase
+    , Mode/uppercase
+    , Mode/snakeCase
+    , Mode/kebabCase
+    , Mode/mixedCase
+    , Mode/pascalCase
     , Target
     , Compile
     , Language
