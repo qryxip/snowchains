@@ -129,9 +129,9 @@ Opening https://atcoder.jp/contests/practice/tasks/practice_1 ...
 Opening https://atcoder.jp/contests/practice/tasks/practice_2 ...
 ```
 
-![Screenshot](https://user-images.githubusercontent.com/14125495/88489061-e5913c00-cfcc-11ea-86f6-928e33238334.png)
+![Screenshot](https://user-images.githubusercontent.com/14125495/88492107-56435300-cfe3-11ea-92fe-4ce950ebf1bc.png)
 
-![Record](https://user-images.githubusercontent.com/14125495/88489236-11f98800-cfce-11ea-9dbf-24d853a53d31.gif)
+![Record](https://user-images.githubusercontent.com/14125495/88492159-b0dcaf00-cfe3-11ea-8daa-c1eb56d293d6.gif)
 
 ## License
 
