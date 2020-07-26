@@ -2,7 +2,7 @@ use crate::shell::Shell;
 use anyhow::Context as _;
 use snowchains_core::web::{
     Atcoder, AtcoderRetrieveLanguagesCredentials, AtcoderRetrieveLanguagesTarget, Codeforces,
-    CodeforcesRetrieveLanguagesCredentials, CodeforcesRetrieveLanguagesTarget, PlatformVariant,
+    CodeforcesRetrieveLanguagesCredentials, CodeforcesRetrieveLanguagesTarget, PlatformKind,
     RetrieveLanguages, Yukicoder,
 };
 use std::{
@@ -37,9 +37,9 @@ pub struct OptRetrieveLanguages {
         short,
         long,
         value_name("SERVICE"),
-        possible_values(PlatformVariant::KEBAB_CASE_VARIANTS)
+        possible_values(PlatformKind::KEBAB_CASE_VARIANTS)
     )]
-    pub service: Option<PlatformVariant>,
+    pub service: Option<PlatformKind>,
 
     /// Contest ID
     #[structopt(short, long, value_name("STRING"))]
@@ -95,7 +95,7 @@ pub(crate) fn run(
 
     let outcome =
         match service {
-            PlatformVariant::Atcoder => {
+            PlatformKind::Atcoder => {
                 let target = AtcoderRetrieveLanguagesTarget {
                     contest_and_problem: contest.and_then(|c| problem.map(|p| (c, p))),
                 };
@@ -113,7 +113,7 @@ pub(crate) fn run(
                     shell,
                 })
             }
-            PlatformVariant::Codeforces => {
+            PlatformKind::Codeforces => {
                 let target = CodeforcesRetrieveLanguagesTarget {
                     contest: contest.with_context(|| "`contest` is required for Codeforces")?,
                 };
@@ -131,7 +131,7 @@ pub(crate) fn run(
                     shell,
                 })
             }
-            PlatformVariant::Yukicoder => Yukicoder::exec(RetrieveLanguages {
+            PlatformKind::Yukicoder => Yukicoder::exec(RetrieveLanguages {
                 target: (),
                 credentials: (),
                 cookie_storage: (),

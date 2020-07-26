@@ -142,13 +142,13 @@ pub trait Platform: Sized {
 )]
 #[strum(serialize_all = "lowercase")]
 #[serde(rename_all = "PascalCase")]
-pub enum PlatformVariant {
+pub enum PlatformKind {
     Atcoder,
     Codeforces,
     Yukicoder,
 }
 
-impl PlatformVariant {
+impl PlatformKind {
     pub const KEBAB_CASE_VARIANTS: &'static [&'static str] =
         &["atcoder", "codeforces", "yukicoder"];
 

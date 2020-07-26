@@ -8,7 +8,7 @@ use snowchains_core::{
         Atcoder, AtcoderRetrieveFullTestCasesCredentials,
         AtcoderRetrieveSampleTestCasesCredentials, AtcoderRetrieveTestCasesTargets, Codeforces,
         CodeforcesRetrieveSampleTestCasesCredentials, CodeforcesRetrieveTestCasesTargets,
-        PlatformVariant, RetrieveFullTestCases, RetrieveTestCases, Yukicoder,
+        PlatformKind, RetrieveFullTestCases, RetrieveTestCases, Yukicoder,
         YukicoderRetrieveFullTestCasesCredentials, YukicoderRetrieveTestCasesTargets,
     },
 };
@@ -49,9 +49,9 @@ pub struct OptRetrieveTestcases {
         short,
         long,
         value_name("SERVICE"),
-        possible_values(PlatformVariant::KEBAB_CASE_VARIANTS)
+        possible_values(PlatformKind::KEBAB_CASE_VARIANTS)
     )]
-    pub service: Option<PlatformVariant>,
+    pub service: Option<PlatformKind>,
 
     /// Contest ID
     #[structopt(short, long, value_name("STRING"))]
@@ -140,7 +140,7 @@ pub(crate) fn run(
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
     let outcome = match service {
-        PlatformVariant::Atcoder => {
+        PlatformKind::Atcoder => {
             let targets = {
                 let contest = contest
                     .clone()
@@ -176,7 +176,7 @@ pub(crate) fn run(
                 shell,
             })
         }
-        PlatformVariant::Codeforces => {
+        PlatformKind::Codeforces => {
             let targets = {
                 let contest = contest
                     .clone()
@@ -201,7 +201,7 @@ pub(crate) fn run(
                 shell,
             })
         }
-        PlatformVariant::Yukicoder => {
+        PlatformKind::Yukicoder => {
             let targets = if let Some(contest) = &contest {
                 YukicoderRetrieveTestCasesTargets::Contest(contest.clone(), problems)
             } else {

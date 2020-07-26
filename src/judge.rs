@@ -3,7 +3,7 @@ use anyhow::bail;
 use indicatif::ProgressDrawTarget;
 use itertools::Itertools as _;
 use maplit::btreemap;
-use snowchains_core::{judge::CommandExpression, testsuite::TestSuite, web::PlatformVariant};
+use snowchains_core::{judge::CommandExpression, testsuite::TestSuite, web::PlatformKind};
 use std::{
     ffi::OsStr,
     io::Write as _,
@@ -23,7 +23,7 @@ pub(crate) struct Args<W1, W2> {
     pub(crate) stderr_process_redirection: fn() -> Stdio,
     pub(crate) draw_progress: bool,
     pub(crate) base_dir: PathBuf,
-    pub(crate) service: PlatformVariant,
+    pub(crate) service: PlatformKind,
     pub(crate) contest: Option<String>,
     pub(crate) problem: String,
     pub(crate) src: String,

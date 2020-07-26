@@ -2,7 +2,7 @@ use crate::{config, shell::Shell};
 use anyhow::Context as _;
 use snowchains_core::web::{
     Atcoder, AtcoderSubmitCredentials, AtcoderSubmitTarget, Codeforces,
-    CodeforcesSubmitCredentials, CodeforcesSubmitTarget, PlatformVariant, Submit, Yukicoder,
+    CodeforcesSubmitCredentials, CodeforcesSubmitTarget, PlatformKind, Submit, Yukicoder,
     YukicoderSubmitCredentials, YukicoderSubmitTarget,
 };
 use std::{cell::RefCell, io::BufRead, path::PathBuf};
@@ -45,9 +45,9 @@ pub struct OptSubmit {
         short,
         long,
         value_name("SERVICE"),
-        possible_values(PlatformVariant::KEBAB_CASE_VARIANTS)
+        possible_values(PlatformKind::KEBAB_CASE_VARIANTS)
     )]
-    pub service: Option<PlatformVariant>,
+    pub service: Option<PlatformKind>,
 
     /// Contest ID
     #[structopt(short, long, value_name("STRING"))]
@@ -159,7 +159,7 @@ pub(crate) fn run(
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
     let outcome = match service {
-        PlatformVariant::Atcoder => {
+        PlatformKind::Atcoder => {
             let target = AtcoderSubmitTarget {
                 contest: contest.with_context(|| "`contest` is required for AtCoder")?,
                 problem,
@@ -185,7 +185,7 @@ pub(crate) fn run(
                 shell,
             })
         }
-        PlatformVariant::Codeforces => {
+        PlatformKind::Codeforces => {
             let target = CodeforcesSubmitTarget {
                 contest: contest.with_context(|| "`contest` is required for Codeforces")?,
                 problem,
@@ -215,7 +215,7 @@ pub(crate) fn run(
                 shell,
             })
         }
-        PlatformVariant::Yukicoder => {
+        PlatformKind::Yukicoder => {
             let target = if let Some(contest) = contest {
                 YukicoderSubmitTarget::Contest(contest, problem)
             } else {
