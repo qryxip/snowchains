@@ -225,6 +225,10 @@ impl Additional {
                         .map::<anyhow::Result<_>, _>(|entry| {
                             let path = entry?.into_path();
 
+                            if path.is_dir() {
+                                return Ok(None);
+                            }
+
                             let name = path
                                 .file_stem()
                                 .unwrap_or_default()
@@ -235,8 +239,9 @@ impl Additional {
                                 .with_context(|| format!("Could not read {}", path.display()))?
                                 .into();
 
-                            Ok((name, content))
+                            Ok(Some((name, content)))
                         })
+                        .flat_map(Result::transpose)
                 };
 
                 for result in walk(OverrideBuilder::new(base).add(r#in)?.build()?) {
