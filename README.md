@@ -11,17 +11,16 @@ Tools for online programming contests.
 
 ## Features
 
-- Scrapes sample cases as YAML, TOML, or JSON
+- Scrapes sample cases as YAML
 - Tests a source file with downloaded sample cases
 - Submits a source file
 - Downloads source file you have submitted
 
-|                         | Target                                       | `contest` field         | Scrape samples  | Download system tests | Submit          |
-| :---------------------- | :------------------------------------------- | :---------------------: | :-------------: | :-------------------: | :-------------: |
-| AtCoder                 | `atcoder.jp/contests/{}`                     | `.*`                    | ✓               | ✓                     | ✓               |
-| Codeforces              | `codeforces.com/contest/{}`                  | unsigned 64-bit integer | ✓               | N/A                   | ✓               |
-| yukicoder (Problems)    | `yukicoder.me/problems/no/{}`                | `no`                    | ✓               | ✓                     | ✓               |
-| yukicoder (Contests)    | `yukicoder.me/contests/{}`                   | `(?!no)`                | ✓               | ✓                     | ✓               |
+|            | Register to a contest | Sample test cases  | System test cases     | Submit             | Watch submissions  |
+| :--------: | :-------------------: | :----------------: | :-------------------: | :----------------: | :----------------: |
+| AtCoder    | :heavy_check_mark:    | :heavy_check_mark: | :heavy_check_mark:    | :heavy_check_mark: | :heavy_check_mark: |
+| Codeforces | :x:                   | :heavy_check_mark: | N/A                   | :heavy_check_mark: | :x:                |
+| yukicoder  | N/A                   | :heavy_check_mark: | :heavy_check_mark:    | :heavy_check_mark: | :x:                |
 
 ## Instrallation
 
@@ -31,547 +30,108 @@ Tools for online programming contests.
 
 ### `cargo install` (Crates.io)
 
-```
+```console
 $ cargo install snowchains
 ```
 
 ### `cargo install` (GitHub)
 
-```
+```console
 $ cargo install --git https://github.com/qryxip/snowchains
 ```
 
 ## Usage
 
-```
+```console
+$ snowchains -h
 snowchains 0.3.3
 Ryo Yamashita <qryxip@gmail.com>
 Tools for online programming contests
 
 USAGE:
-    snowchains <i|init> [FLAGS] [OPTIONS] [directory]
-    snowchains <w|switch|c|checkout> [FLAGS] [OPTIONS]
-    snowchains <l|login> [FLAGS] [OPTIONS] <service>
-    snowchains <p|participate> [FLAGS] [OPTIONS] <service> <contest>
-    snowchains <d|download> [FLAGS] [OPTIONS]
-    snowchains <r|retrieve> <t|testcases> [FLAGS] [OPTIONS]
-    snowchains <r|retrieve> <l|languages> [FLAGS] [OPTIONS] [problem]
-    snowchains <r|retrieve> <s|submissions> [FLAGS] [OPTIONS]
-    snowchains <j|judge|t|test> [FLAGS] [OPTIONS] <problem>
-    snowchains <s|submit> [FLAGS] [OPTIONS] <problem>
+    snowchains <SUBCOMMAND>
 
 FLAGS:
     -h, --help       Prints help information
     -V, --version    Prints version information
 
 SUBCOMMANDS:
-    init           Creates a config file ("snowchains.toml") [aliases: i]
-    switch         Modifies values in a config file [aliases: w, checkout, c]
+    init           Create a new config file [aliases: i]
     login          Logges in to a service [aliases: l]
-    participate    Participates in a contest [aliases: p]
-    download       An alias for `retrieve testcases` [aliases: d]
+    participate    Participates in a contest
     retrieve       Retrieves data [aliases: r]
-    judge          Tests a binary or script [aliases: j, test, t]
-    submit         Submits a source file [aliases: s]
+    download       Alias for `retrieve testcases` [aliases: d]
+    watch          Watches data [aliases: w]
+    judge          Tests code [aliases: j, test, t]
+    submit         Submits code [aliases: s]
+    xtask          Runs a custom subcommand written in the config file [aliases: x]
+    help           Prints this message or the help of the given subcommand(s)
+$ snowchains r -h
+snowchains-retrieve 0.3.3
+Ryo Yamashita <qryxip@gmail.com>
+Retrieves data
+
+USAGE:
+    snowchains retrieve <SUBCOMMAND>
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+SUBCOMMANDS:
+    languages    Retrieves list of languages [aliases: l]
+    testcases    Retrieves test cases [aliases: t]
+    help         Prints this message or the help of the given subcommand(s)
+$ snowchains w -h
+snowchains-watch 0.3.3
+Ryo Yamashita <qryxip@gmail.com>
+Watches data
+
+USAGE:
+    snowchains watch <SUBCOMMAND>
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+SUBCOMMANDS:
+    submissions    Watches your submissions [aliases: s]
     help           Prints this message or the help of the given subcommand(s)
 ```
 
 ```console
-$ snowchains init ./
-$ snowchains switch --service atcoder --contest practice --language c++
-$ # snowchains login atcoder
-$ # snowchains participate atcoder practice
-$ snowchains retrieve testcases --open               # it does not ask your username and password unless they are needed
-$ $EDITOR ./.snowchains/tests/atcoder/practice/a.yml # add more test cases
-$ $EDITOR ./atcoder/practice/cpp/a.cpp
-$ # snowchains judge a
-$ snowchains submit a --open                         # it executes `judge` command before submitting
+$ snowchains i .
+Wrote `/home/ryo/src/local/a/snowchains.dhall`
+$ snowchains x setup -h
+usage: snowchains xtask setup [-h] [-p [PROBLEM [PROBLEM ...]]] service contest {cpp,rs} {code,vim,emacs}
+
+positional arguments:
+  service
+  contest
+  {cpp,rs}
+  {code,vim,emacs}
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -p [PROBLEM [PROBLEM ...]], --problems [PROBLEM [PROBLEM ...]]
+$ echo "$ATCODER_USERNAME\n$ATCODER_PASSWORD" | snowchains x setup atcoder practice cpp code
+GET https://atcoder.jp/contests/practice/tasks ... 404 Not Found
+GET https://atcoder.jp/contests/practice ... 200 OK
+Username: Password: GET https://atcoder.jp/login ... 200 OK
+POST https://atcoder.jp/login ... 302 Found
+GET https://atcoder.jp/settings ... 200 OK
+GET https://atcoder.jp/contests/practice ... 200 OK
+GET https://atcoder.jp/contests/practice/tasks ... 200 OK
+GET https://atcoder.jp/contests/practice/tasks_print ... 200 OK
+A: Saved to /home/ryo/src/local/a/.snowchains/tests/atcoder/practice/a.yml (2 test cases)
+B: Saved to /home/ryo/src/local/a/.snowchains/tests/atcoder/practice/b.yml (interactive problem)
+Opening https://atcoder.jp/contests/practice/tasks/practice_1 ...
+Opening https://atcoder.jp/contests/practice/tasks/practice_2 ...
 ```
 
-## Examples
+![Screenshot](https://user-images.githubusercontent.com/14125495/88489061-e5913c00-cfcc-11ea-86f6-928e33238334.png)
 
-### Config File (snowchains.toml)
-
-```toml
-target = ".snowchains/target.json"
-
-[console]
-cjk = false
-# alt_width = 100
-
-[shell]
-bash = ["/usr/bin/bash", "-c", "${command}"]
-# bash = ["C:/tools/msys64/usr/bin/bash.exe", "-c", "PATH=/usr/bin:$$PATH; ${command}"]
-# bash = ["C:/msys64/usr/bin/bash.exe", "-c", "PATH=/usr/bin:$$PATH; ${command}"]
-# bash = ["C:/Program Files/Git/usr/bin/bash.exe", "-c", "PATH=/usr/bin:$$PATH; ${command}"]
-# ps = ["C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", "-Command", "${command}"]
-# cmd = ["C:/Windows/System32/cmd.exe", "/C", "${command}"]
-ruby = { runner = "/usr/bin/ruby", extension = "rb" }
-
-[testfiles]
-path = ".snowchains/tests/${service}/${snake_case(contest)}/${snake_case(problem)}.${extension}"
-
-[session]
-timeout = "60s"
-silent = false
-robots = true
-cookies = "~/.local/share/snowchains/cookies.json"
-api_tokens = "~/.local/share/snowchains/api_tokens/${service}.json"
-dropbox = false
-# dropbox = { auth: "~/.local/share/snowchains/dropbox.json" }
-
-[session.retry]
-retries = 2
-method = ["get"]
-
-[session.retrieve]
-extension = "yml"
-text_file_dir = "${service}/${snake_case(contest)}/tests/${snake_case(problem)}"
-
-[judge]
-testfile_extensions = ["json", "toml", "yaml", "yml"]
-# jobs = 4
-display_limit = "1KiB"
-
-[env."t"]
-CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
-RUST_VERSION = "stable"
-RUST_OPT_LEVEL = "0"
-
-[env."(equal mode 'release)"]
-CXXFLAGS = "-std=gnu++17 -O2 -Wall -Wextra"
-RUST_OPT_LEVEL = "2"
-
-[env."(equal '(service mode) '('atcoder 'debug))"]
-CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
-
-[env."(equal '(service mode) '('atcoder 'release))"]
-CXXFLAGS = "-std=gnu++1y -I/usr/include/boost -O2 -Wall -Wextra"
-RUST_VERSION = "1.15.1"
-
-[env."(equal '(service mode) '('codeforces 'debug))"]
-CXXFLAGS = "-std=gnu++17 -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
-
-[env."(equal '(service mode) '('codeforces 'release))"]
-CXXFLAGS = "-std=gnu++17 -O2 -Wall -Wextra"
-RUST_VERSION = "1.31.1"
-
-[env."(equal '(service mode) '('yukicoder 'debug))"]
-CXXFLAGS = "-std=gnu++14 -lm -g -fsanitize=undefined -D_GLIBCXX_DEBUG -Wall -Wextra"
-
-[env."(equal '(service mode) '('yukicoder 'release))"]
-CXXFLAGS = "-std=gnu++1z -lm -O2 -Wall -Wextra"
-RUST_VERSION = "1.30.1"
-
-[[hooks.retrieve.testcases]]
-ruby = '''
-require 'fileutils'
-require 'json'
-
-def check_system(args)
-  unless system(*args) then raise '`%s` failed' % args[0]; end
-end
-
-result = JSON.load(STDIN)
-
-open_browser = result['command_line_arguments']['open']
-output_json = result['command_line_arguments']['json'] ||
-              result['command_line_arguments']['output'] == 'json'
-
-if open_browser && !output_json then
-  service = result['target']['service']
-  contest = result['target']['contest_snake_case']
-
-  unless Dir.exists? './%s/%s/rs' % [service, contest] then
-    FileUtils.mkdir_p './%s/%s' % [service, contest]
-    check_system ['cargo', 'new', '--vcs', 'none', '--lib', '--edition', '2015',
-                  '--name', '%s_%s' % [service, contest],
-                  '%s/%s/rs' % [service, contest]]
-    Dir.mkdir './%s/%s/rs/src/bin' % [service, contest]
-    FileUtils.rm './%s/%s/rs/src/lib.rs' % [service, contest]
-  end
-
-  args = ['emacsclient', '-n']
-
-  result['problems'].each do |problem|
-    src = './%s/%s/rs/src/bin/%s.rs' %
-          [service, contest, problem['slug_snake_case']]
-    unless File.exist? src then
-      FileUtils.cp './templates/rs/src/bin/%s.rs' % [service], src
-    end
-    args << src << problem['test_suite']['location']
-  end
-
-  check_system args
-end
-'''
-
-[tester]
-src = "testers/py/${kebab_case(problem)}.py"
-run = { bash = './venv/bin/python3 "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED' }
-working_directory = "testers/py"
-
-# [tester]
-# src = "testers/hs/app/${pascal_case(problem)}.hs"
-# bin = "testers/hs/target/${pascal_case(problem)}"
-# run = { bash = '"$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC" $SNOWCHAINS_ARGS_JOINED' }
-# working_directory = "testers/hs"
-
-[languages.'c++']
-src = "${service}/${snake_case(contest)}/cpp/${kebab_case(problem)}.cpp"
-bin = "${service}/${snake_case(contest)}/cpp/build/${kebab_case(problem)}"
-compile = { bash = 'g++ $CXXFLAGS -o "$SNOWCHAINS_BIN" "$SNOWCHAINS_SRC"' }
-run = ["${bin}"]
-working_directory = "${service}/${snake_case(contest)}/cpp"
-
-[languages.'c++'.names]
-atcoder = "C++14 (GCC 5.4.1)"
-codeforces = "GNU G++17 7.3.0"
-yukicoder = "C++17(1z) (gcc 8.2.0)"
-
-[languages.rust]
-src = "${service}/${snake_case(contest)}/rs/src/bin/${kebab_case(problem)}.rs"
-bin = "${service}/${snake_case(contest)}/rs/target/manually/${mode}/${kebab_case(problem)}"
-compile = ["rustc", "+${env:RUST_VERSION}", "-C", "opt-level=${env:RUST_OPT_LEVEL}", "-o", "${bin}", "${src}"]
-run = ["${bin}"]
-working_directory = "${service}/${snake_case(contest)}/rs"
-
-[languages.rust.names]
-atcoder = "Rust (1.15.1)"
-codeforces = "Rust 1.31.1"
-yukicoder = "Rust (1.30.1)"
-
-[languages.go]
-src = "${service}/${snake_case(contest)}/go/${kebab_case(problem)}.go"
-bin = "${service}/${snake_case(contest)}/go/${kebab_case(problem)}"
-compile = ["go", "build", "-o", "${bin}", "${src}"]
-run = ["${bin}"]
-working_directory = "${service}/${snake_case(contest)}/go"
-
-[languages.go.names]
-atcoder = "Go (1.6)"
-codeforces = "Go 1.11.4"
-yukicoder = "Go (1.11.2)"
-
-[languages.haskell]
-src = "${service}/${snake_case(contest)}/hs/app/${pascal_case(problem)}.hs"
-bin = "${service}/${snake_case(contest)}/hs/target/${pascal_case(problem)}"
-compile = ["stack", "ghc", "--", "-O2", "-o", "${bin}", "${src}"]
-run = ["${bin}"]
-working_directory = "${service}/${snake_case(contest)}/hs"
-
-[languages.haskell.names]
-atcoder = "Haskell (GHC 7.10.3)"
-codeforces = "Haskell GHC 8.6.3"
-yukicoder = "Haskell (8.6.2)"
-
-[languages.bash]
-src = "${service}/${snake_case(contest)}/bash/${kebab_case(problem)}.bash"
-run = ["bash", "${src}"]
-working_directory = "${service}/${snake_case(contest)}/bash"
-
-[languages.bash.names]
-atcoder = "Bash (GNU bash v4.3.11)"
-yukicoder = "Bash (Bash 4.2.46)"
-
-[languages.python3]
-src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
-run = ["../../../venvs/python3_${service}/bin/python3", "${src}"]
-working_directory = "${service}/${snake_case(contest)}/py"
-
-[languages.python3.names]
-atcoder = "Python3 (3.4.3)"
-codeforces = "Python 3.7.2"
-yukicoder = "Python3 (3.7.1 + numpy 1.14.5 + scipy 1.1.0)"
-
-[languages.pypy3]
-src = "${service}/${snake_case(contest)}/py/${kebab_case(problem)}.py"
-run = ["../../../venvs/pypy3_${service}/bin/python3", "${src}"]
-working_directory = "${service}/${snake_case(contest)}/py"
-
-[languages.pypy3.names]
-atcoder = "PyPy3 (2.4.0)"
-codeforces = "PyPy 3.5 (6.0.0)"
-yukicoder = "PyPy3 (6.0.0)"
-
-[languages.java]
-src = "${service}/${snake_case(contest)}/java/src/main/java/${pascal_case(problem)}.java"
-transpiled = "${service}/${snake_case(contest)}/java/build/replaced/${lower_case(pascal_case(problem))}/src/Main.java"
-bin = "${service}/${snake_case(contest)}/java/build/replaced/${lower_case(pascal_case(problem))}/classes/Main.class"
-transpile = { bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/class\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/class Main/g" > "$SNOWCHAINS_TRANSPILED"' }
-compile = ["javac", "-d", "./build/replaced/${lower_case(pascal_case(problem))}/classes", "${transpiled}"]
-run = ["java", "-classpath", "./build/replaced/${lower_case(pascal_case(problem))}/classes", "Main"]
-working_directory = "${service}/${snake_case(contest)}/java"
-
-[languages.java.names]
-atcoder = "Java8 (OpenJDK 1.8.0)"
-codeforces = "Java 1.8.0_162"
-yukicoder = "Java8 (openjdk 1.8.0.191)"
-
-[languages.scala]
-src = "${service}/${snake_case(contest)}/scala/src/main/scala/${pascal_case(problem)}.scala"
-transpiled = "${service}/${snake_case(contest)}/scala/target/replaced/${lower_case(pascal_case(problem))}/src/Main.scala"
-bin = "${service}/${snake_case(contest)}/scala/target/replaced/${lower_case(pascal_case(problem))}/classes/Main.class"
-transpile = { bash = 'cat "$SNOWCHAINS_SRC" | sed -r "s/object\s+$SNOWCHAINS_PROBLEM_PASCAL_CASE/object Main/g" > "$SNOWCHAINS_TRANSPILED"' }
-compile = ["scalac", "-optimise", "-d", "./target/replaced/${lower_case(pascal_case(problem))}/classes", "${transpiled}"]
-run = ["scala", "-classpath", "./target/replaced/${lower_case(pascal_case(problem))}/classes", "Main"]
-working_directory = "${service}/${snake_case(contest)}/scala"
-
-[languages.scala.names]
-atcoder = "Scala (2.11.7)"
-codeforces = "Scala 2.12.8"
-yukicoder = "Scala(Beta) (2.12.7)"
-
-[languages.'c#']
-src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
-bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/${pascal_case(problem)}.exe"
-compile = ["mcs", "-o+", "-r:System.Numerics", "-out:${bin}", "${src}"]
-run = ["mono", "${bin}"]
-working_directory = "${service}/${snake_case(contest)}/cs"
-
-[languages.'c#'.names]
-atcoder = "C# (Mono 4.6.2.0)"
-codeforces = "C# Mono 5.18"
-yukicoder = "C#(mono) (mono 5.16.0.187)"
-
-# [languages.'c#']
-# src = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/${pascal_case(problem)}.cs"
-# bin = "${service}/${snake_case(contest)}/cs/${pascal_case(problem)}/bin/Release/${pascal_case(problem)}.exe"
-# compile = ["csc", "/o+", "/r:System.Numerics", "/out:${bin}", "${src}"]
-# run = ["${bin}"]
-# crlf_to_lf: true
-# working_directory = "${service}/${snake_case(contest)}/cs"
-#
-# [languages.'c#'.names]
-# atcoder = "C# (Mono 4.6.2.0)"
-# codeforces = "C# Mono 5.18"
-# yukicoder = "C# (csc 2.8.2.62916)"
-
-[languages.text]
-src = "${service}/${snake_case(contest)}/txt/${snake_case(problem)}.txt"
-run = ["cat", "${src}"]
-working_directory = "${service}/${snake_case(contest)}/txt"
-
-[languages.text.names]
-atcoder = "Text (cat)"
-yukicoder = "Text (cat 8.22)"
-```
-
-```json
-{
-  "service": "atcoder",
-  "contest": "arc100",
-  "language": "c++"
-}
-```
-
-### Test file
-
-- [x] YAML
-- [x] TOML
-- [x] JSON
-
-#### Batch (one input, one output)
-
-<https://atcoder.jp/contests/practice/tasks/practice_1>
-
-```yaml
----
-type: batch       # "batch", "interactive", or "unsubmittable"
-timelimit: 2000ms # optional
-match: exact      # "any", "exact", or "float"
-
-cases:
-  - name: Sample 1
-    in: |
-      1
-      2 3
-      test
-    out: |
-      6 test
-  - name: Sample 2
-    in: |
-      72
-      128 256
-      myonmyon
-    out: |
-      456 myonmyon
-  # "name" and "out" are optional
-  - in: |
-      1000
-      1000 1000
-      oooooooooooooo
-```
-
-```toml
-type = 'batch'
-timelimit = '2000ms'
-match = 'exact'
-
-[[cases]]
-name = 'Sample 1'
-in = '''
-1
-2 3
-test
-'''
-out = '''
-6 test
-'''
-
-[[cases]]
-name = 'Sample 2'
-in = '''
-72
-128 256
-myonmyon
-'''
-out = '''
-456 myonmyon
-'''
-
-[[cases]]
-in = '''
-1000
-1000 1000
-oooooooooooooo
-'''
-```
-
-<https://atcoder.jp/contests/tricky/tasks/tricky_2>
-
-```yaml
----
-type: batch
-timelimit: 2000ms
-match:
-  float:
-    absolute_error: 1e-9
-    relative_error: 1e-9
-
-cases:
-  - name "Sample 1"
-    in: |
-      3
-      1 -3 2
-      -10 30 -20
-      100 -300 200
-    out: |
-      2 1.000 2.000
-      2 1.000 2.000
-      2 1.000 2.000
-```
-
-```toml
-type = 'batch'
-timelimit = '2000ms'
-
-[match.float]
-absolute_error = 1e-9
-relative_error = 1e-9
-
-[[cases]]
-name = 'Sample 1'
-in = '''
-3
-1 -3 2
--10 30 -20
-100 -300 200
-'''
-out = '''
-2 1.000 2.000
-2 1.000 2.000
-2 1.000 2.000
-'''
-```
-
-#### Interactive
-
-<https://atcoder.jp/contests/practice/tasks/practice_2>
-
-```yaml
----
-type: interactive
-timelimit: 2000ms
-
-each_args:
-  - [ABCDE]
-  - [EDCBA]
-  - [ABCDEFGHIJKLMNOPQRSTUVWXYZ]
-  - [ZYXWVUTSRQPONMLKJIHGFEDCBA]
-```
-
-```python
-import re
-import sys
-
-
-def main() -> None:
-    bs = sys.argv[1]
-    n = len(bs)
-    q = 7 if n == 5 else 100
-
-    def reply(c1, c2):
-        print('<' if bs.index(c1) < bs.index(c2) else '>', flush=True)
-
-    def judge(a):
-        if a == bs:
-            sys.exit(0)
-        else:
-            print('wrong', file=sys.stderr)
-            sys.exit(1)
-
-    print(f'{n} {q}', flush=True)
-    for _ in range(q):
-        ts = re.split(r'[ \n]', sys.stdin.readline())
-        if len(ts) == 4 and ts[0] == '?':
-            reply(ts[1], ts[2])
-        elif len(ts) == 3 and ts[0] == '!':
-            judge(ts[1])
-        else:
-            raise RuntimeError('invalid')
-    else:
-        ts = re.split(r'[ \n]', sys.stdin.readline())
-        if len(ts) == 3 and ts[0] == '!':
-            judge(ts[1])
-        raise RuntimeError('answer me')
-
-
-if __name__ == '__main__':
-    main()
-```
-
-```haskell
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE OverloadedStrings #-}
-module Main (main) where
-
-import           RIO
-import qualified RIO.ByteString     as B
-import           RIO.List
-import           RIO.List.Partial
-import           System.Environment
-import           System.Exit
-import           System.IO
-import           Text.Printf
-
-main :: IO ()
-main = do
-  RIO.hSetBuffering stdout LineBuffering
-  bs <- (!! 0) <$> getArgs
-  let n = length bs
-      q = if n == 5 then 7 else 100 :: Int
-      reply c1 c2 = B.putStr (if weight c1 < weight c2 then "<\n" else ">\n")
-      judge a | a == bs   = exitSuccess
-              | otherwise = die "wrong"
-      weight c = fromMaybe (error "out of bounds") (c `elemIndex` bs)
-  printf "%d %d\n" n q
-  forM_ [1 .. q] $ \_ -> words <$> getLine >>= \case
-    ["?", [c1], [c2]] -> reply c1 c2
-    ["!", a]          -> judge a
-    _                 -> error "invalid"
-```
+![Record](https://user-images.githubusercontent.com/14125495/88489236-11f98800-cfce-11ea-9dbf-24d853a53d31.gif)
 
 ## License
 
