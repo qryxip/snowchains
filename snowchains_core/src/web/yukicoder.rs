@@ -18,12 +18,7 @@ use scraper::{ElementRef, Html, Node};
 use std::{collections::BTreeSet, convert::Infallible, hash::Hash, time::Duration};
 use url::Url;
 
-// Used by `url!` which is defined in `super`.
-fn url_from_rel(rel_url: impl AsRef<str>) -> Result<Url, url::ParseError> {
-    return BASE_URL.join(rel_url.as_ref());
-
-    static BASE_URL: Lazy<Url> = lazy_url!("https://yukicoder.me");
-}
+static BASE_URL: Lazy<Url> = lazy_url!("https://yukicoder.me");
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum Yukicoder {}
@@ -331,7 +326,7 @@ fn retrieve_samples(
             });
 
             for (index, problem_no) in sess
-                .get(url_from_rel(format!("/contests/{}", contest_id))?)
+                .get(url!("/contests/{}", contest_id))
                 .colorize_status_code(&[200], (), ..)
                 .send()?
                 .ensure_status(&[200])?

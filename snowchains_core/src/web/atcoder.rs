@@ -15,7 +15,6 @@ use crate::{
 use anyhow::{anyhow, bail, Context as _};
 use chrono::{DateTime, FixedOffset, Local, Utc};
 use easy_ext::ext;
-use http::Uri;
 use indexmap::{indexmap, IndexMap};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::Itertools as _;
@@ -38,12 +37,7 @@ use tokio::runtime::Runtime;
 use unicode_width::UnicodeWidthStr as _;
 use url::Url;
 
-// Used by `url!` which is defined in `super`.
-fn url_from_rel(rel_url: impl AsRef<str>) -> std::result::Result<Url, url::ParseError> {
-    return BASE_URL.join(rel_url.as_ref());
-
-    static BASE_URL: Lazy<Url> = Lazy::new(|| "https://atcoder.jp".parse().unwrap());
-}
+static BASE_URL: Lazy<Url> = lazy_url!("https://atcoder.jp");
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum Atcoder<'closures> {
@@ -151,12 +145,10 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Atcoder<'_> {
         login(&mut sess, username_and_password)?;
 
         let url = if let Some(problem) = problem {
-            let rel_url = retrieve_tasks_page(&mut sess, || unreachable!(), &contest)?
-                .extract_task_indexes_and_rel_urls()?
-                .get(&problem)
+            retrieve_tasks_page(&mut sess, || unreachable!(), &contest)?
+                .extract_task_indexes_and_urls()?
+                .remove(&problem)
                 .with_context(|| "")?
-                .clone();
-            url_from_rel(rel_url.to_string())?
         } else {
             url!("/contests/{}/submit", contest)
         };
@@ -331,19 +323,19 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
 
         let tasks_page = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
 
-        let rel_url = tasks_page
-            .extract_task_indexes_and_rel_urls()?
+        let url = tasks_page
+            .extract_task_indexes_and_urls()?
             .remove(&problem)
             .with_context(|| format!("No such problem: `{}`", problem))?;
 
         let problem_screen_name =
             static_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$")
-                .captures(&rel_url.to_string())
+                .captures(url.as_ref())
                 .map(|cs| cs[1].to_owned())
                 .with_context(|| "Could not extract screen name of the problem")?;
 
         let csrf_token = sess
-            .get(url_from_rel(rel_url.to_string())?)
+            .get(url)
             .colorize_status_code(&[200], (), ..)
             .send()?
             .ensure_status(&[200])?
@@ -363,8 +355,9 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
             .ensure_status(&[200, 302])?;
 
         return if res.status() == 302 {
-            let loc = res.location()?;
-            if loc.starts_with("/contests/") && loc.ends_with("/submissions/me") {
+            let loc = res.location_url()?;
+
+            if loc.path().starts_with("/contests/") && loc.path().ends_with("/submissions/me") {
                 let (submission_summaries, _) =
                     retrieve_submission_summaries_from_page_1(&mut sess, &contest, || {
                         bail!("Should be logged in")
@@ -373,7 +366,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
                 let outcome = SubmitOutcome {
                     problem_screen_name,
                     submission_url: submission_summaries[0].url.clone(),
-                    submissions_url: url!("/contests/{}//submissions/me", contest),
+                    submissions_url: url!("/contests/{}/submissions/me", contest),
                 };
 
                 if watch_submission {
@@ -382,10 +375,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
 
                 Ok(outcome)
             } else {
-                sess.get(url_from_rel(loc)?)
-                    .colorize_status_code((), (), ..)
-                    .send()?;
-
+                sess.get(loc).colorize_status_code((), (), ..).send()?;
                 bail!("Submission rejected");
             }
         } else {
@@ -660,7 +650,7 @@ fn retrieve_sample_test_cases(
     let contest = CaseConverted::<LowerCase>::new(contest);
 
     let html = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
-    let indexes_and_rel_urls = html.extract_task_indexes_and_rel_urls()?;
+    let indexes_and_urls = html.extract_task_indexes_and_urls()?;
 
     let test_suites = sess
         .get(url!("/contests/{}/tasks_print", contest))
@@ -668,10 +658,10 @@ fn retrieve_sample_test_cases(
         .html()?
         .extract_samples()?;
 
-    if indexes_and_rel_urls.len() != test_suites.len() {
+    if indexes_and_urls.len() != test_suites.len() {
         bail!(
             "Found {} task(s) in `tasks`, {} task(s) in `tasks_print`",
-            indexes_and_rel_urls.len(),
+            indexes_and_urls.len(),
             test_suites.len(),
         );
     }
@@ -687,12 +677,10 @@ fn retrieve_sample_test_cases(
         problems: vec![],
     };
 
-    for ((index, rel_url), (display_name, test_suite)) in
-        indexes_and_rel_urls.into_iter().zip_eq(test_suites)
+    for ((index, url), (display_name, test_suite)) in
+        indexes_and_urls.into_iter().zip_eq(test_suites)
     {
         if problems.as_mut().map_or(true, |ps| ps.remove(&*index)) {
-            let url = url_from_rel(rel_url.to_string())?;
-
             let screen_name = url
                 .path_segments()
                 .and_then(Iterator::last)
@@ -978,17 +966,17 @@ impl Html {
             .any(|s| ["参加登録", "Register"].contains(&s)))
     }
 
-    fn extract_task_indexes_and_rel_urls(
+    fn extract_task_indexes_and_urls(
         &self,
-    ) -> anyhow::Result<IndexMap<CaseConverted<UpperCase>, Uri>> {
+    ) -> anyhow::Result<IndexMap<CaseConverted<UpperCase>, Url>> {
         self.select(static_selector!(
             "#main-container > div.row > div.col-sm-12 > div.panel > table.table > tbody > tr",
         ))
         .map(|tr| {
             let a = tr.select(static_selector!("td.text-center > a")).next()?;
             let index = CaseConverted::new(a.text().next()?);
-            let uri = a.value().attr("href")?.parse().ok()?;
-            Some((index, uri))
+            let url = BASE_URL.join(a.value().attr("href")?).ok()?;
+            Some((index, url))
         })
         .collect::<Option<IndexMap<_, _>>>()
         .filter(|m| !m.is_empty())

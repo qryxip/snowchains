@@ -2206,7 +2206,6 @@ dependencies = [
  "either",
  "futures-util",
  "hex",
- "http",
  "humantime",
  "humantime-serde",
  "ignore",

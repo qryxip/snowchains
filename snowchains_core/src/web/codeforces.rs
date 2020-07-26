@@ -22,12 +22,7 @@ use std::{
 };
 use url::Url;
 
-// Used by `url!` which is defined in `super`.
-fn url_from_rel(rel_url: impl AsRef<str>) -> Result<Url, url::ParseError> {
-    return BASE_URL.join(rel_url.as_ref());
-
-    static BASE_URL: Lazy<Url> = lazy_url!("https://codeforces.com");
-}
+static BASE_URL: Lazy<Url> = lazy_url!("https://codeforces.com");
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum Codeforces<'closures> {
@@ -281,7 +276,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
         if res.status() == 200 {
             bail!("Submission rejected");
         } else {
-            let submissions_url = url_from_rel(res.location()?)?;
+            let submissions_url = res.location_url()?;
 
             let submissions =
                 sess.api_contest_status(&api_key, &api_secret, contest_id, &handle, 1, Some(1))?;
@@ -367,7 +362,7 @@ fn login(
         .ensure_status(&[200, 302])?;
 
     if res.status() == 302 {
-        let handle = handle(&url_from_rel(res.location()?)?).to_owned();
+        let handle = handle(&res.location_url()?).to_owned();
         return Ok((LoginOutcome::AlreadyLoggedIn, handle));
     }
 
@@ -390,7 +385,7 @@ fn login(
             .ensure_status(&[200, 302])?;
 
         if res.status() == 302 {
-            let handle = handle(&url_from_rel(res.location()?)?).to_owned();
+            let handle = handle(&res.location_url()?).to_owned();
             break Ok((LoginOutcome::Success, handle));
         }
 

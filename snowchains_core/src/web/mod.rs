@@ -39,9 +39,9 @@ macro_rules! static_regex {
 
 macro_rules! url {
     ($fmt:literal $(, $expr:expr)* $(,)*) => {
-        // `self::url_from_rel` is defined in each module.
+        // `self::BASE_URL` is defined in each module.
 
-        self::url_from_rel(format!(
+        self::BASE_URL.join(&format!(
             $fmt,
             $(
                 ::percent_encoding::utf8_percent_encode(
@@ -799,6 +799,13 @@ where
             .with_context(|| "Missing `Location` header")?
             .to_str()
             .with_context(|| "Invalid `Location` header")
+    }
+
+    fn location_url(&self) -> anyhow::Result<Url> {
+        let mut url = static_url!("https://-").clone();
+        url.set_host(self.url().host_str())?;
+        url.join(self.location()?)?;
+        Ok(url)
     }
 
     fn html(self) -> reqwest::Result<Html> {
