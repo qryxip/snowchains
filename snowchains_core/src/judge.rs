@@ -12,7 +12,7 @@ use std::{
 };
 use termcolor::{Color, ColorSpec, WriteColor};
 use tokio::io::AsyncWriteExt as _;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::UnicodeWidthStr as _;
 
 #[derive(Debug, Clone)]
 pub struct JudgeOutcome {
@@ -32,7 +32,7 @@ impl JudgeOutcome {
 
             write!(
                 wtr,
-                "{}/{} ({}) ",
+                "{}/{} ({:?}) ",
                 i + 1,
                 self.verdicts.len(),
                 verdict.test_case_name().unwrap_or(""),
@@ -358,10 +358,10 @@ pub fn judge(
 ) -> anyhow::Result<JudgeOutcome> {
     let num_test_cases = test_cases.len();
 
-    let name_width = test_cases
+    let quoted_name_width = test_cases
         .iter()
-        .flat_map(|BatchTestCase { name, .. }| name.as_deref())
-        .map(UnicodeWidthStr::width)
+        .flat_map(|BatchTestCase { name, .. }| name.as_ref())
+        .map(|s| format!("{:?}", s).width())
         .max()
         .unwrap_or(0);
 
@@ -382,12 +382,12 @@ pub fn judge(
         pb.set_style(progress_style("{prefix}{spinner} {msg:bold}"));
 
         pb.set_prefix(&format!(
-            "{}/{} {} ",
+            "{}/{} ({} ",
             align_right(&(i + 1).to_string(), num_test_cases.to_string().len()),
             num_test_cases,
             align_left(
-                &format!("({})", test_case.name.as_deref().unwrap_or("")),
-                name_width,
+                &format!("{:?})", test_case.name.as_deref().unwrap_or("")),
+                quoted_name_width + 1,
             ),
         ));
 
