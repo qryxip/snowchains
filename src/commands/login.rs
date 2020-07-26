@@ -1,8 +1,7 @@
 use crate::shell::Shell;
 use serde::Serialize;
 use snowchains_core::web::{
-    Atcoder, AtcoderLoginCredentials, Codeforces, CodeforcesLoginCredentials, Login,
-    PlatformVariant,
+    Atcoder, AtcoderLoginCredentials, Codeforces, CodeforcesLoginCredentials, Login, PlatformKind,
 };
 use std::{
     cell::RefCell,
@@ -28,7 +27,7 @@ pub struct OptLogin {
 
     /// Target platform
     #[structopt(possible_values(&["atcoder", "codeforces"]))]
-    pub service: PlatformVariant,
+    pub service: PlatformKind,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -71,7 +70,7 @@ pub(crate) fn run(
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
     let outcome = match service {
-        PlatformVariant::Atcoder => {
+        PlatformKind::Atcoder => {
             let credentials = AtcoderLoginCredentials {
                 username_and_password: &mut crate::web::credentials::atcoder_username_and_password(
                     stdin, &stderr,
@@ -85,7 +84,7 @@ pub(crate) fn run(
                 shell,
             })
         }
-        PlatformVariant::Codeforces => {
+        PlatformKind::Codeforces => {
             let credentials = CodeforcesLoginCredentials {
                 username_and_password:
                     &mut crate::web::credentials::codeforces_username_and_password(stdin, &stderr),
@@ -98,7 +97,7 @@ pub(crate) fn run(
                 shell,
             })
         }
-        PlatformVariant::Yukicoder => unreachable!("should be filtered by `possible_values`"),
+        PlatformKind::Yukicoder => unreachable!("should be filtered by `possible_values`"),
     }?;
 
     let message = if json {

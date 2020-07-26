@@ -1,5 +1,5 @@
 use crate::config;
-use snowchains_core::web::PlatformVariant;
+use snowchains_core::web::PlatformKind;
 use std::path::PathBuf;
 use structopt::StructOpt;
 use strum::VariantNames as _;
@@ -31,9 +31,9 @@ pub struct OptTest {
         short,
         long,
         value_name("SERVICE"),
-        possible_values(PlatformVariant::KEBAB_CASE_VARIANTS)
+        possible_values(PlatformKind::KEBAB_CASE_VARIANTS)
     )]
-    pub service: Option<PlatformVariant>,
+    pub service: Option<PlatformKind>,
 
     /// Contest ID
     #[structopt(short, long, value_name("STRING"))]

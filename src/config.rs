@@ -6,7 +6,7 @@ use itertools::Itertools as _;
 use maplit::hashmap;
 use serde::Deserialize;
 use serde_dhall::{SimpleType, StaticType};
-use snowchains_core::web::PlatformVariant;
+use snowchains_core::web::PlatformKind;
 use std::{
     collections::BTreeMap,
     convert::Infallible,
@@ -30,7 +30,7 @@ pub(crate) fn detect_target(
 pub(crate) fn target_and_language(
     cwd: &Path,
     rel_path: Option<&Path>,
-    cli_opt_service: Option<PlatformVariant>,
+    cli_opt_service: Option<PlatformKind>,
     cli_opt_contest: Option<&str>,
     cli_opt_problem: Option<&str>,
     cli_opt_language: Option<&str>,
@@ -187,7 +187,7 @@ in  {{ service = config.detectServiceFromRelativePathSegments relativePathSegmen
 
     fn merge_with_cli_options(
         &self,
-        service: Option<PlatformVariant>,
+        service: Option<PlatformKind>,
         contest: Option<&str>,
         problem: Option<&str>,
         language: Option<&str>,
@@ -236,7 +236,7 @@ in  {{ service = config.detectServiceFromRelativePathSegments relativePathSegmen
         Ok((target, language))
     }
 
-    pub(crate) fn parse_service(&self) -> anyhow::Result<Option<PlatformVariant>> {
+    pub(crate) fn parse_service(&self) -> anyhow::Result<Option<PlatformKind>> {
         self.service
             .as_deref()
             .map(str::parse)
@@ -278,7 +278,7 @@ pub(crate) struct Compile {
 
 #[derive(Debug)]
 pub(crate) struct Target {
-    pub(crate) service: PlatformVariant,
+    pub(crate) service: PlatformKind,
     pub(crate) contest: Option<String>,
     pub(crate) problem: String,
     pub(crate) mode: Mode,
