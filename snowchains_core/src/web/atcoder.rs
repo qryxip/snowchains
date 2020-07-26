@@ -410,15 +410,15 @@ impl<S: Shell> Exec<WatchSubmissions<Self, S>> for Atcoder<'_> {
         let (summaries, _) =
             retrieve_submission_summaries_from_page_1(&mut sess, &contest, username_and_password)?;
 
-        if summaries
-            .iter()
-            .all(|SubmissionSummary { verdict, .. }| verdict != "WJ" && verdict.len() <= 3)
-        {
-            let content = AnsiColored::new(|w| print_submissions(w, &summaries))?;
-            Ok(Some(content))
-        } else {
+        #[allow(clippy::blocks_in_if_conditions)]
+        if summaries.iter().any(|SubmissionSummary { verdict, .. }| {
+            matches!(verdict, Verdict::Wj | Verdict::Judging(..))
+        }) {
             watch_submissions(sess, &contest, &summaries)?;
             Ok(None)
+        } else {
+            let content = AnsiColored::new(|w| print_submissions(w, &summaries))?;
+            Ok(Some(content))
         }
     }
 }
@@ -721,57 +721,35 @@ fn print_submissions(mut wtr: impl WriteColor, summaries: &[SubmissionSummary]) 
             align_left(&summary.lang, lang_max_width),
         )?;
 
-        if summary.verdict == "WJ" {
-            wtr.set_color(&ColorSpec::new().set_bold(true))?;
-            write!(wtr, "WJ")?;
-            wtr.reset()?;
-        } else if JUDGING.is_match(&summary.verdict) {
-            wtr.set_color(&color_spec(&summary.verdict))?;
-            write!(wtr, "{}", summary.verdict)?;
-            wtr.reset()?;
-        } else {
-            wtr.set_color(&color_spec(&summary.verdict))?;
-            write!(wtr, "{:<3}", summary.verdict)?;
-            wtr.reset()?;
-            write!(
-                wtr,
-                " │ {:>8} │ {:>9} │",
-                summary.exec_time.as_deref().unwrap_or(""),
-                summary.memory.as_deref().unwrap_or(""),
-            )?;
+        match &summary.verdict {
+            Verdict::Wj => {
+                wtr.set_color(&ColorSpec::new().set_bold(true))?;
+                write!(wtr, "WJ")?;
+                wtr.reset()?;
+            }
+            verdict @ Verdict::Judging(..) => {
+                wtr.set_color(&verdict.color_spec())?;
+                write!(wtr, "{}", verdict)?;
+                wtr.reset()?;
+            }
+            verdict => {
+                wtr.set_color(&verdict.color_spec())?;
+                write!(wtr, "{}", align_left(&verdict.to_string(), 3))?;
+                wtr.reset()?;
+                write!(
+                    wtr,
+                    " │ {:>8} │ {:>9} │",
+                    summary.exec_time.as_deref().unwrap_or(""),
+                    summary.memory.as_deref().unwrap_or(""),
+                )?;
+            }
         }
 
         writeln!(wtr)?;
     }
 
     wtr.flush()?;
-    return Ok(());
-
-    static JUDGING: Lazy<Regex> = lazy_regex!(r"\A\s*([0-9]{1,3})/([0-9]{1,3})\s*(\S*)\s*\z");
-
-    fn color_spec(verdict: &str) -> ColorSpec {
-        // https://atcoder.jp/contests/arc001/glossary
-
-        return match verdict.trim() {
-            "AC" => from_fg_and_bold(Some(Color::Green), true),
-            "CE" | "RE" | "WA" => from_fg_and_bold(Some(Color::Yellow), true),
-            "MLE" | "TLE" | "OLE" => from_fg_and_bold(Some(Color::Red), true),
-            "IE" | "WJ" | "WR" => from_fg_and_bold(None, true),
-            s => {
-                if let Some(caps) = JUDGING.captures(s) {
-                    color_spec(&caps[3])
-                } else {
-                    ColorSpec::new()
-                }
-            }
-        };
-
-        fn from_fg_and_bold(fg: Option<Color>, bold: bool) -> ColorSpec {
-            let mut spec = ColorSpec::new();
-            spec.set_fg(fg).set_bold(bold);
-            spec
-        }
-    }
+    Ok(())
 }
 
 fn watch_submissions(
@@ -810,7 +788,10 @@ fn watch_submissions(
             align_left(&summary.lang, lang_max_width),
         ));
 
-        if is_wj_or_judging(&summary.verdict) {
+        if matches!(
+            summary.verdict,
+            Verdict::Wj | Verdict::Wr | Verdict::Judging(..)
+        ) {
             let id = summary.id().to_owned();
 
             let mut url = url!("/contests/{}/submissions/me/status/json", contest);
@@ -905,6 +886,8 @@ fn watch_submissions(
                             _ => trap!(Err(anyhow!("Could not extract information"))),
                         };
 
+                        let verdict = Verdict::new(verdict);
+
                         let (exec_time, memory) =
                             match *time_and_memory.split(" ms").collect::<Vec<_>>() {
                                 [time, memory] => (format!("{} ms", time), memory),
@@ -912,7 +895,7 @@ fn watch_submissions(
                             };
 
                         tokio::task::block_in_place(|| {
-                            finish(&pb, verdict, &exec_time, memory);
+                            finish(&pb, &verdict, &exec_time, memory);
                         });
                         break Result::<(), anyhow::Error>::Ok(());
                     }
@@ -938,18 +921,14 @@ fn watch_submissions(
 
     static JUDGING: Lazy<Regex> = lazy_regex!(r"\A\s*([0-9]{1,3})/([0-9]{1,3})\s*(\S*)\s*\z");
 
-    fn is_wj_or_judging(verdict: &str) -> bool {
-        verdict == "WJ" || verdict.starts_with(|c| matches!(c, '0'..='9'))
-    }
-
-    fn finish(pb: &ProgressBar, verdict: &str, exec_time: &str, memory: &str) {
+    fn finish(pb: &ProgressBar, verdict: &Verdict, exec_time: &str, memory: &str) {
         pb.set_style(ProgressStyle::default_bar().template(&format!(
             "{{prefix}}{{msg:3{}}} │ {} │ {} │",
-            style(verdict),
+            verdict.progress_style(),
             align_right(exec_time, 8),
             align_right(memory, 9),
         )));
-        pb.finish_with_message(verdict);
+        pb.finish_with_message(&verdict.to_string());
     };
 
     fn style(verdict: &str) -> &'static str {
@@ -1025,7 +1004,7 @@ struct SubmissionSummary {
     task_screen: String,
     datetime: DateTime<FixedOffset>,
     lang: String,
-    verdict: String,
+    verdict: Verdict,
     exec_time: Option<String>,
     memory: Option<String>,
 }
@@ -1036,6 +1015,91 @@ impl SubmissionSummary {
             .path_segments()
             .and_then(Iterator::last)
             .unwrap_or("")
+    }
+}
+
+#[derive(Debug, PartialEq, derive_more::Display)]
+enum Verdict {
+    #[display(fmt = "AC")]
+    Ac,
+    #[display(fmt = "CE")]
+    Ce,
+    #[display(fmt = "RE")]
+    Re,
+    #[display(fmt = "WA")]
+    Wa,
+    #[display(fmt = "MLE")]
+    Mle,
+    #[display(fmt = "TLE")]
+    Tle,
+    #[display(fmt = "OLE")]
+    Ole,
+    #[display(fmt = "IE")]
+    Ie,
+    #[display(fmt = "WJ")]
+    Wj,
+    #[display(fmt = "WR")]
+    Wr,
+    #[display(fmt = "{}", _0)]
+    Unknown(String),
+    #[display(fmt = "{}/{} {}", _0, _1, _2)]
+    Judging(u64, u64, Box<Self>),
+}
+
+impl Verdict {
+    fn new(s: &str) -> Self {
+        return match s {
+            "AC" => Self::Ac,
+            "CE" => Self::Ce,
+            "RE" => Self::Re,
+            "WA" => Self::Wa,
+            "MLE" => Self::Mle,
+            "TLE" => Self::Tle,
+            "OLE" => Self::Ole,
+            "IE" => Self::Ie,
+            "WJ" => Self::Wj,
+            "WR" => Self::Wr,
+            s => {
+                if let Some(caps) = JUDGING.captures(s) {
+                    let numer = caps[1].parse().unwrap();
+                    let denom = caps[2].parse().unwrap();
+                    let verdict = Box::new(Self::new(&caps[3]));
+                    Self::Judging(numer, denom, verdict)
+                } else {
+                    Self::Unknown(s.to_owned())
+                }
+            }
+        };
+
+        static JUDGING: Lazy<Regex> = lazy_regex!(r"\A\s*([0-9]{1,3})/([0-9]{1,3})\s*(\S*)\s*\z");
+    }
+
+    fn color_spec(&self) -> ColorSpec {
+        return match self {
+            Self::Ac => from_fg_and_bold(Some(Color::Green), true),
+            Self::Ce | Self::Re | Self::Wa => from_fg_and_bold(Some(Color::Yellow), true),
+            Self::Mle | Self::Tle | Self::Ole => from_fg_and_bold(Some(Color::Red), true),
+            Self::Ie | Self::Wj | Self::Wr => from_fg_and_bold(None, true),
+            Self::Unknown(_) => ColorSpec::new(),
+            Self::Judging(_, _, v) => v.color_spec(),
+        };
+
+        fn from_fg_and_bold(fg: Option<Color>, bold: bool) -> ColorSpec {
+            let mut spec = ColorSpec::new();
+            spec.set_fg(fg).set_bold(bold);
+            spec
+        }
+    }
+
+    fn progress_style(&self) -> &'static str {
+        match self {
+            Self::Ac => ".green.bold",
+            Self::Ce | Self::Re | Self::Wa => ".yellow.bold",
+            Self::Mle | Self::Tle | Self::Ole => ".red.bold",
+            Self::Ie | Self::Wj | Self::Wr => ".bold",
+            Self::Unknown(_) => "",
+            Self::Judging(_, _, v) => v.progress_style(),
+        }
     }
 }
 
@@ -1456,8 +1520,8 @@ impl Html {
                     .select(static_selector!("td > span"))
                     .next()?
                     .text()
-                    .next()?
-                    .to_owned();
+                    .next()?;
+                let verdict = Verdict::new(verdict);
 
                 let exec_time = tr
                     .select(static_selector!("td"))
