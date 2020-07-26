@@ -2,7 +2,7 @@ use crate::{
     testsuite::{BatchTestSuite, Match, PartialBatchTestCase, TestSuite},
     web::{
         codeforces::api::SessionMutExt as _, CookieStorage, Exec, Login, LoginOutcome, Participate,
-        ParticipateOutcome, Platform, PlatformVariant, ResponseExt as _, RetrieveLanguages,
+        ParticipateOutcome, Platform, ResponseExt as _, RetrieveLanguages,
         RetrieveLanguagesOutcome, RetrieveTestCases, RetrieveTestCasesOutcome,
         RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem, Session, SessionMut,
         Shell, Submit, SubmitOutcome,
@@ -46,8 +46,6 @@ impl<'closures> Platform for Codeforces<'closures> {
     type RetrieveFullTestCasesCredentials = Infallible;
     type SubmitTarget = CodeforcesSubmitTarget;
     type SubmitCredentials = CodeforcesSubmitCredentials<'closures>;
-
-    const VARIANT: PlatformVariant = PlatformVariant::Codeforces;
 }
 
 impl Codeforces<'_> {

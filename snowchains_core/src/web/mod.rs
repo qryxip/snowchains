@@ -124,8 +124,6 @@ pub trait Platform: Sized {
     type RetrieveFullTestCasesCredentials;
     type SubmitTarget;
     type SubmitCredentials;
-
-    const VARIANT: PlatformVariant;
 }
 
 #[derive(
