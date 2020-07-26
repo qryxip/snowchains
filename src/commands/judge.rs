@@ -6,7 +6,7 @@ use strum::VariantNames as _;
 use termcolor::WriteColor;
 
 #[derive(StructOpt, Debug)]
-pub struct OptTest {
+pub struct OptJudge {
     /// Build in `Release` mode
     #[structopt(long)]
     pub release: bool,
@@ -48,10 +48,10 @@ pub struct OptTest {
 }
 
 pub(crate) fn run(
-    opt: OptTest,
+    opt: OptJudge,
     ctx: crate::Context<impl Sized, impl WriteColor, impl WriteColor>,
 ) -> anyhow::Result<()> {
-    let OptTest {
+    let OptJudge {
         release,
         //json,
         config,

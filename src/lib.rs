@@ -27,8 +27,8 @@ mod shell;
 mod web;
 
 pub use crate::commands::{
-    init::OptInit, login::OptLogin, retrieve_languages::OptRetrieveLanguages,
-    retrieve_testcases::OptRetrieveTestcases, submit::OptSubmit, test::OptTest, xtask::OptXtask,
+    init::OptInit, judge::OptJudge, login::OptLogin, retrieve_languages::OptRetrieveLanguages,
+    retrieve_testcases::OptRetrieveTestcases, submit::OptSubmit, xtask::OptXtask,
 };
 use std::{
     env,
@@ -63,8 +63,8 @@ pub enum Opt {
     Download(OptRetrieveTestcases),
 
     /// Tests code
-    #[structopt(author, visible_alias("t"))]
-    Test(OptTest),
+    #[structopt(author, visible_aliases(&["j", "test", "t"]))]
+    Judge(OptJudge),
 
     /// Submits code
     #[structopt(author, visible_alias("s"))]
@@ -116,7 +116,7 @@ impl Opt {
             | Self::Retrieve(OptRetrieve::Languages(OptRetrieveLanguages { color, .. }))
             | Self::Retrieve(OptRetrieve::Testcases(OptRetrieveTestcases { color, .. }))
             | Self::Download(OptRetrieveTestcases { color, .. })
-            | Self::Test(OptTest { color, .. })
+            | Self::Judge(OptJudge { color, .. })
             | Self::Submit(OptSubmit { color, .. }) => color,
             Self::Xtask(_) => crate::ColorChoice::Auto,
         }
@@ -188,7 +188,7 @@ pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
         Opt::Retrieve(OptRetrieve::Languages(opt)) => commands::retrieve_languages::run(opt, ctx),
         Opt::Retrieve(OptRetrieve::Testcases(opt)) => commands::retrieve_testcases::run(opt, ctx),
         Opt::Download(opt) => commands::retrieve_testcases::run(opt, ctx),
-        Opt::Test(opt) => commands::test::run(opt, ctx),
+        Opt::Judge(opt) => commands::judge::run(opt, ctx),
         Opt::Submit(opt) => commands::submit::run(opt, ctx),
         Opt::Xtask(opt) => commands::xtask::run(opt, ctx),
     }
