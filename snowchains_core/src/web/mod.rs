@@ -63,6 +63,7 @@ pub use crate::web::{
         AtcoderRetrieveFullTestCasesCredentials, AtcoderRetrieveLanguagesCredentials,
         AtcoderRetrieveLanguagesTarget, AtcoderRetrieveSampleTestCasesCredentials,
         AtcoderRetrieveTestCasesTargets, AtcoderSubmitCredentials, AtcoderSubmitTarget,
+        AtcoderWatchSubmissionsCredentials, AtcoderWatchSubmissionsTarget,
     },
     codeforces::{
         Codeforces, CodeforcesLoginCredentials, CodeforcesParticipateCredentials,
@@ -100,14 +101,14 @@ use std::{
     convert::TryInto,
     fmt,
     hash::Hash,
-    io::Write as _,
+    io::{self, Write as _},
     marker::PhantomData,
     ops::{Deref, RangeFull, RangeInclusive},
     str,
     time::Duration,
 };
 use strum::EnumString;
-use termcolor::{BufferedStandardStream, Color, ColorChoice, ColorSpec, WriteColor as _};
+use termcolor::{Ansi, BufferedStandardStream, Color, ColorChoice, ColorSpec, WriteColor};
 use tokio::runtime::Runtime;
 use unicode_width::UnicodeWidthStr as _;
 use url::Url;
@@ -122,6 +123,8 @@ pub trait Platform: Sized {
     type RetrieveTestCasesTargets;
     type RetrieveTestCasesCredentials;
     type RetrieveFullTestCasesCredentials;
+    type WatchSubmissionsTarget;
+    type WatchSubmissionsCredentials;
     type SubmitTarget;
     type SubmitCredentials;
 }
@@ -201,11 +204,25 @@ pub struct Participate<P: Platform, S: Shell> {
     pub shell: S,
 }
 
-#[derive(Debug, From, Serialize)]
+#[derive(Debug, Clone, Copy, From, Serialize)]
 pub enum ParticipateOutcome {
     Success,
     AlreadyParticipated,
     ContestIsFinished,
+}
+
+impl ParticipateOutcome {
+    pub fn to_json(self) -> String {
+        serde_json::to_string(&self).expect("should not fail")
+    }
+
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::Success => "Successfully participated.",
+            Self::AlreadyParticipated => "Already participated.",
+            Self::ContestIsFinished => "The contest is already finished.",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -289,6 +306,29 @@ pub struct RetrieveTestCasesOutcomeProblem {
 pub struct RetrieveTestCasesOutcomeProblemTextFiles {
     pub r#in: String,
     pub out: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WatchSubmissions<P: Platform, S: Shell> {
+    pub target: P::WatchSubmissionsTarget,
+    pub credentials: P::WatchSubmissionsCredentials,
+    pub cookie_storage: P::CookieStorage,
+    pub timeout: Option<Duration>,
+    pub shell: S,
+}
+
+pub struct AnsiColored(Vec<u8>);
+
+impl AnsiColored {
+    fn new(f: impl FnOnce(&mut Ansi<Vec<u8>>) -> io::Result<()>) -> io::Result<Self> {
+        let mut wtr = Ansi::new(vec![]);
+        f(&mut wtr)?;
+        Ok(Self(wtr.into_inner()))
+    }
+
+    pub fn print<W: WriteColor>(&self, wtr: W) -> io::Result<()> {
+        fwdansi::write_ansi(wtr, &self.0)
+    }
 }
 
 #[derive(Debug)]
@@ -804,8 +844,7 @@ where
     fn location_url(&self) -> anyhow::Result<Url> {
         let mut url = static_url!("https://-").clone();
         url.set_host(self.url().host_str())?;
-        url.join(self.location()?)?;
-        Ok(url)
+        url.join(self.location()?).map_err(Into::into)
     }
 
     fn html(self) -> reqwest::Result<Html> {

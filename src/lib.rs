@@ -27,8 +27,9 @@ mod shell;
 mod web;
 
 pub use crate::commands::{
-    init::OptInit, judge::OptJudge, login::OptLogin, retrieve_languages::OptRetrieveLanguages,
-    retrieve_testcases::OptRetrieveTestcases, submit::OptSubmit, xtask::OptXtask,
+    init::OptInit, judge::OptJudge, login::OptLogin, participate::OptParticipate,
+    retrieve_languages::OptRetrieveLanguages, retrieve_testcases::OptRetrieveTestcases,
+    submit::OptSubmit, watch_submissions::OptWatchSubmissions, xtask::OptXtask,
 };
 use std::{
     env,
@@ -54,6 +55,9 @@ pub enum Opt {
     #[structopt(author, visible_alias("l"))]
     Login(OptLogin),
 
+    /// Participates in a contest
+    Participate(OptParticipate),
+
     /// Retrieves data
     #[structopt(author, visible_alias("r"))]
     Retrieve(OptRetrieve),
@@ -61,6 +65,10 @@ pub enum Opt {
     /// Alias for `retrieve testcases`
     #[structopt(author, visible_alias("d"))]
     Download(OptRetrieveTestcases),
+
+    /// Watches data
+    #[structopt(author, visible_alias("w"))]
+    Watch(OptWatch),
 
     /// Tests code
     #[structopt(author, visible_aliases(&["j", "test", "t"]))]
@@ -84,6 +92,13 @@ pub enum OptRetrieve {
     /// Retrieves test cases
     #[structopt(author, visible_alias("t"))]
     Testcases(OptRetrieveTestcases),
+}
+
+#[derive(StructOpt, Debug)]
+pub enum OptWatch {
+    /// Watches your submissions
+    #[structopt(author, visible_alias("s"))]
+    Submissions(OptWatchSubmissions),
 }
 
 impl Opt {
@@ -113,9 +128,11 @@ impl Opt {
         match *self {
             Self::Init(OptInit { color, .. })
             | Self::Login(OptLogin { color, .. })
+            | Self::Participate(OptParticipate { color, .. })
             | Self::Retrieve(OptRetrieve::Languages(OptRetrieveLanguages { color, .. }))
             | Self::Retrieve(OptRetrieve::Testcases(OptRetrieveTestcases { color, .. }))
             | Self::Download(OptRetrieveTestcases { color, .. })
+            | Self::Watch(OptWatch::Submissions(OptWatchSubmissions { color, .. }))
             | Self::Judge(OptJudge { color, .. })
             | Self::Submit(OptSubmit { color, .. }) => color,
             Self::Xtask(_) => crate::ColorChoice::Auto,
@@ -185,9 +202,11 @@ pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
     match opt {
         Opt::Init(opt) => commands::init::run(opt, ctx),
         Opt::Login(opt) => commands::login::run(opt, ctx),
+        Opt::Participate(opt) => commands::participate::run(opt, ctx),
         Opt::Retrieve(OptRetrieve::Languages(opt)) => commands::retrieve_languages::run(opt, ctx),
         Opt::Retrieve(OptRetrieve::Testcases(opt)) => commands::retrieve_testcases::run(opt, ctx),
         Opt::Download(opt) => commands::retrieve_testcases::run(opt, ctx),
+        Opt::Watch(OptWatch::Submissions(opt)) => commands::watch_submissions::run(opt, ctx),
         Opt::Judge(opt) => commands::judge::run(opt, ctx),
         Opt::Submit(opt) => commands::submit::run(opt, ctx),
         Opt::Xtask(opt) => commands::xtask::run(opt, ctx),

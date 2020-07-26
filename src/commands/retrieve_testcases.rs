@@ -125,7 +125,9 @@ pub(crate) fn run(
     let service = service
         .map(Ok)
         .or_else(|| detected_target.parse_service().transpose())
-        .with_context(|| "`service` is not specified")??;
+        .with_context(|| {
+            "`service` was not detected. To specify it, add `--service` to the arguments"
+        })??;
 
     let contest = contest.or(detected_target.contest);
 
