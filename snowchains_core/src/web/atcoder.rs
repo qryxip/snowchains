@@ -5,8 +5,8 @@ use crate::{
     },
     web::{
         CaseConverted, CookieStorage, Exec, Login, LoginOutcome, LowerCase, Participate,
-        ParticipateOutcome, Platform, PlatformVariant, ResponseExt as _, RetrieveFullTestCases,
-        RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveTestCases, RetrieveTestCasesOutcome,
+        ParticipateOutcome, Platform, ResponseExt as _, RetrieveFullTestCases, RetrieveLanguages,
+        RetrieveLanguagesOutcome, RetrieveTestCases, RetrieveTestCasesOutcome,
         RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem,
         RetrieveTestCasesOutcomeProblemTextFiles, Session, SessionMut, Shell, Submit,
         SubmitOutcome, UpperCase,
@@ -71,8 +71,6 @@ impl<'closures> Platform for Atcoder<'closures> {
     type RetrieveFullTestCasesCredentials = AtcoderRetrieveFullTestCasesCredentials;
     type SubmitTarget = AtcoderSubmitTarget;
     type SubmitCredentials = AtcoderSubmitCredentials<'closures>;
-
-    const VARIANT: PlatformVariant = PlatformVariant::Atcoder;
 }
 
 impl<S: Shell> Exec<Login<Self, S>> for Atcoder<'_> {

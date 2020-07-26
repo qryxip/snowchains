@@ -1,11 +1,11 @@
 use crate::{
     testsuite::{BatchTestSuite, InteractiveTestSuite, Match, PartialBatchTestCase, TestSuite},
     web::{
-        yukicoder::api::SessionMutExt as _, CaseConverted, Exec, Platform, PlatformVariant,
-        ResponseExt as _, RetrieveFullTestCases, RetrieveLanguages, RetrieveLanguagesOutcome,
-        RetrieveTestCases, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeContest,
-        RetrieveTestCasesOutcomeProblem, RetrieveTestCasesOutcomeProblemTextFiles, Session,
-        SessionMut, Shell, Submit, SubmitOutcome, UpperCase,
+        yukicoder::api::SessionMutExt as _, CaseConverted, Exec, Platform, ResponseExt as _,
+        RetrieveFullTestCases, RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveTestCases,
+        RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem,
+        RetrieveTestCasesOutcomeProblemTextFiles, Session, SessionMut, Shell, Submit,
+        SubmitOutcome, UpperCase,
     },
 };
 use anyhow::{bail, Context as _};
@@ -49,8 +49,6 @@ impl Platform for Yukicoder {
     type RetrieveFullTestCasesCredentials = YukicoderRetrieveFullTestCasesCredentials;
     type SubmitTarget = YukicoderSubmitTarget;
     type SubmitCredentials = YukicoderSubmitCredentials;
-
-    const VARIANT: PlatformVariant = PlatformVariant::Yukicoder;
 }
 
 impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Yukicoder {
