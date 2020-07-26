@@ -58,6 +58,10 @@ pub enum Opt {
     #[structopt(author, visible_alias("r"))]
     Retrieve(OptRetrieve),
 
+    /// Alias for `retrieve testcases`
+    #[structopt(author, visible_alias("d"))]
+    Download(OptRetrieveTestcases),
+
     /// Tests code
     #[structopt(author, visible_alias("t"))]
     Test(OptTest),
@@ -66,7 +70,7 @@ pub enum Opt {
     #[structopt(author, visible_alias("s"))]
     Submit(OptSubmit),
 
-    /// Run a custom subcommand written in the config file
+    /// Runs a custom subcommand written in the config file
     #[structopt(author, visible_alias("x"), setting = AppSettings::TrailingVarArg)]
     Xtask(OptXtask),
 }
@@ -111,6 +115,7 @@ impl Opt {
             | Self::Login(OptLogin { color, .. })
             | Self::Retrieve(OptRetrieve::Languages(OptRetrieveLanguages { color, .. }))
             | Self::Retrieve(OptRetrieve::Testcases(OptRetrieveTestcases { color, .. }))
+            | Self::Download(OptRetrieveTestcases { color, .. })
             | Self::Test(OptTest { color, .. })
             | Self::Submit(OptSubmit { color, .. }) => color,
             Self::Xtask(_) => crate::ColorChoice::Auto,
@@ -182,6 +187,7 @@ pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
         Opt::Login(opt) => commands::login::run(opt, ctx),
         Opt::Retrieve(OptRetrieve::Languages(opt)) => commands::retrieve_languages::run(opt, ctx),
         Opt::Retrieve(OptRetrieve::Testcases(opt)) => commands::retrieve_testcases::run(opt, ctx),
+        Opt::Download(opt) => commands::retrieve_testcases::run(opt, ctx),
         Opt::Test(opt) => commands::test::run(opt, ctx),
         Opt::Submit(opt) => commands::submit::run(opt, ctx),
         Opt::Xtask(opt) => commands::xtask::run(opt, ctx),
