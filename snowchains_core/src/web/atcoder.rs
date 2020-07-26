@@ -285,16 +285,16 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
                 entries
                     .iter()
                     .map(|ListFolderEntry { name }| {
+                        let path = format!("{}/{}", path, name);
                         let req = sess
                             .async_client()
                             .post("https://content.dropboxapi.com/2/sharing/get_shared_link_file")
                             .bearer_auth(access_token)
                             .header(
                                 "Dropbox-API-Arg",
-                                json!({ "url": URL, "path": format!("{}/{}", path, name) })
-                                    .to_string(),
+                                json!({ "url": URL, "path": &path }).to_string(),
                             );
-                        (format!("{}.txt", name), req)
+                        (path, req)
                     })
                     .collect(),
             )?;
