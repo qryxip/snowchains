@@ -5,7 +5,7 @@ on:
     - cron: '0 0 * * 0'
   push:
     branches:
-      - master
+      - '*'
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+**'
   pull_request:
@@ -46,10 +46,10 @@ jobs:
           - stable-x86_64-unknown-linux-gnu
           - stable-x86_64-unknown-linux-musl
         include:
-          - { name: stable-x86_64-pc-windows-msvc   , channel: stable, target-triple: x86_64-pc-windows-msvc   , host-triple: x86_64-pc-windows-msvc  , os: windows-latest }
-          - { name: stable-x86_64-apple-darwin      , channel: stable, target-triple: x86_64-apple-darwin      , host-triple: x86_64-apple-darwin     , os: macos-latest   }
-          - { name: stable-x86_64-unknown-linux-gnu , channel: stable, target-triple: x86_64-unknown-linux-gnu , host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
-          - { name: stable-x86_64-unknown-linux-musl, channel: stable, target-triple: x86_64-unknown-linux-musl, host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
+          - { name: stable-x86_64-pc-windows-msvc   , channel: stable, target-triple: x86_64-pc-windows-msvc   , host-triple: x86_64-pc-windows-msvc  , os: windows-2019 }
+          - { name: stable-x86_64-apple-darwin      , channel: stable, target-triple: x86_64-apple-darwin      , host-triple: x86_64-apple-darwin     , os: macos-10.15  }
+          - { name: stable-x86_64-unknown-linux-gnu , channel: stable, target-triple: x86_64-unknown-linux-gnu , host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04 }
+          - { name: stable-x86_64-unknown-linux-musl, channel: stable, target-triple: x86_64-unknown-linux-musl, host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04 }
 
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -76,15 +76,14 @@ jobs:
         with:
           command: clippy
           args: --workspace --all-targets --target ${{ matrix.target-triple }} -- -D warnings
-        if: matrix.channel == 'stable'
 
       - name: Determine `cargo test` targets
         id: cargo_test_targets
         run: |
           if ${{ !!secrets }}; then
-            echo '::set-output name=targets::--workspace --all-targets'
+            echo '::set-output name=targets::--workspace'
           else
-            echo '::set-output name=targets::--workspace --lib --test batch'
+            echo '::set-output name=targets::--workspace --lib'
           fi
         shell: bash
 
@@ -102,7 +101,7 @@ jobs:
           CODEFORCES_PASSWORD: ${{ secrets.CODEFORCES_PASSWORD }}
           CODEFORCES_API_KEY: ${{ secrets.CODEFORCES_API_KEY }}
           CODEFORCES_API_SECRET: ${{ secrets.CODEFORCES_API_SECRET }}
-          YUKICODER_REVEL_SESSION: ${{ secrets.YUKICODER_REVEL_SESSION }}
+          YUKICODER_API_KEY: ${{ secrets.YUKICODER_API_KEY }}
 
   upload:
     strategy:
@@ -114,10 +113,10 @@ jobs:
           - x86_64-unknown-linux-gnu
           - x86_64-unknown-linux-musl
         include:
-          - { target-triple: x86_64-pc-windows-msvc   , host-triple: x86_64-pc-windows-msvc  , os: windows-latest }
-          - { target-triple: x86_64-apple-darwin      , host-triple: x86_64-apple-darwin     , os: macos-latest   }
-          - { target-triple: x86_64-unknown-linux-gnu , host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
-          - { target-triple: x86_64-unknown-linux-musl, host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04   }
+          - { target-triple: x86_64-pc-windows-msvc   , host-triple: x86_64-pc-windows-msvc  , os: windows-2019 }
+          - { target-triple: x86_64-apple-darwin      , host-triple: x86_64-apple-darwin     , os: macos-10.15  }
+          - { target-triple: x86_64-unknown-linux-gnu , host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04 }
+          - { target-triple: x86_64-unknown-linux-musl, host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04 }
 
     name: Upload (${{ matrix.target-triple }})
     runs-on: ${{ matrix.os }}
@@ -154,6 +153,7 @@ jobs:
       - name: Create an asset
         id: asset
         run: |
+          BIN_TARGET=snowchains
           if ${{ contains(matrix.target-triple, 'pc-windows') }}; then
             DOT_EXE=.exe
           fi
@@ -196,38 +196,3 @@ jobs:
           files: ./assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  publish:
-    name: Publish
-    runs-on: ubuntu-18.04
-    needs: [release]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Setup stable-x86_64-unknown-linux-gnu
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable-x86_64-unknown-linux-gnu
-          default: true
-          profile: minimal
-
-      - name: '`cargo publish --token "$CRATES_IO_TOKEN"` --allow-dirty -v'
-        uses: actions-rs/cargo@v1
-        with:
-          command: publish
-          args: --token ${{ secrets.CRATES_IO_TOKEN }} --allow-dirty -v
-
-      # https://github.com/sunng87/cargo-release/issues/195
-      #- name: '`cargo install --debug cargo-release`'
-      #  uses: actions-rs/cargo@v1
-      #  with:
-      #    command: install
-      #    args: --debug cargo-release
-      #
-      #- name: '`cargo release --workspace --skip-push --skip-tag --no-dev-version --token "$CRATES_IO_TOKEN" --no-confirm`'
-      #  uses: actions-rs/cargo@v1
-      #  with:
-      #    command: release
-      #    args: --workspace --skip-push --skip-tag --no-dev-version --token ${{ secrets.CRATES_IO_TOKEN }} --no-confirm
