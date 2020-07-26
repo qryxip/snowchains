@@ -28,6 +28,7 @@ use serde_json::json;
 use std::{
     collections::{BTreeMap, BTreeSet},
     convert::Infallible,
+    fmt,
     hash::Hash,
     io,
     marker::PhantomData,
@@ -860,25 +861,26 @@ fn watch_submissions(
                             _ => trap!(Err(anyhow!("Could not extract information"))),
                         };
 
-                        if let Some(caps) = JUDGING.captures(verdict) {
-                            let position = caps[1].parse().unwrap();
-                            let length = caps[2].parse().unwrap();
-                            let verdict = &caps[3];
+                        tokio::task::block_in_place(|| {
+                            if let Some(caps) = JUDGING.captures(verdict) {
+                                let position = caps[1].parse().unwrap();
+                                let length = caps[2].parse().unwrap();
+                                let verdict = &caps[3];
 
-                            pb.set_style(ProgressStyle::default_bar().template(&format!(
-                                "{{prefix}}{{msg:3{style}}} {{pos:>3{style}}}/\
-                                         {{len:>3{style}}} {{bar:14{style}}} │",
-                                style = style(verdict),
-                            )));
+                                pb.set_style(ProgressStyle::default_bar().template(&format!(
+                                    "{{prefix}}{{msg:3{style}}} {{pos:>3{style}}}/\
+                                     {{len:>3{style}}} {{bar:14{style}}} │",
+                                    style = style(verdict),
+                                )));
 
-                            pb.set_message(verdict);
-                            pb.set_length(length);
-                            pb.set_position(position);
-                        } else {
-                            pb.set_message(verdict);
-                        }
+                                pb.set_message(verdict);
+                                pb.set_length(length);
+                                pb.set_position(position);
+                            } else {
+                                pb.set_message(verdict);
+                            }
+                        });
 
-                        tokio::task::block_in_place(|| pb.set_message(&verdict));
                         tokio::time::delay_for(Duration::from_millis(interval)).await;
                     } else {
                         let (verdict, time_and_memory) = match &text[..] {
@@ -1018,32 +1020,20 @@ impl SubmissionSummary {
     }
 }
 
-#[derive(Debug, PartialEq, derive_more::Display)]
+#[derive(Debug, PartialEq)]
 enum Verdict {
-    #[display(fmt = "AC")]
     Ac,
-    #[display(fmt = "CE")]
     Ce,
-    #[display(fmt = "RE")]
     Re,
-    #[display(fmt = "WA")]
     Wa,
-    #[display(fmt = "MLE")]
     Mle,
-    #[display(fmt = "TLE")]
     Tle,
-    #[display(fmt = "OLE")]
     Ole,
-    #[display(fmt = "IE")]
     Ie,
-    #[display(fmt = "WJ")]
     Wj,
-    #[display(fmt = "WR")]
     Wr,
-    #[display(fmt = "{}", _0)]
     Unknown(String),
-    #[display(fmt = "{}/{} {}", _0, _1, _2)]
-    Judging(u64, u64, Box<Self>),
+    Judging(u64, u64, Option<Box<Self>>),
 }
 
 impl Verdict {
@@ -1063,7 +1053,11 @@ impl Verdict {
                 if let Some(caps) = JUDGING.captures(s) {
                     let numer = caps[1].parse().unwrap();
                     let denom = caps[2].parse().unwrap();
-                    let verdict = Box::new(Self::new(&caps[3]));
+                    let verdict = if caps[3].is_empty() {
+                        None
+                    } else {
+                        Some(Box::new(Self::new(&caps[3])))
+                    };
                     Self::Judging(numer, denom, verdict)
                 } else {
                     Self::Unknown(s.to_owned())
@@ -1080,8 +1074,8 @@ impl Verdict {
             Self::Ce | Self::Re | Self::Wa => from_fg_and_bold(Some(Color::Yellow), true),
             Self::Mle | Self::Tle | Self::Ole => from_fg_and_bold(Some(Color::Red), true),
             Self::Ie | Self::Wj | Self::Wr => from_fg_and_bold(None, true),
-            Self::Unknown(_) => ColorSpec::new(),
-            Self::Judging(_, _, v) => v.color_spec(),
+            Self::Judging(_, _, Some(v)) => v.color_spec(),
+            Self::Unknown(_) | Self::Judging(_, _, None) => ColorSpec::new(),
         };
 
         fn from_fg_and_bold(fg: Option<Color>, bold: bool) -> ColorSpec {
@@ -1097,8 +1091,28 @@ impl Verdict {
             Self::Ce | Self::Re | Self::Wa => ".yellow.bold",
             Self::Mle | Self::Tle | Self::Ole => ".red.bold",
             Self::Ie | Self::Wj | Self::Wr => ".bold",
-            Self::Unknown(_) => "",
-            Self::Judging(_, _, v) => v.progress_style(),
+            Self::Judging(_, _, Some(v)) => v.progress_style(),
+            Self::Unknown(_) | Self::Judging(_, _, None) => "",
+        }
+    }
+}
+
+impl fmt::Display for Verdict {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Ac => fmt::Display::fmt("AC", fmt),
+            Self::Ce => fmt::Display::fmt("CE", fmt),
+            Self::Re => fmt::Display::fmt("RE", fmt),
+            Self::Wa => fmt::Display::fmt("WA", fmt),
+            Self::Mle => fmt::Display::fmt("MLE", fmt),
+            Self::Tle => fmt::Display::fmt("TLE", fmt),
+            Self::Ole => fmt::Display::fmt("OLE", fmt),
+            Self::Ie => fmt::Display::fmt("IE", fmt),
+            Self::Wj => fmt::Display::fmt("WJ", fmt),
+            Self::Wr => fmt::Display::fmt("WR", fmt),
+            Self::Unknown(s) => fmt::Display::fmt(s, fmt),
+            Self::Judging(n, d, Some(v)) => write!(fmt, "{}/{} {}", n, d, v),
+            Self::Judging(n, d, None) => write!(fmt, "{}/{}", n, d),
         }
     }
 }
