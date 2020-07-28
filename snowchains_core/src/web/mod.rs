@@ -83,6 +83,7 @@ use cookie_store::CookieStore;
 use derivative::Derivative;
 use derive_more::{Display, From};
 use easy_ext::ext;
+use fs2::FileExt as _;
 use futures_util::StreamExt as _;
 use indexmap::IndexMap;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -100,11 +101,14 @@ use std::{
     borrow::Borrow,
     convert::TryInto,
     fmt,
+    fs::File,
     hash::Hash,
-    io::{self, Write as _},
+    io::{self, BufReader, Seek as _, SeekFrom, Write as _},
     marker::PhantomData,
     ops::{Deref, RangeFull, RangeInclusive},
+    path::{Path, PathBuf},
     str,
+    sync::Mutex,
     time::Duration,
 };
 use strum::EnumString;
@@ -359,6 +363,91 @@ impl SubmitOutcome {
 pub struct CookieStorage {
     pub cookie_store: CookieStore,
     pub on_update: Box<dyn Fn(&CookieStore) -> anyhow::Result<()>>,
+}
+
+impl CookieStorage {
+    pub fn with_jsonl<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        let path = path.as_ref();
+
+        let cookie_store = if path.exists() {
+            File::open(&path)
+                .map_err(anyhow::Error::from)
+                .and_then(|h| {
+                    CookieStore::load_json(BufReader::new(h)).map_err(|e| anyhow!("{}", e))
+                })
+                .with_context(|| format!("Could not load cookies from `{}`", path.display()))?
+        } else {
+            CookieStore::default()
+        };
+
+        let file = LazyLockedFile::new(&path);
+
+        let on_update = Box::new(move |cookie_store: &CookieStore| -> _ {
+            file.overwrite(|file| {
+                cookie_store.save_json(file).map_err(|e| anyhow!("{}", e))?;
+                Ok(())
+            })
+        });
+
+        return Ok(Self {
+            cookie_store,
+            on_update,
+        });
+
+        #[derive(Debug)]
+        struct LazyLockedFile {
+            path: PathBuf,
+            file: Mutex<Option<File>>,
+        }
+
+        impl LazyLockedFile {
+            fn new(path: &Path) -> Self {
+                Self {
+                    path: path.to_owned(),
+                    file: Mutex::new(None),
+                }
+            }
+
+            fn overwrite(
+                &self,
+                f: impl FnOnce(&mut File) -> anyhow::Result<()>,
+            ) -> anyhow::Result<()> {
+                let Self { path, file } = self;
+
+                let mut file = file.lock().unwrap();
+
+                let new_file = if file.is_none() {
+                    if let Some(parent) = path.parent() {
+                        if !parent.exists() {
+                            std::fs::create_dir_all(parent).with_context(|| {
+                                format!("Could not create `{}`", parent.display())
+                            })?;
+                        }
+                    }
+
+                    let new_file = File::create(&path)
+                        .with_context(|| format!("Could not open `{}`", path.display()))?;
+
+                    new_file
+                        .try_lock_exclusive()
+                        .with_context(|| format!("Could not lock `{}`", path.display()))?;
+
+                    Some(new_file)
+                } else {
+                    None
+                };
+
+                let file = file.get_or_insert_with(|| new_file.unwrap());
+
+                file.seek(SeekFrom::Start(0))
+                    .and_then(|_| file.set_len(0))
+                    .map_err(Into::into)
+                    .and_then(|()| f(file))
+                    .and_then(|()| file.sync_data().map_err(Into::into))
+                    .with_context(|| format!("Could not write `{}`", path.display()))
+            }
+        }
+    }
 }
 
 pub trait Shell {

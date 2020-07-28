@@ -2,8 +2,8 @@ use crate::{config, shell::Shell};
 use anyhow::Context as _;
 use snowchains_core::web::{
     Atcoder, AtcoderSubmitCredentials, AtcoderSubmitTarget, Codeforces,
-    CodeforcesSubmitCredentials, CodeforcesSubmitTarget, PlatformKind, Submit, Yukicoder,
-    YukicoderSubmitCredentials, YukicoderSubmitTarget,
+    CodeforcesSubmitCredentials, CodeforcesSubmitTarget, CookieStorage, PlatformKind, Submit,
+    Yukicoder, YukicoderSubmitCredentials, YukicoderSubmitTarget,
 };
 use std::{cell::RefCell, io::BufRead, path::PathBuf};
 use structopt::StructOpt;
@@ -154,7 +154,7 @@ pub(crate) fn run(
 
     let watch_submission = !no_watch;
 
-    let cookie_storage = crate::web::cookie_storage::cookie_storage()?;
+    let cookie_storage = CookieStorage::with_jsonl(crate::web::credentials::cookie_store_path()?)?;
 
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 

@@ -1,8 +1,8 @@
 use crate::shell::Shell;
 use anyhow::Context as _;
 use snowchains_core::web::{
-    Atcoder, AtcoderWatchSubmissionsCredentials, AtcoderWatchSubmissionsTarget, PlatformKind,
-    WatchSubmissions,
+    Atcoder, AtcoderWatchSubmissionsCredentials, AtcoderWatchSubmissionsTarget, CookieStorage,
+    PlatformKind, WatchSubmissions,
 };
 use std::{cell::RefCell, io::BufRead, path::PathBuf};
 use structopt::StructOpt;
@@ -64,7 +64,7 @@ pub(crate) fn run(
         })??;
     let contest = contest.or(detected_target.contest);
 
-    let cookie_storage = crate::web::cookie_storage::cookie_storage()?;
+    let cookie_storage = CookieStorage::with_jsonl(crate::web::credentials::cookie_store_path()?)?;
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
     let summaries = match service {

@@ -1,7 +1,8 @@
 use crate::shell::Shell;
 use serde::Serialize;
 use snowchains_core::web::{
-    Atcoder, AtcoderParticipateCredentials, AtcoderParticipateTarget, Participate, PlatformKind,
+    Atcoder, AtcoderParticipateCredentials, AtcoderParticipateTarget, CookieStorage, Participate,
+    PlatformKind,
 };
 use std::{
     cell::RefCell,
@@ -70,7 +71,7 @@ pub(crate) fn run(
         draw_progress: _,
     } = ctx;
 
-    let cookie_storage = crate::web::cookie_storage::cookie_storage()?;
+    let cookie_storage = CookieStorage::with_jsonl(crate::web::credentials::cookie_store_path()?)?;
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
     let stderr = RefCell::new(stderr);

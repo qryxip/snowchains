@@ -8,7 +8,7 @@ use snowchains_core::{
         Atcoder, AtcoderRetrieveFullTestCasesCredentials,
         AtcoderRetrieveSampleTestCasesCredentials, AtcoderRetrieveTestCasesTargets, Codeforces,
         CodeforcesRetrieveSampleTestCasesCredentials, CodeforcesRetrieveTestCasesTargets,
-        PlatformKind, RetrieveFullTestCases, RetrieveTestCases, Yukicoder,
+        CookieStorage, PlatformKind, RetrieveFullTestCases, RetrieveTestCases, Yukicoder,
         YukicoderRetrieveFullTestCasesCredentials, YukicoderRetrieveTestCasesTargets,
     },
 };
@@ -137,7 +137,7 @@ pub(crate) fn run(
         (problems, _) => Some(problems.iter().cloned().collect()),
     };
 
-    let cookie_storage = crate::web::cookie_storage::cookie_storage()?;
+    let cookie_storage = CookieStorage::with_jsonl(crate::web::credentials::cookie_store_path()?)?;
 
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 

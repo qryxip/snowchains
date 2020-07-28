@@ -2,8 +2,8 @@ use crate::shell::Shell;
 use anyhow::Context as _;
 use snowchains_core::web::{
     Atcoder, AtcoderRetrieveLanguagesCredentials, AtcoderRetrieveLanguagesTarget, Codeforces,
-    CodeforcesRetrieveLanguagesCredentials, CodeforcesRetrieveLanguagesTarget, PlatformKind,
-    RetrieveLanguages, Yukicoder,
+    CodeforcesRetrieveLanguagesCredentials, CodeforcesRetrieveLanguagesTarget, CookieStorage,
+    PlatformKind, RetrieveLanguages, Yukicoder,
 };
 use std::{
     cell::RefCell,
@@ -86,7 +86,7 @@ pub(crate) fn run(
     let contest = contest.or(detected_target.contest);
     let problem = problem.or(detected_target.problem);
 
-    let cookie_storage = crate::web::cookie_storage::cookie_storage()?;
+    let cookie_storage = CookieStorage::with_jsonl(crate::web::credentials::cookie_store_path()?)?;
 
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 

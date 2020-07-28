@@ -8,6 +8,12 @@ use std::{
 };
 use termcolor::WriteColor;
 
+pub(crate) fn cookie_store_path() -> anyhow::Result<PathBuf> {
+    let data_local_dir =
+        dirs::data_local_dir().with_context(|| "Could not find the local date directory")?;
+    Ok(data_local_dir.join("snowchains").join("cookies.jsonl"))
+}
+
 pub(crate) fn atcoder_username_and_password<'a, R: BufRead + 'a, W: WriteColor>(
     stdin: TtyOrPiped<R>,
     stderr: &'a RefCell<W>,
