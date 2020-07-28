@@ -10,9 +10,6 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+**'
   pull_request:
 
-env:
-  BIN_TARGET: snowchains
-
 jobs:
   rustfmt:
     name: Rustfmt
@@ -35,6 +32,58 @@ jobs:
         with:
           command: fmt
           args: --all -- --check
+
+  grcov:
+    name: grcov
+    runs-on: ubuntu-18.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install `nightly-x86_64-unknown-linux-gnu`
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+
+      - name: Determine `cargo test` targets
+        id: cargo_test_targets
+        run: |
+          if ${{ !!secrets }}; then
+            echo '::set-output name=targets::--workspace'
+          else
+            echo '::set-output name=targets::--workspace --lib'
+          fi
+
+      - name: '`cargo test --no-fail-fast ${{ steps.cargo_test_targets.outputs.targets }}`'
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --no-fail-fast ${{ steps.cargo_test_targets.outputs.targets }}
+        env:
+          CARGO_INCREMENTAL: '0'
+          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
+          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
+          RUST_BACKTRACE: full
+          ATCODER_USERNAME: ${{ secrets.ATCODER_USERNAME }}
+          ATCODER_PASSWORD: ${{ secrets.ATCODER_PASSWORD }}
+          DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
+          CODEFORCES_USERNAME: ${{ secrets.CODEFORCES_USERNAME }}
+          CODEFORCES_PASSWORD: ${{ secrets.CODEFORCES_PASSWORD }}
+          CODEFORCES_API_KEY: ${{ secrets.CODEFORCES_API_KEY }}
+          CODEFORCES_API_SECRET: ${{ secrets.CODEFORCES_API_SECRET }}
+          YUKICODER_API_KEY: ${{ secrets.YUKICODER_API_KEY }}
+
+      - name: grcov
+        id: grcov
+        uses: actions-rs/grcov@v0.1
+
+      - name: Codecov
+        uses: codecov/codecov-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ${{ steps.grcov.outputs.report }}
 
   build:
     strategy:
