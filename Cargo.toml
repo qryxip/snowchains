@@ -15,23 +15,23 @@ keywords = ["competitive", "cli", "windows"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-anyhow = "1.0.31"
+anyhow = "1.0.32"
 atty = "0.2.14"
 cookie_store = "0.12.0"
 dhall = "0.5.3"
 dirs = "3.0.1"
 heck = "0.3.1"
-indexmap = { version = "1.4.0", features = ["serde-1"] }
+indexmap = { version = "1.5.0", features = ["serde-1"] }
 indicatif = "0.15.0"
-indoc = "0.3.6"
+indoc = "1.0.1"
 itertools = "0.9.0"
 maplit = "1.0.2"
-reqwest = { version = "0.10.6", default-features = false, features = ["blocking"] }
+reqwest = { version = "0.10.7", default-features = false, features = ["blocking"] }
 rpassword = "4.0.5"
 rprompt = "1.0.5"
 serde = { version = "1.0.114", features = ["derive"] }
 serde_dhall = "0.5.3"
-serde_json = "1.0.56"
+serde_json = "1.0.57"
 serde_yaml = "0.8.13"
 shell-escape = "0.1.5"
 snowchains_core = { version = "0.0.0", path = "./snowchains_core" }
