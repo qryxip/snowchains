@@ -3,6 +3,7 @@ use anyhow::Context as _;
 use maplit::btreeset;
 use serde::Serialize;
 use snowchains_core::{
+    color_spec,
     testsuite::{Additional, BatchTestSuite, TestSuite},
     web::{
         Atcoder, AtcoderRetrieveFullTestCasesCredentials,
@@ -19,7 +20,7 @@ use std::{
 };
 use structopt::StructOpt;
 use strum::VariantNames as _;
-use termcolor::{Color, ColorSpec, WriteColor};
+use termcolor::{Color, WriteColor};
 use url::Url;
 
 #[derive(StructOpt, Debug)]
@@ -307,13 +308,13 @@ pub(crate) fn run(
 
         crate::fs::write(&path, test_suite.to_yaml_pretty(), true)?;
 
-        stderr.set_color(ColorSpec::new().set_reset(false).set_bold(true))?;
+        stderr.set_color(color_spec!(Bold))?;
         write!(stderr, "{}:", index.original)?;
         stderr.reset()?;
 
         write!(stderr, " Saved to ")?;
 
-        stderr.set_color(ColorSpec::new().set_reset(false).set_fg(Some(Color::Cyan)))?;
+        stderr.set_color(color_spec!(Fg(Color::Cyan)))?;
         if text_files.is_empty() {
             write!(stderr, "{}", path.display())
         } else {
@@ -340,7 +341,7 @@ pub(crate) fn run(
             TestSuite::Unsubmittable => ("unsubmittable problem".to_owned(), Color::Yellow),
         };
 
-        stderr.set_color(ColorSpec::new().set_reset(false).set_fg(Some(color)))?;
+        stderr.set_color(color_spec!(Fg(color)))?;
         write!(stderr, "{}", msg)?;
         stderr.reset()?;
 

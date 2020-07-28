@@ -724,7 +724,7 @@ fn print_submissions(mut wtr: impl WriteColor, summaries: &[SubmissionSummary]) 
 
         match &summary.verdict {
             Verdict::Wj => {
-                wtr.set_color(&ColorSpec::new().set_bold(true))?;
+                wtr.set_color(color_spec!(Bold))?;
                 write!(wtr, "WJ")?;
                 wtr.reset()?;
             }

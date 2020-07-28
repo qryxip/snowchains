@@ -1,11 +1,12 @@
 use anyhow::Context as _;
 use snowchains::TtyOrPiped;
+use snowchains_core::color_spec;
 use std::{
     env,
     io::{self, Write as _},
     process::{self, Stdio},
 };
-use termcolor::{BufferedStandardStream, Color, ColorSpec, WriteColor as _};
+use termcolor::{BufferedStandardStream, Color, WriteColor as _};
 
 fn main() {
     let opt = snowchains::Opt::from_args_with_workaround_for_clap_issue_1538();
@@ -34,12 +35,7 @@ fn main() {
 
     if let Err(err) = result {
         for (i, s) in format!("{:?}", err).splitn(2, "Caused by:\n").enumerate() {
-            let _ = stderr.set_color(
-                ColorSpec::new()
-                    .set_reset(false)
-                    .set_bold(true)
-                    .set_fg(Some(Color::Red)),
-            );
+            let _ = stderr.set_color(color_spec!(Bold, Fg(Color::Red)));
 
             if i == 0 {
                 let _ = stderr.write_all(b"Error:");

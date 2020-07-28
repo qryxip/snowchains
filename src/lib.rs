@@ -1,24 +1,3 @@
-macro_rules! color_spec {
-    ($($tt:tt)*) => {
-        color_spec_inner!(@acc(::termcolor::ColorSpec::new().set_reset(false)), @rest($($tt)*))
-    };
-}
-
-macro_rules! color_spec_inner {
-    (@acc($acc:expr), @rest()) => {
-        $acc
-    };
-    (@acc($acc:expr), @rest(, $($rest:tt)*)) => {
-        color_spec_inner!(@acc($acc), @rest($($rest)*))
-    };
-    (@acc($acc:expr), @rest(bold $($rest:tt)*)) => {
-        color_spec_inner!(@acc($acc.set_bold(true)), @rest($($rest)*))
-    };
-    (@acc($acc:expr), @rest(fg($color:expr) $($rest:tt)*)) => {
-        color_spec_inner!(@acc($acc.set_fg(::std::option::Option::Some($color))), @rest($($rest)*))
-    };
-}
-
 mod commands;
 mod config;
 mod fs;

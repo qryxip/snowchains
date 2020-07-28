@@ -3,7 +3,9 @@ use anyhow::bail;
 use indicatif::ProgressDrawTarget;
 use itertools::Itertools as _;
 use maplit::btreemap;
-use snowchains_core::{judge::CommandExpression, testsuite::TestSuite, web::PlatformKind};
+use snowchains_core::{
+    color_spec, judge::CommandExpression, testsuite::TestSuite, web::PlatformKind,
+};
 use std::{
     ffi::OsStr,
     io::Write as _,
@@ -83,7 +85,7 @@ pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Res
     if mem::replace(&mut newline, true) {
         writeln!(stderr)?;
     }
-    stderr.set_color(color_spec!(bold))?;
+    stderr.set_color(color_spec!(Bold))?;
     write!(stderr, "Running the tests...")?;
     stderr.reset()?;
     writeln!(stderr)?;
@@ -123,17 +125,17 @@ pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Res
         }
     };
 
-    stderr.set_color(color_spec!(bold, fg(Color::Magenta)))?;
+    stderr.set_color(color_spec!(Bold, Fg(Color::Magenta)))?;
     write!(stderr, "Test file:")?;
     stderr.reset()?;
     writeln!(stderr, " {}", test_suite_path.display())?;
 
-    stderr.set_color(color_spec!(bold, fg(Color::Magenta)))?;
+    stderr.set_color(color_spec!(Bold, Fg(Color::Magenta)))?;
     write!(stderr, "Command:")?;
     stderr.reset()?;
     writeln!(stderr, " {}", shell_escape_args(&cmd.program, &cmd.args))?;
 
-    stderr.set_color(color_spec!(bold, fg(Color::Magenta)))?;
+    stderr.set_color(color_spec!(Bold, Fg(Color::Magenta)))?;
     write!(stderr, "Working Directory:")?;
     stderr.reset()?;
     writeln!(stderr, " {}", cmd.cwd.display())?;
@@ -211,7 +213,7 @@ fn build(
         writeln!(stderr, "{} is up to date.", output.display())?;
         stderr.flush()?;
     } else {
-        stderr.set_color(color_spec!(bold))?;
+        stderr.set_color(color_spec!(Bold))?;
         write!(stderr, "{}", msg)?;
         stderr.reset()?;
         writeln!(stderr)?;
@@ -222,7 +224,7 @@ fn build(
                 crate::fs::create_dir_all(parent)?;
 
                 write!(stderr, "Created ")?;
-                stderr.set_color(color_spec!(fg(Color::Cyan)))?;
+                stderr.set_color(color_spec!(Fg(Color::Cyan)))?;
                 write!(stderr, "{}", parent.display())?;
                 stderr.reset()?;
                 writeln!(stderr)?;
@@ -288,12 +290,12 @@ fn run_command<S1: AsRef<OsStr>, S2: AsRef<OsStr>, I: IntoIterator<Item = S2>, W
 
     let shell_escaped = shell_escape_args(program, &args);
 
-    stderr.set_color(color_spec!(bold, fg(Color::Magenta)))?;
+    stderr.set_color(color_spec!(Bold, Fg(Color::Magenta)))?;
     write!(stderr, "Command:")?;
     stderr.reset()?;
     writeln!(stderr, " {}", shell_escaped)?;
 
-    stderr.set_color(color_spec!(bold, fg(Color::Magenta)))?;
+    stderr.set_color(color_spec!(Bold, Fg(Color::Magenta)))?;
     write!(stderr, "Working Directory:")?;
     stderr.reset()?;
     writeln!(stderr, " {}", base_dir.display())?;

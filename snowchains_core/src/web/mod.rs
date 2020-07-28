@@ -112,7 +112,7 @@ use std::{
     time::Duration,
 };
 use strum::EnumString;
-use termcolor::{Ansi, BufferedStandardStream, Color, ColorChoice, ColorSpec, WriteColor};
+use termcolor::{Ansi, BufferedStandardStream, Color, ColorChoice, WriteColor};
 use tokio::runtime::Runtime;
 use unicode_width::UnicodeWidthStr as _;
 use url::Url;
@@ -511,12 +511,7 @@ impl Shell for StandardStreamShell {
     }
 
     fn info<T: fmt::Display>(&mut self, message: T) -> anyhow::Result<()> {
-        self.wtr.set_color(
-            ColorSpec::new()
-                .set_reset(false)
-                .set_bold(true)
-                .set_fg(Some(Color::Cyan)),
-        )?;
+        self.wtr.set_color(color_spec!(Bold, Fg(Color::Cyan)))?;
         write!(self.wtr, "info:")?;
         self.wtr.reset()?;
         writeln!(self.wtr, " {}", message)?;
@@ -524,12 +519,7 @@ impl Shell for StandardStreamShell {
     }
 
     fn warn<T: fmt::Display>(&mut self, message: T) -> anyhow::Result<()> {
-        self.wtr.set_color(
-            ColorSpec::new()
-                .set_reset(false)
-                .set_bold(true)
-                .set_fg(Some(Color::Yellow)),
-        )?;
+        self.wtr.set_color(color_spec!(Bold, Fg(Color::Yellow)))?;
         write!(self.wtr, "warning:")?;
         self.wtr.reset()?;
         writeln!(self.wtr, " {}", message)?;
@@ -537,15 +527,13 @@ impl Shell for StandardStreamShell {
     }
 
     fn on_request(&mut self, req: &reqwest::blocking::Request) -> anyhow::Result<()> {
-        self.wtr
-            .set_color(ColorSpec::new().set_reset(false).set_bold(true))?;
+        self.wtr.set_color(color_spec!(Bold))?;
         write!(self.wtr, "{}", req.method())?;
         self.wtr.reset()?;
 
         write!(self.wtr, " ")?;
 
-        self.wtr
-            .set_color(ColorSpec::new().set_reset(false).set_fg(Some(Color::Cyan)))?;
+        self.wtr.set_color(color_spec!(Fg(Color::Cyan)))?;
         write!(self.wtr, "{}", req.url())?;
         self.wtr.reset()?;
 
@@ -566,8 +554,7 @@ impl Shell for StandardStreamShell {
             StatusCodeColor::Unknown => None,
         };
 
-        self.wtr
-            .set_color(ColorSpec::new().set_reset(false).set_bold(true).set_fg(fg))?;
+        self.wtr.set_color(color_spec!(Bold).set_fg(fg))?;
         write!(self.wtr, "{}", res.status())?;
         self.wtr.reset()?;
         writeln!(self.wtr)?;

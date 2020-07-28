@@ -1,7 +1,7 @@
 use indicatif::ProgressDrawTarget;
-use snowchains_core::web::StatusCodeColor;
+use snowchains_core::{color_spec, web::StatusCodeColor};
 use std::{cell::RefCell, fmt};
-use termcolor::{Color, ColorSpec, WriteColor};
+use termcolor::{Color, WriteColor};
 
 pub(crate) struct Shell<'a, W> {
     wtr: &'a RefCell<W>,
@@ -23,7 +23,7 @@ impl<'a, W: WriteColor> self::Shell<'a, W> {
     pub(crate) fn warn(&mut self, message: impl fmt::Display) -> anyhow::Result<()> {
         let mut wtr = self.wtr.borrow_mut();
 
-        wtr.set_color(&color_spec(Some(Color::Yellow), true))?;
+        wtr.set_color(color_spec!(Bold, Fg(Color::Yellow)))?;
         write!(wtr, "warning:")?;
         wtr.reset()?;
         writeln!(wtr, " {}", message)?;
@@ -53,13 +53,13 @@ impl<'a, W: WriteColor> snowchains_core::web::Shell for self::Shell<'a, W> {
     fn on_request(&mut self, req: &reqwest::blocking::Request) -> anyhow::Result<()> {
         let mut wtr = self.wtr.borrow_mut();
 
-        wtr.set_color(&color_spec(None, true))?;
+        wtr.set_color(color_spec!(Bold))?;
         write!(wtr, "{}", req.method())?;
         wtr.reset()?;
 
         write!(wtr, " ")?;
 
-        wtr.set_color(&color_spec(Some(Color::Cyan), false))?;
+        wtr.set_color(color_spec!(Fg(Color::Cyan)))?;
         write!(wtr, "{}", req.url())?;
         wtr.reset()?;
 
@@ -82,7 +82,7 @@ impl<'a, W: WriteColor> snowchains_core::web::Shell for self::Shell<'a, W> {
             StatusCodeColor::Unknown => None,
         };
 
-        wtr.set_color(&color_spec(fg, true))?;
+        wtr.set_color(color_spec!(Bold).set_fg(fg))?;
         write!(wtr, "{}", res.status())?;
         wtr.reset()?;
 
@@ -90,10 +90,4 @@ impl<'a, W: WriteColor> snowchains_core::web::Shell for self::Shell<'a, W> {
 
         wtr.flush().map_err(Into::into)
     }
-}
-
-fn color_spec(fg: Option<Color>, bold: bool) -> ColorSpec {
-    let mut spec = ColorSpec::new();
-    spec.set_reset(false).set_bold(bold).set_fg(fg);
-    spec
 }
