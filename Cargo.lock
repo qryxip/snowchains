@@ -1050,15 +1050,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "indoc"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "644defcefee68d7805653a682e99a2e2a5014a1fc3cc9be7059a215844eeea6f"
-dependencies = [
- "unindent",
-]
-
-[[package]]
 name = "iovec"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1847,15 +1838,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "retry"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "789e7aad247a37b785401b4d82bbad03212bb516fe7c0c2cc42f37bccb00b9b2"
-dependencies = [
- "rand",
-]
-
-[[package]]
 name = "ring"
 version = "0.16.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2203,17 +2185,13 @@ dependencies = [
  "atty",
  "cookie_store",
  "dhall",
- "difference",
  "dirs 3.0.1",
  "heck",
  "indexmap",
  "indicatif",
- "indoc",
  "itertools",
  "maplit",
- "pretty_assertions",
  "reqwest",
- "retry",
  "rpassword",
  "rprompt",
  "serde",
@@ -2759,12 +2737,6 @@ name = "unicode-xid"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7fe0bb3479651439c9112f72b6c505038574c9fbb575ed1bf3b797fa39dd564"
-
-[[package]]
-name = "unindent"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af41d708427f8fd0e915dcebb2cae0f0e6acb2a939b2d399c265c39a38a18942"
 
 [[package]]
 name = "untrusted"
