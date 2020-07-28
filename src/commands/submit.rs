@@ -1,4 +1,4 @@
-use crate::{config, shell::Shell};
+use crate::config;
 use anyhow::Context as _;
 use snowchains_core::web::{
     Atcoder, AtcoderSubmitCredentials, AtcoderSubmitTarget, Codeforces,
@@ -78,16 +78,7 @@ pub(crate) fn run(
         problem,
     } = opt;
 
-    let crate::Context {
-        cwd,
-        mut stdin,
-        mut stdout,
-        mut stderr,
-        stdin_process_redirection,
-        stdout_process_redirection,
-        stderr_process_redirection,
-        draw_progress,
-    } = ctx;
+    let crate::Context { cwd, mut shell } = ctx;
 
     let (
         config::Target {
@@ -124,23 +115,23 @@ pub(crate) fn run(
     if no_judge {
         if let Some(transpile) = &transpile {
             crate::judge::transpile(
-                &mut stderr,
+                &mut shell.stderr,
                 &base_dir,
                 &src,
                 transpile,
-                stdin_process_redirection,
-                stdout_process_redirection,
-                stderr_process_redirection,
+                shell.stdin_process_redirection,
+                shell.stdout_process_redirection,
+                shell.stderr_process_redirection,
             )?;
         }
     } else {
         crate::judge::judge(crate::judge::Args {
-            stdout: &mut stdout,
-            stderr: &mut stderr,
-            stdin_process_redirection,
-            stdout_process_redirection,
-            stderr_process_redirection,
-            draw_progress,
+            progress_draw_target: shell.progress_draw_target(),
+            stdout: &mut shell.stdout,
+            stderr: &mut shell.stderr,
+            stdin_process_redirection: shell.stdin_process_redirection,
+            stdout_process_redirection: shell.stdout_process_redirection,
+            stderr_process_redirection: shell.stderr_process_redirection,
             base_dir,
             service,
             contest: contest.clone(),
@@ -160,17 +151,16 @@ pub(crate) fn run(
 
     let outcome = match service {
         PlatformKind::Atcoder => {
+            let shell = RefCell::new(&mut shell);
+
             let target = AtcoderSubmitTarget {
                 contest: contest.with_context(|| "`contest` is required for AtCoder")?,
                 problem,
             };
 
-            let stderr = RefCell::new(&mut stderr);
-            let shell = Shell::new(&stderr, true);
-
             let credentials = AtcoderSubmitCredentials {
                 username_and_password: &mut crate::web::credentials::atcoder_username_and_password(
-                    stdin, &stderr,
+                    &shell,
                 ),
             };
 
@@ -182,7 +172,7 @@ pub(crate) fn run(
                 watch_submission,
                 cookie_storage,
                 timeout,
-                shell,
+                shell: &shell,
             })
         }
         PlatformKind::Codeforces => {
@@ -192,14 +182,13 @@ pub(crate) fn run(
             };
 
             let (api_key, api_secret) =
-                crate::web::credentials::codeforces_api_key_and_secret(&mut stdin, &mut stderr)?;
+                crate::web::credentials::codeforces_api_key_and_secret(&mut shell)?;
 
-            let stderr = RefCell::new(&mut stderr);
-            let shell = Shell::new(&stderr, true);
+            let shell = RefCell::new(&mut shell);
 
             let credentials = CodeforcesSubmitCredentials {
                 username_and_password:
-                    &mut crate::web::credentials::codeforces_username_and_password(stdin, &stderr),
+                    &mut crate::web::credentials::codeforces_username_and_password(&shell),
                 api_key,
                 api_secret,
             };
@@ -212,7 +201,7 @@ pub(crate) fn run(
                 watch_submission,
                 cookie_storage,
                 timeout,
-                shell,
+                shell: &shell,
             })
         }
         PlatformKind::Yukicoder => {
@@ -223,11 +212,10 @@ pub(crate) fn run(
             };
 
             let credentials = YukicoderSubmitCredentials {
-                api_key: crate::web::credentials::yukicoder_api_key(&mut stdin, &mut stderr)?,
+                api_key: crate::web::credentials::yukicoder_api_key(&mut shell)?,
             };
 
-            let stderr = RefCell::new(&mut stderr);
-            let shell = Shell::new(&stderr, true);
+            let shell = RefCell::new(&mut shell);
 
             Yukicoder::exec(Submit {
                 target,
@@ -243,8 +231,8 @@ pub(crate) fn run(
     }?;
 
     if json {
-        write!(stdout, "{}", outcome.to_json())?;
-        stdout.flush()?;
+        write!(shell.stdout, "{}", outcome.to_json())?;
+        shell.stdout.flush()?;
     }
 
     Ok(())

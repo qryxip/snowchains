@@ -16,14 +16,13 @@ use std::{
 };
 use termcolor::{Color, WriteColor};
 
-#[derive(Debug)]
 pub(crate) struct Args<W1, W2> {
     pub(crate) stdout: W1,
     pub(crate) stderr: W2,
     pub(crate) stdin_process_redirection: fn() -> Stdio,
     pub(crate) stdout_process_redirection: fn() -> Stdio,
     pub(crate) stderr_process_redirection: fn() -> Stdio,
-    pub(crate) draw_progress: bool,
+    pub(crate) progress_draw_target: ProgressDrawTarget,
     pub(crate) base_dir: PathBuf,
     pub(crate) service: PlatformKind,
     pub(crate) contest: Option<String>,
@@ -41,7 +40,7 @@ pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Res
         stdin_process_redirection,
         stdout_process_redirection,
         stderr_process_redirection,
-        draw_progress,
+        progress_draw_target,
         base_dir,
         service,
         contest,
@@ -142,15 +141,7 @@ pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Res
 
     stderr.flush()?;
 
-    let outcome = snowchains_core::judge::judge(
-        if draw_progress {
-            ProgressDrawTarget::stderr()
-        } else {
-            ProgressDrawTarget::hidden()
-        },
-        &cmd,
-        &test_cases,
-    )?;
+    let outcome = snowchains_core::judge::judge(progress_draw_target, &cmd, &test_cases)?;
 
     if let Some(tempfile) = tempfile {
         tempfile.close()?;

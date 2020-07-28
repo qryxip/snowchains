@@ -1,12 +1,10 @@
-use crate::TtyOrPiped;
 use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
-    io::{self, BufRead, Write},
+    io::{BufRead, Write},
     path::PathBuf,
 };
-use termcolor::WriteColor;
 
 pub(crate) fn cookie_store_path() -> anyhow::Result<PathBuf> {
     let data_local_dir =
@@ -14,36 +12,26 @@ pub(crate) fn cookie_store_path() -> anyhow::Result<PathBuf> {
     Ok(data_local_dir.join("snowchains").join("cookies.jsonl"))
 }
 
-pub(crate) fn atcoder_username_and_password<'a, R: BufRead + 'a, W: WriteColor>(
-    stdin: TtyOrPiped<R>,
-    stderr: &'a RefCell<W>,
+pub(crate) fn atcoder_username_and_password<'a, R: BufRead, W1, W2: Write>(
+    shell: &'a RefCell<&'a mut crate::shell::Shell<R, W1, W2>>,
 ) -> impl FnMut() -> anyhow::Result<(String, String)> + 'a {
-    username_and_password(stdin, stderr, "Username: ")
+    username_and_password(shell, "Username: ")
 }
 
-pub(crate) fn codeforces_username_and_password<'a, R: BufRead + 'a, W: WriteColor>(
-    stdin: TtyOrPiped<R>,
-    stderr: &'a RefCell<W>,
+pub(crate) fn codeforces_username_and_password<'a, R: BufRead, W1, W2: Write>(
+    shell: &'a RefCell<&'a mut crate::shell::Shell<R, W1, W2>>,
 ) -> impl FnMut() -> anyhow::Result<(String, String)> + 'a {
-    username_and_password(stdin, stderr, "Handle/Email: ")
+    username_and_password(shell, "Handle/Email: ")
 }
 
-pub(crate) fn username_and_password<'a, R: BufRead + 'a, W: WriteColor>(
-    mut stdin: TtyOrPiped<R>,
-    stderr: &'a RefCell<W>,
+pub(crate) fn username_and_password<'a, R: BufRead, W1, W2: Write>(
+    shell: &'a RefCell<&'a mut crate::shell::Shell<R, W1, W2>>,
     username_prompt: &'static str,
 ) -> impl FnMut() -> anyhow::Result<(String, String)> + 'a {
     move || -> _ {
-        let mut stderr = stderr.borrow_mut();
-
-        write!(stderr, "{}", username_prompt)?;
-        stderr.flush()?;
-        let username = stdin.read_reply()?;
-
-        write!(stderr, "Password: ")?;
-        stderr.flush()?;
-        let password = stdin.read_password()?;
-
+        let mut shell = shell.borrow_mut();
+        let username = shell.read_reply(username_prompt)?;
+        let password = shell.read_password("Password: ")?;
         Ok((username, password))
     }
 }
@@ -63,8 +51,7 @@ pub(crate) fn dropbox_access_token() -> anyhow::Result<String> {
 }
 
 pub(crate) fn codeforces_api_key_and_secret(
-    input: &mut TtyOrPiped<impl BufRead>,
-    mut stderr: impl Write,
+    shell: &mut crate::shell::Shell<impl BufRead, impl Sized, impl Write>,
 ) -> anyhow::Result<(String, String)> {
     let path = token_path("codeforces.json")?;
 
@@ -74,8 +61,8 @@ pub(crate) fn codeforces_api_key_and_secret(
     } = if path.exists() {
         crate::fs::read_json(path)?
     } else {
-        let api_key = read_password(input, &mut stderr, "Codeforces `api_key`: ")?;
-        let api_secret = read_password(input, stderr, "Codeforces `api_secret`: ")?;
+        let api_key = shell.read_password("Codeforces `api_key`: ")?;
+        let api_secret = shell.read_password("Codeforces `api_secret`: ")?;
 
         let pair = Codeforces {
             api_key,
@@ -96,15 +83,14 @@ pub(crate) fn codeforces_api_key_and_secret(
 }
 
 pub(crate) fn yukicoder_api_key(
-    input: &mut TtyOrPiped<impl BufRead>,
-    stderr: impl Write,
+    shell: &mut crate::shell::Shell<impl BufRead, impl Sized, impl Write>,
 ) -> anyhow::Result<String> {
     let path = token_path("yukicoder.json")?;
 
     if path.exists() {
         crate::fs::read_json(path)
     } else {
-        let api_key = read_password(input, stderr, "yukicoder API key: ")?;
+        let api_key = shell.read_password("yukicoder API key: ")?;
         crate::fs::write_json(path, &api_key, true)?;
         Ok(api_key)
     }
@@ -118,14 +104,4 @@ fn token_path(file_name: &str) -> anyhow::Result<PathBuf> {
         .join("snowchains")
         .join("tokens")
         .join(file_name))
-}
-
-fn read_password(
-    input: &mut TtyOrPiped<impl BufRead>,
-    mut stderr: impl Write,
-    prompt: &str,
-) -> io::Result<String> {
-    write!(stderr, "{}", prompt)?;
-    stderr.flush()?;
-    input.read_password()
 }

@@ -1,4 +1,4 @@
-use crate::{shell::Shell, web::CaseConversions};
+use crate::web::CaseConversions;
 use anyhow::Context as _;
 use maplit::btreeset;
 use serde::Serialize;
@@ -110,16 +110,7 @@ pub(crate) fn run(
         problems,
     } = opt;
 
-    let crate::Context {
-        cwd,
-        mut stdin,
-        mut stdout,
-        mut stderr,
-        stdin_process_redirection: _,
-        stdout_process_redirection: _,
-        stderr_process_redirection: _,
-        draw_progress: _,
-    } = ctx;
+    let crate::Context { cwd, mut shell } = ctx;
 
     let (detected_target, workspace) = crate::config::detect_target(&cwd, config.as_deref())?;
 
@@ -144,6 +135,8 @@ pub(crate) fn run(
 
     let outcome = match service {
         PlatformKind::Atcoder => {
+            let shell = RefCell::new(&mut shell);
+
             let targets = {
                 let contest = contest
                     .clone()
@@ -151,12 +144,9 @@ pub(crate) fn run(
                 AtcoderRetrieveTestCasesTargets { contest, problems }
             };
 
-            let stderr = RefCell::new(&mut stderr);
-            let shell = Shell::new(&stderr, true);
-
             let credentials = AtcoderRetrieveSampleTestCasesCredentials {
                 username_and_password: &mut crate::web::credentials::atcoder_username_and_password(
-                    stdin, &stderr,
+                    &shell,
                 ),
             };
 
@@ -176,10 +166,12 @@ pub(crate) fn run(
                 full,
                 cookie_storage,
                 timeout,
-                shell,
+                shell: &shell,
             })
         }
         PlatformKind::Codeforces => {
+            let shell = RefCell::new(&mut shell);
+
             let targets = {
                 let contest = contest
                     .clone()
@@ -187,12 +179,9 @@ pub(crate) fn run(
                 CodeforcesRetrieveTestCasesTargets { contest, problems }
             };
 
-            let stderr = RefCell::new(&mut stderr);
-            let shell = Shell::new(&stderr, true);
-
             let credentials = CodeforcesRetrieveSampleTestCasesCredentials {
                 username_and_password:
-                    &mut crate::web::credentials::codeforces_username_and_password(stdin, &stderr),
+                    &mut crate::web::credentials::codeforces_username_and_password(&shell),
             };
 
             Codeforces::exec(RetrieveTestCases {
@@ -201,7 +190,7 @@ pub(crate) fn run(
                 full: None,
                 cookie_storage,
                 timeout,
-                shell,
+                shell: &shell,
             })
         }
         PlatformKind::Yukicoder => {
@@ -220,18 +209,14 @@ pub(crate) fn run(
             let full = if full {
                 Some(RetrieveFullTestCases {
                     credentials: YukicoderRetrieveFullTestCasesCredentials {
-                        api_key: crate::web::credentials::yukicoder_api_key(
-                            &mut stdin,
-                            &mut stderr,
-                        )?,
+                        api_key: crate::web::credentials::yukicoder_api_key(&mut shell)?,
                     },
                 })
             } else {
                 None
             };
 
-            let stderr = RefCell::new(&mut stderr);
-            let shell = Shell::new(&stderr, true);
+            let shell = RefCell::new(&mut shell);
 
             Yukicoder::exec(RetrieveTestCases {
                 targets,
@@ -308,26 +293,26 @@ pub(crate) fn run(
 
         crate::fs::write(&path, test_suite.to_yaml_pretty(), true)?;
 
-        stderr.set_color(color_spec!(Bold))?;
-        write!(stderr, "{}:", index.original)?;
-        stderr.reset()?;
+        shell.stderr.set_color(color_spec!(Bold))?;
+        write!(shell.stderr, "{}:", index.original)?;
+        shell.stderr.reset()?;
 
-        write!(stderr, " Saved to ")?;
+        write!(shell.stderr, " Saved to ")?;
 
-        stderr.set_color(color_spec!(Fg(Color::Cyan)))?;
+        shell.stderr.set_color(color_spec!(Fg(Color::Cyan)))?;
         if text_files.is_empty() {
-            write!(stderr, "{}", path.display())
+            write!(shell.stderr, "{}", path.display())
         } else {
             write!(
-                stderr,
+                shell.stderr,
                 "{}",
                 path.with_file_name(format!("{{{index}.yml, {index}/}}", index = index.kebab))
                     .display(),
             )
         }?;
-        stderr.reset()?;
+        shell.stderr.reset()?;
 
-        write!(stderr, " (")?;
+        write!(shell.stderr, " (")?;
 
         let (msg, color) = match &test_suite {
             TestSuite::Batch(BatchTestSuite { cases, .. }) => {
@@ -341,12 +326,12 @@ pub(crate) fn run(
             TestSuite::Unsubmittable => ("unsubmittable problem".to_owned(), Color::Yellow),
         };
 
-        stderr.set_color(color_spec!(Fg(color)))?;
-        write!(stderr, "{}", msg)?;
-        stderr.reset()?;
+        shell.stderr.set_color(color_spec!(Fg(color)))?;
+        write!(shell.stderr, "{}", msg)?;
+        shell.stderr.reset()?;
 
-        writeln!(stderr, ")")?;
-        stderr.flush()?;
+        writeln!(shell.stderr, ")")?;
+        shell.stderr.flush()?;
 
         acc.problems.push(OutcomeProblem {
             index,
@@ -364,8 +349,8 @@ pub(crate) fn run(
     }
 
     if json {
-        writeln!(stdout, "{}", acc.to_json())?;
-        stdout.flush()?;
+        writeln!(shell.stdout, "{}", acc.to_json())?;
+        shell.stdout.flush()?;
     }
 
     Ok(())

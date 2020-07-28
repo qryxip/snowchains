@@ -99,6 +99,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use std::{
     any,
     borrow::Borrow,
+    cell::RefCell,
     convert::TryInto,
     fmt,
     fs::File,
@@ -455,31 +456,106 @@ pub trait Shell {
         ProgressDrawTarget::hidden()
     }
 
-    fn info<T: fmt::Display>(&mut self, _: T) -> anyhow::Result<()> {
+    fn info<T: fmt::Display>(&mut self, _message: T) -> io::Result<()> {
         Ok(())
     }
 
-    fn warn<T: fmt::Display>(&mut self, _: T) -> anyhow::Result<()> {
+    fn warn<T: fmt::Display>(&mut self, _message: T) -> io::Result<()> {
         Ok(())
     }
 
-    fn on_request(&mut self, _: &reqwest::blocking::Request) -> anyhow::Result<()> {
+    fn on_request(&mut self, _request: &reqwest::blocking::Request) -> io::Result<()> {
         Ok(())
     }
 
     fn on_response(
         &mut self,
-        _: &reqwest::blocking::Response,
-        _: StatusCodeColor,
-    ) -> anyhow::Result<()> {
+        _response: &reqwest::blocking::Response,
+        _status_code_color: StatusCodeColor,
+    ) -> io::Result<()> {
         Ok(())
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct SinkShell;
+impl<S: Shell> Shell for &'_ mut S {
+    fn progress_draw_target(&self) -> ProgressDrawTarget {
+        (**self).progress_draw_target()
+    }
 
-impl Shell for SinkShell {}
+    fn info<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
+        (**self).info(message)
+    }
+
+    fn warn<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
+        (**self).warn(message)
+    }
+
+    fn on_request(&mut self, request: &reqwest::blocking::Request) -> io::Result<()> {
+        (**self).on_request(request)
+    }
+
+    fn on_response(
+        &mut self,
+        response: &reqwest::blocking::Response,
+        status_code_color: StatusCodeColor,
+    ) -> io::Result<()> {
+        (**self).on_response(response, status_code_color)
+    }
+}
+
+impl<S: Shell> Shell for RefCell<S> {
+    fn progress_draw_target(&self) -> ProgressDrawTarget {
+        self.borrow().progress_draw_target()
+    }
+
+    fn info<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
+        self.borrow_mut().info(message)
+    }
+
+    fn warn<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
+        self.borrow_mut().warn(message)
+    }
+
+    fn on_request(&mut self, request: &reqwest::blocking::Request) -> io::Result<()> {
+        self.borrow_mut().on_request(request)
+    }
+
+    fn on_response(
+        &mut self,
+        response: &reqwest::blocking::Response,
+        status_code_color: StatusCodeColor,
+    ) -> io::Result<()> {
+        self.borrow_mut().on_response(response, status_code_color)
+    }
+}
+
+impl<S: Shell> Shell for &'_ RefCell<S> {
+    fn progress_draw_target(&self) -> ProgressDrawTarget {
+        (*self).borrow().progress_draw_target()
+    }
+
+    fn info<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
+        (*self).borrow_mut().info(message)
+    }
+
+    fn warn<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
+        (*self).borrow_mut().warn(message)
+    }
+
+    fn on_request(&mut self, request: &reqwest::blocking::Request) -> io::Result<()> {
+        (*self).borrow_mut().on_request(request)
+    }
+
+    fn on_response(
+        &mut self,
+        response: &reqwest::blocking::Response,
+        status_code_color: StatusCodeColor,
+    ) -> io::Result<()> {
+        (*self)
+            .borrow_mut()
+            .on_response(response, status_code_color)
+    }
+}
 
 pub struct StandardStreamShell {
     wtr: BufferedStandardStream,
@@ -510,23 +586,23 @@ impl Shell for StandardStreamShell {
         }
     }
 
-    fn info<T: fmt::Display>(&mut self, message: T) -> anyhow::Result<()> {
+    fn info<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
         self.wtr.set_color(color_spec!(Bold, Fg(Color::Cyan)))?;
         write!(self.wtr, "info:")?;
         self.wtr.reset()?;
         writeln!(self.wtr, " {}", message)?;
-        self.wtr.flush().map_err(Into::into)
+        self.wtr.flush()
     }
 
-    fn warn<T: fmt::Display>(&mut self, message: T) -> anyhow::Result<()> {
+    fn warn<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
         self.wtr.set_color(color_spec!(Bold, Fg(Color::Yellow)))?;
         write!(self.wtr, "warning:")?;
         self.wtr.reset()?;
         writeln!(self.wtr, " {}", message)?;
-        self.wtr.flush().map_err(Into::into)
+        self.wtr.flush()
     }
 
-    fn on_request(&mut self, req: &reqwest::blocking::Request) -> anyhow::Result<()> {
+    fn on_request(&mut self, req: &reqwest::blocking::Request) -> io::Result<()> {
         self.wtr.set_color(color_spec!(Bold))?;
         write!(self.wtr, "{}", req.method())?;
         self.wtr.reset()?;
@@ -539,14 +615,14 @@ impl Shell for StandardStreamShell {
 
         write!(self.wtr, " ... ")?;
 
-        self.wtr.flush().map_err(Into::into)
+        self.wtr.flush()
     }
 
     fn on_response(
         &mut self,
         res: &reqwest::blocking::Response,
         status_code_color: StatusCodeColor,
-    ) -> anyhow::Result<()> {
+    ) -> io::Result<()> {
         let fg = match status_code_color {
             StatusCodeColor::Ok => Some(Color::Green),
             StatusCodeColor::Warn => Some(Color::Yellow),
@@ -558,7 +634,7 @@ impl Shell for StandardStreamShell {
         write!(self.wtr, "{}", res.status())?;
         self.wtr.reset()?;
         writeln!(self.wtr)?;
-        self.wtr.flush().map_err(Into::into)
+        self.wtr.flush()
     }
 }
 

@@ -1,12 +1,11 @@
 use anyhow::Context as _;
-use snowchains::TtyOrPiped;
 use snowchains_core::color_spec;
 use std::{
     env,
     io::{self, Write as _},
-    process::{self, Stdio},
+    process,
 };
-use termcolor::{BufferedStandardStream, Color, WriteColor as _};
+use termcolor::{Color, WriteColor as _};
 
 fn main() {
     let opt = snowchains::Opt::from_args_with_workaround_for_clap_issue_1538();
@@ -14,20 +13,29 @@ fn main() {
     let color = opt.color();
 
     let stdin = io::stdin();
-    let stdin = TtyOrPiped::auto(&stdin);
-    let stdout = BufferedStandardStream::stdout(termcolor_color(color, atty::Stream::Stdout));
-    let mut stderr = BufferedStandardStream::stderr(termcolor_color(color, atty::Stream::Stderr));
+
+    let snowchains::shell::Shell {
+        stdin,
+        stdout,
+        mut stderr,
+        stderr_tty,
+        stdin_process_redirection,
+        stdout_process_redirection,
+        stderr_process_redirection,
+    } = snowchains::shell::Shell::new(&stdin, color);
 
     let result = (|| -> _ {
         let ctx = snowchains::Context {
             cwd: env::current_dir().with_context(|| "Failed to get the current directory")?,
-            stdin,
-            stdout,
-            stderr: &mut stderr,
-            stdin_process_redirection: Stdio::inherit,
-            stdout_process_redirection: Stdio::inherit,
-            stderr_process_redirection: Stdio::inherit,
-            draw_progress: true,
+            shell: snowchains::shell::Shell {
+                stdin,
+                stdout,
+                stderr: &mut stderr,
+                stderr_tty,
+                stdin_process_redirection,
+                stdout_process_redirection,
+                stderr_process_redirection,
+            },
         };
 
         snowchains::run(opt, ctx)
@@ -54,17 +62,5 @@ fn main() {
         let _ = stderr.flush();
 
         process::exit(1);
-    }
-}
-
-fn termcolor_color(color: snowchains::ColorChoice, stream: atty::Stream) -> termcolor::ColorChoice {
-    if atty::is(stream) {
-        match color {
-            snowchains::ColorChoice::Auto => termcolor::ColorChoice::Auto,
-            snowchains::ColorChoice::Always => termcolor::ColorChoice::Always,
-            snowchains::ColorChoice::Never => termcolor::ColorChoice::Never,
-        }
-    } else {
-        termcolor::ColorChoice::Never
     }
 }
