@@ -62,16 +62,18 @@ pub(crate) fn run(
         problem,
     } = opt;
 
-    let crate::Context {
-        cwd,
-        stdin: _,
+    let crate::Context { cwd, shell } = ctx;
+
+    let progress_draw_target = shell.progress_draw_target();
+
+    let crate::shell::Shell {
         stdout,
         stderr,
         stdin_process_redirection,
         stdout_process_redirection,
         stderr_process_redirection,
-        draw_progress,
-    } = ctx;
+        ..
+    } = shell;
 
     let (
         config::Target {
@@ -108,7 +110,7 @@ pub(crate) fn run(
         stdin_process_redirection,
         stdout_process_redirection,
         stderr_process_redirection,
-        draw_progress,
+        progress_draw_target,
         base_dir,
         service,
         contest,

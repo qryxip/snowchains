@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use termcolor::{Color, ColorSpec, WriteColor};
+use termcolor::{Color, WriteColor};
 use tokio::io::AsyncWriteExt as _;
 use unicode_width::UnicodeWidthStr as _;
 
@@ -38,7 +38,7 @@ impl JudgeOutcome {
                 verdict.test_case_name().unwrap_or(""),
             )?;
 
-            wtr.set_color(&color_spec(verdict.summary_color(), true))?;
+            wtr.set_color(color_spec!(Bold, Fg(verdict.summary_color())))?;
             writeln!(wtr, "{}", verdict.summary())?;
             wtr.reset()?;
 
@@ -51,18 +51,18 @@ impl JudgeOutcome {
                     return Ok(());
                 }
 
-                wtr.set_color(&color_spec(Color::Magenta, true))?;
+                wtr.set_color(color_spec!(Bold, Fg(Color::Magenta)))?;
                 writeln!(wtr, "{}", header)?;
                 wtr.reset()?;
 
                 if text.is_empty() {
-                    wtr.set_color(&color_spec(Color::Yellow, true))?;
+                    wtr.set_color(color_spec!(Bold, Fg(Color::Yellow)))?;
                     writeln!(wtr, "EMPTY")?;
                     return wtr.reset();
                 }
 
                 if matches!(display_limit, Some(l) if l < text.len()) {
-                    wtr.set_color(&color_spec(Color::Yellow, true))?;
+                    wtr.set_color(color_spec!(Bold, Fg(Color::Yellow)))?;
                     writeln!(wtr, "{} B", text.len())?;
                     return wtr.reset();
                 }
@@ -71,22 +71,22 @@ impl JudgeOutcome {
                     match token {
                         Token::SpcLf(s) | Token::Plain(s) => wtr.write_all(s.as_ref())?,
                         Token::Cr(n) => {
-                            wtr.set_color(&color_spec(Color::Yellow, false))?;
+                            wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
                             (0..n).try_for_each(|_| wtr.write_all(b"\\r"))?;
                             wtr.reset()?;
                         }
                         Token::Tab(n) => {
-                            wtr.set_color(&color_spec(Color::Yellow, false))?;
+                            wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
                             (0..n).try_for_each(|_| wtr.write_all(b"\\t"))?;
                             wtr.reset()?;
                         }
                         Token::OtherWhitespaceControl(s) => {
-                            wtr.set_color(&color_spec(Color::Yellow, false))?;
+                            wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
                             write!(wtr, "{}", s.escape_unicode())?;
                             wtr.reset()?;
                         }
                         Token::HighlightedNumber(s) => {
-                            wtr.set_color(&color_spec(Color::Cyan, false))?;
+                            wtr.set_color(color_spec!(Fg(Color::Cyan)))?;
                             wtr.write_all(s.as_ref())?;
                             wtr.reset()?;
                         }
@@ -94,7 +94,7 @@ impl JudgeOutcome {
                 }
 
                 if !text.ends_with('\n') {
-                    wtr.set_color(&color_spec(Color::Yellow, false))?;
+                    wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
                     writeln!(wtr, "⏎")?;
                     wtr.reset()?;
                 }
@@ -187,12 +187,6 @@ impl JudgeOutcome {
                     Ok((rest, Token::Plain(target)))
                 }
             }
-        }
-
-        fn color_spec(fg: Color, bold: bool) -> ColorSpec {
-            let mut spec = ColorSpec::new();
-            spec.set_reset(false).set_bold(bold).set_fg(Some(fg));
-            spec
         }
     }
 

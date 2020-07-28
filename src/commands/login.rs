@@ -1,7 +1,7 @@
-use crate::shell::Shell;
 use serde::Serialize;
 use snowchains_core::web::{
-    Atcoder, AtcoderLoginCredentials, Codeforces, CodeforcesLoginCredentials, Login, PlatformKind,
+    Atcoder, AtcoderLoginCredentials, Codeforces, CodeforcesLoginCredentials, CookieStorage, Login,
+    PlatformKind,
 };
 use std::{
     cell::RefCell,
@@ -51,29 +51,19 @@ pub(crate) fn run(
         service,
     } = opt;
 
-    let crate::Context {
-        cwd: _,
-        stdin,
-        mut stdout,
-        stderr,
-        stdin_process_redirection: _,
-        stdout_process_redirection: _,
-        stderr_process_redirection: _,
-        draw_progress: _,
-    } = ctx;
+    let crate::Context { cwd: _, mut shell } = ctx;
 
-    let cookie_storage = crate::web::cookie_storage::cookie_storage()?;
-
-    let stderr = RefCell::new(stderr);
-    let shell = Shell::new(&stderr, false);
+    let cookie_storage = CookieStorage::with_jsonl(crate::web::credentials::cookie_store_path()?)?;
 
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
     let outcome = match service {
         PlatformKind::Atcoder => {
+            let shell = RefCell::new(&mut shell);
+
             let credentials = AtcoderLoginCredentials {
                 username_and_password: &mut crate::web::credentials::atcoder_username_and_password(
-                    stdin, &stderr,
+                    &shell,
                 ),
             };
 
@@ -81,20 +71,22 @@ pub(crate) fn run(
                 credentials,
                 cookie_storage,
                 timeout,
-                shell,
+                shell: &shell,
             })
         }
         PlatformKind::Codeforces => {
+            let shell = RefCell::new(&mut shell);
+
             let credentials = CodeforcesLoginCredentials {
                 username_and_password:
-                    &mut crate::web::credentials::codeforces_username_and_password(stdin, &stderr),
+                    &mut crate::web::credentials::codeforces_username_and_password(&shell),
             };
 
             Codeforces::exec(Login {
                 credentials,
                 cookie_storage,
                 timeout,
-                shell,
+                shell: &shell,
             })
         }
         PlatformKind::Yukicoder => unreachable!("should be filtered by `possible_values`"),
@@ -110,6 +102,6 @@ pub(crate) fn run(
         .to_owned()
     };
 
-    writeln!(stdout, "{}", message)?;
-    stdout.flush().map_err(Into::into)
+    writeln!(shell.stdout, "{}", message)?;
+    shell.stdout.flush().map_err(Into::into)
 }

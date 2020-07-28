@@ -1,9 +1,8 @@
-use crate::shell::Shell;
 use anyhow::Context as _;
 use snowchains_core::web::{
     Atcoder, AtcoderRetrieveLanguagesCredentials, AtcoderRetrieveLanguagesTarget, Codeforces,
-    CodeforcesRetrieveLanguagesCredentials, CodeforcesRetrieveLanguagesTarget, PlatformKind,
-    RetrieveLanguages, Yukicoder,
+    CodeforcesRetrieveLanguagesCredentials, CodeforcesRetrieveLanguagesTarget, CookieStorage,
+    PlatformKind, RetrieveLanguages, Yukicoder,
 };
 use std::{
     cell::RefCell,
@@ -63,16 +62,7 @@ pub(crate) fn run(
         problem,
     } = opt;
 
-    let crate::Context {
-        cwd,
-        stdin,
-        mut stdout,
-        stderr,
-        stdin_process_redirection: _,
-        stdout_process_redirection: _,
-        stderr_process_redirection: _,
-        draw_progress: _,
-    } = ctx;
+    let crate::Context { cwd, mut shell } = ctx;
 
     let (detected_target, _) = crate::config::detect_target(&cwd, config.as_deref())?;
 
@@ -86,23 +76,22 @@ pub(crate) fn run(
     let contest = contest.or(detected_target.contest);
     let problem = problem.or(detected_target.problem);
 
-    let cookie_storage = crate::web::cookie_storage::cookie_storage()?;
+    let cookie_storage = CookieStorage::with_jsonl(crate::web::credentials::cookie_store_path()?)?;
 
     let timeout = Some(crate::web::SESSION_TIMEOUT);
-
-    let stderr = RefCell::new(stderr);
-    let shell = Shell::new(&stderr, true);
 
     let outcome =
         match service {
             PlatformKind::Atcoder => {
+                let shell = RefCell::new(&mut shell);
+
                 let target = AtcoderRetrieveLanguagesTarget {
                     contest_and_problem: contest.and_then(|c| problem.map(|p| (c, p))),
                 };
 
                 let credentials = AtcoderRetrieveLanguagesCredentials {
                     username_and_password:
-                        &mut crate::web::credentials::atcoder_username_and_password(stdin, &stderr),
+                        &mut crate::web::credentials::atcoder_username_and_password(&shell),
                 };
 
                 Atcoder::exec(RetrieveLanguages {
@@ -110,17 +99,19 @@ pub(crate) fn run(
                     credentials,
                     cookie_storage,
                     timeout,
-                    shell,
+                    shell: &shell,
                 })
             }
             PlatformKind::Codeforces => {
+                let shell = RefCell::new(&mut shell);
+
                 let target = CodeforcesRetrieveLanguagesTarget {
                     contest: contest.with_context(|| "`contest` is required for Codeforces")?,
                 };
 
                 let credentials = CodeforcesRetrieveLanguagesCredentials {
                     username_and_password:
-                        &mut crate::web::credentials::atcoder_username_and_password(stdin, &stderr),
+                        &mut crate::web::credentials::atcoder_username_and_password(&shell),
                 };
 
                 Codeforces::exec(RetrieveLanguages {
@@ -128,7 +119,7 @@ pub(crate) fn run(
                     credentials,
                     cookie_storage,
                     timeout,
-                    shell,
+                    shell: &shell,
                 })
             }
             PlatformKind::Yukicoder => Yukicoder::exec(RetrieveLanguages {
@@ -136,16 +127,16 @@ pub(crate) fn run(
                 credentials: (),
                 cookie_storage: (),
                 timeout,
-                shell,
+                shell: &mut shell,
             }),
         }?;
 
     if json {
-        writeln!(stdout, "{}", outcome.to_json())
+        writeln!(shell.stdout, "{}", outcome.to_json())
     } else {
-        write!(stdout, "{}", outcome.to_table())
+        write!(shell.stdout, "{}", outcome.to_table())
     }?;
 
-    stdout.flush()?;
+    shell.stdout.flush()?;
     Ok(())
 }

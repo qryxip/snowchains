@@ -1,7 +1,7 @@
-use crate::shell::Shell;
 use serde::Serialize;
 use snowchains_core::web::{
-    Atcoder, AtcoderParticipateCredentials, AtcoderParticipateTarget, Participate, PlatformKind,
+    Atcoder, AtcoderParticipateCredentials, AtcoderParticipateTarget, CookieStorage, Participate,
+    PlatformKind,
 };
 use std::{
     cell::RefCell,
@@ -59,43 +59,38 @@ pub(crate) fn run(
         contest,
     } = opt;
 
-    let crate::Context {
-        cwd: _,
-        stdin,
-        mut stdout,
-        stderr,
-        stdin_process_redirection: _,
-        stdout_process_redirection: _,
-        stderr_process_redirection: _,
-        draw_progress: _,
-    } = ctx;
+    let crate::Context { cwd: _, mut shell } = ctx;
 
-    let cookie_storage = crate::web::cookie_storage::cookie_storage()?;
+    let cookie_storage = CookieStorage::with_jsonl(crate::web::credentials::cookie_store_path()?)?;
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
-    let stderr = RefCell::new(stderr);
+    let kind = {
+        let shell = RefCell::new(&mut shell);
 
-    let shell = Shell::new(&stderr, false);
+        let target = AtcoderParticipateTarget { contest };
 
-    let kind = Atcoder::exec(Participate {
-        target: AtcoderParticipateTarget { contest },
-        credentials: AtcoderParticipateCredentials {
+        let credentials = AtcoderParticipateCredentials {
             username_and_password: &mut crate::web::credentials::atcoder_username_and_password(
-                stdin, &stderr,
+                &shell,
             ),
-        },
-        cookie_storage,
-        timeout,
-        shell,
-    })?;
+        };
+
+        Atcoder::exec(Participate {
+            target,
+            credentials,
+            cookie_storage,
+            timeout,
+            shell: &shell,
+        })?
+    };
 
     let outcome = Outcome { kind };
 
     if json {
-        writeln!(stdout, "{}", outcome.to_json())
+        writeln!(shell.stdout, "{}", outcome.to_json())
     } else {
-        writeln!(stdout, "{}", outcome.message())
+        writeln!(shell.stdout, "{}", outcome.message())
     }?;
-    stdout.flush()?;
+    shell.stdout.flush()?;
     Ok(())
 }

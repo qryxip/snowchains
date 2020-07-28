@@ -21,13 +21,13 @@ pub(crate) fn run(
 
     let crate::Context {
         cwd,
-        stdin: _,
-        stdout: _,
-        stderr: _,
-        stdin_process_redirection,
-        stdout_process_redirection,
-        stderr_process_redirection,
-        draw_progress: _,
+        shell:
+            crate::shell::Shell {
+                stdin_process_redirection,
+                stdout_process_redirection,
+                stderr_process_redirection,
+                ..
+            },
     } = ctx;
 
     let config::Script {

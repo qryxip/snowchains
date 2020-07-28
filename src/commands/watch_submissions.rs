@@ -1,8 +1,7 @@
-use crate::shell::Shell;
 use anyhow::Context as _;
 use snowchains_core::web::{
-    Atcoder, AtcoderWatchSubmissionsCredentials, AtcoderWatchSubmissionsTarget, PlatformKind,
-    WatchSubmissions,
+    Atcoder, AtcoderWatchSubmissionsCredentials, AtcoderWatchSubmissionsTarget, CookieStorage,
+    PlatformKind, WatchSubmissions,
 };
 use std::{cell::RefCell, io::BufRead, path::PathBuf};
 use structopt::StructOpt;
@@ -43,16 +42,7 @@ pub(crate) fn run(
         contest,
     } = opt;
 
-    let crate::Context {
-        cwd,
-        stdin,
-        stdout: _,
-        mut stderr,
-        stdin_process_redirection: _,
-        stdout_process_redirection: _,
-        stderr_process_redirection: _,
-        draw_progress: _,
-    } = ctx;
+    let crate::Context { cwd, mut shell } = ctx;
 
     let (detected_target, _) = crate::config::detect_target(&cwd, config.as_deref())?;
 
@@ -64,7 +54,7 @@ pub(crate) fn run(
         })??;
     let contest = contest.or(detected_target.contest);
 
-    let cookie_storage = crate::web::cookie_storage::cookie_storage()?;
+    let cookie_storage = CookieStorage::with_jsonl(crate::web::credentials::cookie_store_path()?)?;
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
     let summaries = match service {
@@ -73,22 +63,20 @@ pub(crate) fn run(
                 contest: contest.with_context(|| "`contest` is required for AtCoder")?,
             };
 
-            let stderr = RefCell::new(&mut stderr);
+            let shell = RefCell::new(&mut shell);
 
             let credentials = AtcoderWatchSubmissionsCredentials {
                 username_and_password: &mut crate::web::credentials::atcoder_username_and_password(
-                    stdin, &stderr,
+                    &shell,
                 ),
             };
-
-            let shell = Shell::new(&stderr, false);
 
             Atcoder::exec(WatchSubmissions {
                 target,
                 credentials,
                 cookie_storage,
                 timeout,
-                shell,
+                shell: &shell,
             })?
         }
         PlatformKind::Codeforces => todo!(),
@@ -96,7 +84,7 @@ pub(crate) fn run(
     };
 
     if let Some(summaries) = summaries {
-        summaries.print(stderr)?;
+        summaries.print(shell.stderr)?;
     }
     Ok(())
 }

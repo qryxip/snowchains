@@ -23,9 +23,9 @@ pub struct OptInit {
     pub directory: PathBuf,
 }
 
-pub(crate) fn run<R: Sized, W1: Sized, W2: WriteColor>(
+pub(crate) fn run(
     opt: OptInit,
-    ctx: crate::Context<R, W1, W2>,
+    ctx: crate::Context<impl Sized, impl Sized, impl WriteColor>,
 ) -> anyhow::Result<()> {
     let OptInit {
         force,
@@ -35,13 +35,7 @@ pub(crate) fn run<R: Sized, W1: Sized, W2: WriteColor>(
 
     let crate::Context {
         cwd,
-        stdin: _,
-        stdout: _,
-        mut stderr,
-        stdin_process_redirection: _,
-        stdout_process_redirection: _,
-        stderr_process_redirection: _,
-        draw_progress: _,
+        shell: crate::shell::Shell { mut stderr, .. },
     } = ctx;
 
     let path = cwd
