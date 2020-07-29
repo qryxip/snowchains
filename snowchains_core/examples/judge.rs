@@ -35,6 +35,7 @@ fn main() -> anyhow::Result<()> {
 
     let outcome = snowchains_core::judge::judge(
         ProgressDrawTarget::stderr(),
+        tokio::signal::ctrl_c,
         &CommandExpression {
             program: args[0].clone(),
             args: args[1..].to_owned(),

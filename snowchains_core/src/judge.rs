@@ -1,17 +1,20 @@
 use crate::testsuite::{BatchTestCase, ExpectedOutput};
-use anyhow::{bail, Context as _};
+use anyhow::bail;
+use futures_util::{select, FutureExt as _};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::{
+    cmp,
     collections::BTreeMap,
     ffi::OsString,
-    io,
+    future::Future,
+    io, iter,
     path::PathBuf,
-    process::{ExitStatus, Output, Stdio},
+    process::{ExitStatus, Stdio},
     sync::Arc,
     time::{Duration, Instant},
 };
 use termcolor::{Color, WriteColor};
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use unicode_width::UnicodeWidthStr as _;
 
 #[derive(Debug, Clone)]
@@ -345,8 +348,9 @@ impl CommandExpression {
     }
 }
 
-pub fn judge(
+pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
     draw_target: ProgressDrawTarget,
+    ctrl_c: fn() -> C,
     cmd: &CommandExpression,
     test_cases: &[BatchTestCase],
 ) -> anyhow::Result<JudgeOutcome> {
@@ -360,13 +364,6 @@ pub fn judge(
         .unwrap_or(0);
 
     let mp = MultiProgress::with_draw_target(draw_target);
-
-    let mut rt = tokio::runtime::Builder::new()
-        .enable_io()
-        .enable_time()
-        .basic_scheduler()
-        .threaded_scheduler()
-        .build()?;
 
     let mut targets = vec![];
 
@@ -391,20 +388,43 @@ pub fn judge(
         targets.push((cmd.build(), test_case.clone(), pb));
     }
 
+    let mut rt = tokio::runtime::Builder::new()
+        .enable_io()
+        .enable_time()
+        .basic_scheduler()
+        .threaded_scheduler()
+        .build()?;
+
     let outcome = rt.spawn(async move {
         let num_targets = targets.len();
 
-        let (mut tx, mut rx) = tokio::sync::mpsc::channel(num_cpus::get());
+        let (ctrl_c_tx, ctrl_c_rx) = tokio::sync::broadcast::channel(cmp::max(1, num_targets));
+
+        let mut ctrl_c_rxs = iter::once(ctrl_c_rx)
+            .chain(iter::repeat_with(|| ctrl_c_tx.subscribe()))
+            .take(num_targets)
+            .collect::<Vec<_>>();
+
+        tokio::task::spawn(async move {
+            let err_msg = match ctrl_c().await {
+                Ok(()) => "Recieved Ctrl-C".to_owned(),
+                Err(err) => err.to_string(),
+            };
+            ctrl_c_tx.send(err_msg).unwrap();
+        });
+
+        let (mut job_start_tx, mut job_start_rx) = tokio::sync::mpsc::channel(num_cpus::get());
         for _ in 0..num_cpus::get() {
-            tx.send(()).await?;
+            job_start_tx.send(()).await?;
         }
 
         let mut results = vec![];
 
         for (i, (mut cmd, test_case, pb)) in targets.into_iter().enumerate() {
-            rx.recv().await;
+            job_start_rx.recv().await;
 
-            let mut tx = tx.clone();
+            let mut job_start_tx = job_start_tx.clone();
+            let mut ctrl_c_rx = ctrl_c_rxs.pop().expect("should have enough length");
 
             results.push(tokio::task::spawn(async move {
                 let finish_pb = |verdict: &Verdict| {
@@ -426,21 +446,31 @@ pub fn judge(
 
                 let mut child = cmd.spawn()?;
 
-                child
-                    .stdin
-                    .as_mut()
-                    .expect("should be `piped`")
-                    .write_all((*stdin).as_ref())
-                    .await?;
+                if let Some(mut child_stdin) = child.stdin.take() {
+                    child_stdin.write_all((*stdin).as_ref()).await?;
+                }
 
-                child.stdin.take();
+                macro_rules! with_ctrl_c {
+                    ($future:expr) => {
+                        select! {
+                            __output = $future => __output,
+                            err_msg = ctrl_c_rx.recv().fuse() => {
+                                let _ = child.kill();
+                                bail!("{}", err_msg?);
+                            },
+                        }
+                    };
+                }
 
-                let output = child.wait_with_output();
-                let output = if let Some(timelimit) = timelimit {
+                let status = if let Some(timelimit) = timelimit {
                     let timeout = timelimit + Duration::from_millis(100);
-                    if let Ok(output) = tokio::time::timeout(timeout, output).await {
-                        output?
+
+                    if let Ok(status) =
+                        with_ctrl_c!(tokio::time::timeout(timeout, &mut child).fuse())
+                    {
+                        status?
                     } else {
+                        let _ = child.kill();
                         let verdict = Verdict::TimelimitExceeded {
                             test_case_name,
                             timelimit,
@@ -451,22 +481,19 @@ pub fn judge(
                         return Ok((i, verdict));
                     }
                 } else {
-                    output.await?
+                    with_ctrl_c!((&mut child).fuse())?
                 };
 
                 let elapsed = Instant::now() - started;
 
-                let Output {
-                    status,
-                    stdout,
-                    stderr,
-                } = output;
-
-                let stdout = String::from_utf8(stdout).with_context(|| "Non-UTF8 output")?;
-                let stdout = Arc::from(stdout);
-
-                let stderr = String::from_utf8(stderr).with_context(|| "Non-UTF8 output")?;
-                let stderr = Arc::from(stderr);
+                let (mut stdout, mut stderr) = ("".to_owned(), "".to_owned());
+                if let Some(mut child_stdout) = child.stdout {
+                    child_stdout.read_to_string(&mut stdout).await?;
+                }
+                if let Some(mut child_stderr) = child.stderr {
+                    child_stderr.read_to_string(&mut stderr).await?;
+                }
+                let (stdout, stderr) = (Arc::from(stdout), Arc::from(stderr));
 
                 let verdict = if matches!(timelimit, Some(t) if t < elapsed) {
                     Verdict::TimelimitExceeded {
@@ -507,7 +534,7 @@ pub fn judge(
 
                 finish_pb(&verdict);
 
-                tx.send(()).await?;
+                job_start_tx.send(()).await?;
 
                 Ok::<_, anyhow::Error>((i, verdict))
             }));
