@@ -1,5 +1,7 @@
 use crate::config;
 use anyhow::bail;
+use az::SaturatingAs as _;
+use human_size::{Byte, Size};
 use indicatif::ProgressDrawTarget;
 use itertools::Itertools as _;
 use maplit::btreemap;
@@ -31,6 +33,7 @@ pub(crate) struct Args<W1, W2> {
     pub(crate) transpile: Option<config::Compile>,
     pub(crate) compile: Option<config::Compile>,
     pub(crate) run: config::Command,
+    pub(crate) display_limit: Size,
 }
 
 pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Result<()> {
@@ -49,6 +52,7 @@ pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Res
         transpile,
         compile,
         run,
+        display_limit,
     } = args;
 
     let test_suite_dir = base_dir
@@ -154,7 +158,10 @@ pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Res
 
     writeln!(stderr)?;
     stderr.flush()?;
-    outcome.print_pretty(stdout, Some(64 * 1024))?;
+    outcome.print_pretty(
+        stdout,
+        Some(display_limit.into::<Byte>().value().saturating_as()),
+    )?;
 
     outcome.error_on_fail()
 }

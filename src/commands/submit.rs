@@ -1,5 +1,6 @@
 use crate::config;
 use anyhow::Context as _;
+use human_size::Size;
 use snowchains_core::web::{
     Atcoder, AtcoderSubmitCredentials, AtcoderSubmitTarget, Codeforces,
     CodeforcesSubmitCredentials, CodeforcesSubmitTarget, CookieStorage, PlatformKind, Submit,
@@ -27,6 +28,10 @@ pub struct OptSubmit {
     /// Prints JSON data
     #[structopt(long)]
     pub json: bool,
+
+    /// Display limit for the test
+    #[structopt(long, short("l"), value_name("SIZE"), default_value("4KiB"))]
+    pub display_limit: Size,
 
     /// Path to `snowchains.dhall`
     #[structopt(long)]
@@ -70,6 +75,7 @@ pub(crate) fn run(
         no_judge,
         debug,
         json,
+        display_limit,
         config,
         color: _,
         service,
@@ -140,6 +146,7 @@ pub(crate) fn run(
             transpile,
             compile,
             run,
+            display_limit,
         })?;
     }
 
