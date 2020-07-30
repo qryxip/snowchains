@@ -2199,6 +2199,7 @@ dependencies = [
  "cookie_store",
  "dhall",
  "dirs 3.0.1",
+ "fwdansi",
  "heck",
  "human-size",
  "indexmap",

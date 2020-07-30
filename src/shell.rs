@@ -77,6 +77,10 @@ impl<R, W1, W2: WriteColor> snowchains_core::web::Shell for Shell<R, W1, W2> {
         self.progress_draw_target()
     }
 
+    fn print_ansi(&mut self, message: &[u8]) -> io::Result<()> {
+        fwdansi::write_ansi(&mut self.stderr, message)
+    }
+
     fn warn<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
         self.warn(message)
     }
