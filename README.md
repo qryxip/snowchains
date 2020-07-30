@@ -16,11 +16,11 @@ Tools for online programming contests.
 - Submits a source file
 - Downloads source file you have submitted
 
-|            | Register to a contest | Sample test cases  | System test cases     | Submit             | Watch submissions  |
-| :--------: | :-------------------: | :----------------: | :-------------------: | :----------------: | :----------------: |
-| AtCoder    | :heavy_check_mark:    | :heavy_check_mark: | :heavy_check_mark:    | :heavy_check_mark: | :heavy_check_mark: |
-| Codeforces | :x:                   | :heavy_check_mark: | N/A                   | :heavy_check_mark: | :x:                |
-| yukicoder  | N/A                   | :heavy_check_mark: | :heavy_check_mark:    | :heavy_check_mark: | :x:                |
+|            | Register to a contest | Get sample test cases | Get system test cases | Submit             | Get submissions | Watch submissions  |
+| :--------: | :-------------------: | :-------------------: | :-------------------: | :----------------: | :-------------: | :----------------: |
+| AtCoder    | :heavy_check_mark:    | :heavy_check_mark:    | :heavy_check_mark:    | :heavy_check_mark: | :x:             | :heavy_check_mark: |
+| Codeforces | :x:                   | :heavy_check_mark:    | N/A                   | :heavy_check_mark: | :x:             | :x:                |
+| yukicoder  | N/A                   | :heavy_check_mark:    | :heavy_check_mark:    | :heavy_check_mark: | :x:             | :x:                |
 
 ## Instrallation
 
