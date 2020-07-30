@@ -141,7 +141,12 @@ pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Res
 
     stderr.flush()?;
 
-    let outcome = snowchains_core::judge::judge(progress_draw_target, &cmd, &test_cases)?;
+    let outcome = snowchains_core::judge::judge(
+        progress_draw_target,
+        tokio::signal::ctrl_c,
+        &cmd,
+        &test_cases,
+    )?;
 
     if let Some(tempfile) = tempfile {
         tempfile.close()?;
