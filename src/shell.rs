@@ -38,14 +38,6 @@ impl<'a> Shell<StdinLock<'a>, BufferedStandardStream, BufferedStandardStream> {
 }
 
 impl<R, W1, W2: WriteColor> Shell<R, W1, W2> {
-    pub(crate) fn info(&mut self, message: impl fmt::Display) -> io::Result<()> {
-        self.stderr.set_color(color_spec!(Bold, Fg(Color::Cyan)))?;
-        write!(self.stderr, "info:")?;
-        self.stderr.reset()?;
-        writeln!(self.stderr, " {}", message)?;
-        self.stderr.flush()
-    }
-
     pub(crate) fn warn(&mut self, message: impl fmt::Display) -> io::Result<()> {
         self.stderr
             .set_color(color_spec!(Bold, Fg(Color::Yellow)))?;
@@ -83,10 +75,6 @@ impl<R, W1, W2> Shell<R, W1, W2> {
 impl<R, W1, W2: WriteColor> snowchains_core::web::Shell for Shell<R, W1, W2> {
     fn progress_draw_target(&self) -> ProgressDrawTarget {
         self.progress_draw_target()
-    }
-
-    fn info<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
-        self.info(message)
     }
 
     fn warn<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {

@@ -456,10 +456,6 @@ pub trait Shell {
         ProgressDrawTarget::hidden()
     }
 
-    fn info<T: fmt::Display>(&mut self, _message: T) -> io::Result<()> {
-        Ok(())
-    }
-
     fn warn<T: fmt::Display>(&mut self, _message: T) -> io::Result<()> {
         Ok(())
     }
@@ -480,10 +476,6 @@ pub trait Shell {
 impl<S: Shell> Shell for &'_ mut S {
     fn progress_draw_target(&self) -> ProgressDrawTarget {
         (**self).progress_draw_target()
-    }
-
-    fn info<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
-        (**self).info(message)
     }
 
     fn warn<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
@@ -508,10 +500,6 @@ impl<S: Shell> Shell for RefCell<S> {
         self.borrow().progress_draw_target()
     }
 
-    fn info<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
-        self.borrow_mut().info(message)
-    }
-
     fn warn<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
         self.borrow_mut().warn(message)
     }
@@ -532,10 +520,6 @@ impl<S: Shell> Shell for RefCell<S> {
 impl<S: Shell> Shell for &'_ RefCell<S> {
     fn progress_draw_target(&self) -> ProgressDrawTarget {
         (*self).borrow().progress_draw_target()
-    }
-
-    fn info<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
-        (*self).borrow_mut().info(message)
     }
 
     fn warn<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
@@ -584,14 +568,6 @@ impl Shell for StandardStreamShell {
         } else {
             ProgressDrawTarget::hidden()
         }
-    }
-
-    fn info<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
-        self.wtr.set_color(color_spec!(Bold, Fg(Color::Cyan)))?;
-        write!(self.wtr, "info:")?;
-        self.wtr.reset()?;
-        writeln!(self.wtr, " {}", message)?;
-        self.wtr.flush()
     }
 
     fn warn<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
