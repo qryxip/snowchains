@@ -104,7 +104,7 @@ use std::{
     fmt,
     fs::File,
     hash::Hash,
-    io::{self, BufReader, Seek as _, SeekFrom, Write as _},
+    io::{self, BufReader, Seek as _, SeekFrom},
     marker::PhantomData,
     ops::{Deref, RangeFull, RangeInclusive},
     path::{Path, PathBuf},
@@ -113,7 +113,7 @@ use std::{
     time::Duration,
 };
 use strum::EnumString;
-use termcolor::{Ansi, BufferedStandardStream, Color, ColorChoice, WriteColor};
+use termcolor::Ansi;
 use tokio::runtime::Runtime;
 use unicode_width::UnicodeWidthStr as _;
 use url::Url;
@@ -322,7 +322,7 @@ pub struct WatchSubmissions<P: Platform, S: Shell> {
     pub shell: S,
 }
 
-pub struct AnsiColored(Vec<u8>);
+struct AnsiColored(Vec<u8>);
 
 impl AnsiColored {
     fn new(f: impl FnOnce(&mut Ansi<Vec<u8>>) -> io::Result<()>) -> io::Result<Self> {
@@ -331,12 +331,8 @@ impl AnsiColored {
         Ok(Self(wtr.into_inner()))
     }
 
-    pub fn get(&self) -> &[u8] {
+    fn get(&self) -> &[u8] {
         &self.0
-    }
-
-    pub fn print<W: WriteColor>(&self, wtr: W) -> io::Result<()> {
-        fwdansi::write_ansi(wtr, &self.0)
     }
 }
 
@@ -558,83 +554,6 @@ impl<S: Shell> Shell for &'_ RefCell<S> {
         (*self)
             .borrow_mut()
             .on_response(response, status_code_color)
-    }
-}
-
-pub struct StandardStreamShell {
-    wtr: BufferedStandardStream,
-}
-
-impl StandardStreamShell {
-    pub fn new(color_choice: ColorChoice) -> Self {
-        Self {
-            wtr: BufferedStandardStream::stderr(color_choice),
-        }
-    }
-}
-
-impl fmt::Debug for StandardStreamShell {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.debug_struct("StandardStreamShell")
-            .field("wtr", &format_args!("_"))
-            .finish()
-    }
-}
-
-impl Shell for StandardStreamShell {
-    fn progress_draw_target(&self) -> ProgressDrawTarget {
-        if self.wtr.supports_color() {
-            ProgressDrawTarget::stderr()
-        } else {
-            ProgressDrawTarget::hidden()
-        }
-    }
-
-    fn print_ansi(&mut self, message: &[u8]) -> io::Result<()> {
-        fwdansi::write_ansi(&mut self.wtr, message)
-    }
-
-    fn warn<T: fmt::Display>(&mut self, message: T) -> io::Result<()> {
-        self.wtr.set_color(color_spec!(Bold, Fg(Color::Yellow)))?;
-        write!(self.wtr, "warning:")?;
-        self.wtr.reset()?;
-        writeln!(self.wtr, " {}", message)?;
-        self.wtr.flush()
-    }
-
-    fn on_request(&mut self, req: &reqwest::blocking::Request) -> io::Result<()> {
-        self.wtr.set_color(color_spec!(Bold))?;
-        write!(self.wtr, "{}", req.method())?;
-        self.wtr.reset()?;
-
-        write!(self.wtr, " ")?;
-
-        self.wtr.set_color(color_spec!(Fg(Color::Cyan)))?;
-        write!(self.wtr, "{}", req.url())?;
-        self.wtr.reset()?;
-
-        write!(self.wtr, " ... ")?;
-
-        self.wtr.flush()
-    }
-
-    fn on_response(
-        &mut self,
-        res: &reqwest::blocking::Response,
-        status_code_color: StatusCodeColor,
-    ) -> io::Result<()> {
-        let fg = match status_code_color {
-            StatusCodeColor::Ok => Some(Color::Green),
-            StatusCodeColor::Warn => Some(Color::Yellow),
-            StatusCodeColor::Error => Some(Color::Red),
-            StatusCodeColor::Unknown => None,
-        };
-
-        self.wtr.set_color(color_spec!(Bold).set_fg(fg))?;
-        write!(self.wtr, "{}", res.status())?;
-        self.wtr.reset()?;
-        writeln!(self.wtr)?;
-        self.wtr.flush()
     }
 }
 
