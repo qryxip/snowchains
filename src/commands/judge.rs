@@ -1,4 +1,5 @@
 use crate::config;
+use human_size::Size;
 use snowchains_core::web::PlatformKind;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -11,9 +12,10 @@ pub struct OptJudge {
     #[structopt(long)]
     pub release: bool,
 
-    ///// Prints the output as a JSON value
-    //#[structopt(long)]
-    //pub json: bool,
+    /// Display limit
+    #[structopt(long, short("l"), value_name("SIZE"), default_value("4KiB"))]
+    pub display_limit: Size,
+
     /// Path to `snowchains.dhall`
     #[structopt(long)]
     pub config: Option<PathBuf>,
@@ -53,7 +55,7 @@ pub(crate) fn run(
 ) -> anyhow::Result<()> {
     let OptJudge {
         release,
-        //json,
+        display_limit,
         config,
         color: _,
         service,
@@ -119,5 +121,6 @@ pub(crate) fn run(
         transpile,
         compile,
         run,
+        display_limit,
     })
 }
