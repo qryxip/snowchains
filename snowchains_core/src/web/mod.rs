@@ -331,6 +331,10 @@ impl AnsiColored {
         Ok(Self(wtr.into_inner()))
     }
 
+    pub fn get(&self) -> &[u8] {
+        &self.0
+    }
+
     pub fn print<W: WriteColor>(&self, wtr: W) -> io::Result<()> {
         fwdansi::write_ansi(wtr, &self.0)
     }

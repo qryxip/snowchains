@@ -390,9 +390,9 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
 }
 
 impl<S: Shell> Exec<WatchSubmissions<Self, S>> for Atcoder<'_> {
-    type Output = Option<AnsiColored>;
+    type Output = ();
 
-    fn exec(args: WatchSubmissions<Self, S>) -> anyhow::Result<Option<AnsiColored>> {
+    fn exec(args: WatchSubmissions<Self, S>) -> anyhow::Result<()> {
         let WatchSubmissions {
             target: AtcoderWatchSubmissionsTarget { contest },
             credentials:
@@ -401,26 +401,27 @@ impl<S: Shell> Exec<WatchSubmissions<Self, S>> for Atcoder<'_> {
                 },
             cookie_storage,
             timeout,
-            shell,
+            mut shell,
         } = args;
 
         let contest = CaseConverted::<LowerCase>::new(contest);
 
-        let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
+        let mut sess = Session::new(timeout, Some(cookie_storage), &mut shell)?;
 
         let (summaries, _) =
             retrieve_submission_summaries_from_page_1(&mut sess, &contest, username_and_password)?;
 
-        #[allow(clippy::blocks_in_if_conditions)]
-        if summaries.iter().any(|SubmissionSummary { verdict, .. }| {
+        let any_incomplete = summaries.iter().any(|SubmissionSummary { verdict, .. }| {
             matches!(verdict, Verdict::Wj | Verdict::Judging(..))
-        }) {
+        });
+
+        if any_incomplete {
             watch_submissions(sess, &contest, &summaries)?;
-            Ok(None)
         } else {
             let content = AnsiColored::new(|w| print_submissions(w, &summaries))?;
-            Ok(Some(content))
+            shell.print_ansi(content.get())?;
         }
+        Ok(())
     }
 }
 

@@ -57,7 +57,7 @@ pub(crate) fn run(
     let cookie_storage = CookieStorage::with_jsonl(crate::web::credentials::cookie_store_path()?)?;
     let timeout = Some(crate::web::SESSION_TIMEOUT);
 
-    let summaries = match service {
+    match service {
         PlatformKind::Atcoder => {
             let target = AtcoderWatchSubmissionsTarget {
                 contest: contest.with_context(|| "`contest` is required for AtCoder")?,
@@ -77,14 +77,9 @@ pub(crate) fn run(
                 cookie_storage,
                 timeout,
                 shell: &shell,
-            })?
+            })
         }
         PlatformKind::Codeforces => todo!(),
         PlatformKind::Yukicoder => todo!(),
-    };
-
-    if let Some(summaries) = summaries {
-        summaries.print(shell.stderr)?;
     }
-    Ok(())
 }
