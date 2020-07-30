@@ -9,6 +9,7 @@ macro_rules! color_spec {
     };
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! _color_spec_inner {
     (@acc($acc:expr), @rest()) => {

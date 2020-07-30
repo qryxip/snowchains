@@ -4,7 +4,7 @@ use maplit::btreemap;
 use snowchains_core::{judge::CommandExpression, testsuite::TestSuite};
 use std::{env, ffi::OsString, fs, path::PathBuf};
 use structopt::StructOpt;
-use termcolor::{BufferedStandardStream, ColorChoice};
+use termcolor::BufferedStandardStream;
 
 #[derive(StructOpt, Debug)]
 struct Opt {
@@ -46,9 +46,9 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     let stdout = BufferedStandardStream::stdout(if atty::is(atty::Stream::Stdout) {
-        ColorChoice::Auto
+        termcolor::ColorChoice::Auto
     } else {
-        ColorChoice::Never
+        termcolor::ColorChoice::Never
     });
 
     eprintln!();

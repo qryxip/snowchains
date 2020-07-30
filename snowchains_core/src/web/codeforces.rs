@@ -230,11 +230,11 @@ impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
             watch_submission,
             cookie_storage,
             timeout,
-            shell,
+            mut shell,
         } = args;
 
         if watch_submission {
-            todo!("`watch_submissions` in Codeforces is not yet supported");
+            shell.warn("`watch_submissions` in Codeforces is not yet supported")?;
         }
 
         let contest_id = parse_contest_id(&contest_id)?;

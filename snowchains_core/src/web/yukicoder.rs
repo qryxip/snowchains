@@ -166,11 +166,11 @@ impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
             watch_submission,
             cookie_storage: (),
             timeout,
-            shell,
+            mut shell,
         } = args;
 
         if watch_submission {
-            todo!("`watch_submissions` in yukicoder is not yet supported");
+            shell.warn("`watch_submissions` in yukicoder is not yet supported")?;
         }
 
         let mut sess = Session::new(timeout, None, shell)?;
