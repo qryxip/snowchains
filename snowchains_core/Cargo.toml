@@ -1,6 +1,6 @@
 [package]
 name = "snowchains_core"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2018"
 authors = ["Ryo Yamashita <qryxip@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -10,7 +10,6 @@ documentation = "https://docs.rs/snowchains_core"
 readme = "README.md"
 keywords = ["competitive", "windows"]
 categories = ["command-line-utilities"]
-publish = false
 
 [dependencies]
 anyhow = "1.0.32"
