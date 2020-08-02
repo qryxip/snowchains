@@ -1,3 +1,9 @@
+## [0.4.0] - 2020-08-02Z
+
+### Changed
+
+* Almost everything.
+
 ## [0.3.3] - 2020-05-01Z
 
 ### Fixed
