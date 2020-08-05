@@ -9,6 +9,7 @@ use snowchains_core::{
     color_spec, judge::CommandExpression, testsuite::TestSuite, web::PlatformKind,
 };
 use std::{
+    collections::HashSet,
     ffi::OsStr,
     io::Write as _,
     iter, mem,
@@ -33,6 +34,7 @@ pub(crate) struct Args<W1, W2> {
     pub(crate) transpile: Option<config::Compile>,
     pub(crate) compile: Option<config::Compile>,
     pub(crate) run: config::Command,
+    pub(crate) test_case_names: Option<HashSet<String>>,
     pub(crate) display_limit: Size,
 }
 
@@ -52,6 +54,7 @@ pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Res
         transpile,
         compile,
         run,
+        test_case_names,
         display_limit,
     } = args;
 
@@ -63,7 +66,9 @@ pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Res
     let test_suite_path = test_suite_dir.join(problem).with_extension("yml");
 
     let test_cases = match crate::fs::read_yaml(&test_suite_path)? {
-        TestSuite::Batch(test_sutie) => test_sutie.load_test_cases(&test_suite_dir)?,
+        TestSuite::Batch(test_sutie) => {
+            test_sutie.load_test_cases(&test_suite_dir, test_case_names)?
+        }
         _ => todo!("currently only `Batch` is supported"),
     };
 

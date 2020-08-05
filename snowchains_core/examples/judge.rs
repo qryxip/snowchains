@@ -8,6 +8,9 @@ use termcolor::BufferedStandardStream;
 
 #[derive(StructOpt, Debug)]
 struct Opt {
+    #[structopt(long, value_name("NAME"))]
+    testcases: Option<Vec<String>>,
+
     file: PathBuf,
 
     #[structopt(parse(from_os_str), raw(true), required(true))]
@@ -15,7 +18,11 @@ struct Opt {
 }
 
 fn main() -> anyhow::Result<()> {
-    let Opt { file, args } = Opt::from_args();
+    let Opt {
+        testcases,
+        file,
+        args,
+    } = Opt::from_args();
 
     let cwd = env::current_dir().with_context(|| "Could not get the current directory")?;
     let file = cwd.join(file.strip_prefix(".").unwrap_or(&file));
@@ -31,7 +38,10 @@ fn main() -> anyhow::Result<()> {
         _ => bail!("Only `Batch` is supported"),
     };
 
-    let test_cases = test_suite.load_test_cases(file.parent().expect("should have file name"))?;
+    let test_cases = test_suite.load_test_cases(
+        file.parent().expect("should have file name"),
+        testcases.map(|ss| ss.into_iter().collect()),
+    )?;
 
     let outcome = snowchains_core::judge::judge(
         ProgressDrawTarget::stderr(),

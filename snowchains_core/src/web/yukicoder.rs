@@ -460,7 +460,7 @@ impl Html {
                         .collect::<Vec<_>>()
                     {
                         test_suite.cases.push(PartialBatchTestCase {
-                            name: Some(format!("サンプル{}", i + 1)),
+                            name: Some(format!("sample{}", i + 1)),
                             r#in: input.fold_text_and_br().into(),
                             out: if kind == Kind::Regular {
                                 Some(output.fold_text_and_br().into())

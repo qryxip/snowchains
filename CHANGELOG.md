@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Added
+
+- Added `--testcases` option to `judge` command and `submit` command.
+
 ## [0.4.0] - 2020-08-02Z
 
 ### Changed
