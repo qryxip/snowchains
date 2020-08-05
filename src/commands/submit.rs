@@ -29,6 +29,10 @@ pub struct OptSubmit {
     #[structopt(long)]
     pub json: bool,
 
+    /// Test for only the test cases
+    #[structopt(long, value_name("NAME"))]
+    pub testcases: Option<Vec<String>>,
+
     /// Display limit for the test
     #[structopt(long, short("l"), value_name("SIZE"), default_value("4KiB"))]
     pub display_limit: Size,
@@ -75,6 +79,7 @@ pub(crate) fn run(
         no_judge,
         debug,
         json,
+        testcases,
         display_limit,
         config,
         color: _,
@@ -146,6 +151,7 @@ pub(crate) fn run(
             transpile,
             compile,
             run,
+            test_case_names: testcases.map(|ss| ss.into_iter().collect()),
             display_limit,
         })?;
     }

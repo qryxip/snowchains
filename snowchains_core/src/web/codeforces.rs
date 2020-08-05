@@ -582,7 +582,7 @@ impl Html {
             .zip_eq(outs)
             .enumerate()
             .map(|(i, (r#in, out))| PartialBatchTestCase {
-                name: Some(format!("Example {}", i + 1)),
+                name: Some(format!("example{}", i + 1)),
                 r#in: r#in.into(),
                 out: Some(out.into()),
                 r#match: None,

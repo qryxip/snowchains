@@ -5,8 +5,10 @@ use itertools::{EitherOrBoth, Itertools as _};
 use maplit::hashmap;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    borrow::Borrow,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs,
+    hash::Hash,
     path::Path,
     str::FromStr,
     sync::Arc,
@@ -157,16 +159,37 @@ pub struct BatchTestSuite {
 }
 
 impl BatchTestSuite {
-    pub fn load_test_cases(&self, parent_dir: &Path) -> anyhow::Result<Vec<BatchTestCase>> {
+    pub fn load_test_cases<S: Borrow<str> + Eq + Hash>(
+        &self,
+        parent_dir: &Path,
+        mut names: Option<HashSet<S>>,
+    ) -> anyhow::Result<Vec<BatchTestCase>> {
         let mut cases = self.cases.clone();
         for extend in &self.extend {
             cases.extend(extend.load_test_cases(parent_dir)?);
         }
 
-        Ok(cases
+        let cases = cases
             .into_iter()
+            .filter(
+                |PartialBatchTestCase { name, .. }| match (names.as_mut(), name.as_ref()) {
+                    (Some(names), Some(name)) => names.remove(name),
+                    _ => true,
+                },
+            )
             .map(|case| BatchTestCase::new(case, self.timelimit, self.r#match))
-            .collect())
+            .collect();
+
+        if let Some(names) = names {
+            if !names.is_empty() {
+                bail!(
+                    "No such test cases: {:?}",
+                    names.iter().map(Borrow::borrow).collect::<BTreeSet<_>>(),
+                );
+            }
+        }
+
+        Ok(cases)
     }
 }
 

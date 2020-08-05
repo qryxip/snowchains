@@ -1222,7 +1222,7 @@ impl Html {
                             .into_iter()
                             .enumerate()
                             .map(|(i, (input, output))| PartialBatchTestCase {
-                                name: Some(format!("Sample {}", i + 1)),
+                                name: Some(format!("sample{}", i + 1)),
                                 r#in: input.into(),
                                 out: Some(output.into()),
                                 timelimit: None,
