@@ -44,7 +44,7 @@ $ cargo install --git https://github.com/qryxip/snowchains
 
 ```console
 $ snowchains -h
-snowchains 0.4.0
+snowchains 0.4.1
 Ryo Yamashita <qryxip@gmail.com>
 Tools for online programming contests
 
@@ -67,7 +67,7 @@ SUBCOMMANDS:
     xtask          Runs a custom subcommand written in the config file [aliases: x]
     help           Prints this message or the help of the given subcommand(s)
 $ snowchains r -h
-snowchains-retrieve 0.4.0
+snowchains-retrieve 0.4.1
 Ryo Yamashita <qryxip@gmail.com>
 Retrieves data
 
@@ -83,7 +83,7 @@ SUBCOMMANDS:
     testcases    Retrieves test cases [aliases: t]
     help         Prints this message or the help of the given subcommand(s)
 $ snowchains w -h
-snowchains-watch 0.4.0
+snowchains-watch 0.4.1
 Ryo Yamashita <qryxip@gmail.com>
 Watches data
 
