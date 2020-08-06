@@ -13,7 +13,7 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 anyhow = "1.0.32"
-chrono = "0.4.13"
+chrono = { version = "0.4.13", features = ["serde"] }
 cookie_store = "0.12.0"
 derivative = "2.1.1"
 derive_more = "0.99.9"

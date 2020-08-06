@@ -62,8 +62,10 @@ pub use crate::web::{
         Atcoder, AtcoderLoginCredentials, AtcoderParticipateCredentials, AtcoderParticipateTarget,
         AtcoderRetrieveFullTestCasesCredentials, AtcoderRetrieveLanguagesCredentials,
         AtcoderRetrieveLanguagesTarget, AtcoderRetrieveSampleTestCasesCredentials,
-        AtcoderRetrieveTestCasesTargets, AtcoderSubmitCredentials, AtcoderSubmitTarget,
-        AtcoderWatchSubmissionsCredentials, AtcoderWatchSubmissionsTarget,
+        AtcoderRetrieveSubmissionSummariesCredentials, AtcoderRetrieveSubmissionSummariesOutcome,
+        AtcoderRetrieveSubmissionSummariesTarget, AtcoderRetrieveTestCasesTargets,
+        AtcoderSubmitCredentials, AtcoderSubmitTarget, AtcoderWatchSubmissionsCredentials,
+        AtcoderWatchSubmissionsTarget,
     },
     codeforces::{
         Codeforces, CodeforcesLoginCredentials, CodeforcesParticipateCredentials,
@@ -128,6 +130,8 @@ pub trait Platform: Sized {
     type RetrieveTestCasesTargets;
     type RetrieveTestCasesCredentials;
     type RetrieveFullTestCasesCredentials;
+    type RetrieveSubmissionSummariesTarget;
+    type RetrieveSubmissionSummariesCredentials;
     type WatchSubmissionsTarget;
     type WatchSubmissionsCredentials;
     type SubmitTarget;
@@ -305,6 +309,14 @@ pub struct RetrieveTestCasesOutcomeProblem {
     pub display_name: String,
     pub test_suite: TestSuite,
     pub text_files: IndexMap<String, RetrieveTestCasesOutcomeProblemTextFiles>,
+}
+
+pub struct RetrieveSubmissionSummaries<P: Platform, S: Shell> {
+    pub target: P::RetrieveSubmissionSummariesTarget,
+    pub credentials: P::RetrieveSubmissionSummariesCredentials,
+    pub cookie_storage: P::CookieStorage,
+    pub timeout: Option<Duration>,
+    pub shell: S,
 }
 
 #[derive(Debug, Serialize)]

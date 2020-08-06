@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- Added `retrieve submission-summaries` command.
+
 ### Fixed
 
 - Fixed the problem that `snowchains` did not work at all.
