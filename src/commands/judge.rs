@@ -17,7 +17,7 @@ pub struct OptJudge {
     pub testcases: Option<Vec<String>>,
 
     /// Display limit
-    #[structopt(long, short("l"), value_name("SIZE"), default_value("4KiB"))]
+    #[structopt(long, value_name("SIZE"), default_value("4KiB"))]
     pub display_limit: Size,
 
     /// Path to `snowchains.dhall`

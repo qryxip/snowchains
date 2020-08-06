@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Fixed
+
+- Fixed the problem that `snowchains` did not work at all.
+
 ## [0.4.1] - 2020-08-05Z
 
 ### Added
