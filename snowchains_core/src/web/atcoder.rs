@@ -6,10 +6,10 @@ use crate::{
     web::{
         AnsiColored, CaseConverted, CookieStorage, Exec, Login, LoginOutcome, LowerCase,
         Participate, ParticipateOutcome, Platform, ResponseExt as _, RetrieveFullTestCases,
-        RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveTestCases, RetrieveTestCasesOutcome,
-        RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem,
-        RetrieveTestCasesOutcomeProblemTextFiles, Session, SessionMut, Shell, Submit,
-        SubmitOutcome, UpperCase, WatchSubmissions,
+        RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveSubmissionSummaries,
+        RetrieveTestCases, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeContest,
+        RetrieveTestCasesOutcomeProblem, RetrieveTestCasesOutcomeProblemTextFiles, Session,
+        SessionMut, Shell, Submit, SubmitOutcome, UpperCase, WatchSubmissions,
     },
 };
 use anyhow::{anyhow, bail, Context as _};
@@ -23,7 +23,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::header;
 use scraper::{ElementRef, Html, Selector};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::json;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -66,6 +66,9 @@ impl<'closures> Platform for Atcoder<'closures> {
     type RetrieveTestCasesTargets = AtcoderRetrieveTestCasesTargets;
     type RetrieveTestCasesCredentials = AtcoderRetrieveSampleTestCasesCredentials<'closures>;
     type RetrieveFullTestCasesCredentials = AtcoderRetrieveFullTestCasesCredentials;
+    type RetrieveSubmissionSummariesTarget = AtcoderRetrieveSubmissionSummariesTarget;
+    type RetrieveSubmissionSummariesCredentials =
+        AtcoderRetrieveSubmissionSummariesCredentials<'closures>;
     type WatchSubmissionsTarget = AtcoderWatchSubmissionsTarget;
     type WatchSubmissionsCredentials = AtcoderWatchSubmissionsCredentials<'closures>;
     type SubmitTarget = AtcoderSubmitTarget;
@@ -303,6 +306,41 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
     }
 }
 
+impl<S: Shell> Exec<RetrieveSubmissionSummaries<Self, S>> for Atcoder<'_> {
+    type Output = AtcoderRetrieveSubmissionSummariesOutcome;
+
+    fn exec(
+        args: RetrieveSubmissionSummaries<Self, S>,
+    ) -> anyhow::Result<AtcoderRetrieveSubmissionSummariesOutcome> {
+        let RetrieveSubmissionSummaries {
+            target: AtcoderRetrieveSubmissionSummariesTarget { contest },
+            credentials:
+                AtcoderRetrieveSubmissionSummariesCredentials {
+                    username_and_password,
+                },
+            cookie_storage,
+            timeout,
+            shell,
+        } = args;
+
+        let contest = CaseConverted::<LowerCase>::new(contest);
+
+        let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
+
+        let (mut summaries, num_pages) =
+            retrieve_submission_summaries(&mut sess, &contest, 1, username_and_password)?;
+
+        for page in 2..=num_pages {
+            let (extend, _) = retrieve_submission_summaries(&mut sess, &contest, page, || {
+                bail!("should be logged in");
+            })?;
+            summaries.extend(extend);
+        }
+
+        Ok(AtcoderRetrieveSubmissionSummariesOutcome { summaries })
+    }
+}
+
 impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
     type Output = SubmitOutcome;
 
@@ -364,13 +402,13 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
 
             if loc.path().starts_with("/contests/") && loc.path().ends_with("/submissions/me") {
                 let (submission_summaries, _) =
-                    retrieve_submission_summaries_from_page_1(&mut sess, &contest, || {
+                    retrieve_submission_summaries(&mut sess, &contest, 1, || {
                         bail!("Should be logged in")
                     })?;
 
                 let outcome = SubmitOutcome {
                     problem_screen_name,
-                    submission_url: submission_summaries[0].url.clone(),
+                    submission_url: submission_summaries[0].detail.clone(),
                     submissions_url: url!("/contests/{}/submissions/me", contest),
                 };
 
@@ -409,10 +447,10 @@ impl<S: Shell> Exec<WatchSubmissions<Self, S>> for Atcoder<'_> {
         let mut sess = Session::new(timeout, Some(cookie_storage), &mut shell)?;
 
         let (summaries, _) =
-            retrieve_submission_summaries_from_page_1(&mut sess, &contest, username_and_password)?;
+            retrieve_submission_summaries(&mut sess, &contest, 1, username_and_password)?;
 
-        let any_incomplete = summaries.iter().any(|SubmissionSummary { verdict, .. }| {
-            matches!(verdict, Verdict::Wj | Verdict::Judging(..))
+        let any_incomplete = summaries.iter().any(|SubmissionSummary { status, .. }| {
+            matches!(status, Verdict::Wj | Verdict::Judging(..))
         });
 
         if any_incomplete {
@@ -460,6 +498,26 @@ pub struct AtcoderRetrieveSampleTestCasesCredentials<'closures> {
 #[derive(Debug)]
 pub struct AtcoderRetrieveFullTestCasesCredentials {
     pub dropbox_access_token: String,
+}
+
+#[derive(Debug)]
+pub struct AtcoderRetrieveSubmissionSummariesTarget {
+    pub contest: String,
+}
+
+pub struct AtcoderRetrieveSubmissionSummariesCredentials<'closures> {
+    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AtcoderRetrieveSubmissionSummariesOutcome {
+    summaries: Vec<SubmissionSummary>,
+}
+
+impl AtcoderRetrieveSubmissionSummariesOutcome {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("should not fail")
+    }
 }
 
 #[derive(Debug)]
@@ -671,13 +729,14 @@ fn retrieve_tasks_page(
     }
 }
 
-fn retrieve_submission_summaries_from_page_1(
+fn retrieve_submission_summaries(
     mut sess: impl SessionMut,
     contest: &CaseConverted<LowerCase>,
+    page: u32,
     username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
 ) -> anyhow::Result<(Vec<SubmissionSummary>, u32)> {
     let res = sess
-        .get(submissions_me(contest, 1)?)
+        .get(submissions_me(contest, page)?)
         .colorize_status_code(&[200], &[302], ..)
         .send()?
         .ensure_status(&[200, 302])?;
@@ -686,7 +745,7 @@ fn retrieve_submission_summaries_from_page_1(
         res
     } else {
         participate(&mut sess, username_and_password, contest, false)?;
-        sess.get(submissions_me(contest, 1)?)
+        sess.get(submissions_me(contest, page)?)
             .colorize_status_code(&[200], (), ..)
             .send()?
             .ensure_status(&[200])?
@@ -704,13 +763,18 @@ fn retrieve_submission_summaries_from_page_1(
 fn print_submissions(mut wtr: impl WriteColor, summaries: &[SubmissionSummary]) -> io::Result<()> {
     let task_display_max_width = summaries
         .iter()
-        .map(|SubmissionSummary { task_display, .. }| task_display.width())
+        .map(
+            |SubmissionSummary {
+                 task: SubmissionSummaryTask { display_name, .. },
+                 ..
+             }| display_name.width(),
+        )
         .max()
         .unwrap_or(0);
 
     let lang_max_width = summaries
         .iter()
-        .map(|SubmissionSummary { lang, .. }| lang.width())
+        .map(|SubmissionSummary { language, .. }| language.width())
         .max()
         .unwrap_or(0);
 
@@ -718,12 +782,12 @@ fn print_submissions(mut wtr: impl WriteColor, summaries: &[SubmissionSummary]) 
         write!(
             wtr,
             "│ {} │ {} │ {} │ ",
-            summary.datetime,
-            align_left(&summary.task_display, task_display_max_width),
-            align_left(&summary.lang, lang_max_width),
+            summary.submission_time,
+            align_left(&summary.task.display_name, task_display_max_width),
+            align_left(&summary.language, lang_max_width),
         )?;
 
-        match &summary.verdict {
+        match &summary.status {
             Verdict::Wj => {
                 wtr.set_color(color_spec!(Bold))?;
                 write!(wtr, "WJ")?;
@@ -766,13 +830,18 @@ fn watch_submissions(
 
     let task_display_max_width = summaries
         .iter()
-        .map(|SubmissionSummary { task_display, .. }| task_display.width())
+        .map(
+            |SubmissionSummary {
+                 task: SubmissionSummaryTask { display_name, .. },
+                 ..
+             }| display_name.width(),
+        )
         .max()
         .unwrap_or(0);
 
     let lang_max_width = summaries
         .iter()
-        .map(|SubmissionSummary { lang, .. }| lang.width())
+        .map(|SubmissionSummary { language, .. }| language.width())
         .max()
         .unwrap_or(0);
 
@@ -785,13 +854,13 @@ fn watch_submissions(
 
         pb.set_prefix(&format!(
             "│ {} │ {} │ {} │ ",
-            summary.datetime,
-            align_left(&summary.task_display, task_display_max_width),
-            align_left(&summary.lang, lang_max_width),
+            summary.submission_time,
+            align_left(&summary.task.display_name, task_display_max_width),
+            align_left(&summary.language, lang_max_width),
         ));
 
         if matches!(
-            summary.verdict,
+            summary.status,
             Verdict::Wj | Verdict::Wr | Verdict::Judging(..)
         ) {
             let id = summary.id().to_owned();
@@ -907,7 +976,7 @@ fn watch_submissions(
         } else {
             finish(
                 &pb,
-                &summary.verdict,
+                &summary.status,
                 summary.exec_time.as_deref().unwrap_or(""),
                 summary.memory.as_deref().unwrap_or(""),
             );
@@ -998,27 +1067,39 @@ impl ContestStatus {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct SubmissionSummary {
-    url: Url,
-    task_url: Url,
-    task_index: String,
-    task_display: String,
-    task_screen: String,
-    datetime: DateTime<FixedOffset>,
-    lang: String,
-    verdict: Verdict,
+    submission_time: DateTime<FixedOffset>,
+    task: SubmissionSummaryTask,
+    user: SubmissionSummaryUser,
+    language: String,
+    score: String,
+    code_size: String,
+    status: Verdict,
     exec_time: Option<String>,
     memory: Option<String>,
+    detail: Url,
 }
 
 impl SubmissionSummary {
     fn id(&self) -> &str {
-        self.url
+        self.detail
             .path_segments()
             .and_then(Iterator::last)
             .unwrap_or("")
     }
+}
+
+#[derive(Debug, Serialize)]
+struct SubmissionSummaryTask {
+    display_name: String,
+    url: Url,
+}
+
+#[derive(Debug, Serialize)]
+struct SubmissionSummaryUser {
+    name: String,
+    url: Url,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1115,6 +1196,15 @@ impl fmt::Display for Verdict {
             Self::Judging(n, d, Some(v)) => write!(fmt, "{}/{} {}", n, d, v),
             Self::Judging(n, d, None) => write!(fmt, "{}/{}", n, d),
         }
+    }
+}
+
+impl Serialize for Verdict {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.to_string().serialize(serializer)
     }
 }
 
@@ -1502,41 +1592,71 @@ impl Html {
             );
 
             for tr in self.select(&SELECTOR) {
-                let (task_url, task_index, task_display, task_screen, datetime) = {
-                    static SLUG: Lazy<Regex> = lazy_regex!(r"\A(\w+).*\z");
-                    static SCREEN: Lazy<Regex> =
-                        lazy_regex!(r"\A/contests/[\w-]+/tasks/([\w-]+)\z");
+                let submission_time = {
                     static DATETIME: &str = "%F %T%z";
 
-                    let a = tr.select(static_selector!("td > a")).next()?;
-                    let task_display = a.text().next()?.to_owned();
-                    let task_index = SLUG.captures(&task_display)?[1].to_owned();
-                    let task_path = a.value().attr("href")?;
-                    let task_screen = SCREEN.captures(task_path)?[1].to_owned();
-                    let mut task_url = "https://atcoder.jp".parse::<Url>().unwrap();
-                    task_url.set_path(task_path);
-                    let datetime = tr
+                    let submission_time = tr
                         .select(static_selector!("td > time"))
                         .next()?
                         .text()
                         .next()?;
-                    let datetime = DateTime::parse_from_str(datetime, DATETIME).ok()?;
-                    (task_url, task_index, task_display, task_screen, datetime)
+
+                    DateTime::parse_from_str(submission_time, DATETIME).ok()?
                 };
 
-                let lang = tr
+                let task = {
+                    let a = tr.select(static_selector!("td > a")).next()?;
+
+                    SubmissionSummaryTask {
+                        display_name: a.text().next()?.to_owned(),
+                        url: BASE_URL.join(a.value().attr("href")?).ok()?,
+                    }
+                };
+
+                let user = {
+                    let td = tr.select(static_selector!("td")).nth(2)?;
+
+                    SubmissionSummaryUser {
+                        name: td.text().exactly_one().ok()?.to_owned(),
+                        url: BASE_URL
+                            .join(
+                                td.select(static_selector!("a"))
+                                    .exactly_one()
+                                    .ok()?
+                                    .value()
+                                    .attr("href")?,
+                            )
+                            .ok()?,
+                    }
+                };
+
+                let language = tr
                     .select(static_selector!("td"))
                     .nth(3)?
                     .text()
                     .next()?
                     .to_owned();
 
-                let verdict = tr
+                let score = tr
+                    .select(static_selector!("td"))
+                    .nth(4)?
+                    .text()
+                    .next()?
+                    .to_owned();
+
+                let code_size = tr
+                    .select(static_selector!("td"))
+                    .nth(5)?
+                    .text()
+                    .next()?
+                    .to_owned();
+
+                let status = tr
                     .select(static_selector!("td > span"))
                     .next()?
                     .text()
                     .next()?;
-                let verdict = Verdict::new(verdict);
+                let status = Verdict::new(status);
 
                 let exec_time = tr
                     .select(static_selector!("td"))
@@ -1550,7 +1670,7 @@ impl Html {
                     .and_then(|r| r.text().exactly_one().ok())
                     .map(ToOwned::to_owned);
 
-                let url = tr
+                let detail = tr
                     .select(static_selector!("td.text-center > a"))
                     .flat_map(|a| {
                         let text = a.text().next()?;
@@ -1564,16 +1684,16 @@ impl Html {
                     .next()?;
 
                 submissions.push(SubmissionSummary {
-                    url,
-                    task_url,
-                    task_index,
-                    task_display,
-                    task_screen,
-                    lang,
-                    datetime,
-                    verdict,
+                    submission_time,
+                    task,
+                    user,
+                    language,
+                    score,
+                    code_size,
+                    status,
                     exec_time,
                     memory,
+                    detail,
                 })
             }
             Some((submissions, num_pages))

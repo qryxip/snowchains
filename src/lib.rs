@@ -7,8 +7,10 @@ mod web;
 
 pub use crate::commands::{
     init::OptInit, judge::OptJudge, login::OptLogin, participate::OptParticipate,
-    retrieve_languages::OptRetrieveLanguages, retrieve_testcases::OptRetrieveTestcases,
-    submit::OptSubmit, watch_submissions::OptWatchSubmissions, xtask::OptXtask,
+    retrieve_languages::OptRetrieveLanguages,
+    retrieve_submission_summaries::OptRetrieveSubmissionSummaries,
+    retrieve_testcases::OptRetrieveTestcases, submit::OptSubmit,
+    watch_submissions::OptWatchSubmissions, xtask::OptXtask,
 };
 use std::{env, io::BufRead, path::PathBuf};
 use structopt::{
@@ -66,6 +68,10 @@ pub enum OptRetrieve {
     /// Retrieves test cases
     #[structopt(author, visible_alias("t"))]
     Testcases(OptRetrieveTestcases),
+
+    /// Retrieves submission summaries
+    #[structopt(author, visible_alias("ss"))]
+    SubmissionSummaries(OptRetrieveSubmissionSummaries),
 }
 
 #[derive(StructOpt, Debug)]
@@ -105,6 +111,10 @@ impl Opt {
             | Self::Participate(OptParticipate { color, .. })
             | Self::Retrieve(OptRetrieve::Languages(OptRetrieveLanguages { color, .. }))
             | Self::Retrieve(OptRetrieve::Testcases(OptRetrieveTestcases { color, .. }))
+            | Self::Retrieve(OptRetrieve::SubmissionSummaries(OptRetrieveSubmissionSummaries {
+                color,
+                ..
+            }))
             | Self::Download(OptRetrieveTestcases { color, .. })
             | Self::Watch(OptWatch::Submissions(OptWatchSubmissions { color, .. }))
             | Self::Judge(OptJudge { color, .. })
@@ -137,6 +147,9 @@ pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
         Opt::Participate(opt) => commands::participate::run(opt, ctx),
         Opt::Retrieve(OptRetrieve::Languages(opt)) => commands::retrieve_languages::run(opt, ctx),
         Opt::Retrieve(OptRetrieve::Testcases(opt)) => commands::retrieve_testcases::run(opt, ctx),
+        Opt::Retrieve(OptRetrieve::SubmissionSummaries(opt)) => {
+            commands::retrieve_submission_summaries::run(opt, ctx)
+        }
         Opt::Download(opt) => commands::retrieve_testcases::run(opt, ctx),
         Opt::Watch(OptWatch::Submissions(opt)) => commands::watch_submissions::run(opt, ctx),
         Opt::Judge(opt) => commands::judge::run(opt, ctx),

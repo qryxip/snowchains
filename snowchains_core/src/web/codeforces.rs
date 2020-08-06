@@ -39,6 +39,8 @@ impl<'closures> Platform for Codeforces<'closures> {
     type RetrieveTestCasesTargets = CodeforcesRetrieveTestCasesTargets;
     type RetrieveTestCasesCredentials = CodeforcesRetrieveSampleTestCasesCredentials<'closures>;
     type RetrieveFullTestCasesCredentials = Infallible;
+    type RetrieveSubmissionSummariesTarget = Infallible;
+    type RetrieveSubmissionSummariesCredentials = Infallible;
     type WatchSubmissionsTarget = Infallible;
     type WatchSubmissionsCredentials = Infallible;
     type SubmitTarget = CodeforcesSubmitTarget;

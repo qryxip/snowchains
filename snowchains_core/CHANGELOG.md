@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Added
+
+- Added `RetrieveSubmissionSummaries` action for AtCoder.
+
 ## [0.2.0] - 2020-08-05Z
 
 ### Changed

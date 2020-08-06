@@ -42,6 +42,8 @@ impl Platform for Yukicoder {
     type RetrieveTestCasesTargets = YukicoderRetrieveTestCasesTargets;
     type RetrieveTestCasesCredentials = ();
     type RetrieveFullTestCasesCredentials = YukicoderRetrieveFullTestCasesCredentials;
+    type RetrieveSubmissionSummariesTarget = Infallible;
+    type RetrieveSubmissionSummariesCredentials = Infallible;
     type WatchSubmissionsTarget = Infallible;
     type WatchSubmissionsCredentials = Infallible;
     type SubmitTarget = YukicoderSubmitTarget;
