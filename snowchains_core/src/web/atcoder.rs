@@ -1617,12 +1617,16 @@ impl Html {
                     let td = tr.select(static_selector!("td")).nth(2)?;
 
                     SubmissionSummaryUser {
-                        name: td.text().exactly_one().ok()?.to_owned(),
+                        name: td
+                            .text()
+                            .filter(|s| !s.chars().all(|c| c.is_whitespace()))
+                            .exactly_one()
+                            .ok()?
+                            .to_owned(),
                         url: BASE_URL
                             .join(
                                 td.select(static_selector!("a"))
-                                    .exactly_one()
-                                    .ok()?
+                                    .next()?
                                     .value()
                                     .attr("href")?,
                             )
