@@ -1,3 +1,9 @@
+## [0.3.1] - 2020-08-07Z
+
+### Fixed
+
+- Fixed the parser for AtCoder submissions. ([#71](https://github.com/qryxip/snowchains/pull/71))
+
 ## [0.3.0] - 2020-08-06Z
 
 ### Added
