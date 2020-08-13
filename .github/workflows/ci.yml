@@ -36,6 +36,7 @@ jobs:
   grcov:
     name: grcov
     runs-on: ubuntu-18.04
+    if: "github.repository_owner == 'qryxip' && github.ref == 'refs/heads/master'"
 
     steps:
       - name: Checkout
@@ -47,20 +48,11 @@ jobs:
           toolchain: nightly
           override: true
 
-      - name: Determine `cargo test` targets
-        id: cargo_test_targets
-        run: |
-          if ${{ !!secrets }}; then
-            echo '::set-output name=targets::--workspace'
-          else
-            echo '::set-output name=targets::--workspace --lib'
-          fi
-
-      - name: '`cargo test --no-fail-fast ${{ steps.cargo_test_targets.outputs.targets }}`'
+      - name: '`cargo test --no-fail-fast --workspace`'
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --no-fail-fast ${{ steps.cargo_test_targets.outputs.targets }}
+          args: --no-fail-fast --workspace
         env:
           CARGO_INCREMENTAL: '0'
           RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'

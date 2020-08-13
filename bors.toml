@@ -1,2 +1,2 @@
-status = ["Rustfmt", "grcov", "stable-x86_64-pc-windows-msvc", "stable-x86_64-apple-darwin", "stable-x86_64-unknown-linux-gnu", "stable-x86_64-unknown-linux-musl"]
+status = ["Rustfmt", "stable-x86_64-pc-windows-msvc", "stable-x86_64-apple-darwin", "stable-x86_64-unknown-linux-gnu", "stable-x86_64-unknown-linux-musl"]
 delete_merged_branches = true
