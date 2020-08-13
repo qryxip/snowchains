@@ -58,14 +58,6 @@ jobs:
           RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
           RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
           RUST_BACKTRACE: full
-          ATCODER_USERNAME: ${{ secrets.ATCODER_USERNAME }}
-          ATCODER_PASSWORD: ${{ secrets.ATCODER_PASSWORD }}
-          DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
-          CODEFORCES_USERNAME: ${{ secrets.CODEFORCES_USERNAME }}
-          CODEFORCES_PASSWORD: ${{ secrets.CODEFORCES_PASSWORD }}
-          CODEFORCES_API_KEY: ${{ secrets.CODEFORCES_API_KEY }}
-          CODEFORCES_API_SECRET: ${{ secrets.CODEFORCES_API_SECRET }}
-          YUKICODER_API_KEY: ${{ secrets.YUKICODER_API_KEY }}
 
       - name: grcov
         id: grcov
@@ -122,31 +114,13 @@ jobs:
           command: clippy
           args: --workspace --all-targets --target ${{ matrix.target-triple }} -- -D warnings
 
-      - name: Determine `cargo test` targets
-        id: cargo_test_targets
-        run: |
-          if ${{ !!secrets }}; then
-            echo '::set-output name=targets::--workspace'
-          else
-            echo '::set-output name=targets::--workspace --lib'
-          fi
-        shell: bash
-
-      - name: '`cargo test --no-fail-fast ${{ steps.cargo_test_targets.outputs.targets }} --target ${{ matrix.target-triple }}`'
+      - name: '`cargo test --no-fail-fast --workspace --target ${{ matrix.target-triple }}`'
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --no-fail-fast ${{ steps.cargo_test_targets.outputs.targets }} --target ${{ matrix.target-triple }}
+          args: --no-fail-fast --workspace --target ${{ matrix.target-triple }}
         env:
           RUST_BACKTRACE: full
-          ATCODER_USERNAME: ${{ secrets.ATCODER_USERNAME }}
-          ATCODER_PASSWORD: ${{ secrets.ATCODER_PASSWORD }}
-          DROPBOX_ACCESS_TOKEN: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
-          CODEFORCES_USERNAME: ${{ secrets.CODEFORCES_USERNAME }}
-          CODEFORCES_PASSWORD: ${{ secrets.CODEFORCES_PASSWORD }}
-          CODEFORCES_API_KEY: ${{ secrets.CODEFORCES_API_KEY }}
-          CODEFORCES_API_SECRET: ${{ secrets.CODEFORCES_API_SECRET }}
-          YUKICODER_API_KEY: ${{ secrets.YUKICODER_API_KEY }}
 
   upload:
     strategy:
