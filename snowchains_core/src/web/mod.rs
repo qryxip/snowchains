@@ -305,7 +305,7 @@ pub struct RetrieveTestCasesOutcomeContest {
 pub struct RetrieveTestCasesOutcomeProblem {
     pub index: String,
     pub url: Url,
-    pub screen_name: String,
+    pub screen_name: Option<String>,
     pub display_name: String,
     pub test_suite: TestSuite,
     pub text_files: IndexMap<String, RetrieveTestCasesOutcomeProblemTextFiles>,
@@ -362,7 +362,7 @@ pub struct Submit<P: Platform, S: Shell> {
 
 #[derive(Debug, Serialize)]
 pub struct SubmitOutcome {
-    pub problem_screen_name: String,
+    pub problem_screen_name: Option<String>,
     pub submission_url: Url,
     pub submissions_url: Url,
 }

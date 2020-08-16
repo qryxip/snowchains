@@ -1,3 +1,10 @@
+## [Unreleased]
+
+## Changed
+
+- Made `RetrieveTestCasesOutcomeProblem.screen_name` `Option<String>`.
+- Made `SubmitOutcome.problem_screen_name` `Option<String>`.
+
 ## [0.3.1] - 2020-08-07Z
 
 ### Fixed

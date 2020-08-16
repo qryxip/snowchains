@@ -407,7 +407,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
                     })?;
 
                 let outcome = SubmitOutcome {
-                    problem_screen_name,
+                    problem_screen_name: Some(problem_screen_name),
                     submission_url: submission_summaries[0].detail.clone(),
                     submissions_url: url!("/contests/{}/submissions/me", contest),
                 };
@@ -588,7 +588,7 @@ fn retrieve_sample_test_cases(
             outcome.problems.push(RetrieveTestCasesOutcomeProblem {
                 url,
                 index: index.into(),
-                screen_name,
+                screen_name: Some(screen_name),
                 display_name,
                 test_suite,
                 text_files: indexmap![],
