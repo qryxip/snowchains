@@ -185,8 +185,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
                 Ok(Some(RetrieveTestCasesOutcomeProblem {
                     index,
                     url,
-                    screen_name: "TODO: problems in Codeforces don't have global identifiers"
-                        .to_owned(),
+                    screen_name: None,
                     display_name,
                     test_suite,
                     text_files: indexmap!(),
@@ -292,7 +291,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
             let submission_url = url!("/contest/{}/submission/{}", contest_id, submission.id);
 
             Ok(SubmitOutcome {
-                problem_screen_name: problem.name,
+                problem_screen_name: None,
                 submission_url,
                 submissions_url,
             })

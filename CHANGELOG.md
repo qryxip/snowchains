@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Changed
+
+- Modified JSON output of `retrieve testcases` and `submit`.
+
 ## [0.4.2] - 2020-08-06Z
 
 ### Added

@@ -85,7 +85,7 @@ struct OutcomeContest {
 struct OutcomeProblem {
     index: CaseConversions,
     url: Url,
-    screen_name: String,
+    screen_name: Option<String>,
     display_name: String,
     test_suite: OutcomeProblemTestSuite,
 }

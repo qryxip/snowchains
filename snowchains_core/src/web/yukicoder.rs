@@ -96,6 +96,8 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Yukicoder {
             for outcome_problem in &mut outcome.problems {
                 let problem_id = outcome_problem
                     .screen_name
+                    .as_ref()
+                    .expect("should be preset")
                     .parse()
                     .expect("should be integer");
 
@@ -204,7 +206,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
             code.as_ref(),
         )? {
             Ok(submission_id) => Ok(SubmitOutcome {
-                problem_screen_name: problem_id.to_string(),
+                problem_screen_name: Some(problem_id.to_string()),
                 submission_url: url!("/submissions/{}", submission_id),
                 submissions_url: url!("/problems/{}/submissions?my_submission=enabled", problem_id),
             }),
@@ -309,7 +311,7 @@ fn retrieve_samples(
                 outcome.problems.push(RetrieveTestCasesOutcomeProblem {
                     index: problem_no.to_string(),
                     url,
-                    screen_name: problem_id.to_string(),
+                    screen_name: Some(problem_id.to_string()),
                     display_name: title.clone(),
                     test_suite,
                     text_files: indexmap!(),
@@ -351,7 +353,7 @@ fn retrieve_samples(
                 outcome.problems.push(RetrieveTestCasesOutcomeProblem {
                     index: problem_no.to_string(),
                     url,
-                    screen_name: problem_id.to_string(),
+                    screen_name: Some(problem_id.to_string()),
                     display_name: title.clone(),
                     test_suite,
                     text_files: indexmap!(),
