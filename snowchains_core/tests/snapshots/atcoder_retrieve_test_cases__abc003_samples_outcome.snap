@@ -1,0 +1,166 @@
+---
+source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
+expression: outcome
+---
+{
+  "contest": {
+    "id": "abc003",
+    "submissions_url": "https://atcoder.jp/contests/abc003/submissions/me"
+  },
+  "problems": [
+    {
+      "index": "A",
+      "url": "https://atcoder.jp/contests/abc003/tasks/abc003_1",
+      "screen_name": "abc003_1",
+      "display_name": "AtCoder社の給料",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": {
+          "Float": {
+            "relative_error": 1e-6,
+            "absolute_error": 1e-6
+          }
+        },
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "6\n",
+            "out": "35000\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "91\n",
+            "out": "460000\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "B",
+      "url": "https://atcoder.jp/contests/abc003/tasks/abc003_2",
+      "screen_name": "abc003_2",
+      "display_name": "AtCoderトランプ",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "ch@ku@ai\nchoku@@i\n",
+            "out": "You can win\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "aoki\n@ok@\n",
+            "out": "You will lose\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "arc\nabc\n",
+            "out": "You will lose\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "C",
+      "url": "https://atcoder.jp/contests/abc003/tasks/abc003_3",
+      "screen_name": "abc003_3",
+      "display_name": "AtCoderプログラミング講座",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": {
+          "Float": {
+            "relative_error": 1e-6,
+            "absolute_error": 1e-6
+          }
+        },
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "2 2\n1000 1500\n",
+            "out": "1000.000000\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "2 1\n1000 1500\n",
+            "out": "750\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "10 5\n2604 2281 3204 2264 2200 2650 2229 2461 2439 2211\n",
+            "out": "2820.031250000\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "D",
+      "url": "https://atcoder.jp/contests/abc003/tasks/abc003_4",
+      "screen_name": "abc003_4",
+      "display_name": "AtCoder社の冬",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "3 2\n2 2\n2 2\n",
+            "out": "12\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "4 5\n3 1\n3 0\n",
+            "out": "10\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "23 18\n15 13\n100 95\n",
+            "out": "364527243\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "30 30\n24 22\n145 132\n",
+            "out": "976668549\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    }
+  ]
+}

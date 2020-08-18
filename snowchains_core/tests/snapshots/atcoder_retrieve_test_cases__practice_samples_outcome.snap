@@ -1,0 +1,52 @@
+---
+source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
+expression: outcome
+---
+{
+  "contest": {
+    "id": "practice",
+    "submissions_url": "https://atcoder.jp/contests/practice/submissions/me"
+  },
+  "problems": [
+    {
+      "index": "A",
+      "url": "https://atcoder.jp/contests/practice/tasks/practice_1",
+      "screen_name": "practice_1",
+      "display_name": "Welcome to AtCoder",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "1\n2 3\ntest\n",
+            "out": "6 test\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "72\n128 256\nmyonmyon\n",
+            "out": "456 myonmyon\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "B",
+      "url": "https://atcoder.jp/contests/practice/tasks/practice_2",
+      "screen_name": "practice_2",
+      "display_name": "Interactive Sorting",
+      "test_suite": {
+        "type": "Interactive",
+        "timelimit": "2s"
+      },
+      "text_files": {}
+    }
+  ]
+}

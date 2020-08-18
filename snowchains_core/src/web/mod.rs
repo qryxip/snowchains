@@ -289,13 +289,13 @@ pub struct RetrieveFullTestCases<P: Platform> {
     pub credentials: P::RetrieveFullTestCasesCredentials,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct RetrieveTestCasesOutcome {
     pub contest: Option<RetrieveTestCasesOutcomeContest>,
     pub problems: Vec<RetrieveTestCasesOutcomeProblem>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct RetrieveTestCasesOutcomeContest {
     pub id: String,
     pub submissions_url: Url,
