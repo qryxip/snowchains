@@ -1,0 +1,193 @@
+---
+source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
+expression: outcome
+---
+{
+  "contest": {
+    "id": "agc047",
+    "submissions_url": "https://atcoder.jp/contests/agc047/submissions/me"
+  },
+  "problems": [
+    {
+      "index": "A",
+      "url": "https://atcoder.jp/contests/agc047/tasks/agc047_a",
+      "screen_name": "agc047_a",
+      "display_name": "Integer Product",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "5\n7.5\n2.4\n17.000000001\n17\n16.000000000\n",
+            "out": "3\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "11\n0.9\n1\n1\n1.25\n2.30000\n5\n70\n0.000000001\n9999.999999999\n0.999999999\n1.000000001\n",
+            "out": "8\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "B",
+      "url": "https://atcoder.jp/contests/agc047/tasks/agc047_b",
+      "screen_name": "agc047_b",
+      "display_name": "First Second",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "3s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "3\nabcxyx\ncyx\nabc\n",
+            "out": "1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "6\nb\na\nabc\nc\nd\nab\n",
+            "out": "5\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "C",
+      "url": "https://atcoder.jp/contests/agc047/tasks/agc047_c",
+      "screen_name": "agc047_c",
+      "display_name": "Product Modulo",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "4\n2019 0 2020 200002\n",
+            "out": "474287\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "5\n1 1 2 2 100000\n",
+            "out": "600013\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "D",
+      "url": "https://atcoder.jp/contests/agc047/tasks/agc047_d",
+      "screen_name": "agc047_d",
+      "display_name": "Twin Binary Trees",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s 500ms",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "3\n2 3 1 4\n",
+            "out": "121788\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "2\n1 2\n",
+            "out": "36\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "5\n6 14 15 7 12 16 5 4 11 9 3 10 8 2 13 1\n",
+            "out": "10199246\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "E",
+      "url": "https://atcoder.jp/contests/agc047/tasks/agc047_e",
+      "screen_name": "agc047_e",
+      "display_name": "Product Simulation",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "",
+            "out": "4\n< 0 1 8\n+ 0 1 2\n+ 2 8 2\n+ 0 0 0\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "F",
+      "url": "https://atcoder.jp/contests/agc047/tasks/agc047_f",
+      "screen_name": "agc047_f",
+      "display_name": "Rooks",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "1s 250ms",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "6\n1 8\n6 10\n2 7\n4 4\n9 3\n5 1\n",
+            "out": "5\n0\n7\n5\n0\n0\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "5\n5 5\n100 100\n70 20\n81 70\n800 1\n",
+            "out": "985\n985\n1065\n1034\n0\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "10\n2 5\n4 4\n13 12\n12 13\n14 17\n17 19\n22 22\n16 18\n19 27\n25 26\n",
+            "out": "2\n2\n9\n9\n3\n3\n24\n5\n0\n25\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    }
+  ]
+}

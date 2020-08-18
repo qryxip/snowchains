@@ -1103,6 +1103,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "insta"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "617e921abc813f96a3b00958c079e7bf1e2db998f8a04f1546dd967373a418ee"
+dependencies = [
+ "console",
+ "difference",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "iovec"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2332,6 +2346,7 @@ dependencies = [
  "ignore",
  "indexmap",
  "indicatif",
+ "insta",
  "itertools",
  "maplit",
  "nom",
