@@ -1,8 +1,12 @@
-## [Unreleased]
+## [0.5.0] - 2020-08-18Z
 
 ### Changed
 
-- Modified JSON output of `retrieve testcases` and `submit`.
+- Modified JSON output of `retrieve testcases` and `submit`. ([#74](https://github.com/qryxip/snowchains/pull/74))
+
+### Fixed
+
+- Improved the parser for `retrieve testcases`. ([#76](https://github.com/qryxip/snowchains/pull/76))
 
 ## [0.4.2] - 2020-08-06Z
 
