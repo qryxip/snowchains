@@ -1,6 +1,12 @@
+## [Unreleased]
+
+### Fixed
+
+- Improved `RetrieveTestCases` for AtCoder.
+
 ## [0.4.0] - 2020-08-16Z
 
-## Changed
+### Changed
 
 - Made `RetrieveTestCasesOutcomeProblem.screen_name` `Option<String>`.
 - Made `SubmitOutcome.problem_screen_name` `Option<String>`.

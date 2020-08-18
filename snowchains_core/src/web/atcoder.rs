@@ -1275,11 +1275,11 @@ impl Html {
     fn extract_samples(&self) -> anyhow::Result<IndexMap<String, TestSuite>> {
         return self
             .select(static_selector!(
-                "#main-container > div.row > div[class=\"col-sm-12\"]",
+                "#main-container > div.row div[class=\"col-sm-12\"]",
             ))
             .map(|div| {
                 let display_name = div
-                    .select(static_selector!("span"))
+                    .select(static_selector!(":scope > span"))
                     .flat_map(|r| r.text())
                     .next()
                     .and_then(|s| static_regex!(r"[A-Z0-9]+ - (.+)").captures(s))
@@ -1287,7 +1287,7 @@ impl Html {
                     .with_context(|| "Could not extract the display name")?;
 
                 let timelimit = div
-                    .select(static_selector!("p"))
+                    .select(static_selector!(":scope > p"))
                     .flat_map(|r| r.text())
                     .flat_map(parse_timelimit)
                     .exactly_one()
@@ -1296,7 +1296,7 @@ impl Html {
 
                 // In `tasks_print`, there are multiple `#task-statement`s.
                 let samples = div
-                    .select(static_selector!("div[id=\"task-statement\"]"))
+                    .select(static_selector!(":scope > div[id=\"task-statement\"]"))
                     .exactly_one()
                     .ok()
                     .and_then(extract_samples)
