@@ -1,8 +1,8 @@
-## [Unreleased]
+## [0.4.1] - 2020-08-18Z
 
 ### Fixed
 
-- Improved `RetrieveTestCases` for AtCoder.
+- Improved `RetrieveTestCases` for AtCoder. ([#76](https://github.com/qryxip/snowchains/pull/76))
 
 ## [0.4.0] - 2020-08-16Z
 
