@@ -1454,10 +1454,15 @@ impl Html {
             re_input: &'static Regex,
             re_output: &'static Regex,
         ) -> Option<Samples> {
+            #[allow(clippy::blocks_in_if_conditions)]
             if task_statement
                 .select(static_selector!("strong"))
                 .flat_map(|r| r.text())
-                .any(|t| t.contains("インタラクティブ") || t.contains("Interactive"))
+                .any(|s| {
+                    s.contains("インタラクティブ")
+                        || s.contains("対話式の問題")
+                        || s.contains("Interactive")
+                })
             {
                 return Some(Samples::Interactive);
             }

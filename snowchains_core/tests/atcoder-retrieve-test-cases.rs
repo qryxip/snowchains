@@ -33,6 +33,11 @@ fn agc028_samples() -> anyhow::Result<()> {
 }
 
 #[test]
+fn agc044_samples() -> anyhow::Result<()> {
+    test("agc044", || unreachable!())
+}
+
+#[test]
 fn agc047_samples() -> anyhow::Result<()> {
     test("agc047", || unreachable!())
 }

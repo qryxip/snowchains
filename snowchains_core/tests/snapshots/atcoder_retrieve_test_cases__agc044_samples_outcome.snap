@@ -1,0 +1,222 @@
+---
+source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
+expression: outcome
+---
+{
+  "contest": {
+    "id": "agc044",
+    "submissions_url": "https://atcoder.jp/contests/agc044/submissions/me"
+  },
+  "problems": [
+    {
+      "index": "A",
+      "url": "https://atcoder.jp/contests/agc044/tasks/agc044_a",
+      "screen_name": "agc044_a",
+      "display_name": "Pay to Win",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "5\n11 1 2 4 8\n11 1 2 2 8\n32 10 8 5 4\n29384293847243 454353412 332423423 934923490 1\n900000000000000000 332423423 454353412 934923490 987654321\n",
+            "out": "20\n19\n26\n3821859835\n23441258666\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "B",
+      "url": "https://atcoder.jp/contests/agc044/tasks/agc044_b",
+      "screen_name": "agc044_b",
+      "display_name": "Joker",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "3\n1 3 7 9 5 4 8 6 2\n",
+            "out": "1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "4\n6 7 1 4 13 16 10 9 5 11 12 14 15 2 3 8\n",
+            "out": "3\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "6\n11 21 35 22 7 36 27 34 8 20 15 13 16 1 24 3 2 17 26 9 18 32 31 23 19 14 4 25 10 29 28 33 12 6 5 30\n",
+            "out": "11\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "C",
+      "url": "https://atcoder.jp/contests/agc044/tasks/agc044_c",
+      "screen_name": "agc044_c",
+      "display_name": "Strange Dance",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "1\nSRS\n",
+            "out": "2 0 1 \n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "2\nRRSRSSSSR\n",
+            "out": "3 8 1 0 5 7 6 2 4 \n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "3\nSRSRRSRRRSRRRR\n",
+            "out": "23 9 22 8 3 7 20 24 19 5 18 4 17 12 16 2 6 1 14 0 13 26 21 25 11 15 10 \n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "D",
+      "url": "https://atcoder.jp/contests/agc044/tasks/agc044_d",
+      "screen_name": "agc044_d",
+      "display_name": "Guess the Password",
+      "test_suite": {
+        "type": "Interactive",
+        "timelimit": "2s"
+      },
+      "text_files": {}
+    },
+    {
+      "index": "E",
+      "url": "https://atcoder.jp/contests/agc044/tasks/agc044_e",
+      "screen_name": "agc044_e",
+      "display_name": "Random Pawn",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": {
+          "Float": {
+            "relative_error": 1e-10,
+            "absolute_error": 1e-10
+          }
+        },
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "5\n4 2 6 3 5\n1 1 1 1 1\n",
+            "out": "4.700000000000\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "4\n100 0 100 0\n0 100 0 100\n",
+            "out": "50.000000000000\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "14\n4839 5400 6231 5800 6001 5200 6350 7133 7986 8012 7537 7013 6477 5912\n34 54 61 32 52 61 21 43 65 12 45 21 1 4\n",
+            "out": "7047.142857142857\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "10\n470606482521 533212137322 116718867454 746976621474 457112271419 815899162072 641324977314 88281100571 9231169966 455007126951\n26 83 30 59 100 88 84 91 54 61\n",
+            "out": "815899161079.400024414062\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "F",
+      "url": "https://atcoder.jp/contests/agc044/tasks/agc044_f",
+      "screen_name": "agc044_f",
+      "display_name": "Name-Preserving Clubs",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "2\n",
+            "out": "1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "3\n",
+            "out": "1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "4\n",
+            "out": "7\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "13\n",
+            "out": "6\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample5",
+            "in": "26\n",
+            "out": "-1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample6",
+            "in": "123456789123456789\n",
+            "out": "-1\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    }
+  ]
+}
