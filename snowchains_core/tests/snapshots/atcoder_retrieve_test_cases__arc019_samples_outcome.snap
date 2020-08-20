@@ -1,0 +1,141 @@
+---
+source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
+expression: outcome
+---
+{
+  "contest": {
+    "id": "arc019",
+    "submissions_url": "https://atcoder.jp/contests/arc019/submissions/me"
+  },
+  "problems": [
+    {
+      "index": "A",
+      "url": "https://atcoder.jp/contests/arc019/tasks/arc019_1",
+      "screen_name": "arc019_1",
+      "display_name": "お買い物クライシス",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "1Z0\n",
+            "out": "120\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "4ZD6O\n",
+            "out": "42060\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "BI9Z\n",
+            "out": "8192\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "B",
+      "url": "https://atcoder.jp/contests/arc019/tasks/arc019_2",
+      "screen_name": "arc019_2",
+      "display_name": "こだわりの名前",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "ARC\n",
+            "out": "73\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "S\n",
+            "out": "0\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "NOLEMONNOMELON\n",
+            "out": "350\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "C",
+      "url": "https://atcoder.jp/contests/arc019/tasks/arc019_3",
+      "screen_name": "arc019_3",
+      "display_name": "最後の森",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "5 7 3\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n",
+            "out": "19\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "5 7 2\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n",
+            "out": "21\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "5 7 1\nGET..ET\n..T....\n.TEST..\n.E.T.ET\n...ETC.\n",
+            "out": "-1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "6 35 4\nT...TT.....TT...TTT...TTT..TTG.....\n..T..T.TTT.T..T..E..T..E...TTT.TTT.\n.TTT.T.....E.TTTTT.TTT.TTT.TTT.....\n.....T.TT.TT.TTTTT.TTT.TTT.TTTTTTT.\n.TTT.T.TT..T..T..S..T..TTT.TTTTTTT.\n.CTT.E.TTT.TT...TTT...TT.....E.....\n",
+            "out": "94\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "D",
+      "url": "https://atcoder.jp/contests/arc019/tasks/arc019_4",
+      "screen_name": "arc019_4",
+      "display_name": "ほんとうのたたかい",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": null,
+        "match": "Lines",
+        "cases": [],
+        "extend": []
+      },
+      "text_files": {}
+    }
+  ]
+}

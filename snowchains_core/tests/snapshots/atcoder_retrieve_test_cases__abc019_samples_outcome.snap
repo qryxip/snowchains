@@ -1,0 +1,127 @@
+---
+source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
+expression: outcome
+---
+{
+  "contest": {
+    "id": "abc019",
+    "submissions_url": "https://atcoder.jp/contests/abc019/submissions/me"
+  },
+  "problems": [
+    {
+      "index": "A",
+      "url": "https://atcoder.jp/contests/abc019/tasks/abc019_1",
+      "screen_name": "abc019_1",
+      "display_name": "高橋くんと年齢",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "2 3 4\n",
+            "out": "3\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "5 100 5\n",
+            "out": "5\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "3 3 3\n",
+            "out": "3\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "3 3 4\n",
+            "out": "3\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "B",
+      "url": "https://atcoder.jp/contests/abc019/tasks/abc019_2",
+      "screen_name": "abc019_2",
+      "display_name": "高橋くんと文字列圧縮",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "aabbbaad\n",
+            "out": "a2b3a2d1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "aabbbbbbbbbbbbxyza\n",
+            "out": "e1d1c1b1a1\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "C",
+      "url": "https://atcoder.jp/contests/abc019/tasks/abc019_3",
+      "screen_name": "abc019_3",
+      "display_name": "高橋くんと魔法の箱",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "3\n1 2 3\n",
+            "out": "2\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "4\n2 4 8 16\n",
+            "out": "4\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "D",
+      "url": "https://atcoder.jp/contests/abc019/tasks/abc019_4",
+      "screen_name": "abc019_4",
+      "display_name": "高橋くんと木の直径",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": null,
+        "match": "Lines",
+        "cases": [],
+        "extend": []
+      },
+      "text_files": {}
+    }
+  ]
+}

@@ -548,20 +548,20 @@ fn retrieve_sample_test_cases(
     let contest = CaseConverted::<LowerCase>::new(contest);
 
     let html = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
-    let indexes_and_urls = html.extract_task_indexes_and_urls()?;
+    let mut indexes_and_urls = html.extract_task_indexes_and_urls()?;
 
     let test_suites = sess
         .get(url!("/contests/{}/tasks_print", contest))
         .send()?
         .html()?
-        .extract_samples()?;
+        .extract_samples();
 
     if indexes_and_urls.len() != test_suites.len() {
-        bail!(
+        sess.shell().warn(format!(
             "Found {} task(s) in `tasks`, {} task(s) in `tasks_print`",
             indexes_and_urls.len(),
             test_suites.len(),
-        );
+        ))?;
     }
 
     let mut problems =
@@ -575,25 +575,52 @@ fn retrieve_sample_test_cases(
         problems: vec![],
     };
 
-    for ((index, url), (display_name, test_suite)) in
-        indexes_and_urls.into_iter().zip_eq(test_suites)
-    {
-        if problems.as_mut().map_or(true, |ps| ps.remove(&*index)) {
-            let screen_name = url
-                .path_segments()
-                .and_then(Iterator::last)
-                .with_context(|| "Empty URL")?
-                .to_owned();
+    for result in test_suites {
+        match result {
+            Ok((index, display_name, test_suite)) => {
+                if let Some(url) = indexes_and_urls.shift_remove(&*index) {
+                    if problems.as_mut().map_or(true, |ps| ps.remove(&*index)) {
+                        let screen_name = url
+                            .path_segments()
+                            .and_then(Iterator::last)
+                            .with_context(|| "Empty URL")?
+                            .to_owned();
 
-            outcome.problems.push(RetrieveTestCasesOutcomeProblem {
-                url,
-                index: index.into(),
-                screen_name: Some(screen_name),
-                display_name,
-                test_suite,
-                text_files: indexmap![],
-            });
+                        let test_suite = match test_suite {
+                            Ok(test_suite) => test_suite,
+                            Err(err) => {
+                                sess.shell().warn(err)?;
+
+                                TestSuite::Batch(BatchTestSuite {
+                                    timelimit: None,
+                                    r#match: Match::Lines,
+                                    cases: vec![],
+                                    extend: vec![],
+                                })
+                            }
+                        };
+
+                        outcome.problems.push(RetrieveTestCasesOutcomeProblem {
+                            url,
+                            index,
+                            screen_name: Some(screen_name),
+                            display_name,
+                            test_suite,
+                            text_files: indexmap![],
+                        });
+                    }
+                } else {
+                    sess.shell()
+                        .warn(format!("what is this?: `{} - {}`", index, display_name))?;
+                }
+            }
+            Err(err) => sess.shell().warn(err)?,
         }
+    }
+
+    for (index, _) in indexes_and_urls {
+        sess.shell()
+            .warn(format!("Could not find `{}` in `tasks_print`", index))?;
     }
 
     if let Some(problems) = problems {
@@ -1272,62 +1299,72 @@ impl Html {
         .with_context(|| "Could not extract task indexes and URLs")
     }
 
-    fn extract_samples(&self) -> anyhow::Result<IndexMap<String, TestSuite>> {
+    fn extract_samples(&self) -> Vec<anyhow::Result<(String, String, anyhow::Result<TestSuite>)>> {
         return self
             .select(static_selector!(
                 "#main-container > div.row div[class=\"col-sm-12\"]",
             ))
             .map(|div| {
-                let display_name = div
-                    .select(static_selector!(":scope > span"))
-                    .flat_map(|r| r.text())
-                    .next()
-                    .and_then(|s| static_regex!(r"[A-Z0-9]+ - (.+)").captures(s))
-                    .map(|caps| caps[1].to_owned())
-                    .with_context(|| "Could not extract the display name")?;
+                let (index, display_name) = {
+                    let title_with_index = div
+                        .select(static_selector!(":scope > span"))
+                        .flat_map(|r| r.text())
+                        .next()
+                        .with_context(|| "Could not find the title")?;
 
-                let timelimit = div
-                    .select(static_selector!(":scope > p"))
-                    .flat_map(|r| r.text())
-                    .flat_map(parse_timelimit)
-                    .exactly_one()
-                    .ok()
-                    .with_context(|| "Could not extract the timelimit")?;
+                    let caps = static_regex!(r"([A-Z0-9]+) - (.+)")
+                        .captures(title_with_index)
+                        .with_context(|| {
+                            format!("Could not parse the title: {:?}", title_with_index)
+                        })?;
 
-                // In `tasks_print`, there are multiple `#task-statement`s.
-                let samples = div
-                    .select(static_selector!(":scope > div[id=\"task-statement\"]"))
-                    .exactly_one()
-                    .ok()
-                    .and_then(extract_samples)
-                    .with_context(|| "Could not extract the sample cases")?;
-
-                let test_suite = if timelimit == Duration::new(0, 0) {
-                    TestSuite::Unsubmittable
-                } else if let Samples::Batch(r#match, samples) = samples {
-                    TestSuite::Batch(BatchTestSuite {
-                        timelimit: Some(timelimit),
-                        r#match,
-                        cases: samples
-                            .into_iter()
-                            .enumerate()
-                            .map(|(i, (input, output))| PartialBatchTestCase {
-                                name: Some(format!("sample{}", i + 1)),
-                                r#in: input.into(),
-                                out: Some(output.into()),
-                                timelimit: None,
-                                r#match: None,
-                            })
-                            .collect(),
-                        extend: vec![],
-                    })
-                } else {
-                    TestSuite::Interactive(InteractiveTestSuite {
-                        timelimit: Some(timelimit),
-                    })
+                    (caps[1].to_owned(), caps[2].to_owned())
                 };
 
-                Ok((display_name, test_suite))
+                let test_suite = (|| {
+                    let timelimit = div
+                        .select(static_selector!(":scope > p"))
+                        .flat_map(|r| r.text())
+                        .flat_map(parse_timelimit)
+                        .exactly_one()
+                        .map_err(|_| "Could not extract the timelimit")?;
+
+                    // In `tasks_print`, there are multiple `#task-statement`s.
+                    let samples = div
+                        .select(static_selector!(":scope > div[id=\"task-statement\"]"))
+                        .exactly_one()
+                        .ok()
+                        .and_then(extract_samples)
+                        .ok_or_else(|| "Could not extract the sample cases")?;
+
+                    Ok::<_, &str>(if timelimit == Duration::new(0, 0) {
+                        TestSuite::Unsubmittable
+                    } else if let Samples::Batch(r#match, samples) = samples {
+                        TestSuite::Batch(BatchTestSuite {
+                            timelimit: Some(timelimit),
+                            r#match,
+                            cases: samples
+                                .into_iter()
+                                .enumerate()
+                                .map(|(i, (input, output))| PartialBatchTestCase {
+                                    name: Some(format!("sample{}", i + 1)),
+                                    r#in: input.into(),
+                                    out: Some(output.into()),
+                                    timelimit: None,
+                                    r#match: None,
+                                })
+                                .collect(),
+                            extend: vec![],
+                        })
+                    } else {
+                        TestSuite::Interactive(InteractiveTestSuite {
+                            timelimit: Some(timelimit),
+                        })
+                    })
+                })()
+                .map_err(|e| anyhow!("{}: {}", index, e));
+
+                Ok((index, display_name, test_suite))
             })
             .collect();
 
@@ -1417,10 +1454,15 @@ impl Html {
             re_input: &'static Regex,
             re_output: &'static Regex,
         ) -> Option<Samples> {
+            #[allow(clippy::blocks_in_if_conditions)]
             if task_statement
                 .select(static_selector!("strong"))
                 .flat_map(|r| r.text())
-                .any(|t| t.contains("インタラクティブ") || t.contains("Interactive"))
+                .any(|s| {
+                    s.contains("インタラクティブ")
+                        || s.contains("対話式の問題")
+                        || s.contains("Interactive")
+                })
             {
                 return Some(Samples::Interactive);
             }

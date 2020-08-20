@@ -1,0 +1,285 @@
+---
+source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
+expression: outcome
+---
+{
+  "contest": {
+    "id": "agc028",
+    "submissions_url": "https://atcoder.jp/contests/agc028/submissions/me"
+  },
+  "problems": [
+    {
+      "index": "A",
+      "url": "https://atcoder.jp/contests/agc028/tasks/agc028_a",
+      "screen_name": "agc028_a",
+      "display_name": "Two Abbreviations",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "3 2\nacp\nae\n",
+            "out": "6\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "6 3\nabcdef\nabc\n",
+            "out": "-1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "15 9\ndnsusrayukuaiia\ndujrunuma\n",
+            "out": "45\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "B",
+      "url": "https://atcoder.jp/contests/agc028/tasks/agc028_b",
+      "screen_name": "agc028_b",
+      "display_name": "Removing Blocks",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "2\n1 2\n",
+            "out": "9\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "4\n1 1 1 1\n",
+            "out": "212\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "10\n1 2 4 8 16 32 64 128 256 512\n",
+            "out": "880971923\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "C",
+      "url": "https://atcoder.jp/contests/agc028/tasks/agc028_c",
+      "screen_name": "agc028_c",
+      "display_name": "Min Cost Cycle",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "3\n1 5\n4 2\n6 3\n",
+            "out": "7\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "4\n1 5\n2 6\n3 7\n4 8\n",
+            "out": "10\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "6\n19 92\n64 64\n78 48\n57 33\n73 6\n95 73\n",
+            "out": "227\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "D",
+      "url": "https://atcoder.jp/contests/agc028/tasks/agc028_d",
+      "screen_name": "agc028_d",
+      "display_name": "Chords",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "2 0\n",
+            "out": "5\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "4 2\n5 2\n6 1\n",
+            "out": "6\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "20 10\n10 18\n11 17\n14 7\n4 6\n30 28\n19 24\n29 22\n25 32\n38 34\n36 39\n",
+            "out": "27087418\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "E",
+      "url": "https://atcoder.jp/contests/agc028/tasks/agc028_e",
+      "screen_name": "agc028_e",
+      "display_name": "High Elements",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "6\n3 1 4 6 2 5\n",
+            "out": "001001\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "5\n1 2 3 4 5\n",
+            "out": "-1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "7\n1 3 2 5 6 4 7\n",
+            "out": "0001101\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "30\n1 2 6 3 5 7 9 8 11 12 10 13 16 23 15 18 14 24 22 26 19 21 28 17 4 27 29 25 20 30\n",
+            "out": "000000000001100101010010011101\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "F",
+      "url": "https://atcoder.jp/contests/agc028/tasks/agc028_f",
+      "screen_name": "agc028_f",
+      "display_name": "Reachable Cells",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "4s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "2\n11\n11\n",
+            "out": "5\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "4\n1111\n11#1\n1#11\n1111\n",
+            "out": "47\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "10\n76##63##3#\n8445669721\n75#9542133\n3#285##445\n749632##89\n2458##9515\n5952578#77\n1#3#44196#\n4355#99#1#\n#298#63587\n",
+            "out": "36065\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "10\n4177143673\n7#########\n5#1716155#\n6#4#####5#\n2#3#597#6#\n6#9#8#3#5#\n5#2#899#9#\n1#6#####6#\n6#5359657#\n5#########\n",
+            "out": "6525\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "F2",
+      "url": "https://atcoder.jp/contests/agc028/tasks/agc028_f2",
+      "screen_name": "agc028_f2",
+      "display_name": "Reachable Cells",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "9s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "2\n11\n11\n",
+            "out": "5\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "4\n1111\n11#1\n1#11\n1111\n",
+            "out": "47\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "10\n76##63##3#\n8445669721\n75#9542133\n3#285##445\n749632##89\n2458##9515\n5952578#77\n1#3#44196#\n4355#99#1#\n#298#63587\n",
+            "out": "36065\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "10\n4177143673\n7#########\n5#1716155#\n6#4#####5#\n2#3#597#6#\n6#9#8#3#5#\n5#2#899#9#\n1#6#####6#\n6#5359657#\n5#########\n",
+            "out": "6525\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    }
+  ]
+}

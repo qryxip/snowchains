@@ -23,8 +23,33 @@ fn abc007_samples() -> anyhow::Result<()> {
 }
 
 #[test]
+fn abc019_samples() -> anyhow::Result<()> {
+    test("abc019", || unreachable!())
+}
+
+#[test]
+fn agc028_samples() -> anyhow::Result<()> {
+    test("agc028", || unreachable!())
+}
+
+#[test]
+fn agc044_samples() -> anyhow::Result<()> {
+    test("agc044", || unreachable!())
+}
+
+#[test]
 fn agc047_samples() -> anyhow::Result<()> {
     test("agc047", || unreachable!())
+}
+
+#[test]
+fn arc019_samples() -> anyhow::Result<()> {
+    test("arc019", || unreachable!())
+}
+
+#[test]
+fn arc021_samples() -> anyhow::Result<()> {
+    test("arc021", || unreachable!())
 }
 
 #[cfg(feature = "__test_with_credentials")]
