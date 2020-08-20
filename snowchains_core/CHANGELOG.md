@@ -1,3 +1,11 @@
+# Changelog
+
+## [Unreleased]
+
+### Changed
+
+- Now `RetrieveTestCases` for AtCoder proceeds when encountered scraping errors.
+
 ## [0.4.1] - 2020-08-18Z
 
 ### Fixed

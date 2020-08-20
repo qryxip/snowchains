@@ -1,0 +1,127 @@
+---
+source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
+expression: outcome
+---
+{
+  "contest": {
+    "id": "arc021",
+    "submissions_url": "https://atcoder.jp/contests/arc021/submissions/me"
+  },
+  "problems": [
+    {
+      "index": "A",
+      "url": "https://atcoder.jp/contests/arc021/tasks/arc021_1",
+      "screen_name": "arc021_1",
+      "display_name": "DEAD END",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "2 8 2 2\n32 2 8 8\n4 64 2 128\n2 8 4 2\n",
+            "out": "CONTINUE\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "2 4 16 4\n8 32 128 8\n2 64 16 2\n32 4 32 4\n",
+            "out": "GAMEOVER\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "2 4 2 4\n4 2 4 2\n2 4 2 4\n4 2 4 2\n",
+            "out": "GAMEOVER\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "B",
+      "url": "https://atcoder.jp/contests/arc021/tasks/arc021_2",
+      "screen_name": "arc021_2",
+      "display_name": "Your Numbers are XORed...",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "2\n1\n1\n",
+            "out": "0\n1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "3\n1\n4\n1\n",
+            "out": "-1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "3\n1\n2\n3\n",
+            "out": "0\n1\n3\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "C",
+      "url": "https://atcoder.jp/contests/arc021/tasks/arc021_3",
+      "screen_name": "arc021_3",
+      "display_name": "増築王高橋君",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "4\n3\n10 3\n12 4\n15 5\n",
+            "out": "50\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "8\n4\n1 1\n10 1\n100 1\n1000 1\n",
+            "out": "36\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "D",
+      "url": "https://atcoder.jp/contests/arc021/tasks/arc021_4",
+      "screen_name": "arc021_4",
+      "display_name": "だいたい最小全域木",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": null,
+        "match": "Lines",
+        "cases": [],
+        "extend": []
+      },
+      "text_files": {}
+    }
+  ]
+}

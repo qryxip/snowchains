@@ -1,0 +1,268 @@
+---
+source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
+expression: outcome
+---
+{
+  "contest": {
+    "id": "agc019",
+    "submissions_url": "https://atcoder.jp/contests/agc019/submissions/me"
+  },
+  "problems": [
+    {
+      "index": "A",
+      "url": "https://atcoder.jp/contests/agc019/tasks/agc019_a",
+      "screen_name": "agc019_a",
+      "display_name": "Ice Tea Store",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "20 30 70 90\n3\n",
+            "out": "150\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "10000 1000 100 10\n1\n",
+            "out": "100\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "10 100 1000 10000\n1\n",
+            "out": "40\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "12345678 87654321 12345678 87654321\n123456789\n",
+            "out": "1524157763907942\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "B",
+      "url": "https://atcoder.jp/contests/agc019/tasks/agc019_b",
+      "screen_name": "agc019_b",
+      "display_name": "Reverse and Compare",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "aatt\n",
+            "out": "5\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "xxxxxxxxxx\n",
+            "out": "1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "abracadabra\n",
+            "out": "44\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "C",
+      "url": "https://atcoder.jp/contests/agc019/tasks/agc019_c",
+      "screen_name": "agc019_c",
+      "display_name": "Fountain Walk",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": {
+          "Float": {
+            "relative_error": 1e-11,
+            "absolute_error": 1e-11
+          }
+        },
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "1 1 6 5\n3\n3 2\n5 3\n2 4\n",
+            "out": "891.415926535897938\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "3 5 6 4\n3\n3 2\n5 3\n2 4\n",
+            "out": "400.000000000000000\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "4 2 2 2\n3\n3 2\n5 3\n2 4\n",
+            "out": "211.415926535897938\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "D",
+      "url": "https://atcoder.jp/contests/agc019/tasks/agc019_d",
+      "screen_name": "agc019_d",
+      "display_name": "Shift and Flip",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "1010\n1100\n",
+            "out": "3\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "1\n0\n",
+            "out": "-1\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "11010\n10001\n",
+            "out": "4\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "0100100\n1111111\n",
+            "out": "5\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "E",
+      "url": "https://atcoder.jp/contests/agc019/tasks/agc019_e",
+      "screen_name": "agc019_e",
+      "display_name": "Shuffle and Swap",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "1010\n1100\n",
+            "out": "3\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "01001\n01001\n",
+            "out": "4\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "101010\n010101\n",
+            "out": "36\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "1101011011110\n0111101011101\n",
+            "out": "932171449\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    },
+    {
+      "index": "F",
+      "url": "https://atcoder.jp/contests/agc019/tasks/agc019_f",
+      "screen_name": "agc019_f",
+      "display_name": "Yes or No",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "2s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "1 1\n",
+            "out": "499122178\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "2 2\n",
+            "out": "831870297\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "3 4\n",
+            "out": "770074220\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "10 10\n",
+            "out": "208827570\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample5",
+            "in": "42 23\n",
+            "out": "362936761\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    }
+  ]
+}

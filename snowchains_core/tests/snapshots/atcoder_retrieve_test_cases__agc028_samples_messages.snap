@@ -1,0 +1,22 @@
+---
+source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
+expression: messages
+---
+[
+    OnRequest(
+        GET,
+        "https://atcoder.jp/contests/agc028/tasks",
+    ),
+    OnResponse(
+        200,
+        Ok,
+    ),
+    OnRequest(
+        GET,
+        "https://atcoder.jp/contests/agc028/tasks_print",
+    ),
+    OnResponse(
+        200,
+        Unknown,
+    ),
+]
