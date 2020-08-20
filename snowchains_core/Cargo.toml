@@ -17,36 +17,36 @@ __test_with_credentials = []
 
 [dependencies]
 anyhow = "1.0.32"
-chrono = { version = "0.4.13", features = ["serde"] }
+chrono = { version = "0.4.15", features = ["serde"] }
 cookie_store = "0.12.0"
 derivative = "2.1.1"
 derive_more = "0.99.9"
 easy-ext = "0.2.2"
-either = "1.5.3"
+either = "1.6.0"
 fs2 = "0.4.3"
 futures-util = "0.3.5"
 hex = "0.4.2"
 humantime = "2.0.1"
 humantime-serde = "1.0.0"
 ignore = "0.4.16"
-indexmap = { version = "1.5.0", features = ["serde-1"] }
+indexmap = { version = "1.5.1", features = ["serde-1"] }
 indicatif = { version = "0.15.0", features = ["improved_unicode", "rayon"] }
 itertools = "0.9.0"
 maplit = "1.0.2"
 nom = "5.1.2"
 num_cpus = "1.13.0"
-once_cell = "1.4.0"
+once_cell = "1.4.1"
 percent-encoding = "2.1.0"
 prettytable-rs = "0.8.0"
 rand = "0.7.3"
 regex = "1.3.9"
 reqwest = { version = "0.10.7", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
 scraper = "0.12.0"
-serde = { version = "1.0.114", features = ["derive"] }
+serde = { version = "1.0.115", features = ["derive"] }
 serde_json = "1.0.57"
 serde_yaml = "0.8.13"
 sha2 = "0.9.1"
-strum = { version = "0.18.0", features = ["derive"] }
+strum = { version = "0.19.2", features = ["derive"] }
 termcolor = "1.1.0"
 tokio = { version = "0.2.22", features = ["blocking", "io-util", "process", "rt-threaded", "signal", "sync", "time"] }
 unicode-width = "0.1.8"
@@ -59,6 +59,6 @@ difference = "2.0.0"
 fwdansi = "1.1.0"
 insta = "0.16.1"
 pretty_assertions = "0.6.1"
-rpassword = "4.0.5"
+rpassword = "5.0.0"
 rprompt = "1.0.5"
-structopt = "0.3.15"
+structopt = "0.3.16"
