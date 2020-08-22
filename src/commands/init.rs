@@ -60,3 +60,34 @@ pub(crate) fn run(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use rusty_fork::rusty_fork_test;
+
+    rusty_fork_test! {
+        #[cfg(not(debug_assertions))]
+        #[test]
+        fn resolve_default_config_dhall() {
+            // https://docs.rs/dhall/0.6.0/src/dhall/semantics/resolve/cache.rs.html#15-35
+
+            use std::env;
+
+            let cache_dir = tempfile::Builder::new()
+                .prefix("snowchains-tests-")
+                .tempdir()
+                .unwrap();
+
+            env::set_var("XDG_CACHE_HOME", cache_dir.path());
+
+            dhall::semantics::parse::parse_str(include_str!(
+                "../../resources/config/default-config.dhall",
+            ))
+            .unwrap()
+            .resolve()
+            .unwrap();
+
+            cache_dir.close().unwrap();
+        }
+    }
+}
