@@ -1,3 +1,14 @@
+## [0.5.1] - 2020-08-22Z
+
+### Changed
+
+- Now `retrieve testcases` for AtCoder proceeds when encountered scraping errors.
+
+### Fixed
+
+- Improved the parser for `retrieve testcases`.
+- Fixed a bug that [`package.dhall`](https://github.com/qryxip/snowchains/blob/master/resources/config/schema/Snowchains/package.dhall) cannot be resolved unless [dhall-haskell](https://github.com/dhall-lang/dhall-haskell) resolves it.
+
 ## [0.5.0] - 2020-08-18Z
 
 ### Changed
