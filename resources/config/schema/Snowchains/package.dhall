@@ -1,5 +1,5 @@
-let Map =
-      https://prelude.dhall-lang.org/v17.0.0/Map/Type sha256:210c7a9eba71efbb0f7a66b3dcf8b9d3976ffc2bc0e907aadfb6aa29c333e8ed
+-- https://github.com/Nadrieril/dhall-rust/blob/3d9c0b12c6b34185e556071ee16401691bfd8e49/dhall/src/semantics/resolve/resolve.rs#L54-L59
+let Map = λ(k : Type) → λ(v : Type) → List { mapKey : k, mapValue : v }
 
 let Service = < Atcoder | Codeforces | Yukicoder >
 

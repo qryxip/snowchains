@@ -144,6 +144,13 @@ jobs:
           ATCODER_USERNAME: ${{ secrets.ATCODER_USERNAME }}
           ATCODER_PASSWORD: ${{ secrets.ATCODER_PASSWORD }}
 
+      - name: '`cargo test --lib --release -- commands::init::tests::resolve_default_config_dhall`'
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --lib --release -- commands::init::tests::resolve_default_config_dhall
+        if: matrix.target-triple == 'x86_64-unknown-linux-gnu'
+
   upload:
     strategy:
       fail-fast: false
