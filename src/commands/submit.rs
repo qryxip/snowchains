@@ -1,12 +1,12 @@
 use crate::config;
-use anyhow::Context as _;
+use anyhow::{bail, Context as _};
 use human_size::Size;
 use snowchains_core::web::{
     Atcoder, AtcoderSubmitCredentials, AtcoderSubmitTarget, Codeforces,
     CodeforcesSubmitCredentials, CodeforcesSubmitTarget, CookieStorage, PlatformKind, Submit,
     Yukicoder, YukicoderSubmitCredentials, YukicoderSubmitTarget,
 };
-use std::{cell::RefCell, io::BufRead, path::PathBuf};
+use std::{cell::RefCell, env, io::BufRead, iter, path::PathBuf};
 use structopt::StructOpt;
 use strum::VariantNames as _;
 use termcolor::WriteColor;
@@ -82,7 +82,7 @@ pub(crate) fn run(
         testcases,
         display_limit,
         config,
-        color: _,
+        color,
         service,
         contest,
         language,
@@ -96,13 +96,13 @@ pub(crate) fn run(
             service,
             contest,
             problem,
-            ..
+            mode: _,
         },
         config::Language {
             src,
             transpile,
-            compile,
-            run,
+            compile: _,
+            run: _,
             languageId: language_id,
         },
         base_dir,
@@ -136,24 +136,35 @@ pub(crate) fn run(
             )?;
         }
     } else {
-        crate::judge::judge(crate::judge::Args {
-            progress_draw_target: shell.progress_draw_target(),
-            stdout: &mut shell.stdout,
-            stderr: &mut shell.stderr,
-            stdin_process_redirection: shell.stdin_process_redirection,
-            stdout_process_redirection: shell.stdout_process_redirection,
-            stderr_process_redirection: shell.stderr_process_redirection,
-            base_dir,
-            service,
-            contest: contest.clone(),
-            problem: problem.clone(),
-            src,
-            transpile,
-            compile,
-            run,
-            test_case_names: testcases.map(|ss| ss.into_iter().collect()),
-            display_limit,
-        })?;
+        let status = std::process::Command::new(env::current_exe()?)
+            .arg("j")
+            .args(if debug { &[][..] } else { &["--release"] })
+            .args(if let Some(testcases) = testcases {
+                iter::once("--testcases".into()).chain(testcases).collect()
+            } else {
+                vec![]
+            })
+            .args(&["--display-limit", &display_limit.to_string()])
+            .arg("--config")
+            .arg(base_dir.join("snowchains.dhall"))
+            .args(&["--color", &color.to_string()])
+            .args(&["-s", &service.to_kebab_case_str()])
+            .args(if let Some(contest) = &contest {
+                vec!["-c".to_owned(), contest.clone()]
+            } else {
+                vec![]
+            })
+            .args(if let Some(language) = &language {
+                vec!["-l".to_owned(), language.clone()]
+            } else {
+                vec![]
+            })
+            .arg(&problem)
+            .status()?;
+
+        if !status.success() {
+            bail!("`snowchains j ...` failed ({})", status);
+        }
     }
 
     let watch_submission = !no_watch;

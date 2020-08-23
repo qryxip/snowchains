@@ -1,3 +1,11 @@
+# Changelog
+
+## [Unreleased]
+
+### Fixed
+
+- Add workaround for the problem where <kbd>C-c</kbd> does not work while submitting source code.
+
 ## [0.5.1] - 2020-08-22Z
 
 ### Changed
