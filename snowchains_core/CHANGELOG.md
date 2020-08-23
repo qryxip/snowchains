@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed a cosmetic problem on `WatchSubmissions`.
+
 ## [0.4.2] - 2020-08-20Z
 
 ### Changed

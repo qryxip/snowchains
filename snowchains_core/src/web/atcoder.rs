@@ -831,7 +831,7 @@ fn print_submissions(mut wtr: impl WriteColor, summaries: &[SubmissionSummary]) 
                 wtr.reset()?;
                 write!(
                     wtr,
-                    " │ {:>8} │ {:>9} │",
+                    " │ {:>8} │ {:>10} │",
                     summary.exec_time.as_deref().unwrap_or(""),
                     summary.memory.as_deref().unwrap_or(""),
                 )?;
@@ -876,7 +876,7 @@ fn watch_submissions(
         let pb = mp.add(ProgressBar::new(0));
 
         pb.set_style(
-            ProgressStyle::default_bar().template("{prefix}{msg:3.bold}                        │"),
+            ProgressStyle::default_bar().template("{prefix}{msg:3.bold}                         │"),
         );
 
         pb.set_prefix(&format!(
@@ -966,7 +966,7 @@ fn watch_submissions(
 
                                 pb.set_style(ProgressStyle::default_bar().template(&format!(
                                     "{{prefix}}{{msg:3{style}}} {{pos:>3{style}}}/\
-                                     {{len:>3{style}}} {{bar:14{style}}} │",
+                                     {{len:>3{style}}} {{bar:15{style}}} │",
                                     style = style(verdict),
                                 )));
 
@@ -1025,7 +1025,7 @@ fn watch_submissions(
             "{{prefix}}{{msg:3{}}} │ {} │ {} │",
             verdict.progress_style(),
             align_right(exec_time, 8),
-            align_right(memory, 9),
+            align_right(memory, 10),
         )));
         pb.finish_with_message(&verdict.to_string());
     };
