@@ -124,7 +124,7 @@ impl Opt {
     }
 }
 
-#[derive(EnumVariantNames, EnumString, Debug, Clone, Copy)]
+#[derive(EnumVariantNames, EnumString, strum::Display, Debug, Clone, Copy)]
 #[strum(serialize_all = "lowercase")]
 pub enum ColorChoice {
     Auto,
