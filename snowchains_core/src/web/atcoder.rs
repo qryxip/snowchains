@@ -610,7 +610,9 @@ fn retrieve_sample_test_cases(
 
     let test_suites = sess
         .get(url!("/contests/{}/tasks_print", contest))
+        .colorize_status_code(&[200], (), ..)
         .send()?
+        .ensure_status(&[200])?
         .html()?
         .extract_samples();
 
