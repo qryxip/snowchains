@@ -17,7 +17,7 @@ expression: messages
     ),
     OnResponse(
         200,
-        Unknown,
+        Ok,
     ),
     Warn(
         "D: Could not extract the sample cases",

@@ -65,6 +65,6 @@ expression: messages
     ),
     OnResponse(
         200,
-        Unknown,
+        Ok,
     ),
 ]
