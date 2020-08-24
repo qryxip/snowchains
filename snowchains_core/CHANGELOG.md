@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Enabled downloading all of the test cases on Dropbox.
+
 ## [0.4.3] - 2020-08-23Z
 
 ### Fixed
