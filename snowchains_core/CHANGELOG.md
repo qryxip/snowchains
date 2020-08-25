@@ -9,6 +9,7 @@
 ### Changed
 
 - Added `url` and `display_name` fields to `RetrieveTestCasesOutcomeContest`.
+- Made `Outcome`s `#[non_exhaustive]`.
 
 ## [0.4.3] - 2020-08-23Z
 

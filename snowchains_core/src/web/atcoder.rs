@@ -567,6 +567,7 @@ pub struct AtcoderRetrieveSubmissionSummariesCredentials<'closures> {
     pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Serialize)]
 pub struct AtcoderRetrieveSubmissionSummariesOutcome {
     summaries: Vec<SubmissionSummary>,

@@ -238,6 +238,7 @@ pub(crate) fn run(
                  display_name,
                  url,
                  submissions_url,
+                 ..
              }| OutcomeContest {
                 id: CaseConversions::new(id),
                 display_name,
@@ -255,6 +256,7 @@ pub(crate) fn run(
         display_name,
         mut test_suite,
         text_files,
+        ..
     } in outcome.problems
     {
         let index = CaseConversions::new(index);
