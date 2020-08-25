@@ -567,6 +567,7 @@ pub struct AtcoderRetrieveSubmissionSummariesCredentials<'closures> {
     pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Serialize)]
 pub struct AtcoderRetrieveSubmissionSummariesOutcome {
     summaries: Vec<SubmissionSummary>,
@@ -606,6 +607,10 @@ fn retrieve_sample_test_cases(
     let contest = CaseConverted::<LowerCase>::new(contest);
 
     let html = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
+    let contest_display_name = html
+        .extract_title()?
+        .trim_start_matches("Tasks - ")
+        .to_owned();
     let mut indexes_and_urls = html.extract_task_indexes_and_urls()?;
 
     let test_suites = sess
@@ -630,6 +635,8 @@ fn retrieve_sample_test_cases(
     let mut outcome = RetrieveTestCasesOutcome {
         contest: Some(RetrieveTestCasesOutcomeContest {
             id: (*contest).to_owned(),
+            display_name: contest_display_name,
+            url: url!("/contests/{}", contest),
             submissions_url: url!("/contests/{}/submissions/me", contest),
         }),
         problems: vec![],
@@ -1297,6 +1304,14 @@ impl Serialize for Verdict {
 
 #[ext]
 impl Html {
+    fn extract_title(&self) -> anyhow::Result<&str> {
+        self.select(static_selector!(":root > head > title"))
+            .flat_map(|r| r.text())
+            .exactly_one()
+            .ok()
+            .with_context(|| "Could not find `<title>`")
+    }
+
     fn extract_csrf_token(&self) -> anyhow::Result<String> {
         (|| -> _ {
             let token = self

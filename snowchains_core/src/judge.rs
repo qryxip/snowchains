@@ -17,6 +17,7 @@ use termcolor::{Color, WriteColor};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use unicode_width::UnicodeWidthStr as _;
 
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct JudgeOutcome {
     pub verdicts: Vec<Verdict>,

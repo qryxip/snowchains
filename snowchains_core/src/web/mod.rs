@@ -243,6 +243,7 @@ pub struct RetrieveLanguages<P: Platform, S: Shell> {
     pub shell: S,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Serialize)]
 pub struct RetrieveLanguagesOutcome {
     pub names_by_id: IndexMap<String, String>,
@@ -289,18 +290,23 @@ pub struct RetrieveFullTestCases<P: Platform> {
     pub credentials: P::RetrieveFullTestCasesCredentials,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Serialize)]
 pub struct RetrieveTestCasesOutcome {
     pub contest: Option<RetrieveTestCasesOutcomeContest>,
     pub problems: Vec<RetrieveTestCasesOutcomeProblem>,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Serialize)]
 pub struct RetrieveTestCasesOutcomeContest {
     pub id: String,
+    pub display_name: String,
+    pub url: Url,
     pub submissions_url: Url,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Serialize)]
 pub struct RetrieveTestCasesOutcomeProblem {
     pub index: String,
@@ -360,6 +366,7 @@ pub struct Submit<P: Platform, S: Shell> {
     pub shell: S,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Serialize)]
 pub struct SubmitOutcome {
     pub problem_screen_name: Option<String>,

@@ -182,13 +182,15 @@ impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
         let problem_id = match target.parse()? {
             Either::Left(problem_no) => sess.get_problem_by_problem_no(problem_no)?.problem_id,
             Either::Right((contest_id, problem_index)) => {
-                let (_, problem_id) = sess
+                let (_, problems) = sess
                     .get(url!("/contests/{}", contest_id))
                     .colorize_status_code(&[200], (), ..)
                     .send()?
                     .ensure_status(&[200])?
                     .html()?
-                    .extract_problems()?
+                    .extract_contest_info()?;
+
+                let (_, problem_id) = problems
                     .into_iter()
                     .find(|(index, _)| index.eq_ignore_ascii_case(&problem_index))
                     .with_context(|| {
@@ -319,8 +321,18 @@ fn retrieve_samples(
             }
         }
         Either::Right((contest_id, problem_indexes)) => {
+            let (contest_name, contest_problems) = sess
+                .get(url!("/contests/{}", contest_id))
+                .colorize_status_code(&[200], (), ..)
+                .send()?
+                .ensure_status(&[200])?
+                .html()?
+                .extract_contest_info()?;
+
             outcome.contest = Some(RetrieveTestCasesOutcomeContest {
                 id: contest_id.to_string(),
+                display_name: contest_name,
+                url: url!("/contests/{}", contest_id),
                 submissions_url: url!("/contests/{}/submissions?my_submission=enabled", contest_id),
             });
 
@@ -331,14 +343,7 @@ fn retrieve_samples(
                     .collect::<BTreeSet<_>>()
             });
 
-            for (index, problem_no) in sess
-                .get(url!("/contests/{}", contest_id))
-                .colorize_status_code(&[200], (), ..)
-                .send()?
-                .ensure_status(&[200])?
-                .html()?
-                .extract_problems()?
-            {
+            for (index, problem_no) in contest_problems {
                 if let Some(not_found) = &mut not_found {
                     if !not_found.remove(&index) {
                         continue;
@@ -390,21 +395,38 @@ fn retrieve_samples(
 
 #[ext]
 impl Html {
-    fn extract_problems(&self) -> anyhow::Result<Vec<(CaseConverted<UpperCase>, u64)>> {
+    #[allow(clippy::type_complexity)]
+    fn extract_contest_info(
+        &self,
+    ) -> anyhow::Result<(String, Vec<(CaseConverted<UpperCase>, u64)>)> {
         return (|| -> _ {
-            self.select(static_selector!(
-                "#content > div.left > table.table > tbody > tr",
-            ))
-            .map(|tr| {
-                if let [td1, td2, ..] = *tr.select(static_selector!("td")).collect::<Vec<_>>() {
-                    let index = CaseConverted::new(exactly_one_text(td1)?);
-                    let no = exactly_one_text(td2)?.parse().ok()?;
-                    Some((index, no))
-                } else {
-                    None
-                }
-            })
-            .collect::<Option<_>>()
+            let title = self
+                .select(static_selector!(":root > head > title"))
+                .flat_map(|r| r.text())
+                .exactly_one()
+                .ok()?;
+
+            let name = title
+                .strip_suffix(" - yukicoder")
+                .unwrap_or(title)
+                .to_owned();
+
+            let problems = self
+                .select(static_selector!(
+                    "#content > div.left > table.table > tbody > tr",
+                ))
+                .map(|tr| {
+                    if let [td1, td2, ..] = *tr.select(static_selector!("td")).collect::<Vec<_>>() {
+                        let index = CaseConverted::new(exactly_one_text(td1)?);
+                        let no = exactly_one_text(td2)?.parse().ok()?;
+                        Some((index, no))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Option<_>>()?;
+
+            Some((name, problems))
         })()
         .with_context(|| "Could not parse the contest page");
 

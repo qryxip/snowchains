@@ -5,6 +5,8 @@ expression: outcome
 {
   "contest": {
     "id": "agc047",
+    "display_name": "AtCoder Grand Contest 047",
+    "url": "https://atcoder.jp/contests/agc047",
     "submissions_url": "https://atcoder.jp/contests/agc047/submissions/me"
   },
   "problems": [

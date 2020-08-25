@@ -93,7 +93,7 @@ impl<S: Shell> Exec<Participate<Self, S>> for Codeforces<'_> {
 
         let contest = parse_contest_id(&contest)?;
         let sess = Session::new(timeout, Some(cookie_storage), shell)?;
-        let (outcome, _) = participate(sess, username_and_password, contest)?;
+        let (outcome, _, _) = participate(sess, username_and_password, contest)?;
         Ok(outcome)
     }
 }
@@ -151,7 +151,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
 
         let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
-        participate(&mut sess, username_and_password, contest)?;
+        let (_, contest_name, _) = participate(&mut sess, username_and_password, contest)?;
 
         let mut problem_indices = problems.map(|ps| {
             ps.iter()
@@ -203,6 +203,8 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
         Ok(RetrieveTestCasesOutcome {
             contest: Some(RetrieveTestCasesOutcomeContest {
                 id: contest.to_string(),
+                display_name: contest_name,
+                url: url!("/contest/{}", contest),
                 submissions_url: url!("/contest/{}/my", contest),
             }),
             problems,
@@ -242,7 +244,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
 
         let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
-        let (_, handle) = participate(&mut sess, username_and_password, contest_id)?;
+        let (_, _, handle) = participate(&mut sess, username_and_password, contest_id)?;
 
         let (_, problems, _) = sess.api_contest_standings(contest_id, None, None, "", "", false)?;
 
@@ -404,17 +406,17 @@ fn participate(
     mut sess: impl SessionMut,
     username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
     contest_id: u64,
-) -> anyhow::Result<(ParticipateOutcome, String)> {
+) -> anyhow::Result<(ParticipateOutcome, String, String)> {
     let (_, handle) = login(&mut sess, username_and_password)?;
 
-    let api::Contest { phase, .. } = sess
+    let api::Contest { name, phase, .. } = sess
         .api_contest_list(is_gym(contest_id))?
         .into_iter()
         .find(|&api::Contest { id, .. }| id == contest_id)
         .with_context(|| format!("No such contest: `{}`", contest_id))?;
 
     if phase == api::ContestPhase::Finished {
-        Ok((ParticipateOutcome::ContestIsFinished, handle))
+        Ok((ParticipateOutcome::ContestIsFinished, name, handle))
     } else {
         let url = url!("/contestRegistration/{}", contest_id);
 
@@ -431,7 +433,7 @@ fn participate(
             ParticipateOutcome::AlreadyParticipated
         };
 
-        Ok((outcome, handle))
+        Ok((outcome, name, handle))
     }
 }
 
