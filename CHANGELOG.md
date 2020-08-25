@@ -1,6 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.2] - 2020-08-25Z
+
+### Added
+
+- Enabled downloading all of the test cases on Dropbox.
+- Added more information to JSON output.
 
 ### Fixed
 
