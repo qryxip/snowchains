@@ -35,7 +35,7 @@ serde_dhall = "0.6.0"
 serde_json = "1.0.57"
 serde_yaml = "0.8.13"
 shell-escape = "0.1.5"
-snowchains_core = { version = "0.4.3", path = "./snowchains_core" }
+snowchains_core = { version = "0.5.0", path = "./snowchains_core" }
 structopt = "0.3.16"
 strum = { version = "0.19.2", features = ["derive"] }
 tempfile = "3.1.0"
