@@ -78,6 +78,8 @@ impl Outcome {
 #[derive(Debug, Serialize)]
 struct OutcomeContest {
     id: CaseConversions,
+    display_name: String,
+    url: Url,
     submissions_url: Url,
 }
 
@@ -233,9 +235,13 @@ pub(crate) fn run(
         contest: outcome.contest.map(
             |snowchains_core::web::RetrieveTestCasesOutcomeContest {
                  id,
+                 display_name,
+                 url,
                  submissions_url,
              }| OutcomeContest {
                 id: CaseConversions::new(id),
+                display_name,
+                url,
                 submissions_url,
             },
         ),

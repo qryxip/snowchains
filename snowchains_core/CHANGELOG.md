@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
 - Enabled downloading all of the test cases on Dropbox.
+
+### Changed
+
+- Added `url` and `display_name` fields to `RetrieveTestCasesOutcomeContest`.
 
 ## [0.4.3] - 2020-08-23Z
 

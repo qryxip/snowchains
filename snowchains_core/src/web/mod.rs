@@ -298,6 +298,8 @@ pub struct RetrieveTestCasesOutcome {
 #[derive(Debug, Serialize)]
 pub struct RetrieveTestCasesOutcomeContest {
     pub id: String,
+    pub display_name: String,
+    pub url: Url,
     pub submissions_url: Url,
 }
 
