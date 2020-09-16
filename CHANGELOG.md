@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- `snowchians(1)` will set the stack size to 64MiB.
+
 ## [0.5.2] - 2020-08-25Z
 
 ### Added

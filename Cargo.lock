@@ -2235,6 +2235,7 @@ dependencies = [
  "atty",
  "az",
  "cookie_store",
+ "crossbeam-utils",
  "dhall",
  "dirs 3.0.1",
  "fwdansi",

@@ -66,28 +66,48 @@ mod tests {
     use rusty_fork::rusty_fork_test;
 
     rusty_fork_test! {
-        #[cfg(not(debug_assertions))]
         #[test]
         fn resolve_default_config_dhall() {
-            // https://docs.rs/dhall/0.6.0/src/dhall/semantics/resolve/cache.rs.html#15-35
-
-            use std::env;
-
-            let cache_dir = tempfile::Builder::new()
-                .prefix("snowchains-tests-")
-                .tempdir()
-                .unwrap();
-
-            env::set_var("XDG_CACHE_HOME", cache_dir.path());
-
-            dhall::semantics::parse::parse_str(include_str!(
-                "../../resources/config/default-config.dhall",
-            ))
-            .unwrap()
-            .resolve()
-            .unwrap();
-
-            cache_dir.close().unwrap();
+            run_resolve_default_config_dhall().unwrap();
         }
+    }
+
+    fn run_resolve_default_config_dhall() -> anyhow::Result<()> {
+        // https://docs.rs/dhall/0.6.0/src/dhall/semantics/resolve/cache.rs.html#15-35
+
+        use std::{env, thread};
+
+        crossbeam_utils::thread::scope(|scope| {
+            scope
+                .builder()
+                .name("with-stack-size".to_owned())
+                .stack_size(crate::STACK_SIZE)
+                .spawn(|_| {})
+                .unwrap()
+                .join()
+                .unwrap()
+        })
+        .unwrap();
+
+        thread::Builder::new()
+            .name("with-stack-size".to_owned())
+            .stack_size(crate::STACK_SIZE)
+            .spawn(|| {
+                let cache_dir = tempfile::Builder::new()
+                    .prefix("snowchains-tests-")
+                    .tempdir()?;
+
+                env::set_var("XDG_CACHE_HOME", cache_dir.path());
+
+                dhall::semantics::parse::parse_str(include_str!(
+                    "../../resources/config/default-config.dhall",
+                ))?
+                .resolve()?;
+
+                cache_dir.close()?;
+                Ok(())
+            })?
+            .join()
+            .unwrap()
     }
 }
