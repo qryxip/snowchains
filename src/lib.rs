@@ -20,6 +20,8 @@ use structopt::{
 use strum::{EnumString, EnumVariantNames};
 use termcolor::WriteColor;
 
+pub const STACK_SIZE: usize = 64 * 1024 * 1024;
+
 #[derive(StructOpt, Debug)]
 #[structopt(author, about, global_setting = AppSettings::DeriveDisplayOrder)]
 pub enum Opt {
