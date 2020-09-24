@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.1] - 2020-09-24Z
+
+### Fixed
+
+- Supports "小数誤差許容問題" in yukicoder.
+
 ## [0.5.0] - 2020-08-25Z
 
 ### Added
