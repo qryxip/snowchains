@@ -1,0 +1,45 @@
+---
+source: snowchains_core/tests/yukicoder-retrieve-test-cases.rs
+expression: outcome
+---
+{
+  "contest": null,
+  "problems": [
+    {
+      "index": "1",
+      "url": "https://yukicoder.me/problems/no/1",
+      "screen_name": "17",
+      "display_name": "道のショートカット",
+      "test_suite": {
+        "type": "Batch",
+        "timelimit": "5s",
+        "match": "Lines",
+        "cases": [
+          {
+            "name": "sample1",
+            "in": "3\n100\n3\n1 2 1\n2 3 3\n10 90 10\n10 10 50\n",
+            "out": "20\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample2",
+            "in": "3\n100\n3\n1 2 1\n2 3 3\n1 100 10\n10 10 50\n",
+            "out": "50\n",
+            "timelimit": null,
+            "match": null
+          },
+          {
+            "name": "sample3",
+            "in": "10\n10\n19\n1 1 2 4 5 1 3 4 6 4 6 4 5 7 8 2 3 4 9\n3 5 5 5 6 7 7 7 7 8 8 9 9 9 9 10 10 10 10\n8 6 8 7 6 6 9 9 7 6 9 7 7 8 7 6 6 8 6\n8 9 10 4 10 3 5 9 3 4 1 8 3 1 3 6 6 10 4\n",
+            "out": "-1\n",
+            "timelimit": null,
+            "match": null
+          }
+        ],
+        "extend": []
+      },
+      "text_files": {}
+    }
+  ]
+}

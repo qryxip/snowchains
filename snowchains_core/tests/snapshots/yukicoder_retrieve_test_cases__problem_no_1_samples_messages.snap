@@ -1,0 +1,22 @@
+---
+source: snowchains_core/tests/yukicoder-retrieve-test-cases.rs
+expression: messages
+---
+[
+    OnRequest(
+        GET,
+        "https://yukicoder.me/problems/no/1",
+    ),
+    OnResponse(
+        200,
+        Ok,
+    ),
+    OnRequest(
+        GET,
+        "https://yukicoder.me/api/v1/problems/no/1",
+    ),
+    OnResponse(
+        200,
+        Ok,
+    ),
+]

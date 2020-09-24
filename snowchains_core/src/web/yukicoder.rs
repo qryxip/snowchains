@@ -1,5 +1,8 @@
 use crate::{
-    testsuite::{BatchTestSuite, InteractiveTestSuite, Match, PartialBatchTestCase, TestSuite},
+    testsuite::{
+        BatchTestSuite, InteractiveTestSuite, Match, PartialBatchTestCase, PositiveFinite,
+        TestSuite,
+    },
     web::{
         yukicoder::api::SessionMutExt as _, CaseConverted, Exec, Platform, ResponseExt as _,
         RetrieveFullTestCases, RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveTestCases,
@@ -450,16 +453,28 @@ impl Html {
                     Duration::from_millis(1000 * secs + millis)
                 };
 
-                let kind = {
-                    let caps = static_regex!("(通常|スペシャルジャッジ|リアクティブ)問題")
-                        .captures(text)?;
-
-                    match &caps[1] {
-                        "通常" => Kind::Regular,
-                        "スペシャルジャッジ" => Kind::Special,
-                        "リアクティブ" => Kind::Reactive,
-                        _ => return None,
+                let kind = if text.contains("通常問題") {
+                    Kind::Regular
+                } else if text.contains("スペシャルジャッジ問題") {
+                    Kind::Special
+                } else if text.contains("リアクティブ問題") {
+                    Kind::Reactive
+                } else if text.contains("小数誤差許容問題") {
+                    let (relative_error, absolute_error) = if let Some(caps) =
+                        static_regex!(r"絶対誤差または相対誤差が\$10\^\{-([0-9]{1,10})\}\$\s*以下")
+                            .captures(text)
+                    {
+                        let error = format!("1e-{}", &caps[1]).parse().ok();
+                        (error, error)
+                    } else {
+                        (None, None)
+                    };
+                    Kind::Floating {
+                        relative_error,
+                        absolute_error,
                     }
+                } else {
+                    return None;
                 };
 
                 Some((timelimit, kind))
@@ -467,10 +482,23 @@ impl Html {
             .with_context(|| "Could not parse the page")?;
 
         let test_suite = match kind {
-            Kind::Regular | Kind::Special => {
+            Kind::Regular | Kind::Special | Kind::Floating { .. } => {
+                let r#match = if let Kind::Floating {
+                    relative_error,
+                    absolute_error,
+                } = kind
+                {
+                    Match::Float {
+                        relative_error,
+                        absolute_error,
+                    }
+                } else {
+                    Match::Lines
+                };
+
                 let mut test_suite = BatchTestSuite {
                     timelimit: Some(timelimit),
-                    r#match: Match::Lines,
+                    r#match,
                     cases: vec![],
                     extend: vec![],
                 };
@@ -488,10 +516,11 @@ impl Html {
                         test_suite.cases.push(PartialBatchTestCase {
                             name: Some(format!("sample{}", i + 1)),
                             r#in: input.fold_text_and_br().into(),
-                            out: if kind == Kind::Regular {
-                                Some(output.fold_text_and_br().into())
-                            } else {
-                                None
+                            out: match kind {
+                                Kind::Regular | Kind::Floating { .. } => {
+                                    Some(output.fold_text_and_br().into())
+                                }
+                                _ => None,
                             },
                             timelimit: None,
                             r#match: None,
@@ -515,6 +544,10 @@ impl Html {
             Regular,
             Special,
             Reactive,
+            Floating {
+                relative_error: Option<PositiveFinite<f64>>,
+                absolute_error: Option<PositiveFinite<f64>>,
+            },
         }
 
         #[ext]
