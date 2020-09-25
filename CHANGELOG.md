@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Increased stack size of the main thread to 128MiB.
+- Supports "小数誤差許容問題" in yukicoder. ([#96](https://github.com/qryxip/snowchains/pull/96))
+
 ## [0.5.3] - 2020-09-17Z
 
 ### Fixed
