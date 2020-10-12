@@ -950,6 +950,8 @@ where
     }
 }
 
+// https://github.com/rust-lang/rust-clippy/issues/5991
+#[allow(clippy::needless_collect)]
 fn download_with_progress(
     draw_target: ProgressDrawTarget,
     dl_targets: Vec<(String, reqwest::RequestBuilder)>,

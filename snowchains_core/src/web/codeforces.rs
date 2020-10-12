@@ -541,8 +541,7 @@ impl Html {
             .flat_map(|r| match r.value() {
                 Node::Text(t) => Some(&**t),
                 _ => None,
-            })
-            .collect::<Vec<_>>();
+            });
 
         let output_file_text = self
             .select(static_selector!("#pageContent div.output-file"))
@@ -550,11 +549,10 @@ impl Html {
             .flat_map(|r| match r.value() {
                 Node::Text(t) => Some(&**t),
                 _ => None,
-            })
-            .collect::<Vec<_>>();
+            });
 
-        if !(input_file_text.contains(&"standard input")
-            && output_file_text.contains(&"standard output"))
+        if !({ input_file_text }.any(|s| s == "standard input") && { output_file_text }
+            .any(|s| s == "standard output"))
         {
             todo!();
         }

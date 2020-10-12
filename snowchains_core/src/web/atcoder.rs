@@ -1147,10 +1147,7 @@ impl ContestStatus {
     }
 
     fn is_finished(&self) -> bool {
-        match self {
-            ContestStatus::Finished => true,
-            _ => false,
-        }
+        matches!(self, ContestStatus::Finished)
     }
 
     fn raise_if_not_begun(&self) -> anyhow::Result<()> {
