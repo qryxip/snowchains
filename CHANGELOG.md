@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Updated `dhall-rust` to v0.7.0.
+    - Now supports Dhall v18.0.0
+
 ## [0.5.4] - 2020-09-25Z
 
 ### Fixed
