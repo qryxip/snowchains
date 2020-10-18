@@ -11,7 +11,7 @@ expression: outcome
   },
   "problems": [
     {
-      "index": "1229",
+      "index": "A",
       "url": "https://yukicoder.me/problems/no/1229",
       "screen_name": "3976",
       "display_name": "ラグビーの得点パターン",
@@ -54,7 +54,7 @@ expression: outcome
       "text_files": {}
     },
     {
-      "index": "1230",
+      "index": "B",
       "url": "https://yukicoder.me/problems/no/1230",
       "screen_name": "4945",
       "display_name": "Hall_and_me",
@@ -88,7 +88,7 @@ expression: outcome
       "text_files": {}
     },
     {
-      "index": "1231",
+      "index": "C",
       "url": "https://yukicoder.me/problems/no/1231",
       "screen_name": "2651",
       "display_name": "Make a Multiple of Ten",
@@ -124,7 +124,7 @@ expression: outcome
       "text_files": {}
     },
     {
-      "index": "1232",
+      "index": "D",
       "url": "https://yukicoder.me/problems/no/1232",
       "screen_name": "3014",
       "display_name": "2^x = x",
@@ -146,7 +146,7 @@ expression: outcome
       "text_files": {}
     },
     {
-      "index": "1233",
+      "index": "E",
       "url": "https://yukicoder.me/problems/no/1233",
       "screen_name": "3265",
       "display_name": "割り切れない気持ち",
@@ -175,7 +175,7 @@ expression: outcome
       "text_files": {}
     },
     {
-      "index": "1234",
+      "index": "F",
       "url": "https://yukicoder.me/problems/no/1234",
       "screen_name": "1379",
       "display_name": "典型RMQ",
