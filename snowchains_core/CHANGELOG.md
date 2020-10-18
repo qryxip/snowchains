@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- `RetrieveTestCasesOutcomeProblem::index`es for yukicoder contests will be alphabets.
+    Previously, "problem no"s were set.
+
 ## [0.5.1] - 2020-09-25Z
 
 ### Fixed

@@ -5,7 +5,15 @@ expression: messages
 [
     OnRequest(
         GET,
-        "https://yukicoder.me/contests/281",
+        "https://yukicoder.me/api/v1/contest/id/281",
+    ),
+    OnResponse(
+        200,
+        Ok,
+    ),
+    OnRequest(
+        GET,
+        "https://yukicoder.me/api/v1/problems/3976",
     ),
     OnResponse(
         200,
@@ -21,7 +29,7 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://yukicoder.me/api/v1/problems/no/1229",
+        "https://yukicoder.me/api/v1/problems/4945",
     ),
     OnResponse(
         200,
@@ -37,7 +45,7 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://yukicoder.me/api/v1/problems/no/1230",
+        "https://yukicoder.me/api/v1/problems/2651",
     ),
     OnResponse(
         200,
@@ -53,7 +61,7 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://yukicoder.me/api/v1/problems/no/1231",
+        "https://yukicoder.me/api/v1/problems/3014",
     ),
     OnResponse(
         200,
@@ -69,7 +77,7 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://yukicoder.me/api/v1/problems/no/1232",
+        "https://yukicoder.me/api/v1/problems/3265",
     ),
     OnResponse(
         200,
@@ -85,7 +93,7 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://yukicoder.me/api/v1/problems/no/1233",
+        "https://yukicoder.me/api/v1/problems/1379",
     ),
     OnResponse(
         200,
@@ -94,14 +102,6 @@ expression: messages
     OnRequest(
         GET,
         "https://yukicoder.me/problems/no/1234",
-    ),
-    OnResponse(
-        200,
-        Ok,
-    ),
-    OnRequest(
-        GET,
-        "https://yukicoder.me/api/v1/problems/no/1234",
     ),
     OnResponse(
         200,

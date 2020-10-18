@@ -4,11 +4,11 @@ use crate::{
         TestSuite,
     },
     web::{
-        yukicoder::api::SessionMutExt as _, CaseConverted, Exec, Platform, ResponseExt as _,
+        yukicoder::api::SessionMutExt as _, Exec, Platform, ResponseExt as _,
         RetrieveFullTestCases, RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveTestCases,
         RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem,
         RetrieveTestCasesOutcomeProblemTextFiles, Session, SessionMut, Shell, Submit,
-        SubmitOutcome, UpperCase,
+        SubmitOutcome,
     },
 };
 use anyhow::{bail, Context as _};
@@ -185,21 +185,26 @@ impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
         let problem_id = match target.parse()? {
             Either::Left(problem_no) => sess.get_problem_by_problem_no(problem_no)?.problem_id,
             Either::Right((contest_id, problem_index)) => {
-                let (_, problems) = sess
-                    .get(url!("/contests/{}", contest_id))
-                    .colorize_status_code(&[200], (), ..)
-                    .send()?
-                    .ensure_status(&[200])?
-                    .html()?
-                    .extract_contest_info()?;
+                let problem_index = match *problem_index.to_ascii_uppercase().into_bytes() {
+                    [problem_index @ b'A'..=b'Z'] => problem_index,
+                    _ => bail!("problem indexes for yukicoder must be `[a-zA-Z]`"),
+                };
 
-                let (_, problem_id) = problems
+                let api::Contest {
+                    problem_id_list, ..
+                } = sess.get_contest_by_contest_id(contest_id)?;
+
+                if problem_id_list.len() > 26 {
+                    unimplemented!("{} problems", problem_id_list.len());
+                }
+
+                let (_, problem_id) = problem_id_list
                     .into_iter()
-                    .find(|(index, _)| index.eq_ignore_ascii_case(&problem_index))
+                    .enumerate()
+                    .find(|&(i, _)| i == usize::from(problem_index - b'A'))
                     .with_context(|| {
                         format!("No such problem in `{}`: `{}`", contest_id, problem_index)
                     })?;
-
                 problem_id
             }
         };
@@ -324,45 +329,60 @@ fn retrieve_samples(
             }
         }
         Either::Right((contest_id, problem_indexes)) => {
-            let (contest_name, contest_problems) = sess
-                .get(url!("/contests/{}", contest_id))
-                .colorize_status_code(&[200], (), ..)
-                .send()?
-                .ensure_status(&[200])?
-                .html()?
-                .extract_contest_info()?;
+            let problem_indexes = problem_indexes
+                .map(|problem_indexes| {
+                    problem_indexes
+                        .into_iter()
+                        .map(|problem_index| {
+                            match *problem_index
+                                .to_ascii_uppercase()
+                                .chars()
+                                .collect::<Vec<_>>()
+                            {
+                                [problem_index @ 'A'..='Z'] => Ok(problem_index),
+                                _ => bail!("problem indexes for yukicoder must be `[a-zA-Z]`"),
+                            }
+                        })
+                        .collect::<anyhow::Result<BTreeSet<_>>>()
+                })
+                .transpose()?;
+
+            let api::Contest {
+                name,
+                problem_id_list,
+                ..
+            } = sess.get_contest_by_contest_id(contest_id)?;
+
+            if problem_id_list.len() > 26 {
+                unimplemented!("{} problems", problem_id_list.len());
+            }
 
             outcome.contest = Some(RetrieveTestCasesOutcomeContest {
                 id: contest_id.to_string(),
-                display_name: contest_name,
+                display_name: name,
                 url: url!("/contests/{}", contest_id),
                 submissions_url: url!("/contests/{}/submissions?my_submission=enabled", contest_id),
             });
 
-            let mut not_found = problem_indexes.map(|problem_indexes| {
-                problem_indexes
-                    .iter()
-                    .map(CaseConverted::<UpperCase>::new)
-                    .collect::<BTreeSet<_>>()
-            });
+            let mut not_found = problem_indexes;
 
-            for (index, problem_no) in contest_problems {
+            for (index, problem_id) in problem_id_list.into_iter().enumerate() {
+                let index = char::from(index as u8 + b'A');
+
                 if let Some(not_found) = &mut not_found {
                     if !not_found.remove(&index) {
                         continue;
                     }
                 }
 
-                let (url, test_suite) = retrieve_samples(&mut sess, problem_no)?;
-                let api::Problem {
-                    problem_id, title, ..
-                } = sess.get_problem_by_problem_no(problem_no)?;
+                let api::Problem { no, title, .. } = sess.get_problem_by_problem_id(problem_id)?;
+                let (url, test_suite) = retrieve_samples(&mut sess, no)?;
 
                 outcome.problems.push(RetrieveTestCasesOutcomeProblem {
-                    index: problem_no.to_string(),
+                    index: index.to_string(),
                     url,
                     screen_name: Some(problem_id.to_string()),
-                    display_name: title.clone(),
+                    display_name: title,
                     test_suite,
                     text_files: indexmap!(),
                 });
@@ -398,46 +418,6 @@ fn retrieve_samples(
 
 #[ext]
 impl Html {
-    #[allow(clippy::type_complexity)]
-    fn extract_contest_info(
-        &self,
-    ) -> anyhow::Result<(String, Vec<(CaseConverted<UpperCase>, u64)>)> {
-        return (|| -> _ {
-            let title = self
-                .select(static_selector!(":root > head > title"))
-                .flat_map(|r| r.text())
-                .exactly_one()
-                .ok()?;
-
-            let name = title
-                .strip_suffix(" - yukicoder")
-                .unwrap_or(title)
-                .to_owned();
-
-            let problems = self
-                .select(static_selector!(
-                    "#content > div.left > table.table > tbody > tr",
-                ))
-                .map(|tr| {
-                    if let [td1, td2, ..] = *tr.select(static_selector!("td")).collect::<Vec<_>>() {
-                        let index = CaseConverted::new(exactly_one_text(td1)?);
-                        let no = exactly_one_text(td2)?.parse().ok()?;
-                        Some((index, no))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Option<_>>()?;
-
-            Some((name, problems))
-        })()
-        .with_context(|| "Could not parse the contest page");
-
-        fn exactly_one_text(element_ref: ElementRef<'_>) -> Option<&str> {
-            element_ref.text().exactly_one().ok()
-        }
-    }
-
     fn extract_samples(&self) -> anyhow::Result<TestSuite> {
         let (timelimit, kind) = self
             .select(static_selector!("#content > div"))
@@ -688,6 +668,26 @@ mod api {
                 .map_err(Into::into)
         }
 
+        /// > コンテストIDからコンテスト情報を取得します。
+        fn get_contest_by_contest_id(&mut self, contest_id: u64) -> anyhow::Result<Contest> {
+            let url = BASE_URL
+                .join(&format!("contest/id/{}", contest_id))
+                .unwrap();
+
+            let res = self
+                .get(url)
+                .colorize_status_code(&[200], (), ..)
+                .send()?
+                .ensure_status(&[200, 404])?;
+
+            if res.status() == 200 {
+                res.json().map_err(Into::into)
+            } else {
+                let res = res.json::<serde_json::Value>()?;
+                bail!("{}", serde_json::to_string_pretty(&res).unwrap());
+            }
+        }
+
         /// > Submit problem by ProblemId
         fn submit_problem_by_problem_id(
             &mut self,
@@ -759,7 +759,7 @@ mod api {
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
     pub(super) struct Problem {
-        //no: u64,
+        pub(super) no: u64,
         pub(super) problem_id: u64,
         pub(super) title: String,
         //author_id: u64,
@@ -783,5 +783,15 @@ mod api {
         pub(super) id: String,
         pub(super) name: String,
         pub(super) ver: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub(super) struct Contest {
+        //pub(super) id: u64,
+        pub(super) name: String,
+        //pub(super) date: String,
+        //pub(super) end_date: String,
+        pub(super) problem_id_list: Vec<u64>,
     }
 }

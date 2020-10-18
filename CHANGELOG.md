@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- `Target.problem`s for yukicoder contests will be alphabets.
+    Previously, "problem no"s were set.
+
 ## [0.6.0] - 2020-10-12Z
 
 ### Changed
