@@ -1,10 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.2] - 2020-10-18Z
 
 ### Fixed
 
-- `RetrieveTestCasesOutcomeProblem::index`es for yukicoder contests will be alphabets.
+- `RetrieveTestCasesOutcomeProblem::index`es for yukicoder contests will be alphabets. ([#102](https://github.com/qryxip/snowchains/pull/102))
     Previously, "problem no"s were set.
 
 ## [0.5.1] - 2020-09-25Z
