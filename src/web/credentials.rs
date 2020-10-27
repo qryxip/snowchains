@@ -8,7 +8,7 @@ use std::{
 
 pub(crate) fn cookie_store_path() -> anyhow::Result<PathBuf> {
     let data_local_dir =
-        dirs::data_local_dir().with_context(|| "Could not find the local date directory")?;
+        dirs_next::data_local_dir().with_context(|| "Could not find the local date directory")?;
     Ok(data_local_dir.join("snowchains").join("cookies.jsonl"))
 }
 
@@ -98,7 +98,7 @@ pub(crate) fn yukicoder_api_key(
 
 fn token_path(file_name: &str) -> anyhow::Result<PathBuf> {
     let data_local_dir =
-        dirs::data_local_dir().with_context(|| "Could not find the local data directory")?;
+        dirs_next::data_local_dir().with_context(|| "Could not find the local data directory")?;
 
     Ok(data_local_dir
         .join("snowchains")
