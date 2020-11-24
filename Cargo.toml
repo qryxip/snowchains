@@ -2,7 +2,7 @@
 
 [package]
 name = "snowchains"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2018"
 authors = ["Ryo Yamashita <qryxip@gmail.com>"]
 license = "MIT OR Apache-2.0"
