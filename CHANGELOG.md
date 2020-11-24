@@ -6,6 +6,10 @@
 
 - Bumped `dhall` crate to `0.9.0`, which supports Dhall v19.0.0.
 
+### Removed
+
+- Dropped support for `x86_64-unknown-linux-musl`.
+
 ### Fixed
 
 - `Target.problem`s for yukicoder contests will be alphabets. ([#102](https://github.com/qryxip/snowchains/pull/102))
