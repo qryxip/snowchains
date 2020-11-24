@@ -29,7 +29,7 @@ jobs:
           profile: minimal
           components: rustfmt
 
-      - name: '`cargo fmt --all -- --check`'
+      - name: cargo-fmt
         uses: actions-rs/cargo@v1
         with:
           command: fmt
@@ -50,7 +50,7 @@ jobs:
           toolchain: nightly
           override: true
 
-      - name: '`cargo test --no-fail-fast --workspace --features snowchains_core/__test_with_credentials`'
+      - name: cargo-test
         uses: actions-rs/cargo@v1
         with:
           command: test
@@ -102,13 +102,13 @@ jobs:
           profile: minimal
           components: clippy
 
-      - name: '`cargo clippy --workspace --all-targets --target ${{ matrix.target-triple }} -- -D warnings`'
+      - name: cargo-clippy (without `snowchains_core/__test_with_credentials`)
         uses: actions-rs/cargo@v1
         with:
           command: clippy
           args: --workspace --all-targets --target ${{ matrix.target-triple }} -- -D warnings
 
-      - name: '`cargo clippy --workspace --all-targets --features snowchains_core/__test_with_credentials --target ${{ matrix.target-triple }} -- -D warnings`'
+      - name: cargo-clippy (with `snowchains_core/__test_with_credentials`)
         uses: actions-rs/cargo@v1
         with:
           command: clippy
@@ -124,7 +124,7 @@ jobs:
           fi
         shell: bash
 
-      - name: '`cargo test --no-fail-fast --workspace ${{ steps.cargo-test-features.outputs.features }} --target ${{ matrix.target-triple }}`'
+      - name: cargo-test
         uses: actions-rs/cargo@v1
         with:
           command: test
@@ -163,13 +163,13 @@ jobs:
           default: true
           profile: minimal
 
-      - name: '`cargo install --path . --target ${{ matrix.target-triple }} -v --locked`'
+      - name: cargo-install
         uses: actions-rs/cargo@v1
         with:
           command: install
           args: --path . --target ${{ matrix.target-triple }} -v --locked
 
-      - name: '`cargo build --release --target ${{ matrix.target-triple }}`'
+      - name: cargo-build
         uses: actions-rs/cargo@v1
         with:
           command: build
