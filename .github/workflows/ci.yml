@@ -29,7 +29,7 @@ jobs:
           profile: minimal
           components: rustfmt
 
-      - name: '`cargo fmt --all -- --check`'
+      - name: cargo-fmt
         uses: actions-rs/cargo@v1
         with:
           command: fmt
@@ -50,7 +50,7 @@ jobs:
           toolchain: nightly
           override: true
 
-      - name: '`cargo test --no-fail-fast --workspace --features snowchains_core/__test_with_credentials`'
+      - name: cargo-test
         uses: actions-rs/cargo@v1
         with:
           command: test
@@ -81,12 +81,10 @@ jobs:
           - stable-x86_64-pc-windows-msvc
           - stable-x86_64-apple-darwin
           - stable-x86_64-unknown-linux-gnu
-          - stable-x86_64-unknown-linux-musl
         include:
           - { name: stable-x86_64-pc-windows-msvc   , channel: stable, target-triple: x86_64-pc-windows-msvc   , host-triple: x86_64-pc-windows-msvc  , os: windows-2019 }
           - { name: stable-x86_64-apple-darwin      , channel: stable, target-triple: x86_64-apple-darwin      , host-triple: x86_64-apple-darwin     , os: macos-10.15  }
           - { name: stable-x86_64-unknown-linux-gnu , channel: stable, target-triple: x86_64-unknown-linux-gnu , host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04 }
-          - { name: stable-x86_64-unknown-linux-musl, channel: stable, target-triple: x86_64-unknown-linux-musl, host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04 }
 
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -95,15 +93,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: '`sudo apt-get install musl-tools`'
-        run: sudo apt-get install musl-tools
-        if: matrix.target-triple == 'x86_64-unknown-linux-musl'
-
-      - name: '`. ./.github/openssl.bash`'
-        run: . ./.github/openssl.bash
-        if: matrix.target-triple == 'x86_64-unknown-linux-musl'
+      # Workaround for https://github.com/actions/cache/issues/403
+      - name: Install GNU tar
+        run: |
+          brew install gnu-tar
+          echo "PATH=/usr/local/opt/gnu-tar/libexec/gnubin:$PATH" >> $GITHUB_ENV
+        if: matrix.os == 'macos-10.15'
 
       - name: 'Setup `${{ matrix.channel }}-${{ matrix.host-triple }}` (target: `${{ matrix.target-triple }}`)'
+        id: install-toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.channel }}-${{ matrix.host-triple }}
@@ -112,13 +110,22 @@ jobs:
           profile: minimal
           components: clippy
 
-      - name: '`cargo clippy --workspace --all-targets --target ${{ matrix.target-triple }} -- -D warnings`'
+      - name: Cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            ./target
+          key: build-${{ matrix.name }}-${{ steps.install-toolchain.outputs.rustc_hash }}-${{ hashFiles('./**/Cargo.*') }}
+
+      - name: cargo-clippy (without `snowchains_core/__test_with_credentials`)
         uses: actions-rs/cargo@v1
         with:
           command: clippy
           args: --workspace --all-targets --target ${{ matrix.target-triple }} -- -D warnings
 
-      - name: '`cargo clippy --workspace --all-targets --features snowchains_core/__test_with_credentials --target ${{ matrix.target-triple }} -- -D warnings`'
+      - name: cargo-clippy (with `snowchains_core/__test_with_credentials`)
         uses: actions-rs/cargo@v1
         with:
           command: clippy
@@ -134,7 +141,7 @@ jobs:
           fi
         shell: bash
 
-      - name: '`cargo test --no-fail-fast --workspace ${{ steps.cargo-test-features.outputs.features }} --target ${{ matrix.target-triple }}`'
+      - name: cargo-test
         uses: actions-rs/cargo@v1
         with:
           command: test
@@ -152,12 +159,10 @@ jobs:
           - x86_64-pc-windows-msvc
           - x86_64-apple-darwin
           - x86_64-unknown-linux-gnu
-          - x86_64-unknown-linux-musl
         include:
           - { target-triple: x86_64-pc-windows-msvc   , host-triple: x86_64-pc-windows-msvc  , os: windows-2019 }
           - { target-triple: x86_64-apple-darwin      , host-triple: x86_64-apple-darwin     , os: macos-10.15  }
           - { target-triple: x86_64-unknown-linux-gnu , host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04 }
-          - { target-triple: x86_64-unknown-linux-musl, host-triple: x86_64-unknown-linux-gnu, os: ubuntu-18.04 }
 
     name: Upload (${{ matrix.target-triple }})
     runs-on: ${{ matrix.os }}
@@ -167,14 +172,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: '`sudo apt-get install musl-tools`'
-        run: sudo apt-get install musl-tools
-        if: matrix.target-triple == 'x86_64-unknown-linux-musl'
-
-      - name: '`. ./.github/openssl.bash`'
-        run: . ./.github/openssl.bash
-        if: matrix.target-triple == 'x86_64-unknown-linux-musl'
-
       - name: 'Setup `stable-${{ matrix.host-triple }}` (target: `${{ matrix.target-triple }}`)'
         uses: actions-rs/toolchain@v1
         with:
@@ -183,13 +180,13 @@ jobs:
           default: true
           profile: minimal
 
-      - name: '`cargo install --path . --target ${{ matrix.target-triple }} -v --locked`'
+      - name: cargo-install
         uses: actions-rs/cargo@v1
         with:
           command: install
           args: --path . --target ${{ matrix.target-triple }} -v --locked
 
-      - name: '`cargo build --release --target ${{ matrix.target-triple }}`'
+      - name: cargo-build
         uses: actions-rs/cargo@v1
         with:
           command: build

@@ -1407,7 +1407,7 @@ impl Html {
                         .exactly_one()
                         .ok()
                         .and_then(extract_samples)
-                        .ok_or_else(|| "Could not extract the sample cases")?;
+                        .ok_or("Could not extract the sample cases")?;
 
                     Ok::<_, &str>(if timelimit == Duration::new(0, 0) {
                         TestSuite::Unsubmittable

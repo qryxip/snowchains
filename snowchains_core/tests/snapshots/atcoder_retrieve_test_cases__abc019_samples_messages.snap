@@ -5,7 +5,18 @@ expression: messages
 [
     OnRequest(
         GET,
-        "https://atcoder.jp/contests/abc019/tasks",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "atcoder.jp",
+                ),
+            ),
+            port: None,
+            path: "/contests/abc019/tasks",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         200,
@@ -13,7 +24,18 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://atcoder.jp/contests/abc019/tasks_print",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "atcoder.jp",
+                ),
+            ),
+            port: None,
+            path: "/contests/abc019/tasks_print",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         200,
