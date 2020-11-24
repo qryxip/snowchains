@@ -51,6 +51,25 @@ expression: messages
                 ),
             ),
             port: None,
+            path: "/settings",
+            query: None,
+            fragment: None,
+        },
+    ),
+    OnResponse(
+        302,
+        Warn,
+    ),
+    OnRequest(
+        GET,
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "atcoder.jp",
+                ),
+            ),
+            port: None,
             path: "/login",
             query: None,
             fragment: None,
