@@ -1,15 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Stopped asking username and password when you have already logged in AtCoder.
+
+### Removed
+
+- Dropped support for `x86_64-unknown-linux-musl`.
+
 ## [0.5.2] - 2020-10-18Z
 
 ### Fixed
 
 - `RetrieveTestCasesOutcomeProblem::index`es for yukicoder contests will be alphabets. ([#102](https://github.com/qryxip/snowchains/pull/102))
     Previously, "problem no"s were set.
-
-### Removed
-
-- Dropped support for `x86_64-unknown-linux-musl`.
 
 ## [0.5.1] - 2020-09-25Z
 

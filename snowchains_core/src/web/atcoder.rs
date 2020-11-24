@@ -151,7 +151,9 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Atcoder<'_> {
 
         let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
-        login(&mut sess, username_and_password)?;
+        if !check_logged_in(&mut sess)? {
+            login(&mut sess, username_and_password)?;
+        }
 
         let url = if let Some(problem) = problem {
             retrieve_tasks_page(&mut sess, || unreachable!(), &contest)?
@@ -770,7 +772,9 @@ fn participate(
         status.raise_if_not_begun()?;
     }
 
-    login(&mut sess, credentials)?;
+    if !check_logged_in(&mut sess)? {
+        login(&mut sess, credentials)?;
+    }
 
     if status.is_finished() {
         Ok(ParticipateOutcome::ContestIsFinished)

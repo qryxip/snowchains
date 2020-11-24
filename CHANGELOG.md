@@ -15,6 +15,8 @@
 - `Target.problem`s for yukicoder contests will be alphabets. ([#102](https://github.com/qryxip/snowchains/pull/102))
     Previously, "problem no"s were set.
 
+- Stopped asking username and password when you have already logged in AtCoder.
+
 ## [0.6.0] - 2020-10-12Z
 
 ### Changed
