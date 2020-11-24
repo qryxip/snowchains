@@ -5,7 +5,18 @@ expression: messages
 [
     OnRequest(
         GET,
-        "https://yukicoder.me/problems/no/1",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "yukicoder.me",
+                ),
+            ),
+            port: None,
+            path: "/problems/no/1",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         200,
@@ -13,7 +24,18 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://yukicoder.me/api/v1/problems/no/1",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "yukicoder.me",
+                ),
+            ),
+            port: None,
+            path: "/api/v1/problems/no/1",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         200,

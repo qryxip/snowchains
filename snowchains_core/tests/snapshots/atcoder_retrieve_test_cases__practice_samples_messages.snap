@@ -5,7 +5,18 @@ expression: messages
 [
     OnRequest(
         GET,
-        "https://atcoder.jp/contests/practice/tasks",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "atcoder.jp",
+                ),
+            ),
+            port: None,
+            path: "/contests/practice/tasks",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         404,
@@ -13,7 +24,18 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://atcoder.jp/contests/practice",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "atcoder.jp",
+                ),
+            ),
+            port: None,
+            path: "/contests/practice",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         200,
@@ -21,7 +43,18 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://atcoder.jp/login",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "atcoder.jp",
+                ),
+            ),
+            port: None,
+            path: "/login",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         200,
@@ -29,7 +62,18 @@ expression: messages
     ),
     OnRequest(
         POST,
-        "https://atcoder.jp/login",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "atcoder.jp",
+                ),
+            ),
+            port: None,
+            path: "/login",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         302,
@@ -37,7 +81,18 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://atcoder.jp/settings",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "atcoder.jp",
+                ),
+            ),
+            port: None,
+            path: "/settings",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         200,
@@ -45,7 +100,18 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://atcoder.jp/contests/practice",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "atcoder.jp",
+                ),
+            ),
+            port: None,
+            path: "/contests/practice",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         200,
@@ -53,7 +119,18 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://atcoder.jp/contests/practice/tasks",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "atcoder.jp",
+                ),
+            ),
+            port: None,
+            path: "/contests/practice/tasks",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         200,
@@ -61,7 +138,18 @@ expression: messages
     ),
     OnRequest(
         GET,
-        "https://atcoder.jp/contests/practice/tasks_print",
+        Url {
+            scheme: "https",
+            host: Some(
+                Domain(
+                    "atcoder.jp",
+                ),
+            ),
+            port: None,
+            path: "/contests/practice/tasks_print",
+            query: None,
+            fragment: None,
+        },
     ),
     OnResponse(
         200,
