@@ -1,14 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.6.0] - 2020-11-24Z
 
 ### Fixed
 
-- Stopped asking username and password when you have already logged in AtCoder.
+- Stopped asking username and password when you have already logged in AtCoder. ([#106](https://github.com/qryxip/snowchains/pull/106))
 
 ### Removed
 
-- Dropped support for `x86_64-unknown-linux-musl`.
+- Dropped support for `x86_64-unknown-linux-musl`. ([#105](https://github.com/qryxip/snowchains/pull/105))
 
 ## [0.5.2] - 2020-10-18Z
 
