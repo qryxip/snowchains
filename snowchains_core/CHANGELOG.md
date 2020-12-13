@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Replaced `{Atcoder, Codeforces}{RetrieveTestCasesTargets, SubmitTarget}` with `{ProblemsInContest, ProblemInContest}`.
+
+    You can use URLs for `ProblemsInContest`, `ProblemInContest`.
+
+- Modified `RetrieveTestCasesOutcome`.
+
 ## [0.6.0] - 2020-11-24Z
 
 ### Fixed

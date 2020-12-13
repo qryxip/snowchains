@@ -4,7 +4,7 @@ use snowchains_core::{
     color_spec,
     web::{
         Atcoder, AtcoderRetrieveFullTestCasesCredentials,
-        AtcoderRetrieveSampleTestCasesCredentials, AtcoderRetrieveTestCasesTargets, CookieStorage,
+        AtcoderRetrieveSampleTestCasesCredentials, CookieStorage, ProblemsInContest,
         RetrieveFullTestCases, RetrieveTestCases, StatusCodeColor,
     },
 };
@@ -55,7 +55,7 @@ fn main() -> anyhow::Result<()> {
     } = Opt::from_args();
 
     let outcome = Atcoder::exec(RetrieveTestCases {
-        targets: AtcoderRetrieveTestCasesTargets {
+        targets: ProblemsInContest::Indexes {
             contest,
             problems: problems.map(|ps| ps.into_iter().collect()),
         },

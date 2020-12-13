@@ -3,8 +3,8 @@ use indicatif::ProgressDrawTarget;
 use snowchains_core::{
     color_spec,
     web::{
-        Codeforces, CodeforcesRetrieveSampleTestCasesCredentials,
-        CodeforcesRetrieveTestCasesTargets, CookieStorage, RetrieveTestCases, StatusCodeColor,
+        Codeforces, CodeforcesRetrieveSampleTestCasesCredentials, CookieStorage, ProblemsInContest,
+        RetrieveTestCases, StatusCodeColor,
     },
 };
 use std::{
@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
     } = Opt::from_args();
 
     let outcome = Codeforces::exec(RetrieveTestCases {
-        targets: CodeforcesRetrieveTestCasesTargets {
+        targets: ProblemsInContest::Indexes {
             contest: contest.to_string(),
             problems: problems.map(|ps| ps.into_iter().collect()),
         },

@@ -3,9 +3,9 @@ source: snowchains_core/tests/yukicoder-retrieve-test-cases.rs
 expression: outcome
 ---
 {
-  "contest": null,
   "problems": [
     {
+      "contest": null,
       "index": "1",
       "url": "https://yukicoder.me/problems/no/1",
       "screen_name": "17",

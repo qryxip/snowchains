@@ -4,8 +4,7 @@ use indicatif::ProgressDrawTarget;
 use snowchains_core::{
     color_spec,
     web::{
-        Atcoder, AtcoderSubmitCredentials, AtcoderSubmitTarget, CookieStorage, StatusCodeColor,
-        Submit,
+        Atcoder, AtcoderSubmitCredentials, CookieStorage, ProblemInContest, StatusCodeColor, Submit,
     },
 };
 use std::{
@@ -66,7 +65,7 @@ fn main() -> anyhow::Result<()> {
     } = Opt::from_args();
 
     let outcome = Atcoder::exec(Submit {
-        target: AtcoderSubmitTarget { contest, problem },
+        target: ProblemInContest::Index { contest, problem },
         credentials: AtcoderSubmitCredentials {
             username_and_password: &mut username_and_password(credentials),
         },

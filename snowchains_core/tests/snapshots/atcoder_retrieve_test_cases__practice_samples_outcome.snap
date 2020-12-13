@@ -3,14 +3,14 @@ source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
 expression: outcome
 ---
 {
-  "contest": {
-    "id": "practice",
-    "display_name": "practice contest",
-    "url": "https://atcoder.jp/contests/practice",
-    "submissions_url": "https://atcoder.jp/contests/practice/submissions/me"
-  },
   "problems": [
     {
+      "contest": {
+        "id": "practice",
+        "display_name": "practice contest",
+        "url": "https://atcoder.jp/contests/practice",
+        "submissions_url": "https://atcoder.jp/contests/practice/submissions/me"
+      },
       "index": "A",
       "url": "https://atcoder.jp/contests/practice/tasks/practice_1",
       "screen_name": "practice_1",
@@ -40,6 +40,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "practice",
+        "display_name": "practice contest",
+        "url": "https://atcoder.jp/contests/practice",
+        "submissions_url": "https://atcoder.jp/contests/practice/submissions/me"
+      },
       "index": "B",
       "url": "https://atcoder.jp/contests/practice/tasks/practice_2",
       "screen_name": "practice_2",

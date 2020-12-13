@@ -4,8 +4,8 @@ use indicatif::ProgressDrawTarget;
 use snowchains_core::{
     color_spec,
     web::{
-        Codeforces, CodeforcesSubmitCredentials, CodeforcesSubmitTarget, CookieStorage,
-        StatusCodeColor, Submit,
+        Codeforces, CodeforcesSubmitCredentials, CookieStorage, ProblemInContest, StatusCodeColor,
+        Submit,
     },
 };
 use std::{
@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     let outcome = Codeforces::exec(Submit {
-        target: CodeforcesSubmitTarget {
+        target: ProblemInContest::Index {
             contest: contest.to_string(),
             problem,
         },

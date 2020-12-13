@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
         target: if let Some(contest) = contest {
             YukicoderSubmitTarget::Contest(contest.to_string(), problem_no_or_index)
         } else {
-            YukicoderSubmitTarget::ProblemNo(problem_no_or_index)
+            YukicoderSubmitTarget::from_problem_no(&problem_no_or_index)
         },
         credentials: YukicoderSubmitCredentials { api_key },
         language_id,

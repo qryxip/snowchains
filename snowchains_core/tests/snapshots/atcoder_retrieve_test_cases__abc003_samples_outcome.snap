@@ -3,14 +3,14 @@ source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
 expression: outcome
 ---
 {
-  "contest": {
-    "id": "abc003",
-    "display_name": "AtCoder Beginner Contest 003",
-    "url": "https://atcoder.jp/contests/abc003",
-    "submissions_url": "https://atcoder.jp/contests/abc003/submissions/me"
-  },
   "problems": [
     {
+      "contest": {
+        "id": "abc003",
+        "display_name": "AtCoder Beginner Contest 003",
+        "url": "https://atcoder.jp/contests/abc003",
+        "submissions_url": "https://atcoder.jp/contests/abc003/submissions/me"
+      },
       "index": "A",
       "url": "https://atcoder.jp/contests/abc003/tasks/abc003_1",
       "screen_name": "abc003_1",
@@ -45,6 +45,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "abc003",
+        "display_name": "AtCoder Beginner Contest 003",
+        "url": "https://atcoder.jp/contests/abc003",
+        "submissions_url": "https://atcoder.jp/contests/abc003/submissions/me"
+      },
       "index": "B",
       "url": "https://atcoder.jp/contests/abc003/tasks/abc003_2",
       "screen_name": "abc003_2",
@@ -81,6 +87,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "abc003",
+        "display_name": "AtCoder Beginner Contest 003",
+        "url": "https://atcoder.jp/contests/abc003",
+        "submissions_url": "https://atcoder.jp/contests/abc003/submissions/me"
+      },
       "index": "C",
       "url": "https://atcoder.jp/contests/abc003/tasks/abc003_3",
       "screen_name": "abc003_3",
@@ -122,6 +134,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "abc003",
+        "display_name": "AtCoder Beginner Contest 003",
+        "url": "https://atcoder.jp/contests/abc003",
+        "submissions_url": "https://atcoder.jp/contests/abc003/submissions/me"
+      },
       "index": "D",
       "url": "https://atcoder.jp/contests/abc003/tasks/abc003_4",
       "screen_name": "abc003_4",

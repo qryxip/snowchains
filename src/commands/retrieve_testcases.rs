@@ -7,9 +7,9 @@ use snowchains_core::{
     testsuite::{Additional, BatchTestSuite, TestSuite},
     web::{
         Atcoder, AtcoderRetrieveFullTestCasesCredentials,
-        AtcoderRetrieveSampleTestCasesCredentials, AtcoderRetrieveTestCasesTargets, Codeforces,
-        CodeforcesRetrieveSampleTestCasesCredentials, CodeforcesRetrieveTestCasesTargets,
-        CookieStorage, PlatformKind, RetrieveFullTestCases, RetrieveTestCases, Yukicoder,
+        AtcoderRetrieveSampleTestCasesCredentials, Codeforces,
+        CodeforcesRetrieveSampleTestCasesCredentials, CookieStorage, PlatformKind,
+        ProblemsInContest, RetrieveFullTestCases, RetrieveTestCases, Yukicoder,
         YukicoderRetrieveFullTestCasesCredentials, YukicoderRetrieveTestCasesTargets,
     },
 };
@@ -143,7 +143,7 @@ pub(crate) fn run(
                 let contest = contest
                     .clone()
                     .with_context(|| "`contest` is required for AtCoder")?;
-                AtcoderRetrieveTestCasesTargets { contest, problems }
+                ProblemsInContest::Indexes { contest, problems }
             };
 
             let credentials = AtcoderRetrieveSampleTestCasesCredentials {
@@ -178,7 +178,7 @@ pub(crate) fn run(
                 let contest = contest
                     .clone()
                     .with_context(|| "`contest` is required for Codeforces")?;
-                CodeforcesRetrieveTestCasesTargets { contest, problems }
+                ProblemsInContest::Indexes { contest, problems }
             };
 
             let credentials = CodeforcesRetrieveSampleTestCasesCredentials {
@@ -232,20 +232,28 @@ pub(crate) fn run(
     }?;
 
     let mut acc = Outcome {
-        contest: outcome.contest.map(
-            |snowchains_core::web::RetrieveTestCasesOutcomeContest {
-                 id,
-                 display_name,
-                 url,
-                 submissions_url,
-                 ..
-             }| OutcomeContest {
-                id: CaseConversions::new(id),
-                display_name,
-                url,
-                submissions_url,
-            },
-        ),
+        contest: outcome
+            .problems
+            .get(0)
+            .and_then(
+                |snowchains_core::web::RetrieveTestCasesOutcomeProblem { contest, .. }| {
+                    contest.as_ref()
+                },
+            )
+            .map(
+                |snowchains_core::web::RetrieveTestCasesOutcomeProblemContest {
+                     id,
+                     display_name,
+                     url,
+                     submissions_url,
+                     ..
+                 }| OutcomeContest {
+                    id: CaseConversions::new(id),
+                    display_name: display_name.clone(),
+                    url: url.clone(),
+                    submissions_url: submissions_url.clone(),
+                },
+            ),
         problems: vec![],
     };
 
