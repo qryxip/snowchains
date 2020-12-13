@@ -1,14 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.0] - 2020-12-13Z
 
 ### Changed
 
-- Replaced `{Atcoder, Codeforces}{RetrieveTestCasesTargets, SubmitTarget}` with `{ProblemsInContest, ProblemInContest}`.
+- Replaced `{Atcoder, Codeforces}{RetrieveTestCasesTargets, SubmitTarget}` with `{ProblemsInContest, ProblemInContest}`. ([#110](https://github.com/qryxip/snowchains/pull/110))
 
     You can use URLs for `ProblemsInContest`, `ProblemInContest`.
 
-- Modified `RetrieveTestCasesOutcome`.
+- Modified `RetrieveTestCasesOutcome`. ([#110](https://github.com/qryxip/snowchains/pull/110))
 
 ## [0.6.0] - 2020-11-24Z
 
