@@ -6,9 +6,9 @@ use crate::{
     web::{
         yukicoder::api::SessionMutExt as _, Exec, Platform, ResponseExt as _,
         RetrieveFullTestCases, RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveTestCases,
-        RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem,
-        RetrieveTestCasesOutcomeProblemTextFiles, Session, SessionMut, Shell, Submit,
-        SubmitOutcome,
+        RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeProblem,
+        RetrieveTestCasesOutcomeProblemContest, RetrieveTestCasesOutcomeProblemTextFiles, Session,
+        SessionMut, Shell, Submit, SubmitOutcome,
     },
 };
 use anyhow::{bail, Context as _};
@@ -183,7 +183,10 @@ impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
         let mut sess = Session::new(timeout, None, shell)?;
 
         let problem_id = match target.parse()? {
-            Either::Left(problem_no) => sess.get_problem_by_problem_no(problem_no)?.problem_id,
+            Either::Left(url) => match parse_problem_url(&url)? {
+                Either::Left(problem_no) => sess.get_problem_by_problem_no(problem_no)?.problem_id,
+                Either::Right(problem_id) => problem_id,
+            },
             Either::Right((contest_id, problem_index)) => {
                 let problem_index = match *problem_index.to_ascii_uppercase().into_bytes() {
                     [problem_index @ b'A'..=b'Z'] => problem_index,
@@ -231,25 +234,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
 pub enum YukicoderRetrieveTestCasesTargets {
     ProblemNos(BTreeSet<String>),
     Contest(String, Option<BTreeSet<String>>),
-}
-
-impl YukicoderRetrieveTestCasesTargets {
-    #[allow(clippy::type_complexity)]
-    fn parse(&self) -> anyhow::Result<Either<BTreeSet<u64>, (u64, Option<BTreeSet<String>>)>> {
-        match self {
-            Self::ProblemNos(nos) => {
-                let nos = nos
-                    .iter()
-                    .map(|no| parse_problem_no(no))
-                    .collect::<Result<_, _>>()?;
-                Ok(Either::Left(nos))
-            }
-            Self::Contest(contest_id, indexes) => {
-                let contest_id = parse_contest_id(contest_id)?;
-                Ok(Either::Right((contest_id, indexes.clone())))
-            }
-        }
-    }
+    Urls(BTreeSet<Url>),
 }
 
 #[derive(Debug)]
@@ -259,17 +244,25 @@ pub struct YukicoderRetrieveFullTestCasesCredentials {
 
 #[derive(Debug)]
 pub enum YukicoderSubmitTarget {
-    ProblemNo(String),
+    Url(Url),
     Contest(String, String),
 }
 
 impl YukicoderSubmitTarget {
-    fn parse(&self) -> anyhow::Result<Either<u64, (u64, String)>> {
+    pub fn from_problem_no(problem_no: &str) -> Self {
+        Self::Url(
+            format!(
+                "https://yukicoder.me/problems/no/{}",
+                form_urlencoded::byte_serialize(problem_no.as_ref()).format(""),
+            )
+            .parse()
+            .expect("should be valid"),
+        )
+    }
+
+    fn parse(&self) -> anyhow::Result<Either<Url, (u64, String)>> {
         match self {
-            Self::ProblemNo(no) => {
-                let no = parse_problem_no(no)?;
-                Ok(Either::Left(no))
-            }
+            Self::Url(url) => Ok(Either::Left(url.clone())),
             Self::Contest(contest_id, problem_index) => {
                 let contest_id = parse_contest_id(contest_id)?;
                 Ok(Either::Right((contest_id, problem_index.clone())))
@@ -301,24 +294,42 @@ fn parse_contest_id(s: &str) -> anyhow::Result<u64> {
     })
 }
 
+fn parse_problem_url(url: &Url) -> anyhow::Result<Either<u64, u64>> {
+    if url.domain() != Some("yukicoder.me") {
+        bail!("wrong domain. expected `yukicoder.me`: {}", url);
+    }
+
+    if let Some(caps) = static_regex!(r"\A/problems/no/([0-9]{1,5})\z").captures(url.path()) {
+        Ok(Either::Left(
+            caps[1].parse().expect("this is from `([0-9]{1,5})`"),
+        ))
+    } else if let Some(caps) = static_regex!(r"\A/problems/([0-9]{1,5})\z").captures(url.path()) {
+        Ok(Either::Right(
+            caps[1].parse().expect("this is from `([0-9]{1,5})`"),
+        ))
+    } else {
+        bail!("not a URL for a problem in yukicoder: {}", url);
+    }
+}
+
 fn retrieve_samples(
     mut sess: impl SessionMut,
     targets: YukicoderRetrieveTestCasesTargets,
 ) -> anyhow::Result<RetrieveTestCasesOutcome> {
-    let mut outcome = RetrieveTestCasesOutcome {
-        contest: None,
-        problems: vec![],
-    };
+    let mut outcome = RetrieveTestCasesOutcome { problems: vec![] };
 
-    match targets.parse()? {
-        Either::Left(problem_nos) => {
-            for &problem_no in &problem_nos {
+    match targets {
+        YukicoderRetrieveTestCasesTargets::ProblemNos(problem_nos) => {
+            for problem_no in &problem_nos {
+                let problem_no = parse_problem_no(problem_no)?;
+
                 let (url, test_suite) = retrieve_samples(&mut sess, problem_no)?;
                 let api::Problem {
                     problem_id, title, ..
                 } = sess.get_problem_by_problem_no(problem_no)?;
 
                 outcome.problems.push(RetrieveTestCasesOutcomeProblem {
+                    contest: None,
                     index: problem_no.to_string(),
                     url,
                     screen_name: Some(problem_id.to_string()),
@@ -328,7 +339,9 @@ fn retrieve_samples(
                 });
             }
         }
-        Either::Right((contest_id, problem_indexes)) => {
+        YukicoderRetrieveTestCasesTargets::Contest(contest_id, problem_indexes) => {
+            let contest_id = parse_contest_id(&contest_id)?;
+
             let problem_indexes = problem_indexes
                 .map(|problem_indexes| {
                     problem_indexes
@@ -357,12 +370,12 @@ fn retrieve_samples(
                 unimplemented!("{} problems", problem_id_list.len());
             }
 
-            outcome.contest = Some(RetrieveTestCasesOutcomeContest {
+            let contest = &RetrieveTestCasesOutcomeProblemContest {
                 id: contest_id.to_string(),
                 display_name: name,
                 url: url!("/contests/{}", contest_id),
                 submissions_url: url!("/contests/{}/submissions?my_submission=enabled", contest_id),
-            });
+            };
 
             let mut not_found = problem_indexes;
 
@@ -379,6 +392,7 @@ fn retrieve_samples(
                 let (url, test_suite) = retrieve_samples(&mut sess, no)?;
 
                 outcome.problems.push(RetrieveTestCasesOutcomeProblem {
+                    contest: Some(contest.clone()),
                     index: index.to_string(),
                     url,
                     screen_name: Some(problem_id.to_string()),
@@ -392,6 +406,30 @@ fn retrieve_samples(
                 if !not_found.is_empty() {
                     bail!("No such problem: {:?}", not_found);
                 }
+            }
+        }
+        YukicoderRetrieveTestCasesTargets::Urls(urls) => {
+            for url in urls {
+                let api::Problem {
+                    no,
+                    problem_id,
+                    title,
+                } = match parse_problem_url(&url)? {
+                    Either::Left(problem_no) => sess.get_problem_by_problem_no(problem_no)?,
+                    Either::Right(problem_id) => sess.get_problem_by_problem_id(problem_id)?,
+                };
+
+                let (_, test_suite) = retrieve_samples(&mut sess, no)?;
+
+                outcome.problems.push(RetrieveTestCasesOutcomeProblem {
+                    contest: None,
+                    index: no.to_string(),
+                    url,
+                    screen_name: Some(problem_id.to_string()),
+                    display_name: title.clone(),
+                    test_suite,
+                    text_files: indexmap!(),
+                });
             }
         }
     }

@@ -3,14 +3,14 @@ source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
 expression: outcome
 ---
 {
-  "contest": {
-    "id": "arc019",
-    "display_name": "AtCoder Regular Contest 019",
-    "url": "https://atcoder.jp/contests/arc019",
-    "submissions_url": "https://atcoder.jp/contests/arc019/submissions/me"
-  },
   "problems": [
     {
+      "contest": {
+        "id": "arc019",
+        "display_name": "AtCoder Regular Contest 019",
+        "url": "https://atcoder.jp/contests/arc019",
+        "submissions_url": "https://atcoder.jp/contests/arc019/submissions/me"
+      },
       "index": "A",
       "url": "https://atcoder.jp/contests/arc019/tasks/arc019_1",
       "screen_name": "arc019_1",
@@ -47,6 +47,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "arc019",
+        "display_name": "AtCoder Regular Contest 019",
+        "url": "https://atcoder.jp/contests/arc019",
+        "submissions_url": "https://atcoder.jp/contests/arc019/submissions/me"
+      },
       "index": "B",
       "url": "https://atcoder.jp/contests/arc019/tasks/arc019_2",
       "screen_name": "arc019_2",
@@ -83,6 +89,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "arc019",
+        "display_name": "AtCoder Regular Contest 019",
+        "url": "https://atcoder.jp/contests/arc019",
+        "submissions_url": "https://atcoder.jp/contests/arc019/submissions/me"
+      },
       "index": "C",
       "url": "https://atcoder.jp/contests/arc019/tasks/arc019_3",
       "screen_name": "arc019_3",
@@ -126,6 +138,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "arc019",
+        "display_name": "AtCoder Regular Contest 019",
+        "url": "https://atcoder.jp/contests/arc019",
+        "submissions_url": "https://atcoder.jp/contests/arc019/submissions/me"
+      },
       "index": "D",
       "url": "https://atcoder.jp/contests/arc019/tasks/arc019_4",
       "screen_name": "arc019_4",

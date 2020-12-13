@@ -2,25 +2,31 @@ use crate::{
     testsuite::{BatchTestSuite, Match, PartialBatchTestCase, TestSuite},
     web::{
         codeforces::api::SessionMutExt as _, CookieStorage, Exec, Login, LoginOutcome, Participate,
-        ParticipateOutcome, Platform, ResponseExt as _, RetrieveLanguages,
-        RetrieveLanguagesOutcome, RetrieveTestCases, RetrieveTestCasesOutcome,
-        RetrieveTestCasesOutcomeContest, RetrieveTestCasesOutcomeProblem, Session, SessionMut,
-        Shell, Submit, SubmitOutcome,
+        ParticipateOutcome, Platform, ProblemInContest, ProblemsInContest, ResponseExt as _,
+        RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveTestCases, RetrieveTestCasesOutcome,
+        RetrieveTestCasesOutcomeProblem, RetrieveTestCasesOutcomeProblemContest, Session,
+        SessionMut, Shell, Submit, SubmitOutcome,
     },
 };
 use anyhow::{bail, Context as _};
 use easy_ext::ext;
 use indexmap::{indexmap, IndexMap};
 use itertools::Itertools as _;
+use maplit::btreemap;
 use once_cell::sync::Lazy;
 use scraper::{ElementRef, Html, Node, Selector};
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     convert::Infallible,
     marker::PhantomData,
     time::Duration,
 };
 use url::Url;
+
+pub fn contest_id_from_url(url: &Url) -> anyhow::Result<u64> {
+    let (contest_id, _) = parse_problem_url(url)?;
+    Ok(contest_id)
+}
 
 static BASE_URL: Lazy<Url> = lazy_url!("https://codeforces.com");
 
@@ -36,14 +42,14 @@ impl<'closures> Platform for Codeforces<'closures> {
     type ParticipateCredentials = CodeforcesParticipateCredentials<'closures>;
     type RetrieveLanguagesTarget = CodeforcesRetrieveLanguagesTarget;
     type RetrieveLanguagesCredentials = CodeforcesRetrieveLanguagesCredentials<'closures>;
-    type RetrieveTestCasesTargets = CodeforcesRetrieveTestCasesTargets;
+    type RetrieveTestCasesTargets = ProblemsInContest;
     type RetrieveTestCasesCredentials = CodeforcesRetrieveSampleTestCasesCredentials<'closures>;
     type RetrieveFullTestCasesCredentials = Infallible;
     type RetrieveSubmissionSummariesTarget = Infallible;
     type RetrieveSubmissionSummariesCredentials = Infallible;
     type WatchSubmissionsTarget = Infallible;
     type WatchSubmissionsCredentials = Infallible;
-    type SubmitTarget = CodeforcesSubmitTarget;
+    type SubmitTarget = ProblemInContest;
     type SubmitCredentials = CodeforcesSubmitCredentials<'closures>;
 }
 
@@ -136,10 +142,10 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
 
     fn exec(args: RetrieveTestCases<Self, S>) -> anyhow::Result<RetrieveTestCasesOutcome> {
         let RetrieveTestCases {
-            targets: CodeforcesRetrieveTestCasesTargets { contest, problems },
+            targets,
             credentials:
                 CodeforcesRetrieveSampleTestCasesCredentials {
-                    username_and_password,
+                    mut username_and_password,
                 },
             full: _,
             cookie_storage,
@@ -147,68 +153,84 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
             shell,
         } = args;
 
-        let contest = parse_contest_id(&contest)?;
+        let targets = match targets {
+            ProblemsInContest::Indexes { contest, problems } => {
+                btreemap!(parse_contest_id(&contest)? => problems)
+            }
+            ProblemsInContest::Urls { urls } => {
+                let mut targets: BTreeMap<_, BTreeSet<_>> = btreemap!();
+                for url in urls {
+                    let (contest, problem) = parse_problem_url(&url)?;
+                    targets.entry(contest).or_default().insert(problem);
+                }
+                targets.into_iter().map(|(k, v)| (k, Some(v))).collect()
+            }
+        };
 
         let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
+        let mut outcome = RetrieveTestCasesOutcome { problems: vec![] };
 
-        let (_, contest_name, _) = participate(&mut sess, username_and_password, contest)?;
+        for (contest, problems) in targets {
+            let (_, contest_name, _) = participate(&mut sess, &mut username_and_password, contest)?;
 
-        let mut problem_indices = problems.map(|ps| {
-            ps.iter()
-                .map(AsRef::as_ref)
-                .map(str::to_uppercase)
-                .collect::<BTreeSet<_>>()
-        });
+            let mut problem_indices = problems.map(|ps| {
+                ps.iter()
+                    .map(AsRef::as_ref)
+                    .map(str::to_uppercase)
+                    .collect::<BTreeSet<_>>()
+            });
 
-        let problems = sess
-            .get(url!("/contest/{}", contest))
-            .colorize_status_code(&[200], (), ..)
-            .send()?
-            .ensure_status(&[200])?
-            .html()?
-            .extract_problems()?
-            .into_iter()
-            .map(|(index, display_name, url)| {
-                if let Some(problem_indices) = &mut problem_indices {
-                    if !problem_indices.remove(&index) {
-                        return Ok(None);
-                    }
-                }
-
-                let test_suite = sess
-                    .get(url.clone())
-                    .colorize_status_code(&[200], (), ..)
-                    .send()?
-                    .html()?
-                    .extract_test_cases()?;
-
-                Ok(Some(RetrieveTestCasesOutcomeProblem {
-                    index,
-                    url,
-                    screen_name: None,
-                    display_name,
-                    test_suite,
-                    text_files: indexmap!(),
-                }))
-            })
-            .flat_map(Result::transpose)
-            .collect::<anyhow::Result<_>>()?;
-
-        if let Some(problem_indices) = problem_indices {
-            if !problem_indices.is_empty() {
-                bail!("No such problem indices: {:?}", problem_indices);
-            }
-        }
-
-        Ok(RetrieveTestCasesOutcome {
-            contest: Some(RetrieveTestCasesOutcomeContest {
+            let contest = &RetrieveTestCasesOutcomeProblemContest {
                 id: contest.to_string(),
                 display_name: contest_name,
                 url: url!("/contest/{}", contest),
                 submissions_url: url!("/contest/{}/my", contest),
-            }),
-            problems,
-        })
+            };
+
+            outcome.problems.extend(
+                sess.get(url!("/contest/{}", contest.id))
+                    .colorize_status_code(&[200], (), ..)
+                    .send()?
+                    .ensure_status(&[200])?
+                    .html()?
+                    .extract_problems()?
+                    .into_iter()
+                    .map(|(index, display_name, url)| {
+                        if let Some(problem_indices) = &mut problem_indices {
+                            if !problem_indices.remove(&index) {
+                                return Ok(None);
+                            }
+                        }
+
+                        let test_suite = sess
+                            .get(url.clone())
+                            .colorize_status_code(&[200], (), ..)
+                            .send()?
+                            .html()?
+                            .extract_test_cases()?;
+
+                        Ok(Some(RetrieveTestCasesOutcomeProblem {
+                            contest: Some(contest.clone()),
+                            index,
+                            url,
+                            screen_name: None,
+                            display_name,
+                            test_suite,
+                            text_files: indexmap!(),
+                        }))
+                    })
+                    .flat_map(Result::transpose)
+                    .collect::<anyhow::Result<Vec<_>>>()?,
+            );
+
+            if let Some(problem_indices) = problem_indices {
+                if !problem_indices.is_empty() {
+                    bail!("No such problem indices: {:?}", problem_indices);
+                }
+            }
+        }
+
+        Ok(outcome)
     }
 }
 
@@ -217,11 +239,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
 
     fn exec(args: Submit<Self, S>) -> anyhow::Result<SubmitOutcome> {
         let Submit {
-            target:
-                CodeforcesSubmitTarget {
-                    contest: contest_id,
-                    problem: problem_index,
-                },
+            target,
             credentials:
                 CodeforcesSubmitCredentials {
                     username_and_password,
@@ -240,7 +258,10 @@ impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
             shell.warn("`watch_submissions` in Codeforces is not yet supported")?;
         }
 
-        let contest_id = parse_contest_id(&contest_id)?;
+        let (contest_id, problem_index) = match target {
+            ProblemInContest::Index { contest, problem } => (parse_contest_id(&contest)?, problem),
+            ProblemInContest::Url { url } => parse_problem_url(&url)?,
+        };
 
         let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
@@ -323,20 +344,8 @@ pub struct CodeforcesRetrieveLanguagesCredentials<'closures> {
     pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
-#[derive(Debug)]
-pub struct CodeforcesRetrieveTestCasesTargets {
-    pub contest: String,
-    pub problems: Option<BTreeSet<String>>,
-}
-
 pub struct CodeforcesRetrieveSampleTestCasesCredentials<'closures> {
     pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
-}
-
-#[derive(Debug)]
-pub struct CodeforcesSubmitTarget {
-    pub contest: String,
-    pub problem: String,
 }
 
 pub struct CodeforcesSubmitCredentials<'closures> {
@@ -352,6 +361,20 @@ fn parse_contest_id(s: &str) -> anyhow::Result<u64> {
             s,
         )
     })
+}
+
+fn parse_problem_url(url: &Url) -> anyhow::Result<(u64, String)> {
+    if url.domain() != Some("codeforces.com") {
+        bail!("wrong domain. expected `codeforces.com`: {}", url);
+    }
+
+    let caps = static_regex!(r"\Acontest/([0-9]{1,5})/problem/(.*)\z")
+        .captures(&url.path())
+        .with_context(|| format!("`{}` is not a URL for problem in Codeforces", url))?;
+
+    let contest_id = caps[1].parse().expect("from `[0-9]{1,5}`");
+    let problem_index = caps[2].to_owned();
+    Ok((contest_id, problem_index))
 }
 
 fn login(

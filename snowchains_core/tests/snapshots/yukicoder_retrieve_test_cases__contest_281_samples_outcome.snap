@@ -3,14 +3,14 @@ source: snowchains_core/tests/yukicoder-retrieve-test-cases.rs
 expression: outcome
 ---
 {
-  "contest": {
-    "id": "281",
-    "display_name": "yukicoder contest 266",
-    "url": "https://yukicoder.me/contests/281",
-    "submissions_url": "https://yukicoder.me/contests/281/submissions?my_submission=enabled"
-  },
   "problems": [
     {
+      "contest": {
+        "id": "281",
+        "display_name": "yukicoder contest 266",
+        "url": "https://yukicoder.me/contests/281",
+        "submissions_url": "https://yukicoder.me/contests/281/submissions?my_submission=enabled"
+      },
       "index": "A",
       "url": "https://yukicoder.me/problems/no/1229",
       "screen_name": "3976",
@@ -54,6 +54,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "281",
+        "display_name": "yukicoder contest 266",
+        "url": "https://yukicoder.me/contests/281",
+        "submissions_url": "https://yukicoder.me/contests/281/submissions?my_submission=enabled"
+      },
       "index": "B",
       "url": "https://yukicoder.me/problems/no/1230",
       "screen_name": "4945",
@@ -88,6 +94,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "281",
+        "display_name": "yukicoder contest 266",
+        "url": "https://yukicoder.me/contests/281",
+        "submissions_url": "https://yukicoder.me/contests/281/submissions?my_submission=enabled"
+      },
       "index": "C",
       "url": "https://yukicoder.me/problems/no/1231",
       "screen_name": "2651",
@@ -124,6 +136,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "281",
+        "display_name": "yukicoder contest 266",
+        "url": "https://yukicoder.me/contests/281",
+        "submissions_url": "https://yukicoder.me/contests/281/submissions?my_submission=enabled"
+      },
       "index": "D",
       "url": "https://yukicoder.me/problems/no/1232",
       "screen_name": "3014",
@@ -146,6 +164,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "281",
+        "display_name": "yukicoder contest 266",
+        "url": "https://yukicoder.me/contests/281",
+        "submissions_url": "https://yukicoder.me/contests/281/submissions?my_submission=enabled"
+      },
       "index": "E",
       "url": "https://yukicoder.me/problems/no/1233",
       "screen_name": "3265",
@@ -175,6 +199,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "281",
+        "display_name": "yukicoder contest 266",
+        "url": "https://yukicoder.me/contests/281",
+        "submissions_url": "https://yukicoder.me/contests/281/submissions?my_submission=enabled"
+      },
       "index": "F",
       "url": "https://yukicoder.me/problems/no/1234",
       "screen_name": "1379",

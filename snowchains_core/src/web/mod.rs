@@ -59,19 +59,19 @@ mod yukicoder;
 
 pub use crate::web::{
     atcoder::{
-        Atcoder, AtcoderLoginCredentials, AtcoderParticipateCredentials, AtcoderParticipateTarget,
+        contest_id_from_url as atcoder_contest_id, Atcoder, AtcoderLoginCredentials,
+        AtcoderParticipateCredentials, AtcoderParticipateTarget,
         AtcoderRetrieveFullTestCasesCredentials, AtcoderRetrieveLanguagesCredentials,
         AtcoderRetrieveLanguagesTarget, AtcoderRetrieveSampleTestCasesCredentials,
         AtcoderRetrieveSubmissionSummariesCredentials, AtcoderRetrieveSubmissionSummariesOutcome,
-        AtcoderRetrieveSubmissionSummariesTarget, AtcoderRetrieveTestCasesTargets,
-        AtcoderSubmitCredentials, AtcoderSubmitTarget, AtcoderWatchSubmissionsCredentials,
-        AtcoderWatchSubmissionsTarget,
+        AtcoderRetrieveSubmissionSummariesTarget, AtcoderSubmitCredentials,
+        AtcoderWatchSubmissionsCredentials, AtcoderWatchSubmissionsTarget,
     },
     codeforces::{
-        Codeforces, CodeforcesLoginCredentials, CodeforcesParticipateCredentials,
-        CodeforcesParticipateTarget, CodeforcesRetrieveLanguagesCredentials,
-        CodeforcesRetrieveLanguagesTarget, CodeforcesRetrieveSampleTestCasesCredentials,
-        CodeforcesRetrieveTestCasesTargets, CodeforcesSubmitCredentials, CodeforcesSubmitTarget,
+        contest_id_from_url as codeforces_contest_id, Codeforces, CodeforcesLoginCredentials,
+        CodeforcesParticipateCredentials, CodeforcesParticipateTarget,
+        CodeforcesRetrieveLanguagesCredentials, CodeforcesRetrieveLanguagesTarget,
+        CodeforcesRetrieveSampleTestCasesCredentials, CodeforcesSubmitCredentials,
     },
     yukicoder::{
         Yukicoder, YukicoderRetrieveFullTestCasesCredentials, YukicoderRetrieveTestCasesTargets,
@@ -102,6 +102,7 @@ use std::{
     any,
     borrow::Borrow,
     cell::RefCell,
+    collections::BTreeSet,
     convert::TryInto,
     fmt,
     fs::File,
@@ -163,6 +164,16 @@ pub enum PlatformKind {
 impl PlatformKind {
     pub const KEBAB_CASE_VARIANTS: &'static [&'static str] =
         &["atcoder", "codeforces", "yukicoder"];
+
+    pub fn from_url(url: &Url) -> anyhow::Result<Self> {
+        match url.domain() {
+            Some("atcoder.jp") => Ok(Self::Atcoder),
+            Some("codeforces.com") => Ok(Self::Codeforces),
+            Some("yukicoder.me") => Ok(Self::Yukicoder),
+            Some(_) => bail!("unknown domain: {}", url),
+            None => bail!("missing domain: {}", url),
+        }
+    }
 
     pub fn to_kebab_case_str(self) -> &'static str {
         match self {
@@ -293,28 +304,28 @@ pub struct RetrieveFullTestCases<P: Platform> {
 #[non_exhaustive]
 #[derive(Debug, Serialize)]
 pub struct RetrieveTestCasesOutcome {
-    pub contest: Option<RetrieveTestCasesOutcomeContest>,
     pub problems: Vec<RetrieveTestCasesOutcomeProblem>,
 }
 
 #[non_exhaustive]
 #[derive(Debug, Serialize)]
-pub struct RetrieveTestCasesOutcomeContest {
-    pub id: String,
-    pub display_name: String,
-    pub url: Url,
-    pub submissions_url: Url,
-}
-
-#[non_exhaustive]
-#[derive(Debug, Serialize)]
 pub struct RetrieveTestCasesOutcomeProblem {
+    pub contest: Option<RetrieveTestCasesOutcomeProblemContest>,
     pub index: String,
     pub url: Url,
     pub screen_name: Option<String>,
     pub display_name: String,
     pub test_suite: TestSuite,
     pub text_files: IndexMap<String, RetrieveTestCasesOutcomeProblemTextFiles>,
+}
+
+#[non_exhaustive]
+#[derive(Debug, Clone, Serialize)]
+pub struct RetrieveTestCasesOutcomeProblemContest {
+    pub id: String,
+    pub display_name: String,
+    pub url: Url,
+    pub submissions_url: Url,
 }
 
 pub struct RetrieveSubmissionSummaries<P: Platform, S: Shell> {
@@ -378,6 +389,23 @@ impl SubmitOutcome {
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("should not fail")
     }
+}
+
+#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
+pub enum ProblemsInContest {
+    Indexes {
+        contest: String,
+        problems: Option<BTreeSet<String>>,
+    },
+    Urls {
+        urls: BTreeSet<Url>,
+    },
+}
+
+#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
+pub enum ProblemInContest {
+    Index { contest: String, problem: String },
+    Url { url: Url },
 }
 
 pub struct CookieStorage {

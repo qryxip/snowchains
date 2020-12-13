@@ -5,11 +5,12 @@ use crate::{
     },
     web::{
         AnsiColored, CaseConverted, CookieStorage, Exec, Login, LoginOutcome, LowerCase,
-        Participate, ParticipateOutcome, Platform, ResponseExt as _, RetrieveFullTestCases,
-        RetrieveLanguages, RetrieveLanguagesOutcome, RetrieveSubmissionSummaries,
-        RetrieveTestCases, RetrieveTestCasesOutcome, RetrieveTestCasesOutcomeContest,
-        RetrieveTestCasesOutcomeProblem, RetrieveTestCasesOutcomeProblemTextFiles, Session,
-        SessionMut, Shell, Submit, SubmitOutcome, UpperCase, WatchSubmissions,
+        Participate, ParticipateOutcome, Platform, ProblemInContest, ProblemsInContest,
+        ResponseExt as _, RetrieveFullTestCases, RetrieveLanguages, RetrieveLanguagesOutcome,
+        RetrieveSubmissionSummaries, RetrieveTestCases, RetrieveTestCasesOutcome,
+        RetrieveTestCasesOutcomeProblem, RetrieveTestCasesOutcomeProblemContest,
+        RetrieveTestCasesOutcomeProblemTextFiles, Session, SessionMut, Shell, Submit,
+        SubmitOutcome, UpperCase, WatchSubmissions,
     },
 };
 use anyhow::{anyhow, bail, Context as _};
@@ -18,7 +19,7 @@ use easy_ext::ext;
 use indexmap::{indexmap, IndexMap};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::Itertools as _;
-use maplit::hashmap;
+use maplit::{btreemap, hashmap, hashset};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::header;
@@ -26,7 +27,7 @@ use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::json;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     convert::Infallible,
     fmt,
     hash::Hash,
@@ -42,6 +43,17 @@ use unicode_width::UnicodeWidthStr as _;
 use url::Url;
 
 static BASE_URL: Lazy<Url> = lazy_url!("https://atcoder.jp");
+
+pub fn contest_id_from_url(url: &Url) -> anyhow::Result<String> {
+    if url.domain() != Some("atcoder.jp") {
+        bail!("wrong domain. expected `atcoder.jp`: {}", url);
+    }
+
+    static_regex!(r"\A/contests/([a-z0-9_\-]+)/.*\z$")
+        .captures(url.path())
+        .map(|caps| caps[1].to_owned())
+        .with_context(|| "Could not extract contest ID of the problem")
+}
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum Atcoder<'closures> {
@@ -64,7 +76,7 @@ impl<'closures> Platform for Atcoder<'closures> {
     type ParticipateCredentials = AtcoderParticipateCredentials<'closures>;
     type RetrieveLanguagesTarget = AtcoderRetrieveLanguagesTarget;
     type RetrieveLanguagesCredentials = AtcoderRetrieveLanguagesCredentials<'closures>;
-    type RetrieveTestCasesTargets = AtcoderRetrieveTestCasesTargets;
+    type RetrieveTestCasesTargets = ProblemsInContest;
     type RetrieveTestCasesCredentials = AtcoderRetrieveSampleTestCasesCredentials<'closures>;
     type RetrieveFullTestCasesCredentials = AtcoderRetrieveFullTestCasesCredentials;
     type RetrieveSubmissionSummariesTarget = AtcoderRetrieveSubmissionSummariesTarget;
@@ -72,7 +84,7 @@ impl<'closures> Platform for Atcoder<'closures> {
         AtcoderRetrieveSubmissionSummariesCredentials<'closures>;
     type WatchSubmissionsTarget = AtcoderWatchSubmissionsTarget;
     type WatchSubmissionsCredentials = AtcoderWatchSubmissionsCredentials<'closures>;
-    type SubmitTarget = AtcoderSubmitTarget;
+    type SubmitTarget = ProblemInContest;
     type SubmitCredentials = AtcoderSubmitCredentials<'closures>;
 }
 
@@ -192,16 +204,9 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
             shell,
         } = args;
 
-        let AtcoderRetrieveTestCasesTargets { contest, problems } = targets;
-
         let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
-        let mut outcome = retrieve_sample_test_cases(
-            &mut sess,
-            username_and_password,
-            &contest,
-            problems.as_ref(),
-        )?;
+        let mut outcome = retrieve_sample_test_cases(&mut sess, username_and_password, &targets)?;
 
         if let Some(RetrieveFullTestCases {
             credentials:
@@ -215,12 +220,15 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
                     .unwrap()
             });
 
-            let path_prefix = DROPBOX_PATH_PREFIXES
-                .get(&contest)
-                .cloned()
-                .unwrap_or_else(|| format!("/{}/", contest));
-
             for problem in &mut outcome.problems {
+                let path_prefix = {
+                    let contest = &problem.contest.as_ref().expect("should be `Some`").id;
+                    DROPBOX_PATH_PREFIXES
+                        .get(contest)
+                        .cloned()
+                        .unwrap_or_else(|| format!("/{}/", contest))
+                };
+
                 let problem_dir = format!("{}{}", path_prefix, problem.index);
 
                 let in_out_dir_file_names =
@@ -406,7 +414,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
 
     fn exec(args: Submit<Self, S>) -> anyhow::Result<SubmitOutcome> {
         let Submit {
-            target: AtcoderSubmitTarget { contest, problem },
+            target,
             credentials:
                 AtcoderSubmitCredentials {
                     username_and_password,
@@ -419,17 +427,27 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
             shell,
         } = args;
 
-        let contest = CaseConverted::<LowerCase>::new(contest);
-        let problem = CaseConverted::<UpperCase>::new(problem);
-
         let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
-        let tasks_page = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
+        let (contest, url) = match target {
+            ProblemInContest::Index { contest, problem } => {
+                let contest = CaseConverted::<LowerCase>::new(contest);
+                let problem = CaseConverted::<UpperCase>::new(problem);
 
-        let url = tasks_page
-            .extract_task_indexes_and_urls()?
-            .remove(&problem)
-            .with_context(|| format!("No such problem: `{}`", problem))?;
+                let tasks_page = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
+
+                let url = tasks_page
+                    .extract_task_indexes_and_urls()?
+                    .remove(&problem)
+                    .with_context(|| format!("No such problem: `{}`", problem))?;
+
+                (contest, url)
+            }
+            ProblemInContest::Url { url } => {
+                let contest = CaseConverted::new(contest_id_from_url(&url)?);
+                (contest, url)
+            }
+        };
 
         let problem_screen_name =
             static_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$")
@@ -545,12 +563,6 @@ pub struct AtcoderRetrieveLanguagesCredentials<'closures> {
     pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
-#[derive(Debug)]
-pub struct AtcoderRetrieveTestCasesTargets {
-    pub contest: String,
-    pub problems: Option<BTreeSet<String>>,
-}
-
 pub struct AtcoderRetrieveSampleTestCasesCredentials<'closures> {
     pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
@@ -590,65 +602,117 @@ pub struct AtcoderWatchSubmissionsCredentials<'closures> {
     pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
-#[derive(Debug)]
-pub struct AtcoderSubmitTarget {
-    pub contest: String,
-    pub problem: String,
-}
-
 pub struct AtcoderSubmitCredentials<'closures> {
     pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
 }
 
 fn retrieve_sample_test_cases(
     mut sess: impl SessionMut,
-    username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
-    contest: &str,
-    problems: Option<&BTreeSet<String>>,
+    mut username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
+    targets: &ProblemsInContest,
 ) -> anyhow::Result<RetrieveTestCasesOutcome> {
-    let contest = CaseConverted::<LowerCase>::new(contest);
+    let problems = match targets.clone() {
+        ProblemsInContest::Indexes { contest, problems } => {
+            let contest = CaseConverted::<LowerCase>::new(contest);
+            let html = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
 
-    let html = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
-    let contest_display_name = html
-        .extract_title()?
-        .trim_start_matches("Tasks - ")
-        .to_owned();
-    let mut indexes_and_urls = html.extract_task_indexes_and_urls()?;
+            let contest_display_name = html
+                .extract_title()?
+                .trim_start_matches("Tasks - ")
+                .to_owned();
 
-    let test_suites = sess
-        .get(url!("/contests/{}/tasks_print", contest))
-        .colorize_status_code(&[200], (), ..)
-        .send()?
-        .ensure_status(&[200])?
-        .html()?
-        .extract_samples();
+            let only = &mut problems
+                .as_ref()
+                .map(|ps| ps.iter().map(|p| p.to_uppercase()).collect::<BTreeSet<_>>());
 
-    if indexes_and_urls.len() != test_suites.len() {
-        sess.shell().warn(format!(
-            "Found {} task(s) in `tasks`, {} task(s) in `tasks_print`",
-            indexes_and_urls.len(),
-            test_suites.len(),
-        ))?;
-    }
+            let indexes_and_urls = html
+                .extract_task_indexes_and_urls()?
+                .into_iter()
+                .filter(|(index, _)| {
+                    if let Some(only) = only {
+                        only.remove(&**index)
+                    } else {
+                        true
+                    }
+                })
+                .collect::<IndexMap<_, _>>();
 
-    let mut problems =
-        problems.map(|ps| ps.iter().map(|p| p.to_uppercase()).collect::<BTreeSet<_>>());
+            if let Some(only) = only {
+                if !only.is_empty() {
+                    bail!("No such problems: {:?}", only);
+                }
+            }
 
-    let mut outcome = RetrieveTestCasesOutcome {
-        contest: Some(RetrieveTestCasesOutcomeContest {
+            btreemap!(contest => (contest_display_name, indexes_and_urls))
+        }
+        ProblemsInContest::Urls { urls } => {
+            let mut problems: BTreeMap<_, (_, _, HashSet<_>)> = btreemap!();
+
+            for url in urls {
+                let contest = CaseConverted::new(contest_id_from_url(&url)?);
+
+                if let Some((_, _, only)) = problems.get_mut(&contest) {
+                    only.insert(url);
+                } else {
+                    let html =
+                        retrieve_tasks_page(&mut sess, &mut username_and_password, &contest)?;
+                    let contest_display_name = html
+                        .extract_title()?
+                        .trim_start_matches("Tasks - ")
+                        .to_owned();
+                    let indexes_and_urls = html.extract_task_indexes_and_urls()?;
+                    problems.insert(
+                        contest,
+                        (contest_display_name, indexes_and_urls, hashset!(url)),
+                    );
+                }
+            }
+
+            problems
+                .into_iter()
+                .map(
+                    |(contest, (contest_display_name, indexes_and_urls, only))| {
+                        let indexes_and_urls = indexes_and_urls
+                            .into_iter()
+                            .filter(|(_, url)| only.contains(url))
+                            .collect();
+                        (contest, (contest_display_name, indexes_and_urls))
+                    },
+                )
+                .collect()
+        }
+    };
+
+    let mut outcome = RetrieveTestCasesOutcome { problems: vec![] };
+
+    for (contest, (contest_display_name, mut indexes_and_urls)) in problems {
+        let test_suites = sess
+            .get(url!("/contests/{}/tasks_print", contest))
+            .colorize_status_code(&[200], (), ..)
+            .send()?
+            .ensure_status(&[200])?
+            .html()?
+            .extract_samples();
+
+        if indexes_and_urls.len() > test_suites.len() {
+            sess.shell().warn(format!(
+                "Found {} task(s) in `tasks`, {} task(s) in `tasks_print`",
+                indexes_and_urls.len(),
+                test_suites.len(),
+            ))?;
+        }
+
+        let contest = &RetrieveTestCasesOutcomeProblemContest {
             id: (*contest).to_owned(),
             display_name: contest_display_name,
             url: url!("/contests/{}", contest),
             submissions_url: url!("/contests/{}/submissions/me", contest),
-        }),
-        problems: vec![],
-    };
+        };
 
-    for result in test_suites {
-        match result {
-            Ok((index, display_name, test_suite)) => {
-                if let Some(url) = indexes_and_urls.shift_remove(&*index) {
-                    if problems.as_mut().map_or(true, |ps| ps.remove(&*index)) {
+        for result in test_suites {
+            match result {
+                Ok((index, display_name, test_suite)) => {
+                    if let Some(url) = indexes_and_urls.shift_remove(&*index) {
                         let screen_name = url
                             .path_segments()
                             .and_then(Iterator::last)
@@ -670,6 +734,7 @@ fn retrieve_sample_test_cases(
                         };
 
                         outcome.problems.push(RetrieveTestCasesOutcomeProblem {
+                            contest: Some(contest.clone()),
                             url,
                             index,
                             screen_name: Some(screen_name),
@@ -678,23 +743,14 @@ fn retrieve_sample_test_cases(
                             text_files: indexmap![],
                         });
                     }
-                } else {
-                    sess.shell()
-                        .warn(format!("what is this?: `{} - {}`", index, display_name))?;
                 }
+                Err(err) => sess.shell().warn(err)?,
             }
-            Err(err) => sess.shell().warn(err)?,
         }
-    }
 
-    for (index, _) in indexes_and_urls {
-        sess.shell()
-            .warn(format!("Could not find `{}` in `tasks_print`", index))?;
-    }
-
-    if let Some(problems) = problems {
-        if !problems.is_empty() {
-            bail!("No such problems: {:?}", problems);
+        for (index, _) in indexes_and_urls {
+            sess.shell()
+                .warn(format!("Could not find `{}` in `tasks_print`", index))?;
         }
     }
 

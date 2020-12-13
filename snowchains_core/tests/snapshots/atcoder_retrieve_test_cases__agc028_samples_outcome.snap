@@ -3,14 +3,14 @@ source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
 expression: outcome
 ---
 {
-  "contest": {
-    "id": "agc028",
-    "display_name": "AtCoder Grand Contest 028",
-    "url": "https://atcoder.jp/contests/agc028",
-    "submissions_url": "https://atcoder.jp/contests/agc028/submissions/me"
-  },
   "problems": [
     {
+      "contest": {
+        "id": "agc028",
+        "display_name": "AtCoder Grand Contest 028",
+        "url": "https://atcoder.jp/contests/agc028",
+        "submissions_url": "https://atcoder.jp/contests/agc028/submissions/me"
+      },
       "index": "A",
       "url": "https://atcoder.jp/contests/agc028/tasks/agc028_a",
       "screen_name": "agc028_a",
@@ -47,6 +47,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "agc028",
+        "display_name": "AtCoder Grand Contest 028",
+        "url": "https://atcoder.jp/contests/agc028",
+        "submissions_url": "https://atcoder.jp/contests/agc028/submissions/me"
+      },
       "index": "B",
       "url": "https://atcoder.jp/contests/agc028/tasks/agc028_b",
       "screen_name": "agc028_b",
@@ -83,6 +89,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "agc028",
+        "display_name": "AtCoder Grand Contest 028",
+        "url": "https://atcoder.jp/contests/agc028",
+        "submissions_url": "https://atcoder.jp/contests/agc028/submissions/me"
+      },
       "index": "C",
       "url": "https://atcoder.jp/contests/agc028/tasks/agc028_c",
       "screen_name": "agc028_c",
@@ -119,6 +131,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "agc028",
+        "display_name": "AtCoder Grand Contest 028",
+        "url": "https://atcoder.jp/contests/agc028",
+        "submissions_url": "https://atcoder.jp/contests/agc028/submissions/me"
+      },
       "index": "D",
       "url": "https://atcoder.jp/contests/agc028/tasks/agc028_d",
       "screen_name": "agc028_d",
@@ -155,6 +173,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "agc028",
+        "display_name": "AtCoder Grand Contest 028",
+        "url": "https://atcoder.jp/contests/agc028",
+        "submissions_url": "https://atcoder.jp/contests/agc028/submissions/me"
+      },
       "index": "E",
       "url": "https://atcoder.jp/contests/agc028/tasks/agc028_e",
       "screen_name": "agc028_e",
@@ -198,6 +222,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "agc028",
+        "display_name": "AtCoder Grand Contest 028",
+        "url": "https://atcoder.jp/contests/agc028",
+        "submissions_url": "https://atcoder.jp/contests/agc028/submissions/me"
+      },
       "index": "F",
       "url": "https://atcoder.jp/contests/agc028/tasks/agc028_f",
       "screen_name": "agc028_f",
@@ -241,6 +271,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "agc028",
+        "display_name": "AtCoder Grand Contest 028",
+        "url": "https://atcoder.jp/contests/agc028",
+        "submissions_url": "https://atcoder.jp/contests/agc028/submissions/me"
+      },
       "index": "F2",
       "url": "https://atcoder.jp/contests/agc028/tasks/agc028_f2",
       "screen_name": "agc028_f2",

@@ -2,9 +2,9 @@ use crate::config;
 use anyhow::{bail, Context as _};
 use human_size::Size;
 use snowchains_core::web::{
-    Atcoder, AtcoderSubmitCredentials, AtcoderSubmitTarget, Codeforces,
-    CodeforcesSubmitCredentials, CodeforcesSubmitTarget, CookieStorage, PlatformKind, Submit,
-    Yukicoder, YukicoderSubmitCredentials, YukicoderSubmitTarget,
+    Atcoder, AtcoderSubmitCredentials, Codeforces, CodeforcesSubmitCredentials, CookieStorage,
+    PlatformKind, ProblemInContest, Submit, Yukicoder, YukicoderSubmitCredentials,
+    YukicoderSubmitTarget,
 };
 use std::{cell::RefCell, env, io::BufRead, iter, path::PathBuf};
 use structopt::StructOpt;
@@ -177,7 +177,7 @@ pub(crate) fn run(
         PlatformKind::Atcoder => {
             let shell = RefCell::new(&mut shell);
 
-            let target = AtcoderSubmitTarget {
+            let target = ProblemInContest::Index {
                 contest: contest.with_context(|| "`contest` is required for AtCoder")?,
                 problem,
             };
@@ -200,7 +200,7 @@ pub(crate) fn run(
             })
         }
         PlatformKind::Codeforces => {
-            let target = CodeforcesSubmitTarget {
+            let target = ProblemInContest::Index {
                 contest: contest.with_context(|| "`contest` is required for Codeforces")?,
                 problem,
             };
@@ -232,7 +232,7 @@ pub(crate) fn run(
             let target = if let Some(contest) = contest {
                 YukicoderSubmitTarget::Contest(contest, problem)
             } else {
-                YukicoderSubmitTarget::ProblemNo(problem)
+                YukicoderSubmitTarget::from_problem_no(&problem)
             };
 
             let credentials = YukicoderSubmitCredentials {

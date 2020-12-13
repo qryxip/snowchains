@@ -3,14 +3,14 @@ source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
 expression: outcome
 ---
 {
-  "contest": {
-    "id": "arc021",
-    "display_name": "AtCoder Regular Contest 021",
-    "url": "https://atcoder.jp/contests/arc021",
-    "submissions_url": "https://atcoder.jp/contests/arc021/submissions/me"
-  },
   "problems": [
     {
+      "contest": {
+        "id": "arc021",
+        "display_name": "AtCoder Regular Contest 021",
+        "url": "https://atcoder.jp/contests/arc021",
+        "submissions_url": "https://atcoder.jp/contests/arc021/submissions/me"
+      },
       "index": "A",
       "url": "https://atcoder.jp/contests/arc021/tasks/arc021_1",
       "screen_name": "arc021_1",
@@ -47,6 +47,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "arc021",
+        "display_name": "AtCoder Regular Contest 021",
+        "url": "https://atcoder.jp/contests/arc021",
+        "submissions_url": "https://atcoder.jp/contests/arc021/submissions/me"
+      },
       "index": "B",
       "url": "https://atcoder.jp/contests/arc021/tasks/arc021_2",
       "screen_name": "arc021_2",
@@ -83,6 +89,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "arc021",
+        "display_name": "AtCoder Regular Contest 021",
+        "url": "https://atcoder.jp/contests/arc021",
+        "submissions_url": "https://atcoder.jp/contests/arc021/submissions/me"
+      },
       "index": "C",
       "url": "https://atcoder.jp/contests/arc021/tasks/arc021_3",
       "screen_name": "arc021_3",
@@ -112,6 +124,12 @@ expression: outcome
       "text_files": {}
     },
     {
+      "contest": {
+        "id": "arc021",
+        "display_name": "AtCoder Regular Contest 021",
+        "url": "https://atcoder.jp/contests/arc021",
+        "submissions_url": "https://atcoder.jp/contests/arc021/submissions/me"
+      },
       "index": "D",
       "url": "https://atcoder.jp/contests/arc021/tasks/arc021_4",
       "screen_name": "arc021_4",

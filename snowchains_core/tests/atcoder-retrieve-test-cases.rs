@@ -2,8 +2,8 @@ use cookie_store::CookieStore;
 use insta::{assert_debug_snapshot, assert_json_snapshot};
 use reqwest::{Method, StatusCode};
 use snowchains_core::web::{
-    Atcoder, AtcoderRetrieveSampleTestCasesCredentials, AtcoderRetrieveTestCasesTargets,
-    CookieStorage, RetrieveTestCases, StatusCodeColor,
+    Atcoder, AtcoderRetrieveSampleTestCasesCredentials, CookieStorage, ProblemsInContest,
+    RetrieveTestCases, StatusCodeColor,
 };
 use std::{
     fmt,
@@ -123,7 +123,7 @@ fn test(
     let mut messages = vec![];
 
     let outcome = Atcoder::exec(RetrieveTestCases {
-        targets: AtcoderRetrieveTestCasesTargets {
+        targets: ProblemsInContest::Indexes {
             contest: contest.to_owned(),
             problems: None,
         },
