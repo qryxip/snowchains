@@ -828,7 +828,7 @@ mod api {
                 .append_pair("time", &time);
 
             let api_sig = {
-                let rand = rand::thread_rng().gen_range(100_000u32, 1_000_000u32);
+                let rand = rand::thread_rng().gen_range(100_000u32..1_000_000);
                 let repr = format!("{}{}#{}", rand, &url.as_str()[26..], api_secret);
                 let digest = Sha512::digest(repr.as_ref());
                 format!("{}{}", rand, hex::encode(digest))

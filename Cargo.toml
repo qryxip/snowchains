@@ -14,7 +14,7 @@ keywords = ["competitive", "cli", "windows"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-anyhow = "1.0.35"
+anyhow = "1.0.37"
 atty = "0.2.14"
 az = "1.0.0"
 cookie_store = "0.12.0"
@@ -22,18 +22,18 @@ crossbeam-utils = "0.8.1"
 dhall = "0.9.0"
 dirs-next = "2.0.0"
 fwdansi = "1.1.0"
-heck = "0.3.1"
+heck = "0.3.2"
 human-size = "0.4.1"
-indexmap = { version = "1.6.0", features = ["serde-1"] }
+indexmap = { version = "1.6.1", features = ["serde-1"] }
 indicatif = "0.15.0"
-itertools = "0.9.0"
+itertools = "0.10.0"
 maplit = "1.0.2"
-reqwest = { version = "0.10.9", default-features = false, features = ["blocking"] }
+reqwest = { version = "0.10.10", default-features = false, features = ["blocking"] }
 rpassword = "5.0.0"
 rprompt = "1.0.5"
 serde = { version = "1.0.118", features = ["derive"] }
 serde_dhall = "0.9.0"
-serde_json = "1.0.60"
+serde_json = "1.0.61"
 serde_yaml = "0.8.14"
 shell-escape = "0.1.5"
 snowchains_core = { version = "0.7.0", path = "./snowchains_core" }
