@@ -1696,7 +1696,7 @@ impl Html {
             match s.parse() {
                 Ok(v) => Ok(v),
                 Err(e) => {
-                    if s.chars().all(|c| '０' <= c && c <= '９') {
+                    if s.chars().all(|c| ('０'..='９').contains(&c)) {
                         s.chars()
                             .map(|c| {
                                 char::from((u32::from(c) - u32::from('０') + u32::from('0')) as u8)
