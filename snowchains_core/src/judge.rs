@@ -389,11 +389,9 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
         targets.push((cmd.build(), test_case.clone(), pb));
     }
 
-    let mut rt = tokio::runtime::Builder::new()
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_io()
         .enable_time()
-        .basic_scheduler()
-        .threaded_scheduler()
         .build()?;
 
     let outcome = rt.spawn(async move {
@@ -414,7 +412,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
             ctrl_c_tx.send(err_msg).unwrap();
         });
 
-        let (mut job_start_tx, mut job_start_rx) = tokio::sync::mpsc::channel(num_cpus::get());
+        let (job_start_tx, mut job_start_rx) = tokio::sync::mpsc::channel(num_cpus::get());
         for _ in 0..num_cpus::get() {
             job_start_tx.send(()).await?;
         }
@@ -424,7 +422,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
         for (i, (mut cmd, test_case, pb)) in targets.into_iter().enumerate() {
             job_start_rx.recv().await;
 
-            let mut job_start_tx = job_start_tx.clone();
+            let job_start_tx = job_start_tx.clone();
             let mut ctrl_c_rx = ctrl_c_rxs.pop().expect("should have enough length");
 
             results.push(tokio::task::spawn(async move {
@@ -467,7 +465,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
                     let timeout = timelimit + Duration::from_millis(100);
 
                     if let Ok(status) =
-                        with_ctrl_c!(tokio::time::timeout(timeout, &mut child).fuse())
+                        with_ctrl_c!(tokio::time::timeout(timeout, child.wait()).fuse())
                     {
                         status?
                     } else {
@@ -482,7 +480,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
                         return Ok((i, verdict));
                     }
                 } else {
-                    with_ctrl_c!((&mut child).fuse())?
+                    with_ctrl_c!(child.wait().fuse())?
                 };
 
                 let elapsed = Instant::now() - started;

@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Updated `reqwest` to v0.11.
+- Updated `tokio` to v1.
+
 ## [0.7.0] - 2020-12-13Z
 
 ### Changed

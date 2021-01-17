@@ -984,7 +984,7 @@ fn download_with_progress(
     draw_target: ProgressDrawTarget,
     dl_targets: Vec<(String, reqwest::RequestBuilder)>,
 ) -> anyhow::Result<Vec<String>> {
-    let mut rt = Runtime::new()?;
+    let rt = Runtime::new()?;
     let mp = MultiProgress::with_draw_target(draw_target);
     let name_width = dl_targets.iter().map(|(s, _)| s.width()).max().unwrap_or(0);
 

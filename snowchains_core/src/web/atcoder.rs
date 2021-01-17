@@ -977,7 +977,7 @@ fn watch_submissions(
     contest: &CaseConverted<LowerCase>,
     summaries: &[SubmissionSummary],
 ) -> anyhow::Result<()> {
-    let mut rt = Runtime::new()?;
+    let rt = Runtime::new()?;
     let mut handles = vec![];
 
     let mp = MultiProgress::with_draw_target(sess.shell().progress_draw_target());
@@ -1105,7 +1105,7 @@ fn watch_submissions(
                             }
                         });
 
-                        tokio::time::delay_for(Duration::from_millis(interval)).await;
+                        tokio::time::sleep(Duration::from_millis(interval)).await;
                     } else {
                         let (verdict, time_and_memory) = match &text[..] {
                             [verdict, time_and_memory] => (verdict, time_and_memory),
