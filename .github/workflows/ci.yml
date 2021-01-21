@@ -62,6 +62,8 @@ jobs:
           RUST_BACKTRACE: full
           ATCODER_USERNAME: ${{ secrets.ATCODER_USERNAME }}
           ATCODER_PASSWORD: ${{ secrets.ATCODER_PASSWORD }}
+          CODEFORCES_USERNAME: ${{ secrets.CODEFORCES_USERNAME }}
+          CODEFORCES_PASSWORD: ${{ secrets.CODEFORCES_PASSWORD }}
 
       - name: grcov
         id: grcov
@@ -150,6 +152,8 @@ jobs:
           RUST_BACKTRACE: full
           ATCODER_USERNAME: ${{ secrets.ATCODER_USERNAME }}
           ATCODER_PASSWORD: ${{ secrets.ATCODER_PASSWORD }}
+          CODEFORCES_USERNAME: ${{ secrets.CODEFORCES_USERNAME }}
+          CODEFORCES_PASSWORD: ${{ secrets.CODEFORCES_PASSWORD }}
 
   upload:
     strategy:
