@@ -6,6 +6,10 @@
 
 - Improved around Dropbox.
 
+### Fixed
+
+- Fixed URL parsing for Codeforces.
+
 ## [0.8.0] - 2021-11-17Z
 
 ### Changed
