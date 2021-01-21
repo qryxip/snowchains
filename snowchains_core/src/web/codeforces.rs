@@ -368,7 +368,7 @@ fn parse_problem_url(url: &Url) -> anyhow::Result<(u64, String)> {
         bail!("wrong domain. expected `codeforces.com`: {}", url);
     }
 
-    let caps = static_regex!(r"\Acontest/([0-9]{1,5})/problem/(.*)\z")
+    let caps = static_regex!(r"\A/contest/([0-9]{1,5})/problem/(.*)\z")
         .captures(&url.path())
         .with_context(|| format!("`{}` is not a URL for problem in Codeforces", url))?;
 
