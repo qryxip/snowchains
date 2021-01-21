@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.1] - 2021-01-21Z
 
 ### Changed
 
@@ -10,7 +10,7 @@
 
 - Fixed URL parsing for Codeforces.
 
-## [0.8.0] - 2021-11-17Z
+## [0.8.0] - 2021-01-17Z
 
 ### Changed
 
