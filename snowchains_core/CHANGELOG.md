@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Improved around Dropbox.
+
 ## [0.8.0] - 2021-11-17Z
 
 ### Changed

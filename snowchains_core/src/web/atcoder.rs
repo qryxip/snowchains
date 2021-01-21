@@ -16,6 +16,7 @@ use crate::{
 use anyhow::{anyhow, bail, Context as _};
 use chrono::{DateTime, FixedOffset, Local, Utc};
 use easy_ext::ext;
+use either::Either;
 use indexmap::{indexmap, IndexMap};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::Itertools as _;
@@ -33,6 +34,8 @@ use std::{
     hash::Hash,
     io,
     marker::PhantomData,
+    mem,
+    ops::Deref,
     path::Path,
     str::FromStr,
     time::Duration,
@@ -231,58 +234,48 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
 
                 let problem_dir = format!("{}{}", path_prefix, problem.index);
 
-                let in_out_dir_file_names =
-                    list_folder(&mut sess, &dropbox_access_token, &problem_dir)?;
+                let problem_dir_entries =
+                    list_paths_with_name_filter(&mut sess, &dropbox_access_token, &problem_dir)?;
 
-                let mut retrieve_file_names = |in_out_dir_file_name: &'static str| -> _ {
-                    if in_out_dir_file_names.contains(&in_out_dir_file_name.to_owned()) {
-                        list_folder(
+                let mut list_file_paths = |in_out_dir_file_name: &'static str| -> _ {
+                    if problem_dir_entries.has_folder(in_out_dir_file_name) {
+                        list_paths_with_name_filter(
                             &mut sess,
                             &dropbox_access_token,
                             &format!("{}{}/{}", path_prefix, problem.index, in_out_dir_file_name),
                         )
+                        .map(|es| es.files())
                     } else {
                         Ok(vec![])
                     }
                 };
 
-                let in_file_names = retrieve_file_names("in")?;
-                let out_file_names = retrieve_file_names("out")?;
+                let (in_file_paths, out_file_paths) = match *problem_dir_entries.folder_names() {
+                    ["in", "out"] => (list_file_paths("in")?, list_file_paths("out")?),
+                    ["in"] => (list_file_paths("in")?, vec![]),
+                    ["out"] => (problem_dir_entries.files(), list_file_paths("out")?),
+                    [] => (problem_dir_entries.files(), vec![]),
+                    _ => bail!(
+                        "unexpected format (path-prefix: {:?}, files: {:?}, folders: {:?})",
+                        path_prefix,
+                        problem_dir_entries.files(),
+                        problem_dir_entries.folders(),
+                    ),
+                };
 
-                let mut retrieve_files =
-                    |dir_file_name: &'static str, file_names| -> anyhow::Result<_> {
-                        let path = format!("{}/{}", problem_dir, dir_file_name);
-                        retrieve_files(&mut sess, &dropbox_access_token, &path, file_names)
-                    };
+                let mut retrieve_files = |file_paths| -> anyhow::Result<_> {
+                    retrieve_files(&mut sess, &dropbox_access_token, file_paths)
+                };
+                let in_contents = retrieve_files(&in_file_paths)?;
+                let mut out_contents = retrieve_files(&out_file_paths)?;
 
-                problem.text_files = if out_file_names.is_empty() {
-                    let in_contents = retrieve_files("in", &in_file_names)?;
-
-                    in_contents
-                        .into_iter()
-                        .map(|(name, r#in)| {
-                            let text_files =
-                                RetrieveTestCasesOutcomeProblemTextFiles { r#in, out: None };
-                            (name, text_files)
-                        })
-                        .collect()
-                } else {
-                    let in_contents = retrieve_files("in", &in_file_names)?;
-                    let mut out_contents = retrieve_files("out", &out_file_names)?;
-
-                    in_contents
-                        .into_iter()
-                        .flat_map(|(name, r#in)| {
-                            out_contents.shift_remove(&name).map(|out| {
-                                let text_files = RetrieveTestCasesOutcomeProblemTextFiles {
-                                    r#in,
-                                    out: Some(out),
-                                };
-                                (name, text_files)
-                            })
-                        })
-                        .collect()
-                }
+                problem.text_files = in_contents
+                    .into_iter()
+                    .map(|(name, r#in)| {
+                        let out = out_contents.remove(&name);
+                        (name, RetrieveTestCasesOutcomeProblemTextFiles { r#in, out })
+                    })
+                    .collect();
             }
         }
 
@@ -291,19 +284,89 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
         static URL: &str =
             "https://www.dropbox.com/sh/arnpe0ef5wds8cv/AAAk_SECQ2Nc6SVGii3rHX6Fa?dl=0";
 
-        fn list_folder(
+        struct Entries(Vec<Either<String, String>>);
+
+        impl Entries {
+            fn has_folder(&self, name: &str) -> bool {
+                self.0
+                    .iter()
+                    .any(|e| matches!(e, Either::Right(s) if s.split('/').last().unwrap() == name))
+            }
+
+            fn files(&self) -> Vec<String> {
+                self.0
+                    .iter()
+                    .flat_map(|e| e.as_ref().left().cloned())
+                    .collect()
+            }
+
+            fn folders(&self) -> Vec<&str> {
+                self.0
+                    .iter()
+                    .flat_map(|e| e.as_ref().right().map(Deref::deref))
+                    .collect()
+            }
+
+            fn folder_names(&self) -> Vec<&str> {
+                self.0
+                    .iter()
+                    .flat_map(|e| e.as_ref().right().map(Deref::deref))
+                    .map(|p| p.split('/').last().unwrap())
+                    .collect()
+            }
+        }
+
+        fn list_paths_with_name_filter(
             mut sess: impl SessionMut,
             access_token: &str,
             path: &str,
-        ) -> anyhow::Result<Vec<String>> {
+        ) -> anyhow::Result<Entries> {
             #[derive(Deserialize)]
-            struct ListFolder {
-                entries: Vec<ListFolderEntry>,
+            struct ListFolderResult {
+                entries: Vec<Metadata>,
+                cursor: String,
+                has_more: bool,
             }
 
             #[derive(Deserialize)]
-            struct ListFolderEntry {
-                name: String,
+            #[serde(tag = ".tag", rename_all = "snake_case")]
+            enum Metadata {
+                File { name: String },
+                Folder { name: String },
+                Deleted { name: String },
+            }
+
+            impl Metadata {
+                fn is_valid(&self) -> bool {
+                    !(matches!(self, Self::Folder { name } if name == "etc")
+                        || matches!(
+                            self, Self::File { name }
+                            if !(name.is_ascii()
+                                && [
+                                    None,
+                                    Some("txt".as_ref()),
+                                    Some("in".as_ref()),
+                                    Some("out".as_ref()),
+                                ]
+                                .contains(&Path::new(name).extension()))
+                        ))
+                }
+            }
+
+            fn ensure_status_ok(
+                res: reqwest::blocking::Response,
+                err_context: impl FnOnce() -> String,
+            ) -> anyhow::Result<reqwest::blocking::Response> {
+                if res.status() != 200 {
+                    let msg = { res }.text()?;
+                    let msg = if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&msg) {
+                        serde_json::to_string_pretty(&msg).unwrap()
+                    } else {
+                        msg
+                    };
+                    return Err(anyhow!("{}", msg).context(err_context()));
+                }
+                Ok(res)
             }
 
             let res = sess
@@ -314,61 +377,88 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
                 .send()?
                 .ensure_status(&[200, 400, 409])?;
 
-            if res.status() == 200 {
-                let ListFolder { entries } = res.json()?;
-                Ok(entries
-                    .into_iter()
-                    .map(|ListFolderEntry { name }| name)
-                    .collect())
-            } else {
-                let msg = res.text()?;
-                let msg = if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&msg) {
-                    serde_json::to_string_pretty(&msg).unwrap()
-                } else {
-                    msg
-                };
-                Err(anyhow!("{}", msg)
-                    .context(format!("could not retrieve file names in `{}`", path)))
+            let res = ensure_status_ok(res, || {
+                format!("could not retrieve file names in `{}`", path)
+            })?;
+
+            let mut output = vec![];
+
+            let mut list_folder_result = res.json::<ListFolderResult>()?;
+            output.extend(mem::take(&mut list_folder_result.entries));
+            while list_folder_result.has_more {
+                debug_assert!(list_folder_result.entries.is_empty());
+
+                let res = sess
+                    .post(
+                        static_url!("https://api.dropboxapi.com/2/files/list_folder/continue")
+                            .clone(),
+                    )
+                    .bearer_auth(access_token)
+                    .json(&json!({ "cursor": &list_folder_result.cursor }))
+                    .colorize_status_code(&[200], (), ..)
+                    .send()?
+                    .ensure_status(&[200, 400, 409])?;
+
+                let res = ensure_status_ok(res, || {
+                    format!(
+                        "could not retrieve file names at cursor `{}`",
+                        list_folder_result.cursor,
+                    )
+                })?;
+
+                list_folder_result = res.json()?;
+                output.extend(mem::take(&mut list_folder_result.entries));
             }
+
+            output
+                .into_iter()
+                .filter(Metadata::is_valid)
+                .map(|metadata| {
+                    let join = |name: &str| format!("{}/{}", path.trim_end_matches('/'), name);
+                    match metadata {
+                        Metadata::File { name } => Ok(Either::Left(join(&name))),
+                        Metadata::Folder { name } => Ok(Either::Right(join(&name))),
+                        Metadata::Deleted { name } => bail!("deleted: {:?}", name),
+                    }
+                })
+                .collect::<anyhow::Result<_>>()
+                .map(Entries)
         }
 
         fn retrieve_files(
             mut sess: impl SessionMut,
             access_token: &str,
-            path: &str,
-            file_names: &[String],
+            file_paths: &[String],
         ) -> anyhow::Result<IndexMap<String, String>> {
             let contents = super::download_with_progress(
                 sess.shell().progress_draw_target(),
-                file_names
+                file_paths
                     .iter()
-                    .map(|file_name| {
-                        let path = format!("{}/{}", path, file_name);
+                    .map(|path| {
                         let req = sess
                             .async_client()
                             .post("https://content.dropboxapi.com/2/sharing/get_shared_link_file")
                             .bearer_auth(access_token)
                             .header(
                                 "Dropbox-API-Arg",
-                                json!({ "url": URL, "path": &path }).to_string(),
+                                json!({ "url": URL, "path": path }).to_string(),
                             );
-                        (path, req)
+                        (path.clone(), req)
                     })
                     .collect(),
             )?;
 
-            return Ok(file_names
-                .iter()
-                .map(strip_extension)
-                .zip_eq(contents)
-                .collect());
+            return Ok(file_paths.iter().map(file_stem).zip_eq(contents).collect());
 
-            fn strip_extension(name: impl AsRef<str>) -> String {
-                Path::new(name.as_ref())
-                    .with_extension("")
-                    .into_os_string()
-                    .into_string()
-                    .expect("should be UTF-8")
+            fn file_stem(path: impl AsRef<str>) -> String {
+                path.as_ref()
+                    .split('/')
+                    .last()
+                    .unwrap()
+                    .split('.')
+                    .next()
+                    .unwrap()
+                    .to_owned()
             }
         }
     }
