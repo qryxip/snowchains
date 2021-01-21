@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Improved around Dropbox.
+
 ## [0.7.0] - 2020-11-24Z
 
 ### Changed
