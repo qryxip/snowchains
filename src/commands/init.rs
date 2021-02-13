@@ -75,6 +75,7 @@ mod tests {
     fn run_resolve_default_config_dhall() -> anyhow::Result<()> {
         // https://docs.rs/dhall/0.6.0/src/dhall/semantics/resolve/cache.rs.html#15-35
 
+        use dhall::Ctxt;
         use std::{env, thread};
 
         crossbeam_utils::thread::scope(|scope| {
@@ -99,10 +100,13 @@ mod tests {
 
                 env::set_var("XDG_CACHE_HOME", cache_dir.path());
 
-                dhall::semantics::parse::parse_str(include_str!(
-                    "../../resources/config/default-config.dhall",
-                ))?
-                .resolve()?;
+                Ctxt::with_new(|ctxt| {
+                    dhall::semantics::parse::parse_str(include_str!(
+                        "../../resources/config/default-config.dhall",
+                    ))?
+                    .resolve(ctxt)
+                    .map(|_| ())
+                })?;
 
                 cache_dir.close()?;
                 Ok(())

@@ -5,6 +5,7 @@
 ### Changed
 
 - Improved around Dropbox.
+- Updated Dhall.
 
 ### Fixed
 
