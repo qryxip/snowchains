@@ -16,6 +16,7 @@ default = []
 __test_with_credentials = []
 
 [dependencies]
+_funty = { package = "funty", version = "=1.1.0"} # https://github.com/bitvecto-rs/bitvec/issues/105
 anyhow = "1.0.38"
 chrono = { version = "0.4.19", features = ["serde"] }
 cookie_store = "0.12.0"
