@@ -2538,6 +2538,7 @@ dependencies = [
  "sha2",
  "structopt",
  "strum",
+ "tempfile",
  "termcolor",
  "tokio 1.2.0",
  "unicode-width",

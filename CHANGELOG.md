@@ -9,6 +9,7 @@
 ### Fixed
 
 - Fixed URL parsing for Codeforces.
+- Added a workaround for large process input/output.
 
 ## [0.7.0] - 2020-11-24Z
 
