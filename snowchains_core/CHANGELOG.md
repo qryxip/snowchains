@@ -1,11 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.2] - 2021-02-14Z
 
 ### Fixed
 
-- Added a workaround for large process input/output.
-- Followed [dtolnay/serde-yaml@ef99075](https://github.com/dtolnay/serde-yaml/commit/ef990758a19d4d845cf19a8943e7d905909cafd8).
+- Added a workaround for large process input/output. ([#121](https://github.com/qryxip/snowchains/pull/121))
+
+- Fixed a problem where string values in YAMLs are unnecessarily quoted. ([#121](https://github.com/qryxip/snowchains/pull/121))
+
+    This problem was caused by [a change](https://github.com/dtolnay/serde-yaml/commit/ef990758a19d4d845cf19a8943e7d905909cafd8) in `serde-yaml v0.8.16`, which was released in February 2, 2021.
 
 ## [0.8.1] - 2021-01-21Z
 
