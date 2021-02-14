@@ -1,6 +1,6 @@
 [package]
 name = "snowchains_core"
-version = "0.8.1"
+version = "0.8.2"
 edition = "2018"
 authors = ["Ryo Yamashita <qryxip@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -16,7 +16,7 @@ default = []
 __test_with_credentials = []
 
 [dependencies]
-_funty = { package = "funty", version = "=1.1.0"} # https://github.com/bitvecto-rs/bitvec/issues/105
+funty = { version = "=1.1.0"} # https://github.com/bitvecto-rs/bitvec/issues/105
 anyhow = "1.0.38"
 chrono = { version = "0.4.19", features = ["serde"] }
 cookie_store = "0.12.0"
