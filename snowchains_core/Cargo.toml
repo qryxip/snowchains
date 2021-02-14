@@ -16,10 +16,11 @@ default = []
 __test_with_credentials = []
 
 [dependencies]
+_funty = { package = "funty", version = "=1.1.0"} # https://github.com/bitvecto-rs/bitvec/issues/105
 anyhow = "1.0.38"
 chrono = { version = "0.4.19", features = ["serde"] }
 cookie_store = "0.12.0"
-derivative = "2.1.3"
+derivative = "2.2.0"
 derive_more = "0.99.11"
 easy-ext = "0.2.6"
 either = "1.6.1"
@@ -34,22 +35,23 @@ indexmap = { version = "1.6.1", features = ["serde-1"] }
 indicatif = { version = "0.15.0", features = ["improved_unicode", "rayon"] }
 itertools = "0.10.0"
 maplit = "1.0.2"
-nom = "6.0.1"
+nom = "6.1.0"
 num_cpus = "1.13.0"
 once_cell = "1.5.2"
 percent-encoding = "2.1.0"
 prettytable-rs = "0.8.0"
-rand = "0.8.2"
+rand = "0.8.3"
 regex = "1.4.3"
 reqwest = { version = "0.11.0", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
 scraper = "0.12.0"
-serde = { version = "1.0.120", features = ["derive"] }
-serde_json = "1.0.61"
-serde_yaml = "0.8.15"
-sha2 = "0.9.2"
+serde = { version = "1.0.123", features = ["derive"] }
+serde_json = "1.0.62"
+serde_yaml = "0.8.17"
+sha2 = "0.9.3"
 strum = { version = "0.20.0", features = ["derive"] }
+tempfile = "3.2.0"
 termcolor = "1.1.2"
-tokio = { version = "1.0.2", features = ["io-util", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1.2.0", features = ["fs", "io-util", "process", "rt-multi-thread", "signal", "sync", "time"] }
 unicode-width = "0.1.8"
 url = { version = "2.2.0", features = ["serde"] }
 yaml-rust = "0.4.5"
@@ -58,7 +60,7 @@ yaml-rust = "0.4.5"
 atty = "0.2.14"
 difference = "2.0.0"
 fwdansi = "1.1.0"
-insta = "1.5.2"
+insta = "1.6.0"
 pretty_assertions = "0.6.1"
 rpassword = "5.0.1"
 rprompt = "1.0.5"

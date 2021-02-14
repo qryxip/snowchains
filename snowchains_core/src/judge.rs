@@ -8,13 +8,13 @@ use std::{
     ffi::OsString,
     future::Future,
     io, iter,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
     sync::Arc,
     time::{Duration, Instant},
 };
 use termcolor::{Color, WriteColor};
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::AsyncWriteExt as _;
 use unicode_width::UnicodeWidthStr as _;
 
 #[non_exhaustive]
@@ -198,7 +198,7 @@ impl JudgeOutcome {
         let fails = self
             .verdicts
             .iter()
-            .filter(|v| !matches!(v, Verdict::Accepted {..}))
+            .filter(|v| !matches!(v, Verdict::Accepted { .. }))
             .count();
 
         if fails > 0 {
@@ -327,6 +327,7 @@ impl Verdict {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct CommandExpression {
     pub program: OsString,
     pub args: Vec<OsString>,
@@ -335,17 +336,27 @@ pub struct CommandExpression {
 }
 
 impl CommandExpression {
-    fn build(&self) -> tokio::process::Command {
+    async fn build(
+        &self,
+        stdin: Option<&Path>,
+        stdout: &Path,
+        stderr: &Path,
+    ) -> io::Result<tokio::process::Command> {
         let mut cmd = tokio::process::Command::new(&self.program);
-
+        let stdin = if let Some(stdin) = stdin {
+            tokio::fs::File::open(stdin).await?.into_std().await.into()
+        } else {
+            Stdio::piped()
+        };
+        let stdout = tokio::fs::File::create(stdout).await?.into_std().await;
+        let stderr = tokio::fs::File::create(stderr).await?.into_std().await;
         cmd.args(&self.args)
             .current_dir(&self.cwd)
             .envs(&self.env)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        cmd
+            .stdin(stdin)
+            .stdout(stdout)
+            .stderr(stderr);
+        Ok(cmd)
     }
 }
 
@@ -355,6 +366,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
     cmd: &CommandExpression,
     test_cases: &[BatchTestCase],
 ) -> anyhow::Result<JudgeOutcome> {
+    let cmd = Arc::new(cmd.clone());
     let num_test_cases = test_cases.len();
 
     let quoted_name_width = test_cases
@@ -363,6 +375,11 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
         .map(|s| format!("{:?}", s).width())
         .max()
         .unwrap_or(0);
+
+    let tempdir = tempfile::Builder::new()
+        .prefix("snowchains-core-juding-")
+        .tempdir()?;
+    let tempdir_path = tempdir.path().to_owned();
 
     let mp = MultiProgress::with_draw_target(draw_target);
 
@@ -386,7 +403,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
         pb.set_message("Judging...");
         pb.enable_steady_tick(50);
 
-        targets.push((cmd.build(), test_case.clone(), pb));
+        targets.push((test_case.clone(), pb));
     }
 
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -419,7 +436,12 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
 
         let mut results = vec![];
 
-        for (i, (mut cmd, test_case, pb)) in targets.into_iter().enumerate() {
+        for (i, (test_case, pb)) in targets.into_iter().enumerate() {
+            let cmd = cmd.clone();
+            let stdin_path = tempdir_path.join(format!("{}-stdin", i));
+            let stdout_path = tempdir_path.join(format!("{}-stdout", i));
+            let stderr_path = tempdir_path.join(format!("{}-stderr", i));
+
             job_start_rx.recv().await;
 
             let job_start_tx = job_start_tx.clone();
@@ -441,9 +463,18 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
                 let stdin = test_case.input.clone();
                 let expected = test_case.output.clone();
 
+                let stdin_path = if stdin.len() < 10_000 {
+                    None
+                } else {
+                    tokio::fs::write(&stdin_path, stdin.as_ref()).await?;
+                    Some(&*stdin_path)
+                };
+
+                let cmd = cmd.build(stdin_path, &stdout_path, &stderr_path).await?;
+
                 let started = Instant::now();
 
-                let mut child = cmd.spawn()?;
+                let mut child = { cmd }.spawn()?;
 
                 if let Some(mut child_stdin) = child.stdin.take() {
                     child_stdin.write_all((*stdin).as_ref()).await?;
@@ -485,14 +516,8 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
 
                 let elapsed = Instant::now() - started;
 
-                let (mut stdout, mut stderr) = ("".to_owned(), "".to_owned());
-                if let Some(mut child_stdout) = child.stdout {
-                    child_stdout.read_to_string(&mut stdout).await?;
-                }
-                if let Some(mut child_stderr) = child.stderr {
-                    child_stderr.read_to_string(&mut stderr).await?;
-                }
-                let (stdout, stderr) = (Arc::from(stdout), Arc::from(stderr));
+                let stdout = Arc::from(tokio::fs::read_to_string(&stdout_path).await?);
+                let stderr = Arc::from(tokio::fs::read_to_string(&stderr_path).await?);
 
                 let verdict = if matches!(timelimit, Some(t) if t < elapsed) {
                     Verdict::TimelimitExceeded {
@@ -551,7 +576,9 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
 
     mp.join()?;
 
-    return rt.block_on(outcome)?;
+    let outcome = rt.block_on(outcome)??;
+    tempdir.close()?;
+    return Ok(outcome);
 
     fn progress_style(template: impl AsRef<str>) -> ProgressStyle {
         ProgressStyle::default_spinner().template(template.as_ref())

@@ -101,8 +101,7 @@ impl TestSuite {
         fn key_value(key: impl Serialize, value: impl Serialize) -> serde_yaml::Result<String> {
             let key = serde_yaml::to_value(key)?;
             let mut acc = serde_yaml::to_string(&hashmap!(key => value))?;
-            debug_assert!(acc.starts_with("---\n"));
-            acc += "\n";
+            debug_assert!(acc.starts_with("---\n") && acc.ends_with('\n'));
             Ok(acc.split_off(4))
         }
 
@@ -123,6 +122,7 @@ impl TestSuite {
                 let mut acc = serde_yaml::to_string(&hashmap!(&key => serde_yaml::Value::Null))
                     .ok()?
                     .trim_start_matches("---\n")
+                    .trim_end_matches('\n')
                     .trim_end_matches('~')
                     .to_owned();
 

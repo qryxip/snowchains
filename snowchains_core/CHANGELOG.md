@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Added a workaround for large process input/output.
+- Followed [dtolnay/serde-yaml@ef99075](https://github.com/dtolnay/serde-yaml/commit/ef990758a19d4d845cf19a8943e7d905909cafd8).
+
 ## [0.8.1] - 2021-01-21Z
 
 ### Changed

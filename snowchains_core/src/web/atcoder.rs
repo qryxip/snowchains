@@ -980,7 +980,7 @@ fn retrieve_submission_summaries(
     username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
 ) -> anyhow::Result<(Vec<SubmissionSummary>, u32)> {
     let res = sess
-        .get(submissions_me(contest, page)?)
+        .get(submissions_me(contest, page))
         .colorize_status_code(&[200], &[302], ..)
         .send()?
         .ensure_status(&[200, 302])?;
@@ -989,7 +989,7 @@ fn retrieve_submission_summaries(
         res
     } else {
         participate(&mut sess, username_and_password, contest, false)?;
-        sess.get(submissions_me(contest, page)?)
+        sess.get(submissions_me(contest, page))
             .colorize_status_code(&[200], (), ..)
             .send()?
             .ensure_status(&[200])?
@@ -997,10 +997,10 @@ fn retrieve_submission_summaries(
     .html()?
     .extract_submissions();
 
-    fn submissions_me(contest: &CaseConverted<LowerCase>, page: u32) -> anyhow::Result<Url> {
+    fn submissions_me(contest: &CaseConverted<LowerCase>, page: u32) -> Url {
         let mut url = url!("/contests/{}/submissions/me", contest);
         url.query_pairs_mut().append_pair("page", &page.to_string());
-        Ok(url)
+        url
     }
 }
 
