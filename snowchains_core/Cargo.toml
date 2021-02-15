@@ -1,6 +1,6 @@
 [package]
 name = "snowchains_core"
-version = "0.8.2"
+version = "0.9.0"
 edition = "2018"
 authors = ["Ryo Yamashita <qryxip@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -35,7 +35,7 @@ indexmap = { version = "1.6.1", features = ["serde-1"] }
 indicatif = { version = "0.15.0", features = ["improved_unicode", "rayon"] }
 itertools = "0.10.0"
 maplit = "1.0.2"
-nom = "6.1.0"
+nom = "6.1.2"
 num_cpus = "1.13.0"
 once_cell = "1.5.2"
 percent-encoding = "2.1.0"
