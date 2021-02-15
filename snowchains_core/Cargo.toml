@@ -55,6 +55,7 @@ tokio = { version = "1.2.0", features = ["fs", "io-util", "process", "rt-multi-t
 unicode-width = "0.1.8"
 url = { version = "2.2.0", features = ["serde"] }
 yaml-rust = "0.4.5"
+which = "4.0.2"
 
 [dev-dependencies]
 atty = "0.2.14"

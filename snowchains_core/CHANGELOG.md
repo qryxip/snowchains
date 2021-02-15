@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Added `Checker` variant to `Match`.
+
+    ```yaml
+    match:
+      Checker:
+        cmd: cat "$ACTUAL_OUTPUT" | cargo run --bin check-a
+        shell: Bash
+    ```
+
+    ```yaml
+    match:
+      Checker:
+        cmd: ~/.cache/online-judge-tools/library-checker-problems/math/sqrt_mod/checker "$INPUT" "$ACTUAL_OUTPUT" "$EXPECTED_OUTPUT"
+        shell: Bash
+    ```
+
 ## [0.8.2] - 2021-02-14Z
 
 ### Fixed

@@ -1,15 +1,16 @@
-use crate::testsuite::{BatchTestCase, ExpectedOutput};
-use anyhow::bail;
+use crate::testsuite::{BatchTestCase, CheckerShell, ExpectedOutput};
+use anyhow::{anyhow, bail};
 use futures_util::{select, FutureExt as _};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::{
     cmp,
     collections::BTreeMap,
-    ffi::OsString,
+    env,
+    ffi::{OsStr, OsString},
     future::Future,
     io, iter,
     path::{Path, PathBuf},
-    process::{ExitStatus, Stdio},
+    process::{ExitStatus, Output, Stdio},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -107,14 +108,22 @@ impl JudgeOutcome {
             };
 
             write_text("stdin:", verdict.stdin(), false, false)?;
-            if let Some(expected) = verdict.expected().text() {
+            if let Some(expected) = verdict.expected().expected_stdout() {
                 write_text("expected:", expected, false, verdict.expected().is_float())?;
+            } else if let Some(example) = verdict.expected().example() {
+                write_text("example:", example, false, verdict.expected().is_float())?;
             }
             if let Some(stdout) = verdict.stdout() {
                 write_text("actual:", stdout, false, verdict.expected().is_float())?;
             }
             if let Some(stderr) = verdict.stderr() {
                 write_text("stderr:", stderr, true, verdict.expected().is_float())?;
+            }
+            if let Some(checker_stdout) = verdict.checker_stdout() {
+                write_text("checker stdout: ", checker_stdout, true, false)?;
+            }
+            if let Some(checker_stderr) = verdict.checker_stderr() {
+                write_text("checker stderr: ", checker_stderr, true, false)?;
             }
         }
 
@@ -230,6 +239,8 @@ pub enum Verdict {
         stdin: Arc<str>,
         stdout: Arc<str>,
         stderr: Arc<str>,
+        checker_stdout: Arc<str>,
+        checker_stderr: Arc<str>,
         expected: ExpectedOutput,
     },
     RuntimeError {
@@ -292,6 +303,20 @@ impl Verdict {
             | Verdict::WrongAnswer { expected, .. }
             | Verdict::RuntimeError { expected, .. }
             | Verdict::TimelimitExceeded { expected, .. } => expected,
+        }
+    }
+
+    fn checker_stdout(&self) -> Option<&str> {
+        match self {
+            Verdict::WrongAnswer { checker_stdout, .. } => Some(checker_stdout),
+            _ => None,
+        }
+    }
+
+    fn checker_stderr(&self) -> Option<&str> {
+        match self {
+            Verdict::WrongAnswer { checker_stderr, .. } => Some(checker_stderr),
+            _ => None,
         }
     }
 
@@ -376,6 +401,18 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
         .max()
         .unwrap_or(0);
 
+    let bash_exe = {
+        static GIT_BASH: &str = r"C:\Program Files\Git\bin\bash.exe";
+
+        let bash_exe = if cfg!(windows) && Path::new(GIT_BASH).exists() {
+            GIT_BASH
+        } else {
+            "bash"
+        };
+        which::which_in(bash_exe, env::var_os("PATH"), &cmd.cwd)
+            .map_err(|_| anyhow!("`{}` not found", bash_exe))?
+    };
+
     let tempdir = tempfile::Builder::new()
         .prefix("snowchains-core-juding-")
         .tempdir()?;
@@ -439,8 +476,10 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
         for (i, (test_case, pb)) in targets.into_iter().enumerate() {
             let cmd = cmd.clone();
             let stdin_path = tempdir_path.join(format!("{}-stdin", i));
-            let stdout_path = tempdir_path.join(format!("{}-stdout", i));
+            let actual_stdout_path = tempdir_path.join(format!("{}-actual-stdout", i));
+            let expected_stdout_path = tempdir_path.join(format!("{}-expected-stdout", i));
             let stderr_path = tempdir_path.join(format!("{}-stderr", i));
+            let bash_exe = bash_exe.clone();
 
             job_start_rx.recv().await;
 
@@ -448,6 +487,8 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
             let mut ctrl_c_rx = ctrl_c_rxs.pop().expect("should have enough length");
 
             results.push(tokio::task::spawn(async move {
+                tokio::fs::write(&stdin_path, test_case.input.as_ref()).await?;
+
                 let finish_pb = |verdict: &Verdict| {
                     tokio::task::block_in_place(|| {
                         pb.set_style(progress_style(&format!(
@@ -463,14 +504,14 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
                 let stdin = test_case.input.clone();
                 let expected = test_case.output.clone();
 
-                let stdin_path = if stdin.len() < 10_000 {
-                    None
-                } else {
-                    tokio::fs::write(&stdin_path, stdin.as_ref()).await?;
-                    Some(&*stdin_path)
-                };
-
-                let cmd = cmd.build(stdin_path, &stdout_path, &stderr_path).await?;
+                let cwd = &cmd.cwd;
+                let cmd = cmd
+                    .build(
+                        (stdin.len() >= 10 * 1024).then(|| &*stdin_path),
+                        &actual_stdout_path,
+                        &stderr_path,
+                    )
+                    .await?;
 
                 let started = Instant::now();
 
@@ -516,8 +557,8 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
 
                 let elapsed = Instant::now() - started;
 
-                let stdout = Arc::from(tokio::fs::read_to_string(&stdout_path).await?);
-                let stderr = Arc::from(tokio::fs::read_to_string(&stderr_path).await?);
+                let stdout = utf8(tokio::fs::read(&actual_stdout_path).await?)?;
+                let stderr = utf8(tokio::fs::read(&stderr_path).await?)?;
 
                 let verdict = if matches!(timelimit, Some(t) if t < elapsed) {
                     Verdict::TimelimitExceeded {
@@ -536,13 +577,25 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
                         expected,
                         status,
                     }
-                } else if !test_case.output.accepts(&stdout) {
+                } else if let Err((checker_stdout, checker_stderr)) = check(
+                    &test_case.output,
+                    &stdout,
+                    cwd,
+                    &stdin_path,
+                    &actual_stdout_path,
+                    &expected_stdout_path,
+                    &bash_exe,
+                )
+                .await?
+                {
                     Verdict::WrongAnswer {
                         test_case_name,
                         elapsed,
                         stdin,
                         stdout,
                         stderr,
+                        checker_stdout,
+                        checker_stderr,
                         expected,
                     }
                 } else {
@@ -593,4 +646,62 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
         let spaces = n.saturating_sub(s.width());
         itertools::repeat_n(' ', spaces).chain(s.chars()).collect()
     }
+}
+
+async fn check(
+    expected: &ExpectedOutput,
+    actual: &str,
+    cwd: &Path,
+    stdin_path: &Path,
+    actual_stdout_path: &Path,
+    expected_stdout_path: &Path,
+    bash_exe: &Path,
+) -> anyhow::Result<Result<(), (Arc<str>, Arc<str>)>> {
+    match expected {
+        ExpectedOutput::Deterministic(expected) => Ok(if expected.accepts(actual) {
+            Ok(())
+        } else {
+            Err((Arc::from(""), Arc::from("")))
+        }),
+        ExpectedOutput::Checker { text, cmd, shell } => {
+            let (program, args) = match shell {
+                CheckerShell::Bash => (bash_exe, [OsStr::new("-c"), OsStr::new(cmd)]),
+            };
+
+            let mut env_vars = vec![("INPUT", stdin_path), ("ACTUAL_OUTPUT", actual_stdout_path)];
+            if let Some(text) = text {
+                tokio::fs::write(expected_stdout_path, text.as_ref()).await?;
+                env_vars.push(("EXPECTED_OUTPUT", expected_stdout_path));
+            }
+
+            let Output {
+                status,
+                stdout,
+                stderr,
+            } = tokio::process::Command::new(program)
+                .args(&args)
+                .envs(env_vars)
+                .current_dir(cwd)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .output()
+                .await?;
+
+            let output = (utf8(stdout)?, utf8(stderr)?);
+
+            Ok(if status.success() {
+                Ok(())
+            } else {
+                Err(output)
+            })
+        }
+    }
+}
+
+fn utf8(bytes: Vec<u8>) -> anyhow::Result<Arc<str>> {
+    String::from_utf8(bytes)
+        .map(Into::into)
+        .map_err(|_| anyhow!("the output was not a valid UTF-8 string"))
 }
