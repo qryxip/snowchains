@@ -31,7 +31,7 @@ impl TestSuite {
 
                 yaml += &key_value("type", "Batch").ok()?;
                 yaml += &key_value("timelimit", Serde::from(suite.timelimit)).ok()?;
-                yaml += &key_value("match", suite.r#match).ok()?;
+                yaml += &key_value("match", &suite.r#match).ok()?;
 
                 yaml += if suite.cases.is_empty() {
                     "\ncases: []\n"
@@ -56,7 +56,7 @@ impl TestSuite {
                         part += &key_value("timelimit", Serde::from(timelimit)).ok()?;
                     }
 
-                    if let Some(r#match) = case.r#match {
+                    if let Some(r#match) = &case.r#match {
                         part += &key_value("match", r#match).ok()?;
                     }
 
@@ -177,7 +177,7 @@ impl BatchTestSuite {
                     _ => true,
                 },
             )
-            .map(|case| BatchTestCase::new(case, self.timelimit, self.r#match))
+            .map(|case| BatchTestCase::new(case, self.timelimit, &self.r#match))
             .collect();
 
         if let Some(names) = names {
@@ -295,7 +295,7 @@ impl Additional {
                             r#in,
                             out,
                             timelimit: *timelimit,
-                            r#match: *r#match,
+                            r#match: r#match.clone(),
                         })
                     })
                     .collect()
@@ -304,7 +304,7 @@ impl Additional {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub enum Match {
     Exact,
     Lines,
@@ -312,6 +312,15 @@ pub enum Match {
         relative_error: Option<PositiveFinite<f64>>,
         absolute_error: Option<PositiveFinite<f64>>,
     },
+    Checker {
+        cmd: String,
+        shell: CheckerShell,
+    },
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+pub enum CheckerShell {
+    Bash,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq)]
@@ -329,18 +338,77 @@ pub struct BatchTestCase {
 }
 
 impl BatchTestCase {
-    fn new(case: PartialBatchTestCase, timelimit: Option<Duration>, matching: Match) -> Self {
+    fn new(case: PartialBatchTestCase, timelimit: Option<Duration>, matching: &Match) -> Self {
         BatchTestCase {
             name: case.name,
             timelimit: case.timelimit.or(timelimit),
             input: case.r#in,
-            output: ExpectedOutput::new(case.out, case.r#match.unwrap_or(matching)),
+            output: ExpectedOutput::new(case.out, case.r#match.unwrap_or_else(|| matching.clone())),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExpectedOutput {
+    Deterministic(DeterministicExpectedOutput),
+    Checker {
+        text: Option<Arc<str>>,
+        cmd: String,
+        shell: CheckerShell,
+    },
+}
+
+impl ExpectedOutput {
+    fn new(text: Option<Arc<str>>, matching: Match) -> Self {
+        match (text, matching) {
+            (text, Match::Checker { cmd, shell }) => Self::Checker { text, cmd, shell },
+            (Some(text), Match::Exact) => {
+                Self::Deterministic(DeterministicExpectedOutput::Exact { text })
+            }
+            (Some(text), Match::Lines) => {
+                Self::Deterministic(DeterministicExpectedOutput::Lines { text })
+            }
+            (
+                Some(text),
+                Match::Float {
+                    relative_error,
+                    absolute_error,
+                },
+            ) => Self::Deterministic(DeterministicExpectedOutput::Float {
+                text,
+                relative_error,
+                absolute_error,
+            }),
+            (None, _) => Self::Deterministic(DeterministicExpectedOutput::Pass),
+        }
+    }
+
+    pub(crate) fn is_float(&self) -> bool {
+        matches!(
+            self,
+            Self::Deterministic(DeterministicExpectedOutput::Float { .. })
+        )
+    }
+
+    pub(crate) fn expected_stdout(&self) -> Option<&str> {
+        match self {
+            Self::Deterministic(DeterministicExpectedOutput::Exact { text })
+            | Self::Deterministic(DeterministicExpectedOutput::Lines { text })
+            | Self::Deterministic(DeterministicExpectedOutput::Float { text, .. }) => Some(text),
+            Self::Deterministic(DeterministicExpectedOutput::Pass) | Self::Checker { .. } => None,
+        }
+    }
+
+    pub(crate) fn example(&self) -> Option<&str> {
+        match self {
+            Self::Checker { text, .. } => text.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DeterministicExpectedOutput {
     Pass,
     Exact {
         text: Arc<str>,
@@ -355,37 +423,7 @@ pub enum ExpectedOutput {
     },
 }
 
-impl ExpectedOutput {
-    fn new(text: Option<Arc<str>>, matching: Match) -> Self {
-        match (text, matching) {
-            (None, _) => Self::Pass,
-            (Some(text), Match::Exact) => Self::Exact { text },
-            (Some(text), Match::Lines) => Self::Lines { text },
-            (
-                Some(text),
-                Match::Float {
-                    relative_error,
-                    absolute_error,
-                },
-            ) => Self::Float {
-                text,
-                relative_error,
-                absolute_error,
-            },
-        }
-    }
-
-    pub(crate) fn is_float(&self) -> bool {
-        matches!(self, Self::Float { .. })
-    }
-
-    pub(crate) fn text(&self) -> Option<&Arc<str>> {
-        match self {
-            Self::Exact { text } | Self::Lines { text } | Self::Float { text, .. } => Some(text),
-            Self::Pass => None,
-        }
-    }
-
+impl DeterministicExpectedOutput {
     pub(crate) fn accepts(&self, actual: &str) -> bool {
         match self {
             Self::Pass => true,
@@ -510,8 +548,8 @@ mod serde_fn {
 #[cfg(test)]
 mod tests {
     use crate::testsuite::{
-        Additional, BatchTestSuite, ExpectedOutput, Match, PartialBatchTestCase, PositiveFinite,
-        TestSuite,
+        Additional, BatchTestSuite, DeterministicExpectedOutput, Match, PartialBatchTestCase,
+        PositiveFinite, TestSuite,
     };
     use difference::assert_diff;
     use pretty_assertions::assert_eq;
@@ -714,46 +752,46 @@ extend: []
 
     #[test]
     fn expected_output_accepts() {
-        assert!(ExpectedOutput::Pass.accepts("ミ゙"));
+        assert!(DeterministicExpectedOutput::Pass.accepts("ミ゙"));
 
-        assert!(ExpectedOutput::Exact {
+        assert!(DeterministicExpectedOutput::Exact {
             text: "1 2\n".into()
         }
         .accepts("1 2\n"));
 
-        assert!(!ExpectedOutput::Exact {
+        assert!(!DeterministicExpectedOutput::Exact {
             text: "1  2\n".into()
         }
         .accepts("1 2\n"));
 
-        assert!(!ExpectedOutput::Exact {
+        assert!(!DeterministicExpectedOutput::Exact {
             text: "1 2\n".into()
         }
         .accepts("1\n2\n"));
 
-        assert!(ExpectedOutput::Lines {
+        assert!(DeterministicExpectedOutput::Lines {
             text: "1 2\n".into()
         }
         .accepts("1 2\n"));
 
-        assert!(!ExpectedOutput::Lines {
+        assert!(!DeterministicExpectedOutput::Lines {
             text: "1  2\n".into()
         }
         .accepts("1 2\n"));
 
-        assert!(!ExpectedOutput::Lines {
+        assert!(!DeterministicExpectedOutput::Lines {
             text: "1 2\n".into()
         }
         .accepts("1\n2\n"));
 
-        assert!(ExpectedOutput::Float {
+        assert!(DeterministicExpectedOutput::Float {
             text: "10000.0\n".into(),
             relative_error: Some(PositiveFinite(0.01)),
             absolute_error: None,
         }
         .accepts("10001.0\n"));
 
-        assert!(!ExpectedOutput::Float {
+        assert!(!DeterministicExpectedOutput::Float {
             text: "10000.0\n".into(),
             relative_error: Some(PositiveFinite(0.01)),
             absolute_error: None,
