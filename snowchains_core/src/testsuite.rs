@@ -198,7 +198,7 @@ pub struct PartialBatchTestCase {
     pub name: Option<String>,
     #[serde(with = "serde_fn::arc_str")]
     pub r#in: Arc<str>,
-    #[serde(with = "serde_fn::option_arc_str")]
+    #[serde(default, with = "serde_fn::option_arc_str")]
     pub out: Option<Arc<str>>,
     #[serde(default, with = "humantime_serde")]
     pub timelimit: Option<Duration>,

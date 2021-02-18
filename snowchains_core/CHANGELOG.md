@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Added `#[serde(default)]` to `PartialBatchTestCase::out: Option<Arc<str>>`.
+
+    Previously, explicit `out: ~` had been allowed but the field itself was required.
+
 ## [0.9.0] - 2021-02-15Z
 
 ### Changed
