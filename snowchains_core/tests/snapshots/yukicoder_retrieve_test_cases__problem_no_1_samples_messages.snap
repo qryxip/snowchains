@@ -1,12 +1,15 @@
 ---
 source: snowchains_core/tests/yukicoder-retrieve-test-cases.rs
 expression: messages
+
 ---
 [
     OnRequest(
         GET,
         Url {
             scheme: "https",
+            username: "",
+            password: None,
             host: Some(
                 Domain(
                     "yukicoder.me",
@@ -26,6 +29,8 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            username: "",
+            password: None,
             host: Some(
                 Domain(
                     "yukicoder.me",
