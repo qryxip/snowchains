@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed [a problem where processes are not killed for timeout](https://github.com/qryxip/cargo-compete/issues/135).
+
 ## [0.9.1] - 2021-02-18Z
 
 ### Fixed
