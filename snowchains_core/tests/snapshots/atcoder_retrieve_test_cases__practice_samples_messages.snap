@@ -1,12 +1,15 @@
 ---
 source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
 expression: messages
+
 ---
 [
     OnRequest(
         GET,
         Url {
             scheme: "https",
+            username: "",
+            password: None,
             host: Some(
                 Domain(
                     "atcoder.jp",
@@ -26,6 +29,8 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            username: "",
+            password: None,
             host: Some(
                 Domain(
                     "atcoder.jp",
@@ -45,6 +50,8 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            username: "",
+            password: None,
             host: Some(
                 Domain(
                     "atcoder.jp",
@@ -64,6 +71,8 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            username: "",
+            password: None,
             host: Some(
                 Domain(
                     "atcoder.jp",
@@ -83,6 +92,8 @@ expression: messages
         POST,
         Url {
             scheme: "https",
+            username: "",
+            password: None,
             host: Some(
                 Domain(
                     "atcoder.jp",
@@ -102,6 +113,8 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            username: "",
+            password: None,
             host: Some(
                 Domain(
                     "atcoder.jp",
@@ -121,6 +134,8 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            username: "",
+            password: None,
             host: Some(
                 Domain(
                     "atcoder.jp",
@@ -140,6 +155,8 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            username: "",
+            password: None,
             host: Some(
                 Domain(
                     "atcoder.jp",
@@ -159,6 +176,8 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            username: "",
+            password: None,
             host: Some(
                 Domain(
                     "atcoder.jp",
