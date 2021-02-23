@@ -541,7 +541,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
                     {
                         status?
                     } else {
-                        let _ = child.kill();
+                        let _ = child.kill().await;
                         let verdict = Verdict::TimelimitExceeded {
                             test_case_name,
                             timelimit,
