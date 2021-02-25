@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Added `Additional::SystemTestCases`.
+- Added an argument to `BatchTestSuite::load_test_cases`.
+
 ## [0.9.2] - 2021-02-23Z
 
 ### Fixed

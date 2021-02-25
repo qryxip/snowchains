@@ -41,6 +41,7 @@ fn main() -> anyhow::Result<()> {
     let test_cases = test_suite.load_test_cases(
         file.parent().expect("should have file name"),
         testcases.map(|ss| ss.into_iter().collect()),
+        |_| todo!(),
     )?;
 
     let outcome = snowchains_core::judge::judge(

@@ -67,7 +67,9 @@ pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Res
 
     let test_cases = match crate::fs::read_yaml(&test_suite_path)? {
         TestSuite::Batch(test_sutie) => {
-            test_sutie.load_test_cases(&test_suite_dir, test_case_names)?
+            test_sutie.load_test_cases(&test_suite_dir, test_case_names, |_| {
+                unimplemented!("`SystemTestCases` is not impelemented");
+            })?
         }
         _ => todo!("currently only `Batch` is supported"),
     };

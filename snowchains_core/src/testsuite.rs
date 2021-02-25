@@ -14,6 +14,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use url::Url;
 
 #[derive(Deserialize, Serialize, Debug, PartialEq)]
 #[serde(tag = "type")]
@@ -159,14 +160,18 @@ pub struct BatchTestSuite {
 }
 
 impl BatchTestSuite {
-    pub fn load_test_cases<S: Borrow<str> + Eq + Hash>(
+    pub fn load_test_cases<
+        S: Borrow<str> + Eq + Hash,
+        F: FnMut(&Url) -> anyhow::Result<Vec<PartialBatchTestCase>>,
+    >(
         &self,
         parent_dir: &Path,
         mut names: Option<HashSet<S>>,
+        mut prepare_system_test_cases: F,
     ) -> anyhow::Result<Vec<BatchTestCase>> {
         let mut cases = self.cases.clone();
         for extend in &self.extend {
-            cases.extend(extend.load_test_cases(parent_dir)?);
+            cases.extend(extend.load_test_cases(parent_dir, &mut prepare_system_test_cases)?);
         }
 
         let cases = cases
@@ -221,10 +226,17 @@ pub enum Additional {
         #[serde(skip_serializing_if = "Option::is_none")]
         r#match: Option<Match>,
     },
+    SystemTestCases {
+        problem: Url,
+    },
 }
 
 impl Additional {
-    fn load_test_cases(&self, parent_dir: &Path) -> anyhow::Result<Vec<PartialBatchTestCase>> {
+    fn load_test_cases(
+        &self,
+        parent_dir: &Path,
+        mut prepare_system_test_cases: impl FnMut(&Url) -> anyhow::Result<Vec<PartialBatchTestCase>>,
+    ) -> anyhow::Result<Vec<PartialBatchTestCase>> {
         match self {
             Self::Text {
                 path: base,
@@ -300,6 +312,7 @@ impl Additional {
                     })
                     .collect()
             }
+            Self::SystemTestCases { problem } => prepare_system_test_cases(problem),
         }
     }
 }
