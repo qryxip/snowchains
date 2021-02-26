@@ -460,7 +460,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
 
         tokio::task::spawn(async move {
             let err_msg = match ctrl_c().await {
-                Ok(()) => "Recieved Ctrl-C".to_owned(),
+                Ok(()) => "Recieved Ctrl-c".to_owned(),
                 Err(err) => err.to_string(),
             };
             ctrl_c_tx.send(err_msg).unwrap();
@@ -485,134 +485,151 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
 
             let job_start_tx = job_start_tx.clone();
             let mut ctrl_c_rx = ctrl_c_rxs.pop().expect("should have enough length");
+            let pb_clone = pb.clone();
 
             results.push(tokio::task::spawn(async move {
-                tokio::fs::write(&stdin_path, test_case.input.as_ref()).await?;
+                let result = tokio::task::spawn(async move {
+                    tokio::fs::write(&stdin_path, test_case.input.as_ref()).await?;
 
-                let finish_pb = |verdict: &Verdict| {
-                    tokio::task::block_in_place(|| {
-                        pb.set_style(progress_style(&format!(
-                            "{{prefix}}{{msg:{}}}",
-                            verdict.summary_style(),
-                        )));
-                        pb.finish_with_message(&verdict.summary());
-                    });
-                };
+                    let test_case_name = test_case.name.clone();
+                    let timelimit = test_case.timelimit;
+                    let stdin = test_case.input.clone();
+                    let expected = test_case.output.clone();
 
-                let test_case_name = test_case.name.clone();
-                let timelimit = test_case.timelimit;
-                let stdin = test_case.input.clone();
-                let expected = test_case.output.clone();
+                    let cwd = &cmd.cwd;
+                    let cmd = cmd
+                        .build(
+                            (stdin.len() >= 10 * 1024).then(|| &*stdin_path),
+                            &actual_stdout_path,
+                            &stderr_path,
+                        )
+                        .await?;
 
-                let cwd = &cmd.cwd;
-                let cmd = cmd
-                    .build(
-                        (stdin.len() >= 10 * 1024).then(|| &*stdin_path),
-                        &actual_stdout_path,
-                        &stderr_path,
-                    )
-                    .await?;
+                    let started = Instant::now();
 
-                let started = Instant::now();
+                    let mut child = { cmd }.spawn()?;
 
-                let mut child = { cmd }.spawn()?;
+                    if let Some(mut child_stdin) = child.stdin.take() {
+                        child_stdin.write_all((*stdin).as_ref()).await?;
+                    }
 
-                if let Some(mut child_stdin) = child.stdin.take() {
-                    child_stdin.write_all((*stdin).as_ref()).await?;
-                }
+                    macro_rules! with_ctrl_c {
+                        ($future:expr) => {
+                            select! {
+                                __output = $future => __output,
+                                err_msg = ctrl_c_rx.recv().fuse() => {
+                                    let _ = child.kill();
+                                    bail!("{}", err_msg?);
+                                },
+                            }
+                        };
+                    }
 
-                macro_rules! with_ctrl_c {
-                    ($future:expr) => {
-                        select! {
-                            __output = $future => __output,
-                            err_msg = ctrl_c_rx.recv().fuse() => {
-                                let _ = child.kill();
-                                bail!("{}", err_msg?);
-                            },
+                    let status = if let Some(timelimit) = timelimit {
+                        let timeout = timelimit + Duration::from_millis(100);
+
+                        if let Ok(status) =
+                            with_ctrl_c!(tokio::time::timeout(timeout, child.wait()).fuse())
+                        {
+                            status?
+                        } else {
+                            let _ = child.kill().await;
+                            let verdict = Verdict::TimelimitExceeded {
+                                test_case_name,
+                                timelimit,
+                                stdin,
+                                expected,
+                            };
+                            tokio::task::block_in_place(|| {
+                                pb_clone.set_style(progress_style(&format!(
+                                    "{{prefix}}{{msg:{}}}",
+                                    verdict.summary_style(),
+                                )));
+                                pb_clone.finish_with_message(&verdict.summary());
+                            });
+                            return Ok(verdict);
                         }
-                    };
-                }
-
-                let status = if let Some(timelimit) = timelimit {
-                    let timeout = timelimit + Duration::from_millis(100);
-
-                    if let Ok(status) =
-                        with_ctrl_c!(tokio::time::timeout(timeout, child.wait()).fuse())
-                    {
-                        status?
                     } else {
-                        let _ = child.kill().await;
-                        let verdict = Verdict::TimelimitExceeded {
+                        with_ctrl_c!(child.wait().fuse())?
+                    };
+
+                    let elapsed = Instant::now() - started;
+
+                    let stdout = utf8(tokio::fs::read(&actual_stdout_path).await?)?;
+                    let stderr = utf8(tokio::fs::read(&stderr_path).await?)?;
+
+                    if matches!(timelimit, Some(t) if t < elapsed) {
+                        Ok(Verdict::TimelimitExceeded {
                             test_case_name,
-                            timelimit,
+                            timelimit: timelimit.unwrap(),
                             stdin,
                             expected,
-                        };
-                        finish_pb(&verdict);
-                        return Ok((i, verdict));
+                        })
+                    } else if !status.success() {
+                        Ok(Verdict::RuntimeError {
+                            test_case_name,
+                            elapsed,
+                            stdin,
+                            stdout,
+                            stderr,
+                            expected,
+                            status,
+                        })
+                    } else if let Err((checker_stdout, checker_stderr)) = check(
+                        &test_case.output,
+                        &stdout,
+                        cwd,
+                        &stdin_path,
+                        &actual_stdout_path,
+                        &expected_stdout_path,
+                        &bash_exe,
+                    )
+                    .await?
+                    {
+                        Ok(Verdict::WrongAnswer {
+                            test_case_name,
+                            elapsed,
+                            stdin,
+                            stdout,
+                            stderr,
+                            checker_stdout,
+                            checker_stderr,
+                            expected,
+                        })
+                    } else {
+                        Ok(Verdict::Accepted {
+                            test_case_name,
+                            elapsed,
+                            stdin,
+                            stdout,
+                            stderr,
+                            expected,
+                        })
                     }
-                } else {
-                    with_ctrl_c!(child.wait().fuse())?
-                };
+                })
+                .await
+                .unwrap();
 
-                let elapsed = Instant::now() - started;
-
-                let stdout = utf8(tokio::fs::read(&actual_stdout_path).await?)?;
-                let stderr = utf8(tokio::fs::read(&stderr_path).await?)?;
-
-                let verdict = if matches!(timelimit, Some(t) if t < elapsed) {
-                    Verdict::TimelimitExceeded {
-                        test_case_name,
-                        timelimit: timelimit.unwrap(),
-                        stdin,
-                        expected,
+                match &result {
+                    Ok(verdict) => {
+                        tokio::task::block_in_place(|| {
+                            pb.set_style(progress_style(&format!(
+                                "{{prefix}}{{msg:{}}}",
+                                verdict.summary_style(),
+                            )));
+                            pb.finish_with_message(&verdict.summary());
+                        });
                     }
-                } else if !status.success() {
-                    Verdict::RuntimeError {
-                        test_case_name,
-                        elapsed,
-                        stdin,
-                        stdout,
-                        stderr,
-                        expected,
-                        status,
+                    Err(err) => {
+                        tokio::task::block_in_place(|| {
+                            pb.set_style(progress_style("{prefix}{msg}"));
+                            pb.finish_with_message(&format!("{:?}", err));
+                        });
                     }
-                } else if let Err((checker_stdout, checker_stderr)) = check(
-                    &test_case.output,
-                    &stdout,
-                    cwd,
-                    &stdin_path,
-                    &actual_stdout_path,
-                    &expected_stdout_path,
-                    &bash_exe,
-                )
-                .await?
-                {
-                    Verdict::WrongAnswer {
-                        test_case_name,
-                        elapsed,
-                        stdin,
-                        stdout,
-                        stderr,
-                        checker_stdout,
-                        checker_stderr,
-                        expected,
-                    }
-                } else {
-                    Verdict::Accepted {
-                        test_case_name,
-                        elapsed,
-                        stdin,
-                        stdout,
-                        stderr,
-                        expected,
-                    }
-                };
-
-                finish_pb(&verdict);
+                }
 
                 job_start_tx.send(()).await?;
-
+                let verdict = result?;
                 Ok::<_, anyhow::Error>((i, verdict))
             }));
         }

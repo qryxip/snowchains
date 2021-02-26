@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed around <kbd>Ctrl-c</kbd> during `judge`.
+
 ## [0.11.0] - 2021-02-26Z
 
 ### Changed
