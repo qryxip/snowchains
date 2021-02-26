@@ -162,7 +162,7 @@ pub struct BatchTestSuite {
 impl BatchTestSuite {
     pub fn load_test_cases<
         S: Borrow<str> + Eq + Hash,
-        F: FnMut(&Url) -> anyhow::Result<Vec<PartialBatchTestCase>>,
+        F: FnMut(Option<&Url>) -> anyhow::Result<Vec<PartialBatchTestCase>>,
     >(
         &self,
         parent_dir: &Path,
@@ -227,7 +227,8 @@ pub enum Additional {
         r#match: Option<Match>,
     },
     SystemTestCases {
-        problem: Url,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        problem: Option<Url>,
     },
 }
 
@@ -235,7 +236,9 @@ impl Additional {
     fn load_test_cases(
         &self,
         parent_dir: &Path,
-        mut prepare_system_test_cases: impl FnMut(&Url) -> anyhow::Result<Vec<PartialBatchTestCase>>,
+        mut prepare_system_test_cases: impl FnMut(
+            Option<&Url>,
+        ) -> anyhow::Result<Vec<PartialBatchTestCase>>,
     ) -> anyhow::Result<Vec<PartialBatchTestCase>> {
         match self {
             Self::Text {
@@ -312,7 +315,7 @@ impl Additional {
                     })
                     .collect()
             }
-            Self::SystemTestCases { problem } => prepare_system_test_cases(problem),
+            Self::SystemTestCases { problem } => prepare_system_test_cases(problem.as_ref()),
         }
     }
 }

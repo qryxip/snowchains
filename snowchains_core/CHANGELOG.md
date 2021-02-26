@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Made `Additional::SystemTestCases::problem` `Option<Url>`.
+
 ## [0.10.0] - 2021-02-25Z
 
 ### Changed
