@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0] - 2021-03-01Z
+
+### Changed
+
+- Added `{DeterministicExpectedoutput, Match}::SplitWhitespace`.
+- Added `default_match: Match` field to `RetrieveTestCases`.
+
 ## [0.11.1] - 2021-02-26Z
 
 ### Fixed
