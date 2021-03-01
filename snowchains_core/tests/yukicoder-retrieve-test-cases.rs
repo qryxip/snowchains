@@ -1,8 +1,9 @@
 use insta::{assert_debug_snapshot, assert_json_snapshot};
 use maplit::btreeset;
 use reqwest::{Method, StatusCode};
-use snowchains_core::web::{
-    RetrieveTestCases, StatusCodeColor, Yukicoder, YukicoderRetrieveTestCasesTargets,
+use snowchains_core::{
+    testsuite::Match,
+    web::{RetrieveTestCases, StatusCodeColor, Yukicoder, YukicoderRetrieveTestCasesTargets},
 };
 use std::{
     fmt,
@@ -80,6 +81,7 @@ fn test(target: Target) -> anyhow::Result<()> {
             }
         },
         credentials: (),
+        default_match: Match::Lines,
         full: None,
         cookie_storage: (),
         timeout: TIMEOUT,

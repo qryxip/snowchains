@@ -3,9 +3,12 @@
 use cookie_store::CookieStore;
 use insta::{assert_debug_snapshot, assert_json_snapshot};
 use reqwest::{Method, StatusCode};
-use snowchains_core::web::{
-    Codeforces, CodeforcesRetrieveSampleTestCasesCredentials, CookieStorage, ProblemsInContest,
-    RetrieveTestCases, StatusCodeColor,
+use snowchains_core::{
+    testsuite::Match,
+    web::{
+        Codeforces, CodeforcesRetrieveSampleTestCasesCredentials, CookieStorage, ProblemsInContest,
+        RetrieveTestCases, StatusCodeColor,
+    },
 };
 use std::{
     fmt,
@@ -91,6 +94,7 @@ fn test(
         credentials: CodeforcesRetrieveSampleTestCasesCredentials {
             username_and_password: &mut { username_and_password },
         },
+        default_match: Match::Lines,
         full: None,
         cookie_storage: CookieStorage {
             cookie_store: CookieStore::default(),

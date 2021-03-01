@@ -79,7 +79,7 @@ pub use crate::web::{
     },
 };
 
-use crate::testsuite::TestSuite;
+use crate::testsuite::{Match, TestSuite};
 use anyhow::{anyhow, bail, Context as _};
 use cookie_store::CookieStore;
 use derivative::Derivative;
@@ -291,6 +291,7 @@ impl RetrieveLanguagesOutcome {
 pub struct RetrieveTestCases<P: Platform, S: Shell> {
     pub targets: P::RetrieveTestCasesTargets,
     pub credentials: P::RetrieveTestCasesCredentials,
+    pub default_match: Match,
     pub full: Option<RetrieveFullTestCases<P>>,
     pub cookie_storage: P::CookieStorage,
     pub timeout: Option<Duration>,

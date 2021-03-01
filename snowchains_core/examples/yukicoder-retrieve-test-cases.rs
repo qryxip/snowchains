@@ -1,6 +1,7 @@
 use indicatif::ProgressDrawTarget;
 use snowchains_core::{
     color_spec,
+    testsuite::Match,
     web::{
         RetrieveFullTestCases, RetrieveTestCases, StatusCodeColor, Yukicoder,
         YukicoderRetrieveFullTestCasesCredentials, YukicoderRetrieveTestCasesTargets,
@@ -71,6 +72,7 @@ fn main() -> anyhow::Result<()> {
             ),
         },
         credentials: (),
+        default_match: Match::Lines,
         full: if full {
             Some(RetrieveFullTestCases {
                 credentials: YukicoderRetrieveFullTestCasesCredentials {
