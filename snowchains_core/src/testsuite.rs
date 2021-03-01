@@ -323,6 +323,7 @@ impl Additional {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub enum Match {
     Exact,
+    SplitWhitespace,
     Lines,
     Float {
         relative_error: Option<PositiveFinite<f64>>,
@@ -381,6 +382,9 @@ impl ExpectedOutput {
             (Some(text), Match::Exact) => {
                 Self::Deterministic(DeterministicExpectedOutput::Exact { text })
             }
+            (Some(text), Match::SplitWhitespace) => {
+                Self::Deterministic(DeterministicExpectedOutput::SplitWhitespace { text })
+            }
             (Some(text), Match::Lines) => {
                 Self::Deterministic(DeterministicExpectedOutput::Lines { text })
             }
@@ -409,6 +413,7 @@ impl ExpectedOutput {
     pub(crate) fn expected_stdout(&self) -> Option<&str> {
         match self {
             Self::Deterministic(DeterministicExpectedOutput::Exact { text })
+            | Self::Deterministic(DeterministicExpectedOutput::SplitWhitespace { text })
             | Self::Deterministic(DeterministicExpectedOutput::Lines { text })
             | Self::Deterministic(DeterministicExpectedOutput::Float { text, .. }) => Some(text),
             Self::Deterministic(DeterministicExpectedOutput::Pass) | Self::Checker { .. } => None,
@@ -429,6 +434,9 @@ pub enum DeterministicExpectedOutput {
     Exact {
         text: Arc<str>,
     },
+    SplitWhitespace {
+        text: Arc<str>,
+    },
     Lines {
         text: Arc<str>,
     },
@@ -444,6 +452,7 @@ impl DeterministicExpectedOutput {
         match self {
             Self::Pass => true,
             Self::Exact { text } => &**text == actual,
+            Self::SplitWhitespace { text } => text.split_whitespace().eq(actual.split_whitespace()),
             Self::Lines { text } => text.lines().eq(actual.lines()),
             Self::Float {
                 text,
@@ -784,6 +793,26 @@ extend: []
             text: "1 2\n".into()
         }
         .accepts("1\n2\n"));
+
+        assert!(DeterministicExpectedOutput::SplitWhitespace { text: "".into() }.accepts(""));
+
+        assert!(DeterministicExpectedOutput::SplitWhitespace { text: "\n".into() }.accepts(""));
+
+        assert!(DeterministicExpectedOutput::SplitWhitespace { text: "".into() }.accepts("\n"));
+
+        assert!(DeterministicExpectedOutput::SplitWhitespace {
+            text: "1 2\n".into()
+        }
+        .accepts("1 2\n"));
+
+        assert!(
+            DeterministicExpectedOutput::SplitWhitespace { text: "1 2".into() }.accepts("1 2\n")
+        );
+
+        assert!(DeterministicExpectedOutput::SplitWhitespace {
+            text: " 1    2 \n".into()
+        }
+        .accepts("1 2\n"));
 
         assert!(DeterministicExpectedOutput::Lines {
             text: "1 2\n".into()
