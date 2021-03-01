@@ -2,6 +2,7 @@ use cookie_store::CookieStore;
 use indicatif::ProgressDrawTarget;
 use snowchains_core::{
     color_spec,
+    testsuite::Match,
     web::{
         Codeforces, CodeforcesRetrieveSampleTestCasesCredentials, CookieStorage, ProblemsInContest,
         RetrieveTestCases, StatusCodeColor,
@@ -57,6 +58,7 @@ fn main() -> anyhow::Result<()> {
         credentials: CodeforcesRetrieveSampleTestCasesCredentials {
             username_and_password: &mut username_and_password(credentials),
         },
+        default_match: Match::Lines,
         full: None,
         cookie_storage: CookieStorage {
             cookie_store: CookieStore::default(),
