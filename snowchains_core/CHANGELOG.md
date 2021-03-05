@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Make `Additional::Text::path` [`camino::Utf8PathBuf`](https://docs.rs/camino/1/camino/struct.Utf8PathBuf.html)
+
 ## [0.12.0] - 2021-03-01Z
 
 ### Changed

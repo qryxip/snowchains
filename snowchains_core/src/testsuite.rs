@@ -1,4 +1,5 @@
 use anyhow::{bail, ensure, Context as _};
+use camino::Utf8PathBuf;
 use humantime_serde::Serde;
 use ignore::{overrides::OverrideBuilder, WalkBuilder};
 use itertools::{EitherOrBoth, Itertools as _};
@@ -214,7 +215,7 @@ pub struct PartialBatchTestCase {
 #[serde(tag = "type")]
 pub enum Additional {
     Text {
-        path: String,
+        path: Utf8PathBuf,
         r#in: String,
         out: String,
         #[serde(
@@ -656,7 +657,7 @@ extend:
                 r#match: Match::Lines,
                 cases: vec![],
                 extend: vec![Additional::Text {
-                    path: "./a".to_owned(),
+                    path: "./a".into(),
                     r#in: "/in/*.txt".into(),
                     out: "/out/*.txt".into(),
                     timelimit: None,
