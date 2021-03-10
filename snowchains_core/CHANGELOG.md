@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0] - 2021-03-10Z
+
+### Changed
+
+- Make `Additional::Text::path` [`camino::Utf8PathBuf`](https://docs.rs/camino/1/camino/struct.Utf8PathBuf.html)
+- Removed `default_match: Match` field from `RetrieveTestCases`.
+- Added `note` field to `Verdict::WrongAnswer`.
+
 ## [0.12.0] - 2021-03-01Z
 
 ### Changed

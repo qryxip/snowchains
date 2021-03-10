@@ -147,7 +147,6 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
                 CodeforcesRetrieveSampleTestCasesCredentials {
                     mut username_and_password,
                 },
-            default_match,
             full: _,
             cookie_storage,
             timeout,
@@ -208,7 +207,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
                             .colorize_status_code(&[200], (), ..)
                             .send()?
                             .html()?
-                            .extract_test_cases(&default_match)?;
+                            .extract_test_cases()?;
 
                         Ok(Some(RetrieveTestCasesOutcomeProblem {
                             contest: Some(contest.clone()),
@@ -542,7 +541,7 @@ impl Html {
             .with_context(|| "Could not extract problem names")
     }
 
-    fn extract_test_cases(&self, default_match: &Match) -> anyhow::Result<TestSuite> {
+    fn extract_test_cases(&self) -> anyhow::Result<TestSuite> {
         let timelimit = self
             .select(static_selector!("#pageContent div.time-limit"))
             .flat_map(|r| r.text())
@@ -580,7 +579,7 @@ impl Html {
         {
             todo!();
         }
-        let r#match = default_match.clone();
+        let r#match = Match::Lines;
 
         let sample_test = self
             .select(static_selector!("#pageContent div.sample-test"))

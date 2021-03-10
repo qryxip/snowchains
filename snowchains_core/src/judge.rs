@@ -47,83 +47,79 @@ impl JudgeOutcome {
             writeln!(wtr, "{}", verdict.summary())?;
             wtr.reset()?;
 
-            let mut write_text = |header: &str,
-                                  text: &str,
-                                  skip_if_empty: bool,
-                                  highlight_numbers: bool|
-             -> io::Result<()> {
-                if text.is_empty() && skip_if_empty {
-                    return Ok(());
-                }
+            let mut write_text =
+                |header: &str, text: &str, highlight_numbers: bool| -> io::Result<()> {
+                    wtr.set_color(color_spec!(Bold, Fg(Color::Magenta)))?;
+                    writeln!(wtr, "{}", header)?;
+                    wtr.reset()?;
 
-                wtr.set_color(color_spec!(Bold, Fg(Color::Magenta)))?;
-                writeln!(wtr, "{}", header)?;
-                wtr.reset()?;
+                    if text.is_empty() {
+                        wtr.set_color(color_spec!(Bold, Fg(Color::Yellow)))?;
+                        writeln!(wtr, "EMPTY")?;
+                        return wtr.reset();
+                    }
 
-                if text.is_empty() {
-                    wtr.set_color(color_spec!(Bold, Fg(Color::Yellow)))?;
-                    writeln!(wtr, "EMPTY")?;
-                    return wtr.reset();
-                }
+                    if matches!(display_limit, Some(l) if l < text.len()) {
+                        wtr.set_color(color_spec!(Bold, Fg(Color::Yellow)))?;
+                        writeln!(wtr, "{} B", text.len())?;
+                        return wtr.reset();
+                    }
 
-                if matches!(display_limit, Some(l) if l < text.len()) {
-                    wtr.set_color(color_spec!(Bold, Fg(Color::Yellow)))?;
-                    writeln!(wtr, "{} B", text.len())?;
-                    return wtr.reset();
-                }
-
-                for token in parse_to_tokens(text, highlight_numbers) {
-                    match token {
-                        Token::SpcLf(s) | Token::Plain(s) => wtr.write_all(s.as_ref())?,
-                        Token::Cr(n) => {
-                            wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
-                            (0..n).try_for_each(|_| wtr.write_all(b"\\r"))?;
-                            wtr.reset()?;
-                        }
-                        Token::Tab(n) => {
-                            wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
-                            (0..n).try_for_each(|_| wtr.write_all(b"\\t"))?;
-                            wtr.reset()?;
-                        }
-                        Token::OtherWhitespaceControl(s) => {
-                            wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
-                            write!(wtr, "{}", s.escape_unicode())?;
-                            wtr.reset()?;
-                        }
-                        Token::HighlightedNumber(s) => {
-                            wtr.set_color(color_spec!(Fg(Color::Cyan)))?;
-                            wtr.write_all(s.as_ref())?;
-                            wtr.reset()?;
+                    for token in parse_to_tokens(text, highlight_numbers) {
+                        match token {
+                            Token::SpcLf(s) | Token::Plain(s) => wtr.write_all(s.as_ref())?,
+                            Token::Cr(n) => {
+                                wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
+                                (0..n).try_for_each(|_| wtr.write_all(b"\\r"))?;
+                                wtr.reset()?;
+                            }
+                            Token::Tab(n) => {
+                                wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
+                                (0..n).try_for_each(|_| wtr.write_all(b"\\t"))?;
+                                wtr.reset()?;
+                            }
+                            Token::OtherWhitespaceControl(s) => {
+                                wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
+                                write!(wtr, "{}", s.escape_unicode())?;
+                                wtr.reset()?;
+                            }
+                            Token::HighlightedNumber(s) => {
+                                wtr.set_color(color_spec!(Fg(Color::Cyan)))?;
+                                wtr.write_all(s.as_ref())?;
+                                wtr.reset()?;
+                            }
                         }
                     }
-                }
 
-                if !text.ends_with('\n') {
-                    wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
-                    writeln!(wtr, "⏎")?;
-                    wtr.reset()?;
-                }
+                    if !text.ends_with('\n') {
+                        wtr.set_color(color_spec!(Fg(Color::Yellow)))?;
+                        writeln!(wtr, "⏎")?;
+                        wtr.reset()?;
+                    }
 
-                Ok(())
-            };
+                    Ok(())
+                };
 
-            write_text("stdin:", verdict.stdin(), false, false)?;
+            write_text("stdin:", verdict.stdin(), false)?;
             if let Some(expected) = verdict.expected().expected_stdout() {
-                write_text("expected:", expected, false, verdict.expected().is_float())?;
+                write_text("expected:", expected, verdict.expected().is_float())?;
             } else if let Some(example) = verdict.expected().example() {
-                write_text("example:", example, false, verdict.expected().is_float())?;
+                write_text("example:", example, verdict.expected().is_float())?;
             }
             if let Some(stdout) = verdict.stdout() {
-                write_text("actual:", stdout, false, verdict.expected().is_float())?;
+                write_text("actual:", stdout, verdict.expected().is_float())?;
             }
-            if let Some(stderr) = verdict.stderr() {
-                write_text("stderr:", stderr, true, verdict.expected().is_float())?;
+            if let Some(stderr) = verdict.stderr().filter(|s| !s.is_empty()) {
+                write_text("stderr:", stderr, verdict.expected().is_float())?;
             }
-            if let Some(checker_stdout) = verdict.checker_stdout() {
-                write_text("checker stdout: ", checker_stdout, true, false)?;
+            if let Some(checker_stdout) = verdict.checker_stdout().filter(|s| !s.is_empty()) {
+                write_text("checker stdout: ", checker_stdout, false)?;
             }
-            if let Some(checker_stderr) = verdict.checker_stderr() {
-                write_text("checker stderr: ", checker_stderr, true, false)?;
+            if let Some(checker_stderr) = verdict.checker_stderr().filter(|s| !s.is_empty()) {
+                write_text("checker stderr: ", checker_stderr, false)?;
+            }
+            if let Some(wrong_answer_note) = verdict.wrong_answer_note() {
+                write_text("note: ", &(wrong_answer_note.to_string() + "\n"), false)?;
             }
         }
 
@@ -242,6 +238,7 @@ pub enum Verdict {
         checker_stdout: Arc<str>,
         checker_stderr: Arc<str>,
         expected: ExpectedOutput,
+        note: Option<WrongAnswerNote>,
     },
     RuntimeError {
         test_case_name: Option<String>,
@@ -320,6 +317,13 @@ impl Verdict {
         }
     }
 
+    fn wrong_answer_note(&self) -> Option<WrongAnswerNote> {
+        match *self {
+            Self::WrongAnswer { note, .. } => note,
+            _ => None,
+        }
+    }
+
     fn summary(&self) -> String {
         match self {
             Self::Accepted { elapsed, .. } => format!("Accepted ({} ms)", elapsed.as_millis()),
@@ -350,6 +354,14 @@ impl Verdict {
             Self::WrongAnswer { .. } | Self::RuntimeError { .. } => ".bold.yellow",
         }
     }
+}
+
+#[derive(Copy, Clone, Debug, derive_more::Display)]
+pub enum WrongAnswerNote {
+    #[display(
+        fmt = "whitespace-separated words matched. try setting `match` to `SplitWhitespace`"
+    )]
+    WordsMatched,
 }
 
 #[derive(Debug, Clone)]
@@ -575,7 +587,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
                             expected,
                             status,
                         })
-                    } else if let Err((checker_stdout, checker_stderr)) = check(
+                    } else if let Err((checker_stdout, checker_stderr, note)) = check(
                         &test_case.output,
                         &stdout,
                         cwd,
@@ -595,6 +607,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
                             checker_stdout,
                             checker_stderr,
                             expected,
+                            note,
                         })
                     } else {
                         Ok(Verdict::Accepted {
@@ -673,12 +686,16 @@ async fn check(
     actual_stdout_path: &Path,
     expected_stdout_path: &Path,
     bash_exe: &Path,
-) -> anyhow::Result<Result<(), (Arc<str>, Arc<str>)>> {
+) -> anyhow::Result<Result<(), (Arc<str>, Arc<str>, Option<WrongAnswerNote>)>> {
     match expected {
         ExpectedOutput::Deterministic(expected) => Ok(if expected.accepts(actual) {
             Ok(())
         } else {
-            Err((Arc::from(""), Arc::from("")))
+            let note = expected
+                .expected_stdout()
+                .filter(|expected| expected.split_whitespace().eq(actual.split_whitespace()))
+                .map(|_| WrongAnswerNote::WordsMatched);
+            Err((Arc::from(""), Arc::from(""), note))
         }),
         ExpectedOutput::Checker { text, cmd, shell } => {
             let (program, args) = match shell {
@@ -706,12 +723,12 @@ async fn check(
                 .output()
                 .await?;
 
-            let output = (utf8(stdout)?, utf8(stderr)?);
+            let (stdout, stderr) = (utf8(stdout)?, utf8(stderr)?);
 
             Ok(if status.success() {
                 Ok(())
             } else {
-                Err(output)
+                Err((stdout, stderr, None))
             })
         }
     }

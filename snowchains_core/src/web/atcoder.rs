@@ -201,7 +201,6 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
                 AtcoderRetrieveSampleTestCasesCredentials {
                     username_and_password,
                 },
-            default_match,
             full,
             cookie_storage,
             timeout,
@@ -210,8 +209,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
 
         let mut sess = Session::new(timeout, Some(cookie_storage), shell)?;
 
-        let mut outcome =
-            retrieve_sample_test_cases(&mut sess, username_and_password, &targets, &default_match)?;
+        let mut outcome = retrieve_sample_test_cases(&mut sess, username_and_password, &targets)?;
 
         if let Some(RetrieveFullTestCases {
             credentials:
@@ -702,7 +700,6 @@ fn retrieve_sample_test_cases(
     mut sess: impl SessionMut,
     mut username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
     targets: &ProblemsInContest,
-    default_match: &Match,
 ) -> anyhow::Result<RetrieveTestCasesOutcome> {
     let problems = match targets.clone() {
         ProblemsInContest::Indexes { contest, problems } => {
@@ -785,7 +782,7 @@ fn retrieve_sample_test_cases(
             .send()?
             .ensure_status(&[200])?
             .html()?
-            .extract_samples(default_match);
+            .extract_samples();
 
         if indexes_and_urls.len() > test_suites.len() {
             sess.shell().warn(format!(
@@ -819,7 +816,7 @@ fn retrieve_sample_test_cases(
 
                                 TestSuite::Batch(BatchTestSuite {
                                     timelimit: None,
-                                    r#match: default_match.clone(),
+                                    r#match: Match::Lines,
                                     cases: vec![],
                                     extend: vec![],
                                 })
@@ -1524,10 +1521,7 @@ impl Html {
         .with_context(|| "Could not extract task indexes and URLs")
     }
 
-    fn extract_samples(
-        &self,
-        default_match: &Match,
-    ) -> Vec<anyhow::Result<(String, String, anyhow::Result<TestSuite>)>> {
+    fn extract_samples(&self) -> Vec<anyhow::Result<(String, String, anyhow::Result<TestSuite>)>> {
         return self
             .select(static_selector!(
                 "#main-container > div.row div[class=\"col-sm-12\"]",
@@ -1562,7 +1556,7 @@ impl Html {
                         .select(static_selector!(":scope > div[id=\"task-statement\"]"))
                         .exactly_one()
                         .ok()
-                        .and_then(|r| extract_samples(r, default_match))
+                        .and_then(extract_samples)
                         .ok_or("Could not extract the sample cases")?;
 
                     Ok::<_, &str>(if timelimit == Duration::new(0, 0) {
@@ -1617,10 +1611,7 @@ impl Html {
             Some(Duration::from_millis(timelimit))
         }
 
-        fn extract_samples(
-            task_statement: ElementRef<'_>,
-            default_match: &Match,
-        ) -> Option<Samples> {
+        fn extract_samples(task_statement: ElementRef<'_>) -> Option<Samples> {
             // TODO:
             // - https://atcoder.jp/contests/arc019/tasks/arc019_4 (interactive)
             // - https://atcoder.jp/contests/arc021/tasks/arc021_4 (interactive)
@@ -1667,26 +1658,15 @@ impl Html {
             static P8_CONTENT: Lazy<Selector> =
                 lazy_selector!("span.lang > span.lang-ja > div.part > section > pre");
 
-            let try_extract_samples =
-                |selector_for_header, selector_for_content, re_input, re_output| {
-                    try_extract_samples(
-                        task_statement,
-                        selector_for_header,
-                        selector_for_content,
-                        re_input,
-                        re_output,
-                        default_match,
-                    )
-                };
-
-            try_extract_samples(&P1_HEAD, &P1_CONTENT, &IN_JA, &OUT_JA)
-                .or_else(|| try_extract_samples(&P2_HEAD, &P2_CONTENT, &IN_EN, &OUT_EN))
-                .or_else(|| try_extract_samples(&P3_HEAD, &P3_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(&P4_HEAD, &P4_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(&P5_HEAD, &P5_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(&P6_HEAD, &P6_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(&P7_HEAD, &P7_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(&P8_HEAD, &P8_CONTENT, &IN_JA, &OUT_JA))
+            let stmt = task_statement;
+            try_extract_samples(stmt, &P1_HEAD, &P1_CONTENT, &IN_JA, &OUT_JA)
+                .or_else(|| try_extract_samples(stmt, &P2_HEAD, &P2_CONTENT, &IN_EN, &OUT_EN))
+                .or_else(|| try_extract_samples(stmt, &P3_HEAD, &P3_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(stmt, &P4_HEAD, &P4_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(stmt, &P5_HEAD, &P5_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(stmt, &P6_HEAD, &P6_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(stmt, &P7_HEAD, &P7_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(stmt, &P8_HEAD, &P8_CONTENT, &IN_JA, &OUT_JA))
         }
 
         fn try_extract_samples(
@@ -1695,7 +1675,6 @@ impl Html {
             selector_for_content: &'static Selector,
             re_input: &'static Regex,
             re_output: &'static Regex,
-            default_match: &Match,
         ) -> Option<Samples> {
             #[allow(clippy::blocks_in_if_conditions)]
             if task_statement
@@ -1738,7 +1717,7 @@ impl Html {
                         relative_error: None,
                         absolute_error: Some(error),
                     },
-                    _ => default_match.clone(),
+                    _ => Match::Lines,
                 }
             };
 

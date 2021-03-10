@@ -82,7 +82,6 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Yukicoder {
         let RetrieveTestCases {
             targets,
             credentials: (),
-            default_match,
             full,
             cookie_storage: (),
             timeout,
@@ -91,7 +90,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Yukicoder {
 
         let mut sess = Session::new(timeout, None, shell)?;
 
-        let mut outcome = retrieve_samples(&mut sess, targets, &default_match)?;
+        let mut outcome = retrieve_samples(&mut sess, targets)?;
 
         if let Some(RetrieveFullTestCases {
             credentials: YukicoderRetrieveFullTestCasesCredentials { api_key },
@@ -316,7 +315,6 @@ fn parse_problem_url(url: &Url) -> anyhow::Result<Either<u64, u64>> {
 fn retrieve_samples(
     mut sess: impl SessionMut,
     targets: YukicoderRetrieveTestCasesTargets,
-    default_match: &Match,
 ) -> anyhow::Result<RetrieveTestCasesOutcome> {
     let mut outcome = RetrieveTestCasesOutcome { problems: vec![] };
 
@@ -325,7 +323,7 @@ fn retrieve_samples(
             for problem_no in &problem_nos {
                 let problem_no = parse_problem_no(problem_no)?;
 
-                let (url, test_suite) = retrieve_samples(&mut sess, problem_no, default_match)?;
+                let (url, test_suite) = retrieve_samples(&mut sess, problem_no)?;
                 let api::Problem {
                     problem_id, title, ..
                 } = sess.get_problem_by_problem_no(problem_no)?;
@@ -391,7 +389,7 @@ fn retrieve_samples(
                 }
 
                 let api::Problem { no, title, .. } = sess.get_problem_by_problem_id(problem_id)?;
-                let (url, test_suite) = retrieve_samples(&mut sess, no, default_match)?;
+                let (url, test_suite) = retrieve_samples(&mut sess, no)?;
 
                 outcome.problems.push(RetrieveTestCasesOutcomeProblem {
                     contest: Some(contest.clone()),
@@ -421,7 +419,7 @@ fn retrieve_samples(
                     Either::Right(problem_id) => sess.get_problem_by_problem_id(problem_id)?,
                 };
 
-                let (_, test_suite) = retrieve_samples(&mut sess, no, default_match)?;
+                let (_, test_suite) = retrieve_samples(&mut sess, no)?;
 
                 outcome.problems.push(RetrieveTestCasesOutcomeProblem {
                     contest: None,
@@ -441,7 +439,6 @@ fn retrieve_samples(
     fn retrieve_samples(
         mut sess: impl SessionMut,
         problem_no: u64,
-        default_match: &Match,
     ) -> anyhow::Result<(Url, TestSuite)> {
         let url = url!("/problems/no/{}", problem_no);
 
@@ -451,7 +448,7 @@ fn retrieve_samples(
             .send()?
             .ensure_status(&[200])?
             .html()?
-            .extract_samples(default_match)?;
+            .extract_samples()?;
 
         Ok((url, test_suite))
     }
@@ -459,7 +456,7 @@ fn retrieve_samples(
 
 #[ext]
 impl Html {
-    fn extract_samples(&self, default_match: &Match) -> anyhow::Result<TestSuite> {
+    fn extract_samples(&self) -> anyhow::Result<TestSuite> {
         let (timelimit, kind) = self
             .select(static_selector!("#content > div"))
             .flat_map(|r| r.text())
@@ -514,7 +511,7 @@ impl Html {
                         absolute_error,
                     }
                 } else {
-                    default_match.clone()
+                    Match::Lines
                 };
 
                 let mut test_suite = BatchTestSuite {

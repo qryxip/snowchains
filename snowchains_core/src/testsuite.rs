@@ -1,4 +1,5 @@
 use anyhow::{bail, ensure, Context as _};
+use camino::Utf8PathBuf;
 use humantime_serde::Serde;
 use ignore::{overrides::OverrideBuilder, WalkBuilder};
 use itertools::{EitherOrBoth, Itertools as _};
@@ -214,7 +215,7 @@ pub struct PartialBatchTestCase {
 #[serde(tag = "type")]
 pub enum Additional {
     Text {
-        path: String,
+        path: Utf8PathBuf,
         r#in: String,
         out: String,
         #[serde(
@@ -412,11 +413,8 @@ impl ExpectedOutput {
 
     pub(crate) fn expected_stdout(&self) -> Option<&str> {
         match self {
-            Self::Deterministic(DeterministicExpectedOutput::Exact { text })
-            | Self::Deterministic(DeterministicExpectedOutput::SplitWhitespace { text })
-            | Self::Deterministic(DeterministicExpectedOutput::Lines { text })
-            | Self::Deterministic(DeterministicExpectedOutput::Float { text, .. }) => Some(text),
-            Self::Deterministic(DeterministicExpectedOutput::Pass) | Self::Checker { .. } => None,
+            Self::Deterministic(expected) => expected.expected_stdout(),
+            Self::Checker { .. } => None,
         }
     }
 
@@ -483,6 +481,16 @@ impl DeterministicExpectedOutput {
                     }
                 })
             }
+        }
+    }
+
+    pub(crate) fn expected_stdout(&self) -> Option<&str> {
+        match self {
+            Self::Pass => None,
+            Self::Exact { text }
+            | Self::SplitWhitespace { text }
+            | Self::Lines { text }
+            | Self::Float { text, .. } => Some(text),
         }
     }
 }
@@ -656,7 +664,7 @@ extend:
                 r#match: Match::Lines,
                 cases: vec![],
                 extend: vec![Additional::Text {
-                    path: "./a".to_owned(),
+                    path: "./a".into(),
                     r#in: "/in/*.txt".into(),
                     out: "/out/*.txt".into(),
                     timelimit: None,

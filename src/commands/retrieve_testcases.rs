@@ -4,7 +4,7 @@ use maplit::btreeset;
 use serde::Serialize;
 use snowchains_core::{
     color_spec,
-    testsuite::{Additional, BatchTestSuite, Match, TestSuite},
+    testsuite::{Additional, BatchTestSuite, TestSuite},
     web::{
         Atcoder, AtcoderRetrieveFullTestCasesCredentials,
         AtcoderRetrieveSampleTestCasesCredentials, Codeforces,
@@ -165,7 +165,6 @@ pub(crate) fn run(
             Atcoder::exec(RetrieveTestCases {
                 targets,
                 credentials,
-                default_match: Match::Lines,
                 full,
                 cookie_storage,
                 timeout,
@@ -190,7 +189,6 @@ pub(crate) fn run(
             Codeforces::exec(RetrieveTestCases {
                 targets,
                 credentials,
-                default_match: Match::Lines,
                 full: None,
                 cookie_storage,
                 timeout,
@@ -225,7 +223,6 @@ pub(crate) fn run(
             Yukicoder::exec(RetrieveTestCases {
                 targets,
                 credentials: (),
-                default_match: Match::Lines,
                 full,
                 cookie_storage: (),
                 timeout,
@@ -301,7 +298,7 @@ pub(crate) fn run(
                 cases.clear();
 
                 extend.push(Additional::Text {
-                    path: format!("./{}", index.kebab),
+                    path: format!("./{}", index.kebab).into(),
                     r#in: "/in/*.txt".to_owned(),
                     out: "/out/*.txt".to_owned(),
                     timelimit: None,

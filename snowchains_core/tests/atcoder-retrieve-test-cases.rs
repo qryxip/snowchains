@@ -1,12 +1,9 @@
 use cookie_store::CookieStore;
 use insta::{assert_debug_snapshot, assert_json_snapshot};
 use reqwest::{Method, StatusCode};
-use snowchains_core::{
-    testsuite::Match,
-    web::{
-        Atcoder, AtcoderRetrieveSampleTestCasesCredentials, CookieStorage, ProblemsInContest,
-        RetrieveTestCases, StatusCodeColor,
-    },
+use snowchains_core::web::{
+    Atcoder, AtcoderRetrieveSampleTestCasesCredentials, CookieStorage, ProblemsInContest,
+    RetrieveTestCases, StatusCodeColor,
 };
 use std::{
     fmt,
@@ -133,7 +130,6 @@ fn test(
         credentials: AtcoderRetrieveSampleTestCasesCredentials {
             username_and_password: &mut { username_and_password },
         },
-        default_match: Match::Lines,
         full: None,
         cookie_storage: CookieStorage {
             cookie_store: CookieStore::default(),

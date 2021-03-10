@@ -2,7 +2,6 @@ use cookie_store::CookieStore;
 use indicatif::ProgressDrawTarget;
 use snowchains_core::{
     color_spec,
-    testsuite::Match,
     web::{
         Atcoder, AtcoderRetrieveFullTestCasesCredentials,
         AtcoderRetrieveSampleTestCasesCredentials, CookieStorage, ProblemsInContest,
@@ -63,7 +62,6 @@ fn main() -> anyhow::Result<()> {
         credentials: AtcoderRetrieveSampleTestCasesCredentials {
             username_and_password: &mut username_and_password(credentials),
         },
-        default_match: Match::Lines,
         full: if full {
             Some(RetrieveFullTestCases {
                 credentials: AtcoderRetrieveFullTestCasesCredentials {
