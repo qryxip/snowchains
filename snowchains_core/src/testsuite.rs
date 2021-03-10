@@ -413,11 +413,8 @@ impl ExpectedOutput {
 
     pub(crate) fn expected_stdout(&self) -> Option<&str> {
         match self {
-            Self::Deterministic(DeterministicExpectedOutput::Exact { text })
-            | Self::Deterministic(DeterministicExpectedOutput::SplitWhitespace { text })
-            | Self::Deterministic(DeterministicExpectedOutput::Lines { text })
-            | Self::Deterministic(DeterministicExpectedOutput::Float { text, .. }) => Some(text),
-            Self::Deterministic(DeterministicExpectedOutput::Pass) | Self::Checker { .. } => None,
+            Self::Deterministic(expected) => expected.expected_stdout(),
+            Self::Checker { .. } => None,
         }
     }
 
@@ -484,6 +481,16 @@ impl DeterministicExpectedOutput {
                     }
                 })
             }
+        }
+    }
+
+    pub(crate) fn expected_stdout(&self) -> Option<&str> {
+        match self {
+            Self::Pass => None,
+            Self::Exact { text }
+            | Self::SplitWhitespace { text }
+            | Self::Lines { text }
+            | Self::Float { text, .. } => Some(text),
         }
     }
 }
