@@ -2302,7 +2302,7 @@ dependencies = [
 
 [[package]]
 name = "snowchains_core"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "atty",
