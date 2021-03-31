@@ -1245,7 +1245,7 @@ fn watch_submissions(
             align_right(memory, 10),
         )));
         pb.finish_with_message(&verdict.to_string());
-    };
+    }
 
     fn style(verdict: &str) -> &'static str {
         // https://atcoder.jp/contests/arc001/glossary
