@@ -1,3 +1,6 @@
+// https://github.com/Nadrieril/dhall-rust/pull/215
+#![allow(redundant_semicolons)]
+
 use anyhow::{anyhow, bail, ensure, Context as _};
 use dhall::syntax::InterpolatedText;
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
