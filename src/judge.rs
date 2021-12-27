@@ -246,7 +246,7 @@ fn build(
             config::Command::Args(args) => run_command(
                 args.get(0).map(Deref::deref).unwrap_or(""),
                 args.iter().skip(1),
-                &base_dir,
+                base_dir,
                 stdin_process_redirection(),
                 stdout_process_redirection(),
                 stderr_process_redirection(),
@@ -267,7 +267,7 @@ fn build(
                 run_command(
                     program,
                     &[tempfile.path()],
-                    &base_dir,
+                    base_dir,
                     stdin_process_redirection(),
                     stdout_process_redirection(),
                     stderr_process_redirection(),

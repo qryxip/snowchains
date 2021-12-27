@@ -1693,7 +1693,7 @@ impl Html {
                 let error = task_statement
                     .select(static_selector!("var"))
                     .flat_map(|r| r.text())
-                    .flat_map(|t| parse_floating_error(t))
+                    .flat_map(parse_floating_error)
                     .next();
 
                 let relative = task_statement

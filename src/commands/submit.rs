@@ -148,7 +148,7 @@ pub(crate) fn run(
             .arg("--config")
             .arg(base_dir.join("snowchains.dhall"))
             .args(&["--color", &color.to_string()])
-            .args(&["-s", &service.to_kebab_case_str()])
+            .args(&["-s", service.to_kebab_case_str()])
             .args(if let Some(contest) = &contest {
                 vec!["-c".to_owned(), contest.clone()]
             } else {
