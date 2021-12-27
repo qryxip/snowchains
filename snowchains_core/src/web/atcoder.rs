@@ -540,7 +540,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
         };
 
         let problem_screen_name =
-            static_regex!(r"\A/contests/[a-z0-9_\-]+/tasks/([a-z0-9_]+)/?\z$")
+            static_regex!(r"\A/contests/[a-zA-Z0-9_\-]+/tasks/([a-zA-Z0-9_\-]+)/?\z$")
                 .captures(url.path())
                 .map(|cs| cs[1].to_owned())
                 .with_context(|| "Could not extract screen name of the problem")?;
