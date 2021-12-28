@@ -369,7 +369,7 @@ fn parse_problem_url(url: &Url) -> anyhow::Result<(u64, String)> {
     }
 
     let caps = static_regex!(r"\A/contest/([0-9]{1,5})/problem/(.*)\z")
-        .captures(&url.path())
+        .captures(url.path())
         .with_context(|| format!("`{}` is not a URL for problem in Codeforces", url))?;
 
     let contest_id = caps[1].parse().expect("from `[0-9]{1,5}`");
@@ -699,8 +699,8 @@ mod api {
     pub(super) struct Problem {
         /// > String. Usually a letter of a letter, followed by a digit, that represent a problem index in a contest.
         pub(super) index: String,
-        /// > String. Localized.
-        pub(super) name: String,
+        ///// > String. Localized.
+        //pub(super) name: String,
         // __rest: (),
     }
 
@@ -712,14 +712,14 @@ mod api {
     pub(super) struct Submission {
         /// "Integer."
         pub(super) id: u64,
-        /// "Integer. Time, when submission was created, in unix-format."
-        pub(super) creation_time_seconds: i64,
-        /// "Problem object."
-        pub(super) problem: Problem,
-        /// "String."
-        pub(super) programming_language: String,
-        /// "Enum: FAILED, OK, PARTIAL, COMPILATION_ERROR, RUNTIME_ERROR, WRONG_ANSWER, PRESENTATION_ERROR, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED, IDLENESS_LIMIT_EXCEEDED, SECURITY_VIOLATED, CRASHED, INPUT_PREPARATION_CRASHED, CHALLENGED, SKIPPED, TESTING, REJECTED. Can be absent."
-        pub(super) verdict: Option<SubmissionVerdict>,
+        ///// "Integer. Time, when submission was created, in unix-format."
+        //pub(super) creation_time_seconds: i64,
+        ///// "Problem object."
+        //pub(super) problem: Problem,
+        ///// "String."
+        //pub(super) programming_language: String,
+        ///// "Enum: FAILED, OK, PARTIAL, COMPILATION_ERROR, RUNTIME_ERROR, WRONG_ANSWER, PRESENTATION_ERROR, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED, IDLENESS_LIMIT_EXCEEDED, SECURITY_VIOLATED, CRASHED, INPUT_PREPARATION_CRASHED, CHALLENGED, SKIPPED, TESTING, REJECTED. Can be absent."
+        //pub(super) verdict: Option<SubmissionVerdict>,
         // __rest: (),
     }
 

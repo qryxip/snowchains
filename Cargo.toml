@@ -14,35 +14,35 @@ keywords = ["competitive", "cli", "windows"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-anyhow = "1.0.38"
+anyhow = "1.0.52"
 atty = "0.2.14"
-az = "1.1.0"
+az = "1.2.0"
 cookie_store = "0.12.0"
-crossbeam-utils = "0.8.3"
-dhall = "0.10.0"
+crossbeam-utils = "0.8.5"
+dhall = "0.10.1"
 dirs-next = "2.0.0"
 fwdansi = "1.1.0"
 heck = "0.3.2"
 human-size = "0.4.1"
-indexmap = { version = "1.6.2", features = ["serde-1"] }
+indexmap = { version = "1.7.0", features = ["serde-1"] }
 indicatif = "0.15.0"
-itertools = "0.10.0"
+itertools = "0.10.3"
 maplit = "1.0.2"
-reqwest = { version = "0.11.2", default-features = false, features = ["blocking"] }
+reqwest = { version = "0.11.8", default-features = false, features = ["blocking"] }
 rpassword = "5.0.1"
 rprompt = "1.0.5"
-serde = { version = "1.0.124", features = ["derive"] }
-serde_dhall = "0.10.0"
-serde_json = "1.0.64"
-serde_yaml = "0.8.17"
+serde = { version = "1.0.132", features = ["derive"] }
+serde_dhall = "0.10.1"
+serde_json = "1.0.73"
+serde_yaml = "0.8.23"
 shell-escape = "0.1.5"
 snowchains_core = { version = "0.13.0", path = "./snowchains_core" }
-structopt = "0.3.21"
+structopt = "0.3.25"
 strum = { version = "0.20.0", features = ["derive"] }
 tempfile = "3.2.0"
 termcolor = "1.1.2"
-tokio = { version = "1.3.0", features = ["signal"] }
-url = { version = "2.2.1", features = ["serde"] }
+tokio = { version = "1.15.0", features = ["signal"] }
+url = { version = "2.2.2", features = ["serde"] }
 
 [dev-dependencies]
 rusty-fork = "0.3.0"

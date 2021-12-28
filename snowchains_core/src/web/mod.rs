@@ -1,6 +1,6 @@
 macro_rules! lazy_url {
     ($url:literal $(,)?) => {
-        ::once_cell::sync::Lazy::new(|| $url.parse().unwrap());
+        ::once_cell::sync::Lazy::new(|| $url.parse().unwrap())
     };
 }
 
@@ -26,7 +26,7 @@ macro_rules! static_selector {
 
 macro_rules! lazy_regex {
     ($regex:literal $(,)?) => {
-        ::once_cell::sync::Lazy::new(|| ::regex::Regex::new($regex).unwrap());
+        ::once_cell::sync::Lazy::new(|| ::regex::Regex::new($regex).unwrap())
     };
 }
 
@@ -428,7 +428,7 @@ impl CookieStorage {
             CookieStore::default()
         };
 
-        let file = LazyLockedFile::new(&path);
+        let file = LazyLockedFile::new(path);
 
         let on_update = Box::new(move |cookie_store: &CookieStore| -> _ {
             file.overwrite(|file| {

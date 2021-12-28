@@ -1,5 +1,6 @@
 ---
 source: snowchains_core/tests/atcoder-retrieve-test-cases.rs
+assertion_line: 143
 expression: messages
 
 ---
@@ -8,6 +9,7 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            cannot_be_a_base: false,
             username: "",
             password: None,
             host: Some(
@@ -29,6 +31,7 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            cannot_be_a_base: false,
             username: "",
             password: None,
             host: Some(
@@ -50,6 +53,7 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            cannot_be_a_base: false,
             username: "",
             password: None,
             host: Some(
@@ -71,6 +75,7 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            cannot_be_a_base: false,
             username: "",
             password: None,
             host: Some(
@@ -92,6 +97,7 @@ expression: messages
         POST,
         Url {
             scheme: "https",
+            cannot_be_a_base: false,
             username: "",
             password: None,
             host: Some(
@@ -113,6 +119,7 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            cannot_be_a_base: false,
             username: "",
             password: None,
             host: Some(
@@ -134,6 +141,7 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            cannot_be_a_base: false,
             username: "",
             password: None,
             host: Some(
@@ -155,6 +163,7 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            cannot_be_a_base: false,
             username: "",
             password: None,
             host: Some(
@@ -176,6 +185,7 @@ expression: messages
         GET,
         Url {
             scheme: "https",
+            cannot_be_a_base: false,
             username: "",
             password: None,
             host: Some(

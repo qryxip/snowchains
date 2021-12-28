@@ -460,8 +460,7 @@ impl Html {
         let (timelimit, kind) = self
             .select(static_selector!("#content > div"))
             .flat_map(|r| r.text())
-            .nth(1)
-            .and_then(|text| {
+            .find_map(|text| {
                 let timelimit = {
                     let caps = static_regex!(r"([0-9]{1,3})\.([0-9]{3})秒").captures(text)?;
 
@@ -471,7 +470,7 @@ impl Html {
                     Duration::from_millis(1000 * secs + millis)
                 };
 
-                let kind = if text.contains("通常問題") {
+                let kind = if text.contains("標準ジャッジ問題") {
                     Kind::Regular
                 } else if text.contains("スペシャルジャッジ問題") {
                     Kind::Special
