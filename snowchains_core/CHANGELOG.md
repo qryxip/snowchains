@@ -6,6 +6,10 @@
 
 - Updated the parser for yukicoder.
 
+- Fixed the submission function for some AtCoder contests.
+
+    - Previously it fails if the URL contains capital letters.
+
 ## [0.13.0] - 2021-03-10Z
 
 ### Changed
