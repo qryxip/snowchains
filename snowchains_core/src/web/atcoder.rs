@@ -10,7 +10,7 @@ use crate::{
         RetrieveSubmissionSummaries, RetrieveTestCases, RetrieveTestCasesOutcome,
         RetrieveTestCasesOutcomeProblem, RetrieveTestCasesOutcomeProblemContest,
         RetrieveTestCasesOutcomeProblemTextFiles, Session, SessionMut, Shell, Submit,
-        SubmitOutcome, UpperCase, WatchSubmissions,
+        SubmitOutcome, WatchSubmissions,
     },
 };
 use anyhow::{anyhow, bail, Context as _};
@@ -156,10 +156,7 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Atcoder<'_> {
             contest_and_problem,
         } = target;
         let (contest, problem) = if let Some((contest, problem)) = contest_and_problem {
-            (
-                CaseConverted::<LowerCase>::new(contest),
-                Some(CaseConverted::<UpperCase>::new(problem)),
-            )
+            (CaseConverted::<LowerCase>::new(contest), Some(problem))
         } else {
             (CaseConverted::<LowerCase>::new("practice"), None)
         };
@@ -171,10 +168,12 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Atcoder<'_> {
         }
 
         let url = if let Some(problem) = problem {
-            retrieve_tasks_page(&mut sess, || unreachable!(), &contest)?
+            let (_, url) = retrieve_tasks_page(&mut sess, || unreachable!(), &contest)?
                 .extract_task_indexes_and_urls()?
-                .remove(&problem)
-                .with_context(|| "")?
+                .into_iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(&problem))
+                .with_context(|| "")?;
+            url
         } else {
             url!("/contests/{}/submit", contest)
         };
@@ -522,13 +521,13 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
         let (contest, url) = match target {
             ProblemInContest::Index { contest, problem } => {
                 let contest = CaseConverted::<LowerCase>::new(contest);
-                let problem = CaseConverted::<UpperCase>::new(problem);
 
                 let tasks_page = retrieve_tasks_page(&mut sess, username_and_password, &contest)?;
 
-                let url = tasks_page
+                let (_, url) = tasks_page
                     .extract_task_indexes_and_urls()?
-                    .remove(&problem)
+                    .into_iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case(&problem))
                     .with_context(|| format!("No such problem: `{}`", problem))?;
 
                 (contest, url)
@@ -713,14 +712,14 @@ fn retrieve_sample_test_cases(
 
             let only = &mut problems
                 .as_ref()
-                .map(|ps| ps.iter().map(|p| p.to_uppercase()).collect::<BTreeSet<_>>());
+                .map(|ps| ps.iter().map(|p| p.to_lowercase()).collect::<BTreeSet<_>>());
 
             let indexes_and_urls = html
                 .extract_task_indexes_and_urls()?
                 .into_iter()
                 .filter(|(index, _)| {
                     if let Some(only) = only {
-                        only.remove(&**index)
+                        only.remove(&index.to_lowercase())
                     } else {
                         true
                     }
@@ -1504,15 +1503,13 @@ impl Html {
             .any(|s| ["参加登録", "Register"].contains(&s)))
     }
 
-    fn extract_task_indexes_and_urls(
-        &self,
-    ) -> anyhow::Result<IndexMap<CaseConverted<UpperCase>, Url>> {
+    fn extract_task_indexes_and_urls(&self) -> anyhow::Result<IndexMap<String, Url>> {
         self.select(static_selector!(
             "#main-container > div.row > div.col-sm-12 > div.panel > table.table > tbody > tr",
         ))
         .map(|tr| {
             let a = tr.select(static_selector!("td.text-center > a")).next()?;
-            let index = CaseConverted::new(a.text().next()?);
+            let index = a.text().next()?.to_owned();
             let url = BASE_URL.join(a.value().attr("href")?).ok()?;
             Some((index, url))
         })
@@ -1534,7 +1531,7 @@ impl Html {
                         .next()
                         .with_context(|| "Could not find the title")?;
 
-                    let caps = static_regex!(r"([A-Z0-9]+) - (.+)")
+                    let caps = static_regex!(r"([a-zA-Z0-9]+) - (.+)")
                         .captures(title_with_index)
                         .with_context(|| {
                             format!("Could not parse the title: {:?}", title_with_index)
