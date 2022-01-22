@@ -939,13 +939,6 @@ impl CaseConvertion for LowerCase {
     const CONVERT: fn(&str) -> String = str::to_lowercase;
 }
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-enum UpperCase {}
-
-impl CaseConvertion for UpperCase {
-    const CONVERT: fn(&str) -> String = str::to_uppercase;
-}
-
 #[ext(ResponseExt)]
 impl reqwest::blocking::Response
 where
