@@ -1751,13 +1751,12 @@ impl Html {
 
             for (input, output) in &mut samples {
                 for s in [input, output] {
-                    if !(s.is_empty() || s.ends_with('\n')) {
-                        s.push('\n');
+                    if s == " \n" {
+                        *s = "".to_string();
                     }
 
-                    if s == " \n" {
-                        *s = "\n".to_string();
-                        continue;
+                    if !(s.is_empty() || s.ends_with('\n')) {
+                        s.push('\n');
                     }
 
                     if !is_valid_text(s) {
