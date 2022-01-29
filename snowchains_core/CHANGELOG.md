@@ -1,10 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [0.13.2] - 2022-01-29Z
 
 ### Fixed
 
 - Accepts "Ex" problems of ABC.
+- Allows `" \n"` as output text. (by [@nebocco](https://github.com/nebocco))
 
 ## [0.13.1] - 2021-12-28Z
 
