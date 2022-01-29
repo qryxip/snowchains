@@ -1750,7 +1750,11 @@ impl Html {
             }
 
             for (input, output) in &mut samples {
-                for s in &mut [input, output] {
+                for s in [input, output] {
+                    if s == " \n" {
+                        *s = "".to_string();
+                    }
+
                     if !(s.is_empty() || s.ends_with('\n')) {
                         s.push('\n');
                     }
