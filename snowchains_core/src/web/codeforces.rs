@@ -513,32 +513,34 @@ impl Html {
     }
 
     fn extract_problems(&self) -> anyhow::Result<Vec<(String, String, Url)>> {
-        self.select(static_selector!("table.problems > tbody > tr"))
-            .skip(1)
-            .map(|tr| {
-                let a1 = tr.select(static_selector!("td.id > a")).next()?;
-                let index = a1.text().next()?.trim().to_owned();
-                let href1 = a1.value().attr("href")?;
+        Some(
+            self.select(static_selector!("table.problems > tbody > tr"))
+                .skip(1)
+                .filter_map(|tr| {
+                    let a1 = tr.select(static_selector!("td.id > a")).next()?;
+                    let index = a1.text().next()?.trim().to_owned();
+                    let href1 = a1.value().attr("href")?;
 
-                let a2 = tr.select(static_selector!("td > div > div > a")).next()?;
-                let display = a2.text().next()?.trim().to_owned();
-                let href2 = a2.value().attr("href")?;
+                    let a2 = tr.select(static_selector!("td > div > div > a")).next()?;
+                    let display = a2.text().next()?.trim().to_owned();
+                    let href2 = a2.value().attr("href")?;
 
-                if href1 != href2 {
-                    return None;
-                }
+                    if href1 != href2 {
+                        return None;
+                    }
 
-                let url = "https://codeforces.com"
-                    .parse::<Url>()
-                    .unwrap()
-                    .join(href1)
-                    .ok()?;
+                    let url = "https://codeforces.com"
+                        .parse::<Url>()
+                        .unwrap()
+                        .join(href1)
+                        .ok()?;
 
-                Some((index, display, url))
-            })
-            .collect::<Option<Vec<_>>>()
-            .filter(|ss| !ss.is_empty())
-            .with_context(|| "Could not extract problem names")
+                    Some((index, display, url))
+                })
+                .collect::<Vec<_>>(),
+        )
+        .filter(|ss| !ss.is_empty())
+        .with_context(|| "Could not extract problem names")
     }
 
     fn extract_test_cases(&self) -> anyhow::Result<TestSuite> {
