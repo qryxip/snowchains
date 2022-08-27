@@ -11,9 +11,9 @@ use crate::{
         SessionMut, Shell, Submit, SubmitOutcome,
     },
 };
-use anyhow::{bail, Context as _};
 use easy_ext::ext;
 use either::Either;
+use eyre::{bail, Context as _, ContextCompat as _};
 use indexmap::indexmap;
 use itertools::Itertools as _;
 use once_cell::sync::Lazy;
@@ -27,7 +27,7 @@ static BASE_URL: Lazy<Url> = lazy_url!("https://yukicoder.me");
 pub enum Yukicoder {}
 
 impl Yukicoder {
-    pub fn exec<A>(args: A) -> anyhow::Result<<Self as Exec<A>>::Output>
+    pub fn exec<A>(args: A) -> eyre::Result<<Self as Exec<A>>::Output>
     where
         Self: Exec<A>,
     {
@@ -56,7 +56,7 @@ impl Platform for Yukicoder {
 impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Yukicoder {
     type Output = RetrieveLanguagesOutcome;
 
-    fn exec(args: RetrieveLanguages<Self, S>) -> anyhow::Result<RetrieveLanguagesOutcome> {
+    fn exec(args: RetrieveLanguages<Self, S>) -> eyre::Result<RetrieveLanguagesOutcome> {
         let RetrieveLanguages {
             target: (),
             credentials: (),
@@ -78,7 +78,7 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Yukicoder {
 impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Yukicoder {
     type Output = RetrieveTestCasesOutcome;
 
-    fn exec(args: RetrieveTestCases<Self, S>) -> anyhow::Result<RetrieveTestCasesOutcome> {
+    fn exec(args: RetrieveTestCases<Self, S>) -> eyre::Result<RetrieveTestCasesOutcome> {
         let RetrieveTestCases {
             targets,
             credentials: (),
@@ -164,7 +164,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Yukicoder {
 impl<S: Shell> Exec<Submit<Self, S>> for Yukicoder {
     type Output = SubmitOutcome;
 
-    fn exec(args: Submit<Self, S>) -> anyhow::Result<SubmitOutcome> {
+    fn exec(args: Submit<Self, S>) -> eyre::Result<SubmitOutcome> {
         let Submit {
             target,
             credentials: YukicoderSubmitCredentials { api_key },
@@ -260,7 +260,7 @@ impl YukicoderSubmitTarget {
         )
     }
 
-    fn parse(&self) -> anyhow::Result<Either<Url, (u64, String)>> {
+    fn parse(&self) -> eyre::Result<Either<Url, (u64, String)>> {
         match self {
             Self::Url(url) => Ok(Either::Left(url.clone())),
             Self::Contest(contest_id, problem_index) => {
@@ -276,7 +276,7 @@ pub struct YukicoderSubmitCredentials {
     pub api_key: String,
 }
 
-fn parse_problem_no(s: &str) -> anyhow::Result<u64> {
+fn parse_problem_no(s: &str) -> eyre::Result<u64> {
     s.parse().with_context(|| {
         format!(
             "A problem number for yukicoder must be unsigned integer: {:?}",
@@ -285,7 +285,7 @@ fn parse_problem_no(s: &str) -> anyhow::Result<u64> {
     })
 }
 
-fn parse_contest_id(s: &str) -> anyhow::Result<u64> {
+fn parse_contest_id(s: &str) -> eyre::Result<u64> {
     s.parse().with_context(|| {
         format!(
             "A contest ID for yukicoder must be unsigned integer: {:?}",
@@ -294,7 +294,7 @@ fn parse_contest_id(s: &str) -> anyhow::Result<u64> {
     })
 }
 
-fn parse_problem_url(url: &Url) -> anyhow::Result<Either<u64, u64>> {
+fn parse_problem_url(url: &Url) -> eyre::Result<Either<u64, u64>> {
     if url.domain() != Some("yukicoder.me") {
         bail!("wrong domain. expected `yukicoder.me`: {}", url);
     }
@@ -315,7 +315,7 @@ fn parse_problem_url(url: &Url) -> anyhow::Result<Either<u64, u64>> {
 fn retrieve_samples(
     mut sess: impl SessionMut,
     targets: YukicoderRetrieveTestCasesTargets,
-) -> anyhow::Result<RetrieveTestCasesOutcome> {
+) -> eyre::Result<RetrieveTestCasesOutcome> {
     let mut outcome = RetrieveTestCasesOutcome { problems: vec![] };
 
     match targets {
@@ -356,7 +356,7 @@ fn retrieve_samples(
                                 _ => bail!("problem indexes for yukicoder must be `[a-zA-Z]`"),
                             }
                         })
-                        .collect::<anyhow::Result<BTreeSet<_>>>()
+                        .collect::<eyre::Result<BTreeSet<_>>>()
                 })
                 .transpose()?;
 
@@ -439,7 +439,7 @@ fn retrieve_samples(
     fn retrieve_samples(
         mut sess: impl SessionMut,
         problem_no: u64,
-    ) -> anyhow::Result<(Url, TestSuite)> {
+    ) -> eyre::Result<(Url, TestSuite)> {
         let url = url!("/problems/no/{}", problem_no);
 
         let test_suite = sess
@@ -456,7 +456,7 @@ fn retrieve_samples(
 
 #[ext]
 impl Html {
-    fn extract_samples(&self) -> anyhow::Result<TestSuite> {
+    fn extract_samples(&self) -> eyre::Result<TestSuite> {
         let (timelimit, kind) = self
             .select(static_selector!("#content > div"))
             .flat_map(|r| r.text())
@@ -587,7 +587,7 @@ mod api {
     //! <https://petstore.swagger.io/?url=https://yukicoder.me/api/swagger.yaml>
 
     use crate::web::{ResponseExt as _, SessionMut};
-    use anyhow::bail;
+    use eyre::bail;
     use maplit::hashmap;
     use once_cell::sync::Lazy;
     use reqwest::StatusCode;
@@ -605,7 +605,7 @@ mod api {
             token: &str,
             problem_id: u64,
             which: Which,
-        ) -> anyhow::Result<Vec<String>> {
+        ) -> eyre::Result<Vec<String>> {
             let url = BASE_URL.join(&format!("problems/{}/file/{}", problem_id, which))?;
 
             let res = self
@@ -642,7 +642,7 @@ mod api {
         /// > Get problem by ProblemId
         ///
         /// > ProblemIdを指定して問題を取得します。APIキーを使うとログイン情報に依存する問題も取得できます
-        fn get_problem_by_problem_id(&mut self, problem_id: u64) -> anyhow::Result<Problem> {
+        fn get_problem_by_problem_id(&mut self, problem_id: u64) -> eyre::Result<Problem> {
             let url = BASE_URL.join(&format!("problems/{}", problem_id))?;
 
             let res = self
@@ -660,7 +660,7 @@ mod api {
         }
 
         /// <https://twitter.com/yukicoder/status/1281965396778606593>
-        fn get_problem_by_problem_no(&mut self, problem_no: u64) -> anyhow::Result<Problem> {
+        fn get_problem_by_problem_no(&mut self, problem_no: u64) -> eyre::Result<Problem> {
             let url = BASE_URL.join(&format!("problems/no/{}", problem_no))?;
 
             let res = self
@@ -680,7 +680,7 @@ mod api {
         /// > Get all problems
         ///
         /// > 公開されているテスト以外のすべての問題を取得します
-        fn get_all_problems(&mut self) -> anyhow::Result<Vec<Problem>> {
+        fn get_all_problems(&mut self) -> eyre::Result<Vec<Problem>> {
             let url = BASE_URL.join("problems").unwrap();
 
             self.get(url)
@@ -694,7 +694,7 @@ mod api {
         /// > Get available language
         ///
         /// > 利用できる言語を取得します。何度も呼び出すような想定ではありません
-        fn get_available_language(&mut self) -> anyhow::Result<Vec<Language>> {
+        fn get_available_language(&mut self) -> eyre::Result<Vec<Language>> {
             let url = BASE_URL.join("languages").unwrap();
 
             self.get(url)
@@ -706,7 +706,7 @@ mod api {
         }
 
         /// > コンテストIDからコンテスト情報を取得します。
-        fn get_contest_by_contest_id(&mut self, contest_id: u64) -> anyhow::Result<Contest> {
+        fn get_contest_by_contest_id(&mut self, contest_id: u64) -> eyre::Result<Contest> {
             let url = BASE_URL
                 .join(&format!("contest/id/{}", contest_id))
                 .unwrap();
@@ -732,7 +732,7 @@ mod api {
             problem_id: u64,
             lang: &str,
             source: &str,
-        ) -> anyhow::Result<std::result::Result<u64, (StatusCode, String)>> {
+        ) -> eyre::Result<std::result::Result<u64, (StatusCode, String)>> {
             let url = BASE_URL.join(&format!("problems/{}/submit", problem_id))?;
 
             let res = self

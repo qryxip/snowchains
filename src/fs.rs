@@ -1,26 +1,26 @@
-use anyhow::Context as _;
+use eyre::Context as _;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{fs::Metadata, path::Path};
 
-pub(crate) fn metadata(path: impl AsRef<Path>) -> anyhow::Result<Metadata> {
+pub(crate) fn metadata(path: impl AsRef<Path>) -> eyre::Result<Metadata> {
     let path = path.as_ref();
     std::fs::metadata(path)
         .with_context(|| format!("Could not get the metadata of `{}`", path.display()))
 }
 
-pub(crate) fn read_to_string(path: impl AsRef<Path>) -> anyhow::Result<String> {
+pub(crate) fn read_to_string(path: impl AsRef<Path>) -> eyre::Result<String> {
     let path = path.as_ref();
     std::fs::read_to_string(path).with_context(|| format!("Could not read `{}`", path.display()))
 }
 
-pub(crate) fn read_json<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> anyhow::Result<T> {
+pub(crate) fn read_json<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> eyre::Result<T> {
     let path = path.as_ref();
     let content = read_to_string(path)?;
     serde_json::from_str(&content)
         .with_context(|| format!("Could not parse the JSON at `{}`", path.display()))
 }
 
-pub(crate) fn read_yaml<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> anyhow::Result<T> {
+pub(crate) fn read_yaml<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> eyre::Result<T> {
     let path = path.as_ref();
     let content = read_to_string(path)?;
     serde_yaml::from_str(&content)
@@ -31,7 +31,7 @@ pub(crate) fn write(
     path: impl AsRef<Path>,
     contents: impl AsRef<[u8]>,
     create_dir_all: bool,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     if create_dir_all {
         if let Some(parent) = path.as_ref().parent() {
             self::create_dir_all(parent)?;
@@ -46,11 +46,11 @@ pub(crate) fn write_json(
     path: impl AsRef<Path>,
     value: impl Serialize,
     create_dir_all: bool,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     write(path, serde_json::to_string(&value)?, create_dir_all)
 }
 
-pub(crate) fn create_dir_all(path: impl AsRef<Path>) -> anyhow::Result<()> {
+pub(crate) fn create_dir_all(path: impl AsRef<Path>) -> eyre::Result<()> {
     std::fs::create_dir_all(&path)
         .with_context(|| format!("Could not create `{}`", path.as_ref().display()))
 }

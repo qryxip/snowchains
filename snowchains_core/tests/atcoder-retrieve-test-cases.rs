@@ -13,52 +13,52 @@ use std::{
 use url::Url;
 
 #[test]
-fn abc003_samples() -> anyhow::Result<()> {
+fn abc003_samples() -> eyre::Result<()> {
     test("abc003", || unreachable!())
 }
 
 #[test]
-fn abc007_samples() -> anyhow::Result<()> {
+fn abc007_samples() -> eyre::Result<()> {
     test("abc007", || unreachable!())
 }
 
 #[test]
-fn abc019_samples() -> anyhow::Result<()> {
+fn abc019_samples() -> eyre::Result<()> {
     test("abc019", || unreachable!())
 }
 
 #[test]
-fn agc028_samples() -> anyhow::Result<()> {
+fn agc028_samples() -> eyre::Result<()> {
     test("agc028", || unreachable!())
 }
 
 #[test]
-fn agc044_samples() -> anyhow::Result<()> {
+fn agc044_samples() -> eyre::Result<()> {
     test("agc044", || unreachable!())
 }
 
 #[test]
-fn agc047_samples() -> anyhow::Result<()> {
+fn agc047_samples() -> eyre::Result<()> {
     test("agc047", || unreachable!())
 }
 
 #[test]
-fn arc019_samples() -> anyhow::Result<()> {
+fn arc019_samples() -> eyre::Result<()> {
     test("arc019", || unreachable!())
 }
 
 #[test]
-fn arc021_samples() -> anyhow::Result<()> {
+fn arc021_samples() -> eyre::Result<()> {
     test("arc021", || unreachable!())
 }
 
 #[cfg(feature = "__test_with_credentials")]
 #[test]
-fn practice_samples() -> anyhow::Result<()> {
-    use anyhow::Context as _;
+fn practice_samples() -> eyre::Result<()> {
+    use eyre::Context as _;
     use std::env;
 
-    fn username_and_password() -> anyhow::Result<(String, String)> {
+    fn username_and_password() -> eyre::Result<(String, String)> {
         (|| {
             let username = env::var("ATCODER_USERNAME")?;
             let password = env::var("ATCODER_PASSWORD")?;
@@ -72,8 +72,8 @@ fn practice_samples() -> anyhow::Result<()> {
 
 fn test(
     contest: &str,
-    username_and_password: fn() -> anyhow::Result<(String, String)>,
-) -> anyhow::Result<()> {
+    username_and_password: fn() -> eyre::Result<(String, String)>,
+) -> eyre::Result<()> {
     const TIMEOUT: Option<Duration> = Some(Duration::from_secs(30));
 
     struct Shell<'a>(&'a mut Vec<Message>);

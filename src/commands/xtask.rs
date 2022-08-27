@@ -1,5 +1,5 @@
 use crate::config;
-use anyhow::bail;
+use eyre::bail;
 use std::{ffi::OsString, io::Write as _};
 use structopt::StructOpt;
 
@@ -16,7 +16,7 @@ pub struct OptXtask {
 pub(crate) fn run(
     opt: OptXtask,
     ctx: crate::Context<impl Sized, impl Sized, impl Sized>,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let OptXtask { subcommand, args } = opt;
 
     let crate::Context {

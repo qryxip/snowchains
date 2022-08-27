@@ -1,5 +1,5 @@
 use crate::web::CaseConversions;
-use anyhow::Context as _;
+use eyre::{Context as _, ContextCompat as _};
 use maplit::btreeset;
 use serde::Serialize;
 use snowchains_core::{
@@ -101,7 +101,7 @@ struct OutcomeProblemTestSuite {
 pub(crate) fn run(
     opt: OptRetrieveTestcases,
     ctx: crate::Context<impl BufRead, impl Write, impl WriteColor>,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let OptRetrieveTestcases {
         full,
         json,

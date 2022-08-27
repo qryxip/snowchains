@@ -12,16 +12,16 @@ use std::{
 use url::Url;
 
 #[test]
-fn problem_no_1() -> anyhow::Result<()> {
+fn problem_no_1() -> eyre::Result<()> {
     test(Target::ProblemNo(1))
 }
 
 #[test]
-fn contest_281_samples() -> anyhow::Result<()> {
+fn contest_281_samples() -> eyre::Result<()> {
     test(Target::Contest(281))
 }
 
-fn test(target: Target) -> anyhow::Result<()> {
+fn test(target: Target) -> eyre::Result<()> {
     const TIMEOUT: Option<Duration> = Some(Duration::from_secs(30));
 
     struct Shell<'a>(&'a mut Vec<Message>);

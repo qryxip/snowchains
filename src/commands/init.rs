@@ -1,4 +1,4 @@
-use anyhow::{bail, Context as _};
+use eyre::{bail, Context as _};
 use std::{fs, path::PathBuf};
 use structopt::StructOpt;
 use strum::VariantNames as _;
@@ -26,7 +26,7 @@ pub struct OptInit {
 pub(crate) fn run(
     opt: OptInit,
     ctx: crate::Context<impl Sized, impl Sized, impl WriteColor>,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let OptInit {
         force,
         color: _,
@@ -72,7 +72,7 @@ mod tests {
         }
     }
 
-    fn run_resolve_default_config_dhall() -> anyhow::Result<()> {
+    fn run_resolve_default_config_dhall() -> eyre::Result<()> {
         // https://docs.rs/dhall/0.6.0/src/dhall/semantics/resolve/cache.rs.html#15-35
 
         use dhall::Ctxt;

@@ -8,8 +8,8 @@ use crate::{
         SessionMut, Shell, Submit, SubmitOutcome,
     },
 };
-use anyhow::{bail, Context as _};
 use easy_ext::ext;
+use eyre::{bail, Context as _, ContextCompat as _};
 use indexmap::{indexmap, IndexMap};
 use itertools::Itertools as _;
 use maplit::btreemap;
@@ -23,7 +23,7 @@ use std::{
 };
 use url::Url;
 
-pub fn contest_id_from_url(url: &Url) -> anyhow::Result<u64> {
+pub fn contest_id_from_url(url: &Url) -> eyre::Result<u64> {
     let (contest_id, _) = parse_problem_url(url)?;
     Ok(contest_id)
 }
@@ -54,7 +54,7 @@ impl<'closures> Platform for Codeforces<'closures> {
 }
 
 impl Codeforces<'_> {
-    pub fn exec<A>(args: A) -> anyhow::Result<<Self as Exec<A>>::Output>
+    pub fn exec<A>(args: A) -> eyre::Result<<Self as Exec<A>>::Output>
     where
         Self: Exec<A>,
     {
@@ -65,7 +65,7 @@ impl Codeforces<'_> {
 impl<S: Shell> Exec<Login<Self, S>> for Codeforces<'_> {
     type Output = LoginOutcome;
 
-    fn exec(args: Login<Self, S>) -> anyhow::Result<LoginOutcome> {
+    fn exec(args: Login<Self, S>) -> eyre::Result<LoginOutcome> {
         let Login {
             credentials:
                 CodeforcesLoginCredentials {
@@ -85,7 +85,7 @@ impl<S: Shell> Exec<Login<Self, S>> for Codeforces<'_> {
 impl<S: Shell> Exec<Participate<Self, S>> for Codeforces<'_> {
     type Output = ParticipateOutcome;
 
-    fn exec(args: Participate<Self, S>) -> anyhow::Result<ParticipateOutcome> {
+    fn exec(args: Participate<Self, S>) -> eyre::Result<ParticipateOutcome> {
         let Participate {
             target: CodeforcesParticipateTarget { contest },
             credentials:
@@ -107,7 +107,7 @@ impl<S: Shell> Exec<Participate<Self, S>> for Codeforces<'_> {
 impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Codeforces<'_> {
     type Output = RetrieveLanguagesOutcome;
 
-    fn exec(args: RetrieveLanguages<Self, S>) -> anyhow::Result<RetrieveLanguagesOutcome> {
+    fn exec(args: RetrieveLanguages<Self, S>) -> eyre::Result<RetrieveLanguagesOutcome> {
         let RetrieveLanguages {
             target: CodeforcesRetrieveLanguagesTarget { contest },
             credentials:
@@ -140,7 +140,7 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Codeforces<'_> {
 impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
     type Output = RetrieveTestCasesOutcome;
 
-    fn exec(args: RetrieveTestCases<Self, S>) -> anyhow::Result<RetrieveTestCasesOutcome> {
+    fn exec(args: RetrieveTestCases<Self, S>) -> eyre::Result<RetrieveTestCasesOutcome> {
         let RetrieveTestCases {
             targets,
             credentials:
@@ -220,7 +220,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
                         }))
                     })
                     .flat_map(Result::transpose)
-                    .collect::<anyhow::Result<Vec<_>>>()?,
+                    .collect::<eyre::Result<Vec<_>>>()?,
             );
 
             if let Some(problem_indices) = problem_indices {
@@ -237,7 +237,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Codeforces<'_> {
 impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
     type Output = SubmitOutcome;
 
-    fn exec(args: Submit<Self, S>) -> anyhow::Result<SubmitOutcome> {
+    fn exec(args: Submit<Self, S>) -> eyre::Result<SubmitOutcome> {
         let Submit {
             target,
             credentials:
@@ -323,7 +323,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Codeforces<'_> {
 }
 
 pub struct CodeforcesLoginCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -332,7 +332,7 @@ pub struct CodeforcesParticipateTarget {
 }
 
 pub struct CodeforcesParticipateCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -341,20 +341,20 @@ pub struct CodeforcesRetrieveLanguagesTarget {
 }
 
 pub struct CodeforcesRetrieveLanguagesCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
 }
 
 pub struct CodeforcesRetrieveSampleTestCasesCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
 }
 
 pub struct CodeforcesSubmitCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
     pub api_key: String,
     pub api_secret: String,
 }
 
-fn parse_contest_id(s: &str) -> anyhow::Result<u64> {
+fn parse_contest_id(s: &str) -> eyre::Result<u64> {
     s.parse().with_context(|| {
         format!(
             "A contest ID for Codeforces must be unsigned integer: {:?}",
@@ -363,7 +363,7 @@ fn parse_contest_id(s: &str) -> anyhow::Result<u64> {
     })
 }
 
-fn parse_problem_url(url: &Url) -> anyhow::Result<(u64, String)> {
+fn parse_problem_url(url: &Url) -> eyre::Result<(u64, String)> {
     if url.domain() != Some("codeforces.com") {
         bail!("wrong domain. expected `codeforces.com`: {}", url);
     }
@@ -379,8 +379,8 @@ fn parse_problem_url(url: &Url) -> anyhow::Result<(u64, String)> {
 
 fn login(
     mut sess: impl SessionMut,
-    mut username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
-) -> anyhow::Result<(LoginOutcome, String)> {
+    mut username_and_password: impl FnMut() -> eyre::Result<(String, String)>,
+) -> eyre::Result<(LoginOutcome, String)> {
     let url = url!("/enter");
 
     let mut res = sess
@@ -427,9 +427,9 @@ fn login(
 
 fn participate(
     mut sess: impl SessionMut,
-    username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
+    username_and_password: impl FnMut() -> eyre::Result<(String, String)>,
     contest_id: u64,
-) -> anyhow::Result<(ParticipateOutcome, String, String)> {
+) -> eyre::Result<(ParticipateOutcome, String, String)> {
     let (_, handle) = login(&mut sess, username_and_password)?;
 
     let api::Contest { name, phase, .. } = sess
@@ -466,7 +466,7 @@ fn is_gym(contest_id: u64) -> bool {
 
 #[ext]
 impl Html {
-    fn extract_hidden_values(&self, form: &Selector) -> anyhow::Result<HashMap<String, String>> {
+    fn extract_hidden_values(&self, form: &Selector) -> eyre::Result<HashMap<String, String>> {
         let mut values = self
             .select(form)
             .flat_map(|r| r.select(static_selector!("input[type=\"hidden\"]")))
@@ -491,7 +491,7 @@ impl Html {
         Ok(values)
     }
 
-    fn extract_available_langs(&self) -> anyhow::Result<IndexMap<String, String>> {
+    fn extract_available_langs(&self) -> eyre::Result<IndexMap<String, String>> {
         self.select(static_selector!(
             "form.submit-form > table > tbody > tr > td"
         ))
@@ -512,7 +512,7 @@ impl Html {
         .with_context(|| "Could not extract the available languages")
     }
 
-    fn extract_problems(&self) -> anyhow::Result<Vec<(String, String, Url)>> {
+    fn extract_problems(&self) -> eyre::Result<Vec<(String, String, Url)>> {
         Some(
             self.select(static_selector!("table.problems > tbody > tr"))
                 .skip(1)
@@ -543,7 +543,7 @@ impl Html {
         .with_context(|| "Could not extract problem names")
     }
 
-    fn extract_test_cases(&self) -> anyhow::Result<TestSuite> {
+    fn extract_test_cases(&self) -> eyre::Result<TestSuite> {
         let timelimit = self
             .select(static_selector!("#pageContent div.time-limit"))
             .flat_map(|r| r.text())
@@ -638,7 +638,7 @@ impl Html {
         }
     }
 
-    fn extract_meta_x_csrf_token(&self) -> anyhow::Result<String> {
+    fn extract_meta_x_csrf_token(&self) -> eyre::Result<String> {
         self.select(static_selector!("meta[name=\"X-Csrf-Token\"]"))
             .next()
             .and_then(|r| r.value().attr("content").map(ToOwned::to_owned))
@@ -649,7 +649,7 @@ impl Html {
 /// <https://codeforces.com/apiHelp>
 mod api {
     use crate::web::SessionMut;
-    use anyhow::anyhow;
+    use eyre::eyre;
     use rand::Rng as _;
     use serde::{
         de::{DeserializeOwned, Deserializer, Error as _},
@@ -757,7 +757,7 @@ mod api {
     }
 
     pub(super) trait SessionMutExt: SessionMut {
-        fn api_contest_list(&mut self, gym: bool) -> anyhow::Result<Vec<Contest>> {
+        fn api_contest_list(&mut self, gym: bool) -> eyre::Result<Vec<Contest>> {
             let mut url = "https://codeforces.com/api/contest.list"
                 .parse::<Url>()
                 .unwrap();
@@ -774,7 +774,7 @@ mod api {
             handles: &str,
             room: &str,
             show_unofficial: bool,
-        ) -> anyhow::Result<(Contest, Vec<Problem>, Vec<RanklistRow>)> {
+        ) -> eyre::Result<(Contest, Vec<Problem>, Vec<RanklistRow>)> {
             let mut url = "https://codeforces.com/api/contest.standings"
                 .parse::<Url>()
                 .unwrap();
@@ -811,7 +811,7 @@ mod api {
             handle: &str,
             from: usize,
             count: Option<usize>,
-        ) -> anyhow::Result<Vec<Submission>> {
+        ) -> eyre::Result<Vec<Submission>> {
             let time = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)?
                 .as_secs()
@@ -844,7 +844,7 @@ mod api {
 
     impl<S: SessionMut> SessionMutExt for S {}
 
-    fn api<S: SessionMut, T: DeserializeOwned>(mut sess: S, url: Url) -> anyhow::Result<T> {
+    fn api<S: SessionMut, T: DeserializeOwned>(mut sess: S, url: Url) -> eyre::Result<T> {
         let res = sess.get(url).colorize_status_code(&[200], (), ..).send()?;
 
         return if res.status() == 200 {
@@ -852,7 +852,7 @@ mod api {
             Ok(ok)
         } else {
             let ApiErr(msg) = res.json()?;
-            Err(anyhow!("API error: {:?}", msg))
+            Err(eyre!("API error: {:?}", msg))
         };
 
         struct ApiOk<T: DeserializeOwned>(T);

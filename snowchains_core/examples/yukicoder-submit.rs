@@ -1,4 +1,4 @@
-use anyhow::Context as _;
+use eyre::Context as _;
 use indicatif::ProgressDrawTarget;
 use snowchains_core::{
     color_spec,
@@ -44,7 +44,7 @@ enum CredentialsVia {
     Env,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     let Opt {
         timeout,
         credentials,

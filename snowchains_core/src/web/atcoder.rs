@@ -13,10 +13,10 @@ use crate::{
         SubmitOutcome, WatchSubmissions,
     },
 };
-use anyhow::{anyhow, bail, Context as _};
 use chrono::{DateTime, FixedOffset, Local, Utc};
 use easy_ext::ext;
 use either::Either;
+use eyre::{bail, eyre, ContextCompat as _};
 use indexmap::{indexmap, IndexMap};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::Itertools as _;
@@ -47,7 +47,7 @@ use url::Url;
 
 static BASE_URL: Lazy<Url> = lazy_url!("https://atcoder.jp");
 
-pub fn contest_id_from_url(url: &Url) -> anyhow::Result<String> {
+pub fn contest_id_from_url(url: &Url) -> eyre::Result<String> {
     if url.domain() != Some("atcoder.jp") {
         bail!("wrong domain. expected `atcoder.jp`: {}", url);
     }
@@ -64,7 +64,7 @@ pub enum Atcoder<'closures> {
 }
 
 impl Atcoder<'_> {
-    pub fn exec<A>(args: A) -> anyhow::Result<<Self as Exec<A>>::Output>
+    pub fn exec<A>(args: A) -> eyre::Result<<Self as Exec<A>>::Output>
     where
         Self: Exec<A>,
     {
@@ -94,7 +94,7 @@ impl<'closures> Platform for Atcoder<'closures> {
 impl<S: Shell> Exec<Login<Self, S>> for Atcoder<'_> {
     type Output = LoginOutcome;
 
-    fn exec(args: Login<Self, S>) -> anyhow::Result<LoginOutcome> {
+    fn exec(args: Login<Self, S>) -> eyre::Result<LoginOutcome> {
         let Login {
             credentials:
                 AtcoderLoginCredentials {
@@ -119,7 +119,7 @@ impl<S: Shell> Exec<Login<Self, S>> for Atcoder<'_> {
 impl<S: Shell> Exec<Participate<Self, S>> for Atcoder<'_> {
     type Output = ParticipateOutcome;
 
-    fn exec(args: Participate<Self, S>) -> anyhow::Result<ParticipateOutcome> {
+    fn exec(args: Participate<Self, S>) -> eyre::Result<ParticipateOutcome> {
         let Participate {
             target: AtcoderParticipateTarget { contest },
             credentials:
@@ -140,7 +140,7 @@ impl<S: Shell> Exec<Participate<Self, S>> for Atcoder<'_> {
 impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Atcoder<'_> {
     type Output = RetrieveLanguagesOutcome;
 
-    fn exec(args: RetrieveLanguages<Self, S>) -> anyhow::Result<RetrieveLanguagesOutcome> {
+    fn exec(args: RetrieveLanguages<Self, S>) -> eyre::Result<RetrieveLanguagesOutcome> {
         let RetrieveLanguages {
             target,
             credentials:
@@ -193,7 +193,7 @@ impl<S: Shell> Exec<RetrieveLanguages<Self, S>> for Atcoder<'_> {
 impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
     type Output = RetrieveTestCasesOutcome;
 
-    fn exec(args: RetrieveTestCases<Self, S>) -> anyhow::Result<RetrieveTestCasesOutcome> {
+    fn exec(args: RetrieveTestCases<Self, S>) -> eyre::Result<RetrieveTestCasesOutcome> {
         let RetrieveTestCases {
             targets,
             credentials:
@@ -262,7 +262,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
                     ),
                 };
 
-                let mut retrieve_files = |file_paths| -> anyhow::Result<_> {
+                let mut retrieve_files = |file_paths| -> eyre::Result<_> {
                     retrieve_files(&mut sess, &dropbox_access_token, file_paths)
                 };
                 let in_contents = retrieve_files(&in_file_paths)?;
@@ -319,7 +319,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
             mut sess: impl SessionMut,
             access_token: &str,
             path: &str,
-        ) -> anyhow::Result<Entries> {
+        ) -> eyre::Result<Entries> {
             #[derive(Deserialize)]
             struct ListFolderResult {
                 entries: Vec<Metadata>,
@@ -355,7 +355,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
             fn ensure_status_ok(
                 res: reqwest::blocking::Response,
                 err_context: impl FnOnce() -> String,
-            ) -> anyhow::Result<reqwest::blocking::Response> {
+            ) -> eyre::Result<reqwest::blocking::Response> {
                 if res.status() != 200 {
                     let msg = { res }.text()?;
                     let msg = if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&msg) {
@@ -363,7 +363,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
                     } else {
                         msg
                     };
-                    return Err(anyhow!("{}", msg).context(err_context()));
+                    return Err(eyre!("{}", msg).wrap_err(err_context()));
                 }
                 Ok(res)
             }
@@ -420,7 +420,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
                         Metadata::Deleted { name } => bail!("deleted: {:?}", name),
                     }
                 })
-                .collect::<anyhow::Result<_>>()
+                .collect::<eyre::Result<_>>()
                 .map(Entries)
         }
 
@@ -428,7 +428,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
             mut sess: impl SessionMut,
             access_token: &str,
             file_paths: &[String],
-        ) -> anyhow::Result<IndexMap<String, String>> {
+        ) -> eyre::Result<IndexMap<String, String>> {
             let contents = super::download_with_progress(
                 sess.shell().progress_draw_target(),
                 file_paths
@@ -468,7 +468,7 @@ impl<S: Shell> Exec<RetrieveSubmissionSummaries<Self, S>> for Atcoder<'_> {
 
     fn exec(
         args: RetrieveSubmissionSummaries<Self, S>,
-    ) -> anyhow::Result<AtcoderRetrieveSubmissionSummariesOutcome> {
+    ) -> eyre::Result<AtcoderRetrieveSubmissionSummariesOutcome> {
         let RetrieveSubmissionSummaries {
             target: AtcoderRetrieveSubmissionSummariesTarget { contest },
             credentials:
@@ -501,7 +501,7 @@ impl<S: Shell> Exec<RetrieveSubmissionSummaries<Self, S>> for Atcoder<'_> {
 impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
     type Output = SubmitOutcome;
 
-    fn exec(args: Submit<Self, S>) -> anyhow::Result<SubmitOutcome> {
+    fn exec(args: Submit<Self, S>) -> eyre::Result<SubmitOutcome> {
         let Submit {
             target,
             credentials:
@@ -597,7 +597,7 @@ impl<S: Shell> Exec<Submit<Self, S>> for Atcoder<'_> {
 impl<S: Shell> Exec<WatchSubmissions<Self, S>> for Atcoder<'_> {
     type Output = ();
 
-    fn exec(args: WatchSubmissions<Self, S>) -> anyhow::Result<()> {
+    fn exec(args: WatchSubmissions<Self, S>) -> eyre::Result<()> {
         let WatchSubmissions {
             target: AtcoderWatchSubmissionsTarget { contest },
             credentials:
@@ -631,7 +631,7 @@ impl<S: Shell> Exec<WatchSubmissions<Self, S>> for Atcoder<'_> {
 }
 
 pub struct AtcoderLoginCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -640,7 +640,7 @@ pub struct AtcoderParticipateTarget {
 }
 
 pub struct AtcoderParticipateCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -649,11 +649,11 @@ pub struct AtcoderRetrieveLanguagesTarget {
 }
 
 pub struct AtcoderRetrieveLanguagesCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
 }
 
 pub struct AtcoderRetrieveSampleTestCasesCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -667,7 +667,7 @@ pub struct AtcoderRetrieveSubmissionSummariesTarget {
 }
 
 pub struct AtcoderRetrieveSubmissionSummariesCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
 }
 
 #[non_exhaustive]
@@ -688,18 +688,18 @@ pub struct AtcoderWatchSubmissionsTarget {
 }
 
 pub struct AtcoderWatchSubmissionsCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
 }
 
 pub struct AtcoderSubmitCredentials<'closures> {
-    pub username_and_password: &'closures mut dyn FnMut() -> anyhow::Result<(String, String)>,
+    pub username_and_password: &'closures mut dyn FnMut() -> eyre::Result<(String, String)>,
 }
 
 fn retrieve_sample_test_cases(
     mut sess: impl SessionMut,
-    mut username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
+    mut username_and_password: impl FnMut() -> eyre::Result<(String, String)>,
     targets: &ProblemsInContest,
-) -> anyhow::Result<RetrieveTestCasesOutcome> {
+) -> eyre::Result<RetrieveTestCasesOutcome> {
     let problems = match targets.clone() {
         ProblemsInContest::Indexes { contest, problems } => {
             let contest = CaseConverted::<LowerCase>::new(contest);
@@ -848,8 +848,8 @@ fn retrieve_sample_test_cases(
 
 fn login(
     mut sess: impl SessionMut,
-    mut username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
-) -> anyhow::Result<()> {
+    mut username_and_password: impl FnMut() -> eyre::Result<(String, String)>,
+) -> eyre::Result<()> {
     while {
         let (username, password) = username_and_password()?;
 
@@ -879,7 +879,7 @@ fn login(
     Ok(())
 }
 
-fn check_logged_in(mut sess: impl SessionMut) -> anyhow::Result<bool> {
+fn check_logged_in(mut sess: impl SessionMut) -> eyre::Result<bool> {
     let status = sess
         .get(url!("/settings"))
         .colorize_status_code(&[200], &[302], ())
@@ -892,10 +892,10 @@ fn check_logged_in(mut sess: impl SessionMut) -> anyhow::Result<bool> {
 
 fn participate(
     mut sess: impl SessionMut,
-    credentials: impl FnMut() -> anyhow::Result<(String, String)>,
+    credentials: impl FnMut() -> eyre::Result<(String, String)>,
     contest: &CaseConverted<LowerCase>,
     explicit: bool,
-) -> anyhow::Result<ParticipateOutcome> {
+) -> eyre::Result<ParticipateOutcome> {
     let res = sess
         .get(url!("/contests/{}", contest))
         .colorize_status_code(&[200], (), ..)
@@ -949,9 +949,9 @@ fn participate(
 
 fn retrieve_tasks_page(
     mut sess: impl SessionMut,
-    username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
+    username_and_password: impl FnMut() -> eyre::Result<(String, String)>,
     contest: &CaseConverted<LowerCase>,
-) -> anyhow::Result<Html> {
+) -> eyre::Result<Html> {
     let res = sess
         .get(url!("/contests/{}/tasks", contest))
         .colorize_status_code(&[200], &[404], ..)
@@ -976,8 +976,8 @@ fn retrieve_submission_summaries(
     mut sess: impl SessionMut,
     contest: &CaseConverted<LowerCase>,
     page: u32,
-    username_and_password: impl FnMut() -> anyhow::Result<(String, String)>,
-) -> anyhow::Result<(Vec<SubmissionSummary>, u32)> {
+    username_and_password: impl FnMut() -> eyre::Result<(String, String)>,
+) -> eyre::Result<(Vec<SubmissionSummary>, u32)> {
     let res = sess
         .get(submissions_me(contest, page))
         .colorize_status_code(&[200], &[302], ..)
@@ -1065,7 +1065,7 @@ fn watch_submissions(
     mut sess: impl SessionMut,
     contest: &CaseConverted<LowerCase>,
     summaries: &[SubmissionSummary],
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let rt = Runtime::new()?;
     let mut handles = vec![];
 
@@ -1171,7 +1171,7 @@ fn watch_submissions(
                     if let Some(interval) = interval {
                         let verdict = match &text[..] {
                             [verdict] => verdict,
-                            _ => trap!(Err(anyhow!("Could not extract information"))),
+                            _ => trap!(Err(eyre!("Could not extract information"))),
                         };
 
                         tokio::task::block_in_place(|| {
@@ -1198,7 +1198,7 @@ fn watch_submissions(
                     } else {
                         let (verdict, time_and_memory) = match &text[..] {
                             [verdict, time_and_memory] => (verdict, time_and_memory),
-                            _ => trap!(Err(anyhow!("Could not extract information"))),
+                            _ => trap!(Err(eyre!("Could not extract information"))),
                         };
 
                         let verdict = Verdict::new(verdict);
@@ -1206,13 +1206,13 @@ fn watch_submissions(
                         let (exec_time, memory) =
                             match *time_and_memory.split(" ms").collect::<Vec<_>>() {
                                 [time, memory] => (format!("{} ms", time), memory),
-                                _ => trap!(Err(anyhow!("Could not extract information"))),
+                                _ => trap!(Err(eyre!("Could not extract information"))),
                             };
 
                         tokio::task::block_in_place(|| {
                             finish(&pb, &verdict, &exec_time, memory);
                         });
-                        break Result::<(), anyhow::Error>::Ok(());
+                        break Result::<(), eyre::Error>::Ok(());
                     }
                 }
             }));
@@ -1299,7 +1299,7 @@ impl ContestStatus {
         matches!(self, ContestStatus::Finished)
     }
 
-    fn raise_if_not_begun(&self) -> anyhow::Result<()> {
+    fn raise_if_not_begun(&self) -> eyre::Result<()> {
         if let ContestStatus::NotBegun(contest, time) = self {
             bail!("`{}` will begin at {}", contest, time)
         }
@@ -1450,7 +1450,7 @@ impl Serialize for Verdict {
 
 #[ext]
 impl Html {
-    fn extract_title(&self) -> anyhow::Result<&str> {
+    fn extract_title(&self) -> eyre::Result<&str> {
         self.select(static_selector!(":root > head > title"))
             .flat_map(|r| r.text())
             .exactly_one()
@@ -1458,7 +1458,7 @@ impl Html {
             .with_context(|| "Could not find `<title>`")
     }
 
-    fn extract_csrf_token(&self) -> anyhow::Result<String> {
+    fn extract_csrf_token(&self) -> eyre::Result<String> {
         (|| -> _ {
             let token = self
                 .select(static_selector!("[name=\"csrf_token\"]"))
@@ -1476,7 +1476,7 @@ impl Html {
         .with_context(|| "Could not find the CSRF token")
     }
 
-    fn extract_contest_duration(&self) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
+    fn extract_contest_duration(&self) -> eyre::Result<(DateTime<Utc>, DateTime<Utc>)> {
         (|| -> _ {
             static FORMAT: &str = "%F %T%z";
             let mut it = self.select(static_selector!("time"));
@@ -1489,7 +1489,7 @@ impl Html {
         .with_context(|| "Could not find the contest duration")
     }
 
-    fn contains_registration_button(&self) -> anyhow::Result<bool> {
+    fn contains_registration_button(&self) -> eyre::Result<bool> {
         let insert_participant_box = self
             .select(static_selector!("#main-container .insert-participant-box"))
             .next()
@@ -1503,7 +1503,7 @@ impl Html {
             .any(|s| ["参加登録", "Register"].contains(&s)))
     }
 
-    fn extract_task_indexes_and_urls(&self) -> anyhow::Result<IndexMap<String, Url>> {
+    fn extract_task_indexes_and_urls(&self) -> eyre::Result<IndexMap<String, Url>> {
         self.select(static_selector!(
             "#main-container > div.row > div.col-sm-12 > div.panel > table.table > tbody > tr",
         ))
@@ -1518,7 +1518,7 @@ impl Html {
         .with_context(|| "Could not extract task indexes and URLs")
     }
 
-    fn extract_samples(&self) -> Vec<anyhow::Result<(String, String, anyhow::Result<TestSuite>)>> {
+    fn extract_samples(&self) -> Vec<eyre::Result<(String, String, eyre::Result<TestSuite>)>> {
         return self
             .select(static_selector!(
                 "#main-container > div.row div[class=\"col-sm-12\"]",
@@ -1581,7 +1581,7 @@ impl Html {
                         })
                     })
                 })()
-                .map_err(|e| anyhow!("{}: {}", index, e));
+                .map_err(|e| eyre!("{}: {}", index, e));
 
                 Ok((index, display_name, test_suite))
             })
@@ -1825,7 +1825,7 @@ impl Html {
         }
     }
 
-    fn extract_langs(&self) -> anyhow::Result<IndexMap<String, String>> {
+    fn extract_langs(&self) -> eyre::Result<IndexMap<String, String>> {
         self.select(static_selector!("#select-lang option"))
             .filter(|r| r.text().next().is_some()) // Ignores `<option></option>`
             .map(|option| {
@@ -1838,7 +1838,7 @@ impl Html {
             .with_context(|| "Could not extract the available languages")
     }
 
-    fn extract_submissions(&self) -> anyhow::Result<(Vec<SubmissionSummary>, u32)> {
+    fn extract_submissions(&self) -> eyre::Result<(Vec<SubmissionSummary>, u32)> {
         (|| {
             let num_pages = self
                 .select(static_selector!(

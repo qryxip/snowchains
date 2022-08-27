@@ -1,5 +1,5 @@
 use crate::testsuite::{BatchTestCase, CheckerShell, ExpectedOutput};
-use anyhow::{anyhow, bail};
+use eyre::{bail, eyre};
 use futures_util::{select, FutureExt as _};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::{
@@ -199,7 +199,7 @@ impl JudgeOutcome {
         }
     }
 
-    pub fn error_on_fail(&self) -> anyhow::Result<()> {
+    pub fn error_on_fail(&self) -> eyre::Result<()> {
         let fails = self
             .verdicts
             .iter()
@@ -402,7 +402,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
     ctrl_c: fn() -> C,
     cmd: &CommandExpression,
     test_cases: &[BatchTestCase],
-) -> anyhow::Result<JudgeOutcome> {
+) -> eyre::Result<JudgeOutcome> {
     let cmd = Arc::new(cmd.clone());
     let num_test_cases = test_cases.len();
 
@@ -422,7 +422,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
             "bash"
         };
         which::which_in(bash_exe, env::var_os("PATH"), &cmd.cwd)
-            .map_err(|_| anyhow!("`{}` not found", bash_exe))?
+            .map_err(|_| eyre!("`{}` not found", bash_exe))?
     };
 
     let tempdir = tempfile::Builder::new()
@@ -643,7 +643,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
 
                 job_start_tx.send(()).await?;
                 let verdict = result?;
-                Ok::<_, anyhow::Error>((i, verdict))
+                Ok::<_, eyre::Error>((i, verdict))
             }));
         }
 
@@ -654,7 +654,7 @@ pub fn judge<C: 'static + Future<Output = tokio::io::Result<()>> + Send>(
         }
         let verdicts = verdicts.into_iter().map(Option::unwrap).collect();
 
-        Ok::<_, anyhow::Error>(JudgeOutcome { verdicts })
+        Ok::<_, eyre::Error>(JudgeOutcome { verdicts })
     });
 
     mp.join()?;
@@ -686,7 +686,7 @@ async fn check(
     actual_stdout_path: &Path,
     expected_stdout_path: &Path,
     bash_exe: &Path,
-) -> anyhow::Result<Result<(), (Arc<str>, Arc<str>, Option<WrongAnswerNote>)>> {
+) -> eyre::Result<Result<(), (Arc<str>, Arc<str>, Option<WrongAnswerNote>)>> {
     match expected {
         ExpectedOutput::Deterministic(expected) => Ok(if expected.accepts(actual) {
             Ok(())
@@ -734,8 +734,8 @@ async fn check(
     }
 }
 
-fn utf8(bytes: Vec<u8>) -> anyhow::Result<Arc<str>> {
+fn utf8(bytes: Vec<u8>) -> eyre::Result<Arc<str>> {
     String::from_utf8(bytes)
         .map(Into::into)
-        .map_err(|_| anyhow!("the output was not a valid UTF-8 string"))
+        .map_err(|_| eyre!("the output was not a valid UTF-8 string"))
 }

@@ -35,6 +35,13 @@ expression: outcome
             "out": "-1\n",
             "timelimit": null,
             "match": null
+          },
+          {
+            "name": "sample4",
+            "in": "2\n1\n2\n1 1\n2 2\n1 2\n100 10",
+            "out": "100",
+            "timelimit": null,
+            "match": null
           }
         ],
         "extend": []

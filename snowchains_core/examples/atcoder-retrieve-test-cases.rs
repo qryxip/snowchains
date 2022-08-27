@@ -45,7 +45,7 @@ enum CredentialsVia {
     Env,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     let Opt {
         full,
         timeout,
@@ -89,7 +89,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn username_and_password(via: CredentialsVia) -> impl FnMut() -> anyhow::Result<(String, String)> {
+fn username_and_password(via: CredentialsVia) -> impl FnMut() -> eyre::Result<(String, String)> {
     move || {
         let username_and_password = match via {
             CredentialsVia::Prompt => (

@@ -50,7 +50,7 @@ enum CredentialsVia {
     Env,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     let Opt {
         full,
         timeout,

@@ -1,4 +1,4 @@
-use anyhow::Context as _;
+use eyre::Context as _;
 use snowchains_core::color_spec;
 use std::{
     env,
