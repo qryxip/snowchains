@@ -1,4 +1,4 @@
-use anyhow::{bail, Context as _};
+use eyre::{bail, Context as _};
 use indicatif::ProgressDrawTarget;
 use maplit::btreemap;
 use snowchains_core::{judge::CommandExpression, testsuite::TestSuite};
@@ -17,7 +17,7 @@ struct Opt {
     args: Vec<OsString>,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     let Opt {
         testcases,
         file,

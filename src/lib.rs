@@ -142,7 +142,7 @@ pub struct Context<R, W1, W2> {
 pub fn run<R: BufRead, W1: WriteColor, W2: WriteColor>(
     opt: Opt,
     ctx: Context<R, W1, W2>,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     match opt {
         Opt::Init(opt) => commands::init::run(opt, ctx),
         Opt::Login(opt) => commands::login::run(opt, ctx),

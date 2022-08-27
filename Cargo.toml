@@ -14,7 +14,7 @@ keywords = ["competitive", "cli", "windows"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-anyhow = "1.0.52"
+eyre = "0.6.8"
 atty = "0.2.14"
 az = "1.2.0"
 cookie_store = "0.12.0"

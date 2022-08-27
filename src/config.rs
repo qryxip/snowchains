@@ -1,8 +1,8 @@
 // https://github.com/Nadrieril/dhall-rust/pull/215
 #![allow(redundant_semicolons)]
 
-use anyhow::{anyhow, bail, ensure, Context as _};
 use dhall::syntax::InterpolatedText;
+use eyre::{bail, ensure, eyre, Context as _, ContextCompat as _};
 use heck::{CamelCase as _, KebabCase as _, MixedCase as _, SnakeCase as _};
 use indexmap::IndexMap;
 use itertools::Itertools as _;
@@ -20,7 +20,7 @@ use std::{
 pub(crate) fn detect_target(
     cwd: &Path,
     rel_path: Option<&Path>,
-) -> anyhow::Result<(Detected, PathBuf)> {
+) -> eyre::Result<(Detected, PathBuf)> {
     let path = find_snowchains_dhall(cwd, rel_path)?;
     let detected = Detected::load_and_eval(cwd, &path)?;
     let dir = Path::new(&path)
@@ -38,7 +38,7 @@ pub(crate) fn target_and_language(
     cli_opt_problem: Option<&str>,
     cli_opt_language: Option<&str>,
     cli_opt_mode: Mode,
-) -> anyhow::Result<(Target, Language, PathBuf)> {
+) -> eyre::Result<(Target, Language, PathBuf)> {
     let path = find_snowchains_dhall(cwd, rel_path)?;
 
     let (target, language_name) = Detected::load_and_eval(cwd, &path)?.merge_with_cli_options(
@@ -74,7 +74,7 @@ pub(crate) fn target_and_language(
     Ok((target, language, dir))
 }
 
-pub(crate) fn xtask(cwd: &Path, rel_path: Option<&Path>, name: &str) -> anyhow::Result<Script> {
+pub(crate) fn xtask(cwd: &Path, rel_path: Option<&Path>, name: &str) -> eyre::Result<Script> {
     let path = find_snowchains_dhall(cwd, rel_path)?;
 
     let xtask = serde_dhall::from_str(&format!("let config = {} in config.xtask", path))
@@ -93,7 +93,7 @@ pub(crate) fn xtask(cwd: &Path, rel_path: Option<&Path>, name: &str) -> anyhow::
     })
 }
 
-fn find_snowchains_dhall(cwd: &Path, rel_path: Option<&Path>) -> anyhow::Result<String> {
+fn find_snowchains_dhall(cwd: &Path, rel_path: Option<&Path>) -> eyre::Result<String> {
     let path = if let Some(rel_path) = rel_path {
         let rel_path = rel_path.strip_prefix(".").unwrap_or(rel_path);
         let path = cwd.join(rel_path);
@@ -114,7 +114,7 @@ fn find_snowchains_dhall(cwd: &Path, rel_path: Option<&Path>) -> anyhow::Result<
     let path = path
         .into_os_string()
         .into_string()
-        .map_err(|path| anyhow!("The config path must be valid UTF-8: {:?}", path))?;
+        .map_err(|path| eyre!("The config path must be valid UTF-8: {:?}", path))?;
 
     if path.chars().any(|c| c.is_whitespace() || c.is_control()) {
         bail!(
@@ -145,7 +145,7 @@ pub(crate) struct Detected {
 }
 
 impl Detected {
-    fn load_and_eval(cwd: &Path, path: &str) -> anyhow::Result<Self> {
+    fn load_and_eval(cwd: &Path, path: &str) -> eyre::Result<Self> {
         let rel_path_components = cwd
             .strip_prefix({
                 let path = Path::new(path);
@@ -195,7 +195,7 @@ in  {{ service = config.detectServiceFromRelativePathSegments relativePathSegmen
         problem: Option<&str>,
         language: Option<&str>,
         mode: Mode,
-    ) -> anyhow::Result<(Target, String)> {
+    ) -> eyre::Result<(Target, String)> {
         let service = service.map(Ok).unwrap_or_else(|| {
             self.service
                 .as_deref()
@@ -207,9 +207,7 @@ in  {{ service = config.detectServiceFromRelativePathSegments relativePathSegmen
                 })
         })?;
 
-        let contest = contest
-            .or_else(|| self.contest.as_deref())
-            .map(ToOwned::to_owned);
+        let contest = contest.or(self.contest.as_deref()).map(ToOwned::to_owned);
 
         let problem = problem
             .map(Ok)
@@ -239,7 +237,7 @@ in  {{ service = config.detectServiceFromRelativePathSegments relativePathSegmen
         Ok((target, language))
     }
 
-    pub(crate) fn parse_service(&self) -> anyhow::Result<Option<PlatformKind>> {
+    pub(crate) fn parse_service(&self) -> eyre::Result<Option<PlatformKind>> {
         self.service
             .as_deref()
             .map(str::parse)

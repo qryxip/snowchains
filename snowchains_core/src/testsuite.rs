@@ -1,5 +1,5 @@
-use anyhow::{bail, ensure, Context as _};
 use camino::Utf8PathBuf;
+use eyre::{bail, ensure, Context as _, ContextCompat as _};
 use humantime_serde::Serde;
 use ignore::{overrides::OverrideBuilder, WalkBuilder};
 use itertools::{EitherOrBoth, Itertools as _};
@@ -163,13 +163,13 @@ pub struct BatchTestSuite {
 impl BatchTestSuite {
     pub fn load_test_cases<
         S: Borrow<str> + Eq + Hash,
-        F: FnMut(Option<&Url>) -> anyhow::Result<Vec<PartialBatchTestCase>>,
+        F: FnMut(Option<&Url>) -> eyre::Result<Vec<PartialBatchTestCase>>,
     >(
         &self,
         parent_dir: &Path,
         mut names: Option<HashSet<S>>,
         mut prepare_system_test_cases: F,
-    ) -> anyhow::Result<Vec<BatchTestCase>> {
+    ) -> eyre::Result<Vec<BatchTestCase>> {
         let mut cases = self.cases.clone();
         for extend in &self.extend {
             cases.extend(extend.load_test_cases(parent_dir, &mut prepare_system_test_cases)?);
@@ -239,8 +239,8 @@ impl Additional {
         parent_dir: &Path,
         mut prepare_system_test_cases: impl FnMut(
             Option<&Url>,
-        ) -> anyhow::Result<Vec<PartialBatchTestCase>>,
-    ) -> anyhow::Result<Vec<PartialBatchTestCase>> {
+        ) -> eyre::Result<Vec<PartialBatchTestCase>>,
+    ) -> eyre::Result<Vec<PartialBatchTestCase>> {
         match self {
             Self::Text {
                 path: base,
@@ -261,7 +261,7 @@ impl Additional {
                         .overrides(overrides)
                         .standard_filters(false)
                         .build()
-                        .map::<anyhow::Result<_>, _>(|entry| {
+                        .map::<eyre::Result<_>, _>(|entry| {
                             let path = entry?.into_path();
 
                             if path.is_dir() {
@@ -514,9 +514,9 @@ impl PositiveFinite<f64> {
 }
 
 impl FromStr for PositiveFinite<f64> {
-    type Err = anyhow::Error;
+    type Err = eyre::Error;
 
-    fn from_str(s: &str) -> anyhow::Result<Self> {
+    fn from_str(s: &str) -> eyre::Result<Self> {
         Self::new(s.parse()?).with_context(|| "must be positive and finite")
     }
 }

@@ -1,4 +1,4 @@
-use anyhow::Context as _;
+use eyre::ContextCompat as _;
 use snowchains_core::web::{
     Atcoder, AtcoderWatchSubmissionsCredentials, AtcoderWatchSubmissionsTarget, CookieStorage,
     PlatformKind, WatchSubmissions,
@@ -34,7 +34,7 @@ pub struct OptWatchSubmissions {
 pub(crate) fn run(
     opt: OptWatchSubmissions,
     ctx: crate::Context<impl BufRead, impl Sized, impl WriteColor>,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let OptWatchSubmissions {
         config,
         color: _,

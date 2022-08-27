@@ -44,7 +44,7 @@ impl Outcome {
 pub(crate) fn run(
     opt: OptLogin,
     ctx: crate::Context<impl BufRead, impl Write, impl WriteColor>,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let OptLogin {
         json,
         color: _,

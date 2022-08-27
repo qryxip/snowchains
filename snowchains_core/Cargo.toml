@@ -16,7 +16,7 @@ default = []
 __test_with_credentials = []
 
 [dependencies]
-anyhow = "1.0.52"
+eyre = "0.6.8"
 chrono = { version = "0.4.19", features = ["serde"] }
 cookie_store = "0.12.0"
 derivative = "2.2.0"

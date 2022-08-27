@@ -1,4 +1,4 @@
-use anyhow::Context as _;
+use eyre::{Context as _, ContextCompat as _};
 use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
 };
 
-pub(crate) fn cookie_store_path() -> anyhow::Result<PathBuf> {
+pub(crate) fn cookie_store_path() -> eyre::Result<PathBuf> {
     let data_local_dir =
         dirs_next::data_local_dir().with_context(|| "Could not find the local date directory")?;
     Ok(data_local_dir.join("snowchains").join("cookies.jsonl"))
@@ -14,20 +14,20 @@ pub(crate) fn cookie_store_path() -> anyhow::Result<PathBuf> {
 
 pub(crate) fn atcoder_username_and_password<'a, R: BufRead, W1, W2: Write>(
     shell: &'a RefCell<&'a mut crate::shell::Shell<R, W1, W2>>,
-) -> impl FnMut() -> anyhow::Result<(String, String)> + 'a {
+) -> impl FnMut() -> eyre::Result<(String, String)> + 'a {
     username_and_password(shell, "Username: ")
 }
 
 pub(crate) fn codeforces_username_and_password<'a, R: BufRead, W1, W2: Write>(
     shell: &'a RefCell<&'a mut crate::shell::Shell<R, W1, W2>>,
-) -> impl FnMut() -> anyhow::Result<(String, String)> + 'a {
+) -> impl FnMut() -> eyre::Result<(String, String)> + 'a {
     username_and_password(shell, "Handle/Email: ")
 }
 
 pub(crate) fn username_and_password<'a, R: BufRead, W1, W2: Write>(
     shell: &'a RefCell<&'a mut crate::shell::Shell<R, W1, W2>>,
     username_prompt: &'static str,
-) -> impl FnMut() -> anyhow::Result<(String, String)> + 'a {
+) -> impl FnMut() -> eyre::Result<(String, String)> + 'a {
     move || -> _ {
         let mut shell = shell.borrow_mut();
         let username = shell.read_reply(username_prompt)?;
@@ -36,7 +36,7 @@ pub(crate) fn username_and_password<'a, R: BufRead, W1, W2: Write>(
     }
 }
 
-pub(crate) fn dropbox_access_token() -> anyhow::Result<String> {
+pub(crate) fn dropbox_access_token() -> eyre::Result<String> {
     let path = token_path("dropbox.json")?;
 
     let Dropbox { access_token } = crate::fs::read_json(&path)
@@ -52,7 +52,7 @@ pub(crate) fn dropbox_access_token() -> anyhow::Result<String> {
 
 pub(crate) fn codeforces_api_key_and_secret(
     shell: &mut crate::shell::Shell<impl BufRead, impl Sized, impl Write>,
-) -> anyhow::Result<(String, String)> {
+) -> eyre::Result<(String, String)> {
     let path = token_path("codeforces.json")?;
 
     let Codeforces {
@@ -84,7 +84,7 @@ pub(crate) fn codeforces_api_key_and_secret(
 
 pub(crate) fn yukicoder_api_key(
     shell: &mut crate::shell::Shell<impl BufRead, impl Sized, impl Write>,
-) -> anyhow::Result<String> {
+) -> eyre::Result<String> {
     let path = token_path("yukicoder.json")?;
 
     if path.exists() {
@@ -96,7 +96,7 @@ pub(crate) fn yukicoder_api_key(
     }
 }
 
-fn token_path(file_name: &str) -> anyhow::Result<PathBuf> {
+fn token_path(file_name: &str) -> eyre::Result<PathBuf> {
     let data_local_dir =
         dirs_next::data_local_dir().with_context(|| "Could not find the local data directory")?;
 

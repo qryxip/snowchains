@@ -1,5 +1,5 @@
 use crate::config;
-use anyhow::{bail, Context as _};
+use eyre::{bail, ContextCompat as _};
 use human_size::Size;
 use snowchains_core::web::{
     Atcoder, AtcoderSubmitCredentials, Codeforces, CodeforcesSubmitCredentials, CookieStorage,
@@ -73,7 +73,7 @@ pub struct OptSubmit {
 pub(crate) fn run(
     opt: OptSubmit,
     ctx: crate::Context<impl BufRead, impl WriteColor, impl WriteColor>,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let OptSubmit {
         no_watch,
         no_judge,

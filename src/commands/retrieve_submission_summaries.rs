@@ -1,4 +1,4 @@
-use anyhow::Context as _;
+use eyre::ContextCompat as _;
 use snowchains_core::web::{
     Atcoder, AtcoderRetrieveSubmissionSummariesCredentials,
     AtcoderRetrieveSubmissionSummariesTarget, CookieStorage, PlatformKind,
@@ -39,7 +39,7 @@ pub struct OptRetrieveSubmissionSummaries {
 pub(crate) fn run(
     opt: OptRetrieveSubmissionSummaries,
     ctx: crate::Context<impl BufRead, impl Write, impl WriteColor>,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let OptRetrieveSubmissionSummaries {
         config,
         color: _,

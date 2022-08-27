@@ -1,6 +1,6 @@
 use crate::config;
-use anyhow::bail;
 use az::SaturatingAs as _;
+use eyre::bail;
 use human_size::{Byte, Size};
 use indicatif::ProgressDrawTarget;
 use itertools::Itertools as _;
@@ -38,7 +38,7 @@ pub(crate) struct Args<W1, W2> {
     pub(crate) display_limit: Size,
 }
 
-pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> anyhow::Result<()> {
+pub(crate) fn judge(args: Args<impl WriteColor, impl WriteColor>) -> eyre::Result<()> {
     let Args {
         stdout,
         mut stderr,
@@ -181,7 +181,7 @@ pub(crate) fn transpile(
     stdin_process_redirection: fn() -> Stdio,
     stdout_process_redirection: fn() -> Stdio,
     stderr_process_redirection: fn() -> Stdio,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     build(
         stderr,
         base_dir,
@@ -204,7 +204,7 @@ fn build(
     build_action: &config::Compile,
     redirections: (fn() -> Stdio, fn() -> Stdio, fn() -> Stdio),
     msg: &'static str,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let src_modified = {
         let src = Path::new(&src);
         let src = base_dir.join(src.strip_prefix(".").unwrap_or(src));
@@ -290,7 +290,7 @@ fn run_command<S1: AsRef<OsStr>, S2: AsRef<OsStr>, I: IntoIterator<Item = S2>, W
     stdout_process_redirection: Stdio,
     stderr_process_redirection: Stdio,
     mut stderr: W,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let program = program.as_ref();
 
     let args = args

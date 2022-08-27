@@ -25,7 +25,7 @@ enum CredentialsVia {
     Env,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> eyre::Result<()> {
     let Opt { timeout } = Opt::from_args();
 
     let outcome = Yukicoder::exec(RetrieveLanguages {

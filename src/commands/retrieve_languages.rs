@@ -1,4 +1,4 @@
-use anyhow::Context as _;
+use eyre::ContextCompat as _;
 use snowchains_core::web::{
     Atcoder, AtcoderRetrieveLanguagesCredentials, AtcoderRetrieveLanguagesTarget, Codeforces,
     CodeforcesRetrieveLanguagesCredentials, CodeforcesRetrieveLanguagesTarget, CookieStorage,
@@ -52,7 +52,7 @@ pub struct OptRetrieveLanguages {
 pub(crate) fn run(
     opt: OptRetrieveLanguages,
     ctx: crate::Context<impl BufRead, impl Write, impl WriteColor>,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let OptRetrieveLanguages {
         json,
         config,

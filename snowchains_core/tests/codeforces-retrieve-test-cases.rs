@@ -15,11 +15,11 @@ use std::{
 use url::Url;
 
 #[test]
-fn contest340() -> anyhow::Result<()> {
-    use anyhow::Context as _;
+fn contest340() -> eyre::Result<()> {
+    use eyre::Context as _;
     use std::env;
 
-    fn username_and_password() -> anyhow::Result<(String, String)> {
+    fn username_and_password() -> eyre::Result<(String, String)> {
         (|| {
             let username = env::var("CODEFORCES_USERNAME")?;
             let password = env::var("CODEFORCES_PASSWORD")?;
@@ -33,8 +33,8 @@ fn contest340() -> anyhow::Result<()> {
 
 fn test(
     contest: &str,
-    username_and_password: fn() -> anyhow::Result<(String, String)>,
-) -> anyhow::Result<()> {
+    username_and_password: fn() -> eyre::Result<(String, String)>,
+) -> eyre::Result<()> {
     const TIMEOUT: Option<Duration> = Some(Duration::from_secs(30));
 
     struct Shell<'a>(&'a mut Vec<Message>);

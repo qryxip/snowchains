@@ -80,11 +80,11 @@ pub use crate::web::{
 };
 
 use crate::testsuite::TestSuite;
-use anyhow::{anyhow, bail, Context as _};
 use cookie_store::CookieStore;
 use derivative::Derivative;
 use derive_more::{Display, From};
 use easy_ext::ext;
+use eyre::{bail, eyre, Context as _, ContextCompat as _};
 use fs2::FileExt as _;
 use futures_util::StreamExt as _;
 use indexmap::IndexMap;
@@ -165,7 +165,7 @@ impl PlatformKind {
     pub const KEBAB_CASE_VARIANTS: &'static [&'static str] =
         &["atcoder", "codeforces", "yukicoder"];
 
-    pub fn from_url(url: &Url) -> anyhow::Result<Self> {
+    pub fn from_url(url: &Url) -> eyre::Result<Self> {
         match url.domain() {
             Some("atcoder.jp") => Ok(Self::Atcoder),
             Some("codeforces.com") => Ok(Self::Codeforces),
@@ -194,7 +194,7 @@ impl PlatformKind {
 
 pub trait Exec<A>: Platform {
     type Output;
-    fn exec(args: A) -> anyhow::Result<Self::Output>;
+    fn exec(args: A) -> eyre::Result<Self::Output>;
 }
 
 pub struct Login<P: Platform, S: Shell> {
@@ -410,19 +410,17 @@ pub enum ProblemInContest {
 
 pub struct CookieStorage {
     pub cookie_store: CookieStore,
-    pub on_update: Box<dyn Fn(&CookieStore) -> anyhow::Result<()>>,
+    pub on_update: Box<dyn Fn(&CookieStore) -> eyre::Result<()>>,
 }
 
 impl CookieStorage {
-    pub fn with_jsonl<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+    pub fn with_jsonl<P: AsRef<Path>>(path: P) -> eyre::Result<Self> {
         let path = path.as_ref();
 
         let cookie_store = if path.exists() {
             File::open(&path)
-                .map_err(anyhow::Error::from)
-                .and_then(|h| {
-                    CookieStore::load_json(BufReader::new(h)).map_err(|e| anyhow!("{}", e))
-                })
+                .map_err(eyre::Error::from)
+                .and_then(|h| CookieStore::load_json(BufReader::new(h)).map_err(|e| eyre!("{}", e)))
                 .with_context(|| format!("Could not load cookies from `{}`", path.display()))?
         } else {
             CookieStore::default()
@@ -432,7 +430,7 @@ impl CookieStorage {
 
         let on_update = Box::new(move |cookie_store: &CookieStore| -> _ {
             file.overwrite(|file| {
-                cookie_store.save_json(file).map_err(|e| anyhow!("{}", e))?;
+                cookie_store.save_json(file).map_err(|e| eyre!("{}", e))?;
                 Ok(())
             })
         });
@@ -456,10 +454,7 @@ impl CookieStorage {
                 }
             }
 
-            fn overwrite(
-                &self,
-                f: impl FnOnce(&mut File) -> anyhow::Result<()>,
-            ) -> anyhow::Result<()> {
+            fn overwrite(&self, f: impl FnOnce(&mut File) -> eyre::Result<()>) -> eyre::Result<()> {
                 let Self { path, file } = self;
 
                 let mut file = file.lock().unwrap();
@@ -624,7 +619,7 @@ impl<S: Shell> Session<S> {
         timeout: Option<Duration>,
         cookie_storage: Option<CookieStorage>,
         shell: S,
-    ) -> anyhow::Result<Self> {
+    ) -> eyre::Result<Self> {
         macro_rules! client(($builder:path) => {{
             let client = $builder()
                 .user_agent(USER_AGENT)
@@ -791,7 +786,7 @@ impl<S: Shell> SessionRequestBuilder<'_, S> {
         }
     }
 
-    fn send(self) -> anyhow::Result<reqwest::blocking::Response> {
+    fn send(self) -> eyre::Result<reqwest::blocking::Response> {
         let Self {
             mut inner,
             url,
@@ -822,8 +817,8 @@ impl<S: Shell> SessionRequestBuilder<'_, S> {
         }) = &mut sess.cookie_storage
         {
             for set_cookie in res.headers().get_all(header::SET_COOKIE) {
-                let set_cookie = str::from_utf8(set_cookie.as_bytes())
-                    .map_err(|e| anyhow!("{}: {}", e, &url))?;
+                let set_cookie =
+                    str::from_utf8(set_cookie.as_bytes()).map_err(|e| eyre!("{}: {}", e, &url))?;
                 let cookie = cookie_store::Cookie::parse(set_cookie, &url)?.into_owned();
                 cookie_store.insert(cookie, &url)?;
             }
@@ -944,7 +939,7 @@ impl reqwest::blocking::Response
 where
     Self: Sized,
 {
-    fn location(&self) -> anyhow::Result<&str> {
+    fn location(&self) -> eyre::Result<&str> {
         self.headers()
             .get(header::LOCATION)
             .with_context(|| "Missing `Location` header")?
@@ -952,7 +947,7 @@ where
             .with_context(|| "Invalid `Location` header")
     }
 
-    fn location_url(&self) -> anyhow::Result<Url> {
+    fn location_url(&self) -> eyre::Result<Url> {
         let mut url = static_url!("https://-").clone();
         url.set_host(self.url().host_str())?;
         url.join(self.location()?).map_err(Into::into)
@@ -963,7 +958,7 @@ where
         Ok(Html::parse_document(&text))
     }
 
-    fn ensure_status(self, statuses: &'static [u16]) -> anyhow::Result<Self> {
+    fn ensure_status(self, statuses: &'static [u16]) -> eyre::Result<Self> {
         if !statuses.contains(&self.status().as_u16()) {
             bail!("expected {:?}, got {}", statuses, self.status());
         }
@@ -976,7 +971,7 @@ where
 fn download_with_progress(
     draw_target: ProgressDrawTarget,
     dl_targets: Vec<(String, reqwest::RequestBuilder)>,
-) -> anyhow::Result<Vec<String>> {
+) -> eyre::Result<Vec<String>> {
     let rt = Runtime::new()?;
     let mp = MultiProgress::with_draw_target(draw_target);
     let name_width = dl_targets.iter().map(|(s, _)| s.width()).max().unwrap_or(0);

@@ -56,7 +56,7 @@ pub struct OptJudge {
 pub(crate) fn run(
     opt: OptJudge,
     ctx: crate::Context<impl Sized, impl WriteColor, impl WriteColor>,
-) -> anyhow::Result<()> {
+) -> eyre::Result<()> {
     let OptJudge {
         release,
         testcases,
