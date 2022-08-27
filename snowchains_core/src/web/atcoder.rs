@@ -16,7 +16,7 @@ use crate::{
 use chrono::{DateTime, FixedOffset, Local, Utc};
 use easy_ext::ext;
 use either::Either;
-use eyre::{bail, eyre, ContextCompat as _};
+use eyre::{bail, eyre, Context as _, ContextCompat as _};
 use indexmap::{indexmap, IndexMap};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::Itertools as _;
@@ -363,7 +363,7 @@ impl<S: Shell> Exec<RetrieveTestCases<Self, S>> for Atcoder<'_> {
                     } else {
                         msg
                     };
-                    return Err(eyre!("{}", msg).wrap_err(err_context()));
+                    return Err(eyre!("{}", msg)).context(err_context());
                 }
                 Ok(res)
             }
