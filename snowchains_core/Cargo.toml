@@ -38,7 +38,7 @@ nom = "6.1.2"
 num_cpus = "1.13.1"
 once_cell = "1.9.0"
 percent-encoding = "2.1.0"
-prettytable-rs = "0.8.0"
+prettytable-rs = "0.10.0"
 rand = "0.8.4"
 regex = "1.5.4"
 reqwest = { version = "0.11.8", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
