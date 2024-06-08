@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.13.2] - 2024-06-08Z
+
+### Changed
+
+- [#160](https://github.com/qryxip/snowchains/pull/160)
+
 ## [0.13.2] - 2022-01-29Z
 
 ### Fixed
