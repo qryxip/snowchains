@@ -775,13 +775,22 @@ fn retrieve_sample_test_cases(
     let mut outcome = RetrieveTestCasesOutcome { problems: vec![] };
 
     for (contest, (contest_display_name, mut indexes_and_urls)) in problems {
+        let is_abc = contest.starts_with("abc");
+        if is_abc {
+            sess.shell().warn(format!(
+                "{contest_display_name:?} seems to be an ABC. Skipping extracting the time limit \
+                 and the relative/absolute error, because they are not \"specific integers or \
+                 strings\"",
+            ))?;
+        }
+
         let test_suites = sess
             .get(url!("/contests/{}/tasks_print", contest))
             .colorize_status_code(&[200], (), ..)
             .send()?
             .ensure_status(&[200])?
             .html()?
-            .extract_samples();
+            .extract_samples(is_abc);
 
         if indexes_and_urls.len() > test_suites.len() {
             sess.shell().warn(format!(
@@ -1518,7 +1527,10 @@ impl Html {
         .with_context(|| "Could not extract task indexes and URLs")
     }
 
-    fn extract_samples(&self) -> Vec<anyhow::Result<(String, String, anyhow::Result<TestSuite>)>> {
+    fn extract_samples(
+        &self,
+        is_abc: bool,
+    ) -> Vec<anyhow::Result<(String, String, anyhow::Result<TestSuite>)>> {
         return self
             .select(static_selector!(
                 "#main-container > div.row div[class=\"col-sm-12\"]",
@@ -1541,26 +1553,29 @@ impl Html {
                 };
 
                 let test_suite = (|| {
-                    let timelimit = div
-                        .select(static_selector!(":scope > p"))
-                        .flat_map(|r| r.text())
-                        .flat_map(parse_timelimit)
-                        .exactly_one()
-                        .map_err(|_| "Could not extract the timelimit")?;
+                    let timelimit = (!is_abc) // a time limit is not a "specific" integer or string
+                        .then(|| {
+                            div.select(static_selector!(":scope > p"))
+                                .flat_map(|r| r.text())
+                                .flat_map(parse_timelimit)
+                                .exactly_one()
+                                .map_err(|_| "Could not extract the timelimit")
+                        })
+                        .transpose()?;
 
                     // In `tasks_print`, there are multiple `#task-statement`s.
                     let samples = div
                         .select(static_selector!(":scope > div[id=\"task-statement\"]"))
                         .exactly_one()
                         .ok()
-                        .and_then(extract_samples)
+                        .and_then(|s| extract_samples(s, is_abc))
                         .ok_or("Could not extract the sample cases")?;
 
-                    Ok::<_, &str>(if timelimit == Duration::new(0, 0) {
+                    Ok::<_, &str>(if timelimit == Some(Duration::new(0, 0)) {
                         TestSuite::Unsubmittable
                     } else if let Samples::Batch(r#match, samples) = samples {
                         TestSuite::Batch(BatchTestSuite {
-                            timelimit: Some(timelimit),
+                            timelimit,
                             r#match,
                             cases: samples
                                 .into_iter()
@@ -1576,9 +1591,7 @@ impl Html {
                             extend: vec![],
                         })
                     } else {
-                        TestSuite::Interactive(InteractiveTestSuite {
-                            timelimit: Some(timelimit),
-                        })
+                        TestSuite::Interactive(InteractiveTestSuite { timelimit })
                     })
                 })()
                 .map_err(|e| anyhow!("{}: {}", index, e));
@@ -1608,7 +1621,7 @@ impl Html {
             Some(Duration::from_millis(timelimit))
         }
 
-        fn extract_samples(task_statement: ElementRef<'_>) -> Option<Samples> {
+        fn extract_samples(task_statement: ElementRef<'_>, is_abc: bool) -> Option<Samples> {
             // TODO:
             // - https://atcoder.jp/contests/arc019/tasks/arc019_4 (interactive)
             // - https://atcoder.jp/contests/arc021/tasks/arc021_4 (interactive)
@@ -1655,24 +1668,38 @@ impl Html {
             static P8_CONTENT: Lazy<Selector> =
                 lazy_selector!("span.lang > span.lang-ja > div.part > section > pre");
 
-            let stmt = task_statement;
-            try_extract_samples(stmt, &P1_HEAD, &P1_CONTENT, &IN_JA, &OUT_JA)
-                .or_else(|| try_extract_samples(stmt, &P2_HEAD, &P2_CONTENT, &IN_EN, &OUT_EN))
-                .or_else(|| try_extract_samples(stmt, &P3_HEAD, &P3_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(stmt, &P4_HEAD, &P4_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(stmt, &P5_HEAD, &P5_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(stmt, &P6_HEAD, &P6_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(stmt, &P7_HEAD, &P7_CONTENT, &IN_JA, &OUT_JA))
-                .or_else(|| try_extract_samples(stmt, &P8_HEAD, &P8_CONTENT, &IN_JA, &OUT_JA))
+            let try_extract_samples =
+                |selector_for_header, selector_for_content, re_input, re_output| {
+                    try_extract_samples(
+                        task_statement,
+                        is_abc,
+                        selector_for_header,
+                        selector_for_content,
+                        re_input,
+                        re_output,
+                    )
+                };
+
+            try_extract_samples(&P1_HEAD, &P1_CONTENT, &IN_JA, &OUT_JA)
+                .or_else(|| try_extract_samples(&P2_HEAD, &P2_CONTENT, &IN_EN, &OUT_EN))
+                .or_else(|| try_extract_samples(&P3_HEAD, &P3_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(&P4_HEAD, &P4_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(&P5_HEAD, &P5_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(&P6_HEAD, &P6_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(&P7_HEAD, &P7_CONTENT, &IN_JA, &OUT_JA))
+                .or_else(|| try_extract_samples(&P8_HEAD, &P8_CONTENT, &IN_JA, &OUT_JA))
         }
 
         fn try_extract_samples(
             task_statement: ElementRef<'_>,
+            is_abc: bool,
             selector_for_header: &'static Selector,
             selector_for_content: &'static Selector,
             re_input: &'static Regex,
             re_output: &'static Regex,
         ) -> Option<Samples> {
+            const DEFAULT_MATCH: Match = Match::Lines;
+
             #[allow(clippy::blocks_in_if_conditions)]
             if task_statement
                 .select(static_selector!("strong"))
@@ -1686,7 +1713,9 @@ impl Html {
                 return Some(Samples::Interactive);
             }
 
-            let matching = {
+            let matching = if is_abc {
+                DEFAULT_MATCH // a relative/absolute error is not a "specific" integer or string
+            } else {
                 let error = task_statement
                     .select(static_selector!("var"))
                     .flat_map(|r| r.text())
@@ -1714,7 +1743,7 @@ impl Html {
                         relative_error: None,
                         absolute_error: Some(error),
                     },
-                    _ => Match::Lines,
+                    _ => DEFAULT_MATCH,
                 }
             };
 
