@@ -824,7 +824,7 @@ fn retrieve_sample_test_cases(
 
                                 TestSuite::Batch(BatchTestSuite {
                                     timelimit: None,
-                                    r#match: Match::Lines,
+                                    r#match: Match::SplitWhitespace,
                                     cases: vec![],
                                     extend: vec![],
                                 })
@@ -1698,7 +1698,8 @@ impl Html {
             re_input: &'static Regex,
             re_output: &'static Regex,
         ) -> Option<Samples> {
-            const DEFAULT_MATCH: Match = Match::Lines;
+            // follows the official AtCoder contests (excluding some older contests) judge
+            const DEFAULT_MATCH: Match = Match::SplitWhitespace;
 
             #[allow(clippy::blocks_in_if_conditions)]
             if task_statement
